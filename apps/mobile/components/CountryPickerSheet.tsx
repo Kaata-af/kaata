@@ -1,5 +1,7 @@
 import { SheetBackdrop } from "./SheetBackdrop";
+import { SheetHandle } from "./SheetHandle";
 import { useOverlayAnimation } from "../lib/use-overlay-animation";
+import { useSheetDrag } from "../lib/use-sheet-drag";
 import { Ionicons } from "@expo/vector-icons";
 import { useEffect, useState } from "react";
 import {
@@ -36,6 +38,7 @@ export function CountryPickerSheet(props: {
 }) {
   const [query, setQuery] = useState("");
   const { rendered, opacity, position: translateY } = useOverlayAnimation(props.visible, OFFSCREEN);
+  const drag = useSheetDrag(props.visible, translateY, props.onDismiss);
   const isRTL = useIsRTL();
 
   useEffect(() => {
@@ -60,15 +63,15 @@ export function CountryPickerSheet(props: {
       transparent
       animationType="none"
       statusBarTranslucent
-      onRequestClose={props.onDismiss}
+      onRequestClose={drag.dismiss}
     >
       <Animated.View style={[StyleSheet.absoluteFill, { opacity }]}>
-        <SheetBackdrop onDismiss={props.onDismiss} />
+        <SheetBackdrop onDismiss={drag.dismiss} />
       </Animated.View>
 
       <Animated.View
-        style={[styles.sheetContainer, { transform: [{ translateY }] }]}
-        pointerEvents="box-none"
+        style={[styles.sheetContainer, { transform: [{ translateY: drag.translateY }] }]}
+        pointerEvents={props.visible ? "box-none" : "none"}
       >
         <SafeAreaView
           edges={["bottom"]}
@@ -78,7 +81,7 @@ export function CountryPickerSheet(props: {
               pan so the country list couldn't be scrolled. The backdrop Pressable
               above already handles outside-taps. */}
           <View style={styles.sheet}>
-            <View style={styles.grabber} />
+            <SheetHandle panHandlers={drag.panHandlers} onDismiss={drag.dismiss} />
             <Text style={[styles.title, textDir(isRTL), trackingSafe(isRTL)]}>
               {t("country.title")}
             </Text>
@@ -182,14 +185,6 @@ const styles = StyleSheet.create({
     borderTopColor: colors.borderDefault,
   },
   sheet: { paddingTop: 8, paddingBottom: 8, flexShrink: 1 },
-  grabber: {
-    alignSelf: "center",
-    width: 40,
-    height: 4,
-    borderRadius: radius.grabber,
-    backgroundColor: colors.borderEmphasis,
-    marginBottom: 8,
-  },
   title: {
     fontSize: 11,
     fontFamily: fonts.sansSemi,

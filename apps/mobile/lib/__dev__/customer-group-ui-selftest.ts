@@ -97,6 +97,14 @@ export async function customerGroupUIChecks() {
         toggleCustomerGroupFilter,
       },
       "./SheetBackdrop": { SheetBackdrop: "SheetBackdrop" },
+      "./SheetHandle": { SheetHandle: "SheetHandle" },
+      "../lib/use-sheet-drag": {
+        useSheetDrag: (_visible: boolean, entrance: unknown, onDismiss: () => void) => ({
+          translateY: entrance,
+          panHandlers: {},
+          dismiss: onDismiss,
+        }),
+      },
       "../lib/tokens": { icon: { row: 22 }, radius: { sheet: 18, grabber: 2 } },
     },
     {
@@ -297,12 +305,16 @@ export async function customerGroupUIChecks() {
   let preventRemove = false;
   let preventCallback: ((options: { data: { action: unknown } }) => void) | null = null;
   const dispatched: unknown[] = [];
+  const groupNavigation: unknown[] = [];
   const compilePersonGroup = (react: typeof personHooks.react) =>
     compileUI("../../app/person/[id]/group.tsx", {
       react,
       "react/jsx-runtime": { jsx, jsxs: jsx },
       "expo-router": {
-        useRouter: () => ({ back: () => backCount++, push() {} }),
+        useRouter: () => ({
+          back: () => backCount++,
+          push: (route: unknown) => groupNavigation.push(route),
+        }),
         useNavigation: () => ({ dispatch: (action: unknown) => dispatched.push(action) }),
         useLocalSearchParams: () => ({ id: personId, vaultId: "v" }),
       },
@@ -322,6 +334,7 @@ export async function customerGroupUIChecks() {
         StyleSheet: { create: (s: any) => s },
       },
       "react-native-safe-area-context": { SafeAreaView: "SafeArea" },
+      "../../../components/Button": { Button: "Button" },
       "../../../components/SettingsScreen": { ScreenHeader: "Header" },
       "../../../lib/customer-groups": {
         assignCustomerGroups: async (_vault: string, _id: string, ids: string[]) => {
@@ -359,6 +372,23 @@ export async function customerGroupUIChecks() {
   const personRow = (label: string) =>
     nodes(personTree()).find((n) => n.props.accessibilityLabel === label)!;
   personRender();
+  const personActions = nodes(personTree()).filter((n) =>
+    ["groups.manage", "common.done"].includes(n.props.accessibilityLabel),
+  );
+  assert.deepEqual(
+    personActions.map((n) => n.props.accessibilityLabel),
+    ["groups.manage", "common.done"],
+    "Manage groups sits above the final Done action",
+  );
+  assert.equal(personActions[0].type, "Button", "Manage groups has button geometry");
+  assert.equal(personActions[0].props.icon, "add-outline", "Manage groups offers a plus");
+  personRow("groups.manage").props.onPress();
+  assert.deepEqual(groupNavigation, [{ pathname: "/groups", params: { vaultId: "v" } }]);
+  assert.equal(
+    backCount,
+    0,
+    "Manage groups pushes a screen without losing the customer's selection",
+  );
   assert.equal(personRow("Family").props.accessibilityState.selected, true);
   personRow("Neighbors").props.onPress();
   personRender();
@@ -395,6 +425,11 @@ export async function customerGroupUIChecks() {
     nodes(personHooks.tree).some((n) => n.props.accessibilityLabel === "common.done"),
     false,
   );
+  assert.equal(
+    nodes(personHooks.tree).some((n) => n.props.accessibilityLabel === "groups.manage"),
+    false,
+    "viewer cannot open group management",
+  );
   currentAccount = "b";
   currentVault = "other";
   editable = true;
@@ -403,6 +438,11 @@ export async function customerGroupUIChecks() {
     nodes(personHooks.tree).some((n) => n.props.accessibilityLabel === "common.done"),
     false,
     "scope change hides write action",
+  );
+  assert.equal(
+    nodes(personHooks.tree).some((n) => n.props.accessibilityLabel === "groups.manage"),
+    false,
+    "scope change also hides group management",
   );
   personHooks.unmount();
 

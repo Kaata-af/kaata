@@ -26,6 +26,8 @@ import type { CustomerGroup } from "../lib/customer-groups";
 import { icon, radius } from "../lib/tokens";
 import { Button } from "./Button";
 import { SheetBackdrop } from "./SheetBackdrop";
+import { SheetHandle } from "./SheetHandle";
+import { useSheetDrag } from "../lib/use-sheet-drag";
 
 /** One small entry point, two independent choices; no permanent filter bar. */
 export function CustomerListSheet(props: {
@@ -42,6 +44,7 @@ export function CustomerListSheet(props: {
   const [rendered, setRendered] = useState(false);
   const [reducedMotion, setReducedMotion] = useState(false);
   const slide = useRef(new Animated.Value(600)).current;
+  const drag = useSheetDrag(props.visible, slide, props.onDismiss);
   const actionTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const latest = useRef(props);
   latest.current = props;
@@ -145,7 +148,7 @@ export function CustomerListSheet(props: {
       transparent
       animationType="none"
       statusBarTranslucent
-      onRequestClose={props.onDismiss}
+      onRequestClose={drag.dismiss}
     >
       {/* The blur fades with the sheet, like every other sheet, instead of
           snapping on and off. */}
@@ -161,16 +164,20 @@ export function CustomerListSheet(props: {
           },
         ]}
       >
-        <SheetBackdrop onDismiss={props.onDismiss} />
+        <SheetBackdrop onDismiss={drag.dismiss} />
       </Animated.View>
       <Animated.View
         style={[
           styles.container,
-          { transform: [{ translateY: slide }], maxHeight: Dimensions.get("window").height * 0.78 },
+          {
+            transform: [{ translateY: drag.translateY }],
+            maxHeight: Dimensions.get("window").height * 0.78,
+          },
         ]}
+        pointerEvents={props.visible ? "auto" : "none"}
       >
         <SafeAreaView edges={["bottom"]} style={styles.content}>
-          <View style={styles.grabber} />
+          <SheetHandle panHandlers={drag.panHandlers} onDismiss={drag.dismiss} />
           <Text style={[styles.title, textDir(props.isRTL)]}>{t("customers.listOptions")}</Text>
           <ScrollView bounces={false} style={styles.optionsScroll}>
             <Text style={[styles.section, textDir(props.isRTL)]}>{t("customers.sort")}</Text>
@@ -216,7 +223,7 @@ export function CustomerListSheet(props: {
               <Button
                 label={t("groups.manage")}
                 accessibilityLabel={t("groups.manage")}
-                icon="folder-open-outline"
+                icon="add-outline"
                 fullWidth
                 onPress={() => {
                   if (actionTimer.current || !latest.current.visible) return;
@@ -261,14 +268,6 @@ const styles = StyleSheet.create({
     borderTopColor: colors.borderDefault,
     paddingHorizontal: 20,
     paddingVertical: 12,
-  },
-  grabber: {
-    alignSelf: "center",
-    width: 40,
-    height: 4,
-    borderRadius: radius.grabber,
-    backgroundColor: colors.borderEmphasis,
-    marginTop: 10,
   },
   title: {
     fontFamily: fonts.sansSemi,

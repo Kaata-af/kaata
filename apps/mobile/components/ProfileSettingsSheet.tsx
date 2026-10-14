@@ -1,5 +1,7 @@
 import { SheetBackdrop } from "./SheetBackdrop";
 import { useOverlayAnimation } from "../lib/use-overlay-animation";
+import { useSheetDrag } from "../lib/use-sheet-drag";
+import { SheetHandle } from "./SheetHandle";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -31,7 +33,6 @@ import { rowDir, textDir, useIsRTL } from "../lib/direction";
 import { fonts } from "../lib/fonts";
 import { SOLO_STORE_MODE } from "../constants/env";
 import { t } from "../lib/i18n";
-import { radius } from "../lib/tokens";
 import { useMembersCount } from "../lib/use-vault-summary";
 import { InitialAvatar } from "./InitialAvatar";
 import { NavRow, SectionGap, SectionHeader } from "./SettingsScreen";
@@ -129,6 +130,7 @@ export function ProfileSettingsSheet(props: {
   onDismiss: () => void;
 }) {
   const { rendered, opacity, position: translateY } = useOverlayAnimation(props.visible, OFFSCREEN);
+  const drag = useSheetDrag(props.visible, translateY, props.onDismiss);
   const isRTL = useIsRTL();
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -198,15 +200,15 @@ export function ProfileSettingsSheet(props: {
       transparent
       animationType="none"
       statusBarTranslucent
-      onRequestClose={props.onDismiss}
+      onRequestClose={drag.dismiss}
     >
       <Animated.View style={[StyleSheet.absoluteFill, { opacity }]}>
-        <SheetBackdrop onDismiss={props.onDismiss} />
+        <SheetBackdrop onDismiss={drag.dismiss} />
       </Animated.View>
 
       <Animated.View
-        style={[styles.sheetContainer, { transform: [{ translateY }] }]}
-        pointerEvents="box-none"
+        style={[styles.sheetContainer, { transform: [{ translateY: drag.translateY }] }]}
+        pointerEvents={props.visible ? "box-none" : "none"}
       >
         <SafeAreaView
           edges={["bottom"]}
@@ -219,7 +221,7 @@ export function ProfileSettingsSheet(props: {
           ]}
         >
           <View style={styles.sheet}>
-            <View style={styles.grabber} />
+            <SheetHandle panHandlers={drag.panHandlers} onDismiss={drag.dismiss} />
             {/* Phase 7 UX critique: removed the redundant uppercase "MENU"
                 title at the top of the sheet — every section already has
                 its own header, so the extra title was visual noise. */}
@@ -576,14 +578,6 @@ const styles = StyleSheet.create({
   // ScrollView; without it the inner View takes content height and the
   // ScrollView never scrolls (HamburgerMenuSheet Phase 5.2 bug rerun).
   sheet: { paddingTop: 8, paddingBottom: 0, flexShrink: 1 },
-  grabber: {
-    alignSelf: "center",
-    width: 40,
-    height: 4,
-    borderRadius: radius.grabber,
-    backgroundColor: colors.borderEmphasis,
-    marginBottom: 4,
-  },
 
   // Identity (signed in) ----------------------------------------------------
   identityRow: {

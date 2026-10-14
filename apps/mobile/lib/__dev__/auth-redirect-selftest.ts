@@ -178,8 +178,16 @@ function settingsSignIn() {
   const sheetMocks: Record<string, any> = {
     ...mocks,
     "./SheetBackdrop": { SheetBackdrop: "SheetBackdrop" },
+    "./SheetHandle": { SheetHandle: "SheetHandle" },
     "../lib/use-overlay-animation": {
       useOverlayAnimation: (visible: boolean) => ({ rendered: visible, opacity: 1, position: 0 }),
+    },
+    "../lib/use-sheet-drag": {
+      useSheetDrag: (_visible: boolean, entrance: unknown, onDismiss: () => void) => ({
+        translateY: entrance,
+        panHandlers: {},
+        dismiss: onDismiss,
+      }),
     },
     react: { ...mocks.react, useMemo: (fn: any) => fn() },
     "react-native": {

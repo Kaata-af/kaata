@@ -35,6 +35,8 @@ import {
   type TallyDatePreset,
 } from "../lib/tally-date-filter";
 import { useOverlayAnimation } from "../lib/use-overlay-animation";
+import { useSheetDrag } from "../lib/use-sheet-drag";
+import { SheetHandle } from "./SheetHandle";
 import { radius, TOUCH_MIN, typography } from "../lib/tokens";
 
 /** A single date button opens presets; the month grid appears only for custom.
@@ -168,6 +170,7 @@ export function TallyDateFilterSheet(props: {
     setPicker(null);
     props.onDismiss();
   };
+  const drag = useSheetDrag(props.visible, position, dismiss);
   const commit = (range: TallyDateRange | null) => {
     cancelNativePicker();
     props.onChange(range);
@@ -175,18 +178,25 @@ export function TallyDateFilterSheet(props: {
   };
   if (!rendered) return null;
   return (
-    <Modal visible transparent animationType="none" statusBarTranslucent onRequestClose={dismiss}>
+    <Modal
+      visible
+      transparent
+      animationType="none"
+      statusBarTranslucent
+      onRequestClose={drag.dismiss}
+    >
       <Animated.View style={[StyleSheet.absoluteFill, { opacity }]}>
-        <SheetBackdrop onDismiss={dismiss} />
+        <SheetBackdrop onDismiss={drag.dismiss} />
       </Animated.View>
       <Animated.View
         style={[
           styles.container,
-          { maxHeight: height * 0.88, transform: [{ translateY: position }] },
+          { maxHeight: height * 0.88, transform: [{ translateY: drag.translateY }] },
         ]}
+        pointerEvents={props.visible ? "auto" : "none"}
       >
         <SafeAreaView edges={["bottom"]} style={{ flexShrink: 1 }}>
-          <View style={styles.grabber} />
+          <SheetHandle panHandlers={drag.panHandlers} onDismiss={drag.dismiss} />
           <View style={[styles.heading, rowDir(props.isRTL)]}>
             <Text accessibilityRole="header" style={[styles.title, textDir(props.isRTL)]}>
               {t("person.date.title")}
@@ -425,15 +435,6 @@ const styles = StyleSheet.create({
     borderTopRightRadius: radius.sheet,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.borderDefault,
-  },
-  grabber: {
-    alignSelf: "center",
-    width: 40,
-    height: 4,
-    backgroundColor: colors.borderEmphasis,
-    borderRadius: radius.grabber,
-    marginTop: 10,
-    marginBottom: 4,
   },
   heading: { alignItems: "center", paddingHorizontal: 20 },
   title: { ...typography.heading, flex: 1, color: colors.textEmphasis },

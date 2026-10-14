@@ -1,5 +1,7 @@
 import { SheetBackdrop } from "./SheetBackdrop";
+import { SheetHandle } from "./SheetHandle";
 import { useOverlayAnimation } from "../lib/use-overlay-animation";
+import { useSheetDrag } from "../lib/use-sheet-drag";
 import { Ionicons } from "@expo/vector-icons";
 import { useEffect, useMemo, useRef } from "react";
 import type { ComponentProps } from "react";
@@ -77,6 +79,7 @@ export function VaultPickerSheet(props: {
   onDismiss: () => void;
 }) {
   const { rendered, opacity, position: translateY } = useOverlayAnimation(props.visible, OFFSCREEN);
+  const drag = useSheetDrag(props.visible, translateY, props.onDismiss);
   const isRTL = useIsRTL();
   const insets = useSafeAreaInsets();
   const actionQueued = useRef(false);
@@ -126,15 +129,15 @@ export function VaultPickerSheet(props: {
       transparent
       animationType="none"
       statusBarTranslucent
-      onRequestClose={props.onDismiss}
+      onRequestClose={drag.dismiss}
     >
       <Animated.View style={[StyleSheet.absoluteFill, { opacity }]}>
-        <SheetBackdrop onDismiss={props.onDismiss} />
+        <SheetBackdrop onDismiss={drag.dismiss} />
       </Animated.View>
 
       <Animated.View
-        style={[styles.sheetContainer, { transform: [{ translateY }] }]}
-        pointerEvents="box-none"
+        style={[styles.sheetContainer, { transform: [{ translateY: drag.translateY }] }]}
+        pointerEvents={props.visible ? "box-none" : "none"}
       >
         {/* maxHeight on SafeAreaView is the load-bearing constraint that
             keeps the inner ScrollView bounded. Without it, the sheet would
@@ -154,7 +157,7 @@ export function VaultPickerSheet(props: {
           {/* No onStartShouldSetResponder — it was blocking ScrollView pans
               from gap areas. Modal backdrop already handles outside-taps. */}
           <View style={styles.sheet}>
-            <View style={styles.grabber} />
+            <SheetHandle panHandlers={drag.panHandlers} onDismiss={drag.dismiss} />
             <Text style={[styles.title, textDir(isRTL), trackingSafe(isRTL)]}>
               {t("menu.allKaatas")}
             </Text>
@@ -319,14 +322,6 @@ const styles = StyleSheet.create({
   },
   // flexShrink so SafeAreaView's maxHeight propagates to the ScrollView.
   sheet: { paddingTop: 8, paddingBottom: 0, flexShrink: 1 },
-  grabber: {
-    alignSelf: "center",
-    width: 40,
-    height: 4,
-    borderRadius: radius.grabber,
-    backgroundColor: colors.borderEmphasis,
-    marginBottom: 4,
-  },
   title: {
     fontSize: 11,
     fontFamily: fonts.sansSemi,

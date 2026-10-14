@@ -1,5 +1,7 @@
 import { SheetBackdrop } from "./SheetBackdrop";
 import { useOverlayAnimation } from "../lib/use-overlay-animation";
+import { useSheetDrag } from "../lib/use-sheet-drag";
+import { SheetHandle } from "./SheetHandle";
 import { Ionicons } from "@expo/vector-icons";
 import { useEffect, useRef } from "react";
 import { Animated, Modal, Pressable, StyleSheet, Text, View } from "react-native";
@@ -33,6 +35,7 @@ export function BottomSheet(props: {
   onDismiss: () => void;
 }) {
   const { rendered, opacity, position: translateY } = useOverlayAnimation(props.visible, OFFSCREEN);
+  const drag = useSheetDrag(props.visible, translateY, props.onDismiss);
   const isRTL = useIsRTL();
   const actionPending = useRef(false);
   const actionTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -59,19 +62,19 @@ export function BottomSheet(props: {
       transparent
       animationType="none"
       statusBarTranslucent
-      onRequestClose={props.onDismiss}
+      onRequestClose={drag.dismiss}
     >
       <Animated.View style={[StyleSheet.absoluteFill, { opacity }]}>
-        <SheetBackdrop onDismiss={props.onDismiss} />
+        <SheetBackdrop onDismiss={drag.dismiss} />
       </Animated.View>
 
       <Animated.View
-        style={[styles.sheetContainer, { transform: [{ translateY }] }]}
-        pointerEvents="box-none"
+        style={[styles.sheetContainer, { transform: [{ translateY: drag.translateY }] }]}
+        pointerEvents={props.visible ? "box-none" : "none"}
       >
         <SafeAreaView edges={["bottom"]} style={styles.sheetWrap}>
           <View style={styles.sheet} onStartShouldSetResponder={() => true}>
-            <View style={styles.grabber} />
+            <SheetHandle panHandlers={drag.panHandlers} onDismiss={drag.dismiss} />
             {props.title ? <Text style={[styles.title, textDir(isRTL)]}>{props.title}</Text> : null}
             {props.actions.map((a, i) => {
               const color = a.destructive ? colors.danger : colors.textEmphasis;
@@ -136,14 +139,6 @@ const styles = StyleSheet.create({
     borderTopColor: colors.borderDefault,
   },
   sheet: { paddingTop: 8, paddingBottom: 8 },
-  grabber: {
-    alignSelf: "center",
-    width: 40,
-    height: 4,
-    borderRadius: radius.grabber,
-    backgroundColor: colors.borderEmphasis,
-    marginBottom: 8,
-  },
   title: {
     fontSize: 11,
     fontFamily: fonts.sansSemi,

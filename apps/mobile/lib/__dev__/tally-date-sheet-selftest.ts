@@ -61,6 +61,7 @@ for (const calendar of ["gregorian", "jalali", "qamari"] as Calendar[])
           "@expo/vector-icons": { Ionicons: "Icon" },
           "./Button": { Button: "Button" },
           "./SheetBackdrop": { SheetBackdrop: "SheetBackdrop" },
+          "./SheetHandle": { SheetHandle: "SheetHandle" },
           "../lib/colors": require("../colors"),
           "../lib/direction": {
             rowDir: (rtl: boolean) => ({ flexDirection: rtl ? "row-reverse" : "row" }),
@@ -72,6 +73,13 @@ for (const calendar of ["gregorian", "jalali", "qamari"] as Calendar[])
           "../lib/tally-date-filter": dateFilter,
           "../lib/use-overlay-animation": {
             useOverlayAnimation: (open: boolean) => ({ rendered: open, opacity: 1, position: 0 }),
+          },
+          "../lib/use-sheet-drag": {
+            useSheetDrag: (_visible: boolean, entrance: unknown, onDismiss: () => void) => ({
+              translateY: entrance,
+              panHandlers: {},
+              dismiss: onDismiss,
+            }),
           },
           "../lib/tokens": {
             radius: { sm: 8, sheet: 18, grabber: 2 },

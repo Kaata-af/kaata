@@ -1,5 +1,7 @@
 import { SheetBackdrop } from "./SheetBackdrop";
+import { SheetHandle } from "./SheetHandle";
 import { useOverlayAnimation } from "../lib/use-overlay-animation";
+import { useSheetDrag } from "../lib/use-sheet-drag";
 // OptionSheet — a small single-select picker bottom sheet, extracted from
 // preferences.tsx so the kaata-settings screen (which absorbed the old
 // Preferences surface) can reuse it for the Language picker. Same chrome as
@@ -32,7 +34,7 @@ import {
 } from "../lib/design-tokens";
 import { rowDir, textDir, trackingSafe } from "../lib/direction";
 import { fonts, monoLineHeight } from "../lib/fonts";
-import { icon, radius, typography } from "../lib/tokens";
+import { icon, typography } from "../lib/tokens";
 
 const SHEET_OFFSCREEN = 600;
 // Exit-animation duration. NOTE: unlike BottomSheet, onSelect fires
@@ -55,25 +57,32 @@ export function OptionSheet(props: {
 }) {
   const { visible, title, options, selected, onSelect, onDismiss, isRTL } = props;
   const { rendered, opacity, position: translateY } = useOverlayAnimation(visible, SHEET_OFFSCREEN);
+  const drag = useSheetDrag(visible, translateY, onDismiss);
 
   if (!rendered) return null;
 
   return (
-    <Modal visible transparent animationType="none" statusBarTranslucent onRequestClose={onDismiss}>
+    <Modal
+      visible
+      transparent
+      animationType="none"
+      statusBarTranslucent
+      onRequestClose={drag.dismiss}
+    >
       <Animated.View style={[StyleSheet.absoluteFill, { opacity }]}>
-        <SheetBackdrop onDismiss={onDismiss} />
+        <SheetBackdrop onDismiss={drag.dismiss} />
       </Animated.View>
 
       <Animated.View
-        style={[styles.sheetContainer, { transform: [{ translateY }] }]}
-        pointerEvents="box-none"
+        style={[styles.sheetContainer, { transform: [{ translateY: drag.translateY }] }]}
+        pointerEvents={visible ? "box-none" : "none"}
       >
         <SafeAreaView
           edges={["bottom"]}
           style={[styles.sheetWrap, { maxHeight: Dimensions.get("window").height * 0.75 }]}
         >
           <View style={styles.sheet} onStartShouldSetResponder={() => true}>
-            <View style={styles.sheetGrabber} />
+            <SheetHandle panHandlers={drag.panHandlers} onDismiss={drag.dismiss} />
             <Text style={[styles.sheetTitle, textDir(isRTL), trackingSafe(isRTL)]}>{title}</Text>
             <ScrollView
               showsVerticalScrollIndicator={false}
@@ -133,14 +142,6 @@ const styles = StyleSheet.create({
     borderTopColor: colors.borderDefault,
   },
   sheet: { paddingTop: 8, paddingBottom: 0, flexShrink: 1 },
-  sheetGrabber: {
-    alignSelf: "center",
-    width: 40,
-    height: 4,
-    borderRadius: radius.grabber,
-    backgroundColor: colors.borderEmphasis,
-    marginBottom: 4,
-  },
   sheetTitle: {
     fontSize: SETTINGS_SECTION_HEADER_FONT_SIZE,
     fontFamily: fonts.sansSemi,

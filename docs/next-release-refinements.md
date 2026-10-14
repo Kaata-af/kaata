@@ -529,6 +529,39 @@ widths. Native phone checks remain separate. Both testing releases are now
 verified available, with backend/web live at `0424b02`, preserved Monday history
 and unchanged mobile production versions. See [the delivery log](kaata-2-testing.md).
 
+## October 14 group actions and draggable sheet handles — next testing build
+
+The customer group-assignment sheet now shows a full-width outlined **Manage
+groups** button with a plus icon above the primary **Done** button. The home
+Sort & filter sheet's existing management button also uses a plus. Permissions,
+draft selections, saving and navigation remain unchanged.
+
+All seven custom bottom sheets now share a working, full-width 44pt handle:
+account/settings, kaata picker, action/overflow menus, option/language pickers,
+country picker, customer Sort & filter and tally date filters. A downward drag
+follows the finger and closes on a deliberate distance or flick. Short pulls,
+upward returns and cancelled gestures restore the open position. Rapid re-grabs
+continue from the native spring's actual position; late native replies cannot
+move or close a reopened/unmounted sheet. Reduce Motion skips automatic return
+movement. Tapping or activating the handle with a screen reader also closes it.
+
+Gestures stay on the handle area, so lists, fields and row actions keep their
+normal touch/scroll behavior. Dismissal closes search keyboards and uses the
+date sheet's existing native-picker cleanup. Exiting sheets disable their row
+touches while preserving modal exit animations and deferred navigation. Existing
+native group/manage-group route gestures remain in place; centered confirmation
+dialogs and the bell dropdown are not bottom sheets.
+
+Validation: the real-hook drag/handle selftest covers direction, short/long/flick
+decisions, multi-touch/cancellation, interrupted springs, asynchronous native
+replies, presentation lifetimes, current callbacks and accessibility. Existing
+sheet-backdrop, customer-groups, tally-date-sheet and auth-redirect suites pass,
+including English/Dari and their platform/calendar cases. TypeScript and explicit
+iOS/Android production Metro/Hermes exports pass. Native finger feel,
+handle responder transfer, keyboard dismissal and scrolling still need checks
+on iOS/Android. This source batch follows testing 37/57 and awaits the next
+native testing build; no version bump or store upload is included.
+
 ## Deferred by the user
 
 The household/shopkeeper ledger needs two parties: the user and Dad on one

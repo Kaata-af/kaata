@@ -4,6 +4,7 @@ import { usePreventRemove } from "expo-router/react-navigation";
 import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { Button } from "../../../components/Button";
 import { ScreenHeader } from "../../../components/SettingsScreen";
 import { assignCustomerGroups } from "../../../lib/customer-groups";
 import { getAccountIdSync, getActiveVaultIdSyncMaybe } from "../../../lib/db-tx";
@@ -144,6 +145,19 @@ export default function PersonGroupScreen() {
         )}
         {busy ? <ActivityIndicator color={colors.textDefault} /> : null}
         {inScope && error ? <Text style={[styles.error, textDir(isRTL)]}>{error}</Text> : null}
+        {canManage ? (
+          <View style={styles.manage}>
+            <Button
+              label={t("groups.manage")}
+              accessibilityLabel={t("groups.manage")}
+              icon="add-outline"
+              variant="secondary"
+              fullWidth
+              disabled={busy}
+              onPress={() => router.push({ pathname: "/groups", params: { vaultId: vaultId! } })}
+            />
+          </View>
+        ) : null}
         {canManage && found ? (
           <Pressable
             accessibilityRole="button"
@@ -153,16 +167,6 @@ export default function PersonGroupScreen() {
             style={[styles.save, busy && { opacity: 0.6 }]}
           >
             <Text style={styles.saveLabel}>{t("common.done")}</Text>
-          </Pressable>
-        ) : null}
-        {canManage ? (
-          <Pressable
-            accessibilityRole="button"
-            disabled={busy}
-            style={styles.manage}
-            onPress={() => router.push({ pathname: "/groups", params: { vaultId: vaultId! } })}
-          >
-            <Text style={[styles.label, textDir(isRTL)]}>{t("groups.manage")}</Text>
           </Pressable>
         ) : null}
       </ScrollView>
@@ -187,7 +191,7 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.borderDefault,
   },
   label: { fontFamily: fonts.sansRegular, fontSize: 15, color: colors.textDefault, flex: 1 },
-  manage: { paddingVertical: 20 },
+  manage: { marginTop: 24 },
   error: { fontFamily: fonts.sansRegular, fontSize: 13, color: colors.danger },
   save: {
     backgroundColor: colors.actionPrimary,
@@ -195,7 +199,7 @@ const styles = StyleSheet.create({
     minHeight: 48,
     justifyContent: "center",
     alignItems: "center",
-    marginTop: 24,
+    marginTop: 12,
   },
   saveLabel: { fontFamily: fonts.sansSemi, fontSize: 15, color: colors.textInverted },
 });
