@@ -1508,10 +1508,13 @@ func (s *Service) AcceptInvite(ctx context.Context, in AcceptInviteInput) (Accep
 	}
 	// Idempotent retry: a flaky mobile network can drop the RESPONSE of a
 	// successful accept, so the client re-sends the same token. If THIS account
-	// already accepted it, return success rather than "invite not found". A
-	// DIFFERENT account still falls through to ErrInviteNotFound below, so we
-	// never reveal that the token was consumed by someone else.
-	if acceptedAt != nil && acceptedBy != nil && *acceptedBy == in.AccountID {
+	// already accepted it AND still holds that membership, return success
+	// rather than "invite not found", even after the original token expires.
+	// Revocation must win over this retry: reporting success after removal or
+	// self-leave makes the phone show a joined kaata whose witness/pulls fail.
+	// A DIFFERENT account still falls through to ErrInviteNotFound below, so
+	// we never reveal that the token was consumed by someone else.
+	if acceptedAt != nil && revokedAt == nil && acceptedBy != nil && *acceptedBy == in.AccountID {
 		var vaultName string
 		if err := tx.QueryRow(ctx, `
 			SELECT name FROM vaults WHERE vault_id = $1::uuid
@@ -1639,6 +1642,10 @@ func (s *Service) AcceptInvite(ctx context.Context, in AcceptInviteInput) (Accep
 	// NOT server-emit an unsigned vault_member_added here — peers tombstone
 	// unsigned membership events (see vaults/event_emit removal note). The
 	// authoritative ACL row was written into vault_members above.
+	// A fresh invitation after prior removal still needs an owner-signed
+	// member/device re-admission: a server witness cannot resurrect removed
+	// chain entries. Do not clear device removals or synthesize unsigned proof
+	// here; completing that re-invite flow needs coordinated client support.
 	if _, err := writeAudit(ctx, tx, vaultID, nil, "invite_accepted", &in.AccountID, map[string]any{
 		"role": role, "install_id": in.InstallID,
 	}); err != nil {
