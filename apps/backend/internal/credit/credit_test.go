@@ -37,3 +37,19 @@ func TestMinorExact(t *testing.T) {
 		}
 	}
 }
+
+func TestCreditRestrictionAuthority(t *testing.T) {
+	for _, mode := range []string{"warn", "clerk_block"} {
+		for _, editors := range []bool{false, true} {
+			p := Policy{Mode: mode, RestrictEditors: editors}
+			for _, role := range []string{"owner", "manager", "editor", "clerk", "viewer", "unknown", ""} {
+				for _, override := range []string{"inherit", "enforce", "bypass"} {
+					want := mode == "clerk_block" && (role == "editor" || role == "clerk") && override != "bypass" && (override == "enforce" || role == "clerk" || editors)
+					if got := p.Restricts(role, override); got != want {
+						t.Errorf("mode=%s editors=%v role=%s override=%s: %v want %v", mode, editors, role, override, got, want)
+					}
+				}
+			}
+		}
+	}
+}

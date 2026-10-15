@@ -62,6 +62,7 @@ func CheckEventPermission(
 	vaultID uuid.UUID,
 	eventID uuid.UUID,
 	eventType string,
+	payload json.RawMessage,
 	storedActorAccountID *uuid.UUID,
 	hlcPhysicalMS int64,
 	hlcLogical int64,
@@ -71,7 +72,7 @@ func CheckEventPermission(
 		return true, "", "", nil
 	}
 
-	required, ok := requiredRoleFor(eventType)
+	required, ok := requiredRoleForPayload(eventType, payload)
 	if !ok {
 		// Unknown event type — reject defensively, but as the SENTINEL so
 		// the caller can turn it into a per-event rejection rather than a
@@ -187,6 +188,22 @@ func requiredRoleFor(eventType string) (string, bool) {
 		return "owner", true
 	}
 	return "", false
+}
+
+// The reserved archive setting is an ownership action even though ordinary
+// kaata settings are manager+. Check the payload before admission so neither
+// signed local-CA events nor legacy uploads can reach the archive mirror with
+// manager authority. Empty values unarchive and need the same owner authority.
+func requiredRoleForPayload(eventType string, payload json.RawMessage) (string, bool) {
+	if eventType == EventVaultSettingSet {
+		var setting struct {
+			Key string `json:"key"`
+		}
+		if json.Unmarshal(payload, &setting) == nil && setting.Key == "archived_at" {
+			return "owner", true
+		}
+	}
+	return requiredRoleFor(eventType)
 }
 
 // roleRank is the privilege hierarchy. Hoisted to package scope so

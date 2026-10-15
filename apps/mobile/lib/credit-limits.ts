@@ -21,7 +21,7 @@ import {
 } from "./auth";
 import { getBackendUrl } from "./api";
 import { readVaultRole } from "./use-vault-role";
-import { toMinorUnits } from "./money";
+import { fromMinorUnits, toMinorUnits } from "./money";
 import { signedEntryMinorSumSql } from "./money-sql";
 import { emitCreditPoliciesChanged } from "./credit-policy-events";
 import { Mutex } from "./util/mutex";
@@ -32,7 +32,10 @@ export class CreditOnlineSaveRequiredError extends Error {}
 async function requirePolicyResponse(res: Response, action: string): Promise<void> {
   if (res.ok) return;
   const problem = (await res.json().catch(() => null)) as { error_code?: string } | null;
-  if (problem?.error_code === "clerk_cloud_enrollment_required")
+  if (
+    problem?.error_code === "clerk_cloud_enrollment_required" ||
+    problem?.error_code === "staff_cloud_enrollment_required"
+  )
     throw new ClerkCloudEnrollmentRequiredError("Every clerk must sign in and sync first");
   throw new Error(`Credit policy ${action} ${res.status}`);
 }
@@ -73,17 +76,20 @@ export async function readCreditPolicy(
 ): Promise<CreditPolicy | null> {
   if (!vaultId) return null;
   const db = await getDb();
-  if (relationshipId === KAATA_DEFAULT_CREDIT_ID)
-    return db.getFirstAsync<CreditPolicy>(
-      "SELECT ? AS relationship_id,max_collect_minor,max_pay_minor,mode,updated_at_ms FROM kaata_credit_defaults WHERE vault_id=?",
+  if (relationshipId === KAATA_DEFAULT_CREDIT_ID) {
+    const row = await db.getFirstAsync<CreditPolicy>(
+      "SELECT ? AS relationship_id,max_collect_minor,max_pay_minor,mode,updated_at_ms,restrict_editors FROM kaata_credit_defaults WHERE vault_id=?",
       KAATA_DEFAULT_CREDIT_ID,
       vaultId,
     );
-  return db.getFirstAsync<CreditPolicy>(
-    "SELECT relationship_id,max_collect_minor,max_pay_minor,mode,updated_at_ms FROM customer_credit_limits WHERE vault_id=? AND relationship_id=?",
+    return row ? { ...row, restrict_editors: !!row.restrict_editors } : null;
+  }
+  const row = await db.getFirstAsync<CreditPolicy>(
+    "SELECT relationship_id,max_collect_minor,max_pay_minor,mode,updated_at_ms,restrict_editors FROM customer_credit_limits WHERE vault_id=? AND relationship_id=?",
     vaultId,
     relationshipId,
   );
+  return row ? { ...row, restrict_editors: !!row.restrict_editors } : null;
 }
 
 /** The customer's own limit, else the kaata default, else null. */
@@ -152,7 +158,7 @@ async function uploadPendingCreditPoliciesInner(
   if (role !== "owner" && role !== "manager") return;
   const db = await getDb();
   const pending = await db.getAllAsync<CreditPolicy>(
-    "SELECT relationship_id,max_collect_minor,max_pay_minor,mode,updated_at_ms FROM customer_credit_limits WHERE vault_id=? AND sync_pending=1",
+    "SELECT relationship_id,max_collect_minor,max_pay_minor,mode,updated_at_ms,restrict_editors FROM customer_credit_limits WHERE vault_id=? AND sync_pending=1",
     vaultId,
   );
   if (!pending.length) return;
@@ -168,7 +174,7 @@ async function uploadPendingCreditPoliciesInner(
         {
           method: "PUT",
           headers: { Authorization: `Bearer ${session.jwt}`, "Content-Type": "application/json" },
-          body: JSON.stringify(p),
+          body: JSON.stringify({ ...p, restrict_editors: !!p.restrict_editors }),
           signal: controller.signal,
         },
       );
@@ -181,11 +187,12 @@ async function uploadPendingCreditPoliciesInner(
         await applyEventMutex.runExclusive(() =>
           db.withTransactionAsync(async () => {
             await db.runAsync(
-              "UPDATE customer_credit_limits SET max_collect_minor=?,max_pay_minor=?,mode=?,updated_at_ms=?,sync_pending=0 WHERE vault_id=? AND relationship_id=? AND sync_pending=1 AND updated_at_ms=?",
+              "UPDATE customer_credit_limits SET max_collect_minor=?,max_pay_minor=?,mode=?,updated_at_ms=?,restrict_editors=?,sync_pending=0 WHERE vault_id=? AND relationship_id=? AND sync_pending=1 AND updated_at_ms=?",
               saved.max_collect_minor,
               saved.max_pay_minor,
               saved.mode,
               saved.updated_at_ms,
+              Number(!!saved.restrict_editors),
               vaultId,
               p.relationship_id,
               p.updated_at_ms,
@@ -331,7 +338,12 @@ async function saveCreditPolicyInner(
     throw new Error("Shared credit limits require sign-in and an online save");
   if (
     p.mode === "clerk_block" &&
-    members.some((m) => m.role === "clerk" && m.revoked_at == null && /^local:/.test(m.account_id))
+    members.some(
+      (m) =>
+        (m.role === "clerk" || (p.restrict_editors && m.role === "editor")) &&
+        m.revoked_at == null &&
+        /^local:/.test(m.account_id),
+    )
   )
     throw new ClerkCloudEnrollmentRequiredError("Every clerk must sign in and sync first");
   let saved = { ...p, updated_at_ms: Date.now() };
@@ -366,23 +378,25 @@ async function saveCreditPolicyInner(
       db.withTransactionAsync(async () => {
         if (kaataDefault) {
           await db.runAsync(
-            "INSERT INTO kaata_credit_defaults(vault_id,max_collect_minor,max_pay_minor,mode,updated_at_ms) VALUES(?,?,?,?,?) ON CONFLICT(vault_id) DO UPDATE SET max_collect_minor=excluded.max_collect_minor,max_pay_minor=excluded.max_pay_minor,mode=excluded.mode,updated_at_ms=excluded.updated_at_ms WHERE kaata_credit_defaults.updated_at_ms<=excluded.updated_at_ms",
+            "INSERT INTO kaata_credit_defaults(vault_id,max_collect_minor,max_pay_minor,mode,updated_at_ms,restrict_editors) VALUES(?,?,?,?,?,?) ON CONFLICT(vault_id) DO UPDATE SET max_collect_minor=excluded.max_collect_minor,max_pay_minor=excluded.max_pay_minor,mode=excluded.mode,updated_at_ms=excluded.updated_at_ms,restrict_editors=excluded.restrict_editors WHERE kaata_credit_defaults.updated_at_ms<=excluded.updated_at_ms",
             vaultId,
             saved.max_collect_minor,
             saved.max_pay_minor,
             saved.mode,
             saved.updated_at_ms,
+            Number(!!saved.restrict_editors),
           );
           return;
         }
         await db.runAsync(
-          "INSERT INTO customer_credit_limits(vault_id,relationship_id,max_collect_minor,max_pay_minor,mode,updated_at_ms,sync_pending) VALUES(?,?,?,?,?,?,?) ON CONFLICT(vault_id,relationship_id) DO UPDATE SET max_collect_minor=excluded.max_collect_minor,max_pay_minor=excluded.max_pay_minor,mode=excluded.mode,updated_at_ms=excluded.updated_at_ms,sync_pending=excluded.sync_pending WHERE customer_credit_limits.updated_at_ms<=excluded.updated_at_ms OR customer_credit_limits.sync_pending=1",
+          "INSERT INTO customer_credit_limits(vault_id,relationship_id,max_collect_minor,max_pay_minor,mode,updated_at_ms,restrict_editors,sync_pending) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(vault_id,relationship_id) DO UPDATE SET max_collect_minor=excluded.max_collect_minor,max_pay_minor=excluded.max_pay_minor,mode=excluded.mode,updated_at_ms=excluded.updated_at_ms,restrict_editors=excluded.restrict_editors,sync_pending=excluded.sync_pending WHERE customer_credit_limits.updated_at_ms<=excluded.updated_at_ms OR customer_credit_limits.sync_pending=1",
           vaultId,
           saved.relationship_id,
           saved.max_collect_minor,
           saved.max_pay_minor,
           saved.mode,
           saved.updated_at_ms,
+          Number(!!saved.restrict_editors),
           session.jwt ? 0 : 1,
         );
       }),
@@ -418,7 +432,8 @@ export async function readCreditPoliciesForPeople(
             CASE WHEN p.relationship_id IS NOT NULL THEN p.max_collect_minor ELSE d.max_collect_minor END AS max_collect_minor,
             CASE WHEN p.relationship_id IS NOT NULL THEN p.max_pay_minor ELSE d.max_pay_minor END AS max_pay_minor,
             CASE WHEN p.relationship_id IS NOT NULL THEN p.mode ELSE d.mode END AS mode,
-            CASE WHEN p.relationship_id IS NOT NULL THEN p.updated_at_ms ELSE d.updated_at_ms END AS updated_at_ms
+            CASE WHEN p.relationship_id IS NOT NULL THEN p.updated_at_ms ELSE d.updated_at_ms END AS updated_at_ms,
+            CASE WHEN p.relationship_id IS NOT NULL THEN p.restrict_editors ELSE d.restrict_editors END AS restrict_editors
        FROM relationships r
        LEFT JOIN customer_credit_limits p ON p.vault_id=r.vault_id AND p.relationship_id=r.id
        LEFT JOIN kaata_credit_defaults d ON d.vault_id=r.vault_id
@@ -427,7 +442,9 @@ export async function readCreditPoliciesForPeople(
     KAATA_DEFAULT_CREDIT_ID,
     vaultId,
   );
-  return Object.fromEntries(rows.map((r) => [r.person_id, r]));
+  return Object.fromEntries(
+    rows.map((r) => [r.person_id, { ...r, restrict_editors: !!r.restrict_editors }]),
+  );
 }
 
 export async function creditWarning(
@@ -480,6 +497,7 @@ export type CreditIntent = {
   note: string | null;
   created_at: number;
   admission_status: "pending" | "refused";
+  mutation?: "edit" | "delete" | "accept" | "dispute" | "void";
 };
 export async function listCreditIntents(
   personId: string,
@@ -492,8 +510,13 @@ export async function listCreditIntents(
     event_id: string;
     payload_json: string;
     status: "pending" | "refused";
+    event_type: string;
+    appended_at: number;
+    entry_type: "debt" | "payment" | null;
+    entry_amount: number | null;
+    entry_note: string | null;
   }>(
-    "SELECT i.event_id,e.payload_json,i.status FROM credit_admission_intents i JOIN event_log e ON e.event_id=i.event_id WHERE i.vault_id=? AND i.relationship_id=? AND e.server_acked_at IS NULL ORDER BY e.appended_at DESC",
+    "SELECT i.event_id,e.payload_json,e.event_type,e.appended_at,i.status,x.type AS entry_type,x.amount_afn AS entry_amount,x.note AS entry_note FROM credit_admission_intents i JOIN event_log e ON e.event_id=i.event_id LEFT JOIN entries x ON x.id=e.target_id AND x.vault_id=e.vault_id WHERE i.vault_id=? AND i.relationship_id=? AND e.server_acked_at IS NULL ORDER BY e.appended_at DESC",
     vaultId,
     rel,
   );
@@ -501,11 +524,16 @@ export async function listCreditIntents(
     const p = JSON.parse(r.payload_json);
     return {
       id: r.event_id,
-      type: p.type,
-      amount_afn: p.amount_afn,
-      note: p.note,
-      created_at: p.occurred_at_ms,
+      type: p.type ?? p.changes?.type ?? r.entry_type ?? "debt",
+      amount_afn: p.amount_afn ?? p.changes?.amount_afn ?? r.entry_amount ?? 0,
+      note: p.note ?? p.changes?.note ?? r.entry_note,
+      created_at: p.occurred_at_ms ?? r.appended_at,
       admission_status: r.status,
+      ...(r.event_type === "entry_amended"
+        ? { mutation: "edit" as const }
+        : r.event_type === "entry_deleted"
+          ? { mutation: "delete" as const }
+          : {}),
     };
   });
   const ops = await db.getAllAsync<{
@@ -514,8 +542,12 @@ export async function listCreditIntents(
     role: "a" | "b";
     created_at: number;
     admission_status: "pending" | "refused";
+    op: "append" | "accept" | "dispute" | "void";
+    entry_direction: string | null;
+    entry_amount_minor: number | null;
+    entry_note: string | null;
   }>(
-    "SELECT o.id,o.payload,l.role,o.created_at,'pending' AS admission_status FROM tab_outbox o JOIN tab_links l ON l.tab_id=o.tab_id WHERE l.vault_id=? AND l.relationship_id=? AND o.op='append' AND NOT EXISTS(SELECT 1 FROM tab_entries e WHERE e.id=o.id) UNION ALL SELECT o.id,o.payload,l.role,o.created_at,'refused' AS admission_status FROM tab_failed_ops o JOIN tab_links l ON l.tab_id=o.tab_id WHERE l.vault_id=? AND l.relationship_id=? AND o.op='append' AND o.reason='credit_limit_exceeded'",
+    "SELECT o.id,o.payload,l.role,o.created_at,'pending' AS admission_status,o.op,x.direction AS entry_direction,x.amount_minor AS entry_amount_minor,x.note AS entry_note FROM tab_outbox o JOIN tab_links l ON l.tab_id=o.tab_id LEFT JOIN tab_entries x ON x.id=json_extract(o.payload,'$.entry_id') AND x.tab_id=o.tab_id WHERE l.vault_id=? AND l.relationship_id=? AND ((o.op='append' AND NOT EXISTS(SELECT 1 FROM tab_entries e WHERE e.id=o.id)) OR (o.op IN ('accept','dispute','void') AND COALESCE(x.local_action_pending,0)=0)) UNION ALL SELECT o.id,o.payload,l.role,o.created_at,'refused' AS admission_status,o.op,x.direction AS entry_direction,x.amount_minor AS entry_amount_minor,x.note AS entry_note FROM tab_failed_ops o JOIN tab_links l ON l.tab_id=o.tab_id LEFT JOIN tab_entries x ON x.id=json_extract(o.payload,'$.entry_id') AND x.tab_id=o.tab_id WHERE l.vault_id=? AND l.relationship_id=? AND o.op IN ('append','accept','dispute','void') AND o.reason='credit_limit_exceeded'",
     vaultId,
     rel,
     vaultId,
@@ -523,15 +555,15 @@ export async function listCreditIntents(
   );
   for (const o of ops) {
     const p = JSON.parse(o.payload);
+    const direction = p.direction ?? o.entry_direction;
     out.push({
       id: o.id,
-      type: (o.role === "a" ? p.direction === "a_to_b" : p.direction === "b_to_a")
-        ? "debt"
-        : "payment",
-      amount_afn: Number(p.amount),
-      note: p.note,
+      type: (o.role === "a" ? direction === "a_to_b" : direction === "b_to_a") ? "debt" : "payment",
+      amount_afn: p.amount == null ? fromMinorUnits(o.entry_amount_minor ?? 0) : Number(p.amount),
+      note: p.note ?? o.entry_note,
       created_at: p.occurred_at_ms ?? o.created_at,
       admission_status: o.admission_status,
+      ...(o.op !== "append" ? { mutation: o.op } : {}),
     });
   }
   return out;

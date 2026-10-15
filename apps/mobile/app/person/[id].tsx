@@ -6,6 +6,7 @@ import {
   ActivityIndicator,
   Animated,
   AppState,
+  BackHandler,
   KeyboardAvoidingView,
   Keyboard,
   Platform,
@@ -30,6 +31,7 @@ import { CreditStatusBadge } from "../../components/CreditStatusBadge";
 import { EntryRow } from "../../components/EntryRow";
 import { SharedAccountBadge } from "../../components/SharedAccountBadge";
 import { SearchControlSlot } from "../../components/SearchControlSlot";
+import { SelectionToolbar } from "../../components/SelectionToolbar";
 import { useSheetMotionPreference } from "../../components/SheetBackdrop";
 import { useCustomerGroups } from "../../lib/use-customer-groups";
 import { LinkAccountDialog } from "../../components/LinkAccountDialog";
@@ -125,6 +127,10 @@ import type { Entry, PersonWithBalance, Self } from "../../lib/types";
 // only" sentence for a tab tally as for a local one), a closed tab names
 // itself, and no credential means "go online" rather than a generic failure.
 function tabErrorMessage(err: unknown): string {
+  if (err instanceof TabApiError && err.code === "credit_limit_exceeded")
+    return t("credit.refusedChange");
+  if (err instanceof TabApiError && err.code === "credit_confirmation_pending")
+    return t("credit.pendingChange");
   if (err instanceof TabPermissionError) return t("entry.roleDenied");
   if (err instanceof TabReviewFinalError) return t("tab.reviewFinal");
   if (err instanceof TabClosedError) return t("tab.closed");
@@ -284,6 +290,11 @@ export default function PersonDetailScreen() {
   const [searchQuery, setSearchQuery] = useState("");
   const [dateRange, setDateRange] = useState<TallyDateRange | null>(null);
   const [dateSheetVisible, setDateSheetVisible] = useState(false);
+  const [selectionScope, setSelectionScope] = useState<string | null>(null);
+  const [selectedEntryIds, setSelectedEntryIds] = useState<Set<string>>(new Set());
+  const [confirmSelectionDelete, setConfirmSelectionDelete] = useState(false);
+  const [selectionBusy, setSelectionBusy] = useState(false);
+  const selectionBusyRef = useRef(false);
   useEffect(() => {
     setSearchQuery("");
     setDateRange(null);
@@ -600,6 +611,111 @@ export default function PersonDetailScreen() {
     searching,
     matchedEntries,
   ]);
+  // Shared and ruled-off tallies retain their existing individual workflows.
+  // Select all always means the amendable rows currently shown on this page.
+  const selecting =
+    selectionScope === flowScope &&
+    flowHistory?.scope === flowScope &&
+    roleResolved &&
+    canAmend &&
+    !tabHistory;
+  const selectableEntries = useMemo(
+    () =>
+      flowHistory?.scope === flowScope && roleResolved && canAmend && !tabHistory
+        ? historyItems.flatMap((item) =>
+            item.kind === "entry" &&
+            !item.entry.tab &&
+            (settlement.lastSettledAtMs == null ||
+              item.entry.created_at > settlement.lastSettledAtMs)
+              ? [item.entry]
+              : [],
+          )
+        : [],
+    [
+      flowHistory?.scope,
+      flowScope,
+      historyItems,
+      roleResolved,
+      canAmend,
+      tabHistory,
+      settlement.lastSettledAtMs,
+    ],
+  );
+  const selectableIds = useMemo(
+    () => new Set(selectableEntries.map((entry) => entry.id)),
+    [selectableEntries],
+  );
+  const selectedEntries = selecting
+    ? selectableEntries.filter((entry) => selectedEntryIds.has(entry.id))
+    : [];
+  const selectionContext = useRef({ scope: flowScope, selecting, eligible: selectableIds });
+  selectionContext.current = { scope: flowScope, selecting, eligible: selectableIds };
+  const closeSelection = useCallback(() => {
+    if (selectionBusyRef.current) return;
+    selectionContext.current.selecting = false;
+    setSelectionScope(null);
+    setSelectedEntryIds(new Set());
+    setConfirmSelectionDelete(false);
+  }, []);
+  useEffect(() => {
+    if (!selecting) {
+      setSelectionScope(null);
+      setSelectedEntryIds((before) => (before.size ? new Set() : before));
+      setConfirmSelectionDelete(false);
+      return;
+    }
+    setSelectedEntryIds((before) => {
+      const next = new Set([...before].filter((entryId) => selectableIds.has(entryId)));
+      return next.size === before.size ? before : next;
+    });
+    // A remote settlement or deletion can remove the last eligible row.
+    if (!selectableIds.size && !selectionBusyRef.current) closeSelection();
+  }, [selecting, selectableIds, closeSelection]);
+  useEffect(
+    () => closeSelection(),
+    [searchQuery, dateRange, showFullHistory, entryId, notificationKey, closeSelection],
+  );
+  useFocusEffect(
+    useCallback(() => {
+      const back = BackHandler.addEventListener("hardwareBackPress", () => {
+        if (!selectionContext.current.selecting) return false;
+        closeSelection();
+        return true;
+      });
+      return () => {
+        back.remove();
+        // Stop a pending batch before its next write if navigation changes.
+        selectionContext.current.selecting = false;
+        setSelectionScope(null);
+        setSelectedEntryIds(new Set());
+        setConfirmSelectionDelete(false);
+      };
+    }, [closeSelection]),
+  );
+  const startSelection = useCallback(
+    (entry?: Entry) => {
+      if (selectionBusyRef.current || !selectableIds.size) return;
+      dismissSearchKeyboard();
+      setSheetFor(null);
+      setSelectionScope(flowScope);
+      setSelectedEntryIds(new Set(entry && selectableIds.has(entry.id) ? [entry.id] : []));
+    },
+    [selectableIds, flowScope, dismissSearchKeyboard],
+  );
+  const toggleSelection = useCallback((entry: Entry) => {
+    if (
+      selectionBusyRef.current ||
+      !selectionContext.current.selecting ||
+      !selectionContext.current.eligible.has(entry.id)
+    )
+      return;
+    setSelectedEntryIds((before) => {
+      const next = new Set(before);
+      if (next.has(entry.id)) next.delete(entry.id);
+      else next.add(entry.id);
+      return next;
+    });
+  }, []);
   visibleReviewIds.current = new Set(
     historyItems.flatMap((item) => (item.kind === "entry" ? [item.entry.id] : [])),
   );
@@ -972,6 +1088,65 @@ export default function PersonDetailScreen() {
   // remote entry/payment for this person appears without navigating away/back.
   useLedgerRefresh(getActiveVaultIdSyncMaybe(), load);
 
+  async function deleteSelectedTallies() {
+    setConfirmSelectionDelete(false);
+    if (selectionBusyRef.current || !selecting || !selectedEntries.length) return;
+    const targets = selectedEntries.map((entry) => entry.id);
+    const capturedAccountId = getAccountIdSync();
+    const capturedVaultId = getActiveVaultIdSyncMaybe();
+    if (!capturedVaultId) return;
+    const capturedScope = flowScope;
+    const stillCurrent = () =>
+      selectionContext.current.selecting &&
+      selectionContext.current.scope === capturedScope &&
+      getAccountIdSync() === capturedAccountId &&
+      getActiveVaultIdSyncMaybe() === capturedVaultId;
+    selectionBusyRef.current = true;
+    setSelectionBusy(true);
+    const deleted = new Set<string>();
+    let pendingCreditChanges = 0;
+    try {
+      for (const entryId of targets) {
+        if (!stillCurrent()) break;
+        if (!selectionContext.current.eligible.has(entryId)) continue;
+        try {
+          await softDeleteEntry(entryId, {
+            vaultId: capturedVaultId,
+            accountId: capturedAccountId,
+          });
+          deleted.add(entryId);
+        } catch (err) {
+          if (err instanceof Error && err.name === "CreditMutationAdmissionError") {
+            if ((err as Error & { status: string }).status === "pending") pendingCreditChanges++;
+            continue;
+          }
+          console.warn("[person] bulk softDeleteEntry failed", err);
+          // Stop on a policy change; an authoritative write guard remains the
+          // final check if permissions or settlement changed during the batch.
+          if (err instanceof SettledChapterError || err instanceof RoleGateRejectionError) break;
+        }
+      }
+      if (!stillCurrent()) return;
+      setSelectedEntryIds(
+        (before) => new Set([...before].filter((entryId) => !deleted.has(entryId))),
+      );
+      if (deleted.size === targets.length) {
+        setSelectionScope(null);
+        toast.push(t("selection.talliesDeleted", { count: deleted.size }), "success");
+      } else if (pendingCreditChanges === targets.length - deleted.size)
+        toast.push(t("credit.pendingChange"), "info");
+      else
+        toast.push(
+          t("selection.partialFailure", { count: targets.length - deleted.size }),
+          "error",
+        );
+      await load();
+    } finally {
+      selectionBusyRef.current = false;
+      setSelectionBusy(false);
+    }
+  }
+
   // The tab's own refresh channel: upsertTabFromWire fires this after a pull
   // (or this device's optimistic write) committed. Matched on the relationship
   // rather than the tab id so a re-link under a new tab id keeps refreshing.
@@ -1087,6 +1262,11 @@ export default function PersonDetailScreen() {
     if (!meta) {
       return [
         {
+          label: t("selection.start"),
+          icon: "checkmark-circle-outline" as const,
+          onPress: () => startSelection(target),
+        },
+        {
           label: t("person.sheet.edit"),
           icon: "create-outline" as const,
           onPress: () => {
@@ -1166,7 +1346,7 @@ export default function PersonDetailScreen() {
     <SafeAreaView style={styles.container} edges={["top"]}>
       <View style={[styles.headerNav, rowDir(isRTL)]}>
         <Pressable
-          onPress={() => router.back()}
+          onPress={() => (selecting ? closeSelection() : router.back())}
           hitSlop={8}
           accessibilityRole="button"
           accessibilityLabel={t("common.back")}
@@ -1178,88 +1358,91 @@ export default function PersonDetailScreen() {
             color={colors.textEmphasis}
           />
         </Pressable>
-        <View style={[styles.headerActions, rowDir(isRTL)]}>
-          {entries.length > 0 ? (
-            <Pressable
-              testID="whatsapp-reminder"
-              onPress={() => void sendPing()}
-              disabled={pinging}
-              accessibilityRole="button"
-              accessibilityLabel={t(
-                pingStage === "preparing"
-                  ? "person.ping.preparing"
-                  : pingStage === "opening"
-                    ? "person.ping.opening"
-                    : "person.ping.button",
-              )}
-              accessibilityHint={t("person.ping.hint", { name: person.name })}
-              accessibilityState={{ disabled: pinging, busy: pinging }}
-              style={({ pressed }) => [styles.headerShare, pressed && { opacity: 0.5 }]}
-            >
-              {pinging ? (
-                <ActivityIndicator size="small" color={colors.actionPrimary} />
-              ) : (
-                <Ionicons name="logo-whatsapp" size={icon.header} color={colors.actionPrimary} />
-              )}
-            </Pressable>
-          ) : null}
-          <OverflowMenu
-            actions={[
-              ...(canAmend
-                ? [
-                    {
-                      label: t("person.sheet.edit"),
-                      icon: "create-outline" as const,
-                      onPress: () =>
-                        router.push({ pathname: "/person/[id]/edit", params: { id: person.id } }),
-                    },
-                    {
-                      label: link ? t("tab.join.title") : t("tab.link.title"),
-                      icon: "link-outline" as const,
-                      onPress: () => (link ? setLinkedSheetVisible(true) : setInviteVisible(true)),
-                    },
-                    {
-                      label: t("groups.personAction"),
-                      icon: "pricetags-outline" as const,
-                      onPress: () =>
-                        router.push({
-                          pathname: "/person/[id]/group",
-                          params: { id: person.id, vaultId: activeVaultId ?? "" },
-                        }),
-                    },
-                  ]
-                : []),
-              ...(canManageCredit
-                ? [
-                    {
-                      label: t("credit.title"),
-                      icon: "speedometer-outline" as const,
-                      onPress: () =>
-                        router.push({
-                          pathname: "/person/[id]/credit-limit",
-                          params: { id: person.id, vaultId: activeVaultId ?? "" },
-                        }),
-                    },
-                  ]
-                : []),
-              {
-                label: t("reminders.title"),
-                icon: "alarm-outline" as const,
-                onPress: () =>
-                  router.push({
-                    pathname: "/person/[id]/reminders",
-                    params: { id: person.id, vaultId: activeVaultId ?? "" },
-                  }),
-              },
-              {
-                label: t("personEdit.export"),
-                icon: "document-text-outline",
-                disabled: exporting,
-                onPress: () => setExportSheetVisible(true),
-              },
-            ]}
-          />
-        </View>
+        {!selecting ? (
+          <View style={[styles.headerActions, rowDir(isRTL)]}>
+            {entries.length > 0 ? (
+              <Pressable
+                testID="whatsapp-reminder"
+                onPress={() => void sendPing()}
+                disabled={pinging}
+                accessibilityRole="button"
+                accessibilityLabel={t(
+                  pingStage === "preparing"
+                    ? "person.ping.preparing"
+                    : pingStage === "opening"
+                      ? "person.ping.opening"
+                      : "person.ping.button",
+                )}
+                accessibilityHint={t("person.ping.hint", { name: person.name })}
+                accessibilityState={{ disabled: pinging, busy: pinging }}
+                style={({ pressed }) => [styles.headerShare, pressed && { opacity: 0.5 }]}
+              >
+                {pinging ? (
+                  <ActivityIndicator size="small" color={colors.actionPrimary} />
+                ) : (
+                  <Ionicons name="logo-whatsapp" size={icon.header} color={colors.actionPrimary} />
+                )}
+              </Pressable>
+            ) : null}
+            <OverflowMenu
+              actions={[
+                ...(canAmend
+                  ? [
+                      {
+                        label: t("person.sheet.edit"),
+                        icon: "create-outline" as const,
+                        onPress: () =>
+                          router.push({ pathname: "/person/[id]/edit", params: { id: person.id } }),
+                      },
+                      {
+                        label: link ? t("tab.join.title") : t("tab.link.title"),
+                        icon: "link-outline" as const,
+                        onPress: () =>
+                          link ? setLinkedSheetVisible(true) : setInviteVisible(true),
+                      },
+                      {
+                        label: t("groups.personAction"),
+                        icon: "pricetags-outline" as const,
+                        onPress: () =>
+                          router.push({
+                            pathname: "/person/[id]/group",
+                            params: { id: person.id, vaultId: activeVaultId ?? "" },
+                          }),
+                      },
+                    ]
+                  : []),
+                ...(canManageCredit
+                  ? [
+                      {
+                        label: t("credit.title"),
+                        icon: "speedometer-outline" as const,
+                        onPress: () =>
+                          router.push({
+                            pathname: "/person/[id]/credit-limit",
+                            params: { id: person.id, vaultId: activeVaultId ?? "" },
+                          }),
+                      },
+                    ]
+                  : []),
+                {
+                  label: t("reminders.title"),
+                  icon: "alarm-outline" as const,
+                  onPress: () =>
+                    router.push({
+                      pathname: "/person/[id]/reminders",
+                      params: { id: person.id, vaultId: activeVaultId ?? "" },
+                    }),
+                },
+                {
+                  label: t("personEdit.export"),
+                  icon: "document-text-outline",
+                  disabled: exporting,
+                  onPress: () => setExportSheetVisible(true),
+                },
+              ]}
+            />
+          </View>
+        ) : null}
       </View>
       {/* One person's tallies are bounded, so render them as ONE bordered card
           (ScrollView + map), exactly like the home people list. The old
@@ -1470,7 +1653,7 @@ export default function PersonDetailScreen() {
             only exists in the exact moment it means something: balance is
             zero AND the current chapter has entries. Tapping it draws the
             line for real. */}
-            {canSettle && !searching ? (
+            {canSettle && !searching && !selecting ? (
               <Pressable
                 onPress={() => setConfirmSettle(true)}
                 accessibilityRole="button"
@@ -1492,7 +1675,38 @@ export default function PersonDetailScreen() {
             {/* Waiting and refused clerk attempts sit above the history, where
                 they are seen, not under every tally; a search hides them like
                 any other row it does not match (audit #24, #3). */}
-            {!searching ? <CreditIntentList personId={person.id} vaultId={activeVaultId} /> : null}
+            {!searching && !selecting ? (
+              <CreditIntentList personId={person.id} vaultId={activeVaultId} />
+            ) : null}
+
+            {selectableEntries.length > 0 || selecting ? (
+              <View style={[styles.selectionHeading, rowDir(isRTL)]}>
+                <Text style={[styles.selectionHeadingText, textDir(isRTL)]}>
+                  {t("selection.tallies")}
+                </Text>
+                <Pressable
+                  testID="select-tallies"
+                  onPress={() => (selecting ? closeSelection() : startSelection())}
+                  disabled={selectionBusy}
+                  accessibilityRole="button"
+                  accessibilityLabel={t(selecting ? "selection.close" : "selection.start")}
+                  style={({ pressed }) => [
+                    styles.selectionStart,
+                    rowDir(isRTL),
+                    pressed && { opacity: 0.6 },
+                  ]}
+                >
+                  <Ionicons
+                    name={selecting ? "close-outline" : "checkmark-circle-outline"}
+                    size={18}
+                    color={colors.textEmphasis}
+                  />
+                  <Text style={styles.selectionStartText}>
+                    {t(selecting ? "common.cancel" : "selection.start")}
+                  </Text>
+                </Pressable>
+              </View>
+            ) : null}
 
             {historyItems.length === 0 ? (
               searching ? (
@@ -1573,6 +1787,10 @@ export default function PersonDetailScreen() {
                       <EntryRow
                         entry={entry}
                         onLongPress={canOpenSheet ? setSheetFor : undefined}
+                        selecting={selecting && canOpenSheet}
+                        selected={selecting && selectedEntryIds.has(entry.id)}
+                        selectionDisabled={selectionBusy}
+                        onToggleSelection={canOpenSheet ? toggleSelection : undefined}
                         attribution={attribution.get(entry.id)}
                         tab={entry.tab}
                         selfAccountId={getAccountIdSync()}
@@ -1715,7 +1933,49 @@ export default function PersonDetailScreen() {
           included. It still lifts above toasts, over its own DOCK_SKIRT, but not
           above an open keyboard. Received LEFT, gave RIGHT regardless of
           language. */}
-          {canCreate || hasTallies ? (
+          {selecting ? (
+            <Animated.View
+              onLayout={(event) =>
+                setActionsHeight(Math.max(0, event.nativeEvent.layout.height - DOCK_SKIRT))
+              }
+              style={[
+                styles.actions,
+                {
+                  bottom: -DOCK_SKIRT,
+                  paddingBottom: 12 + insets.bottom + DOCK_SKIRT,
+                  transform: [{ translateY: keyboardShown ? 0 : toastOffset }],
+                },
+              ]}
+            >
+              <SelectionToolbar
+                count={selectedEntries.length}
+                total={selectableEntries.length}
+                busy={selectionBusy}
+                onClose={closeSelection}
+                onToggleAll={() => {
+                  if (selectionBusyRef.current) return;
+                  setSelectedEntryIds(
+                    selectedEntries.length === selectableEntries.length
+                      ? new Set()
+                      : new Set(selectableIds),
+                  );
+                }}
+                actions={[
+                  {
+                    key: "delete",
+                    label: t("selection.delete"),
+                    icon: "trash-outline",
+                    destructive: true,
+                    disabled: selectedEntries.length === 0,
+                    onPress: () => {
+                      if (!selectionBusyRef.current && selectedEntries.length)
+                        setConfirmSelectionDelete(true);
+                    },
+                  },
+                ]}
+              />
+            </Animated.View>
+          ) : canCreate || hasTallies ? (
             <Animated.View
               onLayout={(event) =>
                 setActionsHeight(Math.max(0, event.nativeEvent.layout.height - DOCK_SKIRT))
@@ -2075,6 +2335,15 @@ export default function PersonDetailScreen() {
         onCancel={() => setConfirmSettle(false)}
       />
       <ConfirmDialog
+        visible={confirmSelectionDelete && selecting && selectedEntries.length > 0}
+        title={t("selection.deleteTalliesTitle", { count: selectedEntries.length })}
+        description={t("selection.deleteTalliesDescription", { count: selectedEntries.length })}
+        confirmLabel={t("selection.delete")}
+        destructive
+        onConfirm={() => void deleteSelectedTallies()}
+        onCancel={() => setConfirmSelectionDelete(false)}
+      />
+      <ConfirmDialog
         visible={confirmDeleteFor !== null}
         title={t("person.delete.title")}
         description={t("person.delete.description")}
@@ -2093,6 +2362,15 @@ export default function PersonDetailScreen() {
             await load();
             toast.push(t("entry.deleted"), "success");
           } catch (err) {
+            if (err instanceof Error && err.name === "CreditMutationAdmissionError") {
+              const pending = (err as Error & { status: string }).status === "pending";
+              toast.push(
+                t(pending ? "credit.pendingChange" : "credit.refusedChange"),
+                pending ? "info" : "error",
+              );
+              await load();
+              return;
+            }
             if (err instanceof SettledChapterError) {
               toast.push(t("entry.settledLocked"), "error");
               return;
@@ -2114,6 +2392,32 @@ const ACTION_COIN_SIZE = 26;
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bgDefault },
+  selectionHeading: {
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 18,
+    paddingTop: 4,
+    paddingBottom: 10,
+    gap: 12,
+  },
+  selectionHeadingText: {
+    fontFamily: fonts.sansSemi,
+    fontSize: 14,
+    color: colors.textDefault,
+    flex: 1,
+  },
+  selectionStart: {
+    minHeight: TOUCH_MIN,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingHorizontal: 12,
+    borderRadius: radius.pill,
+    backgroundColor: colors.bgMuted,
+    borderWidth: 1,
+    borderColor: colors.borderSubtle,
+  },
+  selectionStartText: { fontFamily: fonts.sansSemi, fontSize: 12, color: colors.textEmphasis },
   fillCenter: { flex: 1, alignItems: "center", justifyContent: "center" },
   notFoundText: { fontSize: 14, fontFamily: fonts.sansRegular, color: colors.textSubtle },
   // One compact action group with separate 44pt targets, mirrored in Dari.

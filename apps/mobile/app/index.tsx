@@ -33,6 +33,7 @@ import { InitialAvatar } from "../components/InitialAvatar";
 import { NotificationBell } from "../components/NotificationInbox";
 import { PersonRow } from "../components/PersonRow";
 import { SearchControlSlot } from "../components/SearchControlSlot";
+import { SelectionToolbar } from "../components/SelectionToolbar";
 import { useSheetMotionPreference } from "../components/SheetBackdrop";
 import { ProfileSettingsSheet, type VaultListItem } from "../components/ProfileSettingsSheet";
 import { Tabs } from "../components/Tabs";
@@ -258,6 +259,20 @@ export default function HomeScreen() {
   const locale = getLocale();
   const [sheetFor, setSheetFor] = useState<PersonWithBalance | null>(null);
   const [confirmDeleteFor, setConfirmDeleteFor] = useState<PersonWithBalance | null>(null);
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedPersonIds, setSelectedPersonIds] = useState<string[]>([]);
+  const [confirmRemoveIds, setConfirmRemoveIds] = useState<string[] | null>(null);
+  const [selectionBusy, setSelectionBusy] = useState(false);
+  const [selectionDockHeight, setSelectionDockHeight] = useState(160);
+  const selectionBusyRef = useRef(false);
+  const selectionGeneration = useRef(0);
+  const closeSelection = useCallback(() => {
+    if (selectionBusyRef.current) return;
+    selectionGeneration.current++;
+    setSelectionMode(false);
+    setSelectedPersonIds([]);
+    setConfirmRemoveIds(null);
+  }, []);
   const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -696,6 +711,10 @@ export default function HomeScreen() {
   useFocusEffect(
     useCallback(() => {
       const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+        if (selectionMode) {
+          closeSelection();
+          return true;
+        }
         const now = Date.now();
         if (now - lastBackPressRef.current < 2000) {
           // Second press inside the window → let RN handle (exits the app).
@@ -706,7 +725,7 @@ export default function HomeScreen() {
         return true; // intercept
       });
       return () => sub.remove();
-    }, [toast]),
+    }, [toast, selectionMode, closeSelection]),
   );
 
   // Idle group filters keep each tab's hero totals whole. A text query opens
@@ -750,6 +769,104 @@ export default function HomeScreen() {
     () => selectNeverTalliedCustomers(matchedPeople, listPreference, groupByPerson, locale),
     [matchedPeople, listPreference, groupByPerson, locale],
   );
+  const canSelect = caps.resolved && canAmend && currentVaultScope && currentPeopleScope;
+  const selecting = selectionMode && canSelect;
+  const canSelectRef = useRef(canSelect);
+  canSelectRef.current = canSelect;
+  const selectablePeople = useMemo(() => {
+    const shown = searching
+      ? [...collectPeople, ...payPeople, ...neverTalliedPeople]
+      : [...(direction === "collect" ? collectPeople : payPeople), ...neverTalliedPeople];
+    return [...new Map(shown.map((person) => [person.id, person])).values()];
+  }, [searching, direction, collectPeople, payPeople, neverTalliedPeople]);
+  const selectableIds = useMemo(
+    () => new Set(selectablePeople.map((person) => person.id)),
+    [selectablePeople],
+  );
+  const selectedIds = useMemo(
+    () => new Set(selectedPersonIds.filter((id) => selectableIds.has(id))),
+    [selectedPersonIds, selectableIds],
+  );
+  const selectedIdsRef = useRef(selectedIds);
+  selectedIdsRef.current = selectedIds;
+  useEffect(() => {
+    // Selection belongs to one account and kaata, including a restored session.
+    selectionGeneration.current++;
+    setSelectionMode(false);
+    setSelectedPersonIds([]);
+    setConfirmRemoveIds(null);
+  }, [activeVaultId, activeAccountId, canSelect]);
+  useEffect(() => {
+    setSelectedPersonIds((ids) => {
+      const next = ids.filter((id) => selectableIds.has(id));
+      return next.length === ids.length ? ids : next;
+    });
+    setConfirmRemoveIds(null);
+  }, [selectableIds]);
+  useFocusEffect(
+    useCallback(() => {
+      return () => {
+        selectionGeneration.current++;
+        setSelectionMode(false);
+        setSelectedPersonIds([]);
+        setConfirmRemoveIds(null);
+      };
+    }, []),
+  );
+  const startSelection = useCallback(
+    (person?: PersonWithBalance) => {
+      if (!canSelect || selectionBusyRef.current) return;
+      dismissSearchKeyboard();
+      selectionGeneration.current++;
+      setSelectedPersonIds(person && selectableIds.has(person.id) ? [person.id] : []);
+      setSelectionMode(true);
+      Haptics.selectionAsync().catch(() => undefined);
+    },
+    [canSelect, dismissSearchKeyboard, selectableIds],
+  );
+  const removeSelected = async () => {
+    if (selectionBusyRef.current || !canSelectRef.current) return;
+    const ids = (confirmRemoveIds ?? []).filter((id) => selectedIdsRef.current.has(id));
+    setConfirmRemoveIds(null);
+    if (!ids.length) return;
+    const vaultId = activeVaultId;
+    const accountId = activeAccountId;
+    if (!vaultId) return;
+    const generation = selectionGeneration.current;
+    const current = () =>
+      mounted.current &&
+      canSelectRef.current &&
+      generation === selectionGeneration.current &&
+      getActiveVaultIdSyncMaybe() === vaultId &&
+      getAccountIdSync() === accountId;
+    if (!current()) return;
+    selectionBusyRef.current = true;
+    setSelectionBusy(true);
+    const removed = new Set<string>();
+    try {
+      for (const id of ids) {
+        if (!current()) break;
+        try {
+          await archivePerson(id, { vaultId, accountId });
+          removed.add(id);
+        } catch (err) {
+          console.warn("[home] selected contact removal failed", err);
+        }
+      }
+      if (!current()) return;
+      const remaining = ids.filter((id) => !removed.has(id));
+      setSelectedPersonIds(remaining);
+      if (!remaining.length) setSelectionMode(false);
+      if (removed.size)
+        toast.push(t("selection.contactsRemoved", { count: removed.size }), "success");
+      if (remaining.length)
+        toast.push(t("selection.partialFailure", { count: remaining.length }), "error");
+      await load();
+    } finally {
+      selectionBusyRef.current = false;
+      if (mounted.current) setSelectionBusy(false);
+    }
+  };
   const collectAll = useMemo(
     () =>
       visibleAllPeople.filter((p) => !isNeverTalliedCustomer(p) && customerSide(p) === "collect"),
@@ -896,9 +1013,16 @@ export default function HomeScreen() {
     (p: PersonWithBalance) => {
       if (activeVaultId !== getActiveVaultIdSyncMaybe() || activeAccountId !== getAccountIdSync())
         return;
+      if (selecting) {
+        if (selectionBusyRef.current || !selectableIds.has(p.id)) return;
+        setSelectedPersonIds((ids) =>
+          ids.includes(p.id) ? ids.filter((id) => id !== p.id) : [...ids, p.id],
+        );
+        return;
+      }
       router.push({ pathname: "/person/[id]", params: { id: p.id } });
     },
-    [router, activeVaultId, activeAccountId],
+    [router, activeVaultId, activeAccountId, selecting, selectableIds],
   );
 
   if (forceUpdate) return <Redirect href="/update-prompt" />;
@@ -1099,11 +1223,22 @@ export default function HomeScreen() {
 
       {/* Direction tabs are idle-only; search has one list for both sides.
           The no-kaatas empty state stands in for the whole ledger area. */}
-      {activeVaultId && !searching ? (
+      {activeVaultId && (!searching || (canSelect && selectablePeople.length > 0)) ? (
         <View style={[styles.tabsWrap, rowDir(isRTL)]}>
           <View style={{ flex: 1 }}>
-            <Tabs<Direction> tabs={buildTabs()} value={direction} onChange={setDirection} />
+            {!searching ? (
+              <Tabs<Direction> tabs={buildTabs()} value={direction} onChange={setDirection} />
+            ) : null}
           </View>
+          {canSelect && selectablePeople.length > 0 && !selecting ? (
+            <Button
+              label={t("selection.start")}
+              accessibilityLabel={t("selection.contacts")}
+              icon="checkmark-circle-outline"
+              variant="secondary"
+              onPress={() => startSelection()}
+            />
+          ) : null}
         </View>
       ) : null}
 
@@ -1193,11 +1328,14 @@ export default function HomeScreen() {
               groupFilterCount={groupFilterCount}
               onClearGroupFilter={() => changeListPreference({ ...listPreference, group: "all" })}
               creditByPerson={creditByPerson}
-              paddingBottom={96 + insets.bottom}
+              paddingBottom={(selecting ? selectionDockHeight + 40 : 96) + insets.bottom}
               refreshing={refreshing}
               onRefresh={onRefresh}
               onPersonPress={openPerson}
-              onPersonLongPress={canAmend ? setSheetFor : undefined}
+              onPersonLongPress={canAmend && !selecting ? setSheetFor : undefined}
+              selecting={selecting}
+              selectedIds={selectedIds}
+              selectionBusy={selectionBusy}
             />
           ) : loaded && screenWidth > 0 ? (
             // screenWidth>0 gate: on some devices (Xiaomi/MIUI) useWindowDimensions
@@ -1224,11 +1362,14 @@ export default function HomeScreen() {
                   creditByPerson={creditByPerson}
                   vaultId={activeVaultId}
                   width={screenWidth}
-                  paddingBottom={96 + insets.bottom}
+                  paddingBottom={(selecting ? selectionDockHeight + 40 : 96) + insets.bottom}
                   refreshing={refreshing}
                   onRefresh={onRefresh}
                   onPersonPress={openPerson}
-                  onPersonLongPress={canAmend ? setSheetFor : undefined}
+                  onPersonLongPress={canAmend && !selecting ? setSheetFor : undefined}
+                  selecting={selecting}
+                  selectedIds={selectedIds}
+                  selectionBusy={selectionBusy}
                 />
                 <TabPage
                   direction="pay"
@@ -1246,11 +1387,14 @@ export default function HomeScreen() {
                   creditByPerson={creditByPerson}
                   vaultId={activeVaultId}
                   width={screenWidth}
-                  paddingBottom={96 + insets.bottom}
+                  paddingBottom={(selecting ? selectionDockHeight + 40 : 96) + insets.bottom}
                   refreshing={refreshing}
                   onRefresh={onRefresh}
                   onPersonPress={openPerson}
-                  onPersonLongPress={canAmend ? setSheetFor : undefined}
+                  onPersonLongPress={canAmend && !selecting ? setSheetFor : undefined}
+                  selecting={selecting}
+                  selectedIds={selectedIds}
+                  selectionBusy={selectionBusy}
                 />
               </Animated.View>
             </GestureDetector>
@@ -1268,7 +1412,40 @@ export default function HomeScreen() {
           right; the search contents mirror in Dari. Viewers keep search and
           sorting without an add action. The inner flex view lets iOS's
           keyboard padding move this absolute dock above the keyboard. */}
-          {activeVaultId ? (
+          {selecting ? (
+            <Animated.View
+              onLayout={(event) => setSelectionDockHeight(event.nativeEvent.layout.height)}
+              style={[
+                styles.selectionDock,
+                {
+                  bottom: 20 + insets.bottom,
+                  transform: [{ translateY: keyboardShown ? 0 : toastOffset }],
+                },
+              ]}
+            >
+              <SelectionToolbar
+                count={selectedIds.size}
+                total={selectablePeople.length}
+                onClose={closeSelection}
+                onToggleAll={() => {
+                  if (selectionBusyRef.current) return;
+                  setSelectedPersonIds(
+                    selectedIds.size === selectablePeople.length ? [] : [...selectableIds],
+                  );
+                }}
+                busy={selectionBusy}
+                actions={[
+                  {
+                    key: "remove",
+                    label: t("selection.remove"),
+                    icon: "trash-outline",
+                    destructive: true,
+                    onPress: () => setConfirmRemoveIds([...selectedIds]),
+                  },
+                ]}
+              />
+            </Animated.View>
+          ) : activeVaultId ? (
             <Animated.View
               style={[
                 styles.dock,
@@ -1562,6 +1739,15 @@ export default function HomeScreen() {
         title={sheetFor?.name}
         onDismiss={() => setSheetFor(null)}
         actions={[
+          ...(canSelect
+            ? [
+                {
+                  label: t("selection.start"),
+                  icon: "checkmark-circle-outline" as const,
+                  onPress: () => startSelection(sheetFor ?? undefined),
+                },
+              ]
+            : []),
           {
             label: t("person.sheet.edit"),
             icon: "create-outline",
@@ -1577,6 +1763,16 @@ export default function HomeScreen() {
             onPress: () => setConfirmDeleteFor(sheetFor),
           },
         ]}
+      />
+
+      <ConfirmDialog
+        visible={confirmRemoveIds !== null && selecting}
+        title={t("selection.removeContactsTitle", { count: confirmRemoveIds?.length ?? 0 })}
+        description={t("selection.removeContactsDescription")}
+        confirmLabel={t("selection.remove")}
+        destructive
+        onConfirm={() => void removeSelected()}
+        onCancel={() => setConfirmRemoveIds(null)}
       />
 
       <ConfirmDialog
@@ -1780,6 +1976,9 @@ type CustomerRowsProps = {
   onPersonPress: (person: PersonWithBalance) => void;
   // Omitted for a viewer (read-only) — long-press opens the edit/delete sheet.
   onPersonLongPress?: (person: PersonWithBalance) => void;
+  selecting?: boolean;
+  selectedIds?: ReadonlySet<string>;
+  selectionBusy?: boolean;
 };
 
 type GroupFilterChipProps = {
@@ -1807,6 +2006,9 @@ function CustomerRows(props: CustomerRowsProps) {
             creditStatus={props.creditByPerson[item.id] ?? "none"}
             onPress={props.onPersonPress}
             onLongPress={props.onPersonLongPress}
+            selecting={props.selecting}
+            selected={props.selecting && props.selectedIds?.has(item.id)}
+            disabled={props.selectionBusy}
           />
         </View>
       ))}
@@ -1915,6 +2117,9 @@ function SearchResultsPage(
                   {t(direction === "collect" ? "home.tab.collect" : "home.tab.pay")}
                 </Text>
                 <CustomerRows
+                  selecting={props.selecting}
+                  selectedIds={props.selectedIds}
+                  selectionBusy={props.selectionBusy}
                   people={people}
                   creditByPerson={props.creditByPerson}
                   onPersonPress={props.onPersonPress}
@@ -1924,6 +2129,9 @@ function SearchResultsPage(
             );
           })}
           <NoTalliesSection
+            selecting={props.selecting}
+            selectedIds={props.selectedIds}
+            selectionBusy={props.selectionBusy}
             people={props.neverTalliedPeople}
             creditByPerson={props.creditByPerson}
             onPersonPress={props.onPersonPress}
@@ -2052,6 +2260,9 @@ function TabPage(
           />
         ) : people.length > 0 ? (
           <CustomerRows
+            selecting={props.selecting}
+            selectedIds={props.selectedIds}
+            selectionBusy={props.selectionBusy}
             people={people}
             creditByPerson={props.creditByPerson}
             onPersonPress={onPersonPress}
@@ -2059,6 +2270,9 @@ function TabPage(
           />
         ) : null}
         <NoTalliesSection
+          selecting={props.selecting}
+          selectedIds={props.selectedIds}
+          selectionBusy={props.selectionBusy}
           people={props.neverTalliedPeople}
           creditByPerson={props.creditByPerson}
           onPersonPress={onPersonPress}
@@ -2206,7 +2420,8 @@ const styles = StyleSheet.create({
   // tabsWrap — gap above the swipe rail. marginTop:2 closes the gap a
   // hair after the header's paddingBottom shrunk to 14 (was 16);
   // marginBottom:16 keeps the rail from feeling glued to the tab strip.
-  tabsWrap: { paddingHorizontal: 16, marginTop: 2, marginBottom: 16 },
+  tabsWrap: { paddingHorizontal: 16, marginTop: 2, marginBottom: 16, gap: 8, alignItems: "center" },
+  selectionDock: { position: "absolute", left: 16, right: 16 },
   listOptions: {
     width: 44,
     height: FAB_SIZE,

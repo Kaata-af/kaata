@@ -111,8 +111,51 @@ func (state *creditProjection) accepted(vaultID string, ev PushEvent) {
 	state.head = hlc
 }
 
-func creditAdmit(ctx context.Context, tx pgx.Tx, vaultID string, ev PushEvent, actorRole string, state *creditProjection) error {
-	if ev.EventType != EventEntryCreated {
+func isCreditMutation(eventType string) bool {
+	return eventType == EventEntryCreated || eventType == EventEntryAmended || eventType == EventEntryDeleted
+}
+
+func creditLedgerEvent(vaultID string, ev PushEvent) LedgerEvent {
+	return LedgerEvent{EventID: ev.EventID, VaultID: vaultID, EventType: ev.EventType, PayloadSchema: ev.SchemaVersion,
+		HLC: HLC{PMS: ev.HLC.PhysicalMS, L: ev.HLC.Logical, DID: ev.HLC.DeviceID}, DeviceID: ev.HLC.DeviceID,
+		TargetID: derefStr(ev.TargetID), RelationshipID: ev.RelationshipID, ActorAccountID: ev.ActorAccountID, Payload: ev.Payload}
+}
+
+// proposed uses the real projection rules, including per-field LWW and sticky
+// deletion. Backdated events require a sorted replay: applying an old deletion
+// onto the current projection could otherwise remove a row created after it.
+func (state *creditProjection) proposed(ctx context.Context, tx pgx.Tx, vaultID string, ev PushEvent) (*Projection, error) {
+	p, err := state.load(ctx, tx, vaultID)
+	if err != nil {
+		return nil, err
+	}
+	ledger := creditLedgerEvent(vaultID, ev)
+	if CompareHLC(ledger.HLC, state.head) <= 0 {
+		events, _, err := loadVaultEvents(ctx, tx, vaultID)
+		if err != nil {
+			return nil, err
+		}
+		events = append(events, ledger)
+		candidate, err := ApplyEvents(events)
+		return &candidate, err
+	}
+	candidate := *p
+	candidate.Entries = make(map[string]*EntryProjection, len(p.Entries)+1)
+	for id, entry := range p.Entries {
+		candidate.Entries[id] = entry
+	}
+	if old := p.Entries[ledger.TargetID]; old != nil {
+		entry := *old
+		candidate.Entries[ledger.TargetID] = &entry
+	}
+	if err := applyOne(&candidate, &ledger); err != nil {
+		return nil, err
+	}
+	return &candidate, nil
+}
+
+func creditAdmit(ctx context.Context, tx pgx.Tx, vaultID string, ev PushEvent, actorRole, actorAccountID string, state *creditProjection) error {
+	if !isCreditMutation(ev.EventType) {
 		return nil
 	}
 	var exists bool
@@ -135,60 +178,90 @@ func creditAdmit(ctx context.Context, tx pgx.Tx, vaultID string, ev PushEvent, a
 	if exists {
 		return credit.ErrLimit
 	}
-	if actorRole != "clerk" {
+	if actorRole != "clerk" && actorRole != "editor" {
 		return nil
 	}
-	var payload entryCreatedPayload
-	if err := json.Unmarshal(ev.Payload, &payload); err != nil {
-		return nil // Existing protocol accepts opaque legacy events; no projection exposure.
-	}
-	// Mobile entry ids are global primary keys. A fresh clerk event may not
-	// overwrite recorded evidence even when its new contact has no policy.
-	if payload.EntryID != "" {
-		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM events WHERE event_type IN ('entry_created','entry_amended','entry_deleted','entry_settled','entry_disputed','entry_accepted') AND (COALESCE(local_target_id,target_id::text)=$1 OR payload->>'entry_id'=$1) AND redacted_at IS NULL)`, payload.EntryID).Scan(&exists); err != nil {
-			return err
-		}
-		if exists {
-			return credit.ErrLimit
-		}
-	}
-	if _, err := uuid.Parse(payload.RelationshipID); err != nil {
-		return nil
-	}
-	// The customer's own limit, else the kaata default (which also covers
-	// a customer re-added as a new contact to get round a limit).
-	policy, err := credit.Effective(ctx, tx, vaultID, payload.RelationshipID)
+	override, err := credit.MemberOverride(ctx, tx, vaultID, actorAccountID)
 	if err != nil {
 		return err
 	}
-	if policy == nil || policy.Mode != "clerk_block" {
+	var relationshipID string
+	var created entryCreatedPayload
+	if ev.EventType == EventEntryCreated {
+		if err := json.Unmarshal(ev.Payload, &created); err != nil {
+			return nil // Opaque legacy events carry no projection exposure.
+		}
+		// Entry IDs are global. Editors cannot evade one customer's hard limit
+		// by reusing its row ID under a different, warning-only customer.
+		if created.EntryID != "" {
+			if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM events WHERE event_type IN ('entry_created','entry_amended','entry_deleted','entry_settled','entry_disputed','entry_accepted') AND (COALESCE(local_target_id,target_id::text)=$1 OR payload->>'entry_id'=$1) AND redacted_at IS NULL)`, created.EntryID).Scan(&exists); err != nil {
+				return err
+			}
+			if exists {
+				return credit.ErrLimit
+			}
+		}
+		relationshipID = created.RelationshipID
+	} else {
+		if override == "bypass" {
+			return nil
+		}
+		// Warning-only/no-policy editing retains its existing offline behavior
+		// and avoids loading the complete ledger on the server.
+		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM customer_credit_limits WHERE vault_id=$1::uuid AND mode='clerk_block' AND ($2 OR restrict_editors))`, vaultID, actorRole == "clerk" || override == "enforce").Scan(&exists); err != nil {
+			return err
+		}
+		if !exists {
+			return nil
+		}
+		projection, err := state.load(ctx, tx, vaultID)
+		if err != nil {
+			return err
+		}
+		entry := projection.Entries[derefStr(ev.TargetID)]
+		if entry == nil {
+			// Do not plant an orphan amendment/deletion that a later backdated
+			// create could activate without another exposure check.
+			return credit.ErrLimit
+		}
+		relationshipID = entry.RelationshipID
+	}
+	if _, err := uuid.Parse(relationshipID); err != nil {
 		return nil
 	}
-	if ev.RelationshipID == nil || *ev.RelationshipID != payload.RelationshipID || payload.BackfillSynthetic != nil || payload.BackfillDisputedAt != nil || payload.BackfillSettledAt != nil || payload.BackfillAcceptedAt != nil {
+	policy, err := credit.Effective(ctx, tx, vaultID, relationshipID)
+	if err != nil {
+		return err
+	}
+	if policy == nil || !policy.Restricts(actorRole, override) {
+		return nil
+	}
+	if ev.RelationshipID == nil || *ev.RelationshipID != relationshipID {
 		return credit.ErrLimit
+	}
+	if ev.EventType == EventEntryCreated {
+		minor, err := credit.Minor(created.AmountAFN.String())
+		if err != nil || minor <= 0 || (created.Type != "payment" && created.Type != "debt") || created.BackfillSynthetic != nil || created.BackfillDisputedAt != nil || created.BackfillSettledAt != nil || created.BackfillAcceptedAt != nil || created.EntryID == "" || derefStr(ev.TargetID) != created.EntryID {
+			return credit.ErrLimit
+		}
 	}
 	projection, err := state.load(ctx, tx, vaultID)
 	if err != nil {
 		return err
 	}
-	if projection.Entries[payload.EntryID] != nil || ev.TargetID == nil || *ev.TargetID != payload.EntryID {
-		return credit.ErrLimit
-	}
-	before, err := creditBalanceWithProjection(ctx, tx, vaultID, payload.RelationshipID, projection)
+	before, err := creditBalanceWithProjection(ctx, tx, vaultID, relationshipID, projection)
 	if err != nil {
 		return err
 	}
-	delta, err := credit.Minor(payload.AmountAFN.String())
-	if err != nil || delta <= 0 {
+	candidate, err := state.proposed(ctx, tx, vaultID, ev)
+	if err != nil {
 		return credit.ErrLimit
 	}
-	if payload.Type == "payment" {
-		delta = -delta
-	} else if payload.Type != "debt" {
+	after, err := creditBalanceWithProjection(ctx, tx, vaultID, relationshipID, candidate)
+	if err != nil {
 		return credit.ErrLimit
 	}
-	after := new(big.Int).Add(big.NewInt(before), big.NewInt(delta))
-	if !after.IsInt64() || policy.Exceeded(before, after.Int64()) {
+	if policy.Exceeded(before, after) {
 		return errCreditOverLimit
 	}
 	return nil
@@ -397,16 +470,34 @@ func (h *Handler) CreditLimits(w http.ResponseWriter, r *http.Request) {
 			httpx.ErrorCode(w, 403, "insufficient_role", "manager required")
 			return
 		}
-		var p credit.Policy
+		// Missing on older apps: preserve the existing editor restriction rather
+		// than silently weakening it when they change a cap.
+		var input struct {
+			credit.Policy
+			RestrictEditors *bool `json:"restrict_editors"`
+		}
 		decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096))
 		decoder.DisallowUnknownFields()
-		if decoder.Decode(&p) != nil || !p.Valid() {
+		if decoder.Decode(&input) != nil || !input.Policy.Valid() {
 			httpx.Error(w, 400, "invalid credit limit")
 			return
 		}
+		p := input.Policy
 		if _, err := uuid.Parse(p.RelationshipID); err != nil {
 			httpx.Error(w, 400, "invalid relationship_id")
 			return
+		}
+		if input.RestrictEditors != nil {
+			p.RestrictEditors = *input.RestrictEditors
+		} else {
+			previous, err := credit.Read(r.Context(), tx, vaultID, p.RelationshipID)
+			if err != nil {
+				httpx.Error(w, 500, "storage unavailable")
+				return
+			}
+			if previous != nil {
+				p.RestrictEditors = previous.RestrictEditors
+			}
 		}
 		projection, err := LoadVaultProjection(r.Context(), tx, vaultID)
 		if err != nil {
@@ -423,14 +514,18 @@ func (h *Handler) CreditLimits(w http.ResponseWriter, r *http.Request) {
 		}
 		if p.Mode == "clerk_block" {
 			for _, member := range projection.Members {
-				if member.Role == "clerk" && member.RemovedAt == nil && strings.HasPrefix(member.AccountID, "local:") {
-					httpx.ErrorCode(w, 409, "clerk_cloud_enrollment_required", "enroll clerks with cloud accounts before hard limits")
+				if p.Restricts(member.Role, "inherit") && member.RemovedAt == nil && strings.HasPrefix(member.AccountID, "local:") {
+					code := "clerk_cloud_enrollment_required"
+					if member.Role == "editor" {
+						code = "staff_cloud_enrollment_required"
+					}
+					httpx.ErrorCode(w, 409, code, "enroll restricted members with cloud accounts before hard limits")
 					return
 				}
 			}
 		}
 		p.UpdatedAtMS = time.Now().UnixMilli()
-		_, err = tx.Exec(r.Context(), `INSERT INTO customer_credit_limits(vault_id,relationship_id,max_collect_minor,max_pay_minor,mode,updated_at_ms) VALUES($1::uuid,$2::uuid,$3,$4,$5,$6) ON CONFLICT(vault_id,relationship_id) DO UPDATE SET max_collect_minor=EXCLUDED.max_collect_minor,max_pay_minor=EXCLUDED.max_pay_minor,mode=EXCLUDED.mode,updated_at_ms=EXCLUDED.updated_at_ms`, vaultID, p.RelationshipID, p.MaxCollectMinor, p.MaxPayMinor, p.Mode, p.UpdatedAtMS)
+		_, err = tx.Exec(r.Context(), `INSERT INTO customer_credit_limits(vault_id,relationship_id,max_collect_minor,max_pay_minor,mode,restrict_editors,updated_at_ms) VALUES($1::uuid,$2::uuid,$3,$4,$5,$6,$7) ON CONFLICT(vault_id,relationship_id) DO UPDATE SET max_collect_minor=EXCLUDED.max_collect_minor,max_pay_minor=EXCLUDED.max_pay_minor,mode=EXCLUDED.mode,restrict_editors=EXCLUDED.restrict_editors,updated_at_ms=EXCLUDED.updated_at_ms`, vaultID, p.RelationshipID, p.MaxCollectMinor, p.MaxPayMinor, p.Mode, p.RestrictEditors, p.UpdatedAtMS)
 		if err != nil || tx.Commit(r.Context()) != nil {
 			httpx.Error(w, 500, "storage unavailable")
 			return
@@ -439,7 +534,7 @@ func (h *Handler) CreditLimits(w http.ResponseWriter, r *http.Request) {
 		httpx.JSON(w, 200, p)
 		return
 	}
-	rows, err := tx.Query(r.Context(), `SELECT relationship_id::text,max_collect_minor,max_pay_minor,mode,updated_at_ms FROM customer_credit_limits WHERE vault_id=$1::uuid ORDER BY relationship_id`, vaultID)
+	rows, err := tx.Query(r.Context(), `SELECT relationship_id::text,max_collect_minor,max_pay_minor,mode,restrict_editors,updated_at_ms FROM customer_credit_limits WHERE vault_id=$1::uuid ORDER BY relationship_id`, vaultID)
 	if err != nil {
 		httpx.Error(w, 500, "storage unavailable")
 		return
@@ -447,7 +542,7 @@ func (h *Handler) CreditLimits(w http.ResponseWriter, r *http.Request) {
 	out := []credit.Policy{}
 	for rows.Next() {
 		var p credit.Policy
-		if rows.Scan(&p.RelationshipID, &p.MaxCollectMinor, &p.MaxPayMinor, &p.Mode, &p.UpdatedAtMS) != nil {
+		if rows.Scan(&p.RelationshipID, &p.MaxCollectMinor, &p.MaxPayMinor, &p.Mode, &p.RestrictEditors, &p.UpdatedAtMS) != nil {
 			rows.Close()
 			httpx.Error(w, 500, "storage unavailable")
 			return

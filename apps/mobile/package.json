@@ -38,6 +38,8 @@
     "selftest:notification-navigation": "tsx lib/__dev__/notification-navigation-selftest.ts",
     "selftest:auth-redirect": "tsx lib/__dev__/auth-redirect-selftest.ts",
     "selftest:tally-ui": "tsx lib/__dev__/tally-ui-selftest.ts",
+    "selftest:selection-ui": "tsx lib/__dev__/selection-ui-selftest.ts",
+    "selftest:selection-scope": "tsx lib/__dev__/selection-scope-selftest.ts",
     "selftest:tally-highlight": "tsx lib/__dev__/tally-highlight-selftest.ts",
     "selftest:bell-badge": "tsx lib/__dev__/bell-badge-selftest.ts",
     "selftest:invite-dialog": "tsx lib/__dev__/invite-dialog-selftest.ts",
@@ -68,6 +70,10 @@
     "selftest:reminders-ui": "tsx lib/__dev__/reminders-ui-selftest.ts",
     "selftest:reminder-permission": "tsx lib/__dev__/reminder-permission-selftest.ts",
     "selftest:credit-limits": "tsx lib/__dev__/credit-limits-selftest.ts",
+    "selftest:member-credit-permissions": "tsx lib/__dev__/member-credit-permissions-selftest.ts",
+    "selftest:credit-shared": "tsx lib/__dev__/credit-shared-selftest.ts",
+    "selftest:credit-settings-ui": "tsx lib/__dev__/credit-settings-ui-selftest.ts",
+    "selftest:members-screen": "tsx lib/__dev__/members-screen-selftest.ts",
     "selftest:entry-create-ui": "tsx lib/__dev__/entry-create-ui-selftest.ts"
   },
   "dependencies": {

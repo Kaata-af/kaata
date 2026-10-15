@@ -41,7 +41,7 @@ import { isKnownEventType, isUserLedgerEventType } from "../events";
 import type { RoleGateResult } from "./role-gate";
 import { checkRoleForEvent } from "./role-gate";
 import type { QuarantineReason, TombstoneReason } from "../ingest-types";
-import { requiresCreditAdmission } from "../credit-admission";
+import { captureCreditMutationBaseline, requiresCreditAdmission } from "../credit-admission";
 
 type SQLiteTx = SQLite.SQLiteDatabase;
 
@@ -229,7 +229,7 @@ export async function applyAlreadyIngestedEvent(
           verdict = classifyRoleGateRefusal(gate, event.event_type);
           return; // commit the txn — gate doesn't mutate state.
         }
-        if (await requiresCreditAdmission(db, event, gate.current_role)) {
+        if (await requiresCreditAdmission(db, event, gate.current_role, gate.current_account_id)) {
           verdict = { kind: "quarantined", reason: "missing_prereq" };
           return;
         }
@@ -237,6 +237,7 @@ export async function applyAlreadyIngestedEvent(
         // 2. applier dispatch. Throws roll the sub-txn back; we classify
         // the throw outside the await so the verdict survives the rollback.
         try {
+          await captureCreditMutationBaseline(db, event);
           await applier(db as SQLiteTx, event);
         } catch (err) {
           verdict = classifyApplierThrow(err);

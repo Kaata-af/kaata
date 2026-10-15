@@ -11,6 +11,7 @@ import { formatAmount, formatRelative } from "../lib/format";
 import { t } from "../lib/i18n";
 import { icon } from "../lib/tokens";
 import type { PersonWithBalance } from "../lib/types";
+import { SelectionMark } from "./SelectionMark";
 
 // Stacked-card list row. Designed to live inside a rounded container with
 // borderWidth:1 and divider Views between rows.
@@ -27,6 +28,9 @@ export const PersonRow = memo(function PersonRow(props: {
   onPress: (person: PersonWithBalance) => void;
   onLongPress?: (person: PersonWithBalance) => void;
   creditStatus?: CreditStatus;
+  selecting?: boolean;
+  selected?: boolean;
+  disabled?: boolean;
 }) {
   const isRTL = useIsRTL();
   const { person } = props;
@@ -60,7 +64,11 @@ export const PersonRow = memo(function PersonRow(props: {
       onPress={() => props.onPress(person)}
       onLongPress={props.onLongPress ? () => props.onLongPress?.(person) : undefined}
       delayLongPress={350}
-      accessibilityRole="button"
+      disabled={props.disabled}
+      accessibilityRole={props.selecting ? "checkbox" : "button"}
+      accessibilityState={
+        props.selecting ? { checked: !!props.selected, disabled: !!props.disabled } : undefined
+      }
       // The long-press edit/remove sheet is invisible to assistive tech
       // without an explicit action — TalkBack exposes this as a custom
       // action ("activate" stays the plain tap).
@@ -73,9 +81,15 @@ export const PersonRow = memo(function PersonRow(props: {
       style={({ pressed }) => [
         styles.row,
         rowDir(isRTL),
+        props.selected && { backgroundColor: colors.bgSubtle },
         pressed && { backgroundColor: colors.bgMuted },
       ]}
     >
+      {props.selecting ? (
+        <View style={isRTL ? styles.selectionRTL : styles.selectionLTR}>
+          <SelectionMark selected={!!props.selected} />
+        </View>
+      ) : null}
       <View
         style={[
           styles.left,
@@ -151,6 +165,8 @@ const styles = StyleSheet.create({
     backgroundColor: colors.bgDefault,
   },
   left: { flex: 1 },
+  selectionLTR: { marginRight: 12 },
+  selectionRTL: { marginLeft: 12 },
   leftLTR: { marginRight: 12 },
   leftRTL: { marginLeft: 12 },
   // Name + optional link glyph on one line. The glyph is fixed; the name

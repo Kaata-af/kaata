@@ -48,7 +48,11 @@ import {
 import { applyVaultSettingSet } from "./vault_settings";
 import { notifyProjectionConflictsChanged } from "../projection-conflicts";
 import { Mutex } from "../util/mutex";
-import { deferCreditAdmission, requiresCreditAdmission } from "../credit-admission";
+import {
+  captureCreditMutationBaseline,
+  deferCreditAdmission,
+  requiresCreditAdmission,
+} from "../credit-admission";
 
 // Serializes every applyEvent transaction (and pull's post-batch patch tx —
 // see lib/sync/pull.ts). expo-sqlite's withTransactionAsync is documented
@@ -504,9 +508,12 @@ export async function applyEvent(
         return;
       }
 
+      await captureCreditMutationBaseline(db, stamped);
       if (
-        (await requiresCreditAdmission(db, stamped, gate.current_role)) &&
-        stamped.event_type === "entry_created"
+        (await requiresCreditAdmission(db, stamped, gate.current_role, gate.current_account_id)) &&
+        (stamped.event_type === "entry_created" ||
+          stamped.event_type === "entry_amended" ||
+          stamped.event_type === "entry_deleted")
       ) {
         await deferCreditAdmission(db, stamped);
         await setAppMetaInTx(db, HLC_LAST_KEY, serializeHLC(newHlc));

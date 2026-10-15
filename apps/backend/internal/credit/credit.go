@@ -17,7 +17,42 @@ type Policy struct {
 	MaxCollectMinor *int64 `json:"max_collect_minor"`
 	MaxPayMinor     *int64 `json:"max_pay_minor"`
 	Mode            string `json:"mode"`
+	RestrictEditors bool   `json:"restrict_editors"`
 	UpdatedAtMS     int64  `json:"updated_at_ms"`
+}
+
+// Restricts keeps credit authority separate from ledger write authority.
+// Owners/admins remain exempt; warning policies never refuse a mutation.
+func (p Policy) Restricts(role, override string) bool {
+	if p.Mode != "clerk_block" || (role != "clerk" && role != "editor") {
+		return false
+	}
+	switch override {
+	case "bypass":
+		return false
+	case "enforce":
+		return true
+	default:
+		return role == "clerk" || p.RestrictEditors
+	}
+}
+
+// MemberOverride reads only the current accepted membership seat. A removed
+// member's old exemption must not survive a later invitation into a new seat.
+func MemberOverride(ctx context.Context, tx pgx.Tx, vaultID, accountID string) (string, error) {
+	if accountID == "" {
+		return "inherit", nil
+	}
+	var override string
+	err := tx.QueryRow(ctx, `SELECT p.credit_limit_override
+	 FROM vault_member_credit_permissions p JOIN vault_members m
+	 ON m.id=p.vault_member_id AND m.vault_id=p.vault_id AND m.account_id=p.account_id
+	 WHERE p.vault_id=$1::uuid AND p.account_id=$2::uuid
+	 AND m.accepted_at IS NOT NULL AND m.revoked_at IS NULL`, vaultID, accountID).Scan(&override)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "inherit", nil
+	}
+	return override, err
 }
 
 func (p Policy) Valid() bool {
@@ -76,7 +111,7 @@ func Effective(ctx context.Context, tx pgx.Tx, vaultID, relationshipID string) (
 
 func Read(ctx context.Context, tx pgx.Tx, vaultID, relationshipID string) (*Policy, error) {
 	var p Policy
-	err := tx.QueryRow(ctx, `SELECT relationship_id::text,max_collect_minor,max_pay_minor,mode,updated_at_ms FROM customer_credit_limits WHERE vault_id=$1::uuid AND relationship_id=$2::uuid`, vaultID, relationshipID).Scan(&p.RelationshipID, &p.MaxCollectMinor, &p.MaxPayMinor, &p.Mode, &p.UpdatedAtMS)
+	err := tx.QueryRow(ctx, `SELECT relationship_id::text,max_collect_minor,max_pay_minor,mode,restrict_editors,updated_at_ms FROM customer_credit_limits WHERE vault_id=$1::uuid AND relationship_id=$2::uuid`, vaultID, relationshipID).Scan(&p.RelationshipID, &p.MaxCollectMinor, &p.MaxPayMinor, &p.Mode, &p.RestrictEditors, &p.UpdatedAtMS)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}

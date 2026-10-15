@@ -59,6 +59,7 @@ const mocks: Record<string, any> = {
   // variant, icon, label, disabled); Button's own geometry is Button's.
   "./Button": { Button: "Button" },
   "./InitialAvatar": { InitialAvatar: "Avatar" },
+  "./SelectionMark": { SelectionMark: "SelectionMark" },
   "./CreditStatusBadge": { CreditStatusBadge: "CreditStatusBadge" },
   "../lib/attribution": { chipActorFor: () => null },
   "../lib/calendar": { useCalendar() {} },
@@ -860,6 +861,39 @@ console.log(
 
 // The review guard, end to end. Last, because it is the only check that has
 // to await: the row re-enables its actions in a `finally` after the review.
+for (const direction of [false, true]) {
+  rtl = direction;
+  slots = [];
+  const selected: string[] = [];
+  let held = 0;
+  const props = {
+    ...base,
+    selecting: true,
+    selected: true,
+    onToggleSelection: (entry: any) => selected.push(entry.id),
+    onLongPress: () => held++,
+    tab: { by: "them", status: "pending", author_name: "Synthetic reviewer" },
+  };
+  const row = render(props);
+  assert.equal(body(row)?.props.accessibilityRole, "checkbox");
+  assert.deepEqual(body(row)?.props.accessibilityState, { checked: true, disabled: undefined });
+  assert.equal(body(row)?.props.onLongPress, undefined, "selection suppresses the edit gesture");
+  assert.equal(labelled(row, "tab.accept").length, 0, "selection suppresses final review actions");
+  assert.equal(nodes(row).find((node) => node.type === "SelectionMark")?.props.selected, true);
+  body(row)?.props.onPress();
+  body(row)?.props.onAccessibilityAction({ nativeEvent: { actionName: "activate" } });
+  assert.deepEqual(selected, ["1", "1"], "tap and assistive activation toggle selection");
+  assert.equal(body(render(props))?.props.accessibilityState.expanded, undefined);
+  assert.equal(held, 0);
+  const busy = render({ ...props, selectionDisabled: true });
+  assert.equal(body(busy)?.props.disabled, true);
+  body(busy)?.props.onAccessibilityAction({ nativeEvent: { actionName: "activate" } });
+  assert.equal(selected.length, 2, "busy rows ignore assistive activation too");
+}
+console.log(
+  "PASS: selected tally checkboxes replace expansion/review gestures and respect busy state in EN/FA",
+);
+
 void (async () => {
   rtl = false;
   slots = [];

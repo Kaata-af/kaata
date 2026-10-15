@@ -320,7 +320,7 @@ export async function appendEntryAmended(args: {
     type: EntryType;
     occurred_at_ms: number;
   }>;
-}): Promise<{ event_id: string } | null> {
+}): Promise<{ event_id: string; pending_admission?: boolean } | null> {
   if (
     args.changes.amount_afn !== undefined &&
     (typeof args.changes.amount_afn !== "number" ||
@@ -394,6 +394,7 @@ export async function appendEntryAmended(args: {
     },
   });
   if (!result.applied) {
+    if (result.reason === "credit_admission") return { event_id: eventId, pending_admission: true };
     if (result.reason === "role_gate" && result.role_gate) {
       throw new RoleGateRejectionError(result.role_gate);
     }
@@ -404,7 +405,7 @@ export async function appendEntryAmended(args: {
 
 export async function appendEntryDeleted(args: {
   entryId: string;
-}): Promise<{ event_id: string } | null> {
+}): Promise<{ event_id: string; pending_admission?: boolean } | null> {
   const eventId = Crypto.randomUUID();
   const installId = getInstallIdSync();
   const authorUserId = requireLocalSelfUserId();
@@ -454,6 +455,7 @@ export async function appendEntryDeleted(args: {
     },
   });
   if (!result.applied) {
+    if (result.reason === "credit_admission") return { event_id: eventId, pending_admission: true };
     if (result.reason === "role_gate" && result.role_gate) {
       throw new RoleGateRejectionError(result.role_gate);
     }
@@ -587,6 +589,14 @@ export async function appendPersonRenamed(args: {
   return { event_id: eventId };
 }
 
+// Optional for UI mutations that must stay in their captured book/account.
+// Background callers with an explicit vault keep their existing behavior.
+function assertExpectedMutationScope(vaultId: string, accountId: string | null | undefined): void {
+  if (accountId === undefined) return;
+  if (getActiveVaultIdSync() !== vaultId || getAccountIdSync() !== accountId)
+    throw new Error("ledger mutation context changed");
+}
+
 export async function appendPersonPhoneChanged(args: {
   userId: string;
   vaultId: string;
@@ -597,19 +607,25 @@ export async function appendPersonPhoneChanged(args: {
   // it's what carries the null to devices whose HLC guard skips the archive
   // event itself (see archivePerson).
   force?: boolean;
+  expectedAccountId?: string | null;
 }): Promise<{ event_id: string } | null> {
+  const expectedAccountId = args.expectedAccountId;
+  assertExpectedMutationScope(args.vaultId, expectedAccountId);
+  const authorSnapshot = expectedAccountId !== undefined ? requireLocalSelfUserId() : undefined;
   const db = await getDb();
+  assertExpectedMutationScope(args.vaultId, expectedAccountId);
   const row = await db.getFirstAsync<{ phone_e164: string | null }>(
     "SELECT phone_e164 FROM users WHERE id = ?",
     args.userId,
   );
+  assertExpectedMutationScope(args.vaultId, expectedAccountId);
   if (!row) return null;
   if (!args.force && (row.phone_e164 ?? null) === (args.phoneE164 ?? null)) return null;
 
   const eventId = Crypto.randomUUID();
   const installId = getInstallIdSync();
-  const authorUserId = requireLocalSelfUserId();
-  const accountId = getAccountIdSync();
+  const authorUserId = authorSnapshot ?? requireLocalSelfUserId();
+  const accountId = expectedAccountId !== undefined ? expectedAccountId : getAccountIdSync();
 
   const event: PersonPhoneChangedEvent = {
     event_id: eventId,
@@ -629,7 +645,16 @@ export async function appendPersonPhoneChanged(args: {
     payload: { phone_e164: args.phoneE164 },
   };
 
-  const result = await applyEvent(event, { origin: "local" });
+  const result = await applyEvent(event, {
+    origin: "local",
+    preflightAbort:
+      expectedAccountId === undefined
+        ? undefined
+        : async () => {
+            assertExpectedMutationScope(args.vaultId, expectedAccountId);
+            return false;
+          },
+  });
   if (!result.applied) {
     if (result.reason === "role_gate" && result.role_gate) {
       throw new RoleGateRejectionError(result.role_gate);
@@ -643,20 +668,26 @@ export async function appendPersonArchived(args: {
   userId: string;
   relationshipId: string;
   vaultId: string;
+  expectedAccountId?: string | null;
 }): Promise<{ event_id: string } | null> {
+  const expectedAccountId = args.expectedAccountId;
+  assertExpectedMutationScope(args.vaultId, expectedAccountId);
+  const authorSnapshot = expectedAccountId !== undefined ? requireLocalSelfUserId() : undefined;
   const db = await getDb();
+  assertExpectedMutationScope(args.vaultId, expectedAccountId);
   const row = await db.getFirstAsync<{ archived_at: number | null }>(
     "SELECT archived_at FROM relationships WHERE id = ? AND vault_id = ?",
     args.relationshipId,
     args.vaultId,
   );
+  assertExpectedMutationScope(args.vaultId, expectedAccountId);
   if (!row) return null;
   if (row.archived_at != null) return null;
 
   const eventId = Crypto.randomUUID();
   const installId = getInstallIdSync();
-  const authorUserId = requireLocalSelfUserId();
-  const accountId = getAccountIdSync();
+  const authorUserId = authorSnapshot ?? requireLocalSelfUserId();
+  const accountId = expectedAccountId !== undefined ? expectedAccountId : getAccountIdSync();
 
   const event: PersonArchivedEvent = {
     event_id: eventId,
@@ -679,11 +710,13 @@ export async function appendPersonArchived(args: {
   const result = await applyEvent(event, {
     origin: "local",
     preflightAbort: async (tx) => {
+      assertExpectedMutationScope(args.vaultId, expectedAccountId);
       const r = await tx.getFirstAsync<{ archived_at: number | null }>(
         "SELECT archived_at FROM relationships WHERE id = ? AND vault_id = ?",
         args.relationshipId,
         args.vaultId,
       );
+      assertExpectedMutationScope(args.vaultId, expectedAccountId);
       return !r || r.archived_at != null;
     },
   });

@@ -4,6 +4,7 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -12,6 +13,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "../../../components/Button";
+import { SelectionMark } from "../../../components/SelectionMark";
 import { ScreenHeader } from "../../../components/SettingsScreen";
 import { useToast } from "../../../components/Toast";
 import { colors } from "../../../lib/colors";
@@ -34,7 +36,7 @@ import {
   SessionChangedError,
   type SessionSnapshot,
 } from "../../../lib/auth";
-import { textDir, useIsRTL } from "../../../lib/direction";
+import { rowDir, textDir, useIsRTL } from "../../../lib/direction";
 import { getPerson } from "../../../lib/db";
 import { fonts, sansLineHeight } from "../../../lib/fonts";
 import { t } from "../../../lib/i18n";
@@ -59,6 +61,7 @@ export default function CreditLimitScreen() {
   const [collect, setCollect] = useState("");
   const [pay, setPay] = useState("");
   const [mode, setMode] = useState<CreditPolicy["mode"]>("warn");
+  const [restrictEditors, setRestrictEditors] = useState(false);
   const [context, setContext] = useState<{
     vaultId: string;
     relationshipId: string;
@@ -114,6 +117,7 @@ export default function CreditLimitScreen() {
           );
           setPay(p?.max_pay_minor == null ? "" : String(fromMinorUnits(p.max_pay_minor)));
           setMode(p?.mode ?? "warn");
+          setRestrictEditors(!!p?.restrict_editors);
           setInheritsDefault(covered);
           setCanSave(role === "owner" || role === "manager");
         });
@@ -132,6 +136,7 @@ export default function CreditLimitScreen() {
           );
           setPay(fresh?.max_pay_minor == null ? "" : String(fromMinorUnits(fresh.max_pay_minor)));
           setMode(fresh?.mode ?? "warn");
+          setRestrictEditors(!!fresh?.restrict_editors);
         });
       })().catch((err) => {
         // A failed LOAD is not a failed save.
@@ -164,6 +169,7 @@ export default function CreditLimitScreen() {
           max_collect_minor: maxCollect,
           max_pay_minor: maxPay,
           mode,
+          restrict_editors: restrictEditors,
           updated_at_ms: 0,
         },
         context.session,
@@ -255,25 +261,46 @@ export default function CreditLimitScreen() {
             accessibilityLabel={`${t("credit.maxPay")} (${currency})`}
           />
           <Text style={[styles.help, textDir(isRTL)]}>{t("credit.zeroHelp")}</Text>
-          <Button
-            label={t("credit.warnMode")}
-            variant={mode === "warn" ? "primary" : "secondary"}
-            onPress={() => {
-              editVersion.current++;
-              setMode("warn");
-            }}
-            disabled={!editable || busy}
-          />
-          <View style={styles.gap} />
-          <Button
-            label={t("credit.hardMode")}
-            variant={mode === "clerk_block" ? "primary" : "secondary"}
-            onPress={() => {
-              editVersion.current++;
-              setMode("clerk_block");
-            }}
-            disabled={!editable || busy}
-          />
+          <Text style={[styles.help, textDir(isRTL)]}>{t("credit.modeHelp")}</Text>
+          <View style={styles.modeCard} accessibilityRole="radiogroup">
+            {(["warn", "clerks", "editors"] as const).map((choice, index) => {
+              const selected =
+                choice === "warn"
+                  ? mode === "warn"
+                  : mode === "clerk_block" && restrictEditors === (choice === "editors");
+              return (
+                <Pressable
+                  key={choice}
+                  accessibilityRole="radio"
+                  accessibilityState={{ checked: selected, disabled: !editable || busy }}
+                  disabled={!editable || busy}
+                  style={({ pressed }) => [
+                    styles.modeRow,
+                    rowDir(isRTL),
+                    index > 0 && styles.modeDivider,
+                    selected && styles.modeSelected,
+                    pressed && { opacity: 0.65 },
+                  ]}
+                  onPress={() => {
+                    editVersion.current++;
+                    setMode(choice === "warn" ? "warn" : "clerk_block");
+                    setRestrictEditors(choice === "editors");
+                  }}
+                >
+                  <SelectionMark selected={selected} />
+                  <Text style={[styles.modeLabel, textDir(isRTL)]}>
+                    {t(
+                      choice === "warn"
+                        ? "credit.warnMode"
+                        : choice === "clerks"
+                          ? "credit.hardMode"
+                          : "credit.editorsMode",
+                    )}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
           <Text style={[styles.help, textDir(isRTL)]}>{t("credit.hardHelp")}</Text>
           <Text style={[styles.help, textDir(isRTL)]}>{t("credit.onlineSave")}</Text>
           {error ? <Text style={[styles.error, textDir(isRTL)]}>{error}</Text> : null}
@@ -290,6 +317,16 @@ export default function CreditLimitScreen() {
 }
 
 const styles = StyleSheet.create({
+  modeCard: {
+    borderWidth: 1,
+    borderColor: colors.borderDefault,
+    borderRadius: 12,
+    overflow: "hidden",
+  },
+  modeRow: { minHeight: 52, alignItems: "center", padding: 14, gap: 12 },
+  modeDivider: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.borderDefault },
+  modeSelected: { backgroundColor: colors.bgMuted },
+  modeLabel: { fontFamily: fonts.sansMedium, fontSize: 14, color: colors.textEmphasis, flex: 1 },
   screen: { flex: 1, backgroundColor: colors.bgDefault },
   body: { padding: 20, gap: 12 },
   label: { fontFamily: fonts.sansMedium, fontSize: 15, color: colors.textDefault },

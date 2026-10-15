@@ -237,13 +237,13 @@ func (s *Service) LatestSnapshot(ctx context.Context, vaultID string) (*Snapshot
 	hlcLast := snapshotMaxHLC(&projection, tail)
 
 	creditLimits := []credit.Policy{}
-	creditRows, err := s.pool.Query(ctx, `SELECT relationship_id::text,max_collect_minor,max_pay_minor,mode,updated_at_ms FROM customer_credit_limits WHERE vault_id=$1::uuid ORDER BY relationship_id`, vaultID)
+	creditRows, err := s.pool.Query(ctx, `SELECT relationship_id::text,max_collect_minor,max_pay_minor,mode,restrict_editors,updated_at_ms FROM customer_credit_limits WHERE vault_id=$1::uuid ORDER BY relationship_id`, vaultID)
 	if err != nil {
 		return nil, err
 	}
 	for creditRows.Next() {
 		var p credit.Policy
-		if err := creditRows.Scan(&p.RelationshipID, &p.MaxCollectMinor, &p.MaxPayMinor, &p.Mode, &p.UpdatedAtMS); err != nil {
+		if err := creditRows.Scan(&p.RelationshipID, &p.MaxCollectMinor, &p.MaxPayMinor, &p.Mode, &p.RestrictEditors, &p.UpdatedAtMS); err != nil {
 			creditRows.Close()
 			return nil, err
 		}

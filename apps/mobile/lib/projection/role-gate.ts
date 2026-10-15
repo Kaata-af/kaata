@@ -307,7 +307,7 @@ async function resolveRoleAt(
 //                                                lands in event_log for audit
 //                                                + replay)
 export type RoleGateResult =
-  | { ok: true; current_role?: VaultRole }
+  | { ok: true; current_role?: VaultRole; current_account_id?: string | null }
   | {
       ok: false;
       reason: "insufficient_role" | "unknown_actor" | "unsigned_event" | "bad_signature";
@@ -687,7 +687,10 @@ async function verifyMembershipWitnessForEvent(
 }
 
 export async function checkRoleForEvent(tx: SQLiteTx, event: LedgerEvent): Promise<RoleGateResult> {
-  const requirement = REQUIRED_ROLE[event.event_type];
+  const requirement =
+    event.event_type === "vault_setting_set" && event.payload.key === "archived_at"
+      ? "owner"
+      : REQUIRED_ROLE[event.event_type];
   if (requirement === "none") return { ok: true };
   if (event.vault_id == null) {
     // applyEvent already rejects this for local origin; remote/backfill
@@ -1096,8 +1099,9 @@ export async function checkRoleForEvent(tx: SQLiteTx, event: LedgerEvent): Promi
         required_role: requirement,
       };
     }
-    if (event.event_type === "entry_created" && event.origin === "local") {
-      const role = await resolveLocalEntryRoleAt(tx, event);
+    if (event.origin === "local") {
+      const authority = await resolveLocalEntryAuthorityAt(tx, event);
+      const role = authority?.role ?? null;
       if (role != null && !meetsRequirement(role, requirement))
         return {
           ok: false,
@@ -1105,7 +1109,11 @@ export async function checkRoleForEvent(tx: SQLiteTx, event: LedgerEvent): Promi
           current_role: role,
           required_role: requirement,
         };
-      return { ok: true, current_role: role ?? undefined };
+      return {
+        ok: true,
+        current_role: role ?? undefined,
+        current_account_id: authority?.accountId,
+      };
     }
     return { ok: true };
   }
@@ -1333,7 +1341,7 @@ export async function checkRoleForEvent(tx: SQLiteTx, event: LedgerEvent): Promi
     }
   }
 
-  return { ok: true, current_role: role ?? undefined };
+  return { ok: true, current_role: role ?? undefined, current_account_id: actorAccountId };
 }
 
 // Signing out clears the live actor stamp, but never grants owner authority.
@@ -1343,11 +1351,18 @@ export async function resolveLocalEntryRoleAt(
   tx: SQLiteTx,
   event: LedgerEvent,
 ): Promise<VaultRole | null> {
+  return (await resolveLocalEntryAuthorityAt(tx, event))?.role ?? null;
+}
+
+async function resolveLocalEntryAuthorityAt(
+  tx: SQLiteTx,
+  event: LedgerEvent,
+): Promise<{ role: VaultRole; accountId: string } | null> {
   if (!event.vault_id) return null;
   const candidates = await resolveAccountIdCandidates(getAccountIdSync());
   for (const candidate of candidates) {
     const found = await resolveRoleAt(tx, event.vault_id, candidate, event.hlc, event.event_id);
-    if (found != null) return found;
+    if (found != null) return { role: found, accountId: candidate };
   }
   return null;
 }

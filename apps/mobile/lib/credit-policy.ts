@@ -10,6 +10,8 @@ export type CreditPolicy = {
   max_collect_minor: number | null;
   max_pay_minor: number | null;
   mode: "warn" | "clerk_block";
+  /** Hard limits also cover editors. Missing on older policies means clerks only. */
+  restrict_editors?: boolean;
   updated_at_ms: number;
 };
 
@@ -26,6 +28,7 @@ export function creditExceeded(p: CreditPolicy | null, before: number, after: nu
 export function validCreditPolicy(p: CreditPolicy): boolean {
   return (
     (p.mode === "warn" || p.mode === "clerk_block") &&
+    (p.restrict_editors === undefined || typeof p.restrict_editors === "boolean") &&
     [p.max_collect_minor, p.max_pay_minor].every(
       (n) => n == null || (Number.isSafeInteger(n) && n >= 0 && n <= 999999999999),
     )

@@ -58,6 +58,10 @@ const identityListeners = new Set<() => void>();
 const routes: any[] = [],
   toasts: any[] = [],
   writes: any[] = [];
+const archivedPeople: { id: string; vaultId: string | null; accountId: string | null }[] = [];
+const archiveFailures = new Set<string>();
+let delayedArchive: Promise<void> | null = null;
+const backListeners = new Set<() => boolean>();
 let contactsReads = 0,
   permissionRequests = 0;
 let nextTimer = 0;
@@ -195,7 +199,13 @@ const native: Record<string, any> = {
   },
   StyleSheet: { create: (styles: any) => styles, hairlineWidth: 1 },
   useWindowDimensions: () => ({ width: screenWidth, height: 844 }),
-  BackHandler: { addEventListener: () => ({ remove() {} }), exitApp() {} },
+  BackHandler: {
+    addEventListener: (_: string, listener: () => boolean) => {
+      backListeners.add(listener);
+      return { remove: () => backListeners.delete(listener) };
+    },
+    exitApp() {},
+  },
   Linking: {
     openSettings: async () => {
       permissionRequests++;
@@ -389,8 +399,15 @@ const libMocks: Record<string, any> = {
       activeVaultsOverride ?? (vaultId ? [{ id: vaultId, name: "Shop", currency: "AFN" }] : []),
     listAllVaultsIncludingArchived: async () =>
       vaultId ? [{ id: vaultId, name: "Shop", currency: "AFN", archived: false }] : [],
-    archivePerson: async () => {
-      throw new Error("unexpected archive");
+    archivePerson: async (id: string) => {
+      const scope = vaultId;
+      archivedPeople.push({ id, vaultId: scope, accountId: cachedAccountId });
+      if (delayedArchive) await delayedArchive;
+      if (archiveFailures.has(id)) throw new Error("fixture archive failed");
+      peopleByVault.set(
+        scope,
+        (peopleByVault.get(scope) ?? []).filter((person) => person.id !== id),
+      );
     },
     createPerson: async (...args: any[]) => {
       writes.push(args);
@@ -436,6 +453,8 @@ const componentMocks: Record<string, any> = {
   InitialAvatar: { InitialAvatar: "Avatar" },
   NotificationInbox: { NotificationBell: "Bell" },
   PersonRow: { PersonRow: "PersonRow" },
+  SelectionToolbar: { SelectionToolbar: "SelectionToolbar", SelectionMark: "SelectionMark" },
+  SelectionMark: { SelectionMark: "SelectionMark" },
   ProfileSettingsSheet: { ProfileSettingsSheet: "Settings" },
   Tabs: { Tabs: "Tabs" },
   Toast: { useToast: () => toast, useToastOffset: () => homeToastOffset },
@@ -468,6 +487,7 @@ const home = compile("../../app/index", {
   ...screenMocks("../"),
   "expo-haptics": {
     impactAsync: async () => {},
+    selectionAsync: async () => {},
     ImpactFeedbackStyle: { Light: "light", Soft: "soft" },
   },
   "react-native-gesture-handler": { Gesture: { Pan: () => gesture }, GestureDetector: "Gesture" },
@@ -480,6 +500,7 @@ function unmount() {
   timers.clear();
   appListeners.clear();
   identityListeners.clear();
+  backListeners.clear();
 }
 function fixture(
   component: () => Node,
@@ -514,6 +535,9 @@ function fixture(
   routes.length = 0;
   toasts.length = 0;
   writes.length = 0;
+  archivedPeople.length = 0;
+  archiveFailures.clear();
+  delayedArchive = null;
   contactsReads = 0;
   permissionRequests = 0;
   activeVaultsOverride = null;
@@ -607,6 +631,282 @@ async function main() {
     if (typeof node.type === "function") return renderList(node.type(node.props));
     return { ...node, props: { ...node.props, children: renderList(node.props.children) } };
   };
+
+  // Exercise the real home handlers, not a second implementation of selection.
+  // The animated rail mounts BOTH tabs, so select-all must follow the active
+  // page and deduplicate the no-tally contact rendered on each page.
+  const homeRows = () =>
+    nodes(renderList(homeSearch() ?? homePages())).filter((node) => node.type === "PersonRow");
+  const homeRow = (id: string) => homeRows().find((node) => node.props.person.id === id)!;
+  const selection = () => find("SelectionToolbar");
+  const selectedHomeIds = () => [
+    ...new Set(
+      homeRows()
+        .filter((row) => row.props.selected)
+        .map((row) => row.props.person.id),
+    ),
+  ];
+  const openSelection = async () => {
+    const trigger = byLabel("selection.contacts");
+    assert.ok(trigger, "writers have an explicit contact selection control");
+    trigger.props.onPress();
+    await flush();
+    assert.ok(selection(), "Select contacts opens the selection toolbar");
+  };
+  const removeSelected = async () => {
+    const action = selection()?.props.actions.find((item: any) => item.key === "remove");
+    assert.ok(action, "selected contacts offer Remove");
+    action.onPress();
+    await flush();
+    const dialog = nodes(tree).find(
+      (node) =>
+        node.type === "ConfirmDialog" && node.props.title === "selection.removeContactsTitle",
+    );
+    assert.ok(dialog?.props.visible, "bulk removal waits for a count-specific confirmation");
+    return dialog;
+  };
+
+  for (const nextRtl of [false, true]) {
+    fixture(home, "owner", nextRtl);
+    const payPerson = { ...people[0], id: "pay-person", name: "Pay Person", balance: -200 };
+    peopleByVault.set("kaata", [...people, payPerson]);
+    await flush();
+    const changeSelectionQuery = byLabel("customers.search")!.props.onChangeText;
+    await openSelection();
+    assert.equal(selection()!.props.count, 0, "explicit selection starts empty");
+    assert.equal(
+      selection()!.props.total,
+      2,
+      "only the active side and no-tally contacts are selectable",
+    );
+    assert.ok(
+      homeRows().some((row) => row.props.selecting),
+      "rows expose selection mode",
+    );
+    homeRow("ahmad").props.onPress(people[0]);
+    await flush();
+    assert.equal(routes.length, 0, "selection taps do not navigate into the contact");
+    assert.equal(selection()!.props.count, 1);
+    assert.deepEqual(selectedHomeIds(), ["ahmad"]);
+    homeRow("ahmad").props.onPress(people[0]);
+    await flush();
+    assert.equal(selection()!.props.count, 0, "a selected row can be deselected");
+    selection()!.props.onToggleAll();
+    await flush();
+    assert.equal(selection()!.props.count, 2, "select-all includes no-tally contacts once");
+    assert.deepEqual(selectedHomeIds().sort(), ["ahmad", "fatima"]);
+    find("Tabs")!.props.onChange("pay");
+    await flush();
+    assert.equal(selection()!.props.count, 1, "switching sides prunes contacts on the old side");
+    assert.deepEqual(selectedHomeIds(), ["fatima"]);
+    selection()!.props.onToggleAll();
+    await flush();
+    assert.deepEqual(selectedHomeIds().sort(), ["fatima", "pay-person"]);
+    find("Tabs")!.props.onChange("collect");
+    await flush();
+    assert.deepEqual(selectedHomeIds(), ["fatima"]);
+    selection()!.props.onToggleAll();
+    await flush();
+    selection()!.props.onToggleAll();
+    await flush();
+    assert.equal(selection()!.props.count, 0, "select-all toggles back to an empty selection");
+    selection()!.props.onToggleAll();
+    await flush();
+    changeSelectionQuery("فاطمه");
+    await flush();
+    assert.equal(selection()!.props.count, 1, "search prunes selected contacts outside the result");
+    assert.deepEqual(selectedHomeIds(), ["fatima"]);
+    changeSelectionQuery("nobody");
+    await flush();
+    assert.equal(selection()!.props.count, 0, "empty search cannot retain hidden selections");
+    assert.equal(selection()!.props.total, 0);
+    changeSelectionQuery("");
+    await flush();
+    assert.equal(
+      selection()!.props.count,
+      0,
+      "clearing search does not silently reselect hidden rows",
+    );
+    selection()!.props.onClose();
+    await flush();
+    assert.equal(selection(), undefined, "Done exits selection mode");
+    assert.ok(homeRows().every((row) => !row.props.selecting && !row.props.selected));
+    assert.equal(archivedPeople.length, 0, "selecting and closing do not write ledger data");
+  }
+
+  fixture(home, "owner");
+  groupState = {
+    groups: [{ id: "family", name: "Family", member_count: 1 }],
+    groupsByPerson: { ahmad: ["family"] },
+  };
+  await flush();
+  await openSelection();
+  selection()!.props.onToggleAll();
+  await flush();
+  find("CustomerListSheet")!.props.onChange({ sort: "recent", group: "family" });
+  await flush();
+  assert.equal(selection()!.props.count, 1, "group filtering prunes hidden selected contacts");
+  assert.deepEqual(selectedHomeIds(), ["ahmad"]);
+  selection()!.props.onToggleAll();
+  await flush();
+  assert.equal(selection()!.props.count, 0);
+  selection()!.props.onToggleAll();
+  await flush();
+  assert.equal(selection()!.props.count, 1, "select-all stays inside the visible group filter");
+  applyRole("viewer");
+  await flush();
+  await runTimers();
+  assert.equal(selection(), undefined, "a role downgrade closes contact selection");
+  assert.equal(byLabel("selection.contacts"), undefined);
+  assert.deepEqual(selectedHomeIds(), []);
+
+  fixture(home, "owner");
+  await flush();
+  await openSelection();
+  selection()!.props.onToggleAll();
+  await flush();
+  peopleByVault.set("kaata", [people[1]]);
+  ledgerEvents.emitLedgerApplied(vaultId, "remote");
+  await runTimers();
+  assert.equal(selection()!.props.count, 1, "a remotely removed contact leaves the selection");
+  assert.deepEqual(selectedHomeIds(), ["fatima"]);
+
+  fixture(home, "owner");
+  persistedAccountId = cachedAccountId = "first-account";
+  await flush();
+  await openSelection();
+  selection()!.props.onToggleAll();
+  await flush();
+  cachedAccountId = "next-account";
+  for (const listener of [...identityListeners]) listener();
+  await flush();
+  assert.equal(selection(), undefined, "switching account clears contact selection");
+  assert.deepEqual(selectedHomeIds(), []);
+
+  fixture(home, "owner");
+  await flush();
+  await openSelection();
+  homeRow("ahmad").props.onPress(people[0]);
+  await flush();
+  const backHandled = [...backListeners].reverse().some((listener) => listener());
+  await flush();
+  assert.equal(backHandled, true);
+  assert.equal(selection(), undefined, "Android Back leaves selection before leaving home");
+  assert.equal(
+    toasts.some((message) => message[0] === "home.exit.hint"),
+    false,
+  );
+
+  fixture(home, "owner");
+  await flush();
+  await openSelection();
+  selection()!.props.onToggleAll();
+  await flush();
+  const cancelRemoval = await removeSelected();
+  assert.equal(tParams.get("selection.removeContactsTitle")?.count, 2);
+  cancelRemoval.props.onCancel();
+  await flush();
+  assert.equal(archivedPeople.length, 0, "cancelling bulk confirmation never removes contacts");
+  assert.equal(selection()!.props.count, 2, "cancel keeps the selection available");
+  const staleRemoval = await removeSelected();
+  vaultId = "second-kaata";
+  peopleByVault.set(vaultId, [{ ...people[0], id: "second-person" }]);
+  ledgerEvents.emitLedgerApplied(vaultId, "remote");
+  await runTimers();
+  assert.equal(selection(), undefined, "switching kaata clears selection and its toolbar");
+  await staleRemoval.props.onConfirm();
+  await flush();
+  assert.equal(archivedPeople.length, 0, "a stale confirmation cannot mutate the next kaata");
+
+  fixture(home, "owner");
+  await flush();
+  await openSelection();
+  selection()!.props.onToggleAll();
+  await flush();
+  let finishArchive!: () => void;
+  delayedArchive = new Promise((resolve) => {
+    finishArchive = resolve;
+  });
+  const doubleRemoval = await removeSelected();
+  const firstRemoval = doubleRemoval.props.onConfirm();
+  const secondRemoval = doubleRemoval.props.onConfirm();
+  await flush();
+  assert.equal(archivedPeople.length, 1, "a double confirmation starts only one batch");
+  assert.equal(selection()!.props.busy, true, "the toolbar locks while a batch is in flight");
+  finishArchive();
+  await Promise.all([firstRemoval, secondRemoval]);
+  await flush();
+  assert.deepEqual(archivedPeople.map((person) => person.id).sort(), ["ahmad", "fatima"]);
+  assert.ok(archivedPeople.every((person) => person.vaultId === "kaata"));
+  assert.deepEqual(homeIds(), [], "completed removals refresh the visible contact list");
+  assert.equal(
+    tParams.get("selection.contactsRemoved")?.count,
+    2,
+    "success counts completed writes",
+  );
+
+  fixture(home, "owner");
+  await flush();
+  await openSelection();
+  selection()!.props.onToggleAll();
+  await flush();
+  let finishScopedArchive!: () => void;
+  delayedArchive = new Promise((resolve) => {
+    finishScopedArchive = resolve;
+  });
+  const scopedRemoval = await removeSelected();
+  scopedRemoval.props.onConfirm();
+  await flush();
+  assert.equal(archivedPeople.length, 1);
+  vaultId = "next-kaata";
+  peopleByVault.set(vaultId, [{ ...people[0], id: "next-person" }]);
+  ledgerEvents.emitLedgerApplied(vaultId, "remote");
+  await runTimers();
+  finishScopedArchive();
+  await flush();
+  assert.equal(archivedPeople.length, 1, "a scope switch during a batch stops remaining writes");
+  assert.equal(archivedPeople[0].vaultId, "kaata");
+  assert.deepEqual(
+    homeIds(),
+    ["next-person"],
+    "the finished old write cannot replace the new kaata",
+  );
+
+  fixture(home, "owner");
+  archiveFailures.add("fatima");
+  await flush();
+  await openSelection();
+  selection()!.props.onToggleAll();
+  await flush();
+  const partialRemoval = await removeSelected();
+  await partialRemoval.props.onConfirm();
+  await flush();
+  assert.deepEqual(archivedPeople.map((person) => person.id).sort(), ["ahmad", "fatima"]);
+  assert.deepEqual(homeIds(), ["fatima"], "a failed archive does not conceal the failed contact");
+  assert.equal(selection()!.props.count, 1, "failed contacts remain selected for retry");
+  assert.equal(selection()!.props.busy, false, "a failed batch releases its busy guard");
+  assert.deepEqual(selectedHomeIds(), ["fatima"]);
+  assert.ok(
+    toasts.some((message) => message[1] === "error"),
+    "partial failure is reported",
+  );
+  assert.equal(
+    tParams.get("selection.contactsRemoved")?.count,
+    1,
+    "partial success counts completed writes",
+  );
+  assert.equal(tParams.get("selection.partialFailure")?.count, 1);
+  archiveFailures.clear();
+  const retryRemoval = await removeSelected();
+  retryRemoval.props.onConfirm();
+  await flush();
+  assert.deepEqual(
+    archivedPeople.map((person) => person.id),
+    ["ahmad", "fatima", "fatima"],
+    "retry only writes the previously failed contact",
+  );
+  assert.deepEqual(homeIds(), []);
+
   for (const nextRole of ["viewer", "owner", "clerk"] as const)
     for (const nextPlatform of ["android", "ios"])
       for (const nextRtl of [false, true]) {
@@ -618,6 +918,11 @@ async function main() {
         const button = byLabel("personAdd.new");
         assert.ok(input && sort, `${nextRole} has persistent search and sort`);
         assert.equal(button != null, nextRole !== "viewer", "only writers get the plus");
+        assert.equal(
+          byLabel("selection.contacts") != null,
+          nextRole === "owner",
+          "clerks and viewers have no bulk history mutation control",
+        );
         assert.equal(
           nodes(tree).some(
             (node) => node.type === "Text" && node.props.children === "readonly.badge",
@@ -1607,7 +1912,7 @@ async function main() {
   assert.deepEqual(routes.at(-1), { pathname: "/person/[id]", params: { id: "created" } });
   unmount();
   console.log(
-    "PASS: combined collect/pay home search, direction headings and remembered-tab/stale-swipe guards, persistent sort/add controls, EN/FA and 320px keyboard layout, zero-tally/phone searches, multi-group/sort composition, scoped live/resume reloads, in-place role downgrades, late-read and unmount guards, no viewer phone-book reads/prompts or writes, stable writable tally refresh and authorized creation",
+    "PASS: contact multi-select, visible-side select-all, search/group/remote pruning, role/account/vault clearing, Back/Done/cancel, guarded bulk removal and partial-failure retry; combined collect/pay home search, direction headings and remembered-tab/stale-swipe guards, persistent sort/add controls, EN/FA and 320px keyboard layout, zero-tally/phone searches, multi-group/sort composition, scoped live/resume reloads, in-place role downgrades, late-read and unmount guards, no viewer phone-book reads/prompts or writes, stable writable tally refresh and authorized creation",
   );
 }
 void main().catch((error) => {

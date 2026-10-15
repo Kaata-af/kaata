@@ -485,8 +485,18 @@ func (s *Service) Update(ctx context.Context, in UpdateInput) (UpdateResult, err
 		return UpdateResult{}, err
 	}
 
-	if err := requireOwner(ctx, tx, in.VaultID, in.AccountID); err != nil {
+	callerRole, err := requireOwnerOrManager(ctx, tx, in.VaultID, in.AccountID)
+	if err != nil {
 		return UpdateResult{}, err
+	}
+	if callerRole != "owner" {
+		var archived bool
+		if err := tx.QueryRow(ctx, `SELECT archived_at IS NOT NULL FROM vaults WHERE vault_id=$1::uuid`, in.VaultID).Scan(&archived); err != nil {
+			return UpdateResult{}, fmt.Errorf("read archive state: %w", err)
+		}
+		if archived {
+			return UpdateResult{}, ErrAlreadyArchived
+		}
 	}
 
 	var oldName, oldCurrency string

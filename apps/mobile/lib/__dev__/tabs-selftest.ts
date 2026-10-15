@@ -223,6 +223,20 @@ assert.ok(MIGRATION_034_DDL, "migration034 preserves credit policy and deferred 
 const MIGRATION_038_DDL =
   /execAsync\(`([^`]*CREATE TABLE IF NOT EXISTS kaata_credit_defaults[^`]*)`\)/.exec(dbSource)?.[1];
 assert.ok(MIGRATION_038_DDL, "migration038 adds the kaata default credit limit");
+const EDITOR_LIMIT_DDL = /ALTER TABLE \$\{table\} ADD COLUMN restrict_editors[^`]+/.exec(
+  dbSource,
+)?.[0];
+assert.ok(EDITOR_LIMIT_DDL, "migration040 editor credit restrictions");
+const CREDIT_BASELINES_DDL =
+  /execAsync\(`([^`]*CREATE TABLE IF NOT EXISTS credit_mutation_baselines[^`]*)`\)/.exec(
+    dbSource,
+  )?.[1];
+assert.ok(CREDIT_BASELINES_DDL, "migration040 keeps snapshot mutation baselines");
+const MEMBER_CREDIT_DDL =
+  /execAsync\(`([^`]*CREATE TABLE IF NOT EXISTS vault_member_credit_permissions[^`]*)`\)/.exec(
+    dbSource,
+  )?.[1];
+assert.ok(MEMBER_CREDIT_DDL, "migration040 member credit exceptions");
 
 const VAULT = "fixture-vault";
 const SELF = "fixture-self";
@@ -284,6 +298,10 @@ function openFixture(): void {
     ${MIGRATION_032_DDL}
     ${MIGRATION_034_DDL}
     ${MIGRATION_038_DDL}
+    ${EDITOR_LIMIT_DDL!.replace("${table}", "customer_credit_limits")};
+    ${EDITOR_LIMIT_DDL!.replace("${table}", "kaata_credit_defaults")};
+    ${CREDIT_BASELINES_DDL}
+    ${MEMBER_CREDIT_DDL}
     INSERT INTO vaults VALUES ('${VAULT}', 'AFN');
     INSERT INTO users VALUES ('${SELF}', '+93700111222', 'Synthetic Owner', 1, NULL, NULL, 1, 1, NULL, NULL);
     INSERT INTO users VALUES ('${CONTACT}', '+93700333444', 'Synthetic Contact', 0, NULL, NULL, 1, 1, NULL, NULL);

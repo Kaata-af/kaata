@@ -1005,6 +1005,10 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (CreateResult, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	linkCredit, err := s.beginLinkCredit(ctx, tx, in.VaultID, in.RelationshipID, in.AccountID)
+	if err != nil {
+		return CreateResult{}, err
+	}
 	var tabID string
 	if err := checkContactBinding(ctx, tx, "", "a", currency, in.VaultID, in.RelationshipID); err != nil {
 		return CreateResult{}, err
@@ -1043,6 +1047,9 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (CreateResult, err
 	}
 
 	if err := setLinkBoundary(ctx, tx, tabID, "a", in.LinkedAtMS); err != nil {
+		return CreateResult{}, err
+	}
+	if err := s.finishLinkCredit(ctx, tx, linkCredit); err != nil {
 		return CreateResult{}, err
 	}
 	tab, err := loadTab(ctx, tx, tabID, "a")
@@ -1162,6 +1169,12 @@ func (s *Service) Join(ctx context.Context, p Party, in JoinInput) (TabResponse,
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	linkVault, linkRelationship := creditLinkDestination(p, in.VaultID, in.RelationshipID)
+	linkCredit, err := s.beginLinkCredit(ctx, tx, linkVault, linkRelationship, in.AccountID)
+	if err != nil {
+		return TabResponse{}, err
+	}
+	selectedParty := p
 	locked, err := lockOpenTab(ctx, tx, p.TabID)
 	if err != nil {
 		return TabResponse{}, err
@@ -1169,6 +1182,9 @@ func (s *Service) Join(ctx context.Context, p Party, in JoinInput) (TabResponse,
 	p, err = recheckParty(ctx, tx, p, rankEditor, true)
 	if err != nil {
 		return TabResponse{}, err
+	}
+	if !sameCreditVault(selectedParty, p) {
+		return TabResponse{}, ErrNotFound
 	}
 	if err := checkPartyClaim(ctx, tx, p, in.AccountID); err != nil {
 		return TabResponse{}, err
@@ -1196,6 +1212,9 @@ func (s *Service) Join(ctx context.Context, p Party, in JoinInput) (TabResponse,
 		return TabResponse{}, fmt.Errorf("join party: %w", err)
 	}
 	if err := setLinkBoundary(ctx, tx, p.TabID, p.Role, in.LinkedAtMS); err != nil {
+		return TabResponse{}, err
+	}
+	if err := s.finishLinkCredit(ctx, tx, linkCredit); err != nil {
 		return TabResponse{}, err
 	}
 	if _, err := bumpRev(ctx, tx, p.TabID, p.Role, p.pushEvent("updated", "")); err != nil {
@@ -1230,6 +1249,12 @@ func (s *Service) Bind(ctx context.Context, p Party, in BindInput) (TabResponse,
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	linkVault, linkRelationship := creditLinkDestination(p, in.VaultID, in.RelationshipID)
+	linkCredit, err := s.beginLinkCredit(ctx, tx, linkVault, linkRelationship, &in.AccountID)
+	if err != nil {
+		return TabResponse{}, err
+	}
+	selectedParty := p
 	locked, err := lockOpenTab(ctx, tx, p.TabID)
 	if err != nil {
 		return TabResponse{}, err
@@ -1237,6 +1262,9 @@ func (s *Service) Bind(ctx context.Context, p Party, in BindInput) (TabResponse,
 	p, err = recheckParty(ctx, tx, p, rankEditor, true)
 	if err != nil {
 		return TabResponse{}, err
+	}
+	if !sameCreditVault(selectedParty, p) {
+		return TabResponse{}, ErrNotFound
 	}
 	if err := checkPartyClaim(ctx, tx, p, &in.AccountID); err != nil {
 		return TabResponse{}, err
@@ -1272,6 +1300,9 @@ func (s *Service) Bind(ctx context.Context, p Party, in BindInput) (TabResponse,
 		return TabResponse{}, fmt.Errorf("bind party: %w", err)
 	}
 	if err := setLinkBoundary(ctx, tx, p.TabID, p.Role, in.LinkedAtMS); err != nil {
+		return TabResponse{}, err
+	}
+	if err := s.finishLinkCredit(ctx, tx, linkCredit); err != nil {
 		return TabResponse{}, err
 	}
 	if !unchanged {
@@ -1425,39 +1456,23 @@ func (s *Service) Append(ctx context.Context, p Party, in AppendInput) (AppendRe
 	if locked.ClosedAt != nil {
 		return AppendResult{}, ErrTabClosed
 	}
-	if p.effectiveRole() == "clerk" && p.VaultID != nil && p.RelationshipID != nil {
-		// The customer's own limit, else the kaata default.
-		policy, err := credit.Effective(ctx, tx, *p.VaultID, *p.RelationshipID)
-		if err != nil {
-			return AppendResult{}, err
-		}
-		if policy != nil && policy.Mode == "clerk_block" {
-			if s.creditBalance == nil {
-				return AppendResult{}, fmt.Errorf("credit admission unavailable")
+	delta := partyCreditDelta(p, in.Direction, minor)
+	if err := s.admitCreditDelta(ctx, tx, p, delta); err != nil {
+		if errors.Is(err, credit.ErrLimit) {
+			// The details let the kaata's owner see the attempt (audit #24).
+			entryType := "debt"
+			if delta < 0 {
+				entryType = "payment"
 			}
-			before, err := s.creditBalance(ctx, tx, *p.VaultID, *p.RelationshipID)
-			if err != nil {
+			if _, err := tx.Exec(ctx, `INSERT INTO customer_credit_tab_refusals(tab_id,entry_id,vault_id,relationship_id,entry_type,amount_minor,actor_account_id) VALUES($1::uuid,$2::uuid,$3::uuid,$4::uuid,$5,$6,NULLIF($7,'')::uuid) ON CONFLICT DO NOTHING`, p.TabID, in.ID, *p.VaultID, *p.RelationshipID, entryType, minor, p.ActorAccountID); err != nil {
 				return AppendResult{}, err
 			}
-			delta := minor
-			if (p.Role == "a" && in.Direction == "b_to_a") || (p.Role == "b" && in.Direction == "a_to_b") {
-				delta = -delta
+			if err := tx.Commit(ctx); err != nil {
+				return AppendResult{}, fmt.Errorf("commit credit refusal: %w", err)
 			}
-			if (delta > 0 && before > 9223372036854775807-delta) || (delta < 0 && before < (-9223372036854775807-1)-delta) || policy.Exceeded(before, before+delta) {
-				// The details let the kaata's owner see the attempt (audit #24).
-				entryType := "debt"
-				if delta < 0 {
-					entryType = "payment"
-				}
-				if _, err := tx.Exec(ctx, `INSERT INTO customer_credit_tab_refusals(tab_id,entry_id,vault_id,relationship_id,entry_type,amount_minor,actor_account_id) VALUES($1::uuid,$2::uuid,$3::uuid,$4::uuid,$5,$6,NULLIF($7,'')::uuid) ON CONFLICT DO NOTHING`, p.TabID, in.ID, *p.VaultID, *p.RelationshipID, entryType, minor, p.ActorAccountID); err != nil {
-					return AppendResult{}, err
-				}
-				if err := tx.Commit(ctx); err != nil {
-					return AppendResult{}, fmt.Errorf("commit credit refusal: %w", err)
-				}
-				return AppendResult{}, credit.ErrLimit
-			}
+			return AppendResult{}, credit.ErrLimit
 		}
+		return AppendResult{}, err
 	}
 
 	rev, err := bumpRev(ctx, tx, p.TabID, p.Role, p.pushEvent("entry_created", in.ID))
@@ -1486,6 +1501,131 @@ func (s *Service) Append(ctx context.Context, p Party, in AppendInput) (AppendRe
 	}
 	s.poke(ctx, p.TabID)
 	return AppendResult{Entry: e, Tab: tab, DuplicateHint: hint, Created: true}, nil
+}
+
+// partyCreditDelta converts a shared tab direction into this kaata's balance.
+func partyCreditDelta(p Party, direction string, minor int64) int64 {
+	if (p.Role == "a" && direction == "b_to_a") || (p.Role == "b" && direction == "a_to_b") {
+		return -minor
+	}
+	return minor
+}
+
+// admitCreditDelta is shared by new tallies and review/cancellation. Removing
+// an opposite-direction tally can increase exposure just as an append can.
+// Callers hold the kaata credit lock before taking the tab/entry row locks.
+func (s *Service) admitCreditDelta(ctx context.Context, tx pgx.Tx, p Party, delta int64) error {
+	if delta == 0 || p.VaultID == nil || p.RelationshipID == nil || (p.effectiveRole() != "clerk" && p.effectiveRole() != "editor") {
+		return nil
+	}
+	policy, err := credit.Effective(ctx, tx, *p.VaultID, *p.RelationshipID)
+	if err != nil || policy == nil {
+		return err
+	}
+	override, err := credit.MemberOverride(ctx, tx, *p.VaultID, p.ActorAccountID)
+	if err != nil {
+		return err
+	}
+	if !policy.Restricts(p.effectiveRole(), override) {
+		return nil
+	}
+	if s.creditBalance == nil {
+		return fmt.Errorf("credit admission unavailable")
+	}
+	before, err := s.creditBalance(ctx, tx, *p.VaultID, *p.RelationshipID)
+	if err != nil {
+		return err
+	}
+	if (delta > 0 && before > 9223372036854775807-delta) || (delta < 0 && before < (-9223372036854775807-1)-delta) || policy.Exceeded(before, before+delta) {
+		return credit.ErrLimit
+	}
+	return nil
+}
+
+// lockPartyCredit precedes every balance-changing tab mutation. Rechecking
+// the selected party afterwards prevents a binding race from using another
+// kaata's policy while we still hold the original kaata's admission lock.
+func lockPartyCredit(ctx context.Context, tx pgx.Tx, p Party) error {
+	if p.VaultID != nil {
+		return credit.Lock(ctx, tx, *p.VaultID)
+	}
+	return nil
+}
+
+func sameCreditVault(before, after Party) bool {
+	return (before.VaultID == nil && after.VaultID == nil) ||
+		(before.VaultID != nil && after.VaultID != nil && *before.VaultID == *after.VaultID)
+}
+
+func creditLinkDestination(p Party, vaultID, relationshipID *string) (*string, *string) {
+	if vaultID == nil {
+		vaultID = p.VaultID
+	}
+	if relationshipID == nil {
+		relationshipID = p.RelationshipID
+	}
+	return vaultID, relationshipID
+}
+
+type linkCreditAdmission struct {
+	vaultID, relationshipID string
+	policy                  *credit.Policy
+	before                  int64
+}
+
+// Linking may replace local history with a shared opening. Compare the full
+// source balance before and after, so preserving an existing over-cap balance
+// remains lawful while fabricating a larger opening cannot bypass the limit.
+func (s *Service) beginLinkCredit(ctx context.Context, tx pgx.Tx, vaultID, relationshipID, accountID *string) (*linkCreditAdmission, error) {
+	if vaultID == nil {
+		return nil, nil
+	}
+	if err := credit.Lock(ctx, tx, *vaultID); err != nil {
+		return nil, err
+	}
+	if err := checkVaultBinding(ctx, tx, vaultID, accountID); err != nil {
+		return nil, err
+	}
+	if relationshipID == nil || accountID == nil {
+		return nil, nil
+	}
+	var role string
+	if err := tx.QueryRow(ctx, `SELECT role FROM vault_members WHERE vault_id=$1::uuid AND account_id=$2::uuid AND accepted_at IS NOT NULL AND revoked_at IS NULL`, *vaultID, *accountID).Scan(&role); err != nil {
+		return nil, err
+	}
+	policy, err := credit.Effective(ctx, tx, *vaultID, *relationshipID)
+	if err != nil || policy == nil {
+		return nil, err
+	}
+	override, err := credit.MemberOverride(ctx, tx, *vaultID, *accountID)
+	if err != nil {
+		return nil, err
+	}
+	if !policy.Restricts(role, override) {
+		return nil, nil
+	}
+	if s.creditBalance == nil {
+		return nil, fmt.Errorf("credit admission unavailable")
+	}
+	before, err := s.creditBalance(ctx, tx, *vaultID, *relationshipID)
+	if err != nil {
+		return nil, err
+	}
+	return &linkCreditAdmission{vaultID: *vaultID, relationshipID: *relationshipID, policy: policy, before: before}, nil
+}
+
+func (s *Service) finishLinkCredit(ctx context.Context, tx pgx.Tx, admission *linkCreditAdmission) error {
+	if admission == nil {
+		return nil
+	}
+	after, err := s.creditBalance(ctx, tx, admission.vaultID, admission.relationshipID)
+	if err != nil {
+		return err
+	}
+	if admission.policy.Exceeded(admission.before, after) {
+		return credit.ErrLimit
+	}
+	return nil
 }
 
 // duplicateHint implements D17's settlement double-log warning: another
@@ -1539,12 +1679,19 @@ func (s *Service) setStatus(ctx context.Context, p Party, entryID, status string
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	selectedParty := p
+	if err := lockPartyCredit(ctx, tx, p); err != nil {
+		return EntryResponse{}, err
+	}
 	if _, err := lockOpenTab(ctx, tx, p.TabID); err != nil {
 		return EntryResponse{}, err
 	}
 	p, err = recheckParty(ctx, tx, p, rankEditor, false)
 	if err != nil {
 		return EntryResponse{}, err
+	}
+	if !sameCreditVault(selectedParty, p) {
+		return EntryResponse{}, ErrNotFound
 	}
 	e, err := loadEntryForUpdate(ctx, tx, p.TabID, entryID)
 	if err != nil {
@@ -1570,6 +1717,11 @@ func (s *Service) setStatus(ctx context.Context, p Party, entryID, status string
 	}
 	if len(expectedRev) > 0 && expectedRev[0] > 0 && e.Rev != expectedRev[0] {
 		return EntryResponse{}, ErrStaleReview
+	}
+	if status == "disputed" {
+		if err := s.admitCreditDelta(ctx, tx, p, -partyCreditDelta(p, e.Direction, e.amountMinor)); err != nil {
+			return EntryResponse{}, err
+		}
 	}
 	kind := "entry_accepted"
 	if status == "disputed" {
@@ -1641,12 +1793,19 @@ func (s *Service) Void(ctx context.Context, p Party, entryID string) (VoidRespon
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	selectedParty := p
+	if err := lockPartyCredit(ctx, tx, p); err != nil {
+		return VoidResponse{}, err
+	}
 	if _, err := lockOpenTab(ctx, tx, p.TabID); err != nil {
 		return VoidResponse{}, err
 	}
 	p, err = recheckParty(ctx, tx, p, rankEditor, false)
 	if err != nil {
 		return VoidResponse{}, err
+	}
+	if !sameCreditVault(selectedParty, p) {
+		return VoidResponse{}, ErrNotFound
 	}
 	orig, err := loadEntryForUpdate(ctx, tx, p.TabID, entryID)
 	if err != nil {
@@ -1660,6 +1819,9 @@ func (s *Service) Void(ctx context.Context, p Party, entryID string) (VoidRespon
 	}
 	if orig.Status != "pending" {
 		return VoidResponse{}, ErrReviewFinal
+	}
+	if err := s.admitCreditDelta(ctx, tx, p, -partyCreditDelta(p, orig.Direction, orig.amountMinor)); err != nil {
+		return VoidResponse{}, err
 	}
 	rev, err := bumpRev(ctx, tx, p.TabID, p.Role, p.pushEvent("entry_voided", entryID))
 	if err != nil {
@@ -1707,6 +1869,10 @@ func (s *Service) Close(ctx context.Context, p Party) (TabResponse, error) {
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	selectedParty := p
+	if err := lockPartyCredit(ctx, tx, p); err != nil {
+		return TabResponse{}, err
+	}
 	t, err := lockTab(ctx, tx, p.TabID)
 	if err != nil {
 		return TabResponse{}, err
@@ -1715,13 +1881,25 @@ func (s *Service) Close(ctx context.Context, p Party) (TabResponse, error) {
 	if err != nil {
 		return TabResponse{}, err
 	}
+	if !sameCreditVault(selectedParty, p) {
+		return TabResponse{}, ErrNotFound
+	}
 	if t.ClosedAt != nil {
 		return fullResponse(ctx, tx, p.TabID, p.Role)
+	}
+	// Normally closing preserves the latest period. A backdated link boundary
+	// can instead reveal an older closed period, so compare the actual balance.
+	linkCredit, err := s.beginLinkCredit(ctx, tx, p.VaultID, p.RelationshipID, p.actorAccount())
+	if err != nil {
+		return TabResponse{}, err
 	}
 	if _, err := tx.Exec(ctx, `
 		UPDATE tabs SET closed_at = NOW(), closed_by = $2 WHERE id = $1::uuid
 	`, p.TabID, p.Role); err != nil {
 		return TabResponse{}, fmt.Errorf("close tab: %w", err)
+	}
+	if err := s.finishLinkCredit(ctx, tx, linkCredit); err != nil {
+		return TabResponse{}, err
 	}
 	if _, err := bumpRev(ctx, tx, p.TabID, p.Role, p.pushEvent("updated", "")); err != nil {
 		return TabResponse{}, err

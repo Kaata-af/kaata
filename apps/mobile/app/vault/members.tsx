@@ -6,7 +6,10 @@
 // refresh from the authorized vault listing on focus, resume and while visible;
 // their separate, viewer-scoped cache leaves membership history unchanged.
 //
-// Owner-only mutations (ALL offline-capable as of Phase 8):
+// Owners can change membership offline. Admins manage lower-ranked staff
+// through the server; individual credit permissions always save online.
+//
+// Membership actions:
 //   - Add member         → routes to vault/invite (online invite link). The
 //                          in-person QR pair (vault/pair) is PARKED with the
 //                          rest of the offline mesh — see the parked row below;
@@ -16,7 +19,6 @@
 //   - Remove member      → appendVaultMemberRemoved event
 //   - Transfer ownership → two role-change events emitted in sequence
 //
-// NO API calls fire from action handlers. Server is a sync destination.
 // Self-row is non-interactive; last-owner protection enforced at sheet build.
 
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
@@ -32,6 +34,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { BottomSheet, type SheetAction } from "../../components/BottomSheet";
+import { OptionSheet } from "../../components/OptionSheet";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { ScreenLoading } from "../../components/ScreenLoading";
 import {
@@ -42,7 +45,11 @@ import {
   SectionHeader,
 } from "../../components/SettingsScreen";
 import { queuePendingToast, useToast } from "../../components/Toast";
-import { applyForCurrentSession, captureCurrentSession } from "../../lib/auth";
+import {
+  applyForCurrentSession,
+  captureCurrentSession,
+  type SessionSnapshot,
+} from "../../lib/auth";
 import { colors } from "../../lib/colors";
 import { getActiveVaultId, getActiveVaultIdSyncMaybe, getDb } from "../../lib/db-tx";
 import { getAppMeta, getLocalSelf } from "../../lib/db";
@@ -50,6 +57,13 @@ import { rowDir, textDir, trackingSafe, useIsRTL } from "../../lib/direction";
 import { fonts } from "../../lib/fonts";
 import { t } from "../../lib/i18n";
 import { memberIdentityName, refreshMemberProfiles } from "../../lib/member-profiles";
+import {
+  MemberCreditPermissionError,
+  readMemberCreditPermission,
+  refreshMemberCreditPermissions,
+  saveMemberCreditPermission,
+  type MemberCreditPermission,
+} from "../../lib/member-credit-permissions";
 import { onLedgerApplied, useLedgerRefresh } from "../../lib/ledger-events";
 import { radius } from "../../lib/tokens";
 import { useVaultRole } from "../../lib/use-vault-role";
@@ -115,6 +129,15 @@ export default function VaultMembersScreen() {
   const [sheetTarget, setSheetTarget] = useState<MemberRow | null>(null);
   const [revokeTarget, setRevokeTarget] = useState<MemberRow | null>(null);
   const [transferTarget, setTransferTarget] = useState<MemberRow | null>(null);
+  const [creditEditor, setCreditEditor] = useState<{
+    member: MemberRow;
+    vaultId: string;
+    session: SessionSnapshot;
+    value: MemberCreditPermission;
+  } | null>(null);
+  const [creditPermissionBusy, setCreditPermissionBusy] = useState(false);
+  const creditPermissionPending = useRef(false);
+  const creditEditRequest = useRef(0);
   const focusedRef = useRef(false);
   const loadRequestRef = useRef(0);
   const authorizationRequestRef = useRef(0);
@@ -411,6 +434,7 @@ export default function VaultMembersScreen() {
           } catch (err) {
             if (__DEV__) console.warn("[vault/members] profile refresh failed", err);
           }
+          await refreshMemberCreditPermissions(activeVaultId).catch(() => undefined);
           // Also reload after a refusal: that clears cached profile email.
           if (!cancelled && focusedRef.current) await loadAll();
         } catch (err) {
@@ -436,6 +460,8 @@ export default function VaultMembersScreen() {
         focusedRef.current = false;
         ++loadRequestRef.current;
         ++authorizationRequestRef.current;
+        ++creditEditRequest.current;
+        setCreditEditor(null);
         app.remove();
         clearInterval(timer);
       };
@@ -463,7 +489,10 @@ export default function VaultMembersScreen() {
       // keeps the last authorized data; refused access clears it.
       try {
         const activeVaultId = await getActiveVaultId();
-        if (activeVaultId) await refreshMemberProfiles(activeVaultId);
+        if (activeVaultId) {
+          await refreshMemberProfiles(activeVaultId);
+          await refreshMemberCreditPermissions(activeVaultId);
+        }
       } catch (err) {
         console.warn("[vault/members] profile refresh failed", err);
       }
@@ -480,10 +509,92 @@ export default function VaultMembersScreen() {
 
   function openMemberSheet(m: MemberRow) {
     if (!isOwner && !isManager) return;
-    if (m.account_id === accountId) return;
+    if (m.account_id === accountId || localSelfAccountIds.includes(m.account_id)) return;
     // Manager cap: owners and peer managers are out of a manager's reach.
     if (isManager && VAULT_ROLE_RANK[m.role] >= VAULT_ROLE_RANK.manager) return;
     setSheetTarget(m);
+  }
+
+  async function openCreditPermission(member: MemberRow) {
+    if (creditPermissionPending.current || (!isOwner && !isManager)) return;
+    if (VAULT_ROLE_RANK[member.role] >= VAULT_ROLE_RANK.manager) return;
+    const scope = vaultId;
+    const request = ++creditEditRequest.current;
+    const current = () =>
+      focusedRef.current &&
+      request === creditEditRequest.current &&
+      getActiveVaultIdSyncMaybe() === scope;
+    creditPermissionPending.current = true;
+    setCreditPermissionBusy(true);
+    let session: SessionSnapshot | null = null;
+    try {
+      session = await captureCurrentSession();
+      if (!session.jwt || !session.accountId) {
+        if (current()) toast.push(t("members.credit.onlineRequired"), "info");
+        return;
+      }
+      // Re-read online before presenting the picker. A cached exception from
+      // another admin's last edit is useful for admission, not for this form.
+      await refreshMemberCreditPermissions(scope, session);
+      const value = await readMemberCreditPermission(scope, member.account_id);
+      const editorSession = session;
+      await applyForCurrentSession(editorSession, async () => {
+        if (current()) setCreditEditor({ member, vaultId: scope, session: editorSession, value });
+      });
+    } catch {
+      if (session)
+        await applyForCurrentSession(session, async () => {
+          if (current()) toast.push(t("members.credit.loadFailed"), "error");
+        }).catch(() => undefined);
+    } finally {
+      creditPermissionPending.current = false;
+      if (focusedRef.current) setCreditPermissionBusy(false);
+    }
+  }
+
+  async function onCreditPermission(value: string) {
+    const editor = creditEditor;
+    if (!editor || creditPermissionPending.current) return;
+    if (value !== "inherit" && value !== "enforce" && value !== "bypass") return;
+    setCreditEditor(null);
+    if (value === editor.value) return;
+    const request = ++creditEditRequest.current;
+    const current = () =>
+      focusedRef.current &&
+      request === creditEditRequest.current &&
+      getActiveVaultIdSyncMaybe() === editor.vaultId;
+    creditPermissionPending.current = true;
+    setCreditPermissionBusy(true);
+    try {
+      await applyForCurrentSession(editor.session, async () => {
+        if (!current()) throw new Error("Member permission screen changed");
+      });
+      await saveMemberCreditPermission(
+        editor.vaultId,
+        editor.member.account_id,
+        value,
+        editor.session,
+      );
+      await applyForCurrentSession(editor.session, async () => {
+        if (current()) toast.push(t("members.credit.saved"), "success");
+      });
+    } catch (error) {
+      await applyForCurrentSession(editor.session, async () => {
+        if (current())
+          toast.push(
+            t(
+              error instanceof MemberCreditPermissionError &&
+                error.reason === "member_cloud_enrollment_required"
+                ? "members.credit.memberNeedsSignIn"
+                : "members.credit.saveFailed",
+            ),
+            "error",
+          );
+      }).catch(() => undefined);
+    } finally {
+      creditPermissionPending.current = false;
+      if (focusedRef.current) setCreditPermissionBusy(false);
+    }
   }
 
   // Last-owner guard: derived once per render. Cheap O(n) scan over the
@@ -650,6 +761,8 @@ export default function VaultMembersScreen() {
         onChangeRole,
         onRevoke: () => setRevokeTarget(sheetTarget),
         onTransfer: () => setTransferTarget(sheetTarget),
+        onCreditPermission: () => void openCreditPermission(sheetTarget),
+        creditPermissionBusy,
       })
     : [];
 
@@ -680,6 +793,10 @@ export default function VaultMembersScreen() {
         contentContainerStyle={styles.scrollContent}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       >
+        {isOwner || isManager ? <EmptyHint label={t("members.rolesHelp")} isRTL={isRTL} /> : null}
+        {creditPermissionBusy ? (
+          <EmptyHint label={t("members.credit.working")} isRTL={isRTL} />
+        ) : null}
         {transferModeHint && isOwner ? (
           <View style={styles.banner}>
             <Text style={[styles.bannerText, textDir(isRTL)]}>{t("members.transferBanner")}</Text>
@@ -714,7 +831,10 @@ export default function VaultMembersScreen() {
                 isRTL={isRTL}
                 online={!isSelf && onlineAccounts.has(m.account_id)}
                 onPress={() => openMemberSheet(m)}
-                disabled={!isOwner || isSelf}
+                disabled={
+                  isSelf ||
+                  (!isOwner && (!isManager || VAULT_ROLE_RANK[m.role] >= VAULT_ROLE_RANK.manager))
+                }
                 isLast={last}
               />
             );
@@ -840,6 +960,31 @@ export default function VaultMembersScreen() {
         onConfirm={onTransfer}
         onCancel={() => setTransferTarget(null)}
       />
+      <OptionSheet
+        visible={creditEditor !== null}
+        title={t("members.credit.title", { name: creditEditor?.member.display_name ?? "" })}
+        options={[
+          {
+            key: "inherit",
+            label: t("members.credit.inherit"),
+            hint: t("members.credit.inheritHint"),
+          },
+          {
+            key: "enforce",
+            label: t("members.credit.enforce"),
+            hint: t("members.credit.enforceHint"),
+          },
+          {
+            key: "bypass",
+            label: t("members.credit.bypass"),
+            hint: t("members.credit.bypassHint"),
+          },
+        ]}
+        selected={creditEditor?.value ?? "inherit"}
+        onSelect={(value) => void onCreditPermission(value)}
+        onDismiss={() => setCreditEditor(null)}
+        isRTL={isRTL}
+      />
     </SafeAreaView>
   );
 }
@@ -931,6 +1076,8 @@ function buildSheetActions(
     onChangeRole: (r: VaultRole) => void;
     onRevoke: () => void;
     onTransfer: () => void;
+    onCreditPermission: () => void;
+    creditPermissionBusy: boolean;
   },
 ): SheetAction[] {
   const actions: SheetAction[] = [];
@@ -941,6 +1088,15 @@ function buildSheetActions(
   // still opens (controlled by the caller) but the action list is empty.
   const isLastOwner = member.role === "owner" && ownerCount <= 1;
   if (isLastOwner) return actions;
+
+  if (VAULT_ROLE_RANK[member.role] < VAULT_ROLE_RANK.manager) {
+    actions.push({
+      label: t("members.credit.action"),
+      icon: "shield-checkmark-outline",
+      onPress: handlers.onCreditPermission,
+      disabled: handlers.creditPermissionBusy,
+    });
+  }
 
   // Roles v2 Phase B: managers grant strictly below manager (openMemberSheet
   // already caps their TARGETS below manager); only owners mint managers,

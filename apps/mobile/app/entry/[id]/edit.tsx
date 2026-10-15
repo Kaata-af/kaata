@@ -132,7 +132,15 @@ export default function EditEntryScreen() {
       // Distinguish role-gate refusal from generic storage error so a
       // demoted editor sees actionable "view only" copy rather than
       // generic "save failed". See entry/new.tsx for the same pattern.
-      if (err instanceof SettledChapterError) {
+      if (err instanceof Error && err.name === "CreditMutationAdmissionError") {
+        setSaveError(
+          t(
+            (err as Error & { status: string }).status === "pending"
+              ? "credit.pendingChange"
+              : "credit.refusedChange",
+          ),
+        );
+      } else if (err instanceof SettledChapterError) {
         // Closed-period guard: this entry sits under a ruled-off line.
         setSaveError(t("entry.settledLocked"));
       } else if (err instanceof TabLinkedEntryError) {

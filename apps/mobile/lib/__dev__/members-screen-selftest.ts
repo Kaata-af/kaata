@@ -5,6 +5,8 @@ import { readFileSync } from "node:fs";
 import ts from "typescript";
 import { colors } from "../colors";
 import { VAULT_ROLE_RANK } from "../vault-roles";
+import type { VaultRole } from "../events";
+import type { MemberCreditPermission } from "../member-credit-permissions";
 
 type Node = { type: string; props: Record<string, any> };
 type Deferred = { promise: Promise<void>; resolve: () => void };
@@ -29,6 +31,20 @@ let activeVault = "v",
 let callerAccepted = true,
   peerAccepted = true,
   peerRevoked = false;
+let actorRole: VaultRole = "owner",
+  peerRole: VaultRole = "viewer";
+let permission: MemberCreditPermission = "inherit";
+let permissionRefreshes = 0;
+const permissionSaves: { vault: string; account: string; value: MemberCreditPermission }[] = [];
+let permissionGate: Deferred | null = null;
+let permissionError = false;
+let permissionSaveError: string | null = null;
+class TestMemberCreditPermissionError extends Error {
+  constructor(readonly reason: string) {
+    super(reason);
+  }
+}
+const toastMessages: string[] = [];
 let inviteGate: Deferred | null = null;
 let authorityGate: Deferred | null = null;
 let profileGate: Deferred | null = null;
@@ -151,7 +167,11 @@ function compile(file: string, mocks: Record<string, any>) {
 }
 const ledger = compile("../ledger-events", { react, "react-native": native });
 const router = { push() {}, replace() {}, back() {} };
-const toast = { push() {} };
+const toast = {
+  push(message: string) {
+    toastMessages.push(message);
+  },
+};
 const membership = () => [
   { account_id: "caller", accepted_at: callerAccepted ? 1 : null, revoked_at: null },
   { account_id: "next-caller", accepted_at: 1, revoked_at: null },
@@ -168,7 +188,7 @@ const db = {
         : [
             {
               account_id: "peer",
-              role: "viewer",
+              role: peerRole,
               accepted_at: peerAccepted ? 1 : null,
               revoked_at: null,
               display_name: "Current Peer",
@@ -208,6 +228,7 @@ const screen = compile("../../app/vault/members", {
       react.useEffect(() => (focused ? fn() : undefined), [fn, focusEpoch]),
   },
   "../../components/BottomSheet": { BottomSheet: "BottomSheet" },
+  "../../components/OptionSheet": { OptionSheet: "OptionSheet" },
   "../../components/ConfirmDialog": { ConfirmDialog: "ConfirmDialog" },
   "../../components/ScreenLoading": { ScreenLoading: "Loading" },
   "../../components/SettingsScreen": Object.fromEntries(
@@ -255,9 +276,27 @@ const screen = compile("../../app/vault/members", {
       return true;
     },
   },
+  "../../lib/member-credit-permissions": {
+    MemberCreditPermissionError: TestMemberCreditPermissionError,
+    readMemberCreditPermission: async () => permission,
+    refreshMemberCreditPermissions: async () => {
+      permissionRefreshes++;
+      if (permissionGate) await permissionGate.promise;
+      if (permissionError) throw new Error("offline");
+    },
+    saveMemberCreditPermission: async (
+      vault: string,
+      account: string,
+      value: MemberCreditPermission,
+    ) => {
+      if (permissionSaveError) throw new TestMemberCreditPermissionError(permissionSaveError);
+      permissionSaves.push({ vault, account, value });
+      permission = value;
+    },
+  },
   "../../lib/ledger-events": ledger,
   "../../lib/tokens": { radius: {} },
-  "../../lib/use-vault-role": { useVaultRole: () => "owner" },
+  "../../lib/use-vault-role": { useVaultRole: () => actorRole },
   "../../lib/vault-roles": { VAULT_ROLE_RANK },
   "../../lib/mesh/presence": { subscribePresence: () => () => {}, isPeerOnline: () => false },
   "../../lib/vault-api": { fetchPendingInvitations: async () => {} },
@@ -288,6 +327,15 @@ function fixture() {
   callerAccepted = true;
   peerAccepted = true;
   peerRevoked = false;
+  actorRole = "owner";
+  peerRole = "viewer";
+  permission = "inherit";
+  permissionRefreshes = 0;
+  permissionSaves.length = 0;
+  permissionGate = null;
+  permissionError = false;
+  permissionSaveError = null;
+  toastMessages.length = 0;
   inviteGate = null;
   authorityGate = null;
   profileGate = null;
@@ -334,6 +382,129 @@ async function refocus() {
 }
 
 export async function runMembersScreenSelftest() {
+  fixture();
+  actorRole = "manager";
+  await flush();
+  assert.equal(memberRow()?.props.disabled, false, "admins can manage staff rows");
+  memberRow()!.props.onPress();
+  await flush();
+  const memberSheet = () => nodes(tree).find((node) => node.type === "BottomSheet")!;
+  const permissionSheet = () => nodes(tree).find((node) => node.type === "OptionSheet")!;
+  assert.equal(memberSheet().props.visible, true);
+  assert.equal(
+    memberSheet().props.actions.some((action: any) => action.label === "members.sheet.makeManager"),
+    false,
+    "admins cannot appoint peer admins",
+  );
+  assert.equal(
+    memberSheet().props.actions.some((action: any) => action.label === "members.sheet.transfer"),
+    false,
+    "admins cannot transfer ownership",
+  );
+  memberSheet()
+    .props.actions.find((action: any) => action.label === "members.credit.action")
+    .onPress();
+  await flush();
+  assert.equal(permissionSheet().props.visible, true);
+  assert.equal(permissionSheet().props.selected, "inherit");
+  assert.deepEqual(
+    permissionSheet().props.options.map((option: any) => option.key),
+    ["inherit", "enforce", "bypass"],
+  );
+  permissionSheet().props.onSelect("enforce");
+  permissionSheet().props.onSelect("bypass");
+  await flush();
+  assert.deepEqual(
+    permissionSaves,
+    [{ vault: "v", account: "peer", value: "enforce" }],
+    "same-frame taps save one scoped permission",
+  );
+  assert.equal(permissionSheet().props.visible, false);
+  assert.ok(permissionRefreshes >= 2, "permissions refresh on focus and before editing");
+
+  for (const protectedRole of ["manager", "owner"] as const) {
+    fixture();
+    actorRole = "manager";
+    peerRole = protectedRole;
+    await flush();
+    assert.equal(memberRow()?.props.disabled, true, `admin cannot manage ${protectedRole}`);
+    memberRow()!.props.onPress();
+    await flush();
+    assert.equal(memberSheet().props.visible, false);
+  }
+
+  fixture();
+  await flush();
+  memberRow()!.props.onPress();
+  await flush();
+  const stalePermission = deferred();
+  permissionGate = stalePermission;
+  memberSheet()
+    .props.actions.find((action: any) => action.label === "members.credit.action")
+    .onPress();
+  await flush();
+  account = "next-caller";
+  binding++;
+  stalePermission.resolve();
+  await flush();
+  assert.equal(
+    permissionSheet().props.visible,
+    false,
+    "old session cannot open a permission editor",
+  );
+  assert.deepEqual(permissionSaves, []);
+
+  fixture();
+  await flush();
+  memberRow()!.props.onPress();
+  await flush();
+  permissionError = true;
+  memberSheet()
+    .props.actions.find((action: any) => action.label === "members.credit.action")
+    .onPress();
+  await flush();
+  assert.equal(
+    permissionSheet().props.visible,
+    false,
+    "offline refresh cannot edit stale exceptions",
+  );
+
+  fixture();
+  await flush();
+  memberRow()!.props.onPress();
+  await flush();
+  memberSheet()
+    .props.actions.find((action: any) => action.label === "members.credit.action")
+    .onPress();
+  await flush();
+  permissionSaveError = "member_cloud_enrollment_required";
+  permissionSheet().props.onSelect("enforce");
+  await flush();
+  assert.ok(
+    toastMessages.includes("members.credit.memberNeedsSignIn"),
+    "local staff get an actionable enrollment message",
+  );
+
+  fixture();
+  await flush();
+  memberRow()!.props.onPress();
+  await flush();
+  memberSheet()
+    .props.actions.find((action: any) => action.label === "members.credit.action")
+    .onPress();
+  await flush();
+  activeVault = "next-vault";
+  permissionSheet().props.onSelect("enforce");
+  await flush();
+  assert.deepEqual(
+    permissionSaves,
+    [],
+    "switching kaatas cannot save from the old permission editor",
+  );
+  console.log(
+    "PASS admin staff access, protected roles, online member permission choices, duplicate taps and stale session guards",
+  );
+
   fixture();
   await flush();
   assert.equal(memberRow()?.props.sub, "caller-v@example.test");

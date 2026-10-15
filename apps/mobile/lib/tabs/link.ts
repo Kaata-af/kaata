@@ -181,7 +181,7 @@ async function newOp(
   op: TabOutboxRow["op"],
   payload: Record<string, unknown>,
   id = Crypto.randomUUID(),
-  opts: { deferAppend?: boolean } = {},
+  opts: { deferAppend?: boolean; deferFinancial?: boolean } = {},
 ): Promise<string> {
   if (!(await getSessionJWT())) throw new TabAuthUnavailableError();
   await queueTabMutation(
@@ -669,7 +669,7 @@ export async function addTabEntry(
     throw new TabInputError("amount_invalid");
   }
   await assertVaultAction(link.vault_id, "entry.create");
-  const clerk = (await readVaultRole(link.vault_id, getAccountIdSync())) === "clerk";
+  const admission = await needsSharedCreditAdmission(link);
   const cleanNote = note?.trim().slice(0, ENTRY_NOTE_MAX_LENGTH) || null;
   const id = Crypto.randomUUID();
   const occurredAt = Date.now();
@@ -694,7 +694,7 @@ export async function addTabEntry(
         next_at: null,
         last_error: null,
       },
-      { deferAppend: clerk },
+      { deferAppend: admission },
     );
   });
 
@@ -706,13 +706,13 @@ export async function addTabEntry(
   }
   if (!online) {
     void syncTab(link.tab_id);
-    return { entryId: id, duplicateHint: null, pendingAdmission: clerk };
+    return { entryId: id, duplicateHint: null, pendingAdmission: admission };
   }
   const flushed = await Promise.race([
     syncTab(link.tab_id).then(() => true),
     new Promise<false>((resolve) => setTimeout(() => resolve(false), FIRST_FLUSH_WAIT_MS)),
   ]);
-  if (!flushed) return { entryId: id, duplicateHint: null, pendingAdmission: clerk };
+  if (!flushed) return { entryId: id, duplicateHint: null, pendingAdmission: admission };
   const outcome = takeAppendOutcome(id);
   if (outcome?.rejected === "tab_closed") throw new TabClosedError();
   if (outcome?.rejected)
@@ -720,7 +720,7 @@ export async function addTabEntry(
   return {
     entryId: id,
     duplicateHint: outcome?.hint ?? null,
-    pendingAdmission: clerk && outcome == null,
+    pendingAdmission: admission && outcome == null,
   };
 }
 
@@ -758,12 +758,43 @@ function markReviewed(link: TabLink, entryId: string): void {
   })().catch(() => undefined);
 }
 
-/** Accept the other party's tally: optimistic status, outbox, flush. */
+async function needsSharedCreditAdmission(link: TabLink): Promise<boolean> {
+  const { hardLimitApplies } = await import("../credit-admission");
+  const role = await readVaultRole(link.vault_id, getAccountIdSync());
+  return hardLimitApplies(
+    await getDb(),
+    link.vault_id,
+    link.relationship_id,
+    role,
+    getAccountIdSync(),
+  );
+}
+
+async function finishSharedCreditMutation(link: TabLink, opId: string): Promise<void> {
+  await Promise.race([
+    syncTab(link.tab_id),
+    new Promise((resolve) => setTimeout(resolve, FIRST_FLUSH_WAIT_MS)),
+  ]);
+  const db = await getDb();
+  const failed = await db.getFirstAsync<{ reason: string }>(
+    "SELECT reason FROM tab_failed_ops WHERE id=?",
+    opId,
+  );
+  if (failed) throw new TabApiError(409, failed.reason, "The change was not recorded");
+  if (await db.getFirstAsync("SELECT id FROM tab_outbox WHERE id=?", opId))
+    throw new TabApiError(409, "credit_confirmation_pending", "Waiting for server confirmation");
+}
+
+/** Accept the other party's tally: optimistic unless a hard limit requires confirmation. */
 export async function acceptEntry(link: TabLink, entryId: string): Promise<void> {
   requireOpen(link);
   await assertVaultAction(link.vault_id, "entry.amend");
-  await newOp(link, "accept", { entry_id: entryId });
+  const deferred = await needsSharedCreditAdmission(link);
+  const opId = await newOp(link, "accept", { entry_id: entryId }, undefined, {
+    deferFinancial: deferred,
+  });
   markReviewed(link, entryId);
+  if (deferred) return finishSharedCreditMutation(link, opId);
   void syncTab(link.tab_id);
 }
 
@@ -773,8 +804,12 @@ export async function disputeEntry(link: TabLink, entryId: string, reason: strin
   const clean = reason.trim();
   if (clean.length > REASON_MAX) throw new TabInputError("reason_too_long");
   await assertVaultAction(link.vault_id, "entry.amend");
-  await newOp(link, "dispute", { entry_id: entryId, reason: clean });
+  const deferred = await needsSharedCreditAdmission(link);
+  const opId = await newOp(link, "dispute", { entry_id: entryId, reason: clean }, undefined, {
+    deferFinancial: deferred,
+  });
   markReviewed(link, entryId);
+  if (deferred) return finishSharedCreditMutation(link, opId);
   void syncTab(link.tab_id);
 }
 
@@ -783,11 +818,13 @@ export async function voidEntry(link: TabLink, entryId: string): Promise<void> {
   requireOpen(link);
   await assertVaultAction(link.vault_id, "entry.amend");
   const opId = Crypto.randomUUID();
-  await newOp(link, "void", { entry_id: entryId }, opId);
+  const deferred = await needsSharedCreditAdmission(link);
+  await newOp(link, "void", { entry_id: entryId }, opId, { deferFinancial: deferred });
   // No markReviewed: a party gets no notice about its OWN pending tally (the
   // creation notice went to the other side), so there is nothing to read
   // here — the server's void path marks nothing for the same reason, and the
   // counterparty's entry_voided notice is theirs to handle.
+  if (deferred) return finishSharedCreditMutation(link, opId);
   void syncTab(link.tab_id);
 }
 

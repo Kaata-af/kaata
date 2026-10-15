@@ -110,6 +110,7 @@ const MIGRATION_036 = "036_customer_reminders";
 const MIGRATION_037 = "037_customer_group_memberships";
 const MIGRATION_038 = "038_kaata_credit_defaults";
 const MIGRATION_039 = "039_customer_groups_from_payloads";
+const MIGRATION_040 = "040_member_credit_permissions";
 
 // Phase 5 mesh: app_meta keys used by the lib/mesh package. They are NOT
 // referenced from db.ts directly — the table itself is the generic key/value
@@ -534,6 +535,9 @@ export async function initDb(opts: { installId?: string } = {}): Promise<void> {
   }
   if (!(await hasRunMigration(db, MIGRATION_039))) {
     await runMigration039(db);
+  }
+  if (!(await hasRunMigration(db, MIGRATION_040))) {
+    await runMigration040(db);
   }
 }
 
@@ -3542,6 +3546,36 @@ async function runMigration039(db: SQLite.SQLiteDatabase): Promise<void> {
   });
 }
 
+async function runMigration040(db: SQLite.SQLiteDatabase): Promise<void> {
+  await db.withTransactionAsync(async () => {
+    for (const table of ["customer_credit_limits", "kaata_credit_defaults"]) {
+      const columns = await db.getAllAsync<{ name: string }>(`PRAGMA table_info(${table})`);
+      if (!columns.some((column) => column.name === "restrict_editors"))
+        await db.execAsync(
+          `ALTER TABLE ${table} ADD COLUMN restrict_editors INTEGER NOT NULL DEFAULT 0 CHECK (restrict_editors IN (0,1))`,
+        );
+    }
+    await db.execAsync(`CREATE TABLE IF NOT EXISTS vault_member_credit_permissions (
+      vault_id TEXT NOT NULL REFERENCES vaults(id) ON DELETE CASCADE,
+      account_id TEXT NOT NULL,
+      credit_limit_override TEXT NOT NULL CHECK (credit_limit_override IN ('inherit','enforce','bypass')),
+      updated_at_ms INTEGER NOT NULL,
+      PRIMARY KEY (vault_id,account_id)
+    );`);
+    await db.execAsync(`CREATE TABLE IF NOT EXISTS credit_mutation_baselines (
+      event_id TEXT PRIMARY KEY,
+      vault_id TEXT NOT NULL REFERENCES vaults(id) ON DELETE CASCADE,
+      entry_id TEXT NOT NULL,
+      row_json TEXT NOT NULL CHECK (json_valid(row_json))
+    );`);
+    await db.runAsync(
+      "INSERT INTO schema_migrations (name,applied_at) VALUES (?,?)",
+      MIGRATION_040,
+      Date.now(),
+    );
+  });
+}
+
 // --- v0 row shapes (used only during migration) ---
 type V0Shopkeeper = {
   id: number;
@@ -3633,6 +3667,8 @@ export async function resetAllLocalData(opts: { keepLocalBackups?: boolean } = {
     DROP TABLE IF EXISTS vault_members_mirror;
     DROP TABLE IF EXISTS vault_member_profiles;
     DROP TABLE IF EXISTS customer_credit_limits;
+    DROP TABLE IF EXISTS vault_member_credit_permissions;
+    DROP TABLE IF EXISTS credit_mutation_baselines;
     DROP TABLE IF EXISTS kaata_credit_defaults;
     DROP TABLE IF EXISTS credit_admission_intents;
     DROP TABLE IF EXISTS customer_reminders;
@@ -4539,9 +4575,29 @@ export async function unarchivePerson(id: string, vaultId: string): Promise<void
 // In Phase 2 single-vault UI there's at most one active relationship; we
 // walk the list defensively so a future multi-vault UI doesn't silently
 // leave active rows behind.
-export async function archivePerson(id: string): Promise<void> {
+export type LedgerMutationScope = { vaultId: string; accountId: string | null };
+
+function assertMutationScope(scope: LedgerMutationScope): void {
+  if (getActiveVaultIdSyncMaybe() !== scope.vaultId || getAccountIdSync() !== scope.accountId)
+    throw new Error("ledger mutation context changed");
+}
+
+function captureMutationScope(expectedScope?: LedgerMutationScope): LedgerMutationScope {
+  // Capture before the first await: opening the database can yield while the
+  // user switches books, including books that contain the same contact.
+  const scope = { vaultId: getActiveVaultIdSync(), accountId: getAccountIdSync() };
+  if (expectedScope) assertMutationScope(expectedScope);
+  return scope;
+}
+
+export async function archivePerson(
+  id: string,
+  expectedScope?: LedgerMutationScope,
+): Promise<void> {
+  const scope = captureMutationScope(expectedScope);
+  const { vaultId } = scope;
   const db = await getDb();
-  const vaultId = getActiveVaultIdSync();
+  assertMutationScope(scope);
 
   const rels = await db.getAllAsync<{ id: string }>(
     `SELECT id FROM relationships
@@ -4551,13 +4607,17 @@ export async function archivePerson(id: string): Promise<void> {
     id,
     vaultId,
   );
+  assertMutationScope(scope);
 
   for (const r of rels) {
+    assertMutationScope(scope);
     await appendPersonArchived({
       userId: id,
       relationshipId: r.id,
       vaultId,
+      expectedAccountId: scope.accountId,
     });
+    assertMutationScope(scope);
   }
 
   // Companion phone-null as an EXPLICIT register write. The archive applier's
@@ -4577,12 +4637,21 @@ export async function archivePerson(id: string): Promise<void> {
         WHERE user_b_id = ? AND archived_at IS NULL`,
       id,
     );
+    assertMutationScope(scope);
     if ((stillActive?.n ?? 0) === 0) {
       try {
-        await appendPersonPhoneChanged({ userId: id, vaultId, phoneE164: null, force: true });
+        assertMutationScope(scope);
+        await appendPersonPhoneChanged({
+          userId: id,
+          vaultId,
+          phoneE164: null,
+          force: true,
+          expectedAccountId: scope.accountId,
+        });
       } catch (err) {
         if (__DEV__) console.warn("[archivePerson] companion phone-null append failed", err);
       }
+      assertMutationScope(scope);
     }
   }
 }
@@ -5020,7 +5089,21 @@ export async function updateEntry(
     // No-op: nothing actually changed. Do not append an empty amend event.
     return;
   }
-  await appendEntryAmended({ entryId: id, changes });
+  const saved = await appendEntryAmended({ entryId: id, changes });
+  await finishEntryMutationAdmission(saved, vaultId);
+}
+
+async function finishEntryMutationAdmission(
+  saved: { event_id: string; pending_admission?: boolean } | null,
+  vaultId: string,
+): Promise<void> {
+  if (!saved?.pending_admission) return;
+  const { finishCreditAdmission } = await import("./credit-limits");
+  const status = await finishCreditAdmission(saved.event_id, vaultId);
+  if (status !== "recorded") {
+    const { CreditMutationAdmissionError } = await import("./credit-admission");
+    throw new CreditMutationAdmissionError(status);
+  }
 }
 
 export async function getEntry(id: string): Promise<Entry | null> {
@@ -5043,19 +5126,29 @@ export async function getEntry(id: string): Promise<Entry | null> {
 
 // Same public API. Sticky tombstone — already-deleted rows short-circuit at
 // the event-log layer; missing rows mirror the old "0 rows affected" no-op.
-export async function softDeleteEntry(id: string): Promise<void> {
+export async function softDeleteEntry(
+  id: string,
+  expectedScope?: LedgerMutationScope,
+): Promise<void> {
+  const scope = captureMutationScope(expectedScope);
+  const { vaultId } = scope;
   const db = await getDb();
-  const vaultId = getActiveVaultIdSync();
+  assertMutationScope(scope);
   await assertNotTabLinked(db, id);
+  assertMutationScope(scope);
   await assertNotInSettledChapter(db, id);
+  assertMutationScope(scope);
   const current = await db.getFirstAsync<{ is_deleted: number | null }>(
     "SELECT is_deleted FROM entries WHERE id = ? AND vault_id = ?",
     id,
     vaultId,
   );
+  assertMutationScope(scope);
   if (!current) return;
   if (current.is_deleted === 1) return;
-  await appendEntryDeleted({ entryId: id });
+  assertMutationScope(scope);
+  const saved = await appendEntryDeleted({ entryId: id });
+  await finishEntryMutationAdmission(saved, vaultId);
 }
 
 export async function updatePerson(

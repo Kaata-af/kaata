@@ -96,7 +96,13 @@ let platform = "android",
   rtl = false,
   appState = "active";
 let calendar: Calendar = "gregorian";
-let canCreate = true;
+let canCreate = true,
+  canAmend = true;
+const deletedEntries: string[] = [];
+const deletionScopes: unknown[] = [];
+let deleteEntryImpl: (id: string) => Promise<void> = async () => {};
+const backListeners = new Set<() => boolean>();
+let ledgerRefresh = async () => {};
 let person: any, entries: any[], preLink: any[], failed: any[], link: any;
 let priorPeriods: any[] = [],
   historyReadGate: Promise<any[]> | null = null;
@@ -186,6 +192,12 @@ const native: any = {
   ScrollView: "ScrollView",
   ActivityIndicator: "Spinner",
   KeyboardAvoidingView: "Keyboard",
+  BackHandler: {
+    addEventListener: (_: string, fn: () => boolean) => {
+      backListeners.add(fn);
+      return { remove: () => backListeners.delete(fn) };
+    },
+  },
   Keyboard: {
     dismiss() {
       keyboardDismissals++;
@@ -228,6 +240,7 @@ const components = Object.fromEntries(
     "CreditIntentList",
     "CreditStatusBadge",
     "EntryRow",
+    "SelectionToolbar",
     "SharedAccountBadge",
     "LinkAccountDialog",
     "OverflowMenu",
@@ -275,7 +288,12 @@ const mocks: Record<string, any> = {
     getSettlementSummary: async () => settlement,
     listSettlementBoundaries: async () => boundaries,
     setAppMeta: async () => {},
-    softDeleteEntry: async () => {},
+    softDeleteEntry: async (id: string, scope?: unknown) => {
+      deletedEntries.push(id);
+      deletionScopes.push(scope);
+      await deleteEntryImpl(id);
+      entries = entries.filter((entry) => entry.id !== id);
+    },
     SettledChapterError: dummyError,
   },
   "../../lib/db-tx": {
@@ -299,7 +317,11 @@ const mocks: Record<string, any> = {
     },
     savedMessage: () => null,
   },
-  "../../lib/ledger-events": { useLedgerRefresh() {} },
+  "../../lib/ledger-events": {
+    useLedgerRefresh(_: string, load: () => Promise<void>) {
+      ledgerRefresh = load;
+    },
+  },
   "../../lib/direction": {
     bidiIsolate: (value: string) => value,
     ltrIsolate: (value: string) => value,
@@ -403,7 +425,7 @@ const mocks: Record<string, any> = {
     useVaultPermission: () => true,
     useActiveVaultWriteCaps: () => ({
       canCreate,
-      canAmend: true,
+      canAmend,
       canConfigureCredit: true,
       resolved: true,
     }),
@@ -506,6 +528,10 @@ function fixture(shared = false) {
   preference = "en";
   calendar = "gregorian";
   canCreate = true;
+  canAmend = true;
+  deletedEntries.length = 0;
+  deletionScopes.length = 0;
+  deleteEntryImpl = async () => {};
   preferenceReads = 0;
   shares.length = 0;
   seen.length = 0;
@@ -724,7 +750,201 @@ async function notificationReminderFlowTests() {
   );
 }
 
+async function tallySelectionTests() {
+  const start = () =>
+    nodes(tree)
+      .find((node) => node.props.testID === "select-tallies")!
+      .props.onPress();
+  const toolbar = () => find("SelectionToolbar")!;
+  const chooseAll = async () => {
+    toolbar().props.onToggleAll();
+    await flush();
+  };
+  const askDelete = async () => {
+    toolbar().props.actions[0].onPress();
+    await flush();
+  };
+  const dialog = () =>
+    nodes(tree).find(
+      (node) =>
+        node.type === "ConfirmDialog" &&
+        node.props.visible &&
+        node.props.title.startsWith("selection.deleteTalliesTitle"),
+    )!;
+  for (const direction of [false, true]) {
+    rtl = direction;
+    fixture();
+    await flush();
+    start();
+    await flush();
+    assert.equal(toolbar().props.count, 0);
+    assert.equal(toolbar().props.total, 2, "select all includes only current, private tallies");
+    assert.equal(find("TextInput"), undefined, "bulk dock replaces entry/search actions");
+    assert.equal(toolbar().props.actions[0].disabled, true);
+    const first = tallies()[0];
+    first.props.onToggleSelection(first.props.entry);
+    await flush();
+    assert.equal(toolbar().props.count, 1);
+    assert.equal(tallies()[0].props.selected, true);
+    await chooseAll();
+    assert.equal(toolbar().props.count, 2);
+    await chooseAll();
+    assert.equal(toolbar().props.count, 0);
+    assert.ok(
+      [...backListeners].some((back) => back()),
+      "Android back exits selection before leaving the contact",
+    );
+    await flush();
+    assert.equal(toolbar(), undefined);
+    tallies()[0].props.onLongPress(tallies()[0].props.entry);
+    await flush();
+    const sheet = nodes(tree).find((node) => node.type === "BottomSheet" && node.props.visible)!;
+    sheet.props.actions.find((action: any) => action.label === "selection.start").onPress();
+    await flush();
+    assert.equal(toolbar().props.count, 1, "selecting from a tally's options seeds that tally");
+    await askDelete();
+    dialog().props.onCancel();
+    await flush();
+    assert.deepEqual(deletedEntries, [], "cancel is non-destructive");
+    await chooseAll();
+    await askDelete();
+    const confirm = dialog().props.onConfirm;
+    confirm();
+    confirm();
+    await flush();
+    assert.deepEqual(
+      deletedEntries,
+      ["new-rice", "new-tea"],
+      "double confirmation writes each selected tally once",
+    );
+    assert.deepEqual(
+      deletionScopes,
+      [
+        { vaultId: "vault", accountId: "account" },
+        { vaultId: "vault", accountId: "account" },
+      ],
+      "each write carries the selection's captured account and vault",
+    );
+    assert.equal(toolbar(), undefined);
+    assert.ok(
+      entries.some((entry) => entry.id === "old-rice"),
+      "settled history remains intact",
+    );
+  }
+
+  fixture();
+  await flush();
+  start();
+  await flush();
+  await chooseAll();
+  deleteEntryImpl = async (id) => {
+    if (id === "new-tea") throw new Error("synthetic failure");
+  };
+  await askDelete();
+  dialog().props.onConfirm();
+  await flush();
+  assert.equal(toolbar().props.count, 1, "successful rows leave selection after a partial failure");
+  assert.equal(tallies().find((row) => row.props.entry.id === "new-tea")?.props.selected, true);
+  assert.ok(toasts.some((toast) => toast[0].startsWith("selection.partialFailure")));
+  deleteEntryImpl = async () => {};
+  await askDelete();
+  dialog().props.onConfirm();
+  await flush();
+  assert.deepEqual(
+    deletedEntries,
+    ["new-rice", "new-tea", "new-tea"],
+    "retry excludes an already deleted tally",
+  );
+
+  fixture();
+  await flush();
+  start();
+  await flush();
+  await chooseAll();
+  let release!: () => void;
+  deleteEntryImpl = () =>
+    new Promise((resolve) => {
+      release = resolve;
+    });
+  await askDelete();
+  dialog().props.onConfirm();
+  await flush();
+  assert.equal(toolbar().props.busy, true);
+  toolbar().props.onClose();
+  toolbar().props.onToggleAll();
+  assert.ok([...backListeners].some((back) => back()));
+  await flush();
+  assert.equal(toolbar().props.count, 2, "in-flight controls cannot change the batch");
+  vaultId = "another-vault";
+  dirty = true;
+  await flush();
+  release();
+  await flush();
+  assert.deepEqual(
+    deletedEntries,
+    ["new-rice"],
+    "vault change stops the batch before its next write",
+  );
+  assert.equal(toolbar(), undefined);
+  assert.equal(toasts.length, 0, "old-scope completion does not notify the new vault");
+
+  fixture();
+  await flush();
+  start();
+  await flush();
+  await chooseAll();
+  canAmend = false;
+  dirty = true;
+  await flush();
+  assert.equal(toolbar(), undefined, "role demotion clears selection immediately");
+  assert.equal(
+    nodes(tree).find((node) => node.props.testID === "select-tallies"),
+    undefined,
+  );
+
+  fixture();
+  await flush();
+  start();
+  await flush();
+  await chooseAll();
+  settlement = { count: 2, lastSettledAtMs: 1000 };
+  boundaries = [200, 1000];
+  await ledgerRefresh();
+  await flush();
+  assert.equal(toolbar(), undefined, "remote settlement removes all selection eligibility");
+
+  fixture();
+  await flush();
+  query("tea");
+  await flush();
+  start();
+  await flush();
+  assert.equal(
+    toolbar().props.total,
+    1,
+    "filtered select all is limited to matching amendable tallies",
+  );
+  params = { id: "another-person" };
+  dirty = true;
+  await flush();
+  assert.equal(toolbar(), undefined, "route changes never retain selection");
+
+  fixture(true);
+  await flush();
+  assert.equal(
+    nodes(tree).find((node) => node.props.testID === "select-tallies"),
+    undefined,
+    "shared tallies retain individual review/cancel workflows",
+  );
+  unmount();
+  assert.equal(backListeners.size, 0);
+  console.log(
+    "PASS: tally selection, scoped select all, cancel/back, duplicate guards, partial retries, remote settlement and route/vault/role isolation in EN/FA",
+  );
+}
+
 async function main() {
+  await tallySelectionTests();
   await notificationReminderFlowTests();
   for (const p of ["android", "ios"])
     for (const r of [false, true]) {

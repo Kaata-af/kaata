@@ -26,7 +26,7 @@ import { fromMinorUnits, toMinorUnits } from "../money";
 import type { Entry, EntryType } from "../types";
 import { directionFor, entryTypeFor, otherRole } from "./direction";
 import { emitTabApplied } from "./events";
-import { TabReviewFinalError } from "./errors";
+import { TabApiError, TabReviewFinalError } from "./errors";
 import type {
   TabAppliedEvent,
   TabEntryRow,
@@ -817,11 +817,24 @@ export async function listVaultContactsForJoin(vaultId: string): Promise<TabJoin
 export async function queueTabMutation(
   link: TabLink,
   op: TabOutboxRow,
-  opts: { deferAppend?: boolean } = {},
+  opts: { deferAppend?: boolean; deferFinancial?: boolean } = {},
 ): Promise<void> {
   const db = await getDb();
   const p = JSON.parse(op.payload);
   await transaction(async () => {
+    if (opts.deferFinancial && (op.op === "accept" || op.op === "dispute" || op.op === "void")) {
+      const waiting = await db.getFirstAsync<{ id: string }>(
+        "SELECT id FROM tab_outbox WHERE tab_id=? AND op IN ('accept','dispute','void') AND json_extract(payload,'$.entry_id')=? LIMIT 1",
+        link.tab_id,
+        p.entry_id,
+      );
+      if (waiting)
+        throw new TabApiError(
+          409,
+          "credit_confirmation_pending",
+          "A change is already waiting for confirmation",
+        );
+    }
     switch (op.op) {
       case "append":
         if (opts.deferAppend) break;
@@ -839,6 +852,7 @@ export async function queueTabMutation(
         break;
       case "accept":
       case "dispute":
+        if (opts.deferFinancial) break;
         await applyOptimisticStatus(
           link,
           p.entry_id,
@@ -848,6 +862,7 @@ export async function queueTabMutation(
         );
         break;
       case "void":
+        if (opts.deferFinancial) break;
         await applyOptimisticVoid(link, p.entry_id, op.id, false);
         break;
       case "label":

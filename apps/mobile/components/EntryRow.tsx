@@ -3,6 +3,7 @@ import { memo, useRef, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Button } from "./Button";
 import { InitialAvatar } from "./InitialAvatar";
+import { SelectionMark } from "./SelectionMark";
 import { chipActorFor, initialOf, memberTintFor, type EntryAttribution } from "../lib/attribution";
 import { colors } from "../lib/colors";
 import { useCalendar } from "../lib/calendar";
@@ -81,6 +82,12 @@ export const EntryRow = memo(function EntryRow(props: {
   // While a note search is on, the whole note shows: a match past the first
   // line was clipped away from the result that found it (audit #3).
   showFullNote?: boolean;
+  // Selection replaces the row's expand gesture; review actions stay out of
+  // the way until selection ends. Omit onToggleSelection for locked rows.
+  selecting?: boolean;
+  selected?: boolean;
+  selectionDisabled?: boolean;
+  onToggleSelection?: (entry: Entry) => void;
 }) {
   const isRTL = useIsRTL();
   useCalendar(); // This memoized row must also refresh when its calendar changes.
@@ -126,8 +133,9 @@ export const EntryRow = memo(function EntryRow(props: {
   // Keep cancellations in storage and exports, but never in the visible list.
   // This follows every hook so a live cancellation does not change hook order.
   if (voided) return null;
-  const expanded = open && clipped;
-  const when = open
+  const rowOpen = open && !props.selecting;
+  const expanded = rowOpen && clipped;
+  const when = rowOpen
     ? formatTimestamp(entry.created_at)
     : formatRelative(entry.created_at, Date.now(), { alwaysRelative: true });
   const toggleLabel = t(open ? "entry.showRelativeTime" : "entry.showExactTime");
@@ -184,13 +192,14 @@ export const EntryRow = memo(function EntryRow(props: {
   // the other party's pending tally offers Accept/Reject even while collapsed;
   // your own pending tally offers Cancel only once opened. The two never meet.
   const showReview =
+    !props.selecting &&
     !!tab &&
     tab.by === "them" &&
     !voided &&
     !tab.local_pending &&
     tab.status === "pending" &&
     !!(props.onAccept || props.onReject);
-  const showCancel = open && tab?.by === "me" && pending && !!props.onCancel;
+  const showCancel = rowOpen && tab?.by === "me" && pending && !!props.onCancel;
   // Side A/B is not authorship: a store can have several writers.
   const byLine = tab
     ? namedByLine(
@@ -217,34 +226,58 @@ export const EntryRow = memo(function EntryRow(props: {
   return (
     // White whatever the review state; an OPEN row turns bgMuted, actions
     // included. That grey ground is the open cue, never a review colour.
-    <View style={[styles.container, open && styles.containerOpen]}>
+    <View
+      style={[
+        styles.container,
+        rowOpen && styles.containerOpen,
+        props.selected && styles.containerSelected,
+      ]}
+    >
       <Pressable
         // A row tap toggles the row open/closed (exact time + note). The
         // edit/delete sheet stays on TAP-AND-HOLD — like contact rows.
         // delayLongPress 250ms so a quick tap doesn't accidentally trigger it;
         // Pressable cancels if the finger moves enough to start a scroll, so it
         // doesn't fight the list's vertical scroll.
-        onPress={() => setOpen((value) => !value)}
-        onLongPress={props.onLongPress ? () => props.onLongPress?.(entry) : undefined}
+        onPress={() =>
+          props.selecting ? props.onToggleSelection?.(entry) : setOpen((value) => !value)
+        }
+        onLongPress={
+          !props.selecting && props.onLongPress ? () => props.onLongPress?.(entry) : undefined
+        }
+        disabled={props.selecting && (!props.onToggleSelection || props.selectionDisabled)}
         delayLongPress={250}
-        accessibilityRole="button"
-        accessibilityState={{ expanded: open }}
+        accessibilityRole={props.selecting ? "checkbox" : "button"}
+        accessibilityState={
+          props.selecting
+            ? {
+                checked: !!props.selected,
+                disabled: !props.onToggleSelection || props.selectionDisabled,
+              }
+            : { expanded: open }
+        }
         accessibilityValue={statusLabel ? { text: statusLabel } : undefined}
-        accessibilityHint={toggleLabel}
+        accessibilityHint={props.selecting ? t("selection.hint") : toggleLabel}
         accessibilityActions={[
-          { name: "activate", label: toggleLabel },
-          ...(props.onLongPress ? [{ name: "longpress", label: t("entry.options") }] : []),
+          { name: "activate", label: props.selecting ? t("selection.start") : toggleLabel },
+          ...(!props.selecting && props.onLongPress
+            ? [{ name: "longpress", label: t("entry.options") }]
+            : []),
         ]}
         onAccessibilityAction={(event) => {
-          if (event.nativeEvent.actionName === "activate") setOpen((value) => !value);
-          else if (event.nativeEvent.actionName === "longpress") props.onLongPress?.(entry);
+          if (event.nativeEvent.actionName === "activate") {
+            if (props.selecting) {
+              if (!props.selectionDisabled) props.onToggleSelection?.(entry);
+            } else setOpen((value) => !value);
+          } else if (!props.selecting && event.nativeEvent.actionName === "longpress")
+            props.onLongPress?.(entry);
         }}
         style={({ pressed }) => [pressed && { backgroundColor: colors.pressedOverlay }]}
       >
         {/* The status pill is the opened row's FIRST line, centred above the
           amount. It lives inside the Pressable, so tapping it closes the row
           like any other part of the tally. */}
-        {open && status ? (
+        {rowOpen && status ? (
           <View style={styles.statusRow}>
             <View style={[styles.statusPill, rowDir(isRTL), isRTL && styles.statusPillRTL]}>
               <View
@@ -259,7 +292,12 @@ export const EntryRow = memo(function EntryRow(props: {
             </View>
           </View>
         ) : null}
-        <View style={[styles.row, rowDir(isRTL), open && status && styles.rowUnderStatus]}>
+        <View style={[styles.row, rowDir(isRTL), rowOpen && status && styles.rowUnderStatus]}>
+          {props.selecting && props.onToggleSelection ? (
+            <View style={isRTL ? styles.selectionMarkRTL : styles.selectionMarkLTR}>
+              <SelectionMark selected={!!props.selected} />
+            </View>
+          ) : null}
           <View
             style={[
               styles.iconWrap,
@@ -317,7 +355,7 @@ export const EntryRow = memo(function EntryRow(props: {
                   opened, the pill above says it in words, so the dot steps
                   aside. Screen readers get the state from the row's
                   accessibilityValue, so the dot itself stays silent. */}
-                {!open && pending ? (
+                {!rowOpen && pending ? (
                   <View
                     testID="status-dot"
                     style={styles.statusDot}
@@ -396,7 +434,7 @@ export const EntryRow = memo(function EntryRow(props: {
               shared ledger that reassurance is the other half of the feature.
               Start-aligned like every meta line under the note: the trailing
               edge belongs to the date. */}
-            {open && byLine ? (
+            {rowOpen && byLine ? (
               <Text style={[styles.byLine, textDir(isRTL)]} numberOfLines={2}>
                 {byLine}
               </Text>
@@ -404,16 +442,16 @@ export const EntryRow = memo(function EntryRow(props: {
             {/* The dispute reason is the other party's words about THIS tally,
               so it gets the full width and no clamp: a shopkeeper resolving a
               dispute needs the whole sentence, not its first line. */}
-            {open && disputeLine ? (
+            {rowOpen && disputeLine ? (
               <Text style={[styles.byLine, textDir(isRTL)]}>{disputeLine}</Text>
             ) : null}
-            {open && tab && !tab.local_pending && tab.status !== "pending" ? (
+            {rowOpen && tab && !tab.local_pending && tab.status !== "pending" ? (
               <Text style={[styles.byLine, textDir(isRTL)]}>
                 {namedByLine("tab.reviewedBy", tab.reviewer_name || t("export.record.unknown"))}
                 {tab.status_at != null ? ` · ${formatTimestamp(tab.status_at)}` : ""}
               </Text>
             ) : null}
-            {open && tab?.status === "disputed" && !voided ? (
+            {rowOpen && tab?.status === "disputed" && !voided ? (
               <Text style={[styles.byLine, textDir(isRTL)]}>{t("tab.rejectedHint")}</Text>
             ) : null}
           </View>
@@ -472,6 +510,9 @@ export const EntryRow = memo(function EntryRow(props: {
 const styles = StyleSheet.create({
   container: { backgroundColor: colors.bgDefault },
   containerOpen: { backgroundColor: colors.bgMuted },
+  containerSelected: { backgroundColor: colors.bgSubtle },
+  selectionMarkLTR: { marginRight: 12 },
+  selectionMarkRTL: { marginLeft: 12 },
   // The opened row's first line: the status pill, centred.
   statusRow: { alignItems: "center", paddingHorizontal: 14, paddingTop: 12 },
   // Neutral on purpose: white, hairline border, body ink. Only the dot is

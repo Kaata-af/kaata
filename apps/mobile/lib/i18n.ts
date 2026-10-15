@@ -26,6 +26,26 @@ import { getAppMeta } from "./db";
 
 // Source-of-truth English strings. All other locales must use the same keys.
 const en = {
+  "selection.start": "Select",
+  "selection.contacts": "Select contacts",
+  "selection.tallies": "Select tallies",
+  "selection.count": "{count} selected",
+  "selection.all": "Select all",
+  "selection.clear": "Deselect all",
+  "selection.close": "Done",
+  "selection.hint": "Double tap to select or deselect this item.",
+  "selection.removeContactsTitle": "Remove {count} contacts?",
+  "selection.removeContactsDescription":
+    "These contacts will be hidden in this kaata. You can restore them from Removed people.",
+  "selection.contactsRemoved": "{count} contacts removed",
+  "selection.deleteTalliesTitle": "Delete {count} tallies?",
+  "selection.deleteTalliesDescription":
+    "These tallies will be deleted and the balances will update. This cannot be undone.",
+  "selection.talliesDeleted": "{count} tallies deleted",
+  "selection.partialFailure": "{count} items could not be updated. Try again.",
+  "selection.remove": "Remove",
+  "selection.delete": "Delete",
+  "selection.empty": "Tap items to select them",
   "inbox.title": "Notifications",
   "inbox.bell": "Notifications, {count} unread",
   "inbox.unread": "Unread",
@@ -448,25 +468,35 @@ const en = {
   "credit.unlimited": "No limit",
   "credit.warnMode": "Warn only",
   "credit.hardMode": "Restrict clerks",
+  "credit.editorsMode": "Restrict editors and clerks",
+  "credit.modeHelp":
+    "Choose a warning or a restriction. Individual member permissions can change who must obey a hard limit.",
   "credit.hardHelp":
-    "Clerks record tallies offline as usual. For a customer under a restricted limit, a clerk's new tally waits for the server's OK and is refused if it goes over. Repayments are always allowed; owners, managers and editors can go over a limit.",
+    "Staff covered by a hard limit need an online check for tallies that change their exposure. Tallies that reduce an existing debt remain allowed. Owners and admins can exceed limits; member exceptions apply only to hard limits.",
   "credit.forCustomer": "For {name}",
   "credit.zeroHelp":
     "Leave a field blank for no limit. 0 means no credit at all in that direction.",
   "credit.loadFailed": "Could not load the limits. Go back and open them again.",
   "credit.limitLeft": "Limit {limit} · {left} left",
   "credit.limitOver": "Limit {limit} · {over} over",
-  "credit.clerksNeedSignIn": "Ask every clerk to sign in and sync before enabling restrictions.",
+  "credit.clerksNeedSignIn":
+    "Ask every restricted staff member to sign in and sync before enabling restrictions.",
   "credit.warning": "This tally exceeds the credit limit",
   "credit.blocked": "Credit limit exceeded. This tally was not recorded.",
   "credit.pending": "Waiting for server confirmation",
+  "credit.pendingChange":
+    "This change is waiting for server confirmation. The recorded tally is unchanged.",
+  "credit.refusedChange":
+    "This change was refused because it exceeds a credit limit. The recorded tally is unchanged.",
+  "credit.intentEdit": "Edit tally",
+  "credit.intentDelete": "Delete tally",
   "credit.pendingHold":
     "Waiting for the server to check the limit. Hand nothing over until it's confirmed.",
   "credit.signInToSend": "Not sent: sign in so the server can check it",
   "credit.refusalOne": "The limit stopped a tally by {name}: {what}, {when}",
   "credit.refusalMany":
     "The limit stopped {count} tallies in the last 30 days. Latest by {name}: {what}, {when}",
-  "credit.refusalSomeone": "a clerk",
+  "credit.refusalSomeone": "a staff member",
   "tab.savedSignIn": "Saved on this phone. Sign in to send it to {name}.",
   "credit.refused": "Credit limit exceeded — not recorded",
   "credit.intentsTitle": "Waiting / not recorded",
@@ -1323,7 +1353,7 @@ const en = {
   // Vault settings — Phase 7 UX critique #8 (translated).
   "vaultSettings.title": "Kaata settings",
   "vaultSettings.role.owner": "Owner",
-  "vaultSettings.role.manager": "Manager",
+  "vaultSettings.role.manager": "Admin",
   "vaultSettings.role.editor": "Editor",
   "vaultSettings.role.clerk": "Clerk",
   "vaultSettings.role.viewer": "Viewer",
@@ -1443,7 +1473,27 @@ const en = {
   "members.sheet.makeEditor": "Make editor",
   "members.sheet.makeViewer": "Make viewer",
   // Roles v2 Phase B — granting UI.
-  "members.sheet.makeManager": "Make manager",
+  "members.sheet.makeManager": "Make admin",
+  "members.rolesHelp":
+    "Admins manage staff and credit limits. Only owners appoint admins, transfer ownership or archive this Kaata.",
+  "members.credit.action": "Credit limit permissions",
+  "members.credit.title": "Credit permissions · {name}",
+  "members.credit.inherit": "Inherit role",
+  "members.credit.inheritHint": "Use the customer's restriction for this member's role.",
+  "members.credit.enforce": "Must obey hard limits",
+  "members.credit.enforceHint":
+    "Apply every hard limit, even when this member's role is exempt. Warn-only limits stay warnings.",
+  "members.credit.bypass": "May exceed limits",
+  "members.credit.bypassHint": "Let this member exceed hard limits. Credit warnings still appear.",
+  "members.credit.onlineRequired": "Sign in and connect to change member permissions.",
+  "members.credit.loadFailed":
+    "Could not load current permissions. Check your connection and try again.",
+  "members.credit.saveFailed":
+    "Could not save the permission. Check your connection and try again.",
+  "members.credit.memberNeedsSignIn":
+    "Ask this member to sign in and sync, then change their credit permission.",
+  "members.credit.saved": "Credit permission saved",
+  "members.credit.working": "Checking credit permissions…",
   "members.appleHiddenEmail": "Apple account · email hidden",
   "members.sheet.makeClerk": "Make clerk",
   "members.sheet.transfer": "Transfer ownership",
@@ -1477,7 +1527,7 @@ const en = {
   "invite.link.editorDisclosure":
     "Editors can add, edit and delete tallies in this Kaata. In shared accounts they can also accept or reject the other side's tallies (final) and unlink the account.",
   "invite.managerNote":
-    "Managers also set credit limits and manage members. Invite the person first, then open Members, tap their name and choose Make manager.",
+    "Owners can appoint admins to manage staff and credit limits. Invite the person first, then open Members, tap their name and choose Make admin.",
   "invite.link.clerkDisclosure":
     "Clerks can add new tallies but can never change or delete history.",
   "invite.link.ready": "Link ready",
@@ -1939,7 +1989,7 @@ const en = {
   "tab.join.switchEmptyHint": "No tallies yet, so nothing changes.",
   "tab.join.switchRelabelHint": "Existing amounts will be shown in {currency}, not converted.",
   "tab.join.lockedByTab": "Locked to {currency} by a shared account",
-  "tab.join.lockedByRole": "Only a manager can change this kaata's currency",
+  "tab.join.lockedByRole": "Only an owner or admin can change this kaata's currency",
   "tab.join.createSeparate": "Create a separate {currency} kaata",
   // Heading over the secondary switch rows. It names the VERB: a row under
   // "choose another kaata" read as a picker, and one tap relabelled every
@@ -1992,6 +2042,26 @@ type Key = keyof typeof en;
 // Missing keys fall back to English; half-translated UI doesn't break. Add a
 // new key here as soon as you add it to the en table.
 const fa: Partial<Record<Key, string>> = {
+  "selection.start": "انتخاب",
+  "selection.contacts": "انتخاب مخاطبین",
+  "selection.tallies": "انتخاب ثبت‌ها",
+  "selection.count": "{count} انتخاب شده",
+  "selection.all": "انتخاب همه",
+  "selection.clear": "لغو انتخاب همه",
+  "selection.close": "تمام",
+  "selection.hint": "برای انتخاب یا لغو انتخاب این مورد، دو بار ضربه بزنید.",
+  "selection.removeContactsTitle": "{count} مخاطب برداشته شود؟",
+  "selection.removeContactsDescription":
+    "این مخاطبین در این کاتا پنهان می‌شوند. می‌توانید آن‌ها را از بخش اشخاص حذف‌شده برگردانید.",
+  "selection.contactsRemoved": "{count} مخاطب برداشته شد",
+  "selection.deleteTalliesTitle": "{count} ثبت حذف شود؟",
+  "selection.deleteTalliesDescription":
+    "این ثبت‌ها حذف می‌شوند و بیلانس‌ها تغییر می‌کنند. این کار قابل برگشت نیست.",
+  "selection.talliesDeleted": "{count} ثبت حذف شد",
+  "selection.partialFailure": "{count} مورد به‌روز نشد. دوباره کوشش کنید.",
+  "selection.remove": "برداشتن",
+  "selection.delete": "حذف",
+  "selection.empty": "برای انتخاب موارد، روی آن‌ها ضربه بزنید",
   "inbox.title": "اعلان‌ها",
   "inbox.bell": "اعلان‌ها، {count} ناخوانده",
   "inbox.unread": "ناخوانده",
@@ -2379,24 +2449,32 @@ const fa: Partial<Record<Key, string>> = {
   "credit.unlimited": "بدون حد",
   "credit.warnMode": "فقط هشدار بده",
   "credit.hardMode": "محدودکردن ثبت‌کننده‌ها",
+  "credit.editorsMode": "محدودکردن ویرایشگرها و ثبت‌کننده‌ها",
+  "credit.modeHelp":
+    "هشدار یا محدودیت را انتخاب کنید. اجازهٔ جداگانهٔ هر عضو می‌تواند تعیین کند چه کسی باید حد قرض را رعایت کند.",
   "credit.hardHelp":
-    "ثبت‌کننده‌ها مثل همیشه بدون اینترنت ثبت می‌کنند. برای مشتری با حد محدود، ثبت تازهٔ ثبت‌کننده منتظر تأیید سرور می‌ماند و اگر از حد بگذرد رد می‌شود. پرداخت قرض همیشه مجاز است؛ مالک، مدیر و ویرایشگر می‌توانند از حد بگذرند.",
+    "کارمندانی که محدودیت دارند، برای ثبت‌هایی که ماندهٔ قرض را تغییر می‌دهد به بررسی آنلاین نیاز دارند. ثبت‌هایی که قرض موجود را کم می‌کند مجاز می‌ماند. مالک و مدیر می‌توانند از حد بگذرند؛ اجازه‌های جداگانهٔ اعضا فقط بر حدهای محدود اعمال می‌شود.",
   "credit.forCustomer": "برای {name}",
   "credit.zeroHelp": "برای بدون حد، خانه را خالی بگذارید. ۰ یعنی در آن طرف هیچ قرضی نه.",
   "credit.loadFailed": "حد قرض بارگیری نشد. برگردید و دوباره باز کنید.",
   "credit.limitLeft": "حد {limit} · {left} باقی",
   "credit.limitOver": "حد {limit} · {over} بیشتر",
   "credit.clerksNeedSignIn":
-    "پیش از فعال‌کردن محدودیت، از همهٔ ثبت‌کننده‌ها بخواهید وارد حساب شوند و همگام کنند.",
+    "پیش از فعال‌کردن محدودیت، از هر کارمندی که محدودیت دارد بخواهید وارد حساب شود و همگام کند.",
   "credit.warning": "این ثبت از حد قرض بیشتر می‌شود",
   "credit.blocked": "حد قرض گذشته است. این ثبت حساب نشد.",
   "credit.pending": "منتظر تأیید سرور",
+  "credit.pendingChange": "این تغییر منتظر تأیید سرور است. ثبت قبلی بدون تغییر باقی مانده است.",
+  "credit.refusedChange":
+    "این تغییر به دلیل گذشتن از حد قرض رد شد. ثبت قبلی بدون تغییر باقی مانده است.",
+  "credit.intentEdit": "ویرایش ثبت",
+  "credit.intentDelete": "حذف ثبت",
   "credit.pendingHold": "منتظر بررسی حد قرض از طرف سرور. تا تأیید نشده، چیزی تحویل ندهید.",
   "credit.signInToSend": "ارسال نشده: وارد حساب شوید تا سرور آن را بررسی کند",
   "credit.refusalOne": "حد قرض جلوی ثبت {name} را گرفت: {what}، {when}",
   "credit.refusalMany":
     "حد قرض در ۳۰ روز گذشته جلوی {count} ثبت را گرفت. آخرین از {name}: {what}، {when}",
-  "credit.refusalSomeone": "یک ثبت‌کننده",
+  "credit.refusalSomeone": "یک کارمند",
   "tab.savedSignIn": "در این تلفون ذخیره شد. برای فرستادن به {name} وارد حساب شوید.",
   "credit.refused": "بیشتر از حد قرض — حساب نشده",
   "credit.intentsTitle": "منتظر / حساب نشده",
@@ -3232,6 +3310,26 @@ const fa: Partial<Record<Key, string>> = {
   "members.sheet.makeEditor": "ویرایشگر کردن",
   "members.sheet.makeViewer": "بیننده کردن",
   "members.sheet.makeManager": "مدیر کردن",
+  "members.rolesHelp":
+    "مدیرها کارکنان و حد قرض را مدیریت می‌کنند. تنها مالک می‌تواند مدیر تعیین کند، مالکیت را انتقال دهد یا این کاتا را بایگانی کند.",
+  "members.credit.action": "اجازه‌های حد قرض",
+  "members.credit.title": "اجازهٔ قرض · {name}",
+  "members.credit.inherit": "مطابق نقش",
+  "members.credit.inheritHint": "محدودیت مشتری را مطابق نقش این عضو اعمال کن.",
+  "members.credit.enforce": "باید حدهای محدود را رعایت کند",
+  "members.credit.enforceHint":
+    "هر حد محدود را اعمال کن، حتی اگر نقش این عضو معاف باشد. حدهای فقط هشدار همچنان هشدار می‌مانند.",
+  "members.credit.bypass": "می‌تواند از حد بگذرد",
+  "members.credit.bypassHint":
+    "به این عضو اجازهٔ گذشتن از حدهای محدود را بده. هشدارهای قرض همچنان نشان داده می‌شوند.",
+  "members.credit.onlineRequired": "برای تغییر اجازهٔ اعضا وارد حساب شوید و به اینترنت وصل شوید.",
+  "members.credit.loadFailed":
+    "اجازه‌های فعلی بارگیری نشد. اتصال را بررسی کنید و دوباره کوشش کنید.",
+  "members.credit.saveFailed": "اجازه ذخیره نشد. اتصال را بررسی کنید و دوباره کوشش کنید.",
+  "members.credit.memberNeedsSignIn":
+    "از این عضو بخواهید وارد حساب شود و همگام کند، سپس اجازهٔ قرض او را تغییر دهید.",
+  "members.credit.saved": "اجازهٔ قرض ذخیره شد",
+  "members.credit.working": "در حال بررسی اجازه‌های قرض…",
   "members.appleHiddenEmail": "حساب اپل · ایمیل پنهان",
   "members.sheet.makeClerk": "ثبت‌کننده کردن",
   "members.sheet.transfer": "انتقال مالکیت",
@@ -3258,7 +3356,7 @@ const fa: Partial<Record<Key, string>> = {
   "invite.link.editorDisclosure":
     "ویرایشگرها می‌توانند در این کاتا ثبت اضافه، ویرایش و حذف کنند. در حساب‌های مشترک، ثبت‌های طرف مقابل را تأیید یا رد (نهایی) و حساب مشترک را قطع هم می‌توانند.",
   "invite.managerNote":
-    "مدیرها حد قرض تعیین می‌کنند و اعضا را هم مدیریت می‌کنند. اول شخص را دعوت کنید، بعد در «اعضا» روی نامش بزنید و «مدیر کردن» را انتخاب کنید.",
+    "مالک می‌تواند برای مدیریت کارکنان و حد قرض مدیر تعیین کند. اول شخص را دعوت کنید، بعد در «اعضا» روی نامش بزنید و «مدیر کردن» را انتخاب کنید.",
   "invite.link.clerkDisclosure":
     "ثبت‌کننده‌ها می‌توانند ثبت تازه اضافه کنند اما هرگز نمی‌توانند سابقه را تغییر دهند یا حذف کنند.",
   "invite.link.ready": "لینک آماده شد",
@@ -3645,7 +3743,7 @@ const fa: Partial<Record<Key, string>> = {
   "tab.join.switchEmptyHint": "هنوز ثبتی ندارد، پس چیزی تغییر نمی‌کند.",
   "tab.join.switchRelabelHint": "مبالغ موجود به {currency} نشان داده می‌شوند و تبدیل نمی‌شوند.",
   "tab.join.lockedByTab": "به خاطر یک حساب مشترک به {currency} قفل است",
-  "tab.join.lockedByRole": "فقط مدیر می‌تواند ارز این کاتا را تغییر دهد",
+  "tab.join.lockedByRole": "فقط مالک یا مدیر می‌تواند ارز این کاتا را تغییر دهد",
   "tab.join.createSeparate": "ساختن یک کاتای جداگانه به {currency}",
   "tab.join.orPick": "یا یک کاتا را به {currency} تغییر دهید",
   "tab.join.switchConfirmTitle": "{name} به {currency} تغییر کند؟",

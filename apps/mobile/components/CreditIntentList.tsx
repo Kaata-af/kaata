@@ -86,8 +86,22 @@ export function CreditIntentList({
         return (
           <View key={r.id} style={styles.row}>
             <Text style={[styles.amount, textDir(isRTL)]}>
-              {r.type === "debt" ? t("person.action.iGave") : t("person.action.iReceived")} ·{" "}
-              {formatMoneyAmount(r.amount_afn)} {getCurrentCurrencySymbol()}
+              {r.mutation
+                ? t(
+                    r.mutation === "edit"
+                      ? "credit.intentEdit"
+                      : r.mutation === "delete"
+                        ? "credit.intentDelete"
+                        : r.mutation === "accept"
+                          ? "tab.accept"
+                          : r.mutation === "dispute"
+                            ? "tab.reject"
+                            : "tab.cancel",
+                  )
+                : r.type === "debt"
+                  ? t("person.action.iGave")
+                  : t("person.action.iReceived")}{" "}
+              · {formatMoneyAmount(r.amount_afn)} {getCurrentCurrencySymbol()}
             </Text>
             {r.note ? <Text style={[styles.note, textDir(isRTL)]}>{r.note}</Text> : null}
             {/* Refused and waiting no longer look alike: a red or amber dot,

@@ -1,191 +1,121 @@
-# Customer credit limits
+# Customer credit limits and staff permissions
 
-Local development contract for the next release. These changes have not been
-deployed or distributed. Mobile migration 034 and backend migration 056 are
-additive; existing money and membership history remain unchanged.
+Local development contract. These changes have not been deployed. Backend
+migrations 062 and 063 must ship before the updated mobile app; mobile migration
+040 is additive. Existing signed role values and money history stay compatible.
 
-## Meaning and authority
+## Roles and authority
 
-Each customer relationship in a kaata has two optional limits, in that kaata's
-currency: maximum **they owe us** and maximum **we owe them**. Storage uses exact
-integer hundredths, just like mutual tabs. Blank means unlimited; zero means no
-new exposure in that direction. Limits are per relationship and kaata, not
-global limits for the same contact across kaatas.
+The stored `manager` role is displayed as **Admin**. Owners appoint admins.
+Admins manage day-to-day work, credit limits, and staff below admin. An admin
+cannot manage the owner or another admin. Archiving and ownership transfer
+remain owner-only. Editors amend history; clerks only add new entries and
+people; viewers read. Arbitrary reusable custom roles are not introduced.
 
-Owner and manager can configure limits. Editor, clerk and viewer cannot.
-`credit.configure` is a separate permission; this feature adds no role.
+Owner and admin may set a credit exception for a lower-ranked member:
 
-`warn` permits a tally and warns when it increases exposure beyond a cap.
-`clerk_block` refuses a clerk's tally that increases exposure beyond a cap.
-Owner, manager and editor retain their existing write authority and can override
-a cap. A direct mutual-tab party retains the existing party authority; the
-clerk restriction applies to a clerk delegated through that party's kaata, and
-to a bound account whose own role in that kaata is clerk (an editor who linked
-the shared account and was later demoted). A bound account's rights never
-exceed its own role in the party's kaata when it is a member there
-(`Party.BoundMemberRole`); evidence still records it as the account.
-Existing lawful-at-event-HLC permissions also apply to delayed local events:
-an owner/editor write authored before a demotion is not retroactively converted
-into a clerk write.
+- `inherit`: follow the customer policy and the member's role.
+- `enforce`: obey every hard policy, including an editor under a clerks-only
+  policy.
+- `bypass`: allow that member to exceed hard limits.
 
-The check compares each directional exposure before and after the proposed
-tally. Repayment and exposure reduction remain allowed when a balance already
-exceeds its cap. Crossing through zero must also respect the opposite cap;
-repaying a debt can create new exposure on the other side.
+Owners and admins always remain exempt from hard limits. A warn-only policy
+always stays warning-only, including for a member with `enforce`.
 
-## Balance
+Overrides are online server configuration, separate from signed membership
+history. GET `/v1/vaults/{vault_id}/credit-permissions` returns accepted active
+members and their current exceptions. PUT
+`/v1/vaults/{vault_id}/members/{account_id}/credit-permission` accepts
+`credit_limit_override`. The server rechecks active caller/target authority
+under the shared admission lock. The row binds to the membership seat, so
+removing and re-inviting someone does not retain a former exemption. A local
+sentinel identity must sign in and sync before enforcement can be configured.
 
-The balance includes local recorded debt/payment rows and the latest linked
-mutual-tab period, including an unclosed period first. Accepted and pending
-shared tallies count. Rejected/disputed, cancelled/voided and deleted tallies do
-not count. Locally disputed rows are excluded as well.
+## Customer policy
 
-A link opening absorbs local rows created at or before the frozen link
-boundary. Only local rows created **after** `linked_at` join its balance. The
-same rule remains after unlinking/closing. Party B sees the opposite sign of the
-shared tab; both app and server use the same perspective. A credit intent is
-not a financial row and never changes totals, statements, exports or balance.
+Each customer relationship has two optional amounts in the kaata's currency:
+maximum **they owe us** and maximum **we owe them**. Storage uses exact integer
+hundredths. Blank means unlimited; zero forbids new exposure in that direction.
+A customer's own policy wins over the kaata-wide default, including an explicit
+warn-only policy. The default covers future customers and re-added contacts.
 
-Server admission sees the committed history known to the server, including
-earlier accepted events in its current push transaction. It cannot include an
-owner's unsent offline writes. Those later owner/editor writes can legitimately
-move the balance beyond a cap. The restriction protects admission of clerk
-writes, not an invariant that privileged authors can never exceed the limit.
+The screen offers three choices:
 
-## Connection and enrollment
+- Warn only: show near/over-limit status and live amount warnings without
+  restricting recording.
+- Restrict clerks: hard limits apply to clerks unless an individual exception
+  changes that rule.
+- Restrict editors and clerks: the same hard limits also cover editors.
 
-Hard mode **always** requires sign-in and a successful online owner/manager
-save, including a solo kaata. An anonymous solo founder can save warning-only
-limits locally. This prevents a private hard-mode cache from silently making an
-unregistered paired notebook disagree between devices. A shared kaata's policy
-save requires the online authority as well.
+The wire/storage mode remains `warn | clerk_block`; the additive boolean
+`restrict_editors` widens the hard policy to editors. Missing means false on
+older policies. A legacy PUT omitting the field preserves its saved value,
+preventing an older app from silently weakening an editor restriction.
 
-A **kaata-wide default limit** (Kaata settings → Default credit limit, owner or
-manager, sign-in and an online save required) covers every customer without
-their own limit, including customers added later, so a clerk cannot escape a
-limit by re-adding a customer as a new contact. A customer's own limit always
-wins, even a warn-only one. The server stores the default in
-`customer_credit_limits` under the all-zero relationship id
-(`credit.DefaultRelationshipID`) and admission falls back to it
-(`credit.Effective`) for vault and shared-account clerk tallies; phones cache
-it in `kaata_credit_defaults` (mobile migration 038) because local limit rows
-reference a customer. Older apps ignore the extra row.
+Warning status is separate from money direction: near-limit and over-limit
+badges use the existing amber/red status language. Repayments remain allowed
+above a cap. Crossing through zero checks the cap in the opposite direction.
+Limits govern exposure increases rather than an invariant that privileged
+staff can never move the balance above a cap.
 
-Clerks record tallies **offline like everyone else**, unless the customer is
-under a known hard ("restrict clerks") limit; only those tallies wait for
-authenticated HTTPS admission (Matee, 2026-10-12). The earlier rule held
-**every** cloud clerk tally for admission, including warning-only and unlimited
-customers, so clerks could not work without internet. The server still checks
-every clerk tally on push, so the accepted residual risk is a hard limit set on
-another phone that the clerk has not pulled yet: the server refuses that
-offline tally, and the phone moves it from the balance to the "not recorded"
-list (`revertRefusedClerkTally`) instead of retrying it forever. A tally that
-was already deferred keeps waiting for the server's decision even if the limit
-is lifted on the phone. Owner, manager and editor keep their offline workflow;
-mesh receipt is not sufficient authority for a deferred tally.
+## Enforcement and offline behavior
 
-What the clerk is told: a waiting "I gave" tally says to hand nothing over until
-the server confirms it; a signed-out clerk's waiting rows say to sign in rather
-than "Waiting for server confirmation" forever; the entry and edit forms warn
-live once the typed amount passes the limit (an edit counts only the change
-from the stored amount).
+The server is authoritative. Admission identifies the actual authenticated
+author (and a bound shared-account member), never a relaying account or a
+claimed wire identity. Existing lawful-at-event-HLC role checks remain in force.
+Current member exceptions are read from the active membership seat.
 
-**Owners and managers see refused attempts** (audit #24). Every over-limit
-refusal, from a kaata push or a shared-account append, records its customer,
-direction, amount and clerk (backend migration 059 adds nullable columns to
-`customer_credit_event_refusals` and `customer_credit_tab_refusals`; earlier
-rows stay unlisted). Protocol refusals (replays, id collisions, malformed
-envelopes) record no details. `GET /v1/sync/credit-refusals?vault_id=` returns
-the last 30 days, newest first, at most 50, to owners and managers only (403
-`insufficient_role` otherwise; older servers 404, which the app treats as none).
-The customer's page shows "The limit stopped a tally by {clerk}…" under the
-limit line; the app fetches it at most once a minute per kaata and session and
-never stores it.
+Private creates, monetary amendments, and deletions are checked using their
+actual projected before/after exposure, including LWW and sticky deletions.
+Shared appends, disputes, voids, and binding/link-period changes use the same
+admission lock. Pending shared entries already count, so acceptance has zero
+exposure delta. Safe unchanged bindings and exposure reductions remain allowed.
+Sorted entry locks precede the kaata admission lock; policy and override writes
+serialize with financial admission.
 
-This observed local state is not proof that no unseen phone has enrolled with
-the cloud. Cloud enrollment and activation must synchronize across the kaata's
-devices. Hard mode refuses active clerks still represented by local-sentinel
-membership: each clerk must sign in and sync their cloud enrollment first.
-The mobile save and authoritative server PUT both enforce this boundary; queued
-policy publication cannot bypass it. The actionable refusal is
-`clerk_cloud_enrollment_required`.
+Staff continue to record offline for unlimited/warn-only customers. A known
+hard policy covering that member holds new financial changes as durable intents
+until HTTPS acknowledgement. Private edits/deletions leave the original tally
+unchanged while waiting. Restricted shared review/cancel operations likewise
+queue without changing recorded money. Pending and refused operations remain
+visible after restart; duplicate pending gestures do not queue twice. Mesh
+receipt does not authorize money, and relaxing a policy does not apply an
+already deferred attempt early.
 
-Signing out does not erase a device's persisted account binding or grant owner
-authority. A null-actor local append resolves its own membership at the event's
-HLC using persisted identity first, before local/retired aliases. Its role and
-admission decision agree with its authenticated mesh copy.
+A hard rule set elsewhere may not yet be cached. If the server refuses an
+optimistic change, its event ID stays refused even after promotion or a cap
+increase. The phone restores the entry from lawful history. Snapshot-seeded
+entries may lack their original creation event, so unacknowledged amendments
+and deletions retain local before-images in `credit_mutation_baselines`.
+Recovery uses the earliest retained image and surviving applied evidence,
+preserving independent notes, field clocks, review flags, and sequential
+refusal behavior. Missing historical evidence from pre-upgrade clients never
+justifies deleting a snapshot entry blindly.
 
-## Intents and terminal results
+New-tally refusals are visible to owner/admin in the existing last-30-days
+refusal feed. Refused edits/deletions are terminal and visible to the staff
+member, but are omitted from that feed rather than described as new loans.
 
-A cloud clerk's local create is durably saved as an intent until admission. Its
-event remains unapplied and does not create a financial row. A delegated
-clerk's shared append similarly queues without an optimistic financial row.
-The person screen shows these separately as waiting or refused, outside recorded
-tallies. Refused shared credit attempts are excluded from the ordinary Not sent
-list so they appear once.
+## Persistence and rollout
 
-The app attempts immediate admission and waits up to five seconds for feedback;
-the durable queue survives slower connections, app restarts and later retries.
-Background HTTPS results notify mounted intent lists immediately. Refusal means
-the tally was not recorded. There is no cancellation or retry action that
-pretends to reverse a possibly committed request; a new attempt uses a fresh ID.
+Customer/default caches retain `restrict_editors`; server snapshots include it.
+Member exceptions refresh with normal credit sync and while the members screen
+is open. Failed/missing endpoints do not clear cached exceptions or claim a
+successful save. Cache writes serialize and use session guards. Local full
+SQLite backups include the additive tables; cloud restore refreshes current
+server configuration separately from the age of ledger snapshots.
 
-The server persists a terminal credit refusal in the same transaction that
-commits before returning its rejection. A delayed mesh copy, lost reply, later
-cap increase or promotion cannot turn that same attempt into recorded money.
-An aborted whole push transaction returns no final verdict, so retrying after
-rollback is valid. Existing accepted retries remain idempotent only when their
-immutable financial envelope and JSON payload match; a global event ID cannot
-alias different money in another kaata or payload.
+Deploy backend migrations 062/063 and server first, then update participating
+staff apps and sync enrollment before enabling editor restrictions. Older apps
+remain subject to server refusal but can temporarily show their earlier
+optimistic UI and lack the new before-image recovery. No mandatory version
+floor is added by this feature. Hard-mode saves require sign-in and online
+confirmation; an older backend cannot falsely acknowledge an unsupported save.
 
-Fresh clerk entry IDs cannot reuse prior financial target IDs, including orphan
-amendments. Global sorted entry-ID locks cover financial mutations, followed by
-the kaata admission lock. This prevents concurrent cross-kaata ID reuse and
-backdated creates from activating older amendments to evade a limit.
-
-## Storage, sync and performance
-
-Policies are server configuration separate from signed admission/history events.
-GET is member scoped and returns authoritative `[]` when empty; PUT rechecks
-accepted, unrevoked owner/manager authority inside its transaction and requires
-a current customer relationship. Policy changes notify live kaata subscribers.
-Completed server policy writes use the server timestamp; concurrent settings
-follow the existing last-completed-write behavior, without a compare-and-swap UI.
-
-Local warning policies carry `sync_pending`. First cloud publication occurs
-before replacing the cache with GET and before issuing an invite. A stale GET
-cannot erase an unpublished policy or overwrite a newer local save. Existing
-and fresh cloud restore both receive current policies outside the age of a
-cached ledger snapshot. Account/session/kaata guards prevent a late response
-from painting or changing another context.
-
-Credit admission shares a kaata lock between local event pushes and delegated
-tab appends, serializing policy and known balance checks. No-cap/warning pushes
-avoid a full projection fold. A hard-limit push loads its projection once and
-folds all subsequently accepted mutations into it; backdated/equal-HLC events
-invalidate it for sorted reload. Partial financial-ID lookup indexes avoid
-scanning unrelated global history.
-
-## Rollout and verification
-
-Backend 056 must precede feature distribution. Update the participating apps
-before enabling hard mode, then sync enrollment on each clerk device. Older
-apps do not understand separate admission intents and can temporarily show
-their old optimistic local view before a server refusal. Server enforcement is
-still the final authority; the new app provides accurate waiting/refused UI.
-An older backend cannot acknowledge a policy save: errors stay errors, and
-pending local policy publication is retained.
-
-Focused tests use real in-memory SQLite with shipped migration DDL and an
-isolated localhost PostgreSQL cluster, never a production database. They cover
-directional zero/unlimited caps, exact cents, over-cap repayment, crossing zero,
-owner/manager permissions, local plus linked balances, pending/rejected/voided
-states, concurrent local/tab admission, terminal peer retries, transaction
-rollback, immutable duplicates, orphan amendment reuse, restore/cache races,
-account changes, actual signed-out role resolution, local/mesh parity, cloud QR
-null metadata, and hard-mode enrollment refusal.
-
-The 100-clerk-write rolling regression completed admission in about 84 ms on
-the developer's isolated database; this is a local measurement, not a network
-latency promise. No physical-phone, airplane-mode, two-device enrollment,
-screen-reader or Dari visual QA has been performed for this feature batch.
+Focused regression suites use real in-memory SQLite, shipped migration DDL,
+and an isolated localhost PostgreSQL cluster. They cover authority, seat
+lifecycle, editor/member exceptions, exact directional caps, repayments,
+concurrency, terminal retries, snapshot recovery, signed-out/remote identity,
+pending shared operations, and cache/session boundaries. Physical-phone,
+airplane-mode, two-device enrollment, screen-reader, and visual device QA remain
+release checks.

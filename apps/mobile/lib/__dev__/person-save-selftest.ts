@@ -226,6 +226,12 @@ function openFixture(): void {
     )?.[1];
   assert.ok(creditDefaultDDL, "shipped migration038 kaata default credit limit");
   fixture.exec(creditDefaultDDL);
+  const editorLimitDDL = /ALTER TABLE \$\{table\} ADD COLUMN restrict_editors[^`]+/.exec(
+    readFileSync(require.resolve("../db"), "utf8"),
+  )?.[0];
+  assert.ok(editorLimitDDL, "shipped migration040 editor credit restriction");
+  for (const table of ["customer_credit_limits", "kaata_credit_defaults"])
+    fixture.exec(editorLimitDDL.replace("${table}", table));
   failUsageKey = null;
   failedUsageWrites = 0;
   failEventType = null;

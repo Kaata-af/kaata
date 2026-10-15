@@ -13,12 +13,13 @@ export async function cacheCreditPolicies(
   if (kaataDefault) {
     if (!validCreditPolicy(kaataDefault)) throw new Error("Invalid credit policy response");
     await tx.runAsync(
-      "INSERT INTO kaata_credit_defaults(vault_id,max_collect_minor,max_pay_minor,mode,updated_at_ms) VALUES(?,?,?,?,?) ON CONFLICT(vault_id) DO UPDATE SET max_collect_minor=excluded.max_collect_minor,max_pay_minor=excluded.max_pay_minor,mode=excluded.mode,updated_at_ms=excluded.updated_at_ms WHERE kaata_credit_defaults.updated_at_ms<=excluded.updated_at_ms",
+      "INSERT INTO kaata_credit_defaults(vault_id,max_collect_minor,max_pay_minor,mode,updated_at_ms,restrict_editors) VALUES(?,?,?,?,?,?) ON CONFLICT(vault_id) DO UPDATE SET max_collect_minor=excluded.max_collect_minor,max_pay_minor=excluded.max_pay_minor,mode=excluded.mode,updated_at_ms=excluded.updated_at_ms,restrict_editors=excluded.restrict_editors WHERE kaata_credit_defaults.updated_at_ms<=excluded.updated_at_ms",
       vaultId,
       kaataDefault.max_collect_minor,
       kaataDefault.max_pay_minor,
       kaataDefault.mode,
       kaataDefault.updated_at_ms,
+      Number(!!kaataDefault.restrict_editors),
     );
   } else {
     await tx.runAsync(
@@ -47,13 +48,14 @@ export async function cacheCreditPolicies(
   for (const p of policies) {
     if (!validCreditPolicy(p)) throw new Error("Invalid credit policy response");
     await tx.runAsync(
-      "INSERT INTO customer_credit_limits(vault_id,relationship_id,max_collect_minor,max_pay_minor,mode,updated_at_ms,sync_pending) SELECT ?,?,?,?,?,?,0 WHERE EXISTS(SELECT 1 FROM relationships WHERE id=? AND vault_id=?) ON CONFLICT(vault_id,relationship_id) DO UPDATE SET max_collect_minor=excluded.max_collect_minor,max_pay_minor=excluded.max_pay_minor,mode=excluded.mode,updated_at_ms=excluded.updated_at_ms WHERE customer_credit_limits.sync_pending=0 AND customer_credit_limits.updated_at_ms<=excluded.updated_at_ms",
+      "INSERT INTO customer_credit_limits(vault_id,relationship_id,max_collect_minor,max_pay_minor,mode,updated_at_ms,restrict_editors,sync_pending) SELECT ?,?,?,?,?,?,?,0 WHERE EXISTS(SELECT 1 FROM relationships WHERE id=? AND vault_id=?) ON CONFLICT(vault_id,relationship_id) DO UPDATE SET max_collect_minor=excluded.max_collect_minor,max_pay_minor=excluded.max_pay_minor,mode=excluded.mode,updated_at_ms=excluded.updated_at_ms,restrict_editors=excluded.restrict_editors WHERE customer_credit_limits.sync_pending=0 AND customer_credit_limits.updated_at_ms<=excluded.updated_at_ms",
       vaultId,
       p.relationship_id,
       p.max_collect_minor,
       p.max_pay_minor,
       p.mode,
       p.updated_at_ms,
+      Number(!!p.restrict_editors),
       p.relationship_id,
       vaultId,
     );

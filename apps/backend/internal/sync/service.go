@@ -402,7 +402,7 @@ func (s *Service) PushEvents(ctx context.Context, in PushInput) (*PushResponse, 
 				return nil, fmt.Errorf("deleted-author duplicate check: %w", err)
 			}
 			if exists {
-				if ev.EventType == EventEntryCreated {
+				if isCreditMutation(ev.EventType) {
 					matches, err := creditDuplicateMatches(ctx, tx, in.VaultID, ev)
 					if err != nil {
 						return nil, err
@@ -525,7 +525,7 @@ func (s *Service) PushEvents(ctx context.Context, in PushInput) (*PushResponse, 
 			allowed, atRole, requiredRole, err := CheckEventPermission(
 				ctx, tx, s.binding,
 				accountUUID, vaultUUID,
-				evIDUUID, ev.EventType, storedActor,
+				evIDUUID, ev.EventType, ev.Payload, storedActor,
 				ev.HLC.PhysicalMS, ev.HLC.Logical, hlcDevUUID,
 			)
 			if err != nil {
@@ -567,14 +567,14 @@ func (s *Service) PushEvents(ctx context.Context, in PushInput) (*PushResponse, 
 			}
 			eventRole = atRole
 		}
-		if err := creditAdmit(ctx, tx, in.VaultID, ev, eventRole, creditState); err != nil {
+		eventActor := in.AccountID
+		if ev.ActorAccountID != nil && *ev.ActorAccountID != "" {
+			eventActor = *ev.ActorAccountID
+		}
+		if err := creditAdmit(ctx, tx, in.VaultID, ev, eventRole, eventActor, creditState); err != nil {
 			if errors.Is(err, credit.ErrLimit) {
-				// The signed author is the clerk; the pusher only relays.
-				actor := in.AccountID
-				if ev.ActorAccountID != nil && *ev.ActorAccountID != "" {
-					actor = *ev.ActorAccountID
-				}
-				if err := recordCreditRefusal(ctx, tx, in.VaultID, ev, actor, errors.Is(err, errCreditOverLimit)); err != nil {
+				// The signed author is the member; the pusher only relays.
+				if err := recordCreditRefusal(ctx, tx, in.VaultID, ev, eventActor, errors.Is(err, errCreditOverLimit)); err != nil {
 					return nil, fmt.Errorf("record credit refusal: %w", err)
 				}
 				rejected = append(rejected, RejectedEvent{EventID: ev.EventID, Reason: "credit_limit_exceeded"})
@@ -616,7 +616,7 @@ func (s *Service) PushEvents(ctx context.Context, in PushInput) (*PushResponse, 
 					return nil, fmt.Errorf("duplicate check for %s: %w", ev.EventID, derr)
 				}
 				if exists {
-					if ev.EventType == EventEntryCreated {
+					if isCreditMutation(ev.EventType) {
 						matches, err := creditDuplicateMatches(ctx, tx, in.VaultID, ev)
 						if err != nil {
 							return nil, err
@@ -714,7 +714,7 @@ func (s *Service) PushEvents(ctx context.Context, in PushInput) (*PushResponse, 
 		}
 
 		if tag.RowsAffected() == 0 {
-			if ev.EventType == EventEntryCreated {
+			if isCreditMutation(ev.EventType) {
 				matches, err := creditDuplicateMatches(ctx, tx, in.VaultID, ev)
 				if err != nil {
 					return nil, err

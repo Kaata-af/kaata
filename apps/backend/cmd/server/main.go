@@ -517,6 +517,8 @@ func main() {
 		pr.Post("/v1/vaults/{vault_id}/transfer-ownership", vaultsH.TransferOwnership)
 		pr.Post("/v1/vaults/{vault_id}/members/{account_id}/role", vaultsH.SetMemberRole)
 		pr.Post("/v1/vaults/{vault_id}/members/{account_id}/revoke", vaultsH.RevokeMember)
+		pr.Get("/v1/vaults/{vault_id}/credit-permissions", vaultsH.MemberCreditPermissions)
+		pr.Put("/v1/vaults/{vault_id}/members/{account_id}/credit-permission", vaultsH.SetMemberCreditPermission)
 		pr.Get("/v1/vaults/{vault_id}/audit-log", vaultsH.AuditLog)
 		// CreateInvite: 10/hr per account. This is the path that mints a
 		// kaata.af/i/<token> URL; capping it tightly limits the blast
