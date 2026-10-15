@@ -1,8 +1,10 @@
 # Ownership invitations
 
-Implemented for the next 2.2.0 testing update. Backend migration **064** and the
-matching server must deploy before the mobile builds. No cloud build or store
-upload was started while this feature was being added.
+Delivered in **2.2.0 / Android 58 / iOS 38** on Play internal testing and the
+existing TestFlight internal group. Backend migration **064** and the matching
+server/web are live. No cloud build or store upload was started until this
+feature and its release checks were complete. Exact build, deployment and store
+receipts are in [2.2.0-testing-distribution.md](2.2.0-testing-distribution.md).
 
 ## User flow
 

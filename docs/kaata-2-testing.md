@@ -6,6 +6,26 @@ durable offline queue, and push delivery infrastructure. Existing private ledger
 events are not rewritten.
 Automated checks and store submissions do not replace native two-phone testing.
 
+## Testing delivery — 15 October 2026 (58/38)
+
+**2.2.0 / Android 58 / iOS 38** is ready on Play internal testing and the existing
+TestFlight **Team (Expo)** internal group. Both signed builds use source
+`ab7f00c0bd6a7680ca0ce8673f9fb2e12589cebe`, including ownership invitation links,
+multi-select, Admin/member credit permissions, shared-ledger restore and
+recoverable account deletion. Matching backend/web and migration 064 are live.
+
+Ownership invitations are bound to the recipient's sign-in email, expire after
+seven days and require explicit acceptance. The former owner stays **Editor**.
+Update all participating phones in place before transferring; keep installed
+data. Phone checks for 58/38 are listed at the end of this document.
+
+Both store deliveries were read back: Android 58 PUBLISHED internally and iOS 38
+VALID / IN_BETA_TESTING, with the exact English testing notes. Production remains
+2.1.1; no mobile production submission/promotion or closed-track write occurred.
+Full automated validation and the build/upload/deployment receipts are in
+[2.2.0-testing-distribution.md](2.2.0-testing-distribution.md). Native two-phone
+and visual checks still require testing on the installed updates.
+
 ## Testing delivery — 14 October 2026 (57/37)
 
 Candidate **2.2.0 / Android 57 / iOS 37** uses the exact release source
