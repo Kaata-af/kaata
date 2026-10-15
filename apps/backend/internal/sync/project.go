@@ -25,6 +25,8 @@ import (
 	"fmt"
 	"log"
 	"sort"
+
+	"github.com/matee/kaata-backend/internal/ownership"
 )
 
 // ---------- HLC ----------
@@ -170,8 +172,9 @@ type vaultSettingSetPayload struct {
 }
 
 type vaultMemberAddedPayload struct {
-	AccountID string `json:"account_id"`
-	Role      string `json:"role"`
+	AccountID         string           `json:"account_id"`
+	Role              string           `json:"role"`
+	OwnershipTransfer *ownership.Proof `json:"ownership_transfer,omitempty"`
 }
 
 type vaultMemberRoleChangedPayload struct {
@@ -689,6 +692,17 @@ func applyVaultMemberAdded(p *Projection, e *LedgerEvent) error {
 		return fmt.Errorf("decode vault_member_added payload: %w", err)
 	}
 	ts := e.HLC.PMS
+	if transfer := payload.OwnershipTransfer; transfer != nil {
+		for _, id := range []string{transfer.Authorization.Grant.FromAccountID, transfer.Authorization.Grant.ChainAccountID()} {
+			if member := p.Members[id]; member != nil {
+				member.Role = "editor"
+				member.RemovedAt = nil
+				member.UpdatedAt = ts
+			} else {
+				p.Members[id] = &MemberProjection{AccountID: id, Role: "editor", AddedAt: ts, UpdatedAt: ts}
+			}
+		}
+	}
 	p.Members[payload.AccountID] = &MemberProjection{
 		AccountID: payload.AccountID,
 		Role:      payload.Role,

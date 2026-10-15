@@ -125,6 +125,21 @@ func CheckEventPermission(
 	if !roleSatisfies(roleAtHLC, required) {
 		return false, roleAtHLC, required, nil
 	}
+	if roleRank[required] >= roleRank["manager"] {
+		guard, guardErr := requiresCurrentMembershipAuthority(ctx, tx, vaultID.String(), eventID.String())
+		if guardErr != nil {
+			return false, "", required, guardErr
+		}
+		if guard {
+			current, active, lookupErr := currentMemberRole(ctx, tx, effectiveAuthor, vaultID)
+			if lookupErr != nil {
+				return false, "", required, lookupErr
+			}
+			if !active || !roleSatisfies(current, required) {
+				return false, current, required, nil
+			}
+		}
+	}
 	return true, roleAtHLC, "", nil
 }
 

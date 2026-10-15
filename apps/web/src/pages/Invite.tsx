@@ -149,7 +149,9 @@ function DetailsView({ info, token }: { info: InviteInfo; token: string }) {
         {t("invite.youreInvited")}
       </p>
       <h1 className="text-3xl md:text-4xl font-bold tracking-tight text-neutral-900 leading-tight">
-        {t("invite.join", { name: info.vault_name })}
+        {t(info.kind === "ownership_transfer" ? "invite.takeOwnership" : "invite.join", {
+          name: info.vault_name,
+        })}
         <span className="block text-neutral-500 mt-1 text-2xl md:text-3xl">
           {t("invite.asRole", { role: roleLabel })}
         </span>
@@ -171,7 +173,11 @@ function DetailsView({ info, token }: { info: InviteInfo; token: string }) {
       </div>
 
       <p className="mt-10 text-xs text-neutral-600 leading-relaxed">
-        {info.role === "viewer" ? t("invite.privacyNote.view") : t("invite.privacyNote.edit")}
+        {info.kind === "ownership_transfer"
+          ? t("invite.privacyNote.ownership")
+          : info.role === "viewer"
+            ? t("invite.privacyNote.view")
+            : t("invite.privacyNote.edit")}
       </p>
     </div>
   );

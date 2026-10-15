@@ -168,23 +168,31 @@ export async function listVaults(): Promise<VaultListing[]> {
 // until registered_with_server_at is stamped.
 // ---------------------------------------------------------------------------
 
-export async function createVaultOnServer(args: {
-  vault_id: string;
-  name: string;
-  currency: string;
-  created_at_ms: number;
-  vault_trust_anchor_pubkey?: string | null;
-}): Promise<void> {
+export async function createVaultOnServer(
+  args: {
+    vault_id: string;
+    name: string;
+    currency: string;
+    created_at_ms: number;
+    vault_trust_anchor_pubkey?: string | null;
+  },
+  expectedSession?: SessionSnapshot,
+): Promise<void> {
   try {
-    await httpThrowing("POST", "/v1/vaults", {
-      vault_id: args.vault_id,
-      name: args.name,
-      currency: args.currency,
-      created_at_ms: args.created_at_ms,
-      ...(args.vault_trust_anchor_pubkey
-        ? { vault_trust_anchor_pubkey: args.vault_trust_anchor_pubkey }
-        : {}),
-    });
+    await httpThrowing(
+      "POST",
+      "/v1/vaults",
+      {
+        vault_id: args.vault_id,
+        name: args.name,
+        currency: args.currency,
+        created_at_ms: args.created_at_ms,
+        ...(args.vault_trust_anchor_pubkey
+          ? { vault_trust_anchor_pubkey: args.vault_trust_anchor_pubkey }
+          : {}),
+      },
+      expectedSession,
+    );
   } catch (err) {
     // 409 = a vault row with this id already exists server-side (registered on
     // a prior attempt, or by the sign-in pending_vault_registration). That's
@@ -252,6 +260,148 @@ export type CreateInviteResult = {
   invite_email: string;
   expires_at: number; // unix ms
 };
+
+/** Owner-authorized handover. The recipient must prove the named email before
+ * the server can exchange ownership for the sender's Editor access. */
+export async function createOwnershipTransferInvite(
+  vaultId: string,
+  email: string,
+  expectedSession?: SessionSnapshot,
+): Promise<CreateInviteResult> {
+  const session = expectedSession ?? (await captureCurrentSession());
+  if (!session.jwt || !session.accountId) throw new Error("not signed in");
+  await applyForCurrentSession(session, async () => {});
+  const [Crypto, keys, proof, backfill, signatures, transfers, push] = await Promise.all([
+    import("expo-crypto"),
+    import("./mesh/device-key"),
+    import("./trust/proof"),
+    import("./trust/backfill"),
+    import("./event-sig"),
+    import("./trust/ownership-transfer"),
+    import("./sync/push"),
+  ]);
+  const recipient = transfers.normalizeOwnershipTransferEmail(email);
+  if (!/^[^\s@]+@[^\s@]+$/.test(recipient) || recipient.length > 254)
+    throw new ApiError(400, "invalid_email", "A recipient sign-in email is required");
+  const signer = await keys.getDeviceSigner();
+  await applyForCurrentSession(session, async () => {});
+  // Older registered vaults can still have a NULL server anchor. The normal
+  // idempotent registration fills that pin without replacing an existing one.
+  const local = await applyForCurrentSession(session, async () =>
+    (await getDb()).getFirstAsync<{
+      id: string;
+      name: string;
+      currency: string;
+      created_at: number;
+      vault_trust_anchor_pubkey: string | null;
+    }>(
+      "SELECT id,name,currency,created_at,vault_trust_anchor_pubkey FROM vaults WHERE id = ?",
+      vaultId,
+    ),
+  );
+  if (local?.vault_trust_anchor_pubkey) {
+    await createVaultOnServer(
+      {
+        vault_id: local.id,
+        name: local.name,
+        currency: local.currency,
+        created_at_ms: local.created_at,
+        vault_trust_anchor_pubkey: local.vault_trust_anchor_pubkey,
+      },
+      session,
+    );
+  }
+  await applyForCurrentSession(session, async () => {});
+  await backfill.ensureChainBackfill(vaultId);
+  // A valid owner grant must survive recovery without trusting a phone's
+  // mutable membership mirror. Publish its existing signed chain first.
+  const publishedOwner = async () => {
+    const state = await proof.getLocalMembershipState(vaultId, true);
+    const device = state?.devices.get(signer.pubkey_b64);
+    const member = device ? state?.members.get(device.account_id) : null;
+    if (
+      !device ||
+      device.removed ||
+      device.device_id !== getInstallIdSync() ||
+      !member ||
+      member.removed ||
+      member.role !== "owner"
+    )
+      return null;
+    return { member, device };
+  };
+  for (let attempt = 0; attempt < 5; attempt++) {
+    if (await publishedOwner()) break;
+    const outcome = await push.pushEvents(vaultId);
+    await applyForCurrentSession(session, async () => {});
+    if (outcome.rejected || (!outcome.pushed && !outcome.duplicates)) break;
+  }
+  const source = await publishedOwner();
+  if (!source)
+    throw new ApiError(409, "ownership_transfer_unavailable", "Owner proof is waiting for sync");
+  const issued = Date.now();
+  const grant: import("./trust/ownership-transfer").OwnershipTransferGrant = {
+    domain: transfers.OWNERSHIP_GRANT_DOMAIN,
+    transfer_id: Crypto.randomUUID(),
+    vault_id: vaultId,
+    from_account_id: session.accountId,
+    ...(source.device.account_id !== session.accountId
+      ? { from_chain_account_id: source.device.account_id }
+      : {}),
+    recipient_email_normalized: recipient,
+    demote_self_to: "editor",
+    issued_at_ms: issued,
+    expires_at_ms: issued + 7 * 24 * 60 * 60 * 1000,
+  };
+  const signature = await signer.sign(
+    transfers.ownershipTransferGrantBytes(grant, signatures.canonicalize),
+  );
+  let binary = "";
+  for (const byte of signature) binary += String.fromCharCode(byte);
+  const raw = (await httpThrowing(
+    "POST",
+    `/v1/vaults/${encodeURIComponent(vaultId)}/ownership-invites`,
+    { authorization: { grant, signer_device_pubkey: signer.pubkey_b64, sig_b64: btoa(binary) } },
+    session,
+  )) as { invite_url: string; invite_email: string; expires_at: string };
+  await applyForCurrentSession(session, async () => {});
+  if (!raw?.invite_url || !Number.isFinite(Date.parse(raw.expires_at)))
+    throw new Error("invalid ownership invitation response");
+  return { ...raw, expires_at: Date.parse(raw.expires_at) };
+}
+
+export async function fetchOwnershipTransferInvite(
+  vaultId: string,
+  expectedSession?: SessionSnapshot,
+): Promise<{ recipient_email: string; expires_at: number } | null> {
+  const session = expectedSession ?? (await captureCurrentSession());
+  const raw = (await httpThrowing(
+    "GET",
+    `/v1/vaults/${encodeURIComponent(vaultId)}/ownership-invites`,
+    undefined,
+    session,
+  )) as { pending: { invite_email: string; expires_at: string } | null };
+  await applyForCurrentSession(session, async () => {});
+  if (!raw?.pending) return null;
+  return {
+    recipient_email: raw.pending.invite_email,
+    expires_at: Date.parse(raw.pending.expires_at),
+  };
+}
+
+export async function cancelOwnershipTransferInvite(
+  vaultId: string,
+  expectedSession?: SessionSnapshot,
+): Promise<void> {
+  const session = expectedSession ?? (await captureCurrentSession());
+  await httpThrowing(
+    "DELETE",
+    `/v1/vaults/${encodeURIComponent(vaultId)}/ownership-invites`,
+    undefined,
+    session,
+  );
+  await applyForCurrentSession(session, async () => {});
+}
 
 export async function createVaultInvite(
   vaultId: string,
@@ -414,6 +564,7 @@ export async function lookupPendingInvite(token: string): Promise<PendingInvite 
 // (the server holds only the token hash post-migration, and the /pending
 // endpoint excludes link invites), so lookupPendingInvite always misses.
 export type InviteInfo = {
+  kind?: "ownership_transfer";
   vault_name: string;
   role: VaultRole;
   /** Redacted server-side (e.g. "a***@gmail.com"); null when absent. */
@@ -434,6 +585,7 @@ export async function fetchInviteInfo(token: string): Promise<InviteInfo | null>
       "GET",
       `/v1/vaults/invites/${encodeURIComponent(token)}/info`,
     )) as {
+      kind?: "ownership_transfer";
       vault_name: string;
       role: VaultRole;
       inviter_email_redacted?: string;
@@ -441,6 +593,7 @@ export async function fetchInviteInfo(token: string): Promise<InviteInfo | null>
       expires_at: string;
     };
     return {
+      ...(raw.kind === "ownership_transfer" ? { kind: raw.kind } : {}),
       vault_name: raw.vault_name,
       role: raw.role,
       inviter_email_redacted: raw.inviter_email_redacted || null,
@@ -458,25 +611,72 @@ export type AcceptInviteResult = {
   vault_id: string;
   vault_name: string;
   role: VaultRole;
+  ownership_transferred?: boolean;
+  ownership_event_id?: string;
 };
+
+/** A returning Editor may already have a published device admission. That is
+ * not evidence that the newly accepted ownership handover reached this phone. */
+export async function isOwnershipTransferApplied(
+  result: AcceptInviteResult,
+  session: SessionSnapshot,
+): Promise<boolean> {
+  if (!result.ownership_transferred) return true;
+  const eventId = result.ownership_event_id;
+  if (!eventId) return false;
+  return applyForCurrentSession(session, async () => {
+    const { applyEventMutex } = await import("./projection");
+    return applyEventMutex.runExclusive(async () => {
+      const db = await getDb();
+      const row = await db.getFirstAsync<{ payload_json: string }>(
+        `SELECT payload_json FROM event_log WHERE vault_id = ? AND event_id = ?
+         AND event_type = 'vault_member_added' AND applied_at IS NOT NULL
+         AND quarantine_reason IS NULL AND tombstone_reason IS NULL LIMIT 1`,
+        result.vault_id,
+        eventId,
+      );
+      if (!row) return false;
+      const { getLocalMembershipState } = await import("./trust/proof");
+      const state = await getLocalMembershipState(result.vault_id);
+      if (!state?.hasGenesis || state.conflicts.some((c) => c.event_id === eventId)) return false;
+      const member = state.members.get(session.accountId!);
+      return !!member && !member.removed;
+    });
+  });
+}
 
 export async function acceptVaultInvite(
   token: string,
   expectedSession?: SessionSnapshot,
+  inviteKind?: "ownership_transfer",
 ): Promise<AcceptInviteResult> {
   const session = expectedSession ?? (await captureCurrentSession());
+  let kind = inviteKind;
   // Write intent BEFORE the consuming POST. Its same-account replay is
   // idempotent even if the response body is lost after the server commits.
   await applyForCurrentSession(session, async () => {
-    const pending = await loadInviteAcceptJournal(session.accountId!);
-    if (!pending.some((item) => item.token === token)) {
-      pending.push({ token, result: null });
-      await setAppMeta(inviteAcceptJournalKey(session.accountId!), JSON.stringify(pending));
-    }
+    const db = await getDb();
+    const { applyEventMutex } = await import("./projection");
+    await applyEventMutex.runExclusive(() =>
+      db.withTransactionAsync(async () => {
+        const pending = await loadInviteAcceptJournal(session.accountId!);
+        const existing = pending.find((item) => item.token === token);
+        kind ??= existing?.kind;
+        if (!existing) pending.push({ token, result: null, ...(kind ? { kind } : {}) });
+        await setAppMetaInTx(
+          db,
+          inviteAcceptJournalKey(session.accountId!),
+          JSON.stringify(pending),
+        );
+        if (kind === "ownership_transfer") await setAppMetaInTx(db, "pending_invite_token", token);
+      }),
+    );
   });
   const raw = (await httpThrowing(
     "POST",
-    `/v1/vaults/invites/accept`,
+    kind === "ownership_transfer"
+      ? `/v1/vaults/ownership-invites/accept`
+      : `/v1/vaults/invites/accept`,
     {
       token,
       install_id: getInstallIdSync(),
@@ -492,6 +692,11 @@ export async function acceptVaultInvite(
   ) {
     throw new Error("invalid invite acceptance response");
   }
+  if (
+    kind === "ownership_transfer" &&
+    (raw.ownership_transferred !== true || !raw.ownership_event_id)
+  )
+    throw new Error("unconfirmed ownership transfer response");
   // Acceptance consumes a link. Persist BOTH unfinished obligations before any
   // listing/snapshot/navigation work can fail or the app can be backgrounded.
   // A single transaction prevents a half-recorded join; the original session
@@ -526,7 +731,11 @@ export async function acceptVaultInvite(
   return raw;
 }
 
-type PendingInviteAccept = { token: string; result: AcceptInviteResult | null };
+type PendingInviteAccept = {
+  token: string;
+  kind?: "ownership_transfer";
+  result: AcceptInviteResult | null;
+};
 function inviteAcceptJournalKey(accountId: string): string {
   return `invite_accept_pending:${accountId}`;
 }
@@ -552,7 +761,7 @@ export async function resumePendingVaultInvite(
     (await loadInviteAcceptJournal(session.accountId!)).find((entry) => entry.token === token),
   );
   if (!item) return null;
-  return item.result ?? acceptVaultInvite(token, session);
+  return item.result ?? acceptVaultInvite(token, session, item.kind);
 }
 
 export async function clearPendingVaultInvite(
@@ -568,15 +777,22 @@ export async function clearPendingVaultInvite(
   });
 }
 
-export async function declineVaultInviteLocally(token: string): Promise<void> {
-  try {
-    const db = await getDb();
-    await db.runAsync(
-      `UPDATE pending_invitations SET declined_at = ? WHERE token = ?`,
-      Date.now(),
-      token,
-    );
-  } catch {}
+export async function declineVaultInviteLocally(
+  token: string,
+  expectedSession?: SessionSnapshot,
+): Promise<void> {
+  const work = async () => {
+    try {
+      const db = await getDb();
+      await db.runAsync(
+        `UPDATE pending_invitations SET declined_at = ? WHERE token = ?`,
+        Date.now(),
+        token,
+      );
+    } catch {}
+  };
+  if (expectedSession) await applyForCurrentSession(expectedSession, work);
+  else await work();
 }
 
 // ---------------------------------------------------------------------------
@@ -642,7 +858,7 @@ export async function retryPendingVaultMaterialize(): Promise<void> {
       continue;
     }
     try {
-      await acceptVaultInvite(item.token, session);
+      await acceptVaultInvite(item.token, session, item.kind);
     } catch (err) {
       if (
         err instanceof ApiError &&

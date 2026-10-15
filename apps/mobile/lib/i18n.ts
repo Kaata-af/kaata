@@ -1431,6 +1431,50 @@ const en = {
     "Pick another member to become the new owner. You'll be demoted to editor unless you also choose to leave.",
   "vaultSettings.confirm.transfer.cta": "Choose member",
 
+  "ownershipTransfer.title": "Transfer ownership",
+  "ownershipTransfer.intro":
+    "Invite someone to take over this Kaata. You stay the owner until they accept, then keep access as an Editor. Update all phones that use this Kaata before transferring.",
+  "ownershipTransfer.ownerOnly": "Only the owner can transfer this Kaata.",
+  "ownershipTransfer.signedOut": "Sign in to create an ownership invitation.",
+  "ownershipTransfer.offline": "Connect to the internet to manage this ownership invitation.",
+  "ownershipTransfer.unavailable":
+    "This Kaata must be active, fully synced and owned by your signed-in account before you can transfer it.",
+  "ownershipTransfer.loadFailed":
+    "Couldn't check ownership invitations. Try again before creating a link.",
+  "ownershipTransfer.refresh": "Check status",
+  "ownershipTransfer.recipient": "New owner",
+  "ownershipTransfer.emailHint":
+    "They must sign in with this email to accept. Forwarding the link to someone else won't give them ownership.",
+  "ownershipTransfer.create": "Create ownership link",
+  "ownershipTransfer.confirmTitle": "Invite a new owner?",
+  "ownershipTransfer.confirmBody":
+    "{email} will be able to accept ownership of this entire Kaata, including its members and shared ledgers. Until they accept, you remain the owner. After they accept, you'll stay as an Editor and only the new owner can transfer ownership back to you.",
+  "ownershipTransfer.created": "Ownership invitation created",
+  "ownershipTransfer.pending": "Waiting for acceptance",
+  "ownershipTransfer.expires": "Expires {when}",
+  "ownershipTransfer.pendingHint":
+    "You are still the owner. The recipient becomes the owner only after signing in and accepting this invitation.",
+  "ownershipTransfer.linkNotStored":
+    "For privacy, the link is only available on the screen where it was created. To get a new link, cancel this invitation and create another.",
+  "ownershipTransfer.shareEmail": "Send by email",
+  "ownershipTransfer.shareMessage":
+    "I'm inviting you to become the owner of {name} in Kaata. Sign in with your invited email and review the transfer here: {url}",
+  "ownershipTransfer.emailSubject": "Ownership invitation for {name}",
+  "ownershipTransfer.shareUnavailable":
+    "Couldn't open the messaging app. You can copy the link instead.",
+  "ownershipTransfer.cancel": "Cancel invitation",
+  "ownershipTransfer.cancelTitle": "Cancel ownership invitation?",
+  "ownershipTransfer.cancelBody":
+    "The link will stop working. You will remain the owner and can invite someone else.",
+  "ownershipTransfer.cancelled": "Ownership invitation cancelled",
+  "ownershipTransfer.alreadyPending":
+    "An ownership invitation is already pending. Check its status or cancel it before creating another.",
+  "ownershipTransfer.selfTransfer": "Choose another person. You already own this Kaata.",
+  "ownershipTransfer.failed":
+    "Couldn't update the ownership invitation. Check your connection and try again.",
+  "ownershipTransfer.existingMember": "Choose an existing member",
+  "ownershipTransfer.existingMemberHint": "Transfer directly to someone already in this Kaata",
+
   // Vault members — Phase 7 UX critique #8 (translated).
   "members.title": "Members",
   "members.section.members": "Members ({count})",
@@ -1581,6 +1625,14 @@ const en = {
   // labels reuse vaultPair.role.*; expiry phrasing reuses
   // invite.expiresIn.* + members.expiresLabel.
   "inviteAccept.title": "Vault invitation",
+  "ownershipAccept.title": "Ownership invitation",
+  "ownershipAccept.heading": "Become the owner of {name}",
+  "ownershipAccept.body":
+    "{inviter} is offering you ownership of this Kaata. You will manage its members, settings and archiving. They will stay as an Editor. Sign in with the email they invited.",
+  "ownershipAccept.accept": "Accept ownership",
+  "ownershipAccept.done": "Ownership invitation accepted for {name}",
+  "ownershipAccept.unavailable":
+    "This ownership invitation is expired, cancelled or unavailable for your account. Sign in with the email the owner invited, or ask them for a new link.",
   "inviteAccept.invalidLink": "Invalid invitation link",
   "inviteAccept.signin.body":
     "Sign in to accept this invitation, with an account that uses the email address that received it.",
@@ -3275,6 +3327,49 @@ const fa: Partial<Record<Key, string>> = {
     "عضو دیگری را به عنوان مالک جدید انتخاب کنید. شما به ویرایشگر تبدیل می‌شوید مگر این‌که خروج را نیز انتخاب کنید.",
   "vaultSettings.confirm.transfer.cta": "انتخاب عضو",
 
+  "ownershipTransfer.title": "انتقال مالکیت",
+  "ownershipTransfer.intro":
+    "کسی را دعوت کنید تا مالک این کاتا شود. تا زمان پذیرش، شما مالک می‌مانید و پس از آن به عنوان ویرایشگر دسترسی خواهید داشت. پیش از انتقال، کاتا را در تمام تلفون‌هایی که از این کاتا استفاده می‌کنند به‌روز کنید.",
+  "ownershipTransfer.ownerOnly": "فقط مالک می‌تواند مالکیت این کاتا را منتقل کند.",
+  "ownershipTransfer.signedOut": "برای ایجاد دعوت مالکیت، وارد حساب خود شوید.",
+  "ownershipTransfer.offline": "برای مدیریت دعوت مالکیت به انترنت وصل شوید.",
+  "ownershipTransfer.unavailable":
+    "برای انتقال، این کاتا باید فعال، کاملاً همگام‌شده و متعلق به حسابی باشد که با آن وارد شده‌اید.",
+  "ownershipTransfer.loadFailed": "بررسی دعوت مالکیت ممکن نشد. پیش از ساختن لینک دوباره تلاش کنید.",
+  "ownershipTransfer.refresh": "بررسی وضعیت",
+  "ownershipTransfer.recipient": "مالک جدید",
+  "ownershipTransfer.emailHint":
+    "برای پذیرش باید با همین ایمیل وارد شود. فرستادن لینک به شخص دیگر به او مالکیت نمی‌دهد.",
+  "ownershipTransfer.create": "ساختن لینک مالکیت",
+  "ownershipTransfer.confirmTitle": "مالک جدید دعوت شود؟",
+  "ownershipTransfer.confirmBody":
+    "{email} می‌تواند مالکیت تمام این کاتا، همراه با اعضا و حساب‌های مشترک آن را بپذیرد. تا زمان پذیرش، شما مالک می‌مانید. پس از پذیرش به عنوان ویرایشگر می‌مانید و فقط مالک جدید می‌تواند مالکیت را دوباره به شما برگرداند.",
+  "ownershipTransfer.created": "دعوت مالکیت ایجاد شد",
+  "ownershipTransfer.pending": "در انتظار پذیرش",
+  "ownershipTransfer.expires": "انقضا: {when}",
+  "ownershipTransfer.pendingHint":
+    "شما هنوز مالک هستید. گیرنده فقط پس از ورود به حساب و پذیرش این دعوت مالک می‌شود.",
+  "ownershipTransfer.linkNotStored":
+    "برای حفظ حریم خصوصی، لینک فقط در صفحه‌ای که ساخته شده در دسترس است. برای لینک جدید، این دعوت را لغو و دعوت دیگری ایجاد کنید.",
+  "ownershipTransfer.shareEmail": "ارسال با ایمیل",
+  "ownershipTransfer.shareMessage":
+    "شما را دعوت می‌کنم تا مالک {name} در کاتا شوید. با ایمیل دعوت‌شده وارد شوید و انتقال را این‌جا بررسی کنید: {url}",
+  "ownershipTransfer.emailSubject": "دعوت مالکیت برای {name}",
+  "ownershipTransfer.shareUnavailable":
+    "باز کردن برنامهٔ پیام‌رسان ممکن نشد. می‌توانید لینک را کپی کنید.",
+  "ownershipTransfer.cancel": "لغو دعوت",
+  "ownershipTransfer.cancelTitle": "دعوت مالکیت لغو شود؟",
+  "ownershipTransfer.cancelBody":
+    "لینک دیگر کار نخواهد کرد. شما مالک می‌مانید و می‌توانید شخص دیگری را دعوت کنید.",
+  "ownershipTransfer.cancelled": "دعوت مالکیت لغو شد",
+  "ownershipTransfer.alreadyPending":
+    "یک دعوت مالکیت در انتظار است. پیش از ساختن دعوت دیگر، وضعیت آن را بررسی یا آن را لغو کنید.",
+  "ownershipTransfer.selfTransfer": "شخص دیگری را انتخاب کنید. شما از قبل مالک این کاتا هستید.",
+  "ownershipTransfer.failed":
+    "تغییر دعوت مالکیت ممکن نشد. اتصال انترنت را بررسی و دوباره تلاش کنید.",
+  "ownershipTransfer.existingMember": "انتخاب یک عضو فعلی",
+  "ownershipTransfer.existingMemberHint": "انتقال مستقیم به کسی که در این کاتا عضو است",
+
   // Members — Persian
   "members.title": "اعضا",
   "members.section.members": "اعضا ({count})",
@@ -3408,6 +3503,14 @@ const fa: Partial<Record<Key, string>> = {
   // labels reuse vaultPair.role.*; expiry phrasing reuses invite.expiresIn.*
   // + members.expiresLabel.
   "inviteAccept.title": "دعوت به کاتا",
+  "ownershipAccept.title": "دعوت برای مالکیت",
+  "ownershipAccept.heading": "مالک {name} شوید",
+  "ownershipAccept.body":
+    "{inviter} می‌خواهد مالکیت این کاتا را به شما بدهد. شما اعضا، تنظیمات و بایگانی آن را مدیریت خواهید کرد و او به عنوان ویرایشگر می‌ماند. با ایمیلی وارد شوید که برای آن دعوت شده‌اید.",
+  "ownershipAccept.accept": "پذیرفتن مالکیت",
+  "ownershipAccept.done": "دعوت مالکیت {name} پذیرفته شد",
+  "ownershipAccept.unavailable":
+    "این دعوت مالکیت منقضی یا لغو شده است، یا برای حساب شما نیست. با ایمیلی وارد شوید که مالک دعوت کرده است، یا از او لینک تازه بخواهید.",
   "inviteAccept.invalidLink": "لینک دعوت معتبر نیست",
   "inviteAccept.signin.body":
     "برای پذیرفتن این دعوت وارد شوید، با حسابی که همان ایمیلِ دریافت‌کنندهٔ دعوت را دارد.",

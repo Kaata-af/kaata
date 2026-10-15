@@ -88,6 +88,7 @@ const sqlite = {
   runAsync: async (sql: string, ...args: unknown[]) => fixture.prepare(sql).run(...args),
   getFirstAsync: async (sql: string, ...args: unknown[]) =>
     fixture.prepare(sql).get(...args) ?? null,
+  getAllAsync: async (sql: string, ...args: unknown[]) => fixture.prepare(sql).all(...args),
   withTransactionAsync: async (work: () => Promise<void>) => {
     fixture.exec("BEGIN");
     try {
@@ -133,6 +134,12 @@ const secure = new Map<string, string>();
 const trace: string[] = [];
 let accountCache: string | null = null;
 let accountCacheReadHook: (() => string | null) | null = null;
+let activeVault: string | null = null;
+let localAccountIds: string[] = [];
+let membershipState: {
+  hasGenesis: boolean;
+  members: Map<string, { role: string; removed: boolean }>;
+} | null = null;
 
 type Call = {
   url: string;
@@ -200,6 +207,9 @@ function freshPhone(): string {
   trace.length = 0;
   accountCache = null;
   accountCacheReadHook = null;
+  activeVault = null;
+  localAccountIds = [];
+  membershipState = null;
   googleSignIns = 0;
   googleSignOuts = 0;
   googleResult = { type: "success", data: { idToken: "google.id.token" } };
@@ -262,7 +272,7 @@ const auth = load<Auth>("../auth", {
   "./api": { getBackendUrl: async () => BASE },
   "./db-tx": {
     getAccountIdSync: () => (accountCacheReadHook ? accountCacheReadHook() : accountCache),
-    getActiveVaultId: async () => null,
+    getActiveVaultId: async () => activeVault,
     getAppMetaInTx: async (_db: unknown, key: string) => metaGet(key),
     getDb: async () => sqlite,
     refreshAccountIdCache: async () => accountCache,
@@ -288,7 +298,14 @@ const auth = load<Auth>("../auth", {
       fixture.exec(LEDGER);
     },
   },
-  "./effective-account": { resolveAccountIdCandidates: async (id: string) => [id] },
+  "./effective-account": {
+    resolveAccountIdCandidates: async (id: string | null) => [
+      ...(id ? [id] : []),
+      ...localAccountIds,
+    ],
+  },
+  "./trust/proof": { getLocalMembershipState: async () => membershipState },
+  "./trust/account-id": { buildLocalAccountId: () => "local:own-anchor" },
   "./event-log": { appendAccountBound: async () => {} },
   "./phone": { normalizePhone: () => null },
   "./install-id": installId,
@@ -667,6 +684,147 @@ test("account name: refusals the server will repeat settle it; failures leave it
   await auth.signInWithGoogle();
   assert.equal(metaGet("account_name_pending"), "");
   assert.equal(calls.length, 1);
+});
+
+test("Google pending registration never advertises a joined or transferred staff kaata as owned", async () => {
+  for (const role of ["editor", "viewer", "clerk", "manager"] as const) {
+    boundPhone("acct-old");
+    activeVault = "joined-kaata";
+    localAccountIds = ["local:own-anchor"];
+    fixture
+      .prepare(
+        `INSERT INTO vaults(id,account_id,name,currency,created_at,
+      registered_with_server_at,vault_trust_anchor_pubkey)
+      VALUES('joined-kaata','acct-old','Household','AFN',1,NULL,'original-device-anchor')`,
+      )
+      .run();
+    fixture
+      .prepare(
+        `INSERT INTO vault_members_mirror(vault_id,account_id,role,accepted_at,revoked_at)
+      VALUES('joined-kaata','acct-old',?,1,NULL),
+            ('joined-kaata','local:own-anchor','owner',1,NULL),
+            ('joined-kaata','new-owner','owner',1,NULL)`,
+      )
+      .run(role);
+    script = [reply(200, session("acct-old", "old@example.com", { sub: "g" }))];
+    await auth.signInWithGoogle();
+    assert.equal(
+      calls[0].body?.pending_vault_registration,
+      undefined,
+      `${role}: NULL registration and the former anchor cannot claim ownership`,
+    );
+    const seat = fixture
+      .prepare(
+        "SELECT role FROM vault_members_mirror WHERE vault_id='joined-kaata' AND account_id='acct-old'",
+      )
+      .get() as { role: string };
+    assert.equal(seat.role, role, "sign-in keeps the actual staff seat");
+  }
+});
+
+test("Google pending registration retains revoked membership and verified handover history", async () => {
+  for (const kind of ["revoked", "chain-demoted"] as const) {
+    boundPhone("acct-old");
+    activeVault = "handed-over";
+    fixture
+      .prepare(
+        `INSERT INTO vaults(id,account_id,name,currency,created_at,
+      registered_with_server_at,vault_trust_anchor_pubkey)
+      VALUES('handed-over','acct-old','Store','AFN',1,NULL,'original-device-anchor')`,
+      )
+      .run();
+    fixture
+      .prepare(
+        `INSERT INTO vault_members_mirror(vault_id,account_id,role,accepted_at,revoked_at)
+      VALUES('handed-over','acct-old','owner',1,?),
+            ('handed-over','new-owner','owner',1,NULL)`,
+      )
+      .run(kind === "revoked" ? 2 : null);
+    membershipState = {
+      hasGenesis: true,
+      members: new Map([["acct-old", { role: "editor", removed: false }]]),
+    };
+    script = [reply(200, session("acct-old", "old@example.com", { sub: "g" }))];
+    await auth.signInWithGoogle();
+    assert.equal(
+      calls[0].body?.pending_vault_registration,
+      undefined,
+      `${kind}: historical owner data cannot re-register a handed-over book`,
+    );
+  }
+});
+
+test("Google sign-in cannot promote a staff or revoked seat when its new owner is missing locally", async () => {
+  for (const role of ["editor", "viewer", "clerk", "manager", "revoked-owner"] as const) {
+    boundPhone("acct-old");
+    activeVault = "partial-joined-book";
+    localAccountIds = ["local:own-anchor"];
+    fixture
+      .prepare(
+        `INSERT INTO vaults(id,account_id,name,currency,created_at,
+      registered_with_server_at,vault_trust_anchor_pubkey)
+      VALUES('partial-joined-book','acct-old','Household','AFN',1,NULL,'original-device-anchor')`,
+      )
+      .run();
+    fixture
+      .prepare(
+        `INSERT INTO vault_members_mirror(vault_id,account_id,role,accepted_at,revoked_at)
+      VALUES('partial-joined-book','acct-old',?,1,?),
+            ('partial-joined-book','local:own-anchor','owner',1,NULL)`,
+      )
+      .run(role === "revoked-owner" ? "owner" : role, role === "revoked-owner" ? 2 : null);
+    script = [reply(200, session("acct-old", "old@example.com", { sub: "g" }))];
+    await auth.signInWithGoogle();
+    assert.equal(calls[0].body?.pending_vault_registration, undefined);
+    const seat = fixture
+      .prepare(
+        "SELECT role, revoked_at FROM vault_members_mirror WHERE vault_id='partial-joined-book' AND account_id='acct-old'",
+      )
+      .get() as { role: string; revoked_at: number | null };
+    assert.deepEqual(
+      seat,
+      {
+        role: role === "revoked-owner" ? "owner" : role,
+        revoked_at: role === "revoked-owner" ? 2 : null,
+      },
+      `${role}: an incomplete mirror cannot fabricate owner access`,
+    );
+  }
+});
+
+test("Google pending registration still sends a real unregistered owner and an unadmitted local book", async () => {
+  for (const kind of ["owner", "fresh"] as const) {
+    boundPhone("acct-old");
+    activeVault = "my-unregistered-book";
+    fixture
+      .prepare(
+        `INSERT INTO vaults(id,account_id,name,currency,created_at,
+      registered_with_server_at,vault_trust_anchor_pubkey)
+      VALUES('my-unregistered-book',NULL,'My store','AFN',123,NULL,?)`,
+      )
+      .run(kind === "owner" ? "own-anchor" : null);
+    if (kind === "owner") {
+      fixture
+        .prepare(
+          `INSERT INTO vault_members_mirror(vault_id,account_id,role,accepted_at,revoked_at)
+        VALUES('my-unregistered-book','acct-old','owner',1,NULL)`,
+        )
+        .run();
+      membershipState = {
+        hasGenesis: true,
+        members: new Map([["acct-old", { role: "owner", removed: false }]]),
+      };
+    }
+    script = [reply(200, session("acct-old", "old@example.com", { sub: "g" }))];
+    await auth.signInWithGoogle();
+    assert.deepEqual(calls[0].body?.pending_vault_registration, {
+      id: "my-unregistered-book",
+      name: "My store",
+      currency: "AFN",
+      created_at_ms: 123,
+      ...(kind === "owner" ? { vault_trust_anchor_pubkey: "own-anchor" } : {}),
+    });
+  }
 });
 
 type PromptArgs = { cachedEmail: string | null; newEmail: string | null };

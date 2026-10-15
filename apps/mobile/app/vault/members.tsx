@@ -866,8 +866,17 @@ export default function VaultMembersScreen() {
               onPress={() => router.push("/vault/invite")}
               isRTL={isRTL}
               emphasis
-              isLast
+              isLast={!isOwner}
             />
+            {isOwner ? (
+              <NavRow
+                icon="key-outline"
+                label={t("vaultSettings.row.transfer")}
+                onPress={() => router.push("/vault/transfer")}
+                isRTL={isRTL}
+                isLast
+              />
+            ) : null}
           </>
         ) : null}
 

@@ -29,6 +29,7 @@ import type {
 } from "../events";
 import { compareHLC } from "../hlc";
 import { invalidateVaultRoleCache } from "../use-vault-role";
+import type { OwnershipTransferProof } from "../trust/ownership-transfer";
 
 // HLC sidecar lookup. We snapshot the latest projected HLC for the
 // (vault_id, account_id) cell by scanning event_log for both
@@ -64,13 +65,17 @@ async function readLatestRoleEventHlc(
       WHERE vault_id = ?
         AND event_type IN
               ('vault_member_added','vault_member_role_changed','vault_member_removed')
-        AND target_id = ?
+        AND (target_id = ? OR (event_type = 'vault_member_added' AND
+          (json_extract(payload_json, '$.ownership_transfer.authorization.grant.from_account_id') = ?
+            OR json_extract(payload_json, '$.ownership_transfer.authorization.grant.from_chain_account_id') = ?)))
         AND event_id != ?
         AND applied_at IS NOT NULL
         AND quarantine_reason IS NULL
       ORDER BY hlc_physical_ms DESC, hlc_logical DESC, hlc_device_id DESC
       LIMIT 1`,
     vaultId,
+    accountId,
+    accountId,
     accountId,
     excludingEventId,
   );
@@ -102,6 +107,43 @@ export async function applyVaultMemberAdded(
 ): Promise<void> {
   if (event.vault_id == null) {
     throw new Error(`vault_member_added event ${event.event_id} missing envelope vault_id`);
+  }
+
+  const transfer = (event.payload as unknown as { ownership_transfer?: OwnershipTransferProof })
+    .ownership_transfer;
+  if (transfer) {
+    // The role gate has verified BOTH signatures and source authority. The
+    // whole handover runs inside applyEvent's transaction. Each affected role
+    // cell retains its own LWW guard for late delivery after another change.
+    const roles = new Map<string, string>([
+      [transfer.authorization.grant.from_account_id, "editor"],
+      [
+        transfer.authorization.grant.from_chain_account_id ??
+          transfer.authorization.grant.from_account_id,
+        "editor",
+      ],
+      [transfer.receipt.to_account_id, "owner"],
+    ]);
+    for (const [accountId, role] of roles) {
+      const latest = await readLatestRoleEventHlc(tx, event.vault_id, accountId, event.event_id);
+      if (latest && compareHLC(event.hlc, latest) <= 0) continue;
+      await tx.runAsync(
+        `INSERT INTO vault_members_mirror (vault_id, account_id, role, accepted_at, revoked_at)
+         VALUES (?, ?, ?, ?, NULL)
+         ON CONFLICT(vault_id, account_id) DO UPDATE SET role = excluded.role, revoked_at = NULL`,
+        event.vault_id,
+        accountId,
+        role,
+        event.appended_at,
+      );
+    }
+    await tx.runAsync(
+      "UPDATE vaults SET vault_epoch = MAX(vault_epoch, ?) WHERE id = ?",
+      transfer.receipt.vault_epoch,
+      event.vault_id,
+    );
+    invalidateVaultRoleCache(event.vault_id);
+    return;
   }
 
   const currentHlc = await readLatestRoleEventHlc(

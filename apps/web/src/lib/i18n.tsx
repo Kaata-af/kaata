@@ -120,6 +120,9 @@ const en = {
   "invite.backHome": "Back to Kaata",
   "invite.youreInvited": "You're invited",
   "invite.join": "Join {name}",
+  "invite.takeOwnership": "Take ownership of {name}",
+  "invite.privacyNote.ownership":
+    "Accept in the updated Kaata app using the email the owner invited. You will become the owner and they will stay as an Editor. Opening this page alone does not transfer ownership.",
   "invite.asRole": "as {role}",
   "invite.role.owner": "owner",
   "invite.role.editor": "editor",
@@ -271,6 +274,9 @@ const fa: Record<keyof typeof en, string> = {
   "invite.backHome": "برگشت به کاتا",
   "invite.youreInvited": "شما دعوت شده‌اید",
   "invite.join": "به {name} بپیوندید",
+  "invite.takeOwnership": "مالکیت {name} را بگیرید",
+  "invite.privacyNote.ownership":
+    "در نسخهٔ تازهٔ کاتا، با ایمیلی که مالک دعوت کرده است وارد شوید و دعوت را بپذیرید. شما مالک می‌شوید و او به عنوان ویرایشگر می‌ماند. تنها باز کردن این صفحه مالکیت را انتقال نمی‌دهد.",
   "invite.asRole": "به عنوان {role}",
   "invite.role.owner": "مالک",
   "invite.role.editor": "ویرایشگر",

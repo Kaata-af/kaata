@@ -144,6 +144,7 @@ const roleGate = compile<typeof import("../projection/role-gate")>(
     if (name === "../event-sig") return { verifyEventSignature: () => ({ valid: true }) };
     if (name === "../hlc") return require("../hlc");
     if (name === "../trust/chain") return {};
+    if (name === "../trust/ownership-transfer") return require("../trust/ownership-transfer");
     if (name === "../trust/crypto-runtime") return {};
     throw Error(`unexpected role-gate import ${name}`);
   },

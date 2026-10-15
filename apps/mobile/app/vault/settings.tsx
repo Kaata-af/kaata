@@ -142,7 +142,6 @@ export default function VaultSettingsScreen() {
 
   const [archiveConfirm, setArchiveConfirm] = useState(false);
   const [leaveConfirm, setLeaveConfirm] = useState(false);
-  const [transferConfirm, setTransferConfirm] = useState(false);
   // D-LAST-OWNER: when an owner taps Leave on a vault where they are the
   // only remaining owner, we surface an inline "Archive instead?" dialog
   // instead of letting the call go through and produce a backend 4xx
@@ -606,14 +605,9 @@ export default function VaultSettingsScreen() {
   }
 
   function onTransfer() {
-    if (!vault) return;
-    setTransferConfirm(false);
-    // Transfer-ownership UX needs a target picker; for Phase 4 v1 we route
-    // through the members screen which has the picker. This is just a
-    // convenience entry point — the actual call happens there.
+    if (!vault || role !== "owner") return;
     router.push({
-      pathname: "/vault/members",
-      params: { action: "transfer" },
+      pathname: "/vault/transfer",
     });
   }
 
@@ -827,29 +821,16 @@ export default function VaultSettingsScreen() {
           {role === "owner" ? (
             <>
               <SectionHeader label={t("vaultSettings.section.danger")} isRTL={isRTL} />
-              {/* Transfer ownership is a multi-account action — hidden in solo. */}
               {/* NO Leave row for owners (operator decision 2026-07-27): an
                   owner's exit path is Transfer ownership, whose flow already
-                  offers "transfer and leave" — a sole owner tapping Leave
-                  could only ever hit the last-owner refusal. */}
-              {/* SOLO_STORE_MODE hides multi-account surface, and hiding this
-                  row made sense while it could only ever be a dead end. It is
-                  not a dead end once the kaata HAS other members, and the
-                  gate then locked owners out of the only exit they are given:
-                  there is deliberately no Leave row for an owner, and the
-                  Transfer button on the last-owner dialog is unreachable
-                  without one. So a store build left an owner with no way to
-                  hand the kaata over at all. Show it whenever there is
-                  somebody to hand it TO; solo shopkeepers still never see it. */}
-              {memberCount > 1 || !SOLO_STORE_MODE ? (
-                <NavRow
-                  icon="key-outline"
-                  label={t("vaultSettings.row.transfer")}
-                  onPress={() => setTransferConfirm(true)}
-                  isRTL={isRTL}
-                  disabled={busy !== null}
-                />
-              ) : null}
+                  can invite a new owner before they are a member. */}
+              <NavRow
+                icon="key-outline"
+                label={t("vaultSettings.row.transfer")}
+                onPress={onTransfer}
+                isRTL={isRTL}
+                disabled={busy !== null || vault.archived_at !== null}
+              />
               {/* D-ARCHIVED-VAULT-FILTER: if the vault is already
                   archived, surface "Unarchive" instead of "Archive". This
                   closes the dead-end where tapping an archived row in
@@ -937,21 +918,12 @@ export default function VaultSettingsScreen() {
         // owner and then I leave", not "kill it".
         confirmLabel={t("vaultSettings.leave.lastOwner.archive")}
         cancelLabel={t("vaultSettings.leave.lastOwner.cancel")}
-        tertiaryLabel={memberCount > 1 ? t("vaultSettings.leave.lastOwner.transfer") : undefined}
-        onTertiary={memberCount > 1 ? onTransferFromLastOwner : undefined}
+        tertiaryLabel={t("vaultSettings.leave.lastOwner.transfer")}
+        onTertiary={onTransferFromLastOwner}
         destructive
         onConfirm={onArchiveFromLastOwner}
         onCancel={() => setLastOwnerConfirm(false)}
       />
-      <ConfirmDialog
-        visible={transferConfirm}
-        title={t("vaultSettings.confirm.transfer.title")}
-        description={t("vaultSettings.confirm.transfer.body")}
-        confirmLabel={t("vaultSettings.confirm.transfer.cta")}
-        onConfirm={onTransfer}
-        onCancel={() => setTransferConfirm(false)}
-      />
-
       {/* Per-kaata currency picker — row→sheet, matching the country picker. */}
       <OptionSheet
         visible={currencySheetVisible}

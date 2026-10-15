@@ -848,7 +848,7 @@ async function main(): Promise<void> {
     }
     for (const [raw, shown] of [
       ["clerk", "Clerk"],
-      ["manager", "Manager"],
+      ["manager", "Admin"],
       ["a", "This side"],
     ] as const) {
       assert.ok(html[2].includes(`<span dir="auto">${shown}</span>`), `${raw} prints as ${shown}`);

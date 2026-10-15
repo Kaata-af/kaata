@@ -64,6 +64,7 @@ import (
 
 	"github.com/matee/kaata-backend/internal/canonical"
 	"github.com/matee/kaata-backend/internal/mesh"
+	"github.com/matee/kaata-backend/internal/ownership"
 )
 
 // RejectReasonMembershipUnverified is the per-event rejection reason for
@@ -148,9 +149,10 @@ type membershipWitnessWire struct {
 }
 
 type memberAddedWire struct {
-	AccountID string                 `json:"account_id"`
-	Role      string                 `json:"role"`
-	Witness   *membershipWitnessWire `json:"witness"`
+	AccountID         string                 `json:"account_id"`
+	Role              string                 `json:"role"`
+	Witness           *membershipWitnessWire `json:"witness"`
+	OwnershipTransfer *ownership.Proof       `json:"ownership_transfer"`
 }
 
 type memberRoleChangedWire struct {
@@ -285,30 +287,50 @@ func (s *Service) verifyMembershipEvent(
 	if !ed25519.Verify(ed25519.PublicKey(signerPub), canonicalBytes, sig) {
 		return false, nil
 	}
+	if hasOwnershipTransfer(ev) {
+		return s.verifyOwnershipTransfer(ctx, tx, vaultID, anchor, ev, signerPub)
+	}
+	currentAuthority, err := requiresCurrentMembershipAuthority(ctx, tx, vaultID, ev.EventID)
+	if err != nil {
+		return false, err
+	}
 
 	// 2a. Anchor arm: the owner's device key signs anything. Genesis
 	// special case (§8.2): a vault_member_added on a vault with no
 	// vault_members rows at all is the chain root — it must self-admit the
 	// pusher's own account at role owner.
 	if bytes.Equal(signerPub, anchor) {
-		if ev.EventType == EventVaultMemberAdded {
-			var total int
-			if err := tx.QueryRow(ctx, `
-				SELECT COUNT(*) FROM vault_members WHERE vault_id = $1::uuid
-			`, vaultID).Scan(&total); err != nil {
-				return false, fmt.Errorf("count vault_members: %w", err)
-			}
-			if total == 0 {
-				var p memberAddedWire
-				if err := json.Unmarshal(ev.Payload, &p); err != nil {
-					return false, nil
-				}
-				if p.Role != "owner" || p.AccountID != pusherAccountID {
-					return false, nil
-				}
+		transferred, err := ownershipTransferredBefore(ctx, tx, vaultID, ev.HLC.PhysicalMS)
+		if err != nil {
+			return false, err
+		}
+		anchorCurrent := true
+		if currentAuthority {
+			anchorCurrent, err = anchorCurrentlyOwns(ctx, tx, vaultID, derefStr(ev.SignerDevicePubkeyB64))
+			if err != nil {
+				return false, err
 			}
 		}
-		return true, nil
+		if !transferred && anchorCurrent {
+			if ev.EventType == EventVaultMemberAdded {
+				var total int
+				if err := tx.QueryRow(ctx, `
+				SELECT COUNT(*) FROM vault_members WHERE vault_id = $1::uuid
+			`, vaultID).Scan(&total); err != nil {
+					return false, fmt.Errorf("count vault_members: %w", err)
+				}
+				if total == 0 {
+					var p memberAddedWire
+					if err := json.Unmarshal(ev.Payload, &p); err != nil {
+						return false, nil
+					}
+					if p.Role != "owner" || p.AccountID != pusherAccountID {
+						return false, nil
+					}
+				}
+			}
+			return true, nil
+		}
 	}
 
 	// 2b. Bound-device arms. One pubkey can in principle be bound under
@@ -316,6 +338,22 @@ func (s *Service) verifyMembershipEvent(
 	signerAccounts, err := boundAccountsForPubkey(ctx, tx, vaultID, signerPub, ev.HLC.PhysicalMS)
 	if err != nil {
 		return false, err
+	}
+	if currentAuthority {
+		current, err := boundAccountsForPubkey(ctx, tx, vaultID, signerPub, 9007199254740991)
+		if err != nil {
+			return false, err
+		}
+		kept := signerAccounts[:0]
+		for _, old := range signerAccounts {
+			for _, live := range current {
+				if old == live {
+					kept = append(kept, old)
+					break
+				}
+			}
+		}
+		signerAccounts = kept
 	}
 	vaultUUID, perr := uuid.Parse(vaultID)
 	if perr != nil {
@@ -329,6 +367,18 @@ func (s *Service) verifyMembershipEvent(
 		role, found, rerr := roleAtHLC(ctx, tx, acctUUID, vaultUUID, ev.HLC.PhysicalMS)
 		if rerr != nil {
 			return false, fmt.Errorf("signer role lookup: %w", rerr)
+		}
+		if currentAuthority {
+			currentRole, active, err := currentMemberRole(ctx, tx, acctUUID, vaultUUID)
+			if err != nil {
+				return false, err
+			}
+			if !active {
+				continue
+			}
+			if roleRank[currentRole] < roleRank[role] {
+				role = currentRole
+			}
 		}
 		if found && role == "owner" {
 			return true, nil
@@ -690,6 +740,9 @@ func (s *Service) foldMembershipEvent(
 		if err := json.Unmarshal(ev.Payload, &p); err != nil {
 			return nil, nil
 		}
+		if p.OwnershipTransfer != nil {
+			return foldOwnershipTransfer(ctx, tx, vaultID, ev, *p.OwnershipTransfer)
+		}
 		if !isValidMemberRole(p.Role) {
 			return nil, nil
 		}
@@ -769,7 +822,19 @@ func (s *Service) foldMembershipEvent(
 			return nil, nil
 		}
 		if _, err := uuid.Parse(p.AccountID); err != nil {
-			return nil, nil
+			if p.Role == "owner" {
+				return nil, nil
+			}
+			mapped, err := localAnchorOwnerAccount(ctx, tx, vaultID, ev, p.AccountID)
+			if err != nil {
+				return nil, err
+			}
+			if mapped == "" {
+				return nil, nil
+			}
+			// Operational UUID only; the immutable signed payload keeps its
+			// original local identity for every replica's chain fold.
+			p.AccountID = mapped
 		}
 		// Last-owner guard: parity with the REST endpoints (ErrLastOwner)
 		// and the mobile gate/fold, which all refuse demoting the sole
@@ -817,6 +882,9 @@ func (s *Service) foldMembershipEvent(
 			map[string]any{"to": p.Role, "source": "membership_chain"}); err != nil {
 			return nil, err
 		}
+		if err := repairCanonicalOwner(ctx, tx, vaultID); err != nil {
+			return nil, err
+		}
 		if err := foldBumpEpoch(ctx, tx, vaultID); err != nil {
 			return nil, err
 		}
@@ -828,7 +896,14 @@ func (s *Service) foldMembershipEvent(
 			return nil, nil
 		}
 		if _, err := uuid.Parse(p.AccountID); err != nil {
-			return nil, nil
+			mapped, err := localAnchorOwnerAccount(ctx, tx, vaultID, ev, p.AccountID)
+			if err != nil {
+				return nil, err
+			}
+			if mapped == "" {
+				return nil, nil
+			}
+			p.AccountID = mapped
 		}
 		// Last-owner guard — same rationale as the role_changed arm above:
 		// never fold the vault into zero active owners.
@@ -874,6 +949,9 @@ func (s *Service) foldMembershipEvent(
 		if err := writeFoldAudit(ctx, tx, vaultID, signerOrAccount(ev, pusherAccountID),
 			"member_revoked", p.AccountID, ev.HLC.PhysicalMS,
 			map[string]any{"reason": "membership_event", "source": "membership_chain"}); err != nil {
+			return nil, err
+		}
+		if err := repairCanonicalOwner(ctx, tx, vaultID); err != nil {
 			return nil, err
 		}
 		if err := foldBumpEpoch(ctx, tx, vaultID); err != nil {

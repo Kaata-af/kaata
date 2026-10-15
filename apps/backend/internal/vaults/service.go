@@ -2,6 +2,7 @@ package vaults
 
 import (
 	"context"
+	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
@@ -22,7 +23,8 @@ import (
 var ErrVaultCollision = errors.New("vault_id collides with vault owned by a different account")
 
 type Service struct {
-	pool *pgxpool.Pool
+	pool            *pgxpool.Pool
+	ownershipSigner ed25519.PrivateKey
 	// invalidator purges the sync package's coarse push-gate membership
 	// cache (membershipCacheTTL = 60s) whenever a REST endpoint mutates
 	// vault_members / archived_at. Optional — nil (tests, partial wiring)
@@ -912,6 +914,9 @@ func (s *Service) TransferOwnership(ctx context.Context, in TransferInput) (int6
 			return 0, fmt.Errorf("leave on transfer: %w", err)
 		}
 	}
+	if _, err := tx.Exec(ctx, `UPDATE vaults SET owner_account_id=$2::uuid WHERE vault_id=$1::uuid`, in.VaultID, in.ToAccountID); err != nil {
+		return 0, fmt.Errorf("update canonical owner: %w", err)
+	}
 
 	newEpoch, err := bumpEpoch(ctx, tx, in.VaultID)
 	if err != nil {
@@ -1769,6 +1774,7 @@ func (s *Service) PurgeExpiredInvites(ctx context.Context) (int64, error) {
 // ---------------------------------------------------------------------------
 
 type InviteInfoResult struct {
+	Kind                 string `json:"kind,omitempty"`
 	VaultName            string `json:"vault_name"`
 	Role                 string `json:"role"`
 	InviterEmailRedacted string `json:"inviter_email_redacted"`
@@ -1809,7 +1815,7 @@ func (s *Service) InviteInfo(ctx context.Context, token string) (InviteInfoResul
 	err := s.pool.QueryRow(ctx, q, tokenHash).Scan(&vaultName, &role, &inviterEmail, &inviterName, &expiresAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return InviteInfoResult{}, ErrInviteNotFound
+			return s.ownershipInviteInfo(ctx, tokenHash)
 		}
 		return InviteInfoResult{}, fmt.Errorf("query invite: %w", err)
 	}
@@ -2092,6 +2098,20 @@ func nowMS() int64 {
 }
 
 func bumpEpoch(ctx context.Context, tx pgx.Tx, vaultID string) (int64, error) {
+	// All membership mutations hold the vault lock. Keep the canonical owner
+	// aligned when a co-owner leaves, is removed, or is demoted: account purge
+	// relies on this pointer to distinguish owned books from shared access.
+	if _, err := tx.Exec(ctx, `UPDATE vaults v SET owner_account_id=(
+	 SELECT account_id FROM vault_members m WHERE m.vault_id=v.vault_id
+	 AND m.role='owner' AND m.accepted_at IS NOT NULL AND m.revoked_at IS NULL
+	 ORDER BY m.last_change_hlc_ms DESC NULLS LAST,m.id DESC LIMIT 1)
+	 WHERE v.vault_id=$1::uuid AND NOT EXISTS(SELECT 1 FROM vault_members m
+	 WHERE m.vault_id=v.vault_id AND m.account_id=v.owner_account_id AND m.role='owner'
+	 AND m.accepted_at IS NOT NULL AND m.revoked_at IS NULL)
+	 AND EXISTS(SELECT 1 FROM vault_members m WHERE m.vault_id=v.vault_id
+	 AND m.role='owner' AND m.accepted_at IS NOT NULL AND m.revoked_at IS NULL)`, vaultID); err != nil {
+		return 0, fmt.Errorf("repair canonical owner: %w", err)
+	}
 	var epoch int64
 	err := tx.QueryRow(ctx, `
 		UPDATE vaults SET vault_epoch = vault_epoch + 1

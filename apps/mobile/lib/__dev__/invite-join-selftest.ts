@@ -287,6 +287,7 @@ async function fixture() {
   let responseMode = "ok";
   let timeoutCallback: (() => void) | undefined;
   const requestGate = deferred<any>();
+  const requestStarted = deferred<void>();
   const api = compileUI(
     "../vault-api",
     {
@@ -313,6 +314,7 @@ async function fixture() {
         return 1;
       },
       fetch: async (_: string, opts: any) => {
+        requestStarted.resolve();
         calls.push(`post:${opts.headers.Authorization}`);
         assert.ok(await getMeta("invite_accept_pending:peer"), "intent precedes consuming POST");
         if (responseMode === "lost") throw Error("lost response after server commit");
@@ -371,6 +373,7 @@ async function fixture() {
     response: (mode: string) => {
       responseMode = mode;
     },
+    waitForRequest: () => requestStarted.promise,
     expire: () => {
       assert.ok(timeoutCallback);
       timeoutCallback!();
@@ -551,7 +554,7 @@ async function main() {
   const stalled = await fixture();
   stalled.response("hold");
   const request = stalled.api.acceptVaultInvite("invite");
-  await settleUI();
+  await stalled.waitForRequest();
   stalled.expire();
   await assert.rejects(request, /timed out/);
   assert.ok(

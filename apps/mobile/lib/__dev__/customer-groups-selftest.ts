@@ -156,6 +156,7 @@ function load(file: string): any {
     if (name.endsWith("effective-account"))
       return { resolveAccountIdCandidates: async () => (account ? [account] : []) };
     if (name.endsWith("event-sig")) return { verifyEventSignature: async () => false };
+    if (name.endsWith("trust/ownership-transfer")) return require("../trust/ownership-transfer");
     if (name.endsWith("trust/chain")) return {};
     if (name.endsWith("trust/crypto-runtime")) return {};
     if (name.endsWith("mesh/device-key"))

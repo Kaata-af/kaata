@@ -14,6 +14,8 @@
 // exactly lawful-at-HLC: an owner demoted at T still validly signed
 // admissions before T.
 
+import { hasOwnershipTransferPayload, verifyOwnershipTransferEvent } from "./ownership-transfer";
+
 export type HlcTuple = { pms: number; l: number; did: string };
 
 // Roles v2 order: viewer < clerk < editor < manager < owner. Declared here
@@ -209,6 +211,7 @@ export function foldMembership(args: FoldArgs): MembershipState {
   const refuse = (e: MembershipEventLike, reason: ChainConflict["reason"]): void => {
     state.conflicts.push({ event_id: e.event_id, event_type: e.event_type, reason });
   };
+  const appliedTransfers = new Map<string, string>();
 
   const signerIsActiveOwnerDevice = (signerPubkey: string): boolean => {
     const dev = state.devices.get(signerPubkey);
@@ -295,6 +298,46 @@ export function foldMembership(args: FoldArgs): MembershipState {
     }
 
     const p = (e.payload ?? {}) as Record<string, unknown>;
+
+    if (hasOwnershipTransferPayload(e)) {
+      const proof = verifyOwnershipTransferEvent(e, serverWitnessPubkeysB64, crypto);
+      if (!proof) {
+        refuse(e, "witness_invalid");
+        continue;
+      }
+      // The pinned-server signature proves acceptance; only the nested
+      // authorization of a CURRENT owner can grant the actual authority.
+      // Neither proof alone can create an owner or replay an old handover.
+      const priorTransferEvent = appliedTransfers.get(proof.authorization.grant.transfer_id);
+      if (priorTransferEvent === e.event_id) continue;
+      if (priorTransferEvent != null) {
+        refuse(e, "witness_invalid");
+        continue;
+      }
+      const grant = proof.authorization.grant;
+      const from = grant.from_chain_account_id ?? grant.from_account_id;
+      const device = state.devices.get(proof.authorization.signer_device_pubkey);
+      const source = state.members.get(from);
+      if (
+        !state.hasGenesis ||
+        !device ||
+        device.removed ||
+        device.account_id !== from ||
+        !source ||
+        source.removed ||
+        source.role !== "owner"
+      ) {
+        refuse(e, "signer_not_owner_device");
+        continue;
+      }
+      upsertMember(state, proof.receipt.to_account_id, "owner");
+      source.role = "editor";
+      // Pre-sign-in vaults retain the original local identity in their chain.
+      // Demote that identity and its signed-in counterpart in one operation.
+      if (from !== grant.from_account_id) upsertMember(state, grant.from_account_id, "editor");
+      appliedTransfers.set(proof.authorization.grant.transfer_id, e.event_id);
+      continue;
+    }
 
     switch (e.event_type) {
       case "vault_member_added": {

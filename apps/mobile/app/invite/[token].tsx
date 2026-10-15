@@ -59,6 +59,7 @@ import {
   lookupPendingInvite,
   retryPendingVaultMaterialize,
   resumePendingVaultInvite,
+  isOwnershipTransferApplied,
   type PendingInvite,
   type AcceptInviteResult,
 } from "../../lib/vault-api";
@@ -81,6 +82,7 @@ class InviteRouteChangedError extends Error {}
 // /info endpoint (link invitees, who never have a local row). The screen
 // doesn't need vault_id here: the accept response carries it.
 type InviteDetails = {
+  kind?: "ownership_transfer";
   vault_name: string;
   role: PendingInvite["role"];
   inviter_name: string | null;
@@ -149,6 +151,7 @@ export default function InviteAcceptScreen() {
         if (resumed) {
           acceptedRef.current = { result: resumed, session };
           setInvite({
+            ...(resumed.ownership_transferred ? { kind: "ownership_transfer" as const } : {}),
             vault_name: resumed.vault_name,
             role: resumed.role,
             inviter_name: null,
@@ -170,6 +173,7 @@ export default function InviteAcceptScreen() {
           if (!current()) return;
           if (info) {
             found = {
+              ...(info.kind === "ownership_transfer" ? { kind: info.kind } : {}),
               vault_name: info.vault_name,
               role: info.role,
               inviter_name: info.inviter_name,
@@ -219,12 +223,13 @@ export default function InviteAcceptScreen() {
     setStage("accepting");
     try {
       const session = acceptedRef.current?.session ?? (await captureCurrentSession());
-      const result = acceptedRef.current?.result ?? (await acceptVaultInvite(token, session));
+      const result =
+        acceptedRef.current?.result ?? (await acceptVaultInvite(token, session, invite.kind));
       assertRoute();
       acceptedRef.current = { result, session };
       const publishedBeforeSetup = await isSelfAdmissionPublished(result.vault_id, session);
       assertRoute();
-      if (!publishedBeforeSetup) {
+      if (!publishedBeforeSetup || result.ownership_transferred) {
         // FIRST: the offline-proof minimal seed straight from the accept
         // response (vault row + our membership mirror, no network). This is
         // what guarantees the kaata is visible and switchable from the first
@@ -267,8 +272,15 @@ export default function InviteAcceptScreen() {
       await applyForCurrentSession(session, async () => {
         assertRoute();
         await setActiveVaultId(result.vault_id);
-        await setAppMeta(PENDING_TOKEN_KEY, "");
+        await setAppMeta(PENDING_TOKEN_KEY, result.ownership_transferred ? token : "");
       });
+
+      if (result.ownership_transferred && !(await isOwnershipTransferApplied(result, session))) {
+        assertRoute();
+        acceptingRef.current = false;
+        setStage("pending");
+        return;
+      }
 
       // M2 membership chain (docs/m2-membership-chain.md §4): after a
       // successful online acceptance, this device fetches the server
@@ -327,6 +339,7 @@ export default function InviteAcceptScreen() {
       assertRoute();
       await applyForCurrentSession(session, async () => {
         assertRoute();
+        if (result.ownership_transferred) await setAppMeta(PENDING_TOKEN_KEY, "");
         setStage("done");
       });
       // Push the joined-vault membership + onboarded state to the backend now.
@@ -335,7 +348,12 @@ export default function InviteAcceptScreen() {
       // dashboard until their next launch (the only other check-in triggers are
       // cold launch + throttled foreground). Best-effort; no-ops if offline.
       requestImmediateCheckIn();
-      toast.push(t("inviteAccept.joinedToast", { name: invite.vault_name }), "success");
+      toast.push(
+        t(result.ownership_transferred ? "ownershipAccept.done" : "inviteAccept.joinedToast", {
+          name: invite.vault_name,
+        }),
+        "success",
+      );
       router.replace("/");
     } catch (err) {
       if (generation !== routeGeneration.current || err instanceof InviteRouteChangedError) return;
@@ -348,7 +366,13 @@ export default function InviteAcceptScreen() {
       const code = err instanceof ApiError ? err.code : "";
       if (code === "invite_not_found") {
         // Link expired, revoked, or already used (collapsed code, by design).
-        setErrorMsg(t("inviteAccept.error.expired"));
+        setErrorMsg(
+          t(
+            invite.kind === "ownership_transfer"
+              ? "ownershipAccept.unavailable"
+              : "inviteAccept.error.expired",
+          ),
+        );
       } else if (code === "rate_limited") {
         setErrorMsg(t("inviteAccept.error.rateLimited"));
       } else {
@@ -374,8 +398,15 @@ export default function InviteAcceptScreen() {
       if (checking || !accepted) return;
       checking = true;
       void isSelfAdmissionPublished(accepted.result.vault_id, accepted.session)
-        .then((ready) => {
-          if (!cancelled && ready) void onAccept();
+        .then(async (ready) => {
+          if (
+            !cancelled &&
+            ready &&
+            (!accepted.result.ownership_transferred ||
+              (await isOwnershipTransferApplied(accepted.result, accepted.session)))
+          ) {
+            if (!cancelled) void onAccept();
+          }
         })
         .catch(() => {})
         .finally(() => {
@@ -391,13 +422,20 @@ export default function InviteAcceptScreen() {
 
   async function onDecline() {
     if (!token) return;
+    const generation = routeGeneration.current;
     try {
-      await declineVaultInviteLocally(token);
+      const session = await captureCurrentSession();
+      if (generation !== routeGeneration.current) return;
+      await declineVaultInviteLocally(token, session);
+      await applyForCurrentSession(session, async () => {
+        if (generation !== routeGeneration.current) throw new InviteRouteChangedError();
+        await setAppMeta(PENDING_TOKEN_KEY, "");
+      });
+      if (generation === routeGeneration.current) router.replace("/");
     } catch (err) {
+      if (err instanceof SessionChangedError || err instanceof InviteRouteChangedError) return;
       console.warn("[invite] decline failed", err);
     }
-    await setAppMeta(PENDING_TOKEN_KEY, "");
-    router.replace("/");
   }
 
   async function onSignIn() {
@@ -431,7 +469,9 @@ export default function InviteAcceptScreen() {
           "Cancel" is no longer painted — backLabel carries it to the screen
           reader, which is what ScreenHeader's chevron contract asks for. */}
       <ScreenHeader
-        title={t("inviteAccept.title")}
+        title={t(
+          invite?.kind === "ownership_transfer" ? "ownershipAccept.title" : "inviteAccept.title",
+        )}
         onBack={() => router.replace("/")}
         isRTL={isRTL}
         backLabel={t("common.cancel")}
@@ -469,13 +509,24 @@ export default function InviteAcceptScreen() {
             <Ionicons name="mail-open-outline" size={icon.hero} color={colors.textEmphasis} />
             <View style={{ height: 12 }} />
             <Text style={[styles.heading, textDir(isRTL)]}>
-              {t("inviteAccept.confirm.title", { name: invite.vault_name })}
+              {t(
+                invite.kind === "ownership_transfer"
+                  ? "ownershipAccept.heading"
+                  : "inviteAccept.confirm.title",
+                { name: invite.vault_name },
+              )}
             </Text>
             <View style={{ height: 8 }} />
             <Text style={[styles.body2, textDir(isRTL)]}>
-              {confirmBodyParts[0]}
-              <Text style={styles.bold}>{roleLabel(invite.role)}</Text>
-              {confirmBodyParts[1] ?? ""}
+              {invite.kind === "ownership_transfer" ? (
+                t("ownershipAccept.body", { inviter: inviterLabel })
+              ) : (
+                <>
+                  {confirmBodyParts[0]}
+                  <Text style={styles.bold}>{roleLabel(invite.role)}</Text>
+                  {confirmBodyParts[1] ?? ""}
+                </>
+              )}
             </Text>
             <View style={{ height: 4 }} />
             <Text style={[styles.bodySubtle, textDir(isRTL)]}>
@@ -483,7 +534,14 @@ export default function InviteAcceptScreen() {
             </Text>
 
             <View style={{ height: 28 }} />
-            <Button label={t("inviteAccept.confirm.accept")} onPress={onAccept} />
+            <Button
+              label={t(
+                invite.kind === "ownership_transfer"
+                  ? "ownershipAccept.accept"
+                  : "inviteAccept.confirm.accept",
+              )}
+              onPress={onAccept}
+            />
             <View style={{ height: 12 }} />
             <Button
               label={t("inviteAccept.confirm.decline")}

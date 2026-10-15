@@ -54,6 +54,8 @@
     "selftest:sync-reconcile": "tsx lib/__dev__/sync-reconcile-selftest.ts",
     "selftest:invite-anchor-repair": "tsx lib/__dev__/invite-anchor-repair-selftest.ts",
     "selftest:invite-join": "tsx lib/__dev__/invite-join-selftest.ts",
+    "selftest:ownership-client": "tsx lib/__dev__/ownership-client-selftest.ts",
+    "selftest:ownership-proof": "tsx lib/trust/__dev__/ownership-transfer-selftest.ts",
     "selftest:snapshot-timeout": "tsx lib/__dev__/snapshot-timeout-selftest.ts",
     "selftest:diagnostics": "tsx lib/__dev__/diagnostics-report-selftest.ts",
     "selftest:sync-live": "tsx lib/__dev__/sync-live-selftest.ts",
@@ -74,6 +76,7 @@
     "selftest:credit-shared": "tsx lib/__dev__/credit-shared-selftest.ts",
     "selftest:credit-settings-ui": "tsx lib/__dev__/credit-settings-ui-selftest.ts",
     "selftest:members-screen": "tsx lib/__dev__/members-screen-selftest.ts",
+    "selftest:ownership-transfer-ui": "tsx lib/__dev__/ownership-transfer-ui-selftest.ts",
     "selftest:entry-create-ui": "tsx lib/__dev__/entry-create-ui-selftest.ts"
   },
   "dependencies": {

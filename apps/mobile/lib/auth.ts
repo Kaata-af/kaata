@@ -2031,14 +2031,60 @@ async function loadPendingVaultRegistration(): Promise<
     created_at: number;
     registered_with_server_at: number | null;
     vault_trust_anchor_pubkey: string | null;
+    account_id: string | null;
   }>(
     `SELECT id, name, currency, created_at, registered_with_server_at,
-            vault_trust_anchor_pubkey
+            vault_trust_anchor_pubkey, account_id
      FROM vaults WHERE id = ? LIMIT 1`,
     vaultId,
   );
   if (!row) return undefined;
   if (row.registered_with_server_at != null) return undefined;
+  // The registration timestamp is not an ownership signal: joined kaatas
+  // can deliberately retain NULL, and an original owner keeps the anchor
+  // key after handing ownership away. Never offer such a kaata as a new
+  // owned default during sign-in.
+  const persistedAccount = await getAppMetaInTx(db, "account_id");
+  const primaryAccount = persistedAccount || getAccountIdSync();
+  const candidates = await resolveAccountIdCandidates(primaryAccount);
+  const memberships = await db.getAllAsync<{
+    account_id: string;
+    role: string;
+    accepted_at: number | null;
+    revoked_at: number | null;
+  }>(
+    "SELECT account_id, role, accepted_at, revoked_at FROM vault_members_mirror WHERE vault_id = ?",
+    vaultId,
+  );
+  // A signed-in account's explicit seat wins over its stale local alias.
+  // Retain removed/unaccepted rows so a missing active owner cannot turn
+  // an old staff seat back into an apparently fresh owner.
+  const ownSeat =
+    memberships.find((member) => member.account_id === primaryAccount) ??
+    candidates.map((id) => memberships.find((member) => member.account_id === id)).find(Boolean);
+  if (
+    ownSeat &&
+    (ownSeat.role !== "owner" || ownSeat.revoked_at != null || ownSeat.accepted_at == null)
+  )
+    return undefined;
+  if (row.vault_trust_anchor_pubkey) {
+    const { getLocalMembershipState } = await import("./trust/proof");
+    const state = await getLocalMembershipState(vaultId);
+    if (state?.hasGenesis) {
+      const ownMember =
+        (primaryAccount ? state.members.get(primaryAccount) : undefined) ??
+        candidates.map((id) => state.members.get(id)).find(Boolean);
+      if (!ownMember || ownMember.removed || ownMember.role !== "owner") return undefined;
+    } else if (!ownSeat) {
+      // A pre-admission local vault may have no genesis yet. Only a device
+      // holding that anchor may advertise this genuinely fresh book.
+      const { buildLocalAccountId } = await import("./trust/account-id");
+      if (!candidates.includes(buildLocalAccountId(row.vault_trust_anchor_pubkey)))
+        return undefined;
+    }
+  }
+  if (!ownSeat && memberships.length > 0) return undefined;
+  if (!ownSeat && row.account_id && row.account_id !== primaryAccount) return undefined;
   return {
     id: row.id,
     name: row.name,
@@ -2196,15 +2242,40 @@ async function postSignInHousekeeping(args: {
     let owned = serverConfirmedOwned;
     if (!owned) {
       const ph = myIds.map(() => "?").join(",");
-      const foreignOwner = await db.getFirstAsync<{ one: number }>(
-        `SELECT 1 AS one FROM vault_members_mirror
+      const selfSeats =
+        myIds.length > 0
+          ? await db.getAllAsync<{
+              account_id: string;
+              role: string;
+              accepted_at: number | null;
+              revoked_at: number | null;
+            }>(
+              `SELECT account_id, role, accepted_at, revoked_at FROM vault_members_mirror
+          WHERE vault_id = ? AND account_id IN (${ph})`,
+              vaultId,
+              ...myIds,
+            )
+          : [];
+      const selfSeat =
+        selfSeats.find((member) => member.account_id === accountId) ??
+        myIds.map((id) => selfSeats.find((member) => member.account_id === id)).find(Boolean);
+      // An absent foreign-owner row can mean an interrupted download, not
+      // an unowned book. Preserve explicit staff/removal evidence even if
+      // this device still holds the book's original anchor identity.
+      const deniedSeat =
+        selfSeat &&
+        (selfSeat.role !== "owner" || selfSeat.revoked_at != null || selfSeat.accepted_at == null);
+      if (!deniedSeat) {
+        const foreignOwner = await db.getFirstAsync<{ one: number }>(
+          `SELECT 1 AS one FROM vault_members_mirror
           WHERE vault_id = ? AND role = 'owner' AND revoked_at IS NULL
             ${myIds.length > 0 ? `AND account_id NOT IN (${ph})` : ""}
           LIMIT 1`,
-        vaultId,
-        ...myIds,
-      );
-      owned = foreignOwner == null;
+          vaultId,
+          ...myIds,
+        );
+        owned = foreignOwner == null;
+      }
     }
     if (owned) {
       // Collapse this install's own SUPERSEDED identities (the device-key

@@ -1030,3 +1030,30 @@ Phone checks still required on new testing binaries:
    Redirected sign-in has no Ninja option, restores/selects existing kaatas, and
    resumes the invitation instead of sending the user through new-kaata onboarding.
    Test the different-account keep/wipe/cancel safeguard separately with test data.
+
+## Ownership invitation phone checks for 58/38
+
+Update every participating phone before handing over a test kaata. Keep the
+existing installation and its data. Store distribution status is recorded in
+[2.2.0-testing-distribution.md](2.2.0-testing-distribution.md).
+
+1. As Owner, open Manage this Kaata → Transfer ownership. Create a link for the
+   recipient's sign-in email. Email and WhatsApp should open their composers;
+   Copy should copy the link. Check English/Dari, a small screen and large text.
+2. Open the link as the wrong account: acceptance must fail without changing
+   either role. Switch to the invited email, then explicitly accept. Repeat with
+   a new member and an existing Editor.
+3. Keep the sender's phone offline while accepting. Recipient becomes Owner;
+   sender becomes Editor on reconnect. Contacts, private/shared tallies, balances
+   and history remain in the same kaata. Admins and Editors cannot archive it or
+   create an ownership invitation.
+4. Cancel a pending link, then try opening it. Replace a link and try the old
+   one. Only the current unexpired link may work, and retrying an accepted link
+   must not duplicate the change or restore an account removed later.
+5. Interrupt acceptance with airplane mode or a relaunch, then sign in again.
+   The handover must resume and show completion only after its proof arrives.
+   Sign out/in as the former owner and confirm their role remains Editor.
+6. On a second phone, restore the new owner's cloud backup. Confirm Owner access
+   and current shared-ledger history. With disposable accounts only, request
+   deletion as the former owner and confirm the new owner's kaata survives;
+   log back in during the recovery window to cancel deletion.

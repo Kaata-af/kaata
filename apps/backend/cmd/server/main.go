@@ -236,6 +236,7 @@ func main() {
 	crashH := crashreport.NewHandler(crashSvc)
 
 	vaultsSvc := vaults.NewService(pool)
+	vaultsSvc.SetOwnershipSigner(meshPriv)
 	vaultsH := vaults.NewHandler(vaultsSvc)
 
 	// Shared bill snapshots ("see the full ledger on kaata.af"): store a small
@@ -515,6 +516,12 @@ func main() {
 		pr.Post("/v1/vaults/{vault_id}/unarchive", vaultsH.Unarchive)
 		pr.Post("/v1/vaults/{vault_id}/leave", vaultsH.Leave)
 		pr.Post("/v1/vaults/{vault_id}/transfer-ownership", vaultsH.TransferOwnership)
+		pr.With(httpx.RateLimitPerAccount(httpx.CreateInviteLimit, httpx.CreateInviteWindow)).
+			Post("/v1/vaults/{vault_id}/ownership-invites", vaultsH.CreateOwnershipInvite)
+		pr.Get("/v1/vaults/{vault_id}/ownership-invites", vaultsH.OwnershipInviteStatus)
+		pr.Delete("/v1/vaults/{vault_id}/ownership-invites", vaultsH.CancelOwnershipInvite)
+		pr.With(httpx.RateLimitPerAccount(httpx.AcceptInviteLimit, httpx.AcceptInviteWindow)).
+			Post("/v1/vaults/ownership-invites/accept", vaultsH.AcceptOwnershipInvite)
 		pr.Post("/v1/vaults/{vault_id}/members/{account_id}/role", vaultsH.SetMemberRole)
 		pr.Post("/v1/vaults/{vault_id}/members/{account_id}/revoke", vaultsH.RevokeMember)
 		pr.Get("/v1/vaults/{vault_id}/credit-permissions", vaultsH.MemberCreditPermissions)

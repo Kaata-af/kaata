@@ -115,6 +115,10 @@ func writeServiceError(w http.ResponseWriter, err error) {
 // error_code is the client's branch key — keep it stable even if messages change.
 func mapServiceError(err error) (int, string, string) {
 	switch {
+	case errors.Is(err, ErrInvalidOwnershipAuthorization):
+		return http.StatusBadRequest, "invalid_ownership_authorization", err.Error()
+	case errors.Is(err, ErrOwnershipSigningUnavailable):
+		return http.StatusServiceUnavailable, "ownership_signing_unavailable", err.Error()
 	case errors.Is(err, ErrNotFound):
 		return http.StatusNotFound, "vault_not_found", "vault not found"
 	case errors.Is(err, ErrNotMember):

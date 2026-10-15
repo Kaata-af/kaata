@@ -6,6 +6,7 @@ import { BACKEND_URL } from "../env";
 // acceptance happens in the mobile app via POST /v1/vaults/invites/accept.
 
 export type InviteInfo = {
+  kind?: "ownership_transfer";
   vault_name: string;
   role: "owner" | "editor" | "viewer";
   inviter_email_redacted: string;

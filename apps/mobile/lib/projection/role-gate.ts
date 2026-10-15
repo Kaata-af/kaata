@@ -47,6 +47,10 @@ import {
   type MembershipWitnessLike,
 } from "../trust/chain";
 import { runtimeChainCrypto } from "../trust/crypto-runtime";
+import {
+  hasOwnershipTransferPayload,
+  verifyOwnershipTransferEvent,
+} from "../trust/ownership-transfer";
 
 // ---------- required-role table ----------
 //
@@ -252,7 +256,9 @@ async function resolveRoleAt(
               ('vault_member_added',
                'vault_member_role_changed',
                'vault_member_removed')
-        AND target_id = ?
+        AND (target_id = ? OR (event_type = 'vault_member_added'
+          AND (json_extract(payload_json, '$.ownership_transfer.authorization.grant.from_account_id') = ?
+            OR json_extract(payload_json, '$.ownership_transfer.authorization.grant.from_chain_account_id') = ?)))
         AND event_id != ?
         AND applied_at IS NOT NULL
         AND quarantine_reason IS NULL
@@ -263,6 +269,8 @@ async function resolveRoleAt(
       ORDER BY hlc_physical_ms DESC, hlc_logical DESC, hlc_device_id DESC
       LIMIT 1`,
     vaultId,
+    accountId,
+    accountId,
     accountId,
     excludingEventId,
     atHlc.pms,
@@ -275,7 +283,17 @@ async function resolveRoleAt(
   if (row != null) {
     if (row.event_type === "vault_member_removed") return null;
     try {
-      const p = JSON.parse(row.payload_json) as { role?: VaultRole };
+      const p = JSON.parse(row.payload_json) as {
+        role?: VaultRole;
+        ownership_transfer?: {
+          authorization: { grant: { from_account_id: string; from_chain_account_id?: string } };
+        };
+      };
+      if (
+        p.ownership_transfer?.authorization.grant.from_account_id === accountId ||
+        p.ownership_transfer?.authorization.grant.from_chain_account_id === accountId
+      )
+        return "editor";
       const parsed = parseRole(p.role);
       if (parsed != null) return parsed;
     } catch {
@@ -524,7 +542,46 @@ async function anchorEventPrecedesRekey(
   eventHlc: HLC,
 ): Promise<boolean> {
   const boundary = await rekeyedOwnerAdmissionHlc(tx, vaultId);
-  return boundary == null || compareHLC(eventHlc, boundary) < 0;
+  return (
+    (boundary == null || compareHLC(eventHlc, boundary) < 0) &&
+    !(await hasOwnershipTransferBefore(tx, vaultId, eventHlc))
+  );
+}
+
+// Once ownership was handed over, the original anchor remains a historical
+// trust root, never an alternate owner identity for its former holder.
+async function hasOwnershipTransferBefore(
+  tx: SQLiteTx,
+  vaultId: string,
+  at: HLC,
+): Promise<boolean> {
+  const row = await tx.getFirstAsync<{ one: number }>(
+    `SELECT 1 AS one FROM event_log WHERE vault_id = ?
+      AND event_type = 'vault_member_added'
+      AND json_extract(payload_json, '$.ownership_transfer.receipt.domain') = 'kaata-ownership-transfer-acceptance-v1'
+      AND applied_at IS NOT NULL AND quarantine_reason IS NULL
+      AND (hlc_physical_ms < ? OR (hlc_physical_ms = ? AND hlc_logical < ?)
+        OR (hlc_physical_ms = ? AND hlc_logical = ? AND hlc_device_id <= ?)) LIMIT 1`,
+    vaultId,
+    at.pms,
+    at.pms,
+    at.l,
+    at.pms,
+    at.l,
+    at.did,
+  );
+  return row != null;
+}
+
+async function hasOwnershipAuthorityChange(tx: SQLiteTx, vaultId: string): Promise<boolean> {
+  return (
+    (await tx.getFirstAsync(
+      `SELECT 1 AS one FROM event_log WHERE vault_id = ? AND applied_at IS NOT NULL AND quarantine_reason IS NULL
+      AND ((event_type = 'vault_member_added' AND json_extract(payload_json, '$.ownership_transfer') IS NOT NULL)
+        OR (event_type = 'vault_member_role_changed' AND json_extract(payload_json, '$.role') = 'owner')) LIMIT 1`,
+      vaultId,
+    )) != null
+  );
 }
 
 async function serverWitnessKeys(tx: SQLiteTx): Promise<string[]> {
@@ -555,7 +612,9 @@ async function latestMembershipKindBefore(
   const row = await tx.getFirstAsync<{ event_type: string }>(
     `SELECT event_type FROM event_log
       WHERE vault_id = ?
-        AND target_id = ?
+        AND (target_id = ? OR (event_type = 'vault_member_added' AND
+          (json_extract(payload_json, '$.ownership_transfer.authorization.grant.from_account_id') = ?
+            OR json_extract(payload_json, '$.ownership_transfer.authorization.grant.from_chain_account_id') = ?)))
         AND event_type IN
               ('vault_member_added','vault_member_role_changed','vault_member_removed')
         AND applied_at IS NOT NULL
@@ -567,6 +626,8 @@ async function latestMembershipKindBefore(
       ORDER BY hlc_physical_ms DESC, hlc_logical DESC, hlc_device_id DESC
       LIMIT 1`,
     vaultId,
+    accountId,
+    accountId,
     accountId,
     beforeHlc.pms,
     beforeHlc.pms,
@@ -697,6 +758,73 @@ export async function checkRoleForEvent(tx: SQLiteTx, event: LedgerEvent): Promi
     // events with null vault_id are legacy pre-migration-007 rows that
     // the gate cannot reason about. Bypass.
     return { ok: true };
+  }
+  if (hasOwnershipTransferPayload(event)) {
+    const proof = verifyOwnershipTransferEvent(
+      event,
+      await serverWitnessKeys(tx),
+      runtimeChainCrypto,
+    );
+    if (!proof)
+      return { ok: false, reason: "bad_signature", current_role: null, required_role: "owner" };
+    const reused = await tx.getFirstAsync<{ one: number }>(
+      `SELECT 1 AS one FROM event_log WHERE vault_id = ? AND event_id != ?
+        AND event_type = 'vault_member_added' AND applied_at IS NOT NULL AND quarantine_reason IS NULL
+        AND json_extract(payload_json, '$.ownership_transfer.authorization.grant.transfer_id') = ? LIMIT 1`,
+      event.vault_id,
+      event.event_id,
+      proof.authorization.grant.transfer_id,
+    );
+    if (reused)
+      return { ok: false, reason: "bad_signature", current_role: null, required_role: "owner" };
+    const author = await lookupSignerCredential(
+      tx,
+      event.vault_id,
+      event.device_id,
+      event.hlc,
+      proof.authorization.signer_device_pubkey,
+    );
+    const from =
+      proof.authorization.grant.from_chain_account_id ?? proof.authorization.grant.from_account_id;
+    if (!author || author === "device_removed" || author.account_id !== from)
+      return { ok: false, reason: "unknown_actor", current_role: null, required_role: "owner" };
+    const role = await resolveRoleAt(tx, event.vault_id, from, event.hlc, event.event_id);
+    if (role !== "owner")
+      return {
+        ok: false,
+        reason: role ? "insufficient_role" : "unknown_actor",
+        current_role: role,
+        required_role: "owner",
+      };
+    return { ok: true };
+  }
+  if (
+    event.origin === "local" &&
+    RANK[requirement] >= RANK.manager &&
+    (await hasOwnershipAuthorityChange(tx, event.vault_id))
+  ) {
+    // A local author cannot choose an old clock value to recover privileges
+    // they transferred away. Remote, already-signed historical proofs retain
+    // their chronological role checks for restore and peer replay.
+    const candidates = await resolveAccountIdCandidates(getAccountIdSync());
+    let latest: VaultRole | null = null;
+    for (const account of candidates) {
+      const found = await resolveRoleAt(
+        tx,
+        event.vault_id,
+        account,
+        { pms: Number.MAX_SAFE_INTEGER, l: 0, did: "" },
+        event.event_id,
+      );
+      if (rankRole(found) > rankRole(latest)) latest = found;
+    }
+    if (!latest || !meetsRequirement(latest, requirement))
+      return {
+        ok: false,
+        reason: latest ? "insufficient_role" : "unknown_actor",
+        current_role: latest,
+        required_role: requirement,
+      };
   }
 
   // ----------------------------------------------------------------------
@@ -1102,6 +1230,13 @@ export async function checkRoleForEvent(tx: SQLiteTx, event: LedgerEvent): Promi
     if (event.origin === "local") {
       const authority = await resolveLocalEntryAuthorityAt(tx, event);
       const role = authority?.role ?? null;
+      if (role == null && (await hasOwnershipTransferBefore(tx, event.vault_id, event.hlc)))
+        return {
+          ok: false,
+          reason: "unknown_actor",
+          current_role: null,
+          required_role: requirement,
+        };
       if (role != null && !meetsRequirement(role, requirement))
         return {
           ok: false,
@@ -1173,7 +1308,10 @@ export async function checkRoleForEvent(tx: SQLiteTx, event: LedgerEvent): Promi
           "SELECT vault_trust_anchor_pubkey FROM vaults WHERE id = ?",
           event.vault_id,
         );
-        if (await deviceKeyMod.isOwnDevicePubkey(anchorRow?.vault_trust_anchor_pubkey)) {
+        if (
+          (await deviceKeyMod.isOwnDevicePubkey(anchorRow?.vault_trust_anchor_pubkey)) &&
+          !(await hasOwnershipTransferBefore(tx, event.vault_id, event.hlc))
+        ) {
           return { ok: true };
         }
       } catch {
@@ -1187,7 +1325,10 @@ export async function checkRoleForEvent(tx: SQLiteTx, event: LedgerEvent): Promi
     // implicit writes for a vault it owns), give the benefit of the
     // doubt — this protects the "no membership event seeded yet, no
     // VMC issued yet" cold-start path. On remote origin we refuse.
-    if (event.origin === "remote") {
+    if (
+      event.origin === "remote" ||
+      (await hasOwnershipTransferBefore(tx, event.vault_id, event.hlc))
+    ) {
       return {
         ok: false,
         reason: "unknown_actor",
