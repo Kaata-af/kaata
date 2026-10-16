@@ -93,12 +93,6 @@ const en = {
     "The link may be old or mistyped. If someone sent you an invite, ask them for a fresh link.",
   "notFound.back": "Back to Kaata",
 
-  // Cookie / privacy notice. One acknowledgement button: visits are recorded
-  // whatever is pressed, so there is no "No thanks" (components/CookieConsent).
-  "consent.body":
-    "We record visits (page, source, IP address and browser) to understand how kaata.af is used.",
-  "consent.accept": "Okay",
-
   // Invite landing
   "invite.loading": "Loading invitation",
   "invite.kicker": "Invitation",
@@ -247,11 +241,6 @@ const fa: Record<keyof typeof en, string> = {
   "notFound.body":
     "شاید لینک قدیمی یا غلط نوشته شده باشد. اگر کسی برایتان دعوت‌نامه فرستاده، از او لینک تازه بخواهید.",
   "notFound.back": "برگشت به کاتا",
-
-  // Cookie / privacy notice
-  "consent.body":
-    "بازدیدها (صفحه، منبع، آدرس IP و مرورگر) را ثبت می‌کنیم تا بدانیم kaata.af چطور استفاده می‌شود.",
-  "consent.accept": "خوب",
 
   // Invite landing
   "invite.loading": "در حال بارگیری دعوت‌نامه",

@@ -1,6 +1,5 @@
 import { lazy, Suspense, useEffect } from "react";
 import { Route, Routes, useLocation } from "react-router-dom";
-import { CookieConsent } from "./components/CookieConsent";
 import { ToastProvider } from "./components/Toast";
 import { fireVisitOnce, getSource } from "./lib/analytics";
 import { CustomerView } from "./pages/CustomerView";
@@ -67,7 +66,6 @@ export function App() {
           <Route path="*" element={<NotFound />} />
         </Routes>
       )}
-      {IS_ADMIN_HOST ? null : <CookieConsent />}
     </ToastProvider>
   );
 }

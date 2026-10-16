@@ -2,9 +2,8 @@ import { Link } from "react-router-dom";
 import { SiteFooter, SiteHeader } from "../components/SiteChrome";
 import { useI18n } from "../lib/i18n";
 
-// Catch-all for unknown routes. Without this, react-router rendered an
-// empty <Routes> — a blank page with only the consent banner — for any
-// mistyped or stale URL (old invite links, typo'd QR slugs).
+// Catch-all so mistyped or stale URLs (old invite links, typo'd QR slugs)
+// show a useful page instead of an empty <Routes>.
 export function NotFound() {
   const { t } = useI18n();
   return (
