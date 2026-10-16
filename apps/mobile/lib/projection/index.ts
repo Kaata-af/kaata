@@ -48,6 +48,7 @@ import {
 import { applyVaultSettingSet } from "./vault_settings";
 import { notifyProjectionConflictsChanged } from "../projection-conflicts";
 import { Mutex } from "../util/mutex";
+import { invalidateVaultRoleCache, withDeferredVaultRoleNotifications } from "../use-vault-role";
 import {
   captureCreditMutationBaseline,
   deferCreditAdmission,
@@ -197,20 +198,13 @@ export type ApplyEventResult =
       };
     };
 
-export async function applyEvent(
-  event: LedgerEvent,
-  opts: {
-    origin: "local" | "remote" | "backfill";
-    // Optional inside-tx predicate. If it returns true, applyEvent skips
-    // the event_log INSERT and the projection applier dispatch entirely —
-    // no event_log row is created. Used by appendEntryAmended /
-    // appendEntryDeleted to re-check is_deleted inside the same tx that
-    // would have written the event, so an interleaved local mutation
-    // can't produce a phantom event_log row claiming a projection update
-    // that never happened.
-    preflightAbort?: (tx: SQLiteTx) => Promise<boolean>;
-  },
-): Promise<ApplyEventResult> {
+type ApplyEventOptions = {
+  origin: "local" | "remote" | "backfill";
+  // Runs under the same transaction as the event insert and projection.
+  preflightAbort?: (tx: SQLiteTx) => Promise<boolean>;
+};
+
+function validateEventForApply(event: LedgerEvent, opts: ApplyEventOptions): Applier {
   if (!isKnownEventType(event.event_type)) {
     // No CHECK constraint on event_type in the schema — validate here at
     // insert. Unknown types from a future client build are refused so the
@@ -230,6 +224,10 @@ export async function applyEvent(
     throw new Error(`no projection applier for event_type ${event.event_type}`);
   }
 
+  return applier;
+}
+
+async function getLocalEventSigner(): Promise<DeviceSigner> {
   // Phase 8 event signing: take the device SIGNER outside the tx. This is
   // the only place a local write touches SecureStore, and it must stay
   // outside the transaction: getDeviceSigner() validates that the private
@@ -254,42 +252,124 @@ export async function applyEvent(
   // "couldn't prepare a secure save" copy. Anything else (a SQLite error
   // reading app_meta) propagates as-is for the storage classifier.
   let signer: DeviceSigner | null = null;
-  if (opts.origin === "local") {
-    try {
-      signer = await getDeviceSigner({ interactive: true });
-    } catch (err) {
-      if (err instanceof DeviceKeyUnavailableError && err.reason === "in_transaction") {
-        // A repair was needed while some other transaction was open (the
-        // launch sweep cycling per-event transactions is the realistic
-        // collider). Retry once under applyEventMutex: every event
-        // transaction holds it, so the repair runs between them. We hold no
-        // sweepMutex here, so the sweepMutex → applyEventMutex order stands.
-        try {
-          signer = await applyEventMutex.runExclusive(() => getDeviceSigner({ interactive: true }));
-        } catch (retryErr) {
-          if (retryErr instanceof DeviceKeyUnavailableError) {
-            throw new EventSigningUnavailableError(
-              `device signing key unavailable (${retryErr.reason}): ${retryErr.message}`,
-            );
-          }
-          throw retryErr;
+  try {
+    signer = await getDeviceSigner({ interactive: true });
+  } catch (err) {
+    if (err instanceof DeviceKeyUnavailableError && err.reason === "in_transaction") {
+      // A repair was needed while some other transaction was open (the
+      // launch sweep cycling per-event transactions is the realistic
+      // collider). Retry once under applyEventMutex: every event
+      // transaction holds it, so the repair runs between them. We hold no
+      // sweepMutex here, so the sweepMutex → applyEventMutex order stands.
+      try {
+        signer = await applyEventMutex.runExclusive(() => getDeviceSigner({ interactive: true }));
+      } catch (retryErr) {
+        if (retryErr instanceof DeviceKeyUnavailableError) {
+          throw new EventSigningUnavailableError(
+            `device signing key unavailable (${retryErr.reason}): ${retryErr.message}`,
+          );
         }
-      } else if (err instanceof DeviceKeyUnavailableError) {
-        throw new EventSigningUnavailableError(
-          `device signing key unavailable (${err.reason}): ${err.message}`,
-        );
-      } else {
-        throw err;
+        throw retryErr;
       }
+    } else if (err instanceof DeviceKeyUnavailableError) {
+      throw new EventSigningUnavailableError(
+        `device signing key unavailable (${err.reason}): ${err.message}`,
+      );
+    } else {
+      throw err;
     }
   }
 
+  if (!signer) throw new EventSigningUnavailableError();
+  return signer;
+}
+
+export async function applyEvent(
+  event: LedgerEvent,
+  opts: ApplyEventOptions,
+): Promise<ApplyEventResult> {
+  validateEventForApply(event, opts);
+  const signer = opts.origin === "local" ? await getLocalEventSigner() : null;
   const db = await getDb();
+  let result!: ApplyEventResult;
+  await applyEventMutex.runExclusive(() =>
+    db.withTransactionAsync(async () => {
+      result = await applyEventInTransaction(db, event, opts, signer);
+    }),
+  );
+  notifyAppliedEvent(event, opts.origin, result);
+  return result;
+}
+
+/** A refused member operation aborts its entire local handover. */
+export class AtomicEventRejectionError extends Error {
+  readonly kind = "atomic_event_rejected" as const;
+  constructor(
+    readonly index: number,
+    readonly result: Extract<ApplyEventResult, { applied: false }>,
+  ) {
+    super(`Atomic event ${index} was not applied (${result.reason})`);
+    this.name = "AtomicEventRejectionError";
+  }
+}
+
+/** All events become visible together, or none do. The ordinary single-event
+ * path still commits its refused-event audit trail as before. */
+export async function applyLocalEventsAtomically(
+  events: readonly LedgerEvent[],
+  // Runs inside the batch transaction: inspect roles directly through tx,
+  // never through external readVaultRole (which waits for the batch to settle).
+  opts: {
+    preflight?: (tx: SQLiteTx) => Promise<void>;
+    expectedSignerPubkey?: string;
+  } = {},
+): Promise<void> {
+  if (events.length === 0) throw new Error("An atomic event batch cannot be empty");
+  const vaultId = events[0].vault_id;
+  const deviceId = events[0].device_id;
+  for (const event of events) {
+    validateEventForApply(event, { origin: "local" });
+    if (event.vault_id !== vaultId || event.device_id !== deviceId)
+      throw new Error("Atomic local events must share a vault and authoring device");
+  }
+  const signer = await getLocalEventSigner();
+  if (opts.expectedSignerPubkey != null && signer.pubkey_b64 !== opts.expectedSignerPubkey) {
+    throw new EventSigningUnavailableError("device signing key changed before the atomic save");
+  }
+  const db = await getDb();
+  await applyEventMutex.runExclusive(() =>
+    withDeferredVaultRoleNotifications(async () => {
+      try {
+        await db.withTransactionAsync(async () => {
+          await opts.preflight?.(db);
+          for (const [index, event] of events.entries()) {
+            const result = await applyEventInTransaction(db, event, { origin: "local" }, signer);
+            if (!result.applied) throw new AtomicEventRejectionError(index, result);
+          }
+        });
+      } catch (err) {
+        // A gate may have cached authority from an earlier event in the now
+        // rolled-back batch. Clear it before the lock admits another write.
+        invalidateVaultRoleCache(vaultId ?? undefined);
+        throw err;
+      }
+    }),
+  );
+  // One committed change notification is enough for the entire vault. No
+  // subscriber, sweep or network worker sees only the promotion half.
+  notifyAppliedEvent(events[0], "local", { applied: true });
+}
+
+// Shared transaction body. The caller owns applyEventMutex and the transaction;
+// this helper never reacquires either and never publishes post-commit effects.
+async function applyEventInTransaction(
+  db: SQLiteTx,
+  event: LedgerEvent,
+  opts: ApplyEventOptions,
+  signer: DeviceSigner | null,
+): Promise<ApplyEventResult> {
+  const applier = validateEventForApply(event, opts);
   let applied = false;
-  // Phase 8 D-ROLE-ENFORCEMENT-MOBILE: tracked across the tx boundary so
-  // we can fire notifyProjectionConflictsChanged() AFTER the commit. The
-  // notifier triggers React subscribers to re-query projection_conflicts.
-  let roleGateRejected = false;
   // Tracks WHY applied=false so the return shape can be discriminated by
   // the caller. Initialized to "duplicate" because the most common
   // non-applied path is the INSERT OR IGNORE PK collision; the role-gate
@@ -301,242 +381,259 @@ export async function applyEvent(
     roleGateDetail: Extract<RoleGateResult, { ok: false }> | null;
   } = { reason: "duplicate", roleGateDetail: null };
 
-  await applyEventMutex.runExclusive(() =>
-    db.withTransactionAsync(async () => {
-      // 0. Optional inside-tx pre-flight.
-      if (opts.preflightAbort && (await opts.preflightAbort(db))) {
-        applied = false;
-        notApplied.reason = "preflight";
-        return;
-      }
-
-      // 1. HLC tick — read frontier, advance, write back at the end.
-      const nowMs = Date.now();
-      const prevRaw = await getAppMetaInTx(db, HLC_LAST_KEY);
-      const prev = prevRaw ? deserializeHLC(prevRaw) : null;
-
-      let newHlc: HLC;
-      if (opts.origin === "local") {
-        newHlc = tickLocal(prev, nowMs, event.device_id);
-      } else {
-        // Remote and backfill arrive with their own HLC already stamped — we
-        // merge it into our frontier so our next local tick can't sort before
-        // an event we've already accepted.
-        newHlc = tickReceive(prev, event.hlc, nowMs, getInstallIdSync());
-      }
-
-      // Build the stamped event locally rather than mutating the caller's
-      // object. The applier sees the final event with its real HLC; the
-      // caller's reference is unchanged.
-      const stampedBase: LedgerEvent = {
-        ...event,
-        hlc: opts.origin === "local" ? newHlc : event.hlc,
-        device_id: opts.origin === "local" ? newHlc.did : event.device_id,
-        appended_at: nowMs,
-        origin: opts.origin,
+  const outcome = (): ApplyEventResult => {
+    if (applied) return { applied: true };
+    if (notApplied.reason === "role_gate" && notApplied.roleGateDetail != null) {
+      return {
+        applied: false,
+        reason: "role_gate",
+        role_gate: {
+          reason: notApplied.roleGateDetail.reason,
+          current_role: notApplied.roleGateDetail.current_role,
+          required_role: notApplied.roleGateDetail.required_role,
+        },
       };
+    }
+    return { applied: false, reason: notApplied.reason };
+  };
+  // 0. Optional inside-tx pre-flight.
+  if (opts.preflightAbort && (await opts.preflightAbort(db))) {
+    applied = false;
+    notApplied.reason = "preflight";
+    return outcome();
+  }
 
-      // Phase 8 D-ROLE-ENFORCEMENT-MOBILE: sign LOCAL-origin events AFTER
-      // tickLocal stamps the final HLC. Remote-origin events arrive with
-      // their authoring device's signature already populated by the wire
-      // (anti-entropy.ts) — we re-verify it inside checkRoleForEvent, not
-      // here. Backfill-origin events are unsigned (synthetic pre-Phase 8).
-      let stamped: LedgerEvent = stampedBase;
-      if (opts.origin === "local") {
-        // The signer snapshot was taken above (we threw
-        // EventSigningUnavailableError otherwise) and holds the seed bytes,
-        // so signing here does no I/O and cannot observe a cleared cache. We
-        // DELIBERATELY let signEvent throw rather than swallowing: a local
-        // write that cannot be signed must fail visibly instead of landing a
-        // non-propagatable row. The throw unwinds the tx (nothing is written)
-        // and the caller surfaces a clear message.
-        if (!signer) {
-          throw new EventSigningUnavailableError("device signer missing for a local event");
-        }
-        const sig = await signEvent(
-          stampedBase as unknown as Parameters<typeof signEvent>[0],
-          signer.sign,
-        );
-        stamped = {
-          ...stampedBase,
-          event_sig_b64: sig,
-          signer_device_pubkey: signer.pubkey_b64,
-        } as LedgerEvent;
-      }
+  // 1. HLC tick — read frontier, advance, write back at the end.
+  const nowMs = Date.now();
+  const prevRaw = await getAppMetaInTx(db, HLC_LAST_KEY);
+  const prev = prevRaw ? deserializeHLC(prevRaw) : null;
 
-      // 2. INSERT OR IGNORE — idempotent by event_id.
-      //
-      // MIGRATION 014 HOTFIX: the state-machine trigger created by
-      // migration 014 requires `ingested_at IS NOT NULL` on every
-      // INSERT into event_log. Without setting it here, the trigger
-      // ABORTs every local write — every contact-create, every entry-
-      // append, every vault_member_added event. Caught by user testing
-      // the same day the migration shipped.
-      //
-      // For local-origin events: ingested_at = applied_at = appended_at,
-      // because the local path is atomic INSERT+role-gate+applier inside
-      // one withTransactionAsync. If role-gate refuses (line 317 below),
-      // we UPDATE applied_at back to NULL so the sweep can retry on the
-      // next role-elevation event. If the applier throws, the entire
-      // txn rolls back, including this INSERT — no row, no inconsistency.
-      //
-      // For remote-origin events going through this path (pull from
-      // backend, NOT mesh): same semantic — the server is authoritative,
-      // we believe what it tells us. (Mesh-origin events DO NOT use
-      // this path; they go through anti-entropy.ts's verifyAndIngest
-      // pipeline which sets ingested_at and defers applied_at to the
-      // sweep.)
-      // Sync v2 M1 (migration 018): per-author sequence number. Authoring
-      // origins (local + backfill synthetics) assign the next seq for this
-      // (vault, device) inside the same tx as the INSERT (serialized by
-      // applyEventMutex). Remote origin trusts the wire (the author assigned
-      // it); legacy remote events without one stay NULL. Never signed.
-      let authorSeq: number | null;
-      if (opts.origin === "remote") {
-        authorSeq = stamped.author_seq ?? null;
-        // Slot pre-check: if a DIFFERENT local row already holds this
-        // (vault, author, seq) slot (divergent legacy backfills meeting
-        // through a relay), sacrifice the seq — NEVER the event. Without
-        // this, INSERT OR IGNORE swallows the UNIQUE-index violation, the
-        // event is silently dropped as a "duplicate", and the pull cursor
-        // advances past it forever: permanent, unhealable replica
-        // divergence. Same intent as push.ts's seq_conflict strip and
-        // pull.ts's UPDATE OR IGNORE backfill.
-        if (authorSeq != null && stamped.vault_id != null) {
-          const slot = await db.getFirstAsync<{ event_id: string }>(
-            `SELECT event_id FROM event_log
-            WHERE vault_id = ? AND device_id = ? AND author_seq = ?`,
-            stamped.vault_id,
-            stamped.device_id,
-            authorSeq,
-          );
-          if (slot && slot.event_id !== stamped.event_id) {
-            authorSeq = null;
-          }
-        }
-      } else if (stamped.author_seq != null) {
-        authorSeq = stamped.author_seq;
-      } else {
-        authorSeq = await nextAuthorSeqInTx(db, stamped);
-        // Conflict floor (own device only): if a previous push had OUR seq N
-        // stripped via seq_conflict (server slot squatted — pathological:
-        // install-id clone or local reset), MAX()+1 would re-mint N forever.
-        // The floor marks "lowest seq we may still use"; it advances ONLY on
-        // strip (lib/sync/push.ts), never on assignment, so the duplicate
-        // path can't burn seqs and normal operation has zero gaps.
-        if (stamped.vault_id != null && stamped.device_id === getInstallIdSync()) {
-          const floorRaw = await getAppMetaInTx(db, `author_seq_floor:${stamped.vault_id}`);
-          const floor = floorRaw ? Number(floorRaw) : 0;
-          if (Number.isFinite(floor) && floor > authorSeq) {
-            authorSeq = floor;
-          }
-        }
-      }
+  let newHlc: HLC;
+  if (opts.origin === "local") {
+    newHlc = tickLocal(prev, nowMs, event.device_id);
+  } else {
+    // Remote and backfill arrive with their own HLC already stamped — we
+    // merge it into our frontier so our next local tick can't sort before
+    // an event we've already accepted.
+    newHlc = tickReceive(prev, event.hlc, nowMs, getInstallIdSync());
+  }
 
-      const result = await db.runAsync(
-        `INSERT OR IGNORE INTO event_log (
-         event_id, event_type, vault_id, target_id, relationship_id,
-         hlc_physical_ms, hlc_logical, hlc_device_id,
-         device_id, author_user_id_local_only, actor_account_id,
-         payload_json, payload_schema,
-         appended_at, server_acked_at, rejected_at, origin,
-         event_sig_b64, signer_device_pubkey,
-         ingested_at, applied_at, author_seq
-       ) VALUES (?, ?, ?, ?, ?,  ?, ?, ?,  ?, ?, ?,  ?, ?,  ?, ?, ?, ?,  ?, ?,  ?, ?, ?)`,
-        stamped.event_id,
-        stamped.event_type,
+  // Build the stamped event locally rather than mutating the caller's
+  // object. The applier sees the final event with its real HLC; the
+  // caller's reference is unchanged.
+  const stampedBase: LedgerEvent = {
+    ...event,
+    hlc: opts.origin === "local" ? newHlc : event.hlc,
+    device_id: opts.origin === "local" ? newHlc.did : event.device_id,
+    appended_at: nowMs,
+    origin: opts.origin,
+  };
+
+  // Phase 8 D-ROLE-ENFORCEMENT-MOBILE: sign LOCAL-origin events AFTER
+  // tickLocal stamps the final HLC. Remote-origin events arrive with
+  // their authoring device's signature already populated by the wire
+  // (anti-entropy.ts) — we re-verify it inside checkRoleForEvent, not
+  // here. Backfill-origin events are unsigned (synthetic pre-Phase 8).
+  let stamped: LedgerEvent = stampedBase;
+  if (opts.origin === "local") {
+    // The signer snapshot was taken above (we threw
+    // EventSigningUnavailableError otherwise) and holds the seed bytes,
+    // so signing here does no I/O and cannot observe a cleared cache. We
+    // DELIBERATELY let signEvent throw rather than swallowing: a local
+    // write that cannot be signed must fail visibly instead of landing a
+    // non-propagatable row. The throw unwinds the tx (nothing is written)
+    // and the caller surfaces a clear message.
+    if (!signer) {
+      throw new EventSigningUnavailableError("device signer missing for a local event");
+    }
+    const sig = await signEvent(
+      stampedBase as unknown as Parameters<typeof signEvent>[0],
+      signer.sign,
+    );
+    stamped = {
+      ...stampedBase,
+      event_sig_b64: sig,
+      signer_device_pubkey: signer.pubkey_b64,
+    } as LedgerEvent;
+  }
+
+  // 2. INSERT OR IGNORE — idempotent by event_id.
+  //
+  // MIGRATION 014 HOTFIX: the state-machine trigger created by
+  // migration 014 requires `ingested_at IS NOT NULL` on every
+  // INSERT into event_log. Without setting it here, the trigger
+  // ABORTs every local write — every contact-create, every entry-
+  // append, every vault_member_added event. Caught by user testing
+  // the same day the migration shipped.
+  //
+  // For local-origin events: ingested_at = applied_at = appended_at,
+  // because the local path is atomic INSERT+role-gate+applier inside
+  // one withTransactionAsync. If role-gate refuses (line 317 below),
+  // we UPDATE applied_at back to NULL so the sweep can retry on the
+  // next role-elevation event. If the applier throws, the entire
+  // txn rolls back, including this INSERT — no row, no inconsistency.
+  //
+  // For remote-origin events going through this path (pull from
+  // backend, NOT mesh): same semantic — the server is authoritative,
+  // we believe what it tells us. (Mesh-origin events DO NOT use
+  // this path; they go through anti-entropy.ts's verifyAndIngest
+  // pipeline which sets ingested_at and defers applied_at to the
+  // sweep.)
+  // Sync v2 M1 (migration 018): per-author sequence number. Authoring
+  // origins (local + backfill synthetics) assign the next seq for this
+  // (vault, device) inside the same tx as the INSERT (serialized by
+  // applyEventMutex). Remote origin trusts the wire (the author assigned
+  // it); legacy remote events without one stay NULL. Never signed.
+  let authorSeq: number | null;
+  if (opts.origin === "remote") {
+    authorSeq = stamped.author_seq ?? null;
+    // Slot pre-check: if a DIFFERENT local row already holds this
+    // (vault, author, seq) slot (divergent legacy backfills meeting
+    // through a relay), sacrifice the seq — NEVER the event. Without
+    // this, INSERT OR IGNORE swallows the UNIQUE-index violation, the
+    // event is silently dropped as a "duplicate", and the pull cursor
+    // advances past it forever: permanent, unhealable replica
+    // divergence. Same intent as push.ts's seq_conflict strip and
+    // pull.ts's UPDATE OR IGNORE backfill.
+    if (authorSeq != null && stamped.vault_id != null) {
+      const slot = await db.getFirstAsync<{ event_id: string }>(
+        `SELECT event_id FROM event_log
+        WHERE vault_id = ? AND device_id = ? AND author_seq = ?`,
         stamped.vault_id,
-        stamped.target_id,
-        stamped.relationship_id,
-        stamped.hlc.pms,
-        stamped.hlc.l,
-        stamped.hlc.did,
         stamped.device_id,
-        stamped.author_user_id_local_only,
-        stamped.actor_account_id,
-        JSON.stringify(stamped.payload),
-        stamped.payload_schema,
-        stamped.appended_at,
-        stamped.server_acked_at,
-        stamped.rejected_at,
-        stamped.origin,
-        stamped.event_sig_b64 ?? null,
-        stamped.signer_device_pubkey ?? null,
-        stamped.appended_at,
-        stamped.appended_at,
         authorSeq,
       );
-
-      // changes === 0 means the INSERT OR IGNORE hit the PK and skipped.
-      // Duplicate event — projection already reflects it from the first apply.
-      if (result.changes === 0) {
-        applied = false;
-        notApplied.reason = "duplicate";
-        return;
+      if (slot && slot.event_id !== stamped.event_id) {
+        authorSeq = null;
       }
-
-      // 3. Pre-flight role gate (Phase 8 D-ROLE-ENFORCEMENT-MOBILE). MUST
-      //    run AFTER the INSERT OR IGNORE (so a duplicate event's role
-      //    isn't re-checked) and BEFORE the applier dispatch (so an
-      //    unauthorized event never mutates the projection).
-      //
-      //    On reject, the event_log row stays — the log is append-only
-      //    and the audit trail benefits from seeing the attempt — but
-      //    projection_conflicts gets a row and applier dispatch is
-      //    SKIPPED. We still advance the HLC cursor so the frontier
-      //    doesn't get stuck on a rejected event.
-      const gate = await checkRoleForEvent(db, stamped);
-      if (!gate.ok) {
-        // MIGRATION 014 HOTFIX: the INSERT above optimistically set
-        // applied_at = appended_at because the local path normally
-        // commits ingest+apply atomically. Now that role-gate refused,
-        // the applier WILL NOT run, so applied_at is wrong. Clear it
-        // and set quarantine_reason so the sweep retries on a later
-        // role-elevation event.
-        await db.runAsync(
-          `UPDATE event_log
-            SET applied_at = NULL, quarantine_reason = 'role_insufficient'
-          WHERE event_id = ?`,
-          stamped.event_id,
-        );
-        await recordRoleGateReject(db, stamped, gate);
-        await setAppMetaInTx(db, HLC_LAST_KEY, serializeHLC(newHlc));
-        roleGateRejected = true;
-        applied = false;
-        notApplied.reason = "role_gate";
-        notApplied.roleGateDetail = gate;
-        return;
+    }
+  } else if (stamped.author_seq != null) {
+    authorSeq = stamped.author_seq;
+  } else {
+    authorSeq = await nextAuthorSeqInTx(db, stamped);
+    // Conflict floor (own device only): if a previous push had OUR seq N
+    // stripped via seq_conflict (server slot squatted — pathological:
+    // install-id clone or local reset), MAX()+1 would re-mint N forever.
+    // The floor marks "lowest seq we may still use"; it advances ONLY on
+    // strip (lib/sync/push.ts), never on assignment, so the duplicate
+    // path can't burn seqs and normal operation has zero gaps.
+    if (stamped.vault_id != null && stamped.device_id === getInstallIdSync()) {
+      const floorRaw = await getAppMetaInTx(db, `author_seq_floor:${stamped.vault_id}`);
+      const floor = floorRaw ? Number(floorRaw) : 0;
+      if (Number.isFinite(floor) && floor > authorSeq) {
+        authorSeq = floor;
       }
+    }
+  }
 
-      await captureCreditMutationBaseline(db, stamped);
-      if (
-        (await requiresCreditAdmission(db, stamped, gate.current_role, gate.current_account_id)) &&
-        (stamped.event_type === "entry_created" ||
-          stamped.event_type === "entry_amended" ||
-          stamped.event_type === "entry_deleted")
-      ) {
-        await deferCreditAdmission(db, stamped);
-        await setAppMetaInTx(db, HLC_LAST_KEY, serializeHLC(newHlc));
-        applied = false;
-        notApplied.reason = "credit_admission";
-        return;
-      }
-
-      // 4. Dispatch to projection applier. Throws roll the entire tx back.
-      await applier(db, stamped);
-
-      // 5. Advance the HLC cursor. Done last so a failed applier doesn't burn
-      //    the frontier.
-      await setAppMetaInTx(db, HLC_LAST_KEY, serializeHLC(newHlc));
-
-      applied = true;
-    }),
+  const result = await db.runAsync(
+    `INSERT OR IGNORE INTO event_log (
+     event_id, event_type, vault_id, target_id, relationship_id,
+     hlc_physical_ms, hlc_logical, hlc_device_id,
+     device_id, author_user_id_local_only, actor_account_id,
+     payload_json, payload_schema,
+     appended_at, server_acked_at, rejected_at, origin,
+     event_sig_b64, signer_device_pubkey,
+     ingested_at, applied_at, author_seq
+   ) VALUES (?, ?, ?, ?, ?,  ?, ?, ?,  ?, ?, ?,  ?, ?,  ?, ?, ?, ?,  ?, ?,  ?, ?, ?)`,
+    stamped.event_id,
+    stamped.event_type,
+    stamped.vault_id,
+    stamped.target_id,
+    stamped.relationship_id,
+    stamped.hlc.pms,
+    stamped.hlc.l,
+    stamped.hlc.did,
+    stamped.device_id,
+    stamped.author_user_id_local_only,
+    stamped.actor_account_id,
+    JSON.stringify(stamped.payload),
+    stamped.payload_schema,
+    stamped.appended_at,
+    stamped.server_acked_at,
+    stamped.rejected_at,
+    stamped.origin,
+    stamped.event_sig_b64 ?? null,
+    stamped.signer_device_pubkey ?? null,
+    stamped.appended_at,
+    stamped.appended_at,
+    authorSeq,
   );
 
+  // changes === 0 means the INSERT OR IGNORE hit the PK and skipped.
+  // Duplicate event — projection already reflects it from the first apply.
+  if (result.changes === 0) {
+    applied = false;
+    notApplied.reason = "duplicate";
+    return outcome();
+  }
+
+  // 3. Pre-flight role gate (Phase 8 D-ROLE-ENFORCEMENT-MOBILE). MUST
+  //    run AFTER the INSERT OR IGNORE (so a duplicate event's role
+  //    isn't re-checked) and BEFORE the applier dispatch (so an
+  //    unauthorized event never mutates the projection).
+  //
+  //    On reject, the event_log row stays — the log is append-only
+  //    and the audit trail benefits from seeing the attempt — but
+  //    projection_conflicts gets a row and applier dispatch is
+  //    SKIPPED. We still advance the HLC cursor so the frontier
+  //    doesn't get stuck on a rejected event.
+  const gate = await checkRoleForEvent(db, stamped);
+  if (!gate.ok) {
+    // MIGRATION 014 HOTFIX: the INSERT above optimistically set
+    // applied_at = appended_at because the local path normally
+    // commits ingest+apply atomically. Now that role-gate refused,
+    // the applier WILL NOT run, so applied_at is wrong. Clear it
+    // and set quarantine_reason so the sweep retries on a later
+    // role-elevation event.
+    await db.runAsync(
+      `UPDATE event_log
+        SET applied_at = NULL, quarantine_reason = 'role_insufficient'
+      WHERE event_id = ?`,
+      stamped.event_id,
+    );
+    await recordRoleGateReject(db, stamped, gate);
+    await setAppMetaInTx(db, HLC_LAST_KEY, serializeHLC(newHlc));
+    applied = false;
+    notApplied.reason = "role_gate";
+    notApplied.roleGateDetail = gate;
+    return outcome();
+  }
+
+  await captureCreditMutationBaseline(db, stamped);
+  if (
+    (await requiresCreditAdmission(db, stamped, gate.current_role, gate.current_account_id)) &&
+    (stamped.event_type === "entry_created" ||
+      stamped.event_type === "entry_amended" ||
+      stamped.event_type === "entry_deleted")
+  ) {
+    await deferCreditAdmission(db, stamped);
+    await setAppMetaInTx(db, HLC_LAST_KEY, serializeHLC(newHlc));
+    applied = false;
+    notApplied.reason = "credit_admission";
+    return outcome();
+  }
+
+  // 4. Dispatch to projection applier. Throws roll the entire tx back.
+  await applier(db, stamped);
+
+  // 5. Advance the HLC cursor. Done last so a failed applier doesn't burn
+  //    the frontier.
+  await setAppMetaInTx(db, HLC_LAST_KEY, serializeHLC(newHlc));
+
+  applied = true;
+  return outcome();
+}
+
+function notifyAppliedEvent(
+  event: LedgerEvent,
+  origin: ApplyEventOptions["origin"],
+  result: ApplyEventResult,
+): void {
   // Post-commit notification: subscribers to projection_conflicts (the
   // demotion banner / toast) re-query and surface the new row. Fires
   // outside the tx so subscribers see the committed state.
-  if (roleGateRejected) {
+  if (!result.applied && result.reason === "role_gate") {
     notifyProjectionConflictsChanged();
   }
 
@@ -547,7 +644,7 @@ export async function applyEvent(
   // (sweep is a no-op when nothing's quarantined), so it's safe to
   // call on every successful apply. Lazy-import to avoid circular
   // deps between projection/index.ts and projection/sweep.ts.
-  if ((applied || notApplied.reason === "credit_admission") && event.vault_id != null) {
+  if ((result.applied || result.reason === "credit_admission") && event.vault_id != null) {
     try {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { scheduleSweep } = require("./sweep") as {
@@ -566,25 +663,11 @@ export async function applyEvent(
       const { emitLedgerApplied } = require("../ledger-events") as {
         emitLedgerApplied: (vaultId: string, origin: "local" | "remote" | "backfill") => void;
       };
-      emitLedgerApplied(event.vault_id, opts.origin);
+      emitLedgerApplied(event.vault_id, origin);
     } catch {
       /* best-effort */
     }
   }
-
-  if (applied) return { applied: true };
-  if (notApplied.reason === "role_gate" && notApplied.roleGateDetail != null) {
-    return {
-      applied: false,
-      reason: "role_gate",
-      role_gate: {
-        reason: notApplied.roleGateDetail.reason,
-        current_role: notApplied.roleGateDetail.current_role,
-        required_role: notApplied.roleGateDetail.required_role,
-      },
-    };
-  }
-  return { applied: false, reason: notApplied.reason };
 }
 
 // Next per-author sequence for an authoring-origin event, computed inside

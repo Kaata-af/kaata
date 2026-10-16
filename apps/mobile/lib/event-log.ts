@@ -26,6 +26,7 @@ import {
   getDb,
   getInstallIdSync,
   getLocalSelfUserIdSync,
+  type SQLiteTx,
 } from "./db-tx";
 import { ensureDeviceKey, getDevicePubkey, signWithDeviceKey } from "./mesh/device-key";
 import { canonicalizeEvent, signEvent, type SignableEvent } from "./event-sig";
@@ -50,7 +51,7 @@ import type {
   VaultRole,
   VaultSettingSetEvent,
 } from "./events";
-import { applyEvent } from "./projection";
+import { applyEvent, applyLocalEventsAtomically, AtomicEventRejectionError } from "./projection";
 import type { EntryType } from "./types";
 import { parseAmountInput } from "./money";
 import { signedEntryMinorSumSql } from "./money-sql";
@@ -947,17 +948,19 @@ export async function appendVaultMemberAdded(args: {
   return { event_id: eventId };
 }
 
-export async function appendVaultMemberRoleChanged(args: {
+type VaultMemberRoleChange = {
   targetVaultId: string;
   accountId: string;
   role: VaultRole;
-}): Promise<{ event_id: string }> {
+};
+
+function newVaultMemberRoleChangedEvent(args: VaultMemberRoleChange): VaultMemberRoleChangedEvent {
   const eventId = Crypto.randomUUID();
   const installId = getInstallIdSync();
   const authorUserId = requireLocalSelfUserId();
   const actorAccountId = getAccountIdSync();
 
-  const event: VaultMemberRoleChangedEvent = {
+  return {
     event_id: eventId,
     event_type: "vault_member_role_changed",
     vault_id: args.targetVaultId,
@@ -974,12 +977,55 @@ export async function appendVaultMemberRoleChanged(args: {
     origin: "local",
     payload: { account_id: args.accountId, role: args.role },
   };
+}
 
+export async function appendVaultMemberRoleChanged(
+  args: VaultMemberRoleChange,
+): Promise<{ event_id: string }> {
+  const event = newVaultMemberRoleChangedEvent(args);
   const result = await applyEvent(event, { origin: "local" });
   if (!result.applied && result.reason === "role_gate" && result.role_gate) {
     throw new RoleGateRejectionError(result.role_gate);
   }
-  return { event_id: eventId };
+  return { event_id: event.event_id };
+}
+
+/** The existing two signed chain events now commit as one local operation.
+ * In particular a denied/failed demotion leaves no promotion in the outbox. */
+export async function appendVaultOwnershipTransfer(args: {
+  targetVaultId: string;
+  toAccountId: string;
+  selfAccountId: string;
+  demoteSelfTo: Exclude<VaultRole, "owner">;
+  preflight?: (tx: SQLiteTx) => Promise<void>;
+  expectedSignerPubkey?: string;
+}): Promise<{ event_id: string }> {
+  const promote = newVaultMemberRoleChangedEvent({
+    targetVaultId: args.targetVaultId,
+    accountId: args.toAccountId,
+    role: "owner",
+  });
+  const demote = newVaultMemberRoleChangedEvent({
+    targetVaultId: args.targetVaultId,
+    accountId: args.selfAccountId,
+    role: args.demoteSelfTo,
+  });
+  try {
+    await applyLocalEventsAtomically([promote, demote], {
+      preflight: args.preflight,
+      expectedSignerPubkey: args.expectedSignerPubkey,
+    });
+  } catch (err) {
+    if (
+      err instanceof AtomicEventRejectionError &&
+      err.result.reason === "role_gate" &&
+      err.result.role_gate
+    ) {
+      throw new RoleGateRejectionError(err.result.role_gate);
+    }
+    throw err;
+  }
+  return { event_id: demote.event_id };
 }
 
 export async function appendVaultMemberRemoved(args: {

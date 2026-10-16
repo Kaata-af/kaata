@@ -20,27 +20,25 @@ import { useProjectionConflicts, type ProjectionConflictRow } from "../lib/proje
 
 export function ProjectionConflictsListener() {
   const toast = useToast();
-  const { rows } = useProjectionConflicts({ limit: 25 });
+  const { rows, baselineId, scopeKey } = useProjectionConflicts({ limit: 25 });
 
   // Track which conflict ids we've already surfaced. On first mount we
   // pre-seed with whatever's already in the table so a user with old
   // unresolved rows doesn't get spammed with toasts every cold boot.
-  const seenRef = useRef<Set<number> | null>(null);
+  const seenRef = useRef<{ scopeKey: string; ids: Set<number> } | null>(null);
 
   useEffect(() => {
-    if (seenRef.current === null) {
-      // First mount: pre-seed and skip toasting the initial backlog. The
-      // home screen could optionally render a banner pointing at a future
-      // "resolve conflicts" screen; for now the post-boot stream is
-      // enough — every fresh rejection emits a toast.
-      seenRef.current = new Set(rows.map((r) => r.id));
-      return;
-    }
-    const seen = seenRef.current;
+    // The hook first renders an empty array while SQLite is loading. Waiting
+    // for its real baseline prevents yesterday's rejection becoming "fresh"
+    // on every launch. A different account/kaata establishes its own baseline.
+    if (baselineId === null) return;
+    if (seenRef.current?.scopeKey !== scopeKey) seenRef.current = { scopeKey, ids: new Set() };
+    const seen = seenRef.current.ids;
     let firstFresh: ProjectionConflictRow | null = null;
     for (const row of rows) {
       if (seen.has(row.id)) continue;
       seen.add(row.id);
+      if (row.id <= baselineId) continue;
       // Only toast rejections of USER-actionable events (a tally / contact edit
       // the user just made). INTERNAL membership/device/binding events
       // (vault_member_added, vault_device_added, account_bound, …) are
@@ -67,7 +65,7 @@ export function ProjectionConflictsListener() {
       return t("projectionConflicts.toast.serverRejected");
     })();
     toast.push(msg, "error");
-  }, [rows, toast]);
+  }, [rows, baselineId, scopeKey, toast]);
 
   return null;
 }

@@ -50,10 +50,15 @@ async function httpThrowing(
   path: string,
   body?: unknown,
   session?: SessionSnapshot,
+  beforeDispatch?: () => void,
 ): Promise<unknown> {
   if (session) await applyForCurrentSession(session, async () => {});
   const jwt = session?.jwt ?? (await requireJwt());
   const baseUrl = await getBackendUrl();
+  if (beforeDispatch) {
+    if (session) await applyForCurrentSession(session, async () => {});
+    beforeDispatch();
+  }
   const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {
@@ -225,11 +230,16 @@ export async function transferOwnership(
   vaultId: string,
   toAccountId: string,
   demoteSelfTo: "editor" | "leave",
+  expectedSession?: SessionSnapshot,
+  beforeDispatch?: () => void,
 ): Promise<void> {
-  await httpThrowing("POST", `/v1/vaults/${encodeURIComponent(vaultId)}/transfer-ownership`, {
-    to_account_id: toAccountId,
-    demote_self_to: demoteSelfTo,
-  });
+  await httpThrowing(
+    "POST",
+    `/v1/vaults/${encodeURIComponent(vaultId)}/transfer-ownership`,
+    { to_account_id: toAccountId, demote_self_to: demoteSelfTo },
+    expectedSession,
+    beforeDispatch,
+  );
 }
 
 export async function setMemberRole(

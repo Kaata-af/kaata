@@ -1512,6 +1512,8 @@ const en = {
   // the plain "Ownership transferred" the older copy used.
   "members.toast.transferred": "Ownership transferred to {name}",
   "members.toast.transferFailed": "Failed to transfer",
+  "members.toast.transferSyncRequired":
+    "This phone needs to finish syncing before transferring ownership. Connect to the internet, let this Kaata sync, then try again.",
   // UX critique #6: specific error toasts for the three diagnosable
   // failure modes the router can surface. Each one names the situation
   // so the user understands what to do next.
@@ -3412,6 +3414,8 @@ const fa: Partial<Record<Key, string>> = {
   "members.toast.removeFailed": "حذف عضو ناکام شد",
   "members.toast.transferred": "مالکیت به {name} منتقل شد",
   "members.toast.transferFailed": "انتقال ناکام شد",
+  "members.toast.transferSyncRequired":
+    "این تیلفون باید پیش از انتقال مالکیت همگام‌سازی را تکمیل کند. به انترنت وصل شوید، بگذارید این کاتا همگام شود و سپس دوباره تلاش کنید.",
   "members.toast.transferNotMember": "{name} دیگر عضو این کاتا نیست. لیست تازه‌سازی شد.",
   "members.toast.transferPartialRecovered":
     "انتقال کامل نشد. هیچ تغییری اعمال نشد — لطفاً دوباره تلاش کنید.",

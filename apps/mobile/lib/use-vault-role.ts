@@ -24,6 +24,49 @@ import { canPerformAction, type VaultAction, type VaultRole } from "./vault-role
 // clear it and refresh any mounted role consumers.
 const roleCache = new Map<string, VaultRole>();
 const roleInvalidationListeners = new Set<(vaultId?: string) => void>();
+let deferredRoleNotifications = 0;
+const pendingRoleNotifications = new Set<string | undefined>();
+let roleReadEpoch = 0;
+let roleReadsSettled: Promise<void> | null = null;
+let settleRoleReads: (() => void) | null = null;
+
+function notifyRoleInvalidated(vaultId?: string): void {
+  for (const listener of roleInvalidationListeners) {
+    try {
+      listener(vaultId);
+    } catch (err) {
+      if (__DEV__) console.warn("[vault-role] invalidation listener failed", err);
+    }
+  }
+}
+
+/** Cache invalidation remains immediate for the next gate in a transaction;
+ * mounted consumers re-read only after the whole transaction settles. */
+export async function withDeferredVaultRoleNotifications<T>(work: () => Promise<T>): Promise<T> {
+  if (deferredRoleNotifications === 0) {
+    roleReadEpoch++;
+    roleReadsSettled = new Promise<void>((resolve) => {
+      settleRoleReads = resolve;
+    });
+  }
+  deferredRoleNotifications++;
+  try {
+    return await work();
+  } finally {
+    deferredRoleNotifications--;
+    if (deferredRoleNotifications === 0) {
+      roleReadEpoch++;
+      const settle = settleRoleReads;
+      settleRoleReads = null;
+      roleReadsSettled = null;
+      settle?.();
+      const pending = [...pendingRoleNotifications];
+      pendingRoleNotifications.clear();
+      if (pending.includes(undefined)) notifyRoleInvalidated();
+      else for (const vaultId of pending) notifyRoleInvalidated(vaultId);
+    }
+  }
+}
 
 export function invalidateVaultRoleCache(vaultId?: string): void {
   if (vaultId) roleCache.delete(vaultId);
@@ -34,13 +77,8 @@ export function invalidateVaultRoleCache(vaultId?: string): void {
   invalidateRoleGateCache(vaultId);
   // Clearing a Map alone does not update a screen that stays focused while a
   // remote role change applies. Notify its role reads before accepting writes.
-  for (const listener of roleInvalidationListeners) {
-    try {
-      listener(vaultId);
-    } catch (err) {
-      if (__DEV__) console.warn("[vault-role] invalidation listener failed", err);
-    }
-  }
+  if (deferredRoleNotifications > 0) pendingRoleNotifications.add(vaultId);
+  else notifyRoleInvalidated(vaultId);
 }
 
 function useLiveRoleRefresh(
@@ -90,6 +128,21 @@ function useLiveRoleRefresh(
 const LOCAL_OWNER_DEFAULT: VaultRole = "owner";
 
 async function readRoleFromDb(vaultId: string, accountId: string | null): Promise<VaultRole> {
+  // A read already awaiting SQLite can overlap an atomic handover on Expo's
+  // shared connection. Never publish that intermediate snapshot. Retry after
+  // the batch commits or rolls back; no projection mutex nesting is needed.
+  for (;;) {
+    if (roleReadsSettled) await roleReadsSettled;
+    const epoch = roleReadEpoch;
+    const role = await readRoleSnapshotFromDb(vaultId, accountId);
+    if (deferredRoleNotifications === 0 && epoch === roleReadEpoch) return role;
+  }
+}
+
+async function readRoleSnapshotFromDb(
+  vaultId: string,
+  accountId: string | null,
+): Promise<VaultRole> {
   // Resolve EVERY id that represents me — the Google account_id AND the
   // deterministic device-key id. A kaata you were paired into keys your
   // vault_members_mirror row by the DEVICE-KEY id, but once you sign in the

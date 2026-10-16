@@ -128,42 +128,46 @@ export async function pushEvents(vaultId: string): Promise<PushResult> {
 
   const db = await getDb();
 
-  // One-shot seq re-announce (Sync v2 M1). Migration 018 numbered our own
-  // pre-M1 history, but those rows are already server-acked and would
-  // never be re-pushed — leaving the server permanently seq-less for this
-  // device's history and the vector permanently unprovable. Un-ack our own
-  // sequenced rows ONCE; the normal push machinery re-sends them, the
-  // server treats them as duplicates and back-fills author_seq onto its
-  // stored rows (duplicate re-announce path, backend service.go).
-  const reannounceKey = `seq_reannounce_pending:${vaultId}`;
-  if ((await getAppMeta(reannounceKey)) === "1") {
-    await db.runAsync(
-      `UPDATE event_log SET server_acked_at = NULL
+  // expo-sqlite shares this connection with local transactions. Read only
+  // after an atomic ownership handover commits, never its promotion half.
+  // Release the barrier before any HTTP request or acknowledgement write.
+  const rows = await applyEventMutex.runExclusive(async () => {
+    // One-shot seq re-announce (Sync v2 M1). Migration 018 numbered our own
+    // pre-M1 history, but those rows are already server-acked and would
+    // never be re-pushed — leaving the server permanently seq-less for this
+    // device's history and the vector permanently unprovable. Un-ack our own
+    // sequenced rows ONCE; the normal push machinery re-sends them, the
+    // server treats them as duplicates and back-fills author_seq onto its
+    // stored rows (duplicate re-announce path, backend service.go).
+    const reannounceKey = `seq_reannounce_pending:${vaultId}`;
+    if ((await getAppMeta(reannounceKey)) === "1") {
+      await db.runAsync(
+        `UPDATE event_log SET server_acked_at = NULL
         WHERE vault_id = ? AND device_id = ?
           AND author_seq IS NOT NULL
           AND server_acked_at IS NOT NULL
           AND rejected_at IS NULL
           AND tombstone_reason IS NULL`,
-      vaultId,
-      getInstallIdSync(),
-    );
-    // Clear immediately — the rows now sit in the outbox and drain over
-    // the next cycles; a crash mid-drain loses nothing (they stay unacked
-    // until the server acks them again).
-    await setAppMeta(reannounceKey, "");
-  }
-  const rows = await db.getAllAsync<EventRow>(
-    // Migration 014 (Mythos round-3): also exclude tombstoned rows.
-    // Tombstoned events are locally-believed-bad-signature or schema-
-    // invalid; pushing them is wasteful and surfaces noise to the
-    // server. The idx_event_log_unsynced partial index (migration 005)
-    // doesn't include tombstone_reason yet, so the planner picks up
-    // the index then filters in memory. A follow-up index migration
-    // could fold tombstone_reason into the partial predicate.
-    // next_push_at (migration 022) is the reject-backoff gate: rows the server
-    // keeps rejecting sit out until their backoff elapses instead of hogging
-    // the oldest-HLC slots of every batch. NULL = never rejected = eligible.
-    `SELECT event_id, event_type, vault_id, target_id, relationship_id,
+        vaultId,
+        getInstallIdSync(),
+      );
+      // Clear immediately — the rows now sit in the outbox and drain over
+      // the next cycles; a crash mid-drain loses nothing (they stay unacked
+      // until the server acks them again).
+      await setAppMeta(reannounceKey, "");
+    }
+    return db.getAllAsync<EventRow>(
+      // Migration 014 (Mythos round-3): also exclude tombstoned rows.
+      // Tombstoned events are locally-believed-bad-signature or schema-
+      // invalid; pushing them is wasteful and surfaces noise to the
+      // server. The idx_event_log_unsynced partial index (migration 005)
+      // doesn't include tombstone_reason yet, so the planner picks up
+      // the index then filters in memory. A follow-up index migration
+      // could fold tombstone_reason into the partial predicate.
+      // next_push_at (migration 022) is the reject-backoff gate: rows the server
+      // keeps rejecting sit out until their backoff elapses instead of hogging
+      // the oldest-HLC slots of every batch. NULL = never rejected = eligible.
+      `SELECT event_id, event_type, vault_id, target_id, relationship_id,
             hlc_physical_ms, hlc_logical, hlc_device_id,
             device_id, author_user_id_local_only, actor_account_id,
             payload_json, payload_schema, appended_at, author_seq,
@@ -176,10 +180,11 @@ export async function pushEvents(vaultId: string): Promise<PushResult> {
         AND (next_push_at IS NULL OR next_push_at <= ?)
       ORDER BY hlc_physical_ms ASC, hlc_logical ASC, hlc_device_id ASC
       LIMIT ?`,
-    vaultId,
-    Date.now(),
-    MAX_BATCH_SIZE,
-  );
+      vaultId,
+      Date.now(),
+      MAX_BATCH_SIZE,
+    );
+  });
 
   if (rows.length === 0) {
     // Empty outbox = every event we've authored is already server-acked, so
@@ -498,6 +503,7 @@ export async function pushEvents(vaultId: string): Promise<PushResult> {
           "event_rejected_by_server",
           JSON.stringify({
             event_id: r.event_id,
+            event_type: rowById.get(r.event_id)?.event_type,
             reason: r.reason,
             current_role: r.current_role ?? null,
             required_role: r.required_role ?? null,

@@ -24,7 +24,12 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AppState } from "react-native";
-import { getActiveVaultIdSyncMaybe, getDb } from "./db-tx";
+import {
+  getActiveVaultIdSyncMaybe,
+  getDb,
+  getSessionAccountIdSync,
+  onAccountIdentityChanged,
+} from "./db-tx";
 
 // Lightweight in-process notifier. No emitter library — a Set of callbacks
 // is enough for this single-event-type case. Callers (push.ts) invoke
@@ -50,6 +55,7 @@ export type ProjectionConflictRow = {
   vault_id: string | null;
   detail: {
     event_id?: string;
+    event_type?: string;
     reason?: string;
     current_role?: string | null;
     required_role?: string | null;
@@ -68,31 +74,86 @@ const POLL_INTERVAL_MS = 60_000;
 export function useProjectionConflicts(opts: { vaultId?: string | null; limit?: number } = {}): {
   unresolvedCount: number;
   rows: ProjectionConflictRow[];
+  /** null until the first real database snapshot, never the initial empty render. */
+  baselineId: number | null;
+  scopeKey: string;
   refresh: () => Promise<void>;
 } {
   const limit = opts.limit ?? 50;
   const activeVaultId = opts.vaultId === undefined ? getActiveVaultIdSyncMaybe() : opts.vaultId;
-  const [unresolvedCount, setUnresolvedCount] = useState(0);
-  const [rows, setRows] = useState<ProjectionConflictRow[]>([]);
+  const accountId = getSessionAccountIdSync();
+  const [identityRevision, setIdentityRevision] = useState(0);
+  const [, wakeScope] = useState(0);
+  const scopeKey = JSON.stringify([accountId, activeVaultId, identityRevision]);
+  const scopeRef = useRef({ key: scopeKey, generation: 0 });
+  if (scopeRef.current.key !== scopeKey) {
+    scopeRef.current = { key: scopeKey, generation: scopeRef.current.generation + 1 };
+  }
+  const requestRef = useRef(0);
+  const mountedRef = useRef(true);
+  const baselineRef = useRef<{ scopeKey: string; promise: Promise<number> } | null>(null);
+  const [snapshot, setSnapshot] = useState<{
+    scopeKey: string;
+    unresolvedCount: number;
+    rows: ProjectionConflictRow[];
+    baselineId: number;
+  } | null>(null);
   const appStateRef = useRef(AppState.currentState);
 
   const refresh = useMemo(() => {
+    const generation = scopeRef.current.generation;
     return async () => {
-      if (!activeVaultId) {
-        setUnresolvedCount(0);
-        setRows([]);
+      const sameScope = () =>
+        mountedRef.current &&
+        generation === scopeRef.current.generation &&
+        scopeRef.current.key === scopeKey &&
+        getSessionAccountIdSync() === accountId &&
+        (opts.vaultId !== undefined || getActiveVaultIdSyncMaybe() === activeVaultId);
+      if (!sameScope()) {
+        if (
+          mountedRef.current &&
+          generation === scopeRef.current.generation &&
+          scopeRef.current.key === scopeKey &&
+          opts.vaultId === undefined &&
+          getActiveVaultIdSyncMaybe() !== activeVaultId
+        )
+          wakeScope((value) => value + 1);
         return;
       }
+      const request = ++requestRef.current;
+      const current = () => request === requestRef.current && sameScope();
       try {
+        if (!activeVaultId) {
+          if (current()) setSnapshot({ scopeKey, unresolvedCount: 0, rows: [], baselineId: 0 });
+          return;
+        }
         const db = await getDb();
+        if (!current()) return;
+        if (baselineRef.current?.scopeKey !== scopeKey) {
+          const promise: Promise<number> = db
+            .getFirstAsync<{ max_id: number | null }>(
+              "SELECT MAX(id) AS max_id FROM projection_conflicts WHERE vault_id = ?",
+              activeVaultId,
+            )
+            .then((row) => row?.max_id ?? 0)
+            .catch((error: unknown) => {
+              if (baselineRef.current?.promise === promise) baselineRef.current = null;
+              throw error;
+            });
+          baselineRef.current = { scopeKey, promise };
+        }
+        // Concurrent notifications share this first boundary. A new rejection
+        // while the initial snapshot is loading must not become its baseline.
+        const baselineId = await baselineRef.current.promise;
+        if (!current()) return;
         const countRow = await db.getFirstAsync<{ n: number }>(
           `SELECT COUNT(*) AS n FROM projection_conflicts
             WHERE vault_id = ? AND resolved_at IS NULL`,
           activeVaultId,
         );
+        if (!current()) return;
         const count = countRow?.n ?? 0;
-        setUnresolvedCount(count);
-
+        let rows: ProjectionConflictRow[] = [];
         if (limit > 0 && count > 0) {
           const raw = await db.getAllAsync<{
             id: number;
@@ -101,36 +162,59 @@ export function useProjectionConflicts(opts: { vaultId?: string | null; limit?: 
             detail_json: string;
             created_at: number;
             resolved_at: number | null;
+            event_type: string | null;
           }>(
-            `SELECT id, kind, vault_id, detail_json, created_at, resolved_at
-               FROM projection_conflicts
-              WHERE vault_id = ? AND resolved_at IS NULL
-              ORDER BY created_at DESC
+            // Old push workers omitted event_type. Recover it from the exact
+            // recorded event so internal membership churn is recognizable too.
+            `SELECT c.id, c.kind, c.vault_id, c.detail_json, c.created_at, c.resolved_at,
+                    e.event_type
+               FROM projection_conflicts c
+               LEFT JOIN event_log e ON e.vault_id = c.vault_id AND e.event_id =
+                 CASE WHEN json_valid(c.detail_json) THEN json_extract(c.detail_json, '$.event_id') END
+              WHERE c.vault_id = ? AND c.resolved_at IS NULL
+              ORDER BY c.created_at DESC, c.id DESC
               LIMIT ?`,
             activeVaultId,
             limit,
           );
-          setRows(
-            raw.map((r) => ({
-              id: r.id,
-              kind: r.kind,
-              vault_id: r.vault_id,
-              detail: safeParseDetail(r.detail_json),
-              created_at: r.created_at,
-              resolved_at: r.resolved_at,
-            })),
-          );
-        } else {
-          setRows([]);
+          rows = raw.map((r) => ({
+            id: r.id,
+            kind: r.kind,
+            vault_id: r.vault_id,
+            detail: {
+              ...safeParseDetail(r.detail_json),
+              ...(r.event_type ? { event_type: r.event_type } : {}),
+            },
+            created_at: r.created_at,
+            resolved_at: r.resolved_at,
+          }));
         }
+        if (!current()) return;
+        setSnapshot((previous) => ({
+          scopeKey,
+          unresolvedCount: count,
+          rows,
+          // MAX covers old rows outside the visible limit as well. Keep this
+          // first snapshot's boundary through later refreshes and resolutions.
+          baselineId: previous?.scopeKey === scopeKey ? previous.baselineId : baselineId,
+        }));
       } catch (err) {
         // SQLite hiccup — don't blow up the caller; next poll tick retries.
         console.warn("[projection-conflicts] refresh failed", err);
+      } finally {
+        if (
+          request === requestRef.current &&
+          mountedRef.current &&
+          opts.vaultId === undefined &&
+          getActiveVaultIdSyncMaybe() !== activeVaultId
+        )
+          wakeScope((value) => value + 1);
       }
     };
-  }, [activeVaultId, limit]);
+  }, [activeVaultId, accountId, scopeKey, limit, opts.vaultId]);
 
   useEffect(() => {
+    mountedRef.current = true;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
     const tick = async () => {
@@ -147,6 +231,11 @@ export function useProjectionConflicts(opts: { vaultId?: string | null; limit?: 
     const onNotify = () => {
       if (cancelled) return;
       if (appStateRef.current !== "active") return;
+      if (opts.vaultId === undefined && getActiveVaultIdSyncMaybe() !== activeVaultId) {
+        requestRef.current++;
+        wakeScope((value) => value + 1);
+        return;
+      }
       void refresh();
     };
     listeners.add(onNotify);
@@ -154,17 +243,34 @@ export function useProjectionConflicts(opts: { vaultId?: string | null; limit?: 
     const sub = AppState.addEventListener("change", (next) => {
       const prev = appStateRef.current;
       appStateRef.current = next;
-      if (prev !== "active" && next === "active") void refresh();
+      if (prev !== "active" && next === "active") onNotify();
+    });
+    const stopIdentity = onAccountIdentityChanged(() => {
+      // Invalidate synchronously: an account A -> B -> A switch can happen
+      // before React renders, so comparing just the final account isn't enough.
+      scopeRef.current.generation++;
+      requestRef.current++;
+      setIdentityRevision((value) => value + 1);
     });
     return () => {
       cancelled = true;
+      mountedRef.current = false;
+      requestRef.current++;
       if (timer) clearTimeout(timer);
       listeners.delete(onNotify);
       sub.remove();
+      stopIdentity();
     };
-  }, [refresh]);
+  }, [refresh, activeVaultId, opts.vaultId]);
 
-  return { unresolvedCount, rows, refresh };
+  const currentSnapshot = snapshot?.scopeKey === scopeKey ? snapshot : null;
+  return {
+    unresolvedCount: currentSnapshot?.unresolvedCount ?? 0,
+    rows: currentSnapshot?.rows ?? [],
+    baselineId: currentSnapshot?.baselineId ?? null,
+    scopeKey,
+    refresh,
+  };
 }
 
 export async function markConflictResolved(id: number): Promise<void> {

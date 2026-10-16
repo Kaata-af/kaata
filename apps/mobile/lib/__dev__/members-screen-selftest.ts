@@ -28,6 +28,9 @@ let focused = true,
 let activeVault = "v",
   account = "caller",
   binding = 1;
+let sessionAccount: string | null | undefined;
+let sessionCaptureFails = false;
+const currentSessionAccount = () => (sessionAccount === undefined ? account : sessionAccount);
 let callerAccepted = true,
   peerAccepted = true,
   peerRevoked = false;
@@ -45,6 +48,15 @@ class TestMemberCreditPermissionError extends Error {
   }
 }
 const toastMessages: string[] = [];
+const pendingToasts: string[] = [];
+let backCalls = 0;
+let sessionGate: Deferred | null = null;
+let transferGate: Deferred | null = null;
+let transferResult: { ok: true } | { ok: false; error: { kind: string } } = { ok: true };
+let transferThrows = false;
+let failReadsAfterTransfer = false;
+let memberReadFailure = false;
+const transfers: { vault: string; to: string; from: string | null; demote: string }[] = [];
 let inviteGate: Deferred | null = null;
 let authorityGate: Deferred | null = null;
 let profileGate: Deferred | null = null;
@@ -166,7 +178,13 @@ function compile(file: string, mocks: Record<string, any>) {
   return exports;
 }
 const ledger = compile("../ledger-events", { react, "react-native": native });
-const router = { push() {}, replace() {}, back() {} };
+const router = {
+  push() {},
+  replace() {},
+  back() {
+    backCalls++;
+  },
+};
 const toast = {
   push(message: string) {
     toastMessages.push(message);
@@ -181,6 +199,7 @@ const db = {
   getAllAsync: async (sql: string, ...args: any[]) => {
     if (sql.includes("SELECT vmm.account_id")) {
       memberQueries++;
+      if (memberReadFailure) throw new Error("member read unavailable");
       const authorized =
         (args[0] === "next-caller" || callerAccepted) && peerAccepted && !peerRevoked;
       return peerRevoked
@@ -237,17 +256,32 @@ const screen = compile("../../app/vault/members", {
       name,
     ]),
   ),
-  "../../components/Toast": { useToast: () => toast, queuePendingToast() {} },
+  "../../components/Toast": {
+    useToast: () => toast,
+    queuePendingToast(message: string) {
+      pendingToasts.push(message);
+    },
+  },
   "../../lib/auth": {
-    captureCurrentSession: async () => ({
-      accountId: account,
-      jwt: `token-${binding}`,
-      bindingVersion: binding,
-    }),
-    applyForCurrentSession: async (before: any, work: () => Promise<void>) => {
-      if (before.accountId !== account || before.bindingVersion !== binding)
+    captureCurrentSession: async () => {
+      if (sessionCaptureFails) throw new Error("session capture unavailable");
+      const snapshot = {
+        accountId: currentSessionAccount(),
+        jwt: sessionAccount === null ? null : `token-${binding}`,
+        bindingVersion: binding,
+      };
+      if (sessionGate) await sessionGate.promise;
+      return snapshot;
+    },
+    applyForCurrentSession: async (before: any, work: () => Promise<unknown>) => {
+      if (before.accountId !== currentSessionAccount() || before.bindingVersion !== binding)
         throw new Error("session changed");
-      await work();
+      return work();
+    },
+    applyForUnchangedLocalSession: async (before: any, work: () => Promise<unknown>) => {
+      if (before.accountId !== currentSessionAccount() || before.bindingVersion !== binding)
+        throw new Error("session changed");
+      return work();
     },
   },
   "../../lib/colors": { colors },
@@ -301,7 +335,24 @@ const screen = compile("../../app/vault/members", {
   "../../lib/mesh/presence": { subscribePresence: () => () => {}, isPeerOnline: () => false },
   "../../lib/vault-api": { fetchPendingInvitations: async () => {} },
   "../../lib/event-log": { appendVaultMemberRemoved() {}, appendVaultMemberRoleChanged() {} },
-  "../../lib/vault-router": { transferVaultOwnership() {} },
+  "../../lib/vault-router": {
+    transferVaultOwnership: async (
+      vault: string,
+      to: string,
+      from: string | null,
+      demote: string,
+      options: { expectedSession: any; shouldContinue: () => boolean },
+    ) => {
+      assert.equal(options.expectedSession.accountId, currentSessionAccount());
+      assert.equal(options.expectedSession.bindingVersion, binding);
+      assert.equal(options.shouldContinue(), true);
+      transfers.push({ vault, to, from, demote });
+      if (transferGate) await transferGate.promise;
+      if (transferThrows) throw new Error("transfer unavailable");
+      if (failReadsAfterTransfer) memberReadFailure = true;
+      return transferResult;
+    },
+  },
   "../../lib/mesh/device-key": {
     ensureDeviceKey: async () => {},
     readOwnDevicePubkeys: async () => ({ current: null, retired: [] }),
@@ -324,6 +375,8 @@ function fixture() {
   activeVault = "v";
   account = "caller";
   binding = 1;
+  sessionAccount = undefined;
+  sessionCaptureFails = false;
   callerAccepted = true;
   peerAccepted = true;
   peerRevoked = false;
@@ -336,6 +389,15 @@ function fixture() {
   permissionError = false;
   permissionSaveError = null;
   toastMessages.length = 0;
+  pendingToasts.length = 0;
+  backCalls = 0;
+  sessionGate = null;
+  transferGate = null;
+  transferResult = { ok: true };
+  transferThrows = false;
+  failReadsAfterTransfer = false;
+  memberReadFailure = false;
+  transfers.length = 0;
   inviteGate = null;
   authorityGate = null;
   profileGate = null;
@@ -503,6 +565,241 @@ export async function runMembersScreenSelftest() {
   );
   console.log(
     "PASS admin staff access, protected roles, online member permission choices, duplicate taps and stale session guards",
+  );
+
+  const transferDialog = () => nodes(tree).filter((node) => node.type === "ConfirmDialog")[1]!;
+  const openTransfer = async () => {
+    memberRow()!.props.onPress();
+    await flush();
+    memberSheet()
+      .props.actions.find((action: any) => action.label === "members.sheet.transfer")
+      .onPress();
+    await flush();
+    assert.equal(transferDialog().props.visible, true);
+    return transferDialog().props.onConfirm as () => void;
+  };
+  const dismissTransferDialog = async () => {
+    assert.equal(transferDialog().props.visible, false, "confirmation closed before transfer");
+    const timers = [...timeouts.entries()].filter(([, timer]) => timer.ms === 300);
+    assert.equal(timers.length, 1, "one post-commit native dialog dismissal buffer");
+    for (const [id, timer] of timers) {
+      timeouts.delete(id);
+      timer.fn();
+    }
+    await flush();
+  };
+
+  fixture();
+  await flush();
+  const confirmTransfer = await openTransfer();
+  confirmTransfer();
+  confirmTransfer();
+  assert.equal(backCalls, 0);
+  assert.equal(transfers.length, 0);
+  assert.equal(timeouts.size, 0, "dismissal wait starts after the closed render commits");
+  await flush();
+  assert.equal(transfers.length, 0, "even a fast transfer waits for the native dialog to close");
+  assert.equal(
+    memberRow()?.props.disabled,
+    true,
+    "pending transfer disables another member dialog",
+  );
+  memberSheet().props.onDismiss();
+  memberRow()!.props.onPress();
+  await flush();
+  assert.equal(
+    memberSheet().props.visible,
+    false,
+    "pending transfer cannot open another native modal",
+  );
+  failReadsAfterTransfer = true;
+  const readsBeforeTransfer = memberQueries;
+  await dismissTransferDialog();
+  assert.deepEqual(
+    transfers,
+    [{ vault: "v", to: "peer", from: "caller", demote: "editor" }],
+    "same callback fired twice before rerender dispatches exactly one ownership change",
+  );
+  assert.equal(backCalls, 1);
+  assert.deepEqual(pendingToasts, ["members.toast.transferred"]);
+  assert.deepEqual(toastMessages, [], "successful transfer never becomes a reload failure");
+  assert.equal(memberQueries, readsBeforeTransfer, "success returns without a cosmetic read");
+
+  fixture();
+  sessionAccount = null;
+  await flush();
+  const signedOutConfirm = await openTransfer();
+  signedOutConfirm();
+  await flush();
+  await dismissTransferDialog();
+  assert.deepEqual(
+    transfers,
+    [{ vault: "v", to: "peer", from: "caller", demote: "editor" }],
+    "signed-out local transfers retain the persisted owner account binding",
+  );
+  assert.equal(backCalls, 1);
+  assert.deepEqual(pendingToasts, ["members.toast.transferred"]);
+
+  for (const phase of ["before", "during"] as const) {
+    fixture();
+    sessionAccount = null;
+    await flush();
+    const confirm = await openTransfer();
+    const gate = deferred();
+    if (phase === "during") transferGate = gate;
+    confirm();
+    await flush();
+    if (phase === "before") account = "next-caller";
+    await dismissTransferDialog();
+    if (phase === "during") {
+      account = "next-caller";
+      gate.resolve();
+      await flush();
+    }
+    assert.equal(transfers.length, phase === "before" ? 0 : 1);
+    assert.deepEqual(toastMessages, [], "signed-out stale persisted account has no late error");
+    assert.deepEqual(pendingToasts, [], "signed-out stale persisted account has no late success");
+    assert.equal(backCalls, 0, "signed-out stale persisted account cannot pop another context");
+  }
+
+  for (const stale of [false, true]) {
+    fixture();
+    await flush();
+    const confirm = await openTransfer();
+    sessionCaptureFails = true;
+    confirm();
+    await flush();
+    if (stale) account = "next-caller";
+    await dismissTransferDialog();
+    assert.deepEqual(transfers, []);
+    assert.deepEqual(toastMessages, stale ? [] : ["members.toast.transferFailed"]);
+    assert.equal(backCalls, 0);
+  }
+
+  for (const stale of ["account", "vault", "session", "blur"] as const) {
+    fixture();
+    await flush();
+    const confirm = await openTransfer();
+    confirm();
+    await flush();
+    if (stale === "account") account = "next-caller";
+    if (stale === "vault") activeVault = "next-vault";
+    if (stale === "session") binding++;
+    if (stale === "blur") {
+      focused = false;
+      focusEpoch++;
+      dirty = true;
+      await flush();
+      assert.equal(timeouts.size, 0, "blur cancels pending native dismissal work");
+    } else await dismissTransferDialog();
+    assert.deepEqual(transfers, [], `${stale} changed before dispatch prevents transfer`);
+    assert.deepEqual(toastMessages, []);
+    assert.deepEqual(pendingToasts, []);
+    assert.equal(backCalls, 0);
+    if (stale !== "blur")
+      assert.equal(memberRow()?.props.disabled, false, "stale dispatch releases the transfer UI");
+  }
+
+  fixture();
+  await flush();
+  const staleDisplayedAccount = await openTransfer();
+  account = "next-caller";
+  binding++;
+  staleDisplayedAccount();
+  await flush();
+  await dismissTransferDialog();
+  assert.deepEqual(transfers, [], "a newly captured session cannot authorize an older account row");
+
+  for (const throws of [false, true]) {
+    for (const stale of ["account", "vault", "session", "blur-and-return"] as const) {
+      fixture();
+      await flush();
+      const confirm = await openTransfer();
+      const gate = deferred();
+      transferGate = gate;
+      transferThrows = throws;
+      confirm();
+      await flush();
+      await dismissTransferDialog();
+      assert.equal(transfers.length, 1);
+      if (stale === "account") {
+        account = "next-caller";
+        binding++;
+      }
+      if (stale === "vault") activeVault = "next-vault";
+      if (stale === "session") binding++;
+      if (stale === "blur-and-return") await refocus();
+      gate.resolve();
+      await flush();
+      assert.deepEqual(toastMessages, [], `${stale} suppresses late transfer errors`);
+      assert.deepEqual(pendingToasts, [], `${stale} suppresses late transfer success`);
+      assert.equal(backCalls, 0, `${stale} cannot pop a new screen after transfer completes`);
+    }
+  }
+
+  fixture();
+  await flush();
+  const lateSessionConfirm = await openTransfer();
+  const delayedSession = deferred();
+  sessionGate = delayedSession;
+  lateSessionConfirm();
+  await flush();
+  await dismissTransferDialog();
+  binding++;
+  delayedSession.resolve();
+  await flush();
+  assert.deepEqual(transfers, [], "a deferred capture is rechecked immediately before dispatch");
+  assert.deepEqual(toastMessages, []);
+
+  fixture();
+  await flush();
+  transferResult = { ok: false, error: { kind: "not_member" } };
+  failReadsAfterTransfer = true;
+  const rejectedConfirm = await openTransfer();
+  rejectedConfirm();
+  await flush();
+  await dismissTransferDialog();
+  assert.deepEqual(
+    toastMessages,
+    ["members.toast.transferNotMember"],
+    "best-effort rejection reload does not duplicate or replace the real error",
+  );
+  assert.deepEqual(pendingToasts, []);
+  assert.equal(backCalls, 0);
+
+  fixture();
+  await flush();
+  transferResult = { ok: false, error: { kind: "sync_required" } };
+  const notReadyConfirm = await openTransfer();
+  notReadyConfirm();
+  await flush();
+  await dismissTransferDialog();
+  assert.deepEqual(toastMessages, ["members.toast.transferSyncRequired"]);
+  assert.deepEqual(
+    pendingToasts,
+    [],
+    "an unpublished signing identity never reports transfer success",
+  );
+  assert.equal(backCalls, 0);
+
+  fixture();
+  await flush();
+  const unmountedConfirm = await openTransfer();
+  const lateTransfer = deferred();
+  transferGate = lateTransfer;
+  unmountedConfirm();
+  await flush();
+  await dismissTransferDialog();
+  unmount();
+  dirty = false;
+  lateTransfer.resolve();
+  for (let tick = 0; tick < 60; tick++) await Promise.resolve();
+  assert.equal(dirty, false, "a completed transfer cannot update an unmounted member screen");
+  assert.deepEqual(toastMessages, []);
+  assert.deepEqual(pendingToasts, []);
+  assert.equal(backCalls, 0);
+  console.log(
+    "PASS member ownership transfer: one activation, native dialog dismissal before dispatch/pop, successful mutation independent of reads, stale account/vault/session/focus and unmount guards",
   );
 
   fixture();
@@ -735,3 +1032,9 @@ export async function runMembersScreenSelftest() {
     "PASS members screen: deferred/initial loads, immediate scoped email authorization, stable ordinary tallies, superseded/session/vault guards, background/resume and subscription cleanup",
   );
 }
+
+if (require.main === module)
+  void runMembersScreenSelftest().catch((err) => {
+    console.error(err);
+    process.exitCode = 1;
+  });

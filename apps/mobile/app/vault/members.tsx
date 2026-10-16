@@ -17,7 +17,7 @@
 //   - Send invite link   → routes to vault/invite (online-only; cross-acct)
 //   - Change role        → appendVaultMemberRoleChanged event
 //   - Remove member      → appendVaultMemberRemoved event
-//   - Transfer ownership → two role-change events emitted in sequence
+//   - Transfer ownership → atomic local transfer or server-authorized transfer
 //
 // Self-row is non-interactive; last-owner protection enforced at sheet build.
 
@@ -47,6 +47,7 @@ import {
 import { queuePendingToast, useToast } from "../../components/Toast";
 import {
   applyForCurrentSession,
+  applyForUnchangedLocalSession,
   captureCurrentSession,
   type SessionSnapshot,
 } from "../../lib/auth";
@@ -92,6 +93,18 @@ type PendingInviteRow = {
   expires_at: number;
 };
 
+type TransferRequest = {
+  id: number;
+  vaultId: string;
+  accountId: string | null;
+  target: MemberRow;
+  session: Promise<SessionSnapshot | null>;
+};
+
+// ConfirmDialog fades out in 140 ms. Begin the transfer after its closed
+// render has committed, with room for native Modal dismissal before any pop.
+const TRANSFER_CONFIRM_EXIT_MS = 300;
+
 /** Member avatar + the presence dot pinned to its corner. Both are circles,
  *  so their radii are size/2 rather than literals that can drift from the
  *  diameter (lib/tokens rule 3). */
@@ -129,6 +142,11 @@ export default function VaultMembersScreen() {
   const [sheetTarget, setSheetTarget] = useState<MemberRow | null>(null);
   const [revokeTarget, setRevokeTarget] = useState<MemberRow | null>(null);
   const [transferTarget, setTransferTarget] = useState<MemberRow | null>(null);
+  const [transferRequest, setTransferRequest] = useState<TransferRequest | null>(null);
+  const transferPending = useRef(false);
+  const transferRequestRef = useRef(0);
+  const transferScopeRef = useRef({ vaultId, accountId });
+  transferScopeRef.current = { vaultId, accountId };
   const [creditEditor, setCreditEditor] = useState<{
     member: MemberRow;
     vaultId: string;
@@ -461,6 +479,10 @@ export default function VaultMembersScreen() {
         ++loadRequestRef.current;
         ++authorizationRequestRef.current;
         ++creditEditRequest.current;
+        ++transferRequestRef.current;
+        transferPending.current = false;
+        setTransferTarget(null);
+        setTransferRequest(null);
         setCreditEditor(null);
         app.remove();
         clearInterval(timer);
@@ -508,6 +530,7 @@ export default function VaultMembersScreen() {
   }
 
   function openMemberSheet(m: MemberRow) {
+    if (transferPending.current) return;
     if (!isOwner && !isManager) return;
     if (m.account_id === accountId || localSelfAccountIds.includes(m.account_id)) return;
     // Manager cap: owners and peer managers are out of a manager's reach.
@@ -688,73 +711,127 @@ export default function VaultMembersScreen() {
     }
   }
 
-  // Transfer = "promote target, then demote self" emitted as two
-  // sequential events via vault-router. Local-CA vaults stamp two
-  // vault_member_role_changed events; server-anchored vaults hit
-  // POST /transfer-ownership. The router enforces self-target /
-  // not-member / no-account guards AND handles partial-failure recovery
-  // (engineering critique 1.e), returning a typed error union we map to
-  // specific toasts.
-  async function onTransfer() {
-    if (!transferTarget) return;
-    const target = transferTarget;
+  function onTransfer() {
+    if (
+      !transferTarget ||
+      transferPending.current ||
+      !focusedRef.current ||
+      !isOwner ||
+      getActiveVaultIdSyncMaybe() !== vaultId
+    )
+      return;
+    // The same callback can fire twice before React closes the dialog.
+    // Claim the operation synchronously, rather than relying on its rerender.
+    transferPending.current = true;
     setTransferTarget(null);
-    const displayName =
-      target.display_name ?? target.email ?? t("members.confirm.transfer.fallback");
-    try {
-      const res = await transferVaultOwnership(vaultId, target.account_id, accountId);
-      if (!res.ok) {
-        console.warn("[vault/members] transfer rejected:", res.error.kind);
-        // UX critique #2 / #6: map error kinds to specific toasts.
-        //   - not_member         → "{name} is no longer a member" (the
-        //                          target was removed concurrently via
-        //                          mesh propagation between sheet-open
-        //                          and tap).
-        //   - partial_recovered  → first event committed, second failed,
-        //                          we rolled the first back. Vault is in
-        //                          its starting state; surface a specific
-        //                          message so the user knows nothing
-        //                          half-landed.
-        //   - partial_unrecovered → both the second event AND the
-        //                          rollback failed. Vault has two owners
-        //                          until the user resolves it manually.
-        //                          Stay on screen so /members can be
-        //                          re-loaded with the new state.
-        //   - self_target / no_account / noop_demotion → caller bugs the
-        //                          sheet's guards already prevent. Fall
-        //                          through to generic transferFailed.
-        if (res.error.kind === "not_member") {
-          toast.push(t("members.toast.transferNotMember", { name: displayName }), "error");
-          await loadAll();
-          return;
-        }
-        if (res.error.kind === "partial_recovered") {
-          toast.push(t("members.toast.transferPartialRecovered"), "error");
-          await loadAll();
-          return;
-        }
-        if (res.error.kind === "partial_unrecovered") {
-          toast.push(t("members.toast.transferPartialUnrecovered"), "error");
-          await loadAll();
-          return; // intentionally do NOT router.back — user must resolve
-        }
-        toast.push(t("members.toast.transferFailed"), "error");
-        return;
-      }
-      // UX critique #2: name the recipient in the toast AND post via
-      // queuePendingToast so the ToastProvider drain on the parent screen
-      // surfaces it after router.back() unmounts this screen. push()ing
-      // first then back()ing in the same tick can race the unmount on
-      // some Android frame schedules; queuePendingToast is the documented
-      // pattern (see vault-settings' archive flow).
-      queuePendingToast(t("members.toast.transferred", { name: displayName }), "success");
-      await loadAll();
-      router.back();
-    } catch (err) {
-      console.warn("[vault/members] transfer failed", err);
-      toast.push(t("members.toast.transferFailed"), "error");
-    }
+    setTransferRequest({
+      id: ++transferRequestRef.current,
+      vaultId,
+      accountId,
+      target: transferTarget,
+      session: captureCurrentSession().catch((err) => {
+        console.warn("[vault/members] transfer session failed", err);
+        return null;
+      }),
+    });
   }
+
+  useEffect(() => {
+    if (!transferRequest) return;
+    const request = transferRequest;
+    let cancelled = false;
+    const current = () =>
+      !cancelled &&
+      focusedRef.current &&
+      request.id === transferRequestRef.current &&
+      getActiveVaultIdSyncMaybe() === request.vaultId &&
+      transferScopeRef.current.vaultId === request.vaultId &&
+      transferScopeRef.current.accountId === request.accountId;
+    const applyCurrent = <T,>(session: SessionSnapshot, work: () => Promise<T>) =>
+      applyForUnchangedLocalSession(session, async () => {
+        if (!current()) return;
+        // Signing out keeps the account binding in app_meta, while the live
+        // session's account becomes null. Local transfers still use that
+        // persisted binding, and must reject an older account's open dialog.
+        const currentAccount = await getAppMeta("account_id");
+        if (
+          !current() ||
+          currentAccount !== request.accountId ||
+          (session.accountId !== null && session.accountId !== request.accountId)
+        )
+          return;
+        return work();
+      });
+    const run = async () => {
+      const session = await request.session;
+      let transferred = false;
+      const displayName =
+        request.target.display_name ??
+        request.target.email ??
+        t("members.confirm.transfer.fallback");
+      try {
+        if (!current()) return;
+        if (!session) {
+          const currentAccount = await getAppMeta("account_id");
+          if (current() && currentAccount === request.accountId)
+            toast.push(t("members.toast.transferFailed"), "error");
+          return;
+        }
+        const ready = await applyCurrent(session, async () => true);
+        if (!ready || !current()) return;
+        const res = await transferVaultOwnership(
+          request.vaultId,
+          request.target.account_id,
+          request.accountId,
+          "editor",
+          { expectedSession: session, shouldContinue: current },
+        );
+        transferred = res.ok;
+        const handled = await applyCurrent(session, async () => {
+          if (!res.ok) {
+            console.warn("[vault/members] transfer rejected:", res.error.kind);
+            const message =
+              res.error.kind === "not_member"
+                ? t("members.toast.transferNotMember", { name: displayName })
+                : res.error.kind === "sync_required"
+                  ? t("members.toast.transferSyncRequired")
+                  : t("members.toast.transferFailed");
+            toast.push(message, "error");
+            return true;
+          }
+          // Returning does not depend on another database read. A failed
+          // cosmetic reload must never turn a completed transfer into failure.
+          queuePendingToast(t("members.toast.transferred", { name: displayName }), "success");
+          router.back();
+          return true;
+        });
+        if (!res.ok && handled && current())
+          await loadAll().catch((err) =>
+            console.warn("[vault/members] transfer member reload failed", err),
+          );
+      } catch (err) {
+        if (transferred) {
+          if (__DEV__) console.warn("[vault/members] transfer completion skipped", err);
+          return;
+        }
+        if (session)
+          await applyCurrent(session, async () => {
+            console.warn("[vault/members] transfer failed", err);
+            toast.push(t("members.toast.transferFailed"), "error");
+          }).catch(() => undefined);
+      } finally {
+        if (!cancelled && request.id === transferRequestRef.current) {
+          transferPending.current = false;
+          if (focusedRef.current) setTransferRequest(null);
+        }
+      }
+    };
+    const timer = setTimeout(() => void run(), TRANSFER_CONFIRM_EXIT_MS);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [transferRequest, loadAll, router, toast]);
 
   const sheetActions: SheetAction[] = sheetTarget
     ? buildSheetActions(sheetTarget, ownerCount, isOwner ? "owner" : "manager", {
@@ -832,6 +909,7 @@ export default function VaultMembersScreen() {
                 online={!isSelf && onlineAccounts.has(m.account_id)}
                 onPress={() => openMemberSheet(m)}
                 disabled={
+                  transferRequest !== null ||
                   isSelf ||
                   (!isOwner && (!isManager || VAULT_ROLE_RANK[m.role] >= VAULT_ROLE_RANK.manager))
                 }

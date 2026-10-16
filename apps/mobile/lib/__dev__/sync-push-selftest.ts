@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import Database from "better-sqlite3";
 import { pushFailureMessage } from "../sync/push-error";
+import { Mutex } from "../util/mutex";
 (globalThis as { __DEV__?: boolean }).__DEV__ = false;
 
 const fixture = new Database(":memory:");
@@ -19,6 +20,7 @@ fixture.exec(`
   );
   CREATE TABLE credit_admission_intents(event_id TEXT PRIMARY KEY,vault_id TEXT,relationship_id TEXT,status TEXT,reason TEXT);
   CREATE TABLE app_meta (key TEXT PRIMARY KEY, value TEXT);
+  CREATE TABLE projection_conflicts(id INTEGER PRIMARY KEY,kind TEXT,detail_json TEXT,vault_id TEXT,created_at INTEGER);
 `);
 const sqlite = {
   getAllAsync: async (sql: string, ...args: unknown[]) => fixture.prepare(sql).all(...args),
@@ -61,9 +63,8 @@ stub("../db", {
     fixture.prepare("INSERT OR REPLACE INTO app_meta VALUES (?,?)").run(key, value),
 });
 stub("../db-tx", { getDb: async () => sqlite, getInstallIdSync: () => installId });
-stub("../projection", {
-  applyEventMutex: { runExclusive: async (fn: () => Promise<unknown>) => fn() },
-});
+const applyEventMutex = new Mutex();
+stub("../projection", { applyEventMutex });
 stub("../projection-conflicts", { notifyProjectionConflictsChanged: () => {} });
 let creditRepaints = 0,
   sweeps = 0;
@@ -242,6 +243,112 @@ async function run() {
       "refused",
     );
     assert.equal(creditRepaints, 2, "background refusal immediately repaints intent status");
+    const membership = randomUUID();
+    insert.run(
+      membership,
+      "vault_member_role_changed",
+      vaultId,
+      randomUUID(),
+      300,
+      installId,
+      installId,
+      "self",
+      JSON.stringify({ account_id: "new-owner", role: "owner" }),
+      300,
+      null,
+      "signature",
+      "public-key",
+    );
+    globalThis.fetch = async () =>
+      new Response(
+        JSON.stringify({
+          accepted: [],
+          duplicates: [],
+          rejected: [{ event_id: membership, reason: "membership_unverified" }],
+        }),
+      );
+    await pushEvents(vaultId);
+    const conflict = fixture.prepare("SELECT detail_json FROM projection_conflicts").get() as {
+      detail_json: string;
+    };
+    assert.deepEqual(
+      JSON.parse(conflict.detail_json),
+      {
+        event_id: membership,
+        event_type: "vault_member_role_changed",
+        reason: "membership_unverified",
+        current_role: null,
+        required_role: null,
+      },
+      "server rejections retain their actual event type for the notification surface",
+    );
+
+    // A scheduler push can already be running when a transfer starts. This
+    // shared SQLite connection permits reads during a transaction, so the
+    // outbox snapshot itself must wait for the writer's mutex, even when no
+    // transfer notification has fired yet.
+    const transferVault = randomUUID();
+    let firstWritten!: () => void, finishTransfer!: () => void;
+    const promotionWritten = new Promise<void>((resolve) => {
+      firstWritten = resolve;
+    });
+    const mayFinish = new Promise<void>((resolve) => {
+      finishTransfer = resolve;
+    });
+    const writeRole = (role: string, seq: number) =>
+      insert.run(
+        randomUUID(),
+        "vault_member_role_changed",
+        transferVault,
+        randomUUID(),
+        400 + seq,
+        installId,
+        installId,
+        "self",
+        JSON.stringify({ account_id: role === "owner" ? "successor" : "former-owner", role }),
+        400 + seq,
+        seq,
+        "signature",
+        "public-key",
+      );
+    const transfer = applyEventMutex.runExclusive(() =>
+      sqlite.withTransactionAsync(async () => {
+        writeRole("owner", 1);
+        firstWritten();
+        await mayFinish;
+        writeRole("editor", 2);
+      }),
+    );
+    await promotionWritten;
+    const transferRequests: any[] = [];
+    globalThis.fetch = async (_url, init) => {
+      const request = JSON.parse(String(init?.body));
+      transferRequests.push(request);
+      return Response.json({
+        accepted: request.events.map((e: any, index: number) => ({
+          event_id: e.event_id,
+          server_seq: index + 1,
+        })),
+        duplicates: [],
+        rejected: [],
+      });
+    };
+    const concurrentPush = pushEvents(transferVault);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    const requestsBeforeCommit = transferRequests.length;
+    finishTransfer();
+    await transfer;
+    assert.deepEqual(await concurrentPush, { pushed: 2, duplicates: 0, rejected: 0 });
+    assert.equal(
+      requestsBeforeCommit,
+      0,
+      "background sync cannot publish an uncommitted promotion",
+    );
+    assert.equal(transferRequests.length, 1);
+    assert.deepEqual(
+      transferRequests[0].events.map((e: any) => e.payload.role),
+      ["owner", "editor"],
+    );
   } finally {
     globalThis.fetch = realFetch;
     fixture.close();
