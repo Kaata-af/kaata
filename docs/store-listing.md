@@ -13,101 +13,85 @@ writes only its separate marketing logo and cannot overwrite product icons.
 These source assets are ready for a future production listing update; the
 2.2.0 testing delivery does not change the current production store listings.
 
-## Feature graphic (1024×500, required)
+## Persian screenshot campaign — local review draft
 
-`docs/store-assets/feature-graphic.png` — upload this in Main store listing →
-Graphics → Feature graphic. It's the Aubergine brand field with the white K
-mark, the `kaata.` wordmark with a Saffron dot, a Saffron tagline accent and a
-white product card drawn like the app's ledger rows
-([brand-language.md](brand-language.md)). To regenerate/tweak, edit
-`docs/store-assets/feature-graphic.html` and render it at 1024×500 (see
-[Rendering the store images](#rendering-the-store-images)).
+The October 16 campaign follows Matee’s Facebook reference: white background,
+black original K logo, blue emphasis (`#1683C5`), and a thin yellow–blue–red
+footer. All headlines, sample customer names, notes and UI labels are Persian
+(Dari wording). Amounts and counts retain English digits. The product remains
+neutral black/white; no Google logo, store badge or download button appears.
 
-## Phone screenshots (2–8 required; ≥4 at ≥1080px for promo eligibility)
+The images are **manually composed app previews with fictional data**, not
+native device captures. They follow the current screens and installed app
+fonts. Check against the final iOS/Android release before uploading; this work
+creates local artwork only and does not change any live store listing.
 
-`docs/store-assets/screenshots/*.png` — six 1080×1920 (9:16) marketing panels,
-promotion-eligible. These are the **phone** screenshots — tablets have their own
-landscape set below. Upload in this order:
+Six panels use the same order in every device folder:
 
-1. `01-home.png` — "Know who owes you, at a glance." (home / to-collect list)
-2. `02-whatsapp-reminder.png` — "A polite nudge, on WhatsApp." (the reminder message)
-3. `03-person-detail.png` — "One running balance, every deal logged." (person + history)
-4. `04-add-entry.png` — "Gave or received? Logged in seconds." (add-entry + keypad)
-5. `05-onboarding.png` — "Your shop's book, ready in a minute." (setup done)
-6. `06-dari.png` — "In your language. Works offline." (Dari home; LTR-locked like the app)
+1. `01-home.png` — تمام حساب‌ها، در یک نگاه.
+2. `02-person-detail.png` — هر معامله، ثبت. هر حساب، روشن.
+3. `03-add-entry.png` — دادید یا گرفتید؟ همین حالا ثبت کنید.
+4. `04-search.png` — پیدا کنید، انتخاب کنید. جمع حساب را ببینید.
+5. `05-onboarding.png` — یک شروع ساده، یک کاتای تازه.
+6. `06-reminder.png` — زمان پیگیری را فراموش نکنید.
 
-Built from the app's real design system (Vazirmatn + JetBrains Mono, the app's
-own Ionicons font, exact neutral color tokens, the current screens' layouts)
-inside a brand-colored marketing panel, via `docs/store-assets/gen-screens.js` →
-headless Chrome. `node gen-screens.js` writes `screenshots/NN-<slug>.html`
-beside each PNG; render each at 1080×1920 (see
-[Rendering the store images](#rendering-the-store-images)). When the home,
-person, entry or onboarding-success screens change, update the generator too;
-nothing tests the drawings.
+The reminder panel shows Kaata’s personal reminder editor. It does not imply
+that a scheduled reminder automatically sends a customer a WhatsApp message.
+The person panel uses the real shared-account badge; sample balances reconcile
+with the displayed transactions. Search demonstrates a combined list and
+selection totals. Onboarding reflects the new outlined success icon.
 
-Note: `02-whatsapp-reminder.png` depicts a WhatsApp chat to show the reminder
-feature. That's standard for depicting an integration, but if you'd rather not
-show WhatsApp's UI, drop it — the other five still exceed Play's minimums.
+| Folder under `docs/store-assets` | Export size | Intended slot                  |
+| -------------------------------- | ----------- | ------------------------------ |
+| `screenshots`                    | 1080 × 1920 | Google Play phone              |
+| `iphone-6.5`                     | 1284 × 2778 | App Store accepted iPhone size |
+| `tablet-screenshots/7-inch`      | 1260 × 2240 | Google Play 7-inch tablet      |
+| `tablet-screenshots/10-inch`     | 1620 × 2880 | Google Play 10-inch tablet     |
+| `ipad-13`                        | 2048 × 2732 | App Store 13-inch iPad         |
+| `feature-graphic.png`            | 1024 × 500  | Google Play feature graphic    |
 
-## Tablet screenshots (7" + 10") — ACCURATE renders
+Tablet previews preserve the app’s single-column layout at tablet logical
+widths, including onboarding’s 480-point maximum content width. They do not
+invent a tablet dashboard. Android exports use a camera dot; iPhone exports
+use an island. All PNGs are opaque RGB.
 
-The app has **no tablet-specific layout, no content `maxWidth`, and is
-portrait-locked** (verified in source: home even uses `useWindowDimensions()`
-width for its rail; no `isTablet`/`expo-device`). So on a tablet in portrait the
-single-column UI **stretches to the full tablet width at its true dp text
-sizes** — small text, wide sparse rows, lots of whitespace. These renders
-reproduce that **accurately** (true dp values, rendered at the real tablet dp
-width × 2 density). They are deliberately _not_ a scaled-up "zoomed phone" — that
-would misrepresent how the app actually looks on a tablet.
+Dimensions were checked against the official
+[Apple screenshot specifications](https://developer.apple.com/help/app-store-connect/reference/app-information/screenshot-specifications/)
+and [Google Play preview-asset guidance](https://support.google.com/googleplay/android-developer/answer/9866151?hl=en).
 
-- `tablet-screenshots/7-inch/*.png` — **1200×2134** (600dp width × 2), for the 7" slot
-- `tablet-screenshots/10-inch/*.png` — **1600×2844** (800dp width × 2), for the 10" slot
+## Editing and rendering the artwork
 
-Both are 9:16 and inside their slot's px range. Each folder: `01-home`,
-`02-person`, `03-onboarding`, `04-dari`.
+- `store-design.js`: Persian campaign copy, palette and output sizes.
+- `store-scenes.js`: fictional app data, UI composition and Persian layout.
+- `gen-screens.js`: installed mobile fonts, icons and shared UI primitives.
+- `generate-store-assets.js`: campaign layouts and feature graphic.
+- `render-store-assets.js`: local Chrome rendering and export checks.
 
-Generate with `node gen-tablet10.js`, which draws `gen-screens.js`'s screens at
-true dp and writes `tablet-screenshots/<7-inch|10-inch>/NN-<name>.html`; render
-each at its dp window size with device-scale-factor 2 (see below).
+From the repository root:
 
-**Honest trade-off:** because the app isn't tablet-optimized, the accurate
-renders look sparse. Tablet screenshots are **optional** — if you'd rather not
-show the sparse look, leave the tablet slots empty (Play falls back to your phone
-screenshots on tablets). The only way to get genuinely _good_ tablet screenshots
-is to add a real tablet layout (e.g. two-pane list+detail) to the app.
-
-## Rendering the store images
-
-Every generator in `docs/store-assets` writes `<name>.html` beside the
-`<name>.png` it becomes, using fonts from `apps/mobile/node_modules` (install it
-first). The App Store sets come from `gen-iphone65.js` (1284×2778) and
-`gen-ipad13.js` (2048×2732); `gen-demo-thumbnail.js` makes the website's
-download-page thumbnail. From `docs/store-assets` in Git Bash (use `$PWD` instead
-of `$(pwd -W)` on macOS/Linux; Chrome on Windows ignores relative paths):
-
-```bash
-CHROME="/c/Program Files/Google/Chrome/Application/chrome.exe"
-DIR="$(pwd -W)"
-shot() { # <html> <png> <width> <height> <scale>
-  "$CHROME" --headless=new --disable-gpu --hide-scrollbars --allow-file-access-from-files \
-    --force-device-scale-factor="$5" --window-size="$3,$4" --virtual-time-budget=6000 \
-    --screenshot="$DIR/$2" "file:///$DIR/$1"
-}
-render() { # <folder> <width> <height> <scale>: every HTML there, then delete it
-  for f in "$1"/*.html; do shot "$f" "${f%.html}.png" "$2" "$3" "$4" && rm "$f"; done
-}
-node gen-screens.js && render screenshots 1080 1920 1
-node gen-iphone65.js && render iphone-6.5 1284 2778 1
-node gen-tablet10.js && render tablet-screenshots/7-inch 600 1067 2 && render tablet-screenshots/10-inch 800 1422 2
-node gen-ipad13.js && render ipad-13 1024 1366 2
-shot feature-graphic.html feature-graphic.png 1024 500 1
-node gen-demo-thumbnail.js && shot demo-thumbnail.html demo-thumbnail.png 1280 720 1 && rm demo-thumbnail.html
-python -c "from PIL import Image; Image.open('demo-thumbnail.png').convert('RGB').save('../../apps/web/src/assets/kaata-demo.jpg', quality=88, optimize=True, progressive=True)" && rm demo-thumbnail.png
+```powershell
+node docs/store-assets/render-store-assets.js
 ```
 
-`--virtual-time-budget` lets the local @font-face files load before capture
-(else text falls back to serif). Chrome writes 24-bit PNGs without alpha, as
-Play requires. Look at every PNG before uploading.
+This exports the PNGs and creates a local review gallery at
+`docs/store-assets/.generated/index.html`, with phone/tablet contact sheets and
+`validation.json`. It waits for fonts and images, rejects visible English
+words, detects clipped text boxes, and verifies image dimensions and opacity.
+Review every image visually as well; automated checks cannot verify native UI
+fidelity. The ignored `.generated` folder contains local absolute font paths.
+
+For a single review image:
+
+```powershell
+node docs/store-assets/render-store-assets.js --platform play-phone --slug home
+```
+
+The tool uses installed Playwright (resolved normally, via `NODE_PATH`, or from
+the desktop’s bundled runtime) and installed Chrome. `CHROME_PATH` can override
+the browser executable. It does not download dependencies or run Expo/EAS.
+The legacy `gen-iphone65.js`, `gen-tablet10.js`, and `gen-ipad13.js` entry points
+still generate HTML for their respective sets through the shared generator.
+The website demo thumbnail and social/flyer artwork are separate assets.
 
 ## Short description (max 80 chars)
 

@@ -48,6 +48,18 @@ sources use `marketing/assets/logo.png`, retaining the colored identity independ
 of app and site logos. Existing posts, printed flyers and previously issued
 statements do not change.
 
+## Store screenshot campaign
+
+On October 16, 2026, Matee requested a separate Persian store campaign based on
+his white/blue Facebook artwork. `docs/store-assets/store-design.js` owns its
+white background, black K, blue (`#1683C5`) headlines, and thin yellow
+(`#FBBB19`), blue, red (`#F23C3D`) footer. It does not use Google’s logo or imply
+a Google affiliation. App interfaces inside the artwork keep product colors.
+All screenshot text is Persian, with English digits for amounts and counts.
+These local review exports do not recolor the app, website or existing
+social/flyer sources, and do not publish a listing update. See
+[store-listing.md](store-listing.md) for source files and export commands.
+
 ## Artwork and generation
 
 There is no editable logo master. The original white K on black rasters are

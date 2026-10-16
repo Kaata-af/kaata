@@ -1,0 +1,3 @@
+# Local HTML previews contain absolute font paths. The sources and PNG exports
+# are versioned; browser artifacts and contact sheets can always be regenerated.
+.generated/

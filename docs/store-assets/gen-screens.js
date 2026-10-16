@@ -3,13 +3,11 @@ const path = require("path");
 const { pathToFileURL } = require("url");
 const brand = require("../../apps/_shared/brand-palette.json");
 
-// Store screenshots (Play phone set; reused by gen-iphone65.js and, for fonts,
-// palette and icons, by gen-tablet10.js). The marketing panel around the phone
-// uses the brand palette (docs/brand-language.md). The phone screens mirror
-// the CURRENT app, which is neutral black/white/gray: home (apps/mobile/app/
-// index.tsx), person (app/person/[id].tsx + components/EntryRow.tsx), entry
-// (app/entry/new.tsx) and onboarding success (app/onboarding/success.tsx).
-// When those screens change, change these too; nothing tests the drawings.
+// Shared drawing primitives for local store artwork, using installed app fonts
+// and neutral UI tokens. These are manually composed previews with fictional
+// data, not native device captures. Keep store-scenes.js aligned with app UI.
+// The surrounding white/blue campaign lives in store-design.js; it deliberately
+// does not change the product or the separate social/flyer palette.
 
 // Mirror of apps/mobile/lib/colors.ts.
 const app = {
@@ -71,18 +69,6 @@ const glyph = (family, map, name, size, color) => {
 const ion = (name, size, color) => glyph("Ion", IONICONS, name, size, color);
 const material = (name, size, color) => glyph("MI", MATERIAL, name, size, color);
 
-// WhatsApp's own chrome (the reminder panel) keeps simple inline drawings.
-const svg = (inner, o = {}) =>
-  `<svg viewBox="0 0 24 24" width="${o.w || 24}" height="${o.w || 24}" fill="${o.fill || "none"}" stroke="${o.fill ? "none" : "currentColor"}" stroke-width="${o.sw || 2}" stroke-linecap="round" stroke-linejoin="round" style="display:block">${inner}</svg>`;
-const ic = {
-  chevronBack: (w) => svg('<polyline points="15 6 9 12 15 18"/>', { w, sw: 2.4 }),
-  send: (w) =>
-    svg('<line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>', {
-      w,
-      sw: 2,
-    }),
-};
-
 // Every app dp value from source is written as d(dp) = dp × --k px. Inside the
 // phone frame --k is 1.6 (the 630px screen is a 393dp iPhone); the tablet sets
 // render the same screens at --k: 1, true dp. --ib is the bottom safe-area
@@ -106,253 +92,6 @@ const statusBar = (dark = false) => {
 
 // ---- money helper: Latin digits in every language, ؋ after the number ----
 const money = (n, cls = "") => `<span class="num ${cls}">${n}</span><span class="afn">؋</span>`;
-
-// =================== SCREENS ===================
-
-const HOME = {
-  en: {
-    shop: "Baradaran Market",
-    chip: "B",
-    collect: "To collect",
-    pay: "To pay",
-    label: "To collect",
-    sub: "from 4 people",
-    search: "Search customers",
-    rows: [
-      ["Ahmad Wali", "2h ago", "12,500"],
-      ["Gul Rahman", "yesterday", "8,750"],
-      ["Fatima Noori", "3d ago", "3,200"],
-      ["Naseer Ahmadzai", "1w ago", "1,400"],
-    ],
-  },
-  // Verbatim app strings (apps/mobile/lib/i18n.ts). t() does not localize
-  // digits, so counts and times keep Latin digits in Dari, as on the phone.
-  fa: {
-    shop: "مارکیت برادران",
-    chip: "م",
-    collect: "وصول",
-    pay: "پرداخت",
-    label: "قابل وصول",
-    sub: "از 4 نفر",
-    search: "جستجوی مشتری‌ها",
-    rows: [
-      ["احمد ولی", "2 ساعت پیش", "12,500"],
-      ["گل رحمان", "دیروز", "8,750"],
-      ["فاطمه نوری", "3 روز پیش", "3,200"],
-      ["نصیر احمدزی", "1 هفته پیش", "1,400"],
-    ],
-  },
-};
-
-// Home: kaata-name switcher, bell and profile chip; black segmented tabs; the
-// hero total; one bordered people card; the bottom dock. The app is LTR-locked
-// in Dari, but rowDir()/textDir() mirror each row: the title block, totals and
-// names sit on the right, while the tabs and the dock order (Sort left, add
-// right) stay put and only the search field's contents mirror.
-function screenHome(opts = {}) {
-  const rtl = !!opts.rtl;
-  const bar = opts.bar ?? statusBar();
-  const t = HOME[rtl ? "fa" : "en"];
-  const dir = rtl ? ' dir="rtl"' : "";
-  const row = (r) =>
-    `<div class="prow"><div class="pleft"><div class="pname"${dir}>${r[0]}</div><div class="psub"${dir}>${r[1]}</div></div><div class="pamt">${money(r[2])}</div></div>`;
-  return `<div class="home${rtl ? " rtl" : ""}">${bar}
-  <div class="hdr">
-    <div class="hdr-title"><span class="shop"${dir}>${t.shop}</span>${ion("chevron-down", 16, app.textSubtle)}</div>
-    <div class="hdr-sp"></div>
-    <div class="bell">${ion("notifications-outline", 22, app.textEmphasis)}</div>
-    <div class="pchip"${dir}>${t.chip}</div>
-  </div>
-  <div class="tabs"><div class="tab tab-on">${t.collect}</div><div class="tab">${t.pay}</div></div>
-  <div class="total">
-    <div class="total-lbl"${dir}>${t.label}</div>
-    <div class="total-row">${money("25,850", "collect")}</div>
-    <div class="total-sub"${dir}>${t.sub}</div>
-  </div>
-  <div class="card">${t.rows.map(row).join('<div class="div"></div>')}</div>
-  <div class="dock">
-    <div class="dock-opt">${ion("options-outline", 22, app.textDefault)}</div>
-    <div class="dock-search">${ion("search-outline", 22, app.textSubtle)}<span class="ph"${dir}>${t.search}</span></div>
-    <div class="dock-add">${ion("add", 28, app.bg)}</div>
-  </div></div>`;
-}
-
-// Person: WhatsApp reminder icon beside the ⋯ menu; name, phone, direction
-// chip, hero balance and the Given/Received summary; the tallies card; the
-// opaque bottom dock with I received (LEFT) / I gave (RIGHT) and the tally
-// search beneath. Ahmad's account is shared (blue marker), so the newest tally,
-// still waiting for his review, carries the quiet amber pending dot.
-function screenPerson(opts = {}) {
-  const bar = opts.bar ?? statusBar();
-  const entry = (dir, amt, note, when, pending) => {
-    const gave = dir === "gave";
-    return `<div class="erow">
-      <div class="etile" style="background:${gave ? app.payBg : app.collectBg}">${ion(gave ? "arrow-up-outline" : "arrow-down-outline", 16, gave ? app.payStrong : app.collectStrong)}</div>
-      <div class="emid">
-        <div class="etop"><div class="eamt">${money(amt)}</div><div class="emeta">${pending ? '<span class="edot"></span>' : ""}<span class="ewhen">${when}</span></div></div>
-        ${note ? `<div class="enote">${note}</div>` : ""}
-      </div></div>`;
-  };
-  const flow = (label, amount) =>
-    `<div class="flow"><div class="flow-lbl">${label}</div><div class="flow-amt">${amount}</div></div>`;
-  return `<div class="person">${bar}
-  <div class="pnav">
-    <div class="navbtn">${ion("chevron-back", 26, app.textEmphasis)}</div>
-    <div class="pnav-actions">
-      <div class="navwa">${ion("logo-whatsapp", 26, app.action)}</div>
-      <div class="navmore">${ion("ellipsis-horizontal", 22, app.textEmphasis)}</div>
-    </div>
-  </div>
-  <div class="pinfo">
-    <div class="pd-namerow"><span class="pd-name">Ahmad Wali</span>${material("verified", 20, app.sharedAccount)}</div>
-    <div class="pd-phone">+93 70 123 4567</div>
-    <div class="pd-overview">
-      <div class="pd-balance">
-        <div class="pd-chip">THEY OWE YOU</div>
-        <div class="pd-bal">${money("12,500", "collect")}</div>
-      </div>
-      <div class="pd-flows">${flow("Given · 2", "15,000")}${flow("Received · 1", "2,500")}</div>
-    </div>
-  </div>
-  <div class="ecard">
-    ${entry("gave", "5,000", "Cooking oil &amp; rice", "2h ago", true)}<div class="div"></div>
-    ${entry("received", "2,500", "", "yesterday", false)}<div class="div"></div>
-    ${entry("gave", "10,000", "Sacks of flour", "4d ago", false)}
-  </div>
-  <div class="pdock">
-    <div class="pdock-row">
-      <div class="abtn"><span class="coin">${ion("arrow-down-outline", 16, app.bg)}</span><span>I received</span></div>
-      <div class="abtn"><span class="coin">${ion("arrow-up-outline", 16, app.bg)}</span><span>I gave</span></div>
-    </div>
-    <div class="psearch">
-      <div class="psearch-box">${ion("search-outline", 16, app.textSubtle)}<span>Search notes or amounts</span></div>
-      <div class="pdate">${ion("calendar-outline", 22, app.textSubtle)}</div>
-    </div>
-  </div></div>`;
-}
-
-function screenEntry() {
-  const key = (t, sub) =>
-    `<div class="key"><span class="kd">${t}</span>${sub ? `<span class="ks">${sub}</span>` : ""}</div>`;
-  return `<div class="entry">${statusBar()}
-  <div class="shdr"><div class="shdr-btn">${ion("chevron-back", 26, app.textEmphasis)}</div><div class="shdr-title">I gave</div><div class="shdr-btn"></div></div>
-  <div class="ebody">
-    <div class="ectx"><div class="ectx-lbl">to</div><div class="ectx-name">Ahmad Wali</div></div>
-    <div class="fld">
-      <div class="flbl">Amount (؋) <span class="req">*</span></div>
-      <div class="amtbox"><span class="amtnum">5000</span><span class="caret"></span></div>
-    </div>
-    <div class="fld">
-      <div class="flbl">Note</div>
-      <div class="notebox">Cooking oil &amp; rice</div>
-    </div>
-    <div class="savebtn">Save</div>
-  </div>
-  <div class="keypad">
-    ${key("1", "")}${key("2", "ABC")}${key("3", "DEF")}
-    ${key("4", "GHI")}${key("5", "JKL")}${key("6", "MNO")}
-    ${key("7", "PQRS")}${key("8", "TUV")}${key("9", "WXYZ")}
-    <div class="key key-fn"><span class="kd">.</span></div>${key("0", "")}<div class="key key-fn">⌫</div>
-  </div></div>`;
-}
-
-// Onboarding success: the one first-run screen that keeps brand color (Ivory
-// ground, Saffron check tile, Aubergine title) above a black hero button.
-function screenOnboarding(opts = {}) {
-  const bar = opts.bar ?? statusBar();
-  return `<div class="ob-screen">${bar}
-  <div class="ob">
-    <div class="ob-check">${ion("checkmark", 28, app.textEmphasis)}</div>
-    <div class="ob-title">Your kaata is ready</div>
-    <div class="ob-card">${ion("book-outline", 22, app.textSubtle)}<span class="ob-shop">Baradaran Market</span></div>
-    <div class="ob-body">Add someone with the button at the bottom right.</div>
-  </div>
-  <div class="ob-foot"><div class="herobtn">Open my kaata</div></div></div>`;
-}
-
-function screenWhatsApp() {
-  const msg = `Salaam Ahmad Wali.
-
-Your kaata at Baradaran Market:
-🔴 You owe: −12,500 ؋
-
-Please settle when you can.
-
-See the full ledger here:
-https://kaata.af/v/AbC123`;
-  const lines = msg
-    .split("\n")
-    .map((l) =>
-      l === ""
-        ? '<div class="wa-sp"></div>'
-        : l.startsWith("🔴")
-          ? `<div class="wa-owe">${l}</div>`
-          : l.startsWith("https")
-            ? `<div class="wa-link">${l}</div>`
-            : `<div>${l}</div>`,
-    )
-    .join("");
-  return `<div class="wa-screen">
-    ${statusBar(true)}
-    <div class="wa-hdr">
-      <span class="wa-back">${ic.chevronBack(34)}</span>
-      <span class="wa-av">A</span>
-      <span class="wa-who"><span class="wa-name">Ahmad Wali</span><span class="wa-seen">online</span></span>
-    </div>
-    <div class="wa-body">
-      <div class="wa-day">TODAY</div>
-      <div class="wa-bubble">${lines}<span class="wa-meta">9:41 AM <span class="wa-ticks">✓✓</span></span></div>
-    </div>
-    <div class="wa-input"><div class="wa-field">Message</div><div class="wa-send">${ic.send(26)}</div></div>
-  </div>`;
-}
-
-// =================== PANELS ===================
-const panels = [
-  {
-    n: 1,
-    slug: "home",
-    eyebrow: "YOUR SHOP LEDGER",
-    head: 'Know who owes you,<br><span class="g">at a glance.</span>',
-    screen: screenHome(),
-  },
-  {
-    n: 2,
-    slug: "whatsapp-reminder",
-    eyebrow: "GET PAID",
-    head: 'A polite nudge,<br><span class="g">on WhatsApp.</span>',
-    screen: screenWhatsApp(),
-  },
-  {
-    n: 3,
-    slug: "person-detail",
-    eyebrow: "EVERY CUSTOMER",
-    head: 'One running balance,<br><span class="g">every deal logged.</span>',
-    screen: screenPerson(),
-  },
-  {
-    n: 4,
-    slug: "add-entry",
-    eyebrow: "FAST ENTRY",
-    head: 'Gave or received?<br><span class="g">Logged in seconds.</span>',
-    screen: screenEntry(),
-  },
-  {
-    n: 5,
-    slug: "onboarding",
-    eyebrow: "GET STARTED",
-    head: 'Your shop’s book,<br><span class="g">ready in a minute.</span>',
-    screen: screenOnboarding(),
-  },
-  {
-    n: 6,
-    slug: "dari",
-    eyebrow: "دری  •  OFFLINE",
-    head: 'به زبان خودت.<br><span class="g">بدون انترنت.</span>',
-    screen: screenHome({ rtl: true }),
-    rtlCap: true,
-  },
-];
 
 const CSS = `
 ${FONTS}
@@ -502,38 +241,10 @@ html,body{width:1080px;height:1920px;}
 .ob-foot{position:absolute;left:0;right:0;bottom:0;padding:${d(16)} ${d(24)} ${dIb(20)};}
 .herobtn{min-height:${d(52)};border-radius:${d(12)};background:${app.action};color:${app.bg};display:flex;align-items:center;justify-content:center;font-weight:600;font-size:${d(15)};box-shadow:0 ${d(5)} ${d(14)} rgba(0,0,0,.16);}
 
-/* ---------- WHATSAPP ---------- */
-.wa-screen{position:absolute;inset:0;background:#0B141A;display:flex;flex-direction:column;}
-.wa-screen .sbar{color:${brand.white};}
-.wa-hdr{background:#1F2C33;display:flex;align-items:center;gap:16px;padding:14px 26px 22px;}
-.wa-back{color:${brand.white};display:flex;}
-.wa-av{width:74px;height:74px;border-radius:999px;background:#6B7C85;color:${brand.white};display:flex;align-items:center;justify-content:center;font-weight:700;font-size:34px;}
-.wa-who{display:flex;flex-direction:column;}
-.wa-name{color:${brand.white};font-weight:600;font-size:32px;}
-.wa-seen{color:#8FA1AC;font-size:22px;margin-top:2px;}
-.wa-body{flex:1;padding:34px 30px;background-color:#0B141A;
-  background-image:radial-gradient(rgba(255,255,255,.02) 1.5px, transparent 1.5px);background-size:34px 34px;
-  display:flex;flex-direction:column;align-items:center;gap:26px;}
-.wa-day{background:#182229;color:#8FA1AC;font-size:20px;font-weight:600;letter-spacing:1px;padding:8px 20px;border-radius:12px;}
-.wa-bubble{align-self:flex-end;max-width:82%;background:#005C4B;color:#E9EDEF;border-radius:22px 22px 6px 22px;padding:22px 26px 30px;font-size:29px;line-height:1.5;position:relative;box-shadow:0 1px 2px rgba(0,0,0,.3);}
-.wa-bubble .wa-sp{height:14px;}
-.wa-owe{color:${brand.white};font-weight:600;font-family:"Mono";font-size:30px;}
-.wa-link{color:#8FC9F5;word-break:break-all;}
-.wa-meta{display:block;text-align:right;color:#8FB9AE;font-size:20px;margin-top:12px;margin-bottom:-10px;}
-.wa-ticks{color:#53BDEB;margin-left:4px;}
-.wa-input{display:flex;align-items:center;gap:16px;padding:20px 26px 40px;background:#0B141A;}
-.wa-field{flex:1;background:#1F2C33;color:#8696A0;border-radius:30px;padding:24px 30px;font-size:26px;}
-.wa-send{width:82px;height:82px;border-radius:999px;background:#00A884;color:${brand.white};display:flex;align-items:center;justify-content:center;flex:none;}
+
 `;
 
-function page(p) {
-  return `<!doctype html><html><head><meta charset="utf-8"/><style>${CSS}</style></head><body>
-  <div class="panel">
-    <div class="cap${p.rtlCap ? " rtl" : ""}"><div class="eyebrow">${p.eyebrow}</div><div class="headline">${p.head}</div></div>
-    <div class="phone"><div class="island"></div><div class="screen">${p.screen}</div></div>
-  </div></body></html>`;
-}
-
+const scenes = require("./store-scenes.js").createScenes({ app, ion, material, money, statusBar });
 module.exports = {
   FONTS,
   brand,
@@ -543,23 +254,11 @@ module.exports = {
   ion,
   material,
   money,
-  screenHome,
-  screenPerson,
-  screenEntry,
-  screenOnboarding,
-  screenWhatsApp,
+  ...scenes,
 };
 
-// Writes screenshots/NN-<slug>.html. Render each with headless Chrome
-// (--window-size=1080,1920 --allow-file-access-from-files
-// --virtual-time-budget=4000) to the PNG of the same name, then delete the HTML.
 if (require.main === module) {
-  const dir = path.join(OUT, "screenshots");
-  fs.mkdirSync(dir, { recursive: true });
-  for (const p of panels) {
-    const f = path.join(dir, `${String(p.n).padStart(2, "0")}-${p.slug}.html`);
-    fs.writeFileSync(f, page(p), "utf8");
-    console.log("wrote", f);
-  }
-  console.log("done", panels.length, "panels");
+  const { generate } = require("./generate-store-assets.js");
+  const files = generate({ only: ["play-phone"] });
+  console.log(`Prepared ${files.length} Persian phone panels.`);
 }
