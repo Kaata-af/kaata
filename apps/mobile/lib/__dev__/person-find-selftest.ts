@@ -128,7 +128,14 @@ const nodes = (node: any): Node[] =>
           ...nodes(
             node.type === "SearchSheet"
               ? node.props.visible
-                ? [node.props.children, node.props.filters, node.props.footer]
+                ? [
+                    typeof node.props.children === "function"
+                      ? node.props.children(0)
+                      : node.props.children,
+                    node.props.filters,
+                    node.props.footer,
+                    { type: "ConfirmDialog", props: node.props.confirmation },
+                  ]
                 : null
               : node.type === "SearchControlSlot" && !node.props.visible
                 ? null
@@ -364,6 +371,7 @@ const libMocks: Record<string, any> = {
     getLocale: () => (rtl ? "fa" : "en"),
   },
   "customer-list": require("../customer-list"),
+  "selection-summary": require("../selection-summary"),
   "customer-groups": { readCustomerGroups: async () => ({ ...groupState, groupByPerson: {} }) },
   "credit-limits": {
     readCreditPoliciesForPeople: async () => ({}),
@@ -406,7 +414,15 @@ const libMocks: Record<string, any> = {
       if (screen === home) homeReadScopes.push(scope);
       const rows = peopleByVault.get(scope) ?? [];
       if (delayedPeople) await delayedPeople;
-      return rows;
+      return rows.map((person) => ({
+        ...person,
+        selection_totals: {
+          debtCount: person.balance > 0 ? 1 : 0,
+          creditCount: person.balance < 0 ? 1 : 0,
+          debtMinor: Math.round(Math.max(0, person.balance) * 100),
+          creditMinor: Math.round(Math.max(0, -person.balance) * 100),
+        },
+      }));
     },
     getActiveVaultArchivedAt: async () => null,
     getActiveVaultArchivedState: async () => delayedGuard ?? { state: archivedState },
@@ -632,7 +648,11 @@ async function main() {
   const homeSearch = () => {
     const sheet = find("SearchSheet");
     return sheet?.props.visible
-      ? nodes(sheet.props.children).find((node) => "people" in node.props)
+      ? nodes(
+          typeof sheet.props.children === "function"
+            ? sheet.props.children(0)
+            : sheet.props.children,
+        ).find((node) => "people" in node.props)
       : undefined;
   };
   const homeIds = () => {
@@ -659,12 +679,16 @@ async function main() {
   };
 
   // Exercise the real home handlers, not a second implementation of selection.
-  // The animated rail mounts BOTH tabs, so select-all must follow the active
-  // page and deduplicate the no-tally contact rendered on each page.
+  // Selection lives in the combined search sheet. Its select-all includes
+  // both financial directions and each no-tally contact exactly once.
   const homeRows = () =>
     nodes(renderList(homeSearch() ?? homePages())).filter((node) => node.type === "PersonRow");
   const homeRow = (id: string) => homeRows().find((node) => node.props.person.id === id)!;
   const selection = () => find("SelectionToolbar");
+  const balanceTotals = () => {
+    const { collect, pay, pending } = selection()!.props.financialSummary;
+    return { collect, pay, pending };
+  };
   const openHomeSearch = async () => {
     await flush();
     if (!find("SearchSheet")?.props.visible) {
@@ -748,8 +772,8 @@ async function main() {
     assert.equal(selection()!.props.count, 0, "the preselected contact was cleared by the helper");
     assert.equal(
       selection()!.props.total,
-      2,
-      "only the active side and no-tally contacts are selectable",
+      3,
+      "both financial sides and no-tally contacts are selectable together",
     );
     assert.ok(
       homeRows().some((row) => row.props.selecting),
@@ -765,18 +789,18 @@ async function main() {
     assert.equal(selection()!.props.count, 0, "a selected row can be deselected");
     selection()!.props.onToggleAll();
     await flush();
-    assert.equal(selection()!.props.count, 2, "select-all includes no-tally contacts once");
-    assert.deepEqual(selectedHomeIds().sort(), ["ahmad", "fatima"]);
+    assert.equal(selection()!.props.count, 3, "select-all includes no-tally contacts once");
+    assert.deepEqual(selectedHomeIds().sort(), ["ahmad", "fatima", "pay-person"]);
     find("Tabs")!.props.onChange("pay");
     await flush();
-    assert.equal(selection()!.props.count, 1, "switching sides prunes contacts on the old side");
-    assert.deepEqual(selectedHomeIds(), ["fatima"]);
+    assert.equal(selection()!.props.count, 3, "overview tabs do not prune sheet selections");
+    assert.deepEqual(selectedHomeIds().sort(), ["ahmad", "fatima", "pay-person"]);
     selection()!.props.onToggleAll();
     await flush();
-    assert.deepEqual(selectedHomeIds().sort(), ["fatima", "pay-person"]);
+    assert.deepEqual(selectedHomeIds(), []);
     find("Tabs")!.props.onChange("collect");
     await flush();
-    assert.deepEqual(selectedHomeIds(), ["fatima"]);
+    assert.deepEqual(selectedHomeIds(), []);
     selection()!.props.onToggleAll();
     await flush();
     selection()!.props.onToggleAll();
@@ -784,26 +808,32 @@ async function main() {
     assert.equal(selection()!.props.count, 0, "select-all toggles back to an empty selection");
     selection()!.props.onToggleAll();
     await flush();
+    selection()!.props.onClose();
+    await flush();
     await openHomeSearch();
-    assert.equal(selection(), undefined, "opening search finishes the overview selection");
+    assert.equal(selection(), undefined, "Done returns the sheet to ordinary search");
     const changeSelectionQuery = find("SearchSheet")!.props.onChangeQuery;
     await openSelection();
     selection()!.props.onToggleAll();
     await flush();
     changeSelectionQuery("فاطمه");
     await flush();
-    assert.equal(selection()!.props.count, 1, "search prunes selected contacts outside the result");
+    assert.equal(
+      selection()!.props.count,
+      3,
+      "search retains selected contacts outside the result",
+    );
     assert.deepEqual(selectedHomeIds(), ["fatima"]);
     changeSelectionQuery("nobody");
     await flush();
-    assert.equal(selection()!.props.count, 0, "empty search cannot retain hidden selections");
+    assert.equal(selection()!.props.count, 3, "empty search retains existing selected contacts");
     assert.equal(selection()!.props.total, 0);
     changeSelectionQuery("");
     await flush();
     assert.equal(
       selection()!.props.count,
-      0,
-      "clearing search does not silently reselect hidden rows",
+      3,
+      "clearing search reveals the same retained selections",
     );
     selection()!.props.onClose();
     await flush();
@@ -833,44 +863,44 @@ async function main() {
     changeTotalsQuery("Team");
     await flush();
     await openSelection();
-    assert.deepEqual(selection()!.props.balanceTotals, { collect: 0, pay: 0, pending: false });
+    assert.deepEqual(balanceTotals(), { collect: 0, pay: 0, pending: false });
     selection()!.props.onToggleAll();
     await flush();
     assert.equal(selection()!.props.count, 5, "mixed search selects both sides and neutral once");
     assert.deepEqual(
-      selection()!.props.balanceTotals,
+      balanceTotals(),
       { collect: 0.3, pay: 0.4, pending: false },
       "selected debt and credit balances sum independently with exact cents",
     );
     homeRow("credit-b").props.onPress(creditB);
     await flush();
-    assert.deepEqual(selection()!.props.balanceTotals, { collect: 0.1, pay: 0.4, pending: false });
+    assert.deepEqual(balanceTotals(), { collect: 0.1, pay: 0.4, pending: false });
     selection()!.props.onToggleAll();
     await flush();
-    assert.deepEqual(selection()!.props.balanceTotals, { collect: 0.3, pay: 0.4, pending: false });
+    assert.deepEqual(balanceTotals(), { collect: 0.3, pay: 0.4, pending: false });
     selection()!.props.onToggleAll();
     await flush();
     assert.deepEqual(
-      selection()!.props.balanceTotals,
+      balanceTotals(),
       { collect: 0, pay: 0, pending: false },
       "deselect-all immediately clears both amounts",
     );
     homeRow("credit-a").props.onPress(creditA);
     homeRow("pay-a").props.onPress(payA);
     await flush();
-    assert.deepEqual(selection()!.props.balanceTotals, { collect: 0.1, pay: 0.29, pending: false });
+    assert.deepEqual(balanceTotals(), { collect: 0.1, pay: 0.29, pending: false });
     find("CustomerListOptions")!.props.onChange({ sort: "recent", group: "family" });
     await flush();
-    assert.equal(selection()!.props.count, 0, "a group filter prunes both hidden selections");
-    assert.deepEqual(selection()!.props.balanceTotals, { collect: 0, pay: 0, pending: false });
+    assert.equal(selection()!.props.count, 2, "a group filter retains both hidden selections");
+    assert.deepEqual(balanceTotals(), { collect: 0.1, pay: 0.29, pending: false });
     selection()!.props.onToggleAll();
     await flush();
-    assert.deepEqual(selection()!.props.balanceTotals, { collect: 0.2, pay: 0.11, pending: false });
+    assert.deepEqual(balanceTotals(), { collect: 0.3, pay: 0.4, pending: false });
     find("CustomerListOptions")!.props.onChange({ sort: "recent", group: "all" });
     await flush();
     assert.deepEqual(
-      selection()!.props.balanceTotals,
-      { collect: 0.2, pay: 0.11, pending: false },
+      balanceTotals(),
+      { collect: 0.3, pay: 0.4, pending: false },
       "clearing a filter never adds the newly visible contacts to the sums",
     );
 
@@ -878,24 +908,24 @@ async function main() {
     peopleByVault.set("kaata", [creditA, changedCredit, payA, payB, neutral, outsideSearch]);
     ledgerEvents.emitLedgerApplied(vaultId, "remote");
     await runTimers();
-    assert.equal(selection()!.props.count, 2);
+    assert.equal(selection()!.props.count, 4);
     assert.deepEqual(
-      selection()!.props.balanceTotals,
-      { collect: 0, pay: 10.12, pending: false },
+      balanceTotals(),
+      { collect: 0.1, pay: 10.41, pending: false },
       "live balance changes move a selected contact between debt and credit totals",
     );
     peopleByVault.set("kaata", [creditA, payA, payB, neutral, outsideSearch]);
     ledgerEvents.emitLedgerApplied(vaultId, "remote");
     await runTimers();
     assert.deepEqual(
-      selection()!.props.balanceTotals,
-      { collect: 0, pay: 0.11, pending: false },
+      balanceTotals(),
+      { collect: 0.1, pay: 0.4, pending: false },
       "a remotely removed contact leaves the sum together with the selection",
     );
     changeTotalsQuery("Team Alpha");
     await flush();
-    assert.deepEqual(selection()!.props.balanceTotals, { collect: 0, pay: 0, pending: false });
-    assert.equal(selection()!.props.count, 0, "narrowing search removes the last selected balance");
+    assert.deepEqual(balanceTotals(), { collect: 0.1, pay: 0.4, pending: false });
+    assert.equal(selection()!.props.count, 3, "narrowing search retains all selected balances");
 
     selection()!.props.onClose();
     changeTotalsQuery("Team");
@@ -915,14 +945,14 @@ async function main() {
     await flush();
     assert.equal(selection()!.props.count, 6, "an unsynced shared contact remains selectable");
     assert.deepEqual(
-      selection()!.props.balanceTotals,
+      balanceTotals(),
       { collect: 0.3, pay: 0.4, pending: true },
       "an unknown shared balance marks totals pending and excludes its stale amount",
     );
     homeRow("unknown").props.onPress(unknown);
     await flush();
     assert.deepEqual(
-      selection()!.props.balanceTotals,
+      balanceTotals(),
       { collect: 0.3, pay: 0.4, pending: false },
       "deselecting the unknown contact restores precise selected totals",
     );
@@ -939,7 +969,7 @@ async function main() {
     ledgerEvents.emitLedgerApplied(vaultId, "remote");
     await runTimers();
     assert.deepEqual(
-      selection()!.props.balanceTotals,
+      balanceTotals(),
       { collect: 0.3, pay: 2.65, pending: false },
       "the first shared sync replaces pending state with the current signed balance",
     );
@@ -958,14 +988,14 @@ async function main() {
   await flush();
   find("CustomerListOptions")!.props.onChange({ sort: "recent", group: "family" });
   await flush();
-  assert.equal(selection()!.props.count, 1, "group filtering prunes hidden selected contacts");
+  assert.equal(selection()!.props.count, 2, "group filtering retains hidden selected contacts");
   assert.deepEqual(selectedHomeIds(), ["ahmad"]);
   selection()!.props.onToggleAll();
   await flush();
-  assert.equal(selection()!.props.count, 0);
+  assert.equal(selection()!.props.count, 1, "clear visible keeps the hidden selected contact");
   selection()!.props.onToggleAll();
   await flush();
-  assert.equal(selection()!.props.count, 1, "select-all stays inside the visible group filter");
+  assert.equal(selection()!.props.count, 2, "select-all adds only the visible group to selection");
   applyRole("viewer");
   await flush();
   await runTimers();
@@ -1001,10 +1031,10 @@ async function main() {
   await openSelection();
   homeRow("ahmad").props.onPress(people[0]);
   await flush();
-  const backHandled = [...backListeners].reverse().some((listener) => listener());
-  await flush();
-  assert.equal(backHandled, true);
-  assert.equal(selection(), undefined, "Android Back leaves selection before leaving home");
+  // The native search modal owns Android Back. Model its dismissal boundary;
+  // the parent home's Back handler is not dispatched through an open modal.
+  await closeHomeSearch();
+  assert.equal(selection(), undefined, "dismissing search leaves selection before leaving home");
   assert.equal(
     toasts.some((message) => message[0] === "home.exit.hint"),
     false,
@@ -1338,17 +1368,14 @@ async function main() {
   );
   selection()!.props.actions[0].onPress();
   await flush();
-  assert.ok(
-    nodes(tree)
-      .filter((node) => node.type === "ConfirmDialog")
-      .every((node) => !node.props.visible),
-    "search removal does not stack a confirmation modal",
+  const searchConfirmation = find("SearchSheet")!.props.confirmation;
+  assert.equal(searchConfirmation.visible, true, "search owns its removal confirmation");
+  assert.equal(
+    find("SearchSheet")!.props.footer.type,
+    "SelectionToolbar",
+    "confirmation leaves the selected financial summary mounted",
   );
-  const inlineCancel = nodes(find("SearchSheet")!.props.footer).find(
-    (node) => node.type === "Button" && node.props.label === "common.cancel",
-  )!;
-  assert.ok(inlineCancel, "confirmation stays inside the search footer");
-  inlineCancel.props.onPress();
+  searchConfirmation.onCancel();
   await flush();
   assert.equal(selection()!.props.count, 1, "cancelling keeps the search selection");
   await closeHomeSearch();
@@ -1374,10 +1401,7 @@ async function main() {
   delayedArchive = new Promise((resolve) => {
     finishSearchRemoval = resolve;
   });
-  const inlineConfirm = nodes(find("SearchSheet")!.props.footer).find(
-    (node) => node.type === "Button" && node.props.label === "selection.remove",
-  )!;
-  inlineConfirm.props.onPress();
+  find("SearchSheet")!.props.confirmation.onConfirm();
   await flush();
   assert.equal(
     find("SearchSheet")!.props.dismissDisabled,
@@ -2347,7 +2371,7 @@ async function main() {
   assert.deepEqual(routes.at(-1), { pathname: "/person/[id]", params: { id: "created" } });
   unmount();
   console.log(
-    "PASS: contact action-sheet multi-select with no header duplicate, exact selected debt/credit totals and pending shared balances, visible-side select-all, search/group/remote pruning, role/account/vault clearing, Back/Done/cancel, guarded bulk removal and partial-failure retry; input-triggered search sheet, sheet-only groups/sort/query with unchanged home rows and totals, combined collect/pay results, remembered-tab/stale-swipe guards, EN/FA and 320px access, zero-tally/phone searches, multi-group/sort composition, scoped live/resume reloads, in-place role downgrades, late-read and unmount guards, no viewer phone-book reads/prompts or writes, stable writable tally refresh and authorized creation",
+    "PASS: contact action-sheet entry into combined-sheet multi-select, exact selected debt/credit totals and pending shared balances, visible-result select-all, search/group retention and remote pruning, role/account/vault clearing, modal dismissal/Done/cancel, guarded bulk removal and partial-failure retry; input-triggered search sheet, sheet-only groups/sort/query with unchanged home rows and totals, combined collect/pay results, remembered-tab/stale-swipe guards, EN/FA and 320px access, zero-tally/phone searches, multi-group/sort composition, scoped live/resume reloads, in-place role downgrades, late-read and unmount guards, no viewer phone-book reads/prompts or writes, stable writable tally refresh and authorized creation",
   );
 }
 void main().catch((error) => {

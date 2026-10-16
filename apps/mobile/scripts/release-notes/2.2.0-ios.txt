@@ -1,0 +1,10 @@
+Kaata 2.2.0 makes it easier to find customers, manage shared accounts and stay in control of your kaata.
+
+- Search all customers together, with improved name matching, sorting and filters.
+- Select multiple customers to see their combined balances and transaction counts, or remove them together.
+- Organize customers into groups and set reminders for follow-ups.
+- Add Admins, customize staff permissions and set customer debt and credit limits with warnings or restrictions.
+- Transfer ownership through an invitation shared by email or WhatsApp, and stay on as an Editor.
+- Restore shared ledgers more reliably and keep linked accounts in sync across phones.
+- Recover a deleted account by signing back in within 30 days.
+- Enjoy clearer onboarding, improved Dari wording and smoother sheets and selection controls.
