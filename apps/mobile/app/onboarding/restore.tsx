@@ -29,17 +29,21 @@
 
 import { Ionicons } from "@expo/vector-icons";
 import { useIsFocused, useRouter } from "expo-router";
-import { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { BackHandler, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Button } from "../../components/Button";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
+import {
+  OnboardingAction,
+  OnboardingHeader,
+  OnboardingIntro,
+  onboardingStyles,
+} from "../../components/Onboarding";
 import { RestoreProgress, restoreProgressLabel } from "../../components/RestoreProgress";
 import { requestImmediateCheckIn } from "../../lib/checkin-trigger";
 import { colors } from "../../lib/colors";
 import { getAppMeta, setAppMeta } from "../../lib/db";
-import { textDir, trackingSafe, useIsRTL } from "../../lib/direction";
-import { fonts, sansLineHeight } from "../../lib/fonts";
+import { rowDir, textDir, useIsRTL } from "../../lib/direction";
 import { t } from "../../lib/i18n";
 import {
   adoptAccountPhoneToSelf,
@@ -51,7 +55,7 @@ import {
 } from "../../lib/auth";
 import { recoverAllVaults, type RecoveryProgress } from "../../lib/recovery";
 import { RestoreSessionExpiredError, RestoreTimeoutError } from "../../lib/restore";
-import { icon, radius, typography } from "../../lib/tokens";
+import { icon, typography } from "../../lib/tokens";
 import { listVaults } from "../../lib/vault-api";
 
 type Phase =
@@ -75,7 +79,13 @@ export default function OnboardingRestoreScreen() {
     };
   }, []);
   const isRTL = useIsRTL();
-  const [phase, setPhase] = useState<Phase>({ kind: "loading" });
+  const [phase, updatePhase] = useState<Phase>({ kind: "loading" });
+  const phaseRef = useRef(phase);
+  phaseRef.current = phase;
+  const setPhase = useCallback((next: Phase) => {
+    phaseRef.current = next;
+    updatePhase(next);
+  }, []);
   // Bumped by the error screen's "Try again" — the probe effect keys on it.
   // Previously Try-again only set phase back to "loading" and NOTHING
   // re-ran the mount-only probe: an infinite spinner with force-quit as
@@ -83,6 +93,9 @@ export default function OnboardingRestoreScreen() {
   const [retryNonce, setRetryNonce] = useState(0);
   // Synchronous re-entry guard for the restore action — see entry/new.tsx.
   const restoringRef = useRef(false);
+  // Route changes and recovery must not start together on a same-frame tap.
+  const navigatingRef = useRef(false);
+  const [navigating, setNavigating] = useState(false);
   // Live recovery progress for the determinate bar in the "restoring" phase.
   const [progress, setProgress] = useState<RecoveryProgress | null>(null);
   // Confirmation gate for "Start fresh" on the data-found screen — discarding
@@ -163,7 +176,7 @@ export default function OnboardingRestoreScreen() {
   }, [cancelledDeletion, phase.kind]);
 
   async function onRestore() {
-    if (restoringRef.current) return;
+    if (restoringRef.current || navigatingRef.current || phaseRef.current.kind !== "ready") return;
     const session = probedSession.current;
     if (!session?.accountId || !mounted.current || !focused.current) return;
     restoringRef.current = true;
@@ -238,8 +251,17 @@ export default function OnboardingRestoreScreen() {
   // the account guard demands a session token, and an expired or missing one
   // made this button a silent no-op on the very screen that offered it.
   async function onStartFresh(opts: { persistSkip: boolean }) {
+    if (
+      restoringRef.current ||
+      navigatingRef.current ||
+      (phaseRef.current.kind !== "ready" && phaseRef.current.kind !== "error")
+    ) {
+      return;
+    }
     const session = probedSession.current;
-    if (!session?.accountId) return;
+    if (!session?.accountId || !mounted.current || !focused.current) return;
+    navigatingRef.current = true;
+    setNavigating(true);
     await applyForUnchangedLocalSession(session, async () => {
       if (!mounted.current || !focused.current) return;
       // Only persist the per-account skip flag for a DELIBERATE choice on the
@@ -257,136 +279,170 @@ export default function OnboardingRestoreScreen() {
       }
       await setAppMeta("onboarding_step", "profile");
       router.replace("/onboarding/profile");
-    }).catch(() => {});
+    }).catch((err) => {
+      navigatingRef.current = false;
+      if (!mounted.current || !focused.current) return;
+      setNavigating(false);
+      if (err instanceof SessionChangedError) return;
+      setPhase({ kind: "error", message: classifyError(err), retryable: true });
+    });
   }
 
   // The expired-session error says "Sign in again"; this is that way out.
-  async function onSignInAgain() {
+  const onSignInAgain = useCallback(async () => {
+    if (
+      restoringRef.current ||
+      navigatingRef.current ||
+      phaseRef.current.kind === "loading" ||
+      phaseRef.current.kind === "ready_none"
+    ) {
+      return;
+    }
     const session = probedSession.current;
-    if (!session) return;
+    if (!session || !mounted.current || !focused.current) return;
+    navigatingRef.current = true;
+    setNavigating(true);
     await applyForUnchangedLocalSession(session, async () => {
       if (!mounted.current || !focused.current) return;
       await setAppMeta("onboarding_step", "auth");
       router.replace("/onboarding/auth");
-    }).catch(() => {});
-  }
+    }).catch((err) => {
+      navigatingRef.current = false;
+      if (!mounted.current || !focused.current) return;
+      setNavigating(false);
+      if (err instanceof SessionChangedError) return;
+      setPhase({ kind: "error", message: classifyError(err), retryable: true });
+    });
+  }, [router, setPhase]);
+
+  // Android Back follows the same explicit step as the visible return button.
+  // During a restore, keep the screen mounted until recovery has finished.
+  useEffect(() => {
+    if (!isFocused) return;
+    const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
+      void onSignInAgain();
+      return true;
+    });
+    return () => subscription.remove();
+  }, [isFocused, onSignInAgain]);
 
   // ---------- render ----------
 
   if (phase.kind === "loading" || phase.kind === "ready_none") {
     return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.center}>
-          <ActivityIndicator color={colors.textDefault} />
-        </View>
+      <SafeAreaView style={onboardingStyles.screen}>
+        <OnboardingHeader onBack={onSignInAgain} disabled />
+        <ScrollView contentContainerStyle={onboardingStyles.content}>
+          <OnboardingIntro title={t("onboardingRestore.checking")} />
+          <View style={styles.progressPanel}>
+            <RestoreProgress
+              label={t("onboardingRestore.checkingHint")}
+              tone="dark"
+              isRTL={isRTL}
+            />
+          </View>
+        </ScrollView>
       </SafeAreaView>
     );
   }
 
   if (phase.kind === "restoring") {
     return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.center}>
-          <RestoreProgress
-            fraction={progress?.fraction ?? 0}
-            label={
+      <SafeAreaView style={onboardingStyles.screen}>
+        <OnboardingHeader onBack={onSignInAgain} disabled />
+        <ScrollView contentContainerStyle={onboardingStyles.content}>
+          <OnboardingIntro
+            title={
               cancelledDeletion
                 ? t("account.deleteAccount.restoring")
-                : progress
-                  ? restoreProgressLabel(progress)
-                  : t("onboardingRestore.restoring")
+                : t("onboardingRestore.restoring")
             }
-            tone="dark"
-            isRTL={isRTL}
           />
-        </View>
+          <View style={styles.progressPanel}>
+            <RestoreProgress
+              fraction={progress?.fraction ?? 0}
+              label={progress ? restoreProgressLabel(progress) : t("restoreProgress.preparing")}
+              tone="dark"
+              isRTL={isRTL}
+            />
+          </View>
+        </ScrollView>
       </SafeAreaView>
     );
   }
 
   if (phase.kind === "error") {
     return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.content}>
-          <Text style={[styles.title, textDir(isRTL), trackingSafe(isRTL)]}>
-            {t("onboardingRestore.errorTitle")}
-          </Text>
-          <Text style={[styles.subtitle, textDir(isRTL)]}>{phase.message}</Text>
-          <View style={styles.spacer} />
-          {phase.expired ? (
-            <Button
-              label={t("onboardingRestore.signInAgain")}
-              onPress={() => void onSignInAgain()}
+      <SafeAreaView style={onboardingStyles.screen}>
+        <OnboardingHeader onBack={onSignInAgain} disabled={navigating} />
+        <ScrollView contentContainerStyle={onboardingStyles.content}>
+          <OnboardingIntro title={t("onboardingRestore.errorTitle")} description={phase.message} />
+          <View style={styles.actions}>
+            {phase.expired ? (
+              <OnboardingAction
+                label={t("onboardingRestore.signInAgain")}
+                onPress={onSignInAgain}
+                disabled={navigating}
+              />
+            ) : null}
+            {phase.retryable ? (
+              <OnboardingAction
+                label={t("onboardingRestore.tryAgain")}
+                disabled={navigating}
+                onPress={() => {
+                  if (navigatingRef.current || restoringRef.current) return;
+                  autoRestoreStarted.current = false;
+                  setPhase({ kind: "loading" });
+                  // Re-run the probe; changing the phase alone cannot retry it.
+                  setRetryNonce((n) => n + 1);
+                }}
+              />
+            ) : null}
+            <OnboardingAction
+              variant="outline"
+              label={t("onboardingRestore.startFresh")}
+              disabled={navigating}
+              // A failed restore must be offered again on the next launch.
+              onPress={() => void onStartFresh({ persistSkip: false })}
             />
-          ) : null}
-          {phase.retryable ? (
-            <Button
-              label={t("onboardingRestore.tryAgain")}
-              onPress={() => {
-                autoRestoreStarted.current = false;
-                setPhase({ kind: "loading" });
-                // Re-run the probe — setting phase alone left an
-                // infinite spinner (the probe effect was mount-only).
-                setRetryNonce((n) => n + 1);
-              }}
-            />
-          ) : null}
-          <View style={styles.gap} />
-          <Button
-            variant="secondary"
-            label={t("onboardingRestore.startFresh")}
-            // From the error screen: do NOT persist the skip — the restore
-            // failed (likely transient), so the next launch should re-offer it.
-            onPress={() => onStartFresh({ persistSkip: false })}
-          />
-        </View>
+          </View>
+        </ScrollView>
       </SafeAreaView>
     );
   }
 
   // phase.kind === "ready"
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.content}>
-        <Text style={[styles.title, textDir(isRTL), trackingSafe(isRTL)]}>
-          {t("onboardingRestore.title")}
-        </Text>
-        <Text style={[styles.subtitle, textDir(isRTL)]}>
-          {t("onboardingRestore.subtitleVaults", { count: String(phase.vaultCount) })}
-        </Text>
-
-        <View style={styles.spacer} />
-
-        <Pressable
-          onPress={onRestore}
-          style={({ pressed }) => [styles.card, styles.cardPrimary, pressed && { opacity: 0.85 }]}
-        >
-          <View style={styles.cardIcon}>
-            <Ionicons name="cloud-download-outline" size={icon.card} color={colors.textInverted} />
-          </View>
-          <Text style={[styles.cardTitle, styles.cardTitlePrimary, textDir(isRTL)]}>
-            {t("onboardingRestore.restore.title")}
-          </Text>
-          <Text style={[styles.cardBody, styles.cardBodyPrimary, textDir(isRTL)]}>
+    <SafeAreaView style={onboardingStyles.screen}>
+      <OnboardingHeader onBack={onSignInAgain} disabled={navigating} />
+      <ScrollView contentContainerStyle={onboardingStyles.content}>
+        <OnboardingIntro
+          title={t("onboardingRestore.title")}
+          description={t("onboardingRestore.subtitleVaults", { count: String(phase.vaultCount) })}
+        />
+        <View style={[styles.backupDetails, rowDir(isRTL)]}>
+          <Ionicons name="cloud-download-outline" size={icon.row} color={colors.textSubtle} />
+          <Text style={[styles.backupDescription, textDir(isRTL)]}>
             {t("onboardingRestore.restore.bodyVaults", { count: String(phase.vaultCount) })}
           </Text>
-        </Pressable>
-
-        <View style={styles.gap} />
-
-        <Pressable
-          onPress={() => setConfirmFresh(true)}
-          style={({ pressed }) => [styles.card, styles.cardGhost, pressed && { opacity: 0.85 }]}
-        >
-          <View style={styles.cardIcon}>
-            <Ionicons name="document-outline" size={icon.card} color={colors.textEmphasis} />
-          </View>
-          <Text style={[styles.cardTitle, textDir(isRTL)]}>
-            {t("onboardingRestore.fresh.title")}
-          </Text>
-          <Text style={[styles.cardBody, textDir(isRTL)]}>{t("onboardingRestore.fresh.body")}</Text>
-        </Pressable>
-      </View>
+        </View>
+        <View style={styles.actions}>
+          <OnboardingAction
+            label={t("onboardingRestore.restore.title")}
+            onPress={onRestore}
+            disabled={navigating}
+          />
+          <OnboardingAction
+            variant="outline"
+            label={t("onboardingRestore.fresh.title")}
+            disabled={navigating}
+            onPress={() => {
+              if (!restoringRef.current && !navigatingRef.current) setConfirmFresh(true);
+            }}
+          />
+        </View>
+        <Text style={[styles.freshHint, textDir(isRTL)]}>{t("onboardingRestore.fresh.body")}</Text>
+      </ScrollView>
 
       <ConfirmDialog
         visible={confirmFresh}
@@ -416,84 +472,28 @@ function classifyError(err: unknown): string {
   return t("onboardingRestore.errorGeneric");
 }
 
-// ---------- styles (mirrors onboarding/auth.tsx for visual continuity) ----------
-
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.bgWarm },
-  content: { flex: 1, padding: 24, justifyContent: "center" },
-  center: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 32,
-  },
-  title: {
-    // typography.heading (20) — was a one-off 22. This file mirrors
-    // onboarding/auth.tsx for visual continuity (see the header), so it takes
-    // the identical token + sansBold override rather than the token's sansSemi.
-    ...typography.heading,
-    fontFamily: fonts.sansBold,
-    color: colors.textEmphasis,
-    letterSpacing: -0.4,
-    textAlign: "center",
-  },
-  subtitle: {
-    fontSize: 14,
-    fontFamily: fonts.sansRegular,
-    color: colors.textSubtle,
-    marginTop: 8,
-    lineHeight: sansLineHeight(14, 20),
-    textAlign: "center",
-  },
-  spacer: { height: 36 },
-  gap: { height: 14 },
-  card: {
-    // radius.lg — matches onboarding/auth.tsx's card family (this file mirrors
-    // it for visual continuity) and cardPrimary floats with elevation 4.
-    borderRadius: radius.lg,
-    padding: 20,
+  progressPanel: {
+    borderRadius: 12,
     borderWidth: 1,
-  },
-  // Black like every other primary card, not the one Aubergine card on the
-  // first-run screens (audit #9).
-  cardPrimary: {
-    backgroundColor: colors.actionPrimary,
-    borderColor: colors.actionPrimary,
-    ...Platform.select({
-      ios: {
-        shadowColor: "#000",
-        shadowOpacity: 0.18,
-        shadowRadius: 14,
-        shadowOffset: { width: 0, height: 6 },
-      },
-      android: { elevation: 4 },
-    }),
-  },
-  cardGhost: {
-    backgroundColor: colors.bgDefault,
     borderColor: colors.borderDefault,
+    backgroundColor: colors.bgMuted,
+    padding: 20,
   },
-  cardIcon: {
-    // Squircle well, not a circle — 44 wide with radius.md, left as-is.
-    width: 44,
-    height: 44,
-    borderRadius: radius.md,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 12,
+  backupDetails: {
+    borderWidth: 1,
+    borderColor: colors.borderDefault,
+    borderRadius: 12,
+    padding: 16,
+    alignItems: "flex-start",
+    gap: 12,
+    marginBottom: 24,
   },
-  cardTitle: {
-    fontSize: 16,
-    fontFamily: fonts.sansSemi,
-    color: colors.textEmphasis,
-    marginBottom: 6,
-  },
-  cardTitlePrimary: { color: colors.textInverted },
-  cardBody: {
-    fontSize: 13,
-    fontFamily: fonts.sansRegular,
+  backupDescription: { ...typography.bodySm, color: colors.textSubtle, flex: 1 },
+  actions: { gap: 12 },
+  freshHint: {
+    ...typography.hint,
     color: colors.textSubtle,
-    lineHeight: sansLineHeight(13, 19),
+    marginTop: 12,
   },
-  cardBodyPrimary: { color: colors.textInverted, opacity: 0.85 },
 });

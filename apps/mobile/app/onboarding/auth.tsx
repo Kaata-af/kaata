@@ -18,11 +18,11 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { GoogleGIcon } from "../../components/GoogleGIcon";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { EmailAuthFlow } from "../../components/EmailAuthFlow";
+import { OnboardingHeader, OnboardingIntro, onboardingStyles } from "../../components/Onboarding";
 import { recoverAllVaults, type RecoveryProgress } from "../../lib/recovery";
 import { RestoreProgress, restoreProgressLabel } from "../../components/RestoreProgress";
 import { useToast } from "../../components/Toast";
 import { reconcileVaultRegistrations } from "../../lib/sync/reconcile";
-import { NinjaIcon } from "../../components/NinjaIcon";
 import {
   type DifferentAccountChoice,
   type DifferentAccountPromptArgs,
@@ -44,10 +44,10 @@ import { colors } from "../../lib/colors";
 import { getAppMeta, getLocalSelf, setAppMeta } from "../../lib/db";
 import { getActiveVaultIdSyncMaybe, setActiveVaultId } from "../../lib/db-tx";
 import { applyVaultCurrency } from "../../lib/currency";
-import { ltrIsolate, rowDir, textDir, trackingSafe, useIsRTL } from "../../lib/direction";
+import { ltrIsolate, rowDir, textDir, useIsRTL } from "../../lib/direction";
 import { fonts, sansLineHeight } from "../../lib/fonts";
 import { t } from "../../lib/i18n";
-import { icon, radius, TOUCH_MIN, typography } from "../../lib/tokens";
+import { radius, TOUCH_MIN } from "../../lib/tokens";
 import { useOnboardingKeyboardScroll } from "../../lib/use-onboarding-keyboard-scroll";
 
 // Onboarding step 2 — auth choice. Sits BEFORE the name/shop form so the
@@ -194,7 +194,9 @@ export function AuthScreen({
   // while one runs, but only the tapped one shows the spinner — a shared
   // boolean used to put a spinner on BOTH cards at once. "reset" = the
   // retired-install reset below is erasing; everything disables.
-  const [busy, setBusy] = useState<null | "google" | "apple" | "email" | "reset" | "back">(null);
+  const [busy, setBusy] = useState<
+    null | "google" | "apple" | "email" | "reset" | "back" | "offline"
+  >(null);
   const [error, setError] = useState<string | null>(null);
   // The last failure was a retired install: offer "Reset this phone".
   const [retired, setRetired] = useState(false);
@@ -588,15 +590,23 @@ export function AuthScreen({
 
   async function onStayOffline() {
     if (busyRef.current) return;
-    await setAppMeta("onboarding_auth_method", "offline");
-    // Clear any pending Google name/email that lingered from a prior
-    // sign-in attempt this session — otherwise the profile screen would
-    // show "Signed in as X" even though the user is now choosing offline.
-    await setAppMeta("onboarding_pending_name", "");
-    await setAppMeta("onboarding_pending_email", "");
-    await setAppMeta("onboarding_pending_phone", "");
-    await setAppMeta("onboarding_step", "profile");
-    replaceAuthRoute("/onboarding/profile");
+    busyRef.current = true;
+    setBusy("offline");
+    setError(null);
+    try {
+      await setAppMeta("onboarding_auth_method", "offline");
+      // Remove a previous provider identity before the offline profile opens.
+      await setAppMeta("onboarding_pending_name", "");
+      await setAppMeta("onboarding_pending_email", "");
+      await setAppMeta("onboarding_pending_phone", "");
+      await setAppMeta("onboarding_step", "profile");
+      if (focusedRef.current) replaceAuthRoute("/onboarding/profile");
+    } catch {
+      if (focusedRef.current) setError(t("entry.saveFailed"));
+    } finally {
+      busyRef.current = false;
+      if (focusedRef.current) setBusy(null);
+    }
   }
 
   // The last failure, under whichever sign-in produced it, plus the retired
@@ -614,6 +624,7 @@ export function AuthScreen({
           disabled={busy !== null}
           accessibilityRole="button"
           accessibilityLabel={t("account.retired.reset")}
+          accessibilityState={{ disabled: busy !== null, busy: busy === "reset" }}
           style={({ pressed }) => [
             styles.resetButton,
             pressed && { backgroundColor: colors.bgMuted },
@@ -632,23 +643,10 @@ export function AuthScreen({
 
   const providerChoices = (
     <>
-      {/* Onboarding keeps the brand heading; the in-app page from Settings is
-          neutral like the rest of the app (audit #12). */}
-      <Text
-        style={[
-          styles.title,
-          redirected && { color: colors.textEmphasis },
-          textDir(isRTL),
-          trackingSafe(isRTL),
-        ]}
-      >
-        {t(redirected ? "auth.redirect.title" : "onboardingMode.title")}
-      </Text>
-      <Text style={[styles.subtitle, textDir(isRTL)]}>
-        {t(redirected ? "auth.redirect.subtitle" : "onboardingMode.subtitle")}
-      </Text>
-
-      <View style={styles.spacer} />
+      <OnboardingIntro
+        title={t(redirected ? "auth.redirect.title" : "onboardingMode.title")}
+        description={t(redirected ? "auth.redirect.subtitle" : "onboardingMode.subtitle")}
+      />
 
       {/* Two clearly separate offers, each explained ONCE. The backup
           sentence used to be repeated verbatim on the Google and Apple
@@ -680,6 +678,7 @@ export function AuthScreen({
                 onPress={isGoogle ? onSignIn : onAppleSignIn}
                 disabled={busy !== null}
                 accessibilityRole="button"
+                accessibilityState={{ disabled: busy !== null, busy: spinning }}
                 accessibilityLabel={t(
                   isGoogle ? "onboardingMode.google.title" : "onboardingMode.apple.title",
                 )}
@@ -691,15 +690,15 @@ export function AuthScreen({
                   busy !== null && !spinning && { opacity: 0.5 },
                 ]}
               >
-                <View style={[styles.cardIcon, isRTL ? { marginLeft: 14 } : { marginRight: 14 }]}>
+                <View style={styles.cardIcon}>
                   {spinning ? (
                     <ActivityIndicator
                       color={isGoogle ? colors.textEmphasis : colors.textInverted}
                     />
                   ) : isGoogle ? (
-                    <GoogleGIcon size={icon.card} />
+                    <GoogleGIcon size={20} />
                   ) : (
-                    <Ionicons name="logo-apple" size={icon.card} color={colors.textInverted} />
+                    <Ionicons name="logo-apple" size={22} color={colors.textInverted} />
                   )}
                 </View>
                 <Text
@@ -720,6 +719,7 @@ export function AuthScreen({
         disabled={busy !== null}
         accessibilityRole="button"
         accessibilityLabel={t("onboardingMode.email.title")}
+        accessibilityState={{ disabled: busy !== null }}
         style={({ pressed }) => [
           styles.card,
           rowDir(isRTL),
@@ -728,12 +728,10 @@ export function AuthScreen({
           busy !== null && { opacity: 0.5 },
         ]}
       >
-        <View style={[styles.cardIcon, isRTL ? { marginLeft: 14 } : { marginRight: 14 }]}>
-          <Ionicons name="mail-outline" size={24} color={colors.actionPrimary} />
+        <View style={styles.cardIcon}>
+          <Ionicons name="mail-outline" size={20} color={colors.textEmphasis} />
         </View>
-        <Text style={[styles.cardTitle, styles.cardTitleKaata, textDir(isRTL)]}>
-          {t("onboardingMode.email.title")}
-        </Text>
+        <Text style={[styles.cardTitle, textDir(isRTL)]}>{t("onboardingMode.email.title")}</Text>
       </Pressable>
 
       {failureNotice}
@@ -755,6 +753,7 @@ export function AuthScreen({
             disabled={busy !== null}
             accessibilityRole="button"
             accessibilityLabel={t("onboardingMode.offline.title")}
+            accessibilityState={{ disabled: busy !== null, busy: busy === "offline" }}
             style={({ pressed }) => [
               styles.card,
               rowDir(isRTL),
@@ -763,13 +762,12 @@ export function AuthScreen({
               busy !== null && { opacity: 0.5 },
             ]}
           >
-            <View style={[styles.cardIcon, isRTL ? { marginLeft: 14 } : { marginRight: 14 }]}>
-              {/* NOT icon.card (28) like the G / Apple marks above: NinjaIcon's
-                  viewBox is "0 -64 640 640" and the head circle fills only ~77%
-                  of it (the rest is katana headroom), so at 28 the ninja reads
-                  visibly smaller than its two siblings in the shared 32px well.
-                  30 is the optical-size compensation — a composed graphic. */}
-              <NinjaIcon size={30} />
+            <View style={styles.cardIcon}>
+              {busy === "offline" ? (
+                <ActivityIndicator color={colors.textEmphasis} />
+              ) : (
+                <Ionicons name="phone-portrait-outline" size={20} color={colors.textEmphasis} />
+              )}
             </View>
             <Text style={[styles.cardTitle, textDir(isRTL)]}>
               {t("onboardingMode.offline.title")}
@@ -781,7 +779,7 @@ export function AuthScreen({
   );
 
   return (
-    <SafeAreaView style={[styles.container, redirected && { backgroundColor: colors.bgDefault }]}>
+    <SafeAreaView style={onboardingStyles.screen}>
       {emailRoute ? (
         <Stack.Screen
           options={{
@@ -789,34 +787,16 @@ export function AuthScreen({
           }}
         />
       ) : null}
-      {redirected || inEmailMode || !emailRoute ? (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={t("common.back")}
-          disabled={busy !== null || !resumeChecked}
-          onPress={() =>
-            inEmailMode
-              ? emailBack()
-              : !redirected
-                ? void backToCalendar()
-                : router.canGoBack()
-                  ? router.back()
-                  : router.replace("/")
-          }
-          style={{
-            minHeight: 44,
-            minWidth: 44,
-            alignSelf: isRTL ? "flex-end" : "flex-start",
-            padding: 12,
-          }}
-        >
-          <Ionicons
-            name={isRTL ? "chevron-forward" : "chevron-back"}
-            size={26}
-            color={colors.textEmphasis}
-          />
-        </Pressable>
-      ) : null}
+      <OnboardingHeader
+        disabled={busy !== null || !resumeChecked}
+        onBack={() => {
+          if (busyRef.current || !resumeChecked) return;
+          if (inEmailMode) emailBack();
+          else if (!redirected) void backToCalendar();
+          else if (router.canGoBack()) router.back();
+          else router.replace("/");
+        }}
+      />
       <KeyboardAvoidingView
         style={styles.flex}
         // Android draws edge-to-edge, so the window never shrinks for the
@@ -829,7 +809,7 @@ export function AuthScreen({
         <ScrollView
           {...scrollProps}
           style={styles.flex}
-          contentContainerStyle={styles.content}
+          contentContainerStyle={onboardingStyles.content}
           showsVerticalScrollIndicator={false}
         >
           {restoring ? (
@@ -911,33 +891,8 @@ export function AuthScreen({
 
 const styles = StyleSheet.create({
   restoring: { marginBottom: 24 },
-  container: { flex: 1, backgroundColor: colors.bgWarm },
   flex: { flex: 1 },
-  // A scroll container (the email flow needs the keyboard room), so flexGrow,
-  // not flex: the column still centres when it fits.
-  content: { flexGrow: 1, padding: 24, justifyContent: "center" },
-  title: {
-    // typography.heading (20) — was a one-off 22. sansBold is kept OVER the
-    // token's sansSemi: what made this headline the loudest thing on the screen
-    // was the weight, not the two points of size. Spreading the token is also
-    // what gives it a lineHeight at all (it had none), routed through
-    // sansLineHeight so iOS can't clip the glyph tops.
-    ...typography.heading,
-    fontFamily: fonts.sansBold,
-    color: colors.brandPrimary,
-    letterSpacing: -0.4,
-    textAlign: "center",
-  },
-  subtitle: {
-    fontSize: 14,
-    fontFamily: fonts.sansRegular,
-    color: colors.textSubtle,
-    marginTop: 8,
-    lineHeight: sansLineHeight(14, 20),
-    textAlign: "center",
-  },
-  spacer: { height: 28 },
-  gap: { height: 12 },
+  gap: { height: 10 },
   // Group heading + its one-time explanation. No uppercase/tracking: letter-
   // spacing severs Arabic-script joining in the Dari labels.
   groupLabel: {
@@ -958,77 +913,47 @@ const styles = StyleSheet.create({
     backgroundColor: colors.borderDefault,
     marginVertical: 24,
   },
-  // Compact action row (icon + label). The cards used to be icon-over-title-
-  // over-paragraph blocks; the paragraph moved up into the group explanation,
-  // so the choice itself is now one tappable line.
   card: {
     flexDirection: "row",
     alignItems: "center",
-    // radius.lg — these are floating inset surfaces (cardPrimary/cardGoogle
-    // both carry a shadow + elevation 4). Was a bare 14.
-    borderRadius: radius.lg,
-    paddingVertical: 14,
+    justifyContent: "center",
+    gap: 12,
+    borderRadius: 12,
+    paddingVertical: 12,
     paddingHorizontal: 16,
-    minHeight: 60,
+    minHeight: 52,
     borderWidth: 1,
   },
   cardPrimary: {
     backgroundColor: colors.providerApple,
     borderColor: colors.providerApple,
-    ...Platform.select({
-      ios: {
-        shadowColor: "#000",
-        shadowOpacity: 0.18,
-        shadowRadius: 14,
-        shadowOffset: { width: 0, height: 6 },
-      },
-      android: { elevation: 4 },
-    }),
   },
   cardGhost: {
     backgroundColor: colors.bgDefault,
     borderColor: colors.borderDefault,
   },
-  // "Continue with email": the provider cards' geometry, outlined and flat (no
-  // shadow), a step quieter than the two branded cards above it.
   cardOutlined: {
     backgroundColor: colors.bgDefault,
-    borderColor: colors.actionPrimary,
+    borderColor: colors.borderDefault,
   },
-  // Google's brand guidance puts the multicolor G on a LIGHT surface — and
-  // the white card is also what visually separates it from the black Apple
-  // card (two identical dark cards read as one choice). Same elevation as
-  // cardPrimary so the pair sits at equal weight.
   cardGoogle: {
     backgroundColor: colors.bgDefault,
     borderColor: colors.borderDefault,
-    ...Platform.select({
-      ios: {
-        shadowColor: "#000",
-        shadowOpacity: 0.1,
-        shadowRadius: 14,
-        shadowOffset: { width: 0, height: 6 },
-      },
-      android: { elevation: 4 },
-    }),
   },
-  // Fixed box so the three logos (G / Apple / ninja) sit on one vertical
-  // axis despite different glyph widths. rowDir() flips the row in Dari, and
-  // the margin side is set inline to follow it.
   cardIcon: {
-    width: 32,
-    height: 32,
+    width: 24,
+    height: 24,
     alignItems: "center",
     justifyContent: "center",
   },
   cardTitle: {
-    flex: 1,
-    fontSize: 16,
+    flexShrink: 1,
+    fontSize: 14,
     fontFamily: fonts.sansSemi,
     color: colors.textEmphasis,
+    lineHeight: sansLineHeight(14, 20),
   },
   cardTitlePrimary: { color: colors.textInverted },
-  cardTitleKaata: { color: colors.actionPrimary },
   errorText: {
     fontSize: 12,
     fontFamily: fonts.sansMedium,

@@ -1,11 +1,13 @@
+import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { OnboardingHeader, OnboardingIntro, onboardingStyles } from "../../components/Onboarding";
 import { colors } from "../../lib/colors";
 import { setAppMeta } from "../../lib/db";
-import { textDir, trackingSafe, useIsRTL } from "../../lib/direction";
-import { fonts, sansLineHeight } from "../../lib/fonts";
+import { rowDir, textDir, useIsRTL } from "../../lib/direction";
+import { fonts } from "../../lib/fonts";
 import { setLocale, t } from "../../lib/i18n";
 import { radius, typography } from "../../lib/tokens";
 
@@ -55,114 +57,69 @@ export default function OnboardingLanguageScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.content}>
-        <Text style={[styles.brand, trackingSafe(isRTL)]}>{t("brand.wordmark")}</Text>
-        <View style={styles.gapLarge} />
-        <Text style={[styles.title, textDir(isRTL)]}>{t("onboardingLanguage.title")}</Text>
-        <Text style={[styles.subtitle, textDir(isRTL)]}>{t("onboardingLanguage.subtitle")}</Text>
-
-        <View style={styles.gapLarge} />
-
-        <Pressable
-          onPress={() => pick("en")}
-          disabled={busy}
-          accessibilityRole="button"
-          accessibilityLabel="English"
-          style={({ pressed }) => [styles.card, pressed && { opacity: 0.85 }]}
-        >
-          <Text style={styles.cardLabel}>English</Text>
-        </Pressable>
-
-        <View style={styles.gap} />
-
-        <Pressable
-          onPress={() => pick("fa")}
-          disabled={busy}
-          accessibilityRole="button"
-          accessibilityLabel="دری"
-          style={({ pressed }) => [styles.card, pressed && { opacity: 0.85 }]}
-        >
-          {/* Always render in Vazirmatn so the Dari card renders in its
-              own script regardless of current locale. */}
-          <Text style={[styles.cardLabel, styles.cardLabelFa]}>دری</Text>
-        </Pressable>
+    <SafeAreaView style={onboardingStyles.screen}>
+      <OnboardingHeader />
+      <ScrollView
+        contentContainerStyle={onboardingStyles.content}
+        showsVerticalScrollIndicator={false}
+      >
+        <OnboardingIntro
+          title={t("onboardingLanguage.title")}
+          description={t("onboardingLanguage.subtitle")}
+        />
+        <View style={styles.choices}>
+          {(["en", "fa"] as const).map((code) => (
+            <Pressable
+              key={code}
+              onPress={() => void pick(code)}
+              disabled={busy}
+              accessibilityRole="button"
+              accessibilityLabel={code === "en" ? "English" : "دری"}
+              accessibilityState={{ disabled: busy, busy }}
+              style={({ pressed }) => [
+                styles.card,
+                rowDir(isRTL),
+                pressed && styles.pressed,
+                busy && { opacity: 0.5 },
+              ]}
+            >
+              <Text style={[styles.cardLabel, code === "fa" && styles.cardLabelFa]}>
+                {code === "en" ? "English" : "دری"}
+              </Text>
+              <Ionicons
+                name={isRTL ? "arrow-back" : "arrow-forward"}
+                size={20}
+                color={colors.textMuted}
+              />
+            </Pressable>
+          ))}
+        </View>
         {error ? (
           <Text style={[styles.error, textDir(isRTL)]} accessibilityLiveRegion="polite">
             {error}
           </Text>
         ) : null}
-      </View>
+      </ScrollView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  error: { ...typography.bodySm, color: colors.danger, marginTop: 16, textAlign: "center" },
-  container: { flex: 1, backgroundColor: colors.bgWarm },
-  content: { flex: 1, padding: 24, justifyContent: "center" },
-  brand: {
-    fontSize: 28,
-    fontFamily: fonts.sansBold,
-    color: colors.brandPrimary,
-    letterSpacing: -0.6,
-    textAlign: "center",
-  },
-  title: {
-    fontSize: 20,
-    fontFamily: fonts.sansSemi,
-    color: colors.textEmphasis,
-    textAlign: "center",
-  },
-  subtitle: {
-    fontSize: 13,
-    fontFamily: fonts.sansRegular,
-    color: colors.textSubtle,
-    marginTop: 8,
-    textAlign: "center",
-    lineHeight: sansLineHeight(13, 19),
-  },
-  gap: { height: 14 },
-  gapLarge: { height: 32 },
+  error: { ...typography.bodySm, color: colors.danger, marginTop: 16 },
+  choices: { gap: 12 },
   card: {
-    // radius.lg (16), not md — these are the same inset hero-card family as
-    // the auth screen's provider cards (which carry the lift shadow), and the
-    // two screens are seen seconds apart. Was a bare 14.
-    borderRadius: radius.lg,
-    paddingVertical: 22,
-    paddingHorizontal: 20,
+    minHeight: 64,
+    paddingVertical: 16,
+    paddingHorizontal: 18,
+    borderRadius: radius.md,
     borderWidth: 1,
     borderColor: colors.borderDefault,
     backgroundColor: colors.bgDefault,
     alignItems: "center",
+    justifyContent: "space-between",
+    gap: 16,
   },
-  cardLabel: {
-    // typography.heading (20) — was 18, and sansSemi is already the token's
-    // family, so this is a pure size step. The label is the ONLY text on the
-    // card, so it legitimately takes the screen-headline step rather than a
-    // row label.
-    ...typography.heading,
-    color: colors.textEmphasis,
-  },
-  cardLabelFa: {
-    // The fa* font family in fonts.ts is already Vazirmatn, but call it
-    // out explicitly here so future Inter-vs-Vazirmatn refactors don't
-    // accidentally render دری in a Latin-only font.
-    //
-    // DELIBERATE OPTICAL BUMP — do NOT collapse this onto the type scale.
-    //
-    // Persian letterforms occupy less of the em box than Latin ones, so دری at
-    // the same NOMINAL size as "English" reads visibly smaller. These two cards
-    // sit one directly above the other — the single layout in the app where a
-    // reader compares the two scripts side by side and the difference is
-    // unmissable. A type scale governs nominal sizes; it cannot govern optical
-    // ones. A consistency pass that flattens this makes the screen worse in the
-    // name of tidiness, which is why it is spelled out here rather than left to
-    // look like drift. (Originally 22 against English's 18; still 22, now
-    // against typography.heading's 20 — a smaller correction, because the
-    // English side grew.)
-    fontSize: 22,
-    lineHeight: sansLineHeight(22, 28),
-    fontFamily: fonts.faSemi,
-  },
+  pressed: { backgroundColor: colors.bgMuted },
+  cardLabel: { ...typography.title, flexShrink: 1, color: colors.textEmphasis },
+  cardLabelFa: { fontFamily: fonts.faSemi },
 });

@@ -27,13 +27,13 @@ import {
   SignInFailedError,
 } from "../lib/auth";
 import { colors } from "../lib/colors";
-import { ltrIsolate, rowDir, textDir, trackingSafe } from "../lib/direction";
+import { ltrIsolate, rowDir, textDir } from "../lib/direction";
 import { fonts, sansLineHeight } from "../lib/fonts";
 import { getLocale, t } from "../lib/i18n";
-import { TOUCH_MIN, typography } from "../lib/tokens";
-import { Button } from "./Button";
+import { TOUCH_MIN } from "../lib/tokens";
 import { FormField, LTR_INPUT } from "./FormField";
 import { GoogleGIcon } from "./GoogleGIcon";
+import { OnboardingAction, OnboardingIntro } from "./Onboarding";
 import { PasswordField } from "./PasswordField";
 import { PasswordRules } from "./PasswordRules";
 
@@ -454,18 +454,7 @@ export function EmailAuthFlow(props: EmailAuthFlowProps) {
   // ---- pieces ----
 
   function header(title: Key, body: string) {
-    return (
-      <>
-        <Text
-          style={[styles.title, textDir(isRTL), trackingSafe(isRTL)]}
-          accessibilityRole="header"
-        >
-          {t(title)}
-        </Text>
-        <Text style={[styles.subtitle, textDir(isRTL)]}>{body}</Text>
-        <View style={styles.spacer} />
-      </>
-    );
+    return <OnboardingIntro title={t(title)} description={body} />;
   }
 
   // A quiet text button. Every one carries its label as accessibilityLabel.
@@ -476,17 +465,16 @@ export function EmailAuthFlow(props: EmailAuthFlowProps) {
         disabled={disabled}
         accessibilityRole="button"
         accessibilityLabel={label}
+        accessibilityState={{ disabled, busy: spinning }}
         style={({ pressed }) => [
           styles.link,
-          pressed && { opacity: 0.6 },
+          rowDir(isRTL),
+          pressed && { backgroundColor: colors.bgMuted },
           disabled && !spinning && { opacity: 0.5 },
         ]}
       >
-        {spinning ? (
-          <ActivityIndicator color={colors.textSubtle} />
-        ) : (
-          <Text style={styles.linkText}>{label}</Text>
-        )}
+        {spinning ? <ActivityIndicator color={colors.textSubtle} /> : null}
+        <Text style={[styles.linkText, textDir(isRTL)]}>{label}</Text>
       </Pressable>
     );
   }
@@ -505,6 +493,7 @@ export function EmailAuthFlow(props: EmailAuthFlowProps) {
         disabled={disabled}
         accessibilityRole="button"
         accessibilityLabel={label}
+        accessibilityState={{ disabled }}
         style={({ pressed }) => [styles.gmail, rowDir(isRTL), pressed && { opacity: 0.6 }]}
       >
         <GoogleGIcon size={18} />
@@ -529,6 +518,7 @@ export function EmailAuthFlow(props: EmailAuthFlowProps) {
           autoComplete="new-password"
           textContentType="newPassword"
           editable={!disabled}
+          style={styles.input}
           returnKeyType="go"
           onSubmitEditing={onSubmit}
           error={errors.newPassword ?? null}
@@ -558,7 +548,7 @@ export function EmailAuthFlow(props: EmailAuthFlowProps) {
         returnKeyType={nextIsPassword ? "next" : "go"}
         onSubmitEditing={nextIsPassword ? () => newPasswordRef.current?.focus() : onSubmit}
         submitBehavior={nextIsPassword ? "submit" : undefined}
-        style={[LTR_INPUT, styles.codeInput]}
+        style={[styles.input, LTR_INPUT, styles.codeInput]}
         error={errors.code ?? null}
       />
     );
@@ -604,13 +594,11 @@ export function EmailAuthFlow(props: EmailAuthFlowProps) {
     return (
       <>
         <View style={styles.gap} />
-        <Button
+        <OnboardingAction
           label={t(label)}
           onPress={onPress}
           loading={working === "submit"}
           disabled={disabled}
-          size="hero"
-          fullWidth
         />
       </>
     );
@@ -637,7 +625,7 @@ export function EmailAuthFlow(props: EmailAuthFlowProps) {
         returnKeyType={nextIsPassword ? "next" : "go"}
         onSubmitEditing={nextIsPassword ? () => newPasswordRef.current?.focus() : onSubmit}
         submitBehavior={nextIsPassword ? "submit" : undefined}
-        style={LTR_INPUT}
+        style={[styles.input, LTR_INPUT]}
         error={errors.email ?? null}
       />
     );
@@ -679,7 +667,7 @@ export function EmailAuthFlow(props: EmailAuthFlowProps) {
           returnKeyType="next"
           onSubmitEditing={() => passwordRef.current?.focus()}
           submitBehavior="submit"
-          style={LTR_INPUT}
+          style={[styles.input, LTR_INPUT]}
           error={errors.identifier ?? null}
         />
 
@@ -696,6 +684,7 @@ export function EmailAuthFlow(props: EmailAuthFlowProps) {
           autoComplete="current-password"
           textContentType="password"
           editable={!disabled}
+          style={styles.input}
           returnKeyType="go"
           onSubmitEditing={submitSignIn}
           error={errors.password ?? null}
@@ -771,27 +760,16 @@ export function EmailAuthFlow(props: EmailAuthFlowProps) {
 }
 
 const styles = StyleSheet.create({
-  // AuthScreen's own title and subtitle, so the flow reads as the same screen.
-  title: {
-    ...typography.heading,
-    fontFamily: fonts.sansBold,
-    color: colors.textEmphasis,
-    letterSpacing: -0.4,
-  },
-  subtitle: {
-    fontSize: 14,
-    fontFamily: fonts.sansRegular,
-    color: colors.textSubtle,
-    marginTop: 8,
-    lineHeight: sansLineHeight(14, 20),
-  },
-  spacer: { height: 24 },
+  input: { minHeight: 52, borderRadius: 12 },
   gap: { height: 4 },
   helperRow: {
     flexDirection: "row",
     alignItems: "flex-start",
     gap: 8,
     marginBottom: 10,
+    padding: 12,
+    borderRadius: 12,
+    backgroundColor: colors.bgMuted,
   },
   helper: {
     flex: 1,
@@ -813,7 +791,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontFamily: fonts.sansSemi,
     color: colors.textEmphasis,
-    textDecorationLine: "underline",
     lineHeight: sansLineHeight(13, 19),
   },
   // Six Latin digits: mono, spaced, a size up. Tracking is safe here, the
@@ -837,15 +814,19 @@ const styles = StyleSheet.create({
   link: {
     alignSelf: "center",
     justifyContent: "center",
+    alignItems: "center",
+    gap: 8,
     minHeight: TOUCH_MIN,
     marginTop: 4,
     paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
   },
   linkText: {
     fontSize: 14,
     fontFamily: fonts.sansMedium,
     color: colors.textSubtle,
-    textDecorationLine: "underline",
+    flexShrink: 1,
     textAlign: "center",
     lineHeight: sansLineHeight(14, 20),
   },

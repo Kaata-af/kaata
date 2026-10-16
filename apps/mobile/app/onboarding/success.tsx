@@ -1,14 +1,19 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Button } from "../../components/Button";
+import {
+  OnboardingAction,
+  OnboardingHeader,
+  OnboardingIntro,
+  onboardingStyles,
+} from "../../components/Onboarding";
 import { colors } from "../../lib/colors";
 import { getAppMeta, getLocalSelf, setAppMeta } from "../../lib/db";
 import { rowDir, textDir, useIsRTL } from "../../lib/direction";
 import { t } from "../../lib/i18n";
-import { gutter, icon, radius, space, typography } from "../../lib/tokens";
+import { icon, radius, space, typography } from "../../lib/tokens";
 
 // Confirmation only: the previous step has already committed the first kaata
 // and marked onboarding done. Keep the name fallback and home navigation here;
@@ -24,9 +29,19 @@ export default function OnboardingSuccessScreen() {
   const router = useRouter();
   const isRTL = useIsRTL();
   const params = useLocalSearchParams<{ name?: string }>();
+  const leaving = useRef(false);
+  const mounted = useRef(true);
+  const [busy, setBusy] = useState(false);
   const [shopName, setShopName] = useState<string | null>(
     typeof params.name === "string" && params.name.trim() ? params.name.trim() : null,
   );
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (shopName) return;
@@ -49,6 +64,9 @@ export default function OnboardingSuccessScreen() {
   // the ordinary home landing. A failed read must never trap the user on the
   // success screen, so every failure falls through to home.
   async function onContinue() {
+    if (leaving.current || !mounted.current) return;
+    leaving.current = true;
+    setBusy(true);
     let pendingTab: string | null = null;
     try {
       pendingTab = await getAppMeta("pending_tab_token");
@@ -61,6 +79,7 @@ export default function OnboardingSuccessScreen() {
     } catch (err) {
       console.warn("[onboarding/success] pending tab read failed", err);
     }
+    if (!mounted.current) return;
     if (pendingTab) {
       router.replace({ pathname: "/t/[token]", params: { token: pendingTab } });
       return;
@@ -69,25 +88,28 @@ export default function OnboardingSuccessScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
+    <SafeAreaView style={onboardingStyles.screen} edges={["top", "bottom"]}>
+      <OnboardingHeader />
       <ScrollView
         style={styles.scroll}
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[onboardingStyles.content, styles.scrollContent]}
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.content}>
           <View
-            style={[styles.check, { alignSelf: isRTL ? "flex-end" : "flex-start" }]}
+            style={styles.check}
             accessible={false}
             accessibilityElementsHidden
             importantForAccessibility="no-hide-descendants"
           >
-            <Ionicons name="checkmark" size={icon.card} color={colors.textEmphasis} />
+            <Ionicons name="checkmark-circle-outline" size={56} color={colors.textEmphasis} />
           </View>
 
-          <Text style={[styles.title, textDir(isRTL)]} accessibilityRole="header">
-            {t("onboardingSuccess.title")}
-          </Text>
+          <OnboardingIntro
+            title={t("onboardingSuccess.title")}
+            description={t("onboardingSuccess.body")}
+            align="center"
+          />
 
           {shopName ? (
             <View style={[styles.kaataRow, rowDir(isRTL)]}>
@@ -98,66 +120,52 @@ export default function OnboardingSuccessScreen() {
               >
                 <Ionicons name="book-outline" size={icon.row} color={colors.textSubtle} />
               </View>
-              <Text style={[styles.shopName, textDir(isRTL)]}>{shopName}</Text>
+              <View style={styles.kaataName}>
+                <Text style={[styles.kaataLabel, textDir(isRTL)]}>
+                  {t("onboardingSuccess.ledgerLabel")}
+                </Text>
+                <Text style={[styles.shopName, textDir(isRTL)]}>{shopName}</Text>
+              </View>
             </View>
           ) : null}
-
-          <Text style={[styles.body, textDir(isRTL)]}>{t("onboardingSuccess.body")}</Text>
         </View>
       </ScrollView>
 
-      <View style={styles.footer}>
-        <View style={styles.footerContent}>
-          <Button
-            label={t("onboardingSuccess.cta")}
-            onPress={() => void onContinue()}
-            size="hero"
-            fullWidth
-          />
-        </View>
+      <View style={onboardingStyles.footer}>
+        <OnboardingAction
+          label={t("onboardingSuccess.cta")}
+          onPress={() => void onContinue()}
+          loading={busy}
+        />
       </View>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.bgWarm },
   scroll: { flex: 1 },
-  scrollContent: { flexGrow: 1, paddingHorizontal: gutter.hero, paddingVertical: space.xxl },
+  scrollContent: { justifyContent: "center" },
   content: {
-    flexGrow: 1,
     width: "100%",
-    maxWidth: 420,
-    alignSelf: "center",
-    justifyContent: "center",
-    paddingVertical: space.xxl,
+    paddingVertical: space.lg,
   },
   check: {
-    width: 44,
-    height: 44,
-    borderRadius: radius.md,
-    backgroundColor: colors.brandAccent,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: space.xl,
+    alignSelf: "center",
+    marginBottom: space.xxl,
   },
-  title: { ...typography.heading, color: colors.brandPrimary },
   kaataRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: space.md,
-    marginTop: space.xl,
     padding: space.lg,
     borderRadius: radius.md,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.borderDefault,
-    backgroundColor: colors.bgDefault,
+    backgroundColor: colors.bgMuted,
   },
   // User-entered names may be Dari even in English UI. Let them wrap and never
   // add tracking, which breaks Arabic-script joining.
-  shopName: { ...typography.labelBold, flex: 1, minWidth: 0, color: colors.textEmphasis },
-  body: { ...typography.body, color: colors.textSubtle, marginTop: space.lg },
-  // Keep the shared bottom-control offset above the safe area (Toast.tsx).
-  footer: { paddingHorizontal: gutter.hero, paddingTop: space.lg, paddingBottom: 20 },
-  footerContent: { width: "100%", maxWidth: 420, alignSelf: "center" },
+  kaataName: { flex: 1, minWidth: 0, gap: 2 },
+  kaataLabel: { ...typography.caption, color: colors.textMuted },
+  shopName: { ...typography.labelBold, color: colors.textEmphasis },
 });

@@ -1,3 +1,4 @@
+import { onboardingJSX, onboardingMock } from "./onboarding-fixture";
 // Run the real auth screen with synthetic provider/recovery adapters.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -17,7 +18,7 @@ let routes: any[] = [],
   rtl = false;
 let toasts: unknown[][] = [];
 const meta = new Map<string, string>();
-const jsx = (type: any, props: any) => ({ type, props });
+const jsx = onboardingJSX;
 const mocks: Record<string, any> = {
   "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
   react: {
@@ -50,6 +51,7 @@ const mocks: Record<string, any> = {
     Platform: { OS: "android", select: (x: any) => x.android },
     StyleSheet: { create: (x: any) => x },
   },
+  "../../components/Onboarding": onboardingMock,
   "react-native-safe-area-context": { SafeAreaView: "Safe" },
   "@expo/vector-icons": { Ionicons: "Icon" },
   "expo-constants": { default: { executionEnvironment: "standalone" } },
@@ -534,11 +536,11 @@ async function main() {
   mocks["react-native"].Platform.OS = "android";
   reset();
   assert.equal(
-    nodes(render()).some((n) => n.type === "Ninja"),
+    nodes(render()).some((n) => n.props.accessibilityLabel === "onboardingMode.offline.title"),
     false,
   );
   assert.equal(
-    nodes(render(false)).some((n) => n.type === "Ninja"),
+    nodes(render(false)).some((n) => n.props.accessibilityLabel === "onboardingMode.offline.title"),
     true,
   );
   reset();

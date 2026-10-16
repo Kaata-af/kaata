@@ -1,7 +1,8 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
-import { useEffect, useRef, useState } from "react";
+import { useFocusEffect, useRouter } from "expo-router";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  BackHandler,
   Keyboard,
   KeyboardAvoidingView,
   Platform,
@@ -13,20 +14,23 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Button } from "../../components/Button";
 import { FormField } from "../../components/FormField";
+import {
+  OnboardingAction,
+  OnboardingHeader,
+  OnboardingIntro,
+  onboardingStyles,
+} from "../../components/Onboarding";
 import { OptionSheet } from "../../components/OptionSheet";
-import { NavRow } from "../../components/SettingsScreen";
 import { getSessionJWT, updateAccountPhone } from "../../lib/auth";
 import { colors } from "../../lib/colors";
 import { CURRENCIES, DEFAULT_CURRENCY, getCurrencyName } from "../../lib/currency";
 import { createSelfProfile, getAppMeta, setAppMeta } from "../../lib/db";
-import { SETTINGS_ROW_PADDING_X } from "../../lib/design-tokens";
-import { bidiIsolate, rowDir, textDir, trackingSafe, useIsRTL } from "../../lib/direction";
+import { bidiIsolate, rowDir, textDir, useIsRTL } from "../../lib/direction";
 import { EventSigningUnavailableError } from "../../lib/event-log";
 import { t } from "../../lib/i18n";
 import { fetchTabPreview } from "../../lib/tabs/link";
-import { gutter, icon, space, TOUCH_MIN, typography } from "../../lib/tokens";
+import { icon, typography } from "../../lib/tokens";
 import { useOnboardingKeyboardScroll } from "../../lib/use-onboarding-keyboard-scroll";
 
 // Onboarding final step — create the shopkeeper's first kaata (their shop's
@@ -56,9 +60,7 @@ export default function OnboardingKaataScreen() {
 
   const [shopName, setShopName] = useState("");
   const [currency, setCurrency] = useState<string>(DEFAULT_CURRENCY);
-  // Currency is picked through a row→sheet, not a chip grid — see the NavRow
-  // in the form below. Only the CONTROL changed; `currency` / setCurrency are
-  // still what createSelfProfile() is called with.
+  // The field opens the same picker used when editing a kaata.
   const [currencySheetVisible, setCurrencySheetVisible] = useState(false);
   // Mutual-tab handoff (docs/mutual-tab-design.md §4.4, D9): a link followed
   // before this install had a kaata stashed pending_tab_token (app/t/[token])
@@ -164,6 +166,7 @@ export default function OnboardingKaataScreen() {
     if (!selfName) return;
     setNameError(null);
     savingRef.current = true;
+    setCurrencySheetVisible(false);
     setSubmitError(null);
     setBusy(true);
     try {
@@ -184,8 +187,7 @@ export default function OnboardingKaataScreen() {
       await setAppMeta("onboarding_pending_name", "");
       await setAppMeta("onboarding_pending_email", "");
       await setAppMeta("onboarding_pending_phone", "");
-      // The game-style completion moment — celebrates AND teaches ("this is
-      // your kaata: <shop name>"). onboarding_step is already 'done', so a
+      // Confirm the kaata that was created. onboarding_step is already 'done', so a
       // force-quit on the success screen just lands home on relaunch.
       Keyboard.dismiss();
       router.replace({
@@ -205,13 +207,35 @@ export default function OnboardingKaataScreen() {
     }
   }
 
-  async function onBack() {
+  const onBack = useCallback(async () => {
+    if (savingRef.current) return;
+    savingRef.current = true;
+    setBusy(true);
+    setSubmitError(null);
+    setCurrencySheetVisible(false);
     Keyboard.dismiss();
     // Step back to the profile form. The stashed name/phone stay in app_meta
     // (harmless) and are overwritten when the user submits profile again.
-    await setAppMeta("onboarding_step", "profile");
-    router.replace("/onboarding/profile");
-  }
+    try {
+      await setAppMeta("onboarding_step", "profile");
+      router.replace("/onboarding/profile");
+    } catch (err) {
+      console.warn("[onboarding/kaata] returning to profile failed", err);
+      savingRef.current = false;
+      setBusy(false);
+      setSubmitError(t("entry.saveFailed"));
+    }
+  }, [router]);
+
+  useFocusEffect(
+    useCallback(() => {
+      const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
+        void onBack();
+        return true;
+      });
+      return () => subscription.remove();
+    }, [onBack]),
+  );
 
   // Same trailing composition as vault/settings.tsx's currency row: symbol +
   // localized name, so "₨  Pakistani Rupee" reads to someone who doesn't know
@@ -220,24 +244,8 @@ export default function OnboardingKaataScreen() {
     `${CURRENCIES.find((c) => c.code === currency)?.symbol ?? ""}  ${getCurrencyName(currency)}`.trim();
 
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={[styles.header, rowDir(isRTL)]}>
-        <Pressable
-          onPress={onBack}
-          hitSlop={10}
-          disabled={busy}
-          style={({ pressed }) => [styles.backBtn, pressed && { opacity: 0.6 }]}
-        >
-          <Ionicons
-            // icon.row (22), NOT icon.header (26) — labelled back control, same
-            // as onboarding/profile.tsx. See the note there.
-            name={isRTL ? "chevron-forward" : "chevron-back"}
-            size={icon.row}
-            color={colors.textEmphasis}
-          />
-          <Text style={[styles.backText, textDir(isRTL)]}>{t("onboardingMode.back")}</Text>
-        </Pressable>
-      </View>
+    <SafeAreaView style={onboardingStyles.screen}>
+      <OnboardingHeader onBack={onBack} disabled={busy} />
 
       <KeyboardAvoidingView
         style={styles.form}
@@ -252,15 +260,13 @@ export default function OnboardingKaataScreen() {
         <ScrollView
           {...scrollProps}
           style={styles.form}
-          contentContainerStyle={styles.scrollContent}
+          contentContainerStyle={onboardingStyles.content}
           showsVerticalScrollIndicator={false}
         >
-          <Text style={[styles.title, textDir(isRTL), trackingSafe(isRTL)]}>
-            {t("onboardingKaata.title")}
-          </Text>
-          <Text style={[styles.subtitle, textDir(isRTL)]}>{t("onboardingKaata.subtitle")}</Text>
-
-          <View style={styles.spacer} />
+          <OnboardingIntro
+            title={t("onboardingKaata.title")}
+            description={t("onboardingKaata.subtitle")}
+          />
 
           <FormField
             ref={shopRef}
@@ -273,6 +279,7 @@ export default function OnboardingKaataScreen() {
             maxLength={NAME_MAX}
             autoCapitalize="words"
             placeholder={t("onboardingKaata.name.placeholder")}
+            style={styles.input}
             onChangeText={(s) => {
               setShopName(s);
               if (nameError) setNameError(null);
@@ -280,40 +287,39 @@ export default function OnboardingKaataScreen() {
             error={nameError}
           />
 
-          {/* Currency: row→sheet, IDENTICAL to the edit path (vault/settings.tsx)
-              and to /vault/new. The old control was a 9-chip wrapping grid at
-              ~36px tall — under the 44pt floor, and a mistap here silently
-              mislabels every future amount in this kaata (lib/currency.ts
-              relabels, it never converts), which is the worst possible place for
-              a fat-finger: the shopkeeper's very first screen. NavRow clears the
-              floor at 52px and the sheet gives each currency a full row. */}
-          <View style={styles.currencyRowBleed}>
-            <NavRow
-              icon="cash-outline"
-              label={t("onboardingKaata.currency.label")}
-              trailing={currencyValue}
-              // NavRow puts accessibilityLabel on the Pressable, which SUPPRESSES the
-              // child text — so without this TalkBack announced only "Currency" and
-              // never the selected value sitting in `trailing`. A blind user could not
-              // hear which currency their ledger was about to be created in.
+          <View>
+            <Text style={[styles.fieldLabel, textDir(isRTL)]}>
+              {t("onboardingKaata.currency.label")}
+            </Text>
+            <Pressable
+              accessibilityRole="button"
               accessibilityLabel={`${t("onboardingKaata.currency.label")}: ${currencyValue}`}
+              accessibilityState={{ disabled: busy, expanded: currencySheetVisible }}
               onPress={() => {
+                if (savingRef.current) return;
                 Keyboard.dismiss();
                 setCurrencySheetVisible(true);
               }}
               disabled={busy}
-              isRTL={isRTL}
-              isLast
-            />
-          </View>
-          {/* ONE hint under the row: the shared-account line replaces the
+              style={({ pressed }) => [
+                styles.currencyField,
+                rowDir(isRTL),
+                pressed && styles.currencyFieldPressed,
+                busy && styles.disabled,
+              ]}
+            >
+              <Text style={[styles.currencyValue, textDir(isRTL)]}>{currencyValue}</Text>
+              <Ionicons name="chevron-down" size={icon.trailing} color={colors.textSubtle} />
+            </Pressable>
+            {/* ONE hint under the row: the shared-account line replaces the
               generic one while the row still shows the preset currency (the
               ISO code is a Latin token in Dari prose — isolate it). */}
-          <Text style={[styles.fieldHint, textDir(isRTL)]}>
-            {presetCurrency && currency === presetCurrency
-              ? t("tab.join.currencyPreset", { currency: bidiIsolate(presetCurrency) })
-              : t("onboardingKaata.currency.hint")}
-          </Text>
+            <Text style={[styles.fieldHint, textDir(isRTL)]}>
+              {presetCurrency && currency === presetCurrency
+                ? t("tab.join.currencyPreset", { currency: bidiIsolate(presetCurrency) })
+                : t("onboardingKaata.currency.hint")}
+            </Text>
+          </View>
 
           {submitError ? (
             <Text style={[styles.submitError, textDir(isRTL)]} accessibilityLiveRegion="polite">
@@ -321,8 +327,8 @@ export default function OnboardingKaataScreen() {
             </Text>
           ) : null}
 
-          <View style={{ height: 20 }} />
-          <Button
+          <View style={styles.actionSpace} />
+          <OnboardingAction
             label={t("onboardingKaata.submit")}
             onPress={onCreate}
             disabled={busy || shopName.trim().length === 0}
@@ -343,6 +349,7 @@ export default function OnboardingKaataScreen() {
         }))}
         selected={currency}
         onSelect={(code) => {
+          if (savingRef.current) return;
           setCurrencySheetVisible(false);
           currencyDirtyRef.current = true;
           setCurrency(code);
@@ -355,58 +362,37 @@ export default function OnboardingKaataScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.bgWarm },
   form: { flex: 1 },
-  header: {
-    paddingHorizontal: 8,
-    paddingTop: 8,
-    paddingBottom: 4,
-    flexDirection: "row",
-    alignItems: "center",
+  input: { minHeight: 52, borderRadius: 12 },
+  fieldLabel: {
+    ...typography.label,
+    color: colors.textDefault,
+    marginBottom: 8,
   },
-  backBtn: {
-    flexDirection: "row",
+  currencyField: {
+    minHeight: 52,
+    borderWidth: 1,
+    borderColor: colors.borderDefault,
+    borderRadius: 12,
+    backgroundColor: colors.bgDefault,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
     alignItems: "center",
-    // ~40 computed (8+8 padding + a 15px label) — under the HIG floor.
-    // alignItems already centres on this row's cross axis, so no
-    // justifyContent needed. See onboarding/profile.tsx.
-    minHeight: TOUCH_MIN,
-    paddingHorizontal: 8,
-    paddingVertical: 8,
-    gap: 2,
+    gap: 12,
   },
-  backText: { ...typography.label, color: colors.textSubtle },
-  scrollContent: { flexGrow: 1, padding: gutter.hero, paddingTop: 12, paddingBottom: 48 },
-  title: {
-    // 22 collapsed onto the scale's heading (20), but keeping the BOLD cut —
-    // heading's own family is sansSemi, and the onboarding steps share one
-    // 700-weight headline voice. letterSpacing is the pre-existing optical
-    // tightening; trackingSafe(isRTL) in the JSX cancels it for Persian, where
-    // tracking would sever the joining.
-    ...typography.heading,
-    fontFamily: typography.display.fontFamily,
+  currencyFieldPressed: { backgroundColor: colors.bgMuted },
+  currencyValue: {
+    ...typography.body,
     color: colors.textEmphasis,
-    letterSpacing: -0.4,
+    flex: 1,
   },
-  subtitle: { ...typography.body, color: colors.textSubtle, marginTop: space.sm },
-  spacer: { height: 28 },
-  fieldHint: { ...typography.hint, color: colors.textSubtle, marginTop: space.sm },
+  disabled: { opacity: 0.5 },
+  fieldHint: { ...typography.hint, color: colors.textSubtle, marginTop: 8 },
+  actionSpace: { height: 28 },
   submitError: {
-    // bodySm's 13px at the label weight — an error line is emphasised body,
-    // and bodySm's own family is sansRegular.
     ...typography.bodySm,
     fontFamily: typography.label.fontFamily,
     color: colors.danger,
-    marginTop: space.lg,
-  },
-  // The currency row is a settings NavRow — it carries its own 20px gutter and
-  // a full-width press surface — dropped into a hero-gutter (24px) form. Cancel
-  // the hero gutter, then hand back the 4px difference so the row's icon+label
-  // land on exactly the same left edge as the form fields above, while the
-  // press surface still runs nearly edge to edge. (isLast on the row suppresses
-  // the hairline divider: one lone rule under a single row reads as a mistake.)
-  currencyRowBleed: {
-    marginHorizontal: -gutter.hero,
-    paddingHorizontal: gutter.hero - SETTINGS_ROW_PADDING_X,
+    marginTop: 16,
   },
 });

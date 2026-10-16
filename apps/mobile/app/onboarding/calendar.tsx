@@ -3,7 +3,12 @@ import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { BackHandler, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Button } from "../../components/Button";
+import {
+  OnboardingAction,
+  OnboardingHeader,
+  OnboardingIntro,
+  onboardingStyles,
+} from "../../components/Onboarding";
 import {
   CALENDAR_PREF_KEY,
   getEffectiveCalendar,
@@ -12,11 +17,10 @@ import {
 } from "../../lib/calendar";
 import { colors } from "../../lib/colors";
 import { setAppMeta } from "../../lib/db";
-import { rowDir, textDir, trackingSafe, useIsRTL } from "../../lib/direction";
-import { fonts } from "../../lib/fonts";
+import { rowDir, textDir, useIsRTL } from "../../lib/direction";
 import { getLocale, t } from "../../lib/i18n";
 import { formatCalendarDate } from "../../lib/jalali";
-import { icon, radius, TOUCH_MIN, typography } from "../../lib/tokens";
+import { radius, typography } from "../../lib/tokens";
 
 const choices: Calendar[] = ["gregorian", "jalali", "qamari"];
 
@@ -84,25 +88,17 @@ export default function OnboardingCalendarScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.container}>
-      <Pressable
-        onPress={() => void back()}
-        disabled={busy}
-        accessibilityRole="button"
-        accessibilityLabel={t("common.back")}
-        style={[styles.back, rowDir(rtl)]}
+    <SafeAreaView style={onboardingStyles.screen}>
+      <OnboardingHeader onBack={() => void back()} disabled={busy} />
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={onboardingStyles.content}
+        showsVerticalScrollIndicator={false}
       >
-        <Ionicons
-          name={rtl ? "chevron-forward" : "chevron-back"}
-          size={icon.row}
-          color={colors.textEmphasis}
+        <OnboardingIntro
+          title={t("onboardingCalendar.title")}
+          description={t("onboardingCalendar.subtitle")}
         />
-        <Text style={[styles.backText, textDir(rtl)]}>{t("common.back")}</Text>
-      </Pressable>
-      <ScrollView contentContainerStyle={styles.content}>
-        <Text style={[styles.brand, trackingSafe(rtl)]}>{t("brand.wordmark")}</Text>
-        <Text style={[styles.title, textDir(rtl)]}>{t("onboardingCalendar.title")}</Text>
-        <Text style={[styles.subtitle, textDir(rtl)]}>{t("onboardingCalendar.subtitle")}</Text>
         <View style={styles.choices} accessibilityRole="radiogroup">
           {choices.map((calendar) => (
             <Pressable
@@ -117,26 +113,30 @@ export default function OnboardingCalendarScreen() {
               onPress={() => setSelected(calendar)}
               style={({ pressed }) => [
                 styles.card,
+                rowDir(rtl),
                 selected === calendar && styles.selected,
-                pressed && { opacity: 0.85 },
+                pressed && { backgroundColor: colors.bgMuted },
+                busy && { opacity: 0.5 },
               ]}
             >
-              <View style={[styles.labelRow, rowDir(rtl)]}>
+              <View style={styles.calendarText}>
                 <Text style={[styles.label, textDir(rtl)]}>
                   {t(`settings.calendar.option.${calendar}`)}
                 </Text>
-                {selected === calendar ? (
-                  <Ionicons name="checkmark-circle" size={22} color={colors.actionPrimary} />
+                <Text style={[styles.example, textDir(rtl)]}>
+                  {formatCalendarDate(today, getLocale(), calendar)}
+                </Text>
+                {calendar === "qamari" ? (
+                  <Text style={[styles.hint, textDir(rtl)]}>
+                    {t("settings.calendar.hint.qamari")}
+                  </Text>
                 ) : null}
               </View>
-              <Text style={[styles.example, textDir(rtl)]}>
-                {formatCalendarDate(today, getLocale(), calendar)}
-              </Text>
-              {calendar === "qamari" ? (
-                <Text style={[styles.hint, textDir(rtl)]}>
-                  {t("settings.calendar.hint.qamari")}
-                </Text>
-              ) : null}
+              <Ionicons
+                name={selected === calendar ? "radio-button-on" : "radio-button-off"}
+                size={22}
+                color={selected === calendar ? colors.textEmphasis : colors.borderEmphasis}
+              />
             </Pressable>
           ))}
         </View>
@@ -145,45 +145,35 @@ export default function OnboardingCalendarScreen() {
             {error}
           </Text>
         ) : null}
-        <Button
+      </ScrollView>
+      <View style={onboardingStyles.footer}>
+        <OnboardingAction
           label={t("onboarding.continue")}
-          size="hero"
-          fullWidth
           loading={busy}
           disabled={busy}
           onPress={() => void next()}
         />
-      </ScrollView>
+      </View>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.bgWarm },
-  back: { minHeight: TOUCH_MIN, alignItems: "center", paddingHorizontal: 20, gap: 4 },
-  backText: { ...typography.bodySm, color: colors.textEmphasis },
-  content: { flexGrow: 1, justifyContent: "center", padding: 24 },
-  brand: {
-    ...typography.heading,
-    fontFamily: fonts.sansBold,
-    color: colors.brandPrimary,
-    textAlign: "center",
-    marginBottom: 28,
-  },
-  title: { ...typography.heading, color: colors.textEmphasis, textAlign: "center" },
-  subtitle: { ...typography.bodySm, color: colors.textSubtle, textAlign: "center", marginTop: 8 },
-  choices: { gap: 12, marginVertical: 28 },
+  choices: { gap: 12 },
   card: {
-    padding: 18,
-    borderRadius: radius.lg,
+    minHeight: 76,
+    padding: 16,
+    borderRadius: radius.md,
     borderWidth: 1,
     borderColor: colors.borderDefault,
     backgroundColor: colors.bgDefault,
+    alignItems: "center",
+    gap: 16,
   },
-  selected: { borderColor: colors.actionPrimary },
-  labelRow: { alignItems: "center", justifyContent: "space-between", gap: 12 },
-  label: { ...typography.title, color: colors.textEmphasis, flexShrink: 1 },
-  example: { ...typography.bodySm, color: colors.textSubtle, marginTop: 6 },
-  hint: { ...typography.caption, color: colors.textSubtle, marginTop: 8 },
-  error: { ...typography.bodySm, color: colors.danger, marginBottom: 16 },
+  selected: { borderColor: colors.textEmphasis, backgroundColor: colors.bgMuted },
+  calendarText: { flex: 1, minWidth: 0, gap: 4 },
+  label: { ...typography.title, color: colors.textEmphasis },
+  example: { ...typography.bodySm, color: colors.textSubtle },
+  hint: { ...typography.caption, color: colors.textSubtle, marginTop: 4 },
+  error: { ...typography.bodySm, color: colors.danger, marginTop: 16 },
 });

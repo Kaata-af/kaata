@@ -1,5 +1,6 @@
+import { onboardingJSX, onboardingMock } from "./onboarding-fixture";
 import assert from "node:assert/strict";
-import { compileUI, deferred, jsx, nodes, settleUI, uiHooks } from "./ui-fixture";
+import { compileUI, deferred, nodes, settleUI, uiHooks } from "./ui-fixture";
 
 function restoreFixture(marker = "account-a", options: { expiredSession?: boolean } = {}) {
   const hooks = uiHooks();
@@ -9,6 +10,7 @@ function restoreFixture(marker = "account-a", options: { expiredSession?: boolea
   ]);
   const routes: string[] = [],
     writes: [string, string][] = [];
+  const backHandlers = new Set<() => boolean>();
   let recoveries = 0,
     listings = 0;
   const strictRecoveries: boolean[] = [];
@@ -35,7 +37,7 @@ function restoreFixture(marker = "account-a", options: { expiredSession?: boolea
   const Screen = compileUI(
     "../../app/onboarding/restore",
     {
-      "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
+      "react/jsx-runtime": { jsx: onboardingJSX, jsxs: onboardingJSX, Fragment: "Fragment" },
       react: hooks.react,
       "expo-router": { useRouter: () => router, useIsFocused: () => focused },
       "@expo/vector-icons": { Ionicons: "Icon" },
@@ -43,10 +45,18 @@ function restoreFixture(marker = "account-a", options: { expiredSession?: boolea
         View: "View",
         Text: "Text",
         Pressable: "Pressable",
+        ScrollView: "ScrollView",
+        BackHandler: {
+          addEventListener: (_event: string, handler: () => boolean) => {
+            backHandlers.add(handler);
+            return { remove: () => backHandlers.delete(handler) };
+          },
+        },
         ActivityIndicator: "Spinner",
         Platform: { OS: "android", select: (value: any) => value.android },
         StyleSheet: { create: (value: any) => value },
       },
+      "../../components/Onboarding": onboardingMock,
       "react-native-safe-area-context": { SafeAreaView: "SafeArea" },
       "../../components/Button": { Button: "Button" },
       "../../components/ConfirmDialog": { ConfirmDialog: "Confirm" },
@@ -81,6 +91,7 @@ function restoreFixture(marker = "account-a", options: { expiredSession?: boolea
       },
       "../../lib/direction": {
         useIsRTL: () => false,
+        rowDir: () => ({}),
         textDir: () => ({}),
         trackingSafe: () => ({}),
       },
@@ -123,6 +134,7 @@ function restoreFixture(marker = "account-a", options: { expiredSession?: boolea
     meta,
     routes,
     writes,
+    backHandlers,
     render,
     strictRecoveries,
     archivedRecoveries,
@@ -174,7 +186,19 @@ async function main() {
     "deletion recovery requires complete ordinary and shared tallies",
   );
   assert.deepEqual(normal.archivedRecoveries, [true]);
-  assert.equal(button(normal, "account.deleteAccount.restoring").type, "Progress");
+  assert.ok(
+    nodes(normal.hooks.tree).some(
+      (node) => node.props.children === "account.deleteAccount.restoring",
+    ),
+  );
+  assert.equal(button(normal, "normal-progress").type, "Progress");
+  const busyBack = nodes(normal.hooks.tree).find(
+    (node) => node.props.accessibilityLabel === "common.back",
+  )!;
+  assert.equal(busyBack.props.disabled, true);
+  await busyBack.props.onPress();
+  assert.equal([...normal.backHandlers][0](), true);
+  assert.deepEqual(normal.routes, [], "Neither Back path interrupts recovery");
   assert.equal(
     normal.meta.get("account_deletion_cancelled"),
     "account-a",
@@ -214,13 +238,7 @@ async function main() {
   const ordinary = restoreFixture("");
   await ordinary.flush();
   assert.equal(ordinary.recoveries, 0, "ordinary sign-in retains the explicit restore choice");
-  nodes(ordinary.hooks.tree)
-    .find(
-      (node) =>
-        node.type === "Pressable" &&
-        nodes(node).some((child) => child.props.children === "onboardingRestore.restore.title"),
-    )!
-    .props.onPress();
+  button(ordinary, "onboardingRestore.restore.title").props.onPress();
   await ordinary.flush();
   assert.deepEqual(
     ordinary.strictRecoveries,

@@ -1,3 +1,5 @@
+import { onboardingJSX, onboardingMock } from "./onboarding-fixture";
+import { deferred, flattenStyle } from "./ui-fixture";
 // Run with: npm run selftest:email-auth
 // Synthetic fixtures only: never opens kaata.db, SecureStore, a device or the
 // network.
@@ -2134,9 +2136,17 @@ function hookStore() {
   };
 }
 
-const jsx = (type: unknown, props: Record<string, unknown>) => ({ type, props });
+const jsx = onboardingJSX;
 const jsxRuntime = { jsx, jsxs: jsx, Fragment: "Fragment" };
 const LTR = { writingDirection: "ltr", textAlign: "left" };
+function assertLTR(style: unknown, message = "Input content stays left-to-right") {
+  const value = flattenStyle(style);
+  assert.deepEqual(
+    { writingDirection: value.writingDirection, textAlign: value.textAlign },
+    LTR,
+    message,
+  );
+}
 
 // --- cold-start routing: the mounted gate, with the real stored-flow readers ---
 
@@ -2487,6 +2497,7 @@ const flowModule = load<{ EmailAuthFlow: (props: Record<string, unknown>) => unk
     "../lib/i18n": { t: keyT, getLocale: () => "en" },
     "../lib/tokens": { TOUCH_MIN: 44, typography: {} },
     "./Button": { Button: "Button" },
+    "./Onboarding": onboardingMock,
     "./FormField": { FormField: "FormField", LTR_INPUT: LTR },
     "./GoogleGIcon": { GoogleGIcon: "Google" },
     "./PasswordField": { PasswordField: "PasswordField" },
@@ -2584,7 +2595,7 @@ async function toCodeStep(): Promise<Node[]> {
 componentTest("flow, sign-up step: email and a NEW Kaata password, LTR, rules shown", async () => {
   const tree = mountFlow({ entry: "signup" });
   const email = field(tree, "auth.email.email");
-  assert.deepEqual(email.props.style, LTR, "an address is LTR in both languages");
+  assertLTR(email.props.style, "an address is LTR in both languages");
   assert.equal(email.props.keyboardType, "email-address");
   assert.equal(email.props.autoCapitalize, "none");
   const password = field(tree, "auth.email.newPassword");
@@ -2696,7 +2707,7 @@ componentTest("flow, sign-up → code: the request, the code step, then the acco
   // instead of a code: the way in is offered right on this step.
   assert.ok(control(tree, "auth.email.toSignIn"), "the sign-up code step offers sign-in");
   assert.equal(code.props.keyboardType, "number-pad");
-  assert.deepEqual(code.props.style[0], LTR, "the code is LTR");
+  assertLTR(code.props.style, "the code is LTR");
   assert.equal(code.props.textContentType, "oneTimeCode");
   assert.ok(
     texts(tree).some((s) => s.startsWith("auth.email.code.sent") && s.includes("<A@Example.com>")),
@@ -2775,7 +2786,7 @@ componentTest(
   "flow, sign-in: identifier and password; invalid_credentials points back",
   async () => {
     let tree = mountFlow({ entry: "signin" });
-    assert.deepEqual(field(tree, "auth.email.identifier").props.style, LTR);
+    assertLTR(field(tree, "auth.email.identifier").props.style);
     assert.equal(field(tree, "auth.email.password").type, "PasswordField");
     assert.ok(control(tree, "auth.email.forgot") && control(tree, "auth.email.toSignUp"));
     tree = await submit();
@@ -2989,13 +3000,25 @@ let nameSyncs: Array<[string, unknown]> = [];
 let profileSessionKind: "provider" | "email" | null = "email";
 // The account's sign-in identities, as GET /v1/account/me names them.
 let profileProviders: string[] = ["email"];
+let profileWriteGate: { key: string; wait: Promise<void> } | null = null;
+let profileWriteFailure: string | null = null;
+const profileBackHandlers = new Set<() => boolean>();
 const profileModule = load<{ default: () => unknown }>("../../app/onboarding/profile", {
   "react/jsx-runtime": jsxRuntime,
   react: profileHooks.react,
   "@expo/vector-icons": { Ionicons: "Icon" },
-  "expo-router": { useRouter: () => ({ replace: (r: unknown) => profileRoutes.push(r) }) },
+  "expo-router": {
+    useRouter: () => ({ replace: (r: unknown) => profileRoutes.push(r) }),
+    useFocusEffect: (effect: () => void) => profileHooks.react.useEffect(effect, [effect]),
+  },
   "react-native": {
     Keyboard: { dismiss: () => {} },
+    BackHandler: {
+      addEventListener: (_event: string, handler: () => boolean) => {
+        profileBackHandlers.add(handler);
+        return { remove: () => profileBackHandlers.delete(handler) };
+      },
+    },
     KeyboardAvoidingView: "KeyboardAvoidingView",
     Platform: { OS: "android" },
     Pressable: "Pressable",
@@ -3005,6 +3028,7 @@ const profileModule = load<{ default: () => unknown }>("../../app/onboarding/pro
     TextInput: "TextInput",
     View: "View",
   },
+  "../../components/Onboarding": onboardingMock,
   "react-native-safe-area-context": { SafeAreaView: "Safe" },
   "../../components/Button": { Button: "Button" },
   "../../components/CountryPickerSheet": { CountryPickerSheet: "CountryPicker" },
@@ -3023,6 +3047,8 @@ const profileModule = load<{ default: () => unknown }>("../../app/onboarding/pro
   "../../lib/db": {
     getAppMeta: async (key: string) => profileMeta.get(key) ?? null,
     setAppMeta: async (key: string, value: string) => {
+      if (profileWriteGate?.key === key) await profileWriteGate.wait;
+      if (profileWriteFailure === key) throw new Error("Synthetic profile storage failure");
       profileMeta.set(key, value);
     },
   },
@@ -3122,6 +3148,62 @@ componentTest(
     assert.equal(nameField(tree).props.error, null, "no name error");
     assert.deepEqual(nameSyncs, [["B Jan Karimi", {}]]);
     profileProviders = ["email"];
+  },
+);
+
+componentTest(
+  "profile: screen and Android Back cannot race Continue, and storage failure is retryable",
+  async () => {
+    const render = () => profileHooks.render(() => profileModule.default());
+    const back = () => control(render(), "common.back")!;
+    const next = () => render().find((node) => node.props.label === "onboardingProfile.continue")!;
+    async function mount() {
+      profileHooks.reset();
+      profileBackHandlers.clear();
+      profileWriteGate = null;
+      profileWriteFailure = null;
+      profileRoutes = [];
+      profileSessionKind = "provider";
+      profileMeta = new Map([
+        ["onboarding_self_name", "Ahmad"],
+        ["onboarding_self_phone", "+93700000001"],
+        ["pending_tab_token", "keep-invitation"],
+      ]);
+      render();
+      await settle();
+      return render();
+    }
+    await mount();
+    const save = deferred<void>();
+    profileWriteGate = { key: "onboarding_self_name", wait: save.promise };
+    const staleBack = back();
+    const pendingSave = next().props.onPress();
+    await staleBack.props.onPress();
+    assert.equal([...profileBackHandlers][0](), true);
+    assert.equal(back().props.disabled, true);
+    assert.deepEqual(profileRoutes, []);
+    assert.equal(
+      profileMeta.has("onboarding_step"),
+      false,
+      "Back cannot rewrite a pending save's step",
+    );
+    save.resolve();
+    await pendingSave;
+    assert.deepEqual(profileRoutes, ["/onboarding/kaata"]);
+    assert.equal(profileMeta.get("pending_tab_token"), "keep-invitation");
+
+    await mount();
+    profileWriteFailure = "onboarding_pending_name";
+    await back().props.onPress();
+    assert.equal(back().props.disabled, false, "Failed Back releases its controls");
+    assert.ok(texts(render()).includes("entry.saveFailed"));
+    assert.deepEqual(profileRoutes, []);
+    profileWriteFailure = null;
+    assert.equal([...profileBackHandlers][0](), true);
+    await settle();
+    assert.deepEqual(profileRoutes, ["/onboarding/auth"]);
+    assert.equal(profileMeta.get("pending_tab_token"), "keep-invitation");
+    profileSessionKind = "email";
   },
 );
 
@@ -3677,6 +3759,7 @@ const screen = load<{
     },
     StyleSheet: { create: (x: unknown) => x, hairlineWidth: 1 },
   },
+  "../../components/Onboarding": onboardingMock,
   "react-native-safe-area-context": { SafeAreaView: "Safe" },
   "@expo/vector-icons": { Ionicons: "Icon" },
   "expo-constants": { __esModule: true, default: { executionEnvironment: "standalone" } },

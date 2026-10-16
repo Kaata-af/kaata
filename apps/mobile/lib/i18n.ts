@@ -81,8 +81,7 @@ const en = {
   "onboarding.lastName.placeholder": "Ahmadi",
   "onboarding.phone.label": "Phone number",
   "onboarding.phone.required": "Phone number is required",
-  "onboarding.phone.hint":
-    "Used so staff can find you in their contacts when pairing. Not verified, not shared.",
+  "onboarding.phone.hint": "Helps your team find you when linking devices.",
   "onboarding.continue": "Continue",
   "onboarding.nameRequired": "Name required",
   // Fallback display name for a self identity reconstructed during cloud restore
@@ -92,21 +91,22 @@ const en = {
   // Onboarding step 1 — language picker. Only shown when device locale
   // isn't already Persian/Dari.
   "onboardingLanguage.title": "Choose your language",
-  "onboardingLanguage.subtitle": "You can change this later in Settings.",
+  "onboardingLanguage.subtitle":
+    "Choose the language you prefer. You can change it later in Account.",
 
-  // Onboarding mode picker (step 2 — appears after name + shop)
-  "onboardingMode.title": "How would you like to use kaata?",
-  "onboardingMode.subtitle": "You can change this later in Settings.",
+  // Sign-in follows language/calendar; profile and kaata creation come next.
+  "onboardingMode.title": "Get started with Kaata",
+  "onboardingMode.subtitle": "Choose how to save and access your accounts.",
   // The two offers are explained ONCE each, above their buttons — the backup
   // sentence used to be duplicated on the Google and Apple cards.
-  "onboardingMode.account.label": "Back up online",
+  "onboardingMode.account.label": "With an account",
   "onboardingMode.account.body":
-    "Sign in to keep a copy of your kaata in the cloud — restore it on a new phone, and use the same kaata on more than one phone.",
+    "Back up your kaatas, restore them on a new phone, and use them across your devices.",
   "onboardingMode.google.title": "Sign in with Google",
   "onboardingMode.apple.title": "Sign in with Apple",
-  "onboardingMode.offline.label": "No account",
-  "onboardingMode.offline.body": "Your kaata never leaves this phone — private by default.",
-  "onboardingMode.offline.title": "Stay fully offline",
+  "onboardingMode.offline.label": "Without an account",
+  "onboardingMode.offline.body": "Keep your kaata on this phone. You can sign in later.",
+  "onboardingMode.offline.title": "Continue offline",
   // Sign-in failures now name the leg that broke and carry a short code
   // (e.g. "server 503", "timeout") the user can read out for support.
   "onboardingMode.signInFailed": "Sign-in didn't work. Try again.",
@@ -219,37 +219,30 @@ const en = {
   // Onboarding profile (last step before the tour)
   // Was "Almost done" — mistimed once the kaata step landed after this
   // screen, and it described progress instead of saying what the screen IS.
-  "onboardingProfile.title": "Introduce yourself",
-  "onboardingProfile.subtitle":
-    "Your name and number — so the people you keep accounts with know it's you.",
+  "onboardingProfile.title": "Your profile",
+  "onboardingProfile.subtitle": "Help the people you share accounts with recognize you.",
   "onboardingProfile.signedInHint": "Signed in as {email}",
   "onboardingProfile.continue": "Continue",
   "onboardingProfile.nameRequired": "Please enter your name",
   "onboardingProfile.shopRequired": "Please name your Kaata",
   "onboardingProfile.joinExisting": "I'll join an existing kaata instead",
 
-  // Onboarding kaata step (app/onboarding/kaata.tsx) — name the shop + pick a
-  // currency, then mint the shopkeeper's first vault. Shop-framed so users
-  // don't mistake "a kaata" for a single customer's tab.
-  "onboardingKaata.title": "Set up your shop",
+  // A kaata holds everyone's accounts for a shop, household, or another purpose.
+  "onboardingKaata.title": "Name your kaata",
   "onboardingKaata.subtitle":
-    "Your kaata is your shop's ledger book. Name it so you can keep everyone's accounts in one place.",
-  "onboardingKaata.name.label": "Shop name",
+    "A kaata keeps everyone's accounts in one place. Give it a name for your shop or household.",
+  "onboardingKaata.name.label": "Kaata name",
   "onboardingKaata.name.placeholder": "Ahmad Grocery Store",
-  "onboardingKaata.name.required": "Shop name is required",
+  "onboardingKaata.name.required": "Please name your kaata",
   "onboardingKaata.currency.label": "Currency",
-  "onboardingKaata.currency.hint":
-    "Default for all amounts in this kaata. You can change it later in settings.",
+  "onboardingKaata.currency.hint": "All amounts in this kaata use this currency.",
   "onboardingKaata.submit": "Create my kaata",
 
   // Quiet confirmation after the first kaata is created, with one next step.
   "onboardingSuccess.title": "Your kaata is ready",
-  // These three strings used to name the home button by its glyph ("the +
-  // button"). The glyph is now a rounded square, which carries no verb, so
-  // they name the button's POSITION instead — see HOME_MARK_SIZE in
-  // app/index.tsx. "Bottom right" is literally true in Persian too: the app
-  // is locked LTR (_layout.tsx) and the FAB is a hard right-side invariant.
-  "onboardingSuccess.body": "Add someone with the button at the bottom right.",
+  "onboardingSuccess.body":
+    "Add a person, then record what you give or receive. Kaata keeps the balance for you.",
+  "onboardingSuccess.ledgerLabel": "Your kaata",
   "onboardingSuccess.cta": "Open my kaata",
 
   // Permanent guide screen (app/guide.tsx), linked from the settings sheet.
@@ -264,15 +257,18 @@ const en = {
 
   // Onboarding restore (inserted between auth and profile when the
   // backend has existing ledger state for the signed-in account).
-  "onboardingRestore.title": "We found your kaata",
+  "onboardingRestore.title": "Welcome back",
+  "onboardingRestore.checking": "Finding your kaatas",
+  "onboardingRestore.checkingHint": "Checking your account for saved data.",
   // M5 multi-vault recovery: the count of non-archived vaults the account
   // belongs to. {count} is always >= 1 on this screen.
-  "onboardingRestore.subtitleVaults": "Restore {count} ledger(s) saved to your account.",
+  "onboardingRestore.subtitleVaults": "Kaatas saved to your account: {count}",
   "onboardingRestore.restore.title": "Restore from cloud",
   "onboardingRestore.restore.bodyVaults":
-    "Bring back all {count} of your ledgers — people, entries, and shop — on this phone.",
+    "Bring your people, transactions, and kaatas back to this phone.",
   "onboardingRestore.fresh.title": "Start fresh",
-  "onboardingRestore.fresh.body": "Ignore the cloud copy and set up a clean ledger on this phone.",
+  "onboardingRestore.fresh.body":
+    "Create a new kaata instead. Your saved kaatas stay in the cloud.",
   "onboardingRestore.fresh.confirmTitle": "Start with a clean ledger?",
   "onboardingRestore.fresh.confirmBody":
     "Your backed-up kaatas stay safe in the cloud, but they won't be restored to this phone now. You can sign in again later to restore them.",
@@ -580,7 +576,7 @@ const en = {
   "person.flows.received": "I received ({count})",
   "person.flows.hint":
     "Recorded gives and receives across available history. Opening balances are not counted as new handovers.",
-  "onboardingCalendar.title": "Choose your date format",
+  "onboardingCalendar.title": "Choose your calendar",
   "onboardingCalendar.subtitle": "Use the dates you know. You can change this later in Account.",
   "person.search.result": "{count} matching tally · balance includes all tallies",
   "person.search.results": "{count} matching tallies · balance includes all tallies",
@@ -2167,27 +2163,28 @@ const fa: Partial<Record<Key, string>> = {
   "onboarding.lastName.placeholder": "احمدی",
   "onboarding.phone.label": "شماره تلفون",
   "onboarding.phone.required": "شماره تلفون لازم است",
-  "onboarding.phone.hint":
-    "برای اینکه کارمندان شما را در مخاطبین خود پیدا کنند. تأیید نمی‌شود و به اشتراک گذاشته نمی‌شود.",
+  "onboarding.phone.hint": "کمک می‌کند همکاران‌تان هنگام وصل کردن تلفون‌ها شما را پیدا کنند.",
   "onboarding.continue": "ادامه",
   "onboarding.nameRequired": "نام لازم است",
   "recovery.selfPlaceholderName": "شما",
 
   // Onboarding step 1 — language picker
-  "onboardingLanguage.title": "زبان خود را برگزینید",
-  "onboardingLanguage.subtitle": "بعداً می‌توانید این را در تنظیمات تغییر دهید.",
+  "onboardingLanguage.title": "زبان خود را انتخاب کنید",
+  "onboardingLanguage.subtitle":
+    "زبانی را که راحت‌تر هستید انتخاب کنید. بعداً در بخش حساب قابل تغییر است.",
 
   // Onboarding mode picker
-  "onboardingMode.title": "می‌خواهید چطور از کاتا استفاده کنید؟",
-  "onboardingMode.subtitle": "بعداً می‌توانید این را در تنظیمات تغییر دهید.",
-  "onboardingMode.account.label": "ذخیره در کلاد",
+  "onboardingMode.title": "با کاتا شروع کنید",
+  "onboardingMode.subtitle": "روش نگهداری حساب‌های‌تان را انتخاب کنید.",
+  "onboardingMode.account.label": "با حساب",
   "onboardingMode.account.body":
-    "با ورود، یک نسخهٔ کاتای شما در کلاد می‌ماند — روی تلفون نو بازیابی کنید و از یک کاتا در چند تلفون کار بگیرید.",
+    "از کاتاهای‌تان نسخهٔ پشتیبان بگیرید، روی تلفون نو برگردانید و در چند تلفون استفاده کنید.",
   "onboardingMode.google.title": "ورود با گوگل",
   "onboardingMode.apple.title": "ورود با اپل",
   "onboardingMode.offline.label": "بدون حساب",
-  "onboardingMode.offline.body": "کاتای شما فقط روی همین تلفون می‌ماند — کاملاً خصوصی.",
-  "onboardingMode.offline.title": "کاملاً آفلاین",
+  "onboardingMode.offline.body":
+    "کاتای‌تان را روی همین تلفون نگه دارید. بعداً هم می‌توانید وارد حساب شوید.",
+  "onboardingMode.offline.title": "ادامه بدون اینترنت",
   "onboardingMode.signInFailed": "ورود نشد. دوباره امتحان کنید.",
   "onboardingMode.signInFailed.network":
     "ورود به کاتا نرسید. انترنت را بررسی کنید و دوباره امتحان کنید.",
@@ -2297,31 +2294,29 @@ const fa: Partial<Record<Key, string>> = {
   "auth.wait.hours": "{n} ساعت",
 
   // Onboarding profile
-  "onboardingProfile.title": "خودتان را معرفی کنید",
-  "onboardingProfile.subtitle":
-    "نام و شماره شما — تا کسانی که با آن‌ها حساب دارید بدانند شما هستید.",
+  "onboardingProfile.title": "مشخصات شما",
+  "onboardingProfile.subtitle": "تا کسانی که با آن‌ها حساب مشترک دارید، شما را بشناسند.",
   "onboardingProfile.signedInHint": "وارد شده به نام {email}",
   "onboardingProfile.continue": "ادامه",
   "onboardingProfile.nameRequired": "لطفاً نام خود را وارد کنید",
   "onboardingProfile.shopRequired": "لطفاً برای کاتای خود نام بگذارید",
   "onboardingProfile.joinExisting": "به جای آن به کاتای موجود می‌پیوندم",
 
-  "onboardingKaata.title": "دکان خود را راه‌اندازی کنید",
+  "onboardingKaata.title": "برای کاتای‌تان نام بگذارید",
   "onboardingKaata.subtitle":
-    "کاتای شما دفتر حساب دکان شماست. آن را نام بگذارید تا حساب همه را در یک جا نگه دارید.",
-  "onboardingKaata.name.label": "نام دکان",
+    "کاتا حساب همه را در یک جا نگه می‌دارد. برای دکان یا خانهٔ خود نامی انتخاب کنید.",
+  "onboardingKaata.name.label": "نام کاتا",
   "onboardingKaata.name.placeholder": "خوراکه فروشی احمد",
-  "onboardingKaata.name.required": "نام دکان لازم است",
+  "onboardingKaata.name.required": "لطفاً برای کاتای‌تان نام بگذارید",
   "onboardingKaata.currency.label": "ارز",
-  "onboardingKaata.currency.hint":
-    "پیش‌فرض برای تمام مبالغ این کاتا. بعداً در تنظیمات قابل تغییر است.",
+  "onboardingKaata.currency.hint": "تمام مبلغ‌های این کاتا با همین ارز ثبت می‌شوند.",
   "onboardingKaata.submit": "ساختن کاتا",
 
   // Onboarding completion (success screen)
   "onboardingSuccess.title": "کاتای شما آماده است",
-  // Position, not glyph — see the English block. The FAB is physically
-  // bottom-right in Persian too (the app is locked LTR).
-  "onboardingSuccess.body": "با دکمهٔ پایین سمت راست، یک نفر را اضافه کنید.",
+  "onboardingSuccess.body":
+    "یک نفر را اضافه کنید و داد و گرفت‌تان را ثبت کنید. کاتا بیلانس را برای‌تان حساب می‌کند.",
+  "onboardingSuccess.ledgerLabel": "کاتای شما",
   "onboardingSuccess.cta": "باز کردن کاتای من",
 
   // Permanent guide screen
@@ -2335,14 +2330,14 @@ const fa: Partial<Record<Key, string>> = {
     "بیش از یک دکان دارید؟ کاتای دیگری بسازید و با زدن روی نام کاتا در بالای صفحه اصلی بین آن‌ها جابه‌جا شوید.",
 
   // Onboarding restore
-  "onboardingRestore.title": "کاتای شما پیدا شد",
-  "onboardingRestore.subtitleVaults": "{count} دفتر ذخیره‌شده در حساب شما را بازیابی کنید.",
-  "onboardingRestore.restore.title": "بازیابی از فضای ابری",
-  "onboardingRestore.restore.bodyVaults":
-    "هر {count} دفتر شما — افراد، ثبت‌ها و فروشگاه — را روی این تلفن برگردانید.",
+  "onboardingRestore.title": "خوش برگشتید",
+  "onboardingRestore.checking": "در حال پیدا کردن کاتاهای شما",
+  "onboardingRestore.checkingHint": "حساب‌تان برای پیدا کردن اطلاعات ذخیره‌شده بررسی می‌شود.",
+  "onboardingRestore.subtitleVaults": "کاتاهای ذخیره‌شده در حساب شما: {count}",
+  "onboardingRestore.restore.title": "برگرداندن از کلاد",
+  "onboardingRestore.restore.bodyVaults": "افراد، ثبت‌ها و کاتاهای‌تان را روی این تلفون برگردانید.",
   "onboardingRestore.fresh.title": "شروع تازه",
-  "onboardingRestore.fresh.body":
-    "نسخهٔ ابری را نادیده بگیرید و یک کاتای تمیز روی این تلفن بسازید.",
+  "onboardingRestore.fresh.body": "یک کاتای نو بسازید. کاتاهای ذخیره‌شدهٔ شما در کلاد می‌مانند.",
   "onboardingRestore.fresh.confirmTitle": "با یک دفتر تمیز شروع می‌کنید؟",
   "onboardingRestore.fresh.confirmBody":
     "کاتاهای پشتیبان‌گرفته‌شدهٔ شما در ابر امن می‌مانند، اما اکنون روی این تلفن بازگردانی نمی‌شوند. می‌توانید بعداً دوباره وارد شوید تا آن‌ها را بازگردانی کنید.",
@@ -2630,7 +2625,7 @@ const fa: Partial<Record<Key, string>> = {
   "person.flows.received": "گرفتم ({count})",
   "person.flows.hint":
     "ثبت‌های داد و گرفت در تاریخچهٔ موجود. بیلانس آغازین به‌عنوان داد و گرفت جدید حساب نمی‌شود.",
-  "onboardingCalendar.title": "شیوهٔ نمایش تاریخ را انتخاب کنید",
+  "onboardingCalendar.title": "تقویم خود را انتخاب کنید",
   "onboardingCalendar.subtitle":
     "تاریخ‌ها را به شیوه‌ای که می‌شناسید ببینید. بعداً می‌توانید آن را در حساب تغییر دهید.",
   "person.search.result": "{count} ثبت پیدا شد · بیلانس شامل همه ثبت‌ها است",

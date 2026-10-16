@@ -1,7 +1,8 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
-import { useEffect, useRef, useState } from "react";
+import { useFocusEffect, useRouter } from "expo-router";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  BackHandler,
   Keyboard,
   KeyboardAvoidingView,
   Platform,
@@ -13,9 +14,14 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Button } from "../../components/Button";
 import { CountryPickerSheet } from "../../components/CountryPickerSheet";
 import { FormField } from "../../components/FormField";
+import {
+  OnboardingAction,
+  OnboardingHeader,
+  OnboardingIntro,
+  onboardingStyles,
+} from "../../components/Onboarding";
 import {
   accountNameIsOurs,
   accountNameProblem,
@@ -24,7 +30,7 @@ import {
 import { currentSessionKind, fetchAccountMe, syncAccountName } from "../../lib/auth";
 import { colors } from "../../lib/colors";
 import { getAppMeta, setAppMeta } from "../../lib/db";
-import { ltrIsolate, rowDir, textDir, trackingSafe, useIsRTL } from "../../lib/direction";
+import { ltrIsolate, textDir, useIsRTL } from "../../lib/direction";
 import { fonts, sansLineHeight } from "../../lib/fonts";
 import { t } from "../../lib/i18n";
 import {
@@ -33,7 +39,7 @@ import {
   inferCountryFromE164,
   normalizePhone,
 } from "../../lib/phone";
-import { icon, radius, TOUCH_MIN, typography } from "../../lib/tokens";
+import { icon } from "../../lib/tokens";
 import { useOnboardingKeyboardScroll } from "../../lib/use-onboarding-keyboard-scroll";
 
 // Onboarding identity step — name + phone. The name IS prefilled from the
@@ -243,36 +249,42 @@ export default function OnboardingProfileScreen() {
     await finalize();
   }
 
-  async function onBack() {
+  const onBack = useCallback(async () => {
+    if (savingRef.current) return;
+    savingRef.current = true;
+    setBusy(true);
+    setSubmitError(null);
     Keyboard.dismiss();
-    // Step back to auth picker. Clear the pending Google name/email so
-    // if they then choose offline, no stale subtitle persists.
-    await setAppMeta("onboarding_pending_name", "");
-    await setAppMeta("onboarding_pending_email", "");
-    await setAppMeta("onboarding_pending_phone", "");
-    await setAppMeta("onboarding_step", "auth");
-    router.replace("/onboarding/auth");
-  }
+    try {
+      // Returning to the provider choice must not race Continue, or leave
+      // an old provider identity visible after choosing the offline path.
+      await setAppMeta("onboarding_pending_name", "");
+      await setAppMeta("onboarding_pending_email", "");
+      await setAppMeta("onboarding_pending_phone", "");
+      await setAppMeta("onboarding_step", "auth");
+      router.replace("/onboarding/auth");
+    } catch (err) {
+      console.warn("[onboarding/profile] return to auth failed", err);
+      setSubmitError(t("entry.saveFailed"));
+    } finally {
+      savingRef.current = false;
+      setBusy(false);
+    }
+  }, [router]);
+
+  useFocusEffect(
+    useCallback(() => {
+      const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
+        void onBack();
+        return true;
+      });
+      return () => subscription.remove();
+    }, [onBack]),
+  );
 
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={[styles.header, rowDir(isRTL)]}>
-        <Pressable
-          onPress={onBack}
-          hitSlop={10}
-          style={({ pressed }) => [styles.backBtn, pressed && { opacity: 0.6 }]}
-        >
-          <Ionicons
-            // icon.row (22), NOT icon.header (26): this is a LABELLED back
-            // control (chevron + "Back" at 15px), not the bare chevron the
-            // settings header uses. 26 next to 15px text reads top-heavy.
-            name={isRTL ? "chevron-forward" : "chevron-back"}
-            size={icon.row}
-            color={colors.textEmphasis}
-          />
-          <Text style={[styles.backText, textDir(isRTL)]}>{t("onboardingMode.back")}</Text>
-        </Pressable>
-      </View>
+    <SafeAreaView style={onboardingStyles.screen}>
+      <OnboardingHeader onBack={onBack} disabled={busy} />
 
       <KeyboardAvoidingView
         style={styles.form}
@@ -287,22 +299,19 @@ export default function OnboardingProfileScreen() {
         <ScrollView
           {...scrollProps}
           style={styles.form}
-          contentContainerStyle={styles.scrollContent}
+          contentContainerStyle={onboardingStyles.content}
           showsVerticalScrollIndicator={false}
         >
-          <Text style={[styles.title, textDir(isRTL), trackingSafe(isRTL)]}>
-            {t("onboardingProfile.title")}
-          </Text>
-          {/* Why-we-ask subtitle — offline users got NO context here before
-              (the only subtitle was the signed-in-as hint). */}
-          <Text style={[styles.subtitle, textDir(isRTL)]}>{t("onboardingProfile.subtitle")}</Text>
-          {signedInEmail ? (
-            <Text style={[styles.subtitle, textDir(isRTL)]}>
-              {t("onboardingProfile.signedInHint", { email: signedInEmail })}
-            </Text>
-          ) : null}
-
-          <View style={styles.spacer} />
+          <OnboardingIntro
+            title={t("onboardingProfile.title")}
+            description={t("onboardingProfile.subtitle")}
+          >
+            {signedInEmail ? (
+              <Text style={[styles.identityHint, textDir(isRTL)]}>
+                {t("onboardingProfile.signedInHint", { email: ltrIsolate(signedInEmail) })}
+              </Text>
+            ) : null}
+          </OnboardingIntro>
 
           <FormField
             ref={nameRef}
@@ -311,7 +320,10 @@ export default function OnboardingProfileScreen() {
             label={t("onboarding.name.label")}
             required
             value={name}
+            editable={!busy}
+            style={styles.input}
             onChangeText={(s) => {
+              if (savingRef.current) return;
               setName(s);
               if (nameError) setNameError(null);
             }}
@@ -329,7 +341,11 @@ export default function OnboardingProfileScreen() {
             onBlur={() => blurInput(lastNameRef.current)}
             label={t("onboarding.lastName.label")}
             value={lastName}
-            onChangeText={setLastName}
+            editable={!busy}
+            style={styles.input}
+            onChangeText={(value) => {
+              if (!savingRef.current) setLastName(value);
+            }}
             placeholder={t("onboarding.lastName.placeholder")}
             autoCapitalize="words"
             returnKeyType="next"
@@ -349,6 +365,7 @@ export default function OnboardingProfileScreen() {
             <View style={styles.phoneRow}>
               <Pressable
                 onPress={() => {
+                  if (savingRef.current) return;
                   Keyboard.dismiss();
                   setPickerVisible(true);
                 }}
@@ -358,6 +375,8 @@ export default function OnboardingProfileScreen() {
                 ]}
                 accessibilityRole="button"
                 accessibilityLabel={t("onboarding.phone.label")}
+                disabled={busy}
+                accessibilityState={{ disabled: busy }}
               >
                 <Text style={styles.countryFlag}>{country.flag}</Text>
                 <Text style={styles.countryDial}>{ltrIsolate(country.dialCode)}</Text>
@@ -369,7 +388,9 @@ export default function OnboardingProfileScreen() {
                 onBlur={() => blurInput(phoneRef.current)}
                 style={[styles.phoneInput, phoneError ? styles.inputError : null]}
                 value={phone}
+                editable={!busy}
                 onChangeText={(v) => {
+                  if (savingRef.current) return;
                   setPhoneError(null);
                   setPhone(v);
                 }}
@@ -400,14 +421,20 @@ export default function OnboardingProfileScreen() {
           ) : null}
 
           <View style={{ height: 12 }} />
-          <Button label={t("onboardingProfile.continue")} onPress={onSubmit} loading={busy} />
+          <OnboardingAction
+            label={t("onboardingProfile.continue")}
+            onPress={onSubmit}
+            loading={busy}
+          />
         </ScrollView>
       </KeyboardAvoidingView>
 
       <CountryPickerSheet
         visible={pickerVisible}
         selectedCode={countryCode}
-        onSelect={(c) => setCountryCode(c)}
+        onSelect={(c) => {
+          if (!savingRef.current) setCountryCode(c);
+        }}
         onDismiss={() => setPickerVisible(false)}
       />
     </SafeAreaView>
@@ -415,55 +442,18 @@ export default function OnboardingProfileScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.bgWarm },
   form: { flex: 1 },
-  header: {
-    paddingHorizontal: 8,
-    paddingTop: 8,
-    paddingBottom: 4,
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  backBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    // 8+8 padding around a 15px label computed to ~40 — under the HIG floor.
-    // alignItems already centres on the cross (vertical) axis of this row, so
-    // no justifyContent is needed. hitSlop stays as belt-and-braces.
-    minHeight: TOUCH_MIN,
-    paddingHorizontal: 8,
-    paddingVertical: 8,
-    gap: 2,
-  },
-  backText: {
-    fontSize: 15,
-    fontFamily: fonts.sansMedium,
-    color: colors.textSubtle,
-  },
-  scrollContent: {
-    flexGrow: 1,
-    padding: 24,
-    paddingTop: 12,
-    paddingBottom: 48,
-  },
-  title: {
-    // typography.heading (20) — was a one-off 22, the same literal
-    // onboarding/auth.tsx carried; both now land on one token so consecutive
-    // onboarding steps share a headline size. sansBold kept over the token's
-    // sansSemi for the step's weight, as on auth.
-    ...typography.heading,
-    fontFamily: fonts.sansBold,
-    color: colors.textEmphasis,
-    letterSpacing: -0.4,
-  },
-  subtitle: {
+  identityHint: {
     fontSize: 13,
     fontFamily: fonts.sansRegular,
     color: colors.textSubtle,
-    marginTop: 6,
+    backgroundColor: colors.bgMuted,
+    borderRadius: 10,
+    padding: 12,
+    marginTop: 16,
     lineHeight: sansLineHeight(13, 19),
   },
-  spacer: { height: 28 },
+  input: { minHeight: 52, borderRadius: 12 },
   fieldHint: {
     fontSize: 12,
     fontFamily: fonts.sansRegular,
@@ -491,11 +481,11 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    minHeight: TOUCH_MIN,
+    minHeight: 52,
     paddingHorizontal: 12,
     borderWidth: 1,
     borderColor: colors.borderDefault,
-    borderRadius: radius.sm,
+    borderRadius: 12,
     backgroundColor: colors.bgDefault,
   },
   countryFlag: { fontSize: 18 },
@@ -506,15 +496,18 @@ const styles = StyleSheet.create({
   },
   phoneInput: {
     flex: 1,
-    minHeight: TOUCH_MIN,
+    minWidth: 0,
+    minHeight: 52,
     borderWidth: 1,
     borderColor: colors.borderDefault,
-    borderRadius: radius.sm,
+    borderRadius: 12,
     paddingHorizontal: 14,
     fontSize: 15,
     fontFamily: fonts.sansRegular,
     color: colors.textEmphasis,
     backgroundColor: colors.bgDefault,
+    writingDirection: "ltr",
+    textAlign: "left",
   },
   inputError: {
     borderColor: colors.danger,

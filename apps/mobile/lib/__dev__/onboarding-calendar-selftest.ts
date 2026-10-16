@@ -1,10 +1,11 @@
+import { onboardingJSX, onboardingMock } from "./onboarding-fixture";
 // Real language/calendar/index screens, existing calendar preference module
 // and initial-route contract. Storage/navigation/native UI are synthetic.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { pickInitialRoute, parseOnboardingStep, type OnboardingStep } from "../onboarding-route";
 import { formatCalendarDate } from "../jalali";
-import { compileUI, deferred, jsx, nodes, settleUI, uiHooks } from "./ui-fixture";
+import { compileUI, deferred, nodes, settleUI, uiHooks } from "./ui-fixture";
 
 function fixture(
   initialLocale: "en" | "fa" = "en",
@@ -72,7 +73,7 @@ function fixture(
   };
   const screens: any = {};
   const mocks = {
-    "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
+    "react/jsx-runtime": { jsx: onboardingJSX, jsxs: onboardingJSX, Fragment: "Fragment" },
     react: hooks.react,
     "expo-router": {
       Redirect: "Redirect",
@@ -81,6 +82,7 @@ function fixture(
     },
     "expo-localization": { getLocales: () => [{ languageCode: deviceLanguage }] },
     "react-native": native,
+    "../../components/Onboarding": onboardingMock,
     "react-native-safe-area-context": { SafeAreaView: "Safe" },
     "@expo/vector-icons": { Ionicons: "Icon" },
     "../../components/Button": { Button: "Button" },

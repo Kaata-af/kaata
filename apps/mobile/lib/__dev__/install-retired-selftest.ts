@@ -1,3 +1,4 @@
+import { onboardingJSX, onboardingMock } from "./onboarding-fixture";
 // Run with: npm run selftest:install-retired
 // Synthetic fixtures only: never opens kaata.db, SecureStore, a device or the
 // network.
@@ -324,7 +325,7 @@ let activeFocusEffect: {
   cleanup: void | (() => void);
 } | null = null;
 const hardwareBackListeners = new Set<() => boolean>();
-const jsx = (type: unknown, props: Record<string, unknown>) => ({ type, props });
+const jsx = onboardingJSX;
 
 type AuthScreenProps = { redirected?: boolean; emailRoute?: boolean };
 const screen = load<{ AuthScreen: (props: AuthScreenProps) => unknown }>(
@@ -372,6 +373,7 @@ const screen = load<{ AuthScreen: (props: AuthScreenProps) => unknown }>(
       Platform: { OS: "android", select: (x: { android: unknown }) => x.android },
       StyleSheet: { create: (x: unknown) => x },
     },
+    "../../components/Onboarding": onboardingMock,
     "react-native-safe-area-context": { SafeAreaView: "Safe" },
     "@expo/vector-icons": { Ionicons: "Icon" },
     "expo-constants": { __esModule: true, default: { executionEnvironment: "standalone" } },

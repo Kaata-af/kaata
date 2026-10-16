@@ -31,6 +31,7 @@
     "selftest:install-retired": "tsx lib/__dev__/install-retired-selftest.ts",
     "selftest:email-auth": "tsx lib/__dev__/email-auth-selftest.ts",
     "selftest:onboarding-keyboard": "tsx lib/__dev__/onboarding-keyboard-selftest.ts",
+    "selftest:onboarding-ui": "tsx lib/__dev__/onboarding-ui-selftest.ts",
     "selftest:tabs": "tsx lib/__dev__/tabs-selftest.ts",
     "selftest:tab-settlement": "tsx lib/__dev__/tab-settlement-selftest.ts",
     "selftest:notifications": "tsx lib/__dev__/notifications-selftest.ts",
