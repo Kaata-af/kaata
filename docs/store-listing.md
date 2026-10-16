@@ -10,8 +10,8 @@ app, to avoid the Personal Loans policy false-positive.
 black launcher icon with the white K, derived from `apps/mobile/assets/icon.png`.
 The App Store icon comes from that app binary. The marketing recolor generator
 writes only its separate marketing logo and cannot overwrite product icons.
-These source assets are ready for a future production listing update; the
-2.2.0 testing delivery does not change the current production store listings.
+The 2.2.0 production IPA was inspected directly: its iPhone/iPad icons contain
+the correct opaque Kaata mark and its compiled asset catalog is present.
 
 ## Persian screenshot campaign
 
@@ -32,19 +32,26 @@ the images themselves are entirely Persian with English digits.
 
 - **Google Play:** committed 19 images: six phone, six 7-inch tablet, six
   10-inch tablet, and one feature graphic. A fresh read verified every image's
-  order and SHA-1/SHA-256 against the local files. The update was accepted and
-  sent for publishing; public visibility has not been confirmed. Listing text,
-  icon, app details and release tracks are unchanged. Production remains
-  `2.1.1 (50)` and internal testing remains `2.2.0 (58)`.
-- **App Store:** saved six iPhone and six iPad images, in order, on the new
-  `2.2.0` draft (`ea388b29-3c37-4a6c-a5b8-5f00b3a19374`). All uploads processed
-  successfully. The draft remains `PREPARE_FOR_SUBMISSION` with manual release
-  and no build associated. It has not been submitted for review. Released
-  `2.1.1`, its metadata and its ten screenshot placements are unchanged; the
-  new screenshots will become public with a future release of this draft.
+  order and SHA-1/SHA-256 against the local files. Screenshot submission **32**
+  is **Published**. Production **2.2.0 (59)** was subsequently submitted and is
+  **In review**, with a full rollout configured after approval; the Console
+  shows its automatic pre-review checks running. Internal **2.2.0 (59)** is
+  published. Previous production **2.1.1 (50)** remains live. Listing text,
+  icon, app details, screenshot hashes/order and closed tracks were preserved.
+- **App Store:** six iPhone and six iPad images remain on `2.2.0`
+  (`ea388b29-3c37-4a6c-a5b8-5f00b3a19374`), with all uploads processed
+  successfully. Build **39** is attached and the release is **Waiting for
+  Review**, submitted October 16 at 19:02 Kabul time. Submission
+  `a01151c0-a38d-4e76-95b9-693a5d02bc9e` contains that one version. Automatic
+  release to all users after approval is enabled. Released `2.1.1`, its
+  metadata and its ten screenshot placements remain unchanged until approval;
+  the new screenshots accompany the 2.2.0 release.
 
-No app build or binary submission was performed. Local upload receipts are in
-the ignored `.generated/store-upload/play-update.json` and `apple-update.json`.
+The original screenshot-only update did not build an app. Matee subsequently
+authorized the production release: Android 59 was built locally and iOS 39 on
+Expo. See [the production release record](2.2.0-production-release.md) for
+artifact checks, store delivery and the iOS draft icon investigation. Local
+receipts remain in the ignored `.generated/store-upload` directory.
 
 Six panels use the same order in every device folder:
 

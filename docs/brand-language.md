@@ -57,8 +57,9 @@ white background, black K, blue (`#1683C5`) headlines, and thin yellow
 a Google affiliation. App interfaces inside the artwork keep product colors.
 All screenshot text is Persian, with English digits for amounts and counts.
 The campaign leaves app, website and existing social/flyer colors unchanged.
-On October 16, the images were accepted for publishing on Google Play and saved
-on the App Store 2.2.0 draft. See [store-listing.md](store-listing.md) for the
+On October 16, Google Play published the new images and accepted Android 2.2.0
+for production review. The App Store images are associated with the 2.2.0
+release. See [store-listing.md](store-listing.md) for the
 verified upload status, source files and export commands.
 
 ## Artwork and generation
@@ -77,8 +78,9 @@ geometry and anti-aliasing through the established per-pixel recolor. Run its
 this independent asset. Re-running marketing generation cannot recolor app, web
 or store assets.
 
-Native black icons/splash are included in the 2.2.0 testing binaries, iOS 37 and
-Android 57. This work does not edit production store listings, screenshots or
-social-profile pictures.
+Native black icons/splash were included in the 2.2.0 testing binaries, iOS 37
+and Android 57, and retained for production iOS 39 and Android 59. The actual
+iOS 39 IPA was inspected and contains the correct opaque Kaata app icons.
+Production delivery is recorded in [2.2.0-production-release.md](2.2.0-production-release.md).
 Website changes deploy through the existing main-branch workflow. Check marketing
 print/export output separately before publishing it.
