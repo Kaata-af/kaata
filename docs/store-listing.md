@@ -13,7 +13,7 @@ writes only its separate marketing logo and cannot overwrite product icons.
 These source assets are ready for a future production listing update; the
 2.2.0 testing delivery does not change the current production store listings.
 
-## Persian screenshot campaign — local review draft
+## Persian screenshot campaign
 
 The October 16 campaign follows Matee’s Facebook reference: white background,
 black original K logo, blue emphasis (`#1683C5`), and a thin yellow–blue–red
@@ -23,8 +23,28 @@ neutral black/white; no Google logo, store badge or download button appears.
 
 The images are **manually composed app previews with fictional data**, not
 native device captures. They follow the current screens and installed app
-fonts. Check against the final iOS/Android release before uploading; this work
-creates local artwork only and does not change any live store listing.
+fonts. Check against the final iOS/Android release when preparing future updates.
+
+### Store upload status — October 16, 2026
+
+Artwork commit: `a14f1f8`. Both stores use the existing `en-US` listing locale;
+the images themselves are entirely Persian with English digits.
+
+- **Google Play:** committed 19 images: six phone, six 7-inch tablet, six
+  10-inch tablet, and one feature graphic. A fresh read verified every image's
+  order and SHA-1/SHA-256 against the local files. The update was accepted and
+  sent for publishing; public visibility has not been confirmed. Listing text,
+  icon, app details and release tracks are unchanged. Production remains
+  `2.1.1 (50)` and internal testing remains `2.2.0 (58)`.
+- **App Store:** saved six iPhone and six iPad images, in order, on the new
+  `2.2.0` draft (`ea388b29-3c37-4a6c-a5b8-5f00b3a19374`). All uploads processed
+  successfully. The draft remains `PREPARE_FOR_SUBMISSION` with manual release
+  and no build associated. It has not been submitted for review. Released
+  `2.1.1`, its metadata and its ten screenshot placements are unchanged; the
+  new screenshots will become public with a future release of this draft.
+
+No app build or binary submission was performed. Local upload receipts are in
+the ignored `.generated/store-upload/play-update.json` and `apple-update.json`.
 
 Six panels use the same order in every device folder:
 

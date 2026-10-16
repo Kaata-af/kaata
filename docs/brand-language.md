@@ -56,9 +56,10 @@ white background, black K, blue (`#1683C5`) headlines, and thin yellow
 (`#FBBB19`), blue, red (`#F23C3D`) footer. It does not use Google’s logo or imply
 a Google affiliation. App interfaces inside the artwork keep product colors.
 All screenshot text is Persian, with English digits for amounts and counts.
-These local review exports do not recolor the app, website or existing
-social/flyer sources, and do not publish a listing update. See
-[store-listing.md](store-listing.md) for source files and export commands.
+The campaign leaves app, website and existing social/flyer colors unchanged.
+On October 16, the images were accepted for publishing on Google Play and saved
+on the App Store 2.2.0 draft. See [store-listing.md](store-listing.md) for the
+verified upload status, source files and export commands.
 
 ## Artwork and generation
 
