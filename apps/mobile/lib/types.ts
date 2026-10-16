@@ -106,6 +106,15 @@ export type Person = {
 export type PersonWithBalance = Person & {
   balance: number;
   last_entry_at: number | null;
+  /** Current-book financial totals loaded with the people list in the same
+   * SQLite snapshot. Selection sums these integer amounts directly in memory;
+   * single-person reads do not need to compute them. */
+  selection_totals?: {
+    debtCount: number;
+    creditCount: number;
+    debtMinor: number;
+    creditMinor: number;
+  };
   /**
    * 1 when the account is DELIBERATELY settled: balance is zero and the
    * latest ruled-off line covers every live entry. A balance that merely

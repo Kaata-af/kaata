@@ -16,9 +16,8 @@ import { SelectionMark } from "./SelectionMark";
 // Stacked-card list row. Designed to live inside a rounded container with
 // borderWidth:1 and divider Views between rows.
 //
-// `balance` is signed at the type level but the row always shows the absolute
-// amount — direction is conveyed by the containing tab or an optional label
-// when rows from both directions are listed together in search.
+// Direction comes from the containing tab on home. Mixed search results use a
+// signed amount so balances from both directions stay clear in the same list.
 //
 // Memoized, and the callbacks take the person so parents can pass STABLE
 // handlers — home renders every person in two lists, and without the memo a
@@ -57,6 +56,7 @@ export const PersonRow = memo(function PersonRow(props: {
   const unsynced = person.tab_unsynced === 1;
   const showDirection = props.showDirection && !unsynced && !settled && person.balance !== 0;
   const directionColor = person.balance > 0 ? colors.collectText : colors.payText;
+  const amount = formatAmount(abs);
   const subtitle = unsynced
     ? t("tab.row.notDownloaded")
     : person.tab_id && person.tab_pending > 0
@@ -66,7 +66,14 @@ export const PersonRow = memo(function PersonRow(props: {
   return (
     <Pressable
       onPress={() => props.onPress(person)}
-      onLongPress={props.onLongPress ? () => props.onLongPress?.(person) : undefined}
+      // Pressability checks the CURRENT handler on release. Entering selection
+      // removes the parent's start handler, so keep one installed while selecting
+      // or that same hold becomes an onPress and immediately deselects the row.
+      onLongPress={
+        props.onLongPress || props.selecting
+          ? () => (props.selecting ? props.onPress(person) : props.onLongPress?.(person))
+          : undefined
+      }
       delayLongPress={350}
       disabled={props.disabled}
       accessibilityRole={props.selecting ? "checkbox" : "button"}
@@ -142,6 +149,11 @@ export const PersonRow = memo(function PersonRow(props: {
               {/* L41: cap the amount's font scaling so it can't grow so wide at
                 large OS font that it crushes the flex:1 name column. */}
               <Text
+                accessibilityLabel={
+                  showDirection
+                    ? `${t(person.balance > 0 ? "home.tab.collect" : "home.tab.pay")}, ${amount}`
+                    : undefined
+                }
                 style={[
                   styles.amount,
                   abs === 0 && { color: colors.textMuted },
@@ -150,7 +162,7 @@ export const PersonRow = memo(function PersonRow(props: {
                 numberOfLines={1}
                 maxFontSizeMultiplier={1.5}
               >
-                {formatAmount(abs)}
+                {showDirection ? `${person.balance > 0 ? "+" : "−"}${amount}` : amount}
               </Text>
               <Text style={styles.afn} maxFontSizeMultiplier={1.5}>
                 {getCurrentCurrencySymbol()}
@@ -158,11 +170,6 @@ export const PersonRow = memo(function PersonRow(props: {
             </>
           )}
         </View>
-        {showDirection ? (
-          <Text style={[styles.direction, textDir(isRTL), { color: directionColor }]}>
-            {t(person.balance > 0 ? "home.tab.collect" : "home.tab.pay")}
-          </Text>
-        ) : null}
         <CreditStatusBadge status={props.creditStatus ?? "none"} />
       </View>
     </Pressable>
@@ -203,15 +210,11 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontFamily: fonts.monoSemi,
     color: colors.textEmphasis,
+    writingDirection: "ltr",
   },
   afn: {
     fontSize: 11,
     fontFamily: fonts.sansMedium,
     color: colors.textMuted,
-  },
-  direction: {
-    fontSize: 11,
-    fontFamily: fonts.sansMedium,
-    marginTop: 2,
   },
 });

@@ -1,6 +1,13 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation, useRoute, useRouter, type NativeStackNavigationProp } from "expo-router";
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ComponentProps,
+  type ReactNode,
+} from "react";
 import {
   Keyboard,
   KeyboardAvoidingView,
@@ -26,6 +33,7 @@ import {
 import { icon, radius, TOUCH_MIN, typography } from "../lib/tokens";
 import { ScreenHeader } from "./SettingsScreen";
 import { Button } from "./Button";
+import { ConfirmDialog } from "./ConfirmDialog";
 
 /** Search, its filters, and its scrollable results share one keyboard-aware sheet. */
 export type SearchSheetProps = {
@@ -44,7 +52,10 @@ export type SearchSheetProps = {
   filtersActive?: boolean;
   onClearAll?: () => void;
   footer?: ReactNode;
-  children: ReactNode;
+  /** Presented from the native search route, above its content and floating footer. */
+  confirmation?: ComponentProps<typeof ConfirmDialog>;
+  autoFocus?: boolean;
+  children: ReactNode | ((footerInset: number) => ReactNode);
 };
 
 /** Keep ledger state live in its owner while native navigation presents search. */
@@ -73,7 +84,10 @@ export function SearchSheet(props: SearchSheetProps) {
           if (opening.current?.id === id && latest.current.contextKey === contextKey)
             latest.current.onDismiss();
         },
-        () => !latest.current.dismissDisabled && (latest.current.canDismiss?.() ?? true),
+        () =>
+          !latest.current.dismissDisabled &&
+          !latest.current.confirmation?.visible &&
+          (latest.current.canDismiss?.() ?? true),
       );
       opening.current = { id, contextKey };
     }
@@ -81,7 +95,7 @@ export function SearchSheet(props: SearchSheetProps) {
     publishNativeSearch(
       id,
       <SearchSheetContent {...props} key={id} onDismiss={() => closeNativeSearch(id)} />,
-      !!props.dismissDisabled,
+      !!props.dismissDisabled || !!props.confirmation?.visible,
     );
     if (isNew) router.push({ pathname: "/search", params: { sessionId: id, ownerKey: route.key } });
   });
@@ -150,6 +164,46 @@ export function SearchSheetContent(props: SearchSheetProps & { active?: boolean 
   const mounted = useRef(false);
   const focusTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [filtersExpanded, setFiltersExpanded] = useState(false);
+  const [footerHeight, setFooterHeight] = useState(0);
+  const confirmationState = useRef({
+    visible: false,
+    generation,
+    handled: false,
+    version: 0,
+    content: undefined as SearchSheetProps["confirmation"],
+  });
+  const confirming = !!props.confirmation?.visible && props.active !== false;
+  if (
+    confirmationState.current.visible !== confirming ||
+    confirmationState.current.generation !== generation
+  ) {
+    confirmationState.current = {
+      visible: confirming,
+      generation,
+      handled: false,
+      version: confirmationState.current.version + 1,
+      content:
+        confirmationState.current.generation === generation
+          ? confirmationState.current.content
+          : undefined,
+    };
+  }
+  if (confirming) confirmationState.current.content = props.confirmation;
+  const confirmationVersion = confirmationState.current.version;
+  const controlsDisabled = () =>
+    !!latest.current.dismissDisabled || !!latest.current.confirmation?.visible;
+  const confirmationAction = (action: "onConfirm" | "onCancel" | "onTertiary") => {
+    if (
+      !current() ||
+      !latest.current.confirmation?.visible ||
+      latest.current.dismissDisabled ||
+      confirmationState.current.version !== confirmationVersion ||
+      confirmationState.current.handled
+    )
+      return;
+    confirmationState.current.handled = true;
+    latest.current.confirmation[action]?.();
+  };
   const expanded = useRef(filtersExpanded);
   expanded.current = filtersExpanded;
   const cancelFocus = () => {
@@ -164,7 +218,8 @@ export function SearchSheetContent(props: SearchSheetProps & { active?: boolean 
     latest.current.contextKey === props.contextKey;
   const focus = () => {
     cancelFocus();
-    if (!current() || expanded.current) return;
+    if (!current() || expanded.current || latest.current.autoFocus === false || controlsDisabled())
+      return;
     const context = props.contextKey;
     focusTimer.current = setTimeout(() => {
       focusTimer.current = null;
@@ -173,6 +228,8 @@ export function SearchSheetContent(props: SearchSheetProps & { active?: boolean 
         latest.current.active !== false &&
         session.current.generation === generation &&
         latest.current.visible &&
+        latest.current.autoFocus !== false &&
+        !controlsDisabled() &&
         latest.current.contextKey === context &&
         !expanded.current
       )
@@ -190,12 +247,19 @@ export function SearchSheetContent(props: SearchSheetProps & { active?: boolean 
     cancelFocus();
     expanded.current = false;
     setFiltersExpanded(false);
-    if (!props.visible || props.active === false) input.current?.blur();
+    if (!props.visible || props.active === false || props.autoFocus === false)
+      input.current?.blur();
     else focus();
     return cancelFocus;
-  }, [props.visible, props.contextKey, props.active]);
+  }, [props.visible, props.contextKey, props.active, props.autoFocus]);
+  useEffect(() => {
+    if (!confirming) return;
+    cancelFocus();
+    input.current?.blur();
+    Keyboard.dismiss();
+  }, [confirming]);
   const dismiss = () => {
-    if (!current() || latest.current.dismissDisabled) return;
+    if (!current() || controlsDisabled()) return;
     cancelFocus();
     input.current?.blur();
     Keyboard.dismiss();
@@ -207,10 +271,10 @@ export function SearchSheetContent(props: SearchSheetProps & { active?: boolean 
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={t("search.clearAll")}
-        disabled={props.dismissDisabled}
-        accessibilityState={{ disabled: !!props.dismissDisabled }}
+        disabled={props.dismissDisabled || confirming}
+        accessibilityState={{ disabled: !!props.dismissDisabled || confirming }}
         onPress={() => {
-          if (current() && !latest.current.dismissDisabled) latest.current.onClearAll?.();
+          if (current() && !controlsDisabled()) latest.current.onClearAll?.();
         }}
         style={styles.clearAll}
       >
@@ -225,7 +289,7 @@ export function SearchSheetContent(props: SearchSheetProps & { active?: boolean 
         onBack={dismiss}
         isRTL={props.isRTL}
         backLabel={t("common.close")}
-        backDisabled={props.dismissDisabled}
+        backDisabled={props.dismissDisabled || confirming}
       />
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : "height"}
@@ -240,13 +304,12 @@ export function SearchSheetContent(props: SearchSheetProps & { active?: boolean 
               placeholder={props.placeholder}
               placeholderTextColor={colors.textMuted}
               value={props.query}
-              editable={!props.dismissDisabled}
+              editable={!props.dismissDisabled && !confirming}
               onChangeText={(query) => {
-                if (current() && !latest.current.dismissDisabled)
-                  latest.current.onChangeQuery(query);
+                if (current() && !controlsDisabled()) latest.current.onChangeQuery(query);
               }}
               onFocus={() => {
-                if (!current()) return;
+                if (!current() || controlsDisabled()) return;
                 expanded.current = false;
                 setFiltersExpanded(false);
               }}
@@ -255,7 +318,7 @@ export function SearchSheetContent(props: SearchSheetProps & { active?: boolean 
               returnKeyType="search"
               submitBehavior="blurAndSubmit"
               onSubmitEditing={() => {
-                if (current()) {
+                if (current() && !controlsDisabled()) {
                   input.current?.blur();
                   Keyboard.dismiss();
                 }
@@ -266,12 +329,11 @@ export function SearchSheetContent(props: SearchSheetProps & { active?: boolean 
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel={t("search.clearQuery")}
-                disabled={props.dismissDisabled}
-                accessibilityState={{ disabled: !!props.dismissDisabled }}
+                disabled={props.dismissDisabled || confirming}
+                accessibilityState={{ disabled: !!props.dismissDisabled || confirming }}
                 style={styles.icon}
                 onPress={() => {
-                  if (current() && !latest.current.dismissDisabled)
-                    latest.current.onChangeQuery("");
+                  if (current() && !controlsDisabled()) latest.current.onChangeQuery("");
                 }}
               >
                 <Ionicons name="close-circle" size={icon.trailing} color={colors.textMuted} />
@@ -285,11 +347,11 @@ export function SearchSheetContent(props: SearchSheetProps & { active?: boolean 
               accessibilityState={{
                 expanded: filtersExpanded,
                 selected: !!props.filtersActive,
-                disabled: !!props.dismissDisabled,
+                disabled: !!props.dismissDisabled || confirming,
               }}
-              disabled={props.dismissDisabled}
+              disabled={props.dismissDisabled || confirming}
               onPress={() => {
-                if (!current() || latest.current.dismissDisabled) return;
+                if (!current() || controlsDisabled()) return;
                 cancelFocus();
                 input.current?.blur();
                 Keyboard.dismiss();
@@ -322,7 +384,7 @@ export function SearchSheetContent(props: SearchSheetProps & { active?: boolean 
             <ScrollView
               keyboardShouldPersistTaps="handled"
               keyboardDismissMode="on-drag"
-              pointerEvents={props.dismissDisabled ? "none" : "auto"}
+              pointerEvents={props.dismissDisabled || confirming ? "none" : "auto"}
               style={styles.filterScroll}
               contentContainerStyle={styles.filters}
             >
@@ -334,9 +396,9 @@ export function SearchSheetContent(props: SearchSheetProps & { active?: boolean 
                 size="hero"
                 label={t("search.showResults")}
                 icon="checkmark-outline"
-                disabled={props.dismissDisabled}
+                disabled={props.dismissDisabled || confirming}
                 onPress={() => {
-                  if (!current() || latest.current.dismissDisabled) return;
+                  if (!current() || controlsDisabled()) return;
                   expanded.current = false;
                   setFiltersExpanded(false);
                 }}
@@ -363,10 +425,41 @@ export function SearchSheetContent(props: SearchSheetProps & { active?: boolean 
           ) : clearAll ? (
             <View style={styles.clearRow}>{clearAll}</View>
           ) : null}
-          <View style={styles.results}>{props.children}</View>
-          {props.footer ? <View style={styles.footer}>{props.footer}</View> : null}
+          <View style={styles.results}>
+            {typeof props.children === "function"
+              ? props.children(props.footer ? footerHeight : 0)
+              : props.children}
+          </View>
+          {props.footer ? (
+            <View
+              pointerEvents="box-none"
+              testID="search-selection-overlay"
+              style={styles.footer}
+              onLayout={(event) => setFooterHeight(event.nativeEvent.layout.height)}
+            >
+              <ScrollView
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={styles.footerContent}
+                style={styles.footerScroll}
+              >
+                {props.footer}
+              </ScrollView>
+            </View>
+          ) : null}
         </View>
       </KeyboardAvoidingView>
+      {props.confirmation ? (
+        <ConfirmDialog
+          {...(confirmationState.current.content ?? props.confirmation)}
+          visible={confirming}
+          onConfirm={() => confirmationAction("onConfirm")}
+          onCancel={() => confirmationAction("onCancel")}
+          onTertiary={
+            props.confirmation.onTertiary ? () => confirmationAction("onTertiary") : undefined
+          }
+        />
+      ) : null}
     </SafeAreaView>
   );
 }
@@ -448,5 +541,14 @@ const styles = StyleSheet.create({
   },
   results: { flex: 1, minHeight: 0 },
   hidden: { display: "none" },
-  footer: { paddingHorizontal: 16, paddingVertical: 8 },
+  footer: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    maxHeight: "60%",
+    backgroundColor: "transparent",
+  },
+  footerScroll: { flexGrow: 0, backgroundColor: "transparent" },
+  footerContent: { paddingHorizontal: 16, paddingTop: 18, paddingBottom: 8 },
 });

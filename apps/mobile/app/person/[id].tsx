@@ -1,11 +1,11 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as Crypto from "expo-crypto";
 import {
+  useFocusEffect,
   useFocusEffect as useRouteFocusEffect,
   useLocalSearchParams,
   useRouter,
 } from "expo-router";
-import { useSearchFocusEffect as useFocusEffect } from "../../lib/use-search-focus-effect";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -19,11 +19,12 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   type KeyboardEvent,
   View,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { TallyDateFilterContent } from "../../components/TallyDateFilterSheet";
+import { TallyDateFilterSheet } from "../../components/TallyDateFilterSheet";
 import { BottomSheet } from "../../components/BottomSheet";
 import { Chip } from "../../components/Chip";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
@@ -34,10 +35,9 @@ import { CreditIntentList } from "../../components/CreditIntentList";
 import { CreditStatusBadge } from "../../components/CreditStatusBadge";
 import { EntryRow } from "../../components/EntryRow";
 import { SharedAccountBadge } from "../../components/SharedAccountBadge";
-import { SearchFieldTrigger } from "../../components/SearchFieldTrigger";
-import { SearchSheet } from "../../components/SearchSheet";
-import { afterNativeSearchClosed } from "../../lib/native-search";
+import { SearchControlSlot } from "../../components/SearchControlSlot";
 import { SelectionToolbar } from "../../components/SelectionToolbar";
+import { summarizeSelectionEntries } from "../../lib/selection-summary";
 import { useSheetMotionPreference } from "../../components/SheetBackdrop";
 import { useCustomerGroups } from "../../lib/use-customer-groups";
 import { LinkAccountDialog } from "../../components/LinkAccountDialog";
@@ -163,6 +163,8 @@ export default function PersonDetailScreen() {
   // keyboard only made it jump while typing.
   const [keyboardShown, setKeyboardShown] = useState(false);
   const keyboardShownRef = useRef(false);
+  const [searchFocused, setSearchFocused] = useState(false);
+  const searchInputRef = useRef<TextInput>(null);
   const reducedMotion = useSheetMotionPreference();
   const keyboardRouteFocused = useRef(false);
   useRouteFocusEffect(
@@ -174,6 +176,8 @@ export default function PersonDetailScreen() {
     }, []),
   );
   const dismissSearchKeyboard = useCallback(() => {
+    searchInputRef.current?.blur();
+    setSearchFocused(false);
     Keyboard.dismiss();
   }, []);
   useEffect(() => {
@@ -186,6 +190,8 @@ export default function PersonDetailScreen() {
       setKeyboardShown(shown);
     };
     const finishHide = () => {
+      searchInputRef.current?.blur();
+      setSearchFocused(false);
       keyboardShownRef.current = false;
       setKeyboardShown(false);
     };
@@ -288,31 +294,23 @@ export default function PersonDetailScreen() {
   const [showFullHistory, setShowFullHistory] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [dateRange, setDateRange] = useState<TallyDateRange | null>(null);
-  const [searchScope, setSearchScope] = useState<string | null>(null);
-  const searchVisible = searchScope === flowScope;
-  const searchContext = useRef({ scope: flowScope, visible: searchVisible });
-  searchContext.current = { scope: flowScope, visible: searchVisible };
-  const searchMenuTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const searchMenuRequest = useRef(0);
-  const cancelSearchMenu = useCallback(() => {
-    searchMenuRequest.current++;
-    if (searchMenuTimer.current) clearTimeout(searchMenuTimer.current);
-    searchMenuTimer.current = null;
-  }, []);
-  useEffect(() => cancelSearchMenu, [flowScope, cancelSearchMenu]);
+  const [dateSheetVisible, setDateSheetVisible] = useState(false);
+  const screenScope = useRef(flowScope);
+  screenScope.current = flowScope;
   const [selectionScope, setSelectionScope] = useState<string | null>(null);
   const [selectedEntryIds, setSelectedEntryIds] = useState<Set<string>>(new Set());
   const [confirmSelectionDelete, setConfirmSelectionDelete] = useState(false);
+  const selectionConfirmationVersion = useRef(0);
+  const selectionDeleteCount = useRef(0);
   const [selectionBusy, setSelectionBusy] = useState(false);
   const selectionBusyRef = useRef(false);
   useEffect(() => {
     setSearchQuery("");
     setDateRange(null);
-    setSearchScope(null);
-  }, [flowScope]);
-  useEffect(() => {
-    setSearchScope(null);
-  }, [entryId, notificationKey]);
+    setDateSheetVisible(false);
+    setSheetFor(null);
+    dismissSearchKeyboard();
+  }, [flowScope, entryId, notificationKey, dismissSearchKeyboard]);
   useEffect(() => {
     if (entryId) setShowFullHistory(true);
   }, [entryId, notificationKey]);
@@ -512,8 +510,9 @@ export default function PersonDetailScreen() {
     [flowHistory, flowScope],
   );
   const searchTerms = useMemo(() => noteSearchTerms(searchQuery), [searchQuery]);
-  const searchVisibleRef = useRef(searchVisible);
-  searchVisibleRef.current = searchVisible;
+  const searching = searchTerms.length > 0 || dateRange != null;
+  const searchingRef = useRef(searching);
+  searchingRef.current = searching;
   const matchedEntries = useMemo(
     () => filterTalliesByDate(filterTallies(displayedEntries, searchTerms), dateRange),
     [displayedEntries, searchTerms, dateRange],
@@ -592,14 +591,26 @@ export default function PersonDetailScreen() {
     },
     [boundaries],
   );
-  // The page remains the current chapter (or the user's full-history view).
-  // Search owns a separate list, so remembering its filters never hides money.
+  // Searching spans the full ledger, including settled chapters. The normal
+  // page retains its chapter fold once the filters are cleared.
   const historyItems = useMemo<HistoryItem[]>(() => {
+    if (searching) {
+      const items = tabHistory
+        ? sharedHistory(matchedEntries, sharedSettlements)
+        : withLocalMarkers(matchedEntries);
+      const shown = items.filter(
+        (item, i) => item.kind === "entry" || items[i - 1]?.kind !== "marker",
+      );
+      while (shown.at(-1)?.kind === "marker") shown.pop();
+      return shown;
+    }
     if (tabHistory && effectiveShowFull) return sharedHistory(displayedEntries, sharedSettlements);
     if (!effectiveShowFull || tabHistory || boundaries.length === 0)
       return visibleEntries.map((entry) => ({ kind: "entry", entry }));
     return withLocalMarkers(displayedEntries);
   }, [
+    searching,
+    matchedEntries,
     tabHistory,
     effectiveShowFull,
     displayedEntries,
@@ -608,19 +619,9 @@ export default function PersonDetailScreen() {
     visibleEntries,
     withLocalMarkers,
   ]);
-  const searchHistoryItems = useMemo<HistoryItem[]>(() => {
-    const items = tabHistory
-      ? sharedHistory(matchedEntries, sharedSettlements)
-      : withLocalMarkers(matchedEntries);
-    const shown = items.filter(
-      (item, i) => item.kind === "entry" || items[i - 1]?.kind !== "marker",
-    );
-    while (shown.at(-1)?.kind === "marker") shown.pop();
-    return shown;
-  }, [tabHistory, matchedEntries, sharedSettlements, withLocalMarkers]);
-  const selectionHistoryItems = searchVisible ? searchHistoryItems : historyItems;
   // Shared and ruled-off tallies retain their existing individual workflows.
-  // Select all always means the amendable rows currently shown on this page.
+  // Eligibility spans this contact's full history. Search filters only decide
+  // which eligible rows Select all toggles; already selected rows stay selected.
   const selecting =
     selectionScope === flowScope &&
     flowHistory?.scope === flowScope &&
@@ -630,19 +631,16 @@ export default function PersonDetailScreen() {
   const selectableEntries = useMemo(
     () =>
       flowHistory?.scope === flowScope && roleResolved && canAmend && !tabHistory
-        ? selectionHistoryItems.flatMap((item) =>
-            item.kind === "entry" &&
-            !item.entry.tab &&
-            (settlement.lastSettledAtMs == null ||
-              item.entry.created_at > settlement.lastSettledAtMs)
-              ? [item.entry]
-              : [],
+        ? displayedEntries.filter(
+            (entry) =>
+              !entry.tab &&
+              (settlement.lastSettledAtMs == null || entry.created_at > settlement.lastSettledAtMs),
           )
         : [],
     [
       flowHistory?.scope,
       flowScope,
-      selectionHistoryItems,
+      displayedEntries,
       roleResolved,
       canAmend,
       tabHistory,
@@ -656,10 +654,23 @@ export default function PersonDetailScreen() {
   const selectedEntries = selecting
     ? selectableEntries.filter((entry) => selectedEntryIds.has(entry.id))
     : [];
+  const visibleSelectableEntries = historyItems.flatMap((item) =>
+    item.kind === "entry" && selectableIds.has(item.entry.id) ? [item.entry] : [],
+  );
+  const allVisibleSelected =
+    visibleSelectableEntries.length > 0 &&
+    visibleSelectableEntries.every((entry) => selectedEntryIds.has(entry.id));
+  const selectionSummary = summarizeSelectionEntries(
+    selectedEntries.map((entry) => ({
+      amount: entry.amount_afn,
+      direction: entry.type === "debt" ? "collect" : "pay",
+    })),
+  );
   const selectionContext = useRef({ scope: flowScope, selecting, eligible: selectableIds });
   selectionContext.current = { scope: flowScope, selecting, eligible: selectableIds };
   const closeSelection = useCallback(() => {
     if (selectionBusyRef.current) return;
+    selectionConfirmationVersion.current++;
     selectionContext.current.selecting = false;
     setSelectionScope(null);
     setSelectedEntryIds(new Set());
@@ -679,9 +690,67 @@ export default function PersonDetailScreen() {
     // A remote settlement or deletion can remove the last eligible row.
     if (!selectableIds.size && !selectionBusyRef.current) closeSelection();
   }, [selecting, selectableIds, closeSelection]);
-  useEffect(
-    () => closeSelection(),
-    [searchQuery, dateRange, showFullHistory, entryId, notificationKey, closeSelection],
+  useEffect(() => closeSelection(), [entryId, notificationKey, closeSelection]);
+  useFocusEffect(
+    useCallback(() => {
+      return () => {
+        // Stop a pending batch before its next write if navigation changes.
+        selectionContext.current.selecting = false;
+        setSelectionScope(null);
+        setSelectedEntryIds(new Set());
+        setConfirmSelectionDelete(false);
+        selectionConfirmationVersion.current++;
+        setDateSheetVisible(false);
+        setSheetFor(null);
+        dismissSearchKeyboard();
+      };
+    }, [dismissSearchKeyboard]),
+  );
+  const screenIsCurrent = useCallback(
+    () =>
+      loadMounted.current &&
+      keyboardRouteFocused.current &&
+      screenScope.current === flowScope &&
+      `${getAccountIdSync() ?? "local"}:${getActiveVaultIdSyncMaybe() ?? "none"}:${id}` ===
+        flowScope,
+    [flowScope, id],
+  );
+  const startSelection = useCallback(
+    (entry?: Entry) => {
+      if (
+        selectionBusyRef.current ||
+        !selectableIds.size ||
+        !selectionContext.current.eligible.size ||
+        !screenIsCurrent() ||
+        selectionContext.current.scope !== flowScope ||
+        (entry != null && !selectionContext.current.eligible.has(entry.id))
+      )
+        return;
+      dismissSearchKeyboard();
+      setSheetFor(null);
+      setDateSheetVisible(false);
+      setSelectionScope(flowScope);
+      setSelectedEntryIds(new Set(entry && selectableIds.has(entry.id) ? [entry.id] : []));
+    },
+    [selectableIds, flowScope, screenIsCurrent, dismissSearchKeyboard],
+  );
+  const toggleSelection = useCallback(
+    (entry: Entry) => {
+      if (
+        selectionBusyRef.current ||
+        !screenIsCurrent() ||
+        !selectionContext.current.selecting ||
+        !selectionContext.current.eligible.has(entry.id)
+      )
+        return;
+      setSelectedEntryIds((before) => {
+        const next = new Set(before);
+        if (next.has(entry.id)) next.delete(entry.id);
+        else next.add(entry.id);
+        return next;
+      });
+    },
+    [screenIsCurrent],
   );
   useRouteFocusEffect(
     useCallback(() => {
@@ -693,53 +762,8 @@ export default function PersonDetailScreen() {
       return () => back.remove();
     }, [closeSelection]),
   );
-  useFocusEffect(
-    useCallback(() => {
-      return () => {
-        // Stop a pending batch before its next write if navigation changes.
-        selectionContext.current.selecting = false;
-        setSelectionScope(null);
-        setSelectedEntryIds(new Set());
-        setConfirmSelectionDelete(false);
-        searchContext.current.visible = false;
-        setSearchScope(null);
-        cancelSearchMenu();
-      };
-    }, [closeSelection, cancelSearchMenu]),
-  );
-  const startSelection = useCallback(
-    (entry?: Entry) => {
-      if (
-        selectionBusyRef.current ||
-        !selectableIds.size ||
-        searchContext.current.scope !== flowScope
-      )
-        return;
-      dismissSearchKeyboard();
-      setSheetFor(null);
-      setSelectionScope(flowScope);
-      setSelectedEntryIds(new Set(entry && selectableIds.has(entry.id) ? [entry.id] : []));
-    },
-    [selectableIds, flowScope, dismissSearchKeyboard],
-  );
-  const toggleSelection = useCallback((entry: Entry) => {
-    if (
-      selectionBusyRef.current ||
-      !selectionContext.current.selecting ||
-      !selectionContext.current.eligible.has(entry.id)
-    )
-      return;
-    setSelectedEntryIds((before) => {
-      const next = new Set(before);
-      if (next.has(entry.id)) next.delete(entry.id);
-      else next.add(entry.id);
-      return next;
-    });
-  }, []);
   visibleReviewIds.current = new Set(
-    (searchVisible ? searchHistoryItems : historyItems).flatMap((item) =>
-      item.kind === "entry" ? [item.entry.id] : [],
-    ),
+    historyItems.flatMap((item) => (item.kind === "entry" ? [item.entry.id] : [])),
   );
   const sharedReviewPending = entries.some(
     (e) =>
@@ -959,9 +983,12 @@ export default function PersonDetailScreen() {
       });
       setPerson(p);
       setEntries(list);
-      // Search only changes its own sheet; a newly saved tally stays visible
-      // on the page without discarding a remembered search.
+      // Reveal a newly saved tally even if the previous filter would hide it.
       if (takeSavedEntry(id)) {
+        if (searchingRef.current) {
+          setSearchQuery("");
+          setDateRange(null);
+        }
         // The moment a customer should hear about a tally is right after it
         // is written: offer the WhatsApp ping then (audit #1).
         setPingNudge(true);
@@ -1037,14 +1064,13 @@ export default function PersonDetailScreen() {
   // for the return-to-foreground mark.
   const focused = useRef(false);
   const seen = useCallback((tl: TabLink | null) => {
-    // Search can hide an incoming tally. A remembered query on the page does
-    // not: acknowledge the full ledger as soon as the search sheet closes.
-    if (searchVisibleRef.current) return;
+    // Filtered tallies are not read until the full ledger is visible again.
+    if (searchingRef.current) return;
     if (tl) markTabNoticesSeen(tl, { focused: focused.current, appState: AppState.currentState });
   }, []);
   useEffect(() => {
-    if (!searchVisible) seen(latestLink.current);
-  }, [searchVisible, seen]);
+    if (!searching) seen(latestLink.current);
+  }, [searching, seen]);
 
   // Person-screen focus is one of the three pull triggers (D13; the others are
   // foreground and the fallback loop). Only HERE — not on every load(): a pull
@@ -1339,46 +1365,15 @@ export default function PersonDetailScreen() {
     );
   }
 
-  const searchIsCurrent = () =>
-    !selectionBusyRef.current &&
-    searchContext.current.visible &&
-    searchContext.current.scope === flowScope &&
-    `${getAccountIdSync() ?? "local"}:${getActiveVaultIdSyncMaybe() ?? "none"}:${id}` === flowScope;
+  const searchIsCurrent = () => !selectionBusyRef.current && screenIsCurrent();
   const guardedSearchAction = (action: (entry: Entry) => Promise<void>) => async (entry: Entry) => {
     if (!searchIsCurrent()) return;
     await action(entry);
   };
-  const openSearchEntryActions = (entry: Entry) => {
-    if (!searchIsCurrent() || selectionBusyRef.current) return;
-    cancelSearchMenu();
-    const request = searchMenuRequest.current;
-    searchContext.current.visible = false;
-    setSearchScope(null);
-    closeSelection();
-    // Let search finish leaving before opening the existing Edit/Delete/Select
-    // sheet. Only the same visible account, ledger and amendable row may reopen.
-    const open = () => {
-      searchMenuTimer.current = null;
-      if (
-        request !== searchMenuRequest.current ||
-        !loadMounted.current ||
-        !focused.current ||
-        searchContext.current.visible ||
-        searchContext.current.scope !== flowScope ||
-        `${getAccountIdSync() ?? "local"}:${getActiveVaultIdSyncMaybe() ?? "none"}:${id}` !==
-          flowScope ||
-        !selectionContext.current.eligible.has(entry.id)
-      )
-        return;
-      setSheetFor(entry);
-    };
-    if (!afterNativeSearchClosed(flowScope, open)) searchMenuTimer.current = setTimeout(open, 240);
-  };
-  const renderTallyHistory = (items: HistoryItem[], inSearch: boolean) => (
+  const renderTallyHistory = (items: HistoryItem[]) => (
     <View
       style={styles.entriesCard}
       onLayout={(event) => {
-        if (inSearch) return;
         entriesCardY.current = event.nativeEvent.layout.y;
         revealNotificationTally();
       }}
@@ -1414,7 +1409,6 @@ export default function PersonDetailScreen() {
           <View
             key={entry.id}
             onLayout={(event) => {
-              if (inSearch) return;
               const { y, height } = event.nativeEvent.layout;
               entryPositions.current.set(entry.id, { y, height });
               revealNotificationTally();
@@ -1423,13 +1417,16 @@ export default function PersonDetailScreen() {
             {index > 0 && items[index - 1].kind !== "marker" ? (
               <View style={styles.divider} />
             ) : null}
-            {/* setSheetFor is referentially stable — keeps the memoized
-                      EntryRow from re-rendering on unrelated screen renders.
-                      Opens the edit/delete sheet on TAP-AND-HOLD only. */}
+            {/* Tap-and-hold opens the existing tally actions. A tap toggles
+                the checkbox once selection is active. */}
             <EntryRow
               entry={entry}
               onLongPress={
-                canOpenSheet ? (inSearch ? openSearchEntryActions : setSheetFor) : undefined
+                canOpenSheet
+                  ? (selectedEntry) => {
+                      if (searchIsCurrent()) setSheetFor(selectedEntry);
+                    }
+                  : undefined
               }
               selecting={selecting && canOpenSheet}
               selected={selecting && selectedEntryIds.has(entry.id)}
@@ -1438,16 +1435,10 @@ export default function PersonDetailScreen() {
               attribution={attribution.get(entry.id)}
               tab={entry.tab}
               selfAccountId={getAccountIdSync()}
-              onAccept={
-                canAmend && link ? (inSearch ? guardedSearchAction(onAccept) : onAccept) : undefined
-              }
-              onReject={
-                canAmend && link ? (inSearch ? guardedSearchAction(onReject) : onReject) : undefined
-              }
-              onCancel={
-                canAmend && link ? (inSearch ? guardedSearchAction(onVoid) : onVoid) : undefined
-              }
-              showFullNote={inSearch && searchTerms.length > 0}
+              onAccept={canAmend && link ? guardedSearchAction(onAccept) : undefined}
+              onReject={canAmend && link ? guardedSearchAction(onReject) : undefined}
+              onCancel={canAmend && link ? guardedSearchAction(onVoid) : undefined}
+              showFullNote={searchTerms.length > 0}
             />
             {highlight?.id === entry.id ? (
               <TallyHighlight requestKey={highlight.key} />
@@ -1464,17 +1455,29 @@ export default function PersonDetailScreen() {
       })}
     </View>
   );
+  const confirmationVersion = selectionConfirmationVersion.current;
+  // The modal keeps rendering during its exit animation. Preserve the last
+  // visible count when deletion or closing selection clears the picked rows.
+  if (selecting && confirmSelectionDelete && selectedEntries.length > 0)
+    selectionDeleteCount.current = selectedEntries.length;
   const selectionToolbar = (
     <SelectionToolbar
       count={selectedEntries.length}
-      total={selectableEntries.length}
+      total={visibleSelectableEntries.length}
+      allSelected={allVisibleSelected}
+      financialSummary={selectionSummary}
       busy={selectionBusy}
       onClose={closeSelection}
       onToggleAll={() => {
         if (selectionBusyRef.current || !searchIsCurrent()) return;
-        setSelectedEntryIds(
-          selectedEntries.length === selectableEntries.length ? new Set() : new Set(selectableIds),
-        );
+        setSelectedEntryIds((before) => {
+          const next = new Set(before);
+          for (const entry of visibleSelectableEntries) {
+            if (allVisibleSelected) next.delete(entry.id);
+            else next.add(entry.id);
+          }
+          return next;
+        });
       }}
       actions={[
         {
@@ -1484,8 +1487,10 @@ export default function PersonDetailScreen() {
           destructive: true,
           disabled: selectedEntries.length === 0,
           onPress: () => {
-            if (!selectionBusyRef.current && searchIsCurrent() && selectedEntries.length)
-              setConfirmSelectionDelete(true);
+            if (selectionBusyRef.current || !searchIsCurrent() || !selectedEntries.length) return;
+            dismissSearchKeyboard();
+            selectionConfirmationVersion.current++;
+            setConfirmSelectionDelete(true);
           },
         },
       ]}
@@ -1556,6 +1561,15 @@ export default function PersonDetailScreen() {
             ) : null}
             <OverflowMenu
               actions={[
+                ...(selectableEntries.length > 0
+                  ? [
+                      {
+                        label: t("selection.start"),
+                        icon: "checkmark-circle-outline" as const,
+                        onPress: () => startSelection(),
+                      },
+                    ]
+                  : []),
                 ...(canAmend
                   ? [
                       {
@@ -1650,16 +1664,27 @@ export default function PersonDetailScreen() {
           >
             <View>
               <View style={styles.info}>
-                <View style={[styles.nameRow, rowDir(isRTL)]}>
-                  <Text style={[styles.name, { flexShrink: 1 }, textDir(isRTL)]}>
-                    {person.name}
-                  </Text>
-                  {link ? (
-                    <SharedAccountBadge
-                      size={20}
-                      name={person.name}
-                      fontSize={typography.heading.fontSize}
-                    />
+                <View style={[styles.identityRow, rowDir(isRTL)]}>
+                  <View style={[styles.nameRow, rowDir(isRTL)]}>
+                    <Text style={[styles.name, { flexShrink: 1 }, textDir(isRTL)]}>
+                      {person.name}
+                    </Text>
+                    {link ? (
+                      <SharedAccountBadge
+                        size={20}
+                        name={person.name}
+                        fontSize={typography.heading.fontSize}
+                      />
+                    ) : null}
+                  </View>
+                  {personGroupNames.length > 0 ? (
+                    <View style={[styles.groupBadges, rowDir(isRTL)]}>
+                      {personGroupNames.map((name) => (
+                        <View key={name} style={styles.groupBadge}>
+                          <Text style={[styles.groupBadgeText, textDir(isRTL)]}>{name}</Text>
+                        </View>
+                      ))}
+                    </View>
                   ) : null}
                 </View>
                 {person.phone ? (
@@ -1678,13 +1703,6 @@ export default function PersonDetailScreen() {
                 {tabHistory?.closed_at != null ? (
                   <Text style={[styles.groups, textDir(isRTL)]} numberOfLines={2}>
                     {t("tab.closedNote", { date: formatDate(tabHistory.closed_at) })}
-                  </Text>
-                ) : null}
-                {personGroupNames.length > 0 ? (
-                  <Text style={[styles.groups, textDir(isRTL)]} numberOfLines={2}>
-                    {t(personGroupNames.length > 1 ? "groups.viewMany" : "groups.view", {
-                      name: personGroupNames.join(locale === "fa" ? "، " : ", "),
-                    })}
                   </Text>
                 ) : null}
                 <View style={{ height: 16 }} />
@@ -1823,7 +1841,7 @@ export default function PersonDetailScreen() {
             only exists in the exact moment it means something: balance is
             zero AND the current chapter has entries. Tapping it draws the
             line for real. */}
-            {canSettle && !selecting ? (
+            {canSettle && !searching && !selecting ? (
               <Pressable
                 onPress={() => setConfirmSettle(true)}
                 accessibilityRole="button"
@@ -1843,39 +1861,20 @@ export default function PersonDetailScreen() {
             ) : null}
 
             {/* Waiting and refused clerk attempts stay on the complete ledger. */}
-            {!selecting ? <CreditIntentList personId={person.id} vaultId={activeVaultId} /> : null}
-
-            {selectableEntries.length > 0 || selecting ? (
-              <View style={[styles.selectionHeading, rowDir(isRTL)]}>
-                <Text style={[styles.selectionHeadingText, textDir(isRTL)]}>
-                  {t("selection.tallies")}
-                </Text>
-                <Pressable
-                  testID="select-tallies"
-                  onPress={() => (selecting ? closeSelection() : startSelection())}
-                  disabled={selectionBusy}
-                  accessibilityRole="button"
-                  accessibilityLabel={t(selecting ? "selection.close" : "selection.start")}
-                  style={({ pressed }) => [
-                    styles.selectionStart,
-                    rowDir(isRTL),
-                    pressed && { opacity: 0.6 },
-                  ]}
-                >
-                  <Ionicons
-                    name={selecting ? "close-outline" : "checkmark-circle-outline"}
-                    size={18}
-                    color={colors.textEmphasis}
-                  />
-                  <Text style={styles.selectionStartText}>
-                    {t(selecting ? "common.cancel" : "selection.start")}
-                  </Text>
-                </Pressable>
-              </View>
+            {!searching && !selecting ? (
+              <CreditIntentList personId={person.id} vaultId={activeVaultId} />
             ) : null}
 
             {historyItems.length === 0 ? (
-              settledCount > 0 ? (
+              searching ? (
+                searchResultCount === 0 ? (
+                  <EmptyState
+                    title={t("person.search.empty.title")}
+                    subtitle={t("person.search.empty.subtitle")}
+                    isRTL={isRTL}
+                  />
+                ) : null
+              ) : settledCount > 0 ? (
                 <EmptyState
                   title={t("person.freshChapter.title")}
                   subtitle={t("person.freshChapter.subtitle")}
@@ -1889,35 +1888,43 @@ export default function PersonDetailScreen() {
                 />
               )
             ) : (
-              renderTallyHistory(historyItems, false)
+              renderTallyHistory(historyItems)
             )}
 
-            {failedTallies.length > 0 ? (
+            {matchedFailedTallies.length > 0 ? (
               <>
                 <Pressable
                   onPress={() => setFailedTalliesOpen((v) => !v)}
+                  disabled={searching}
                   accessibilityRole="button"
                   accessibilityState={{
-                    expanded: failedTalliesOpen,
+                    expanded: searching || failedTalliesOpen,
+                    disabled: searching,
                   }}
                   style={[styles.foldRow, rowDir(isRTL)]}
                 >
                   <Text style={styles.historyRowText}>
-                    {t("tab.notSent", { count: failedTallies.length })}
+                    {t("tab.notSent", { count: matchedFailedTallies.length })}
                   </Text>
-                  <Ionicons
-                    name={failedTalliesOpen ? "chevron-up" : "chevron-down"}
-                    size={14}
-                    color={colors.textSubtle}
-                  />
+                  {!searching ? (
+                    <Ionicons
+                      name={failedTalliesOpen ? "chevron-up" : "chevron-down"}
+                      size={14}
+                      color={colors.textSubtle}
+                    />
+                  ) : null}
                 </Pressable>
-                {failedTalliesOpen ? (
+                {searching || failedTalliesOpen ? (
                   <View style={[styles.entriesCard, styles.preLinkCard]}>
                     <Text style={[styles.historyRowText, { padding: 14 }, textDir(isRTL)]}>
                       {t("tab.notSent.body")}
                     </Text>
-                    {failedTallies.map((entry) => (
-                      <EntryRow key={entry.id} entry={entry} />
+                    {matchedFailedTallies.map((entry) => (
+                      <EntryRow
+                        key={entry.id}
+                        entry={entry}
+                        showFullNote={searchTerms.length > 0}
+                      />
                     ))}
                   </View>
                 ) : null}
@@ -1941,12 +1948,13 @@ export default function PersonDetailScreen() {
             the account became shared, their sum is already the opening tally
             on the tab, and nothing here can be edited (TabLinkedEntryError).
             No long-press, no attribution: frozen pages. */}
-            {tabHistory && preLink.length > 0 ? (
+            {tabHistory && matchedPreLink.length > 0 ? (
               <>
                 <Pressable
                   onPress={() => setPreLinkOpen((v) => !v)}
+                  disabled={searching}
                   accessibilityRole="button"
-                  accessibilityState={{ expanded: preLinkOpen }}
+                  accessibilityState={{ expanded: searching || preLinkOpen, disabled: searching }}
                   style={({ pressed }) => [
                     styles.foldRow,
                     rowDir(isRTL),
@@ -1954,20 +1962,22 @@ export default function PersonDetailScreen() {
                   ]}
                 >
                   <Text style={styles.historyRowText} allowFontScaling={false}>
-                    {t("tab.beforeLinking", { count: preLink.length })}
+                    {t("tab.beforeLinking", { count: matchedPreLink.length })}
                   </Text>
-                  <Ionicons
-                    name={preLinkOpen ? "chevron-up" : "chevron-down"}
-                    size={14}
-                    color={colors.textSubtle}
-                  />
+                  {!searching ? (
+                    <Ionicons
+                      name={preLinkOpen ? "chevron-up" : "chevron-down"}
+                      size={14}
+                      color={colors.textSubtle}
+                    />
+                  ) : null}
                 </Pressable>
-                {preLinkOpen ? (
+                {searching || preLinkOpen ? (
                   <View style={[styles.entriesCard, styles.preLinkCard]}>
-                    {preLink.map((entry, index) => (
+                    {matchedPreLink.map((entry, index) => (
                       <View key={entry.id}>
                         {index > 0 ? <View style={styles.divider} /> : null}
-                        <EntryRow entry={entry} />
+                        <EntryRow entry={entry} showFullNote={searchTerms.length > 0} />
                       </View>
                     ))}
                   </View>
@@ -1980,7 +1990,7 @@ export default function PersonDetailScreen() {
             explain the balance, the view is forced open and the toggle
             hides rather than pretend). Nothing was deleted; the book just
             has pages now. */}
-            {settledCount > 0 && chapterCoherent ? (
+            {settledCount > 0 && chapterCoherent && !searching ? (
               <Pressable
                 onPress={() => setShowFullHistory((v) => !v)}
                 accessibilityRole="button"
@@ -2001,49 +2011,7 @@ export default function PersonDetailScreen() {
           included. It still lifts above toasts, over its own DOCK_SKIRT, but not
           above an open keyboard. Received LEFT, gave RIGHT regardless of
           language. */}
-          {selecting && !searchVisible ? (
-            <Animated.View
-              onLayout={(event) =>
-                setActionsHeight(Math.max(0, event.nativeEvent.layout.height - DOCK_SKIRT))
-              }
-              style={[
-                styles.actions,
-                {
-                  bottom: -DOCK_SKIRT,
-                  paddingBottom: 12 + insets.bottom + DOCK_SKIRT,
-                  transform: [{ translateY: keyboardShown ? 0 : toastOffset }],
-                },
-              ]}
-            >
-              <SelectionToolbar
-                count={selectedEntries.length}
-                total={selectableEntries.length}
-                busy={selectionBusy}
-                onClose={closeSelection}
-                onToggleAll={() => {
-                  if (selectionBusyRef.current) return;
-                  setSelectedEntryIds(
-                    selectedEntries.length === selectableEntries.length
-                      ? new Set()
-                      : new Set(selectableIds),
-                  );
-                }}
-                actions={[
-                  {
-                    key: "delete",
-                    label: t("selection.delete"),
-                    icon: "trash-outline",
-                    destructive: true,
-                    disabled: selectedEntries.length === 0,
-                    onPress: () => {
-                      if (!selectionBusyRef.current && selectedEntries.length)
-                        setConfirmSelectionDelete(true);
-                    },
-                  },
-                ]}
-              />
-            </Animated.View>
-          ) : canCreate || hasTallies ? (
+          {selecting || canCreate || hasTallies ? (
             <Animated.View
               onLayout={(event) =>
                 setActionsHeight(Math.max(0, event.nativeEvent.layout.height - DOCK_SKIRT))
@@ -2062,7 +2030,9 @@ export default function PersonDetailScreen() {
               {/* While typing a search the entry buttons step aside so the
                   results above the keyboard get their room (0-1 rows before,
                   audit #31); they return with the keyboard's close. */}
-              {canCreate && !keyboardShown ? (
+              {selecting ? (
+                selectionToolbar
+              ) : canCreate && !keyboardShown ? (
                 <View style={styles.actionRow}>
                   <View style={styles.actionBtnWrap}>
                     <Pressable
@@ -2115,174 +2085,180 @@ export default function PersonDetailScreen() {
                 </View>
               ) : null}
               {hasTallies ? (
-                <SearchFieldTrigger
-                  placeholder={t("person.search.placeholder")}
-                  isRTL={isRTL}
-                  onPress={() => {
-                    if (selectionBusyRef.current || searchContext.current.scope !== flowScope)
-                      return;
-                    cancelSearchMenu();
-                    closeSelection();
-                    setSearchScope(flowScope);
-                  }}
-                />
+                <View style={styles.searchArea}>
+                  <View style={[styles.searchControls, rowDir(isRTL)]}>
+                    <View style={[styles.searchBox, rowDir(isRTL)]}>
+                      <Ionicons
+                        name="search-outline"
+                        size={icon.trailing}
+                        color={colors.textSubtle}
+                      />
+                      <TextInput
+                        ref={searchInputRef}
+                        value={searchQuery}
+                        onChangeText={(value) => {
+                          if (searchIsCurrent()) setSearchQuery(value);
+                        }}
+                        onFocus={() => {
+                          if (searchIsCurrent()) setSearchFocused(true);
+                        }}
+                        onBlur={() => {
+                          if (screenIsCurrent()) setSearchFocused(false);
+                        }}
+                        placeholder={t("person.search.placeholder")}
+                        accessibilityLabel={t("person.search.placeholder")}
+                        placeholderTextColor={colors.textSubtle}
+                        style={[styles.searchInput, textDir(isRTL)]}
+                        returnKeyType="search"
+                        submitBehavior="blurAndSubmit"
+                        onSubmitEditing={dismissSearchKeyboard}
+                        autoCorrect={false}
+                        maxLength={500}
+                      />
+                      <SearchControlSlot
+                        visible={searchQuery.length > 0}
+                        width={TOUCH_MIN}
+                        height={TOUCH_MIN}
+                        style={isRTL ? styles.clearSearchRTL : styles.clearSearchLTR}
+                      >
+                        <Pressable
+                          onPress={() => {
+                            if (searchIsCurrent()) setSearchQuery("");
+                          }}
+                          accessibilityRole="button"
+                          accessibilityLabel={t("person.search.clear")}
+                          style={styles.clearSearch}
+                        >
+                          <Ionicons name="close" size={icon.trailing} color={colors.textSubtle} />
+                        </Pressable>
+                      </SearchControlSlot>
+                    </View>
+                    <Pressable
+                      onPress={() => {
+                        if (!searchIsCurrent()) return;
+                        dismissSearchKeyboard();
+                        setDateSheetVisible(true);
+                      }}
+                      accessibilityRole="button"
+                      accessibilityLabel={
+                        dateRange
+                          ? t("person.date.active", { range: dateRangeLabel })
+                          : t("person.date.title")
+                      }
+                      accessibilityState={{ selected: dateRange != null }}
+                      style={[styles.dateButton, dateRange && styles.dateButtonActive]}
+                    >
+                      <Ionicons
+                        name="calendar-outline"
+                        size={icon.row}
+                        color={dateRange ? colors.textEmphasis : colors.textSubtle}
+                      />
+                    </Pressable>
+                    <SearchControlSlot
+                      visible={searchFocused}
+                      width={TOUCH_MIN}
+                      height={TOUCH_MIN}
+                      collapse
+                      gap={8}
+                      isRTL={isRTL}
+                    >
+                      <Pressable
+                        onPress={dismissSearchKeyboard}
+                        accessibilityRole="button"
+                        accessibilityLabel={t("common.hideKeyboard")}
+                        style={styles.dateButton}
+                      >
+                        <Ionicons name="chevron-down" size={icon.row} color={colors.textEmphasis} />
+                      </Pressable>
+                    </SearchControlSlot>
+                  </View>
+                  {dateRange ? (
+                    <View style={[styles.dateSummary, rowDir(isRTL)]}>
+                      <Pressable
+                        style={styles.dateSummaryLabel}
+                        onPress={() => {
+                          if (!searchIsCurrent()) return;
+                          dismissSearchKeyboard();
+                          setDateSheetVisible(true);
+                        }}
+                        accessibilityRole="button"
+                        accessibilityLabel={t("person.date.active", { range: dateRangeLabel })}
+                      >
+                        <Text numberOfLines={2} style={[styles.searchSummary, textDir(isRTL)]}>
+                          {dateRangeLabel}
+                        </Text>
+                      </Pressable>
+                      <Pressable
+                        style={styles.clearDate}
+                        onPress={() => {
+                          if (searchIsCurrent()) setDateRange(null);
+                        }}
+                        accessibilityRole="button"
+                        accessibilityLabel={t("person.date.clear")}
+                      >
+                        <Ionicons name="close" size={16} color={colors.textSubtle} />
+                      </Pressable>
+                    </View>
+                  ) : null}
+                  {searching ? (
+                    <Text
+                      style={[styles.searchSummary, textDir(isRTL)]}
+                      accessibilityLiveRegion="polite"
+                    >
+                      {t(
+                        searchResultCount === 1 ? "person.search.result" : "person.search.results",
+                        {
+                          count: searchResultCount,
+                        },
+                      )}
+                    </Text>
+                  ) : null}
+                </View>
               ) : null}
             </Animated.View>
           ) : null}
         </View>
       </KeyboardAvoidingView>
-
-      <SearchSheet
-        visible={searchVisible}
+      <TallyDateFilterSheet
+        visible={dateSheetVisible}
         contextKey={flowScope}
-        title={t("person.search.placeholder")}
-        query={searchQuery}
-        onChangeQuery={(value) => {
-          if (searchIsCurrent()) setSearchQuery(value);
-        }}
-        placeholder={t("person.search.placeholder")}
+        range={dateRange}
+        calendar={calendar}
         isRTL={isRTL}
-        dismissDisabled={selectionBusy}
-        canDismiss={() => !selectionBusyRef.current}
+        onChange={(range) => {
+          if (searchIsCurrent()) setDateRange(range);
+        }}
         onDismiss={() => {
-          if (selectionBusyRef.current || !searchIsCurrent()) return;
-          searchContext.current.visible = false;
-          setSearchScope(null);
-          closeSelection();
+          if (screenIsCurrent()) setDateSheetVisible(false);
         }}
-        filtersActive={dateRange != null}
-        onClearAll={() => {
-          if (!searchIsCurrent()) return;
-          setSearchQuery("");
-          setDateRange(null);
+      />
+
+      <ConfirmDialog
+        visible={selecting && confirmSelectionDelete && selectedEntries.length > 0}
+        title={t("selection.deleteTalliesTitle", { count: selectionDeleteCount.current })}
+        description={t("selection.deleteTalliesDescription", {
+          count: selectionDeleteCount.current,
+        })}
+        confirmLabel={t("selection.delete")}
+        destructive
+        onCancel={() => {
+          if (!searchIsCurrent() || confirmationVersion !== selectionConfirmationVersion.current)
+            return;
+          selectionConfirmationVersion.current++;
+          setConfirmSelectionDelete(false);
         }}
-        filters={
-          <TallyDateFilterContent
-            visible={searchVisible}
-            contextKey={flowScope}
-            range={dateRange}
-            calendar={calendar}
-            isRTL={isRTL}
-            onChange={(range) => {
-              if (searchIsCurrent()) setDateRange(range);
-            }}
-            onDismiss={() => {}}
-          />
-        }
-        footer={
-          selecting ? (
-            confirmSelectionDelete ? (
-              <View style={styles.searchDeleteConfirm}>
-                <Text style={[styles.selectionHeadingText, textDir(isRTL)]}>
-                  {t("selection.deleteTalliesDescription", { count: selectedEntries.length })}
-                </Text>
-                <View style={[rowDir(isRTL), { gap: 12, justifyContent: "flex-end" }]}>
-                  <Pressable
-                    accessibilityRole="button"
-                    style={styles.selectionStart}
-                    onPress={() => setConfirmSelectionDelete(false)}
-                  >
-                    <Text style={styles.selectionStartText}>{t("common.cancel")}</Text>
-                  </Pressable>
-                  <Pressable
-                    accessibilityRole="button"
-                    style={styles.selectionStart}
-                    onPress={() => {
-                      if (searchIsCurrent()) void deleteSelectedTallies();
-                    }}
-                  >
-                    <Text style={[styles.selectionStartText, { color: colors.payStrong }]}>
-                      {t("selection.delete")}
-                    </Text>
-                  </Pressable>
-                </View>
-              </View>
-            ) : (
-              selectionToolbar
-            )
-          ) : undefined
-        }
-      >
-        <ScrollView
-          style={{ flex: 1 }}
-          contentContainerStyle={styles.searchResults}
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="on-drag"
-        >
-          <View style={[styles.selectionHeading, rowDir(isRTL)]}>
-            <Text
-              style={[styles.searchSummary, { flex: 1 }, textDir(isRTL)]}
-              accessibilityLiveRegion="polite"
-            >
-              {t(searchResultCount === 1 ? "person.search.result" : "person.search.results", {
-                count: searchResultCount,
-              })}
-            </Text>
-            {selectableEntries.length > 0 || selecting ? (
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={t(selecting ? "selection.close" : "selection.start")}
-                style={[styles.selectionStart, rowDir(isRTL)]}
-                onPress={() => {
-                  if (!searchIsCurrent()) return;
-                  if (selecting) closeSelection();
-                  else startSelection();
-                }}
-              >
-                <Ionicons
-                  name={selecting ? "close-outline" : "checkmark-circle-outline"}
-                  size={18}
-                  color={colors.textEmphasis}
-                />
-                <Text style={styles.selectionStartText}>
-                  {t(selecting ? "common.cancel" : "selection.start")}
-                </Text>
-              </Pressable>
-            ) : null}
-          </View>
-          {dateRange ? (
-            <Text style={[styles.searchSummary, styles.searchRange, textDir(isRTL)]}>
-              {dateRangeLabel}
-            </Text>
-          ) : null}
-          {searchResultCount === 0 ? (
-            <EmptyState
-              title={t("person.search.empty.title")}
-              subtitle={t("person.search.empty.subtitle")}
-              isRTL={isRTL}
-            />
-          ) : null}
-          {searchHistoryItems.length > 0 ? renderTallyHistory(searchHistoryItems, true) : null}
-          {matchedFailedTallies.length > 0 ? (
-            <View style={styles.searchHistorySection}>
-              <Text style={[styles.historyRowText, textDir(isRTL)]}>
-                {t("tab.notSent", { count: matchedFailedTallies.length })}
-              </Text>
-              <Text style={[styles.historyRowText, textDir(isRTL)]}>{t("tab.notSent.body")}</Text>
-              <View style={styles.entriesCard}>
-                {matchedFailedTallies.map((entry) => (
-                  <EntryRow key={entry.id} entry={entry} showFullNote={searchTerms.length > 0} />
-                ))}
-              </View>
-            </View>
-          ) : null}
-          {tabHistory && matchedPreLink.length > 0 ? (
-            <View style={styles.searchHistorySection}>
-              <Text style={[styles.historyRowText, textDir(isRTL)]}>
-                {t("tab.beforeLinking", { count: matchedPreLink.length })}
-              </Text>
-              <View style={styles.entriesCard}>
-                {matchedPreLink.map((entry, index) => (
-                  <View key={entry.id}>
-                    {index > 0 ? <View style={styles.divider} /> : null}
-                    <EntryRow entry={entry} showFullNote={searchTerms.length > 0} />
-                  </View>
-                ))}
-              </View>
-            </View>
-          ) : null}
-        </ScrollView>
-      </SearchSheet>
+        onConfirm={() => {
+          if (
+            !searchIsCurrent() ||
+            !selectionContext.current.selecting ||
+            !confirmSelectionDelete ||
+            confirmationVersion !== selectionConfirmationVersion.current
+          )
+            return;
+          selectionConfirmationVersion.current++;
+          void deleteSelectedTallies();
+        }}
+      />
 
       {/* Statement export chooser. BottomSheet's 220ms action defer doubles as
           clearance for the OS share sheet that follows generation. */}
@@ -2441,17 +2417,6 @@ export default function PersonDetailScreen() {
         onCancel={() => setConfirmSettle(false)}
       />
       <ConfirmDialog
-        visible={
-          confirmSelectionDelete && selecting && !searchVisible && selectedEntries.length > 0
-        }
-        title={t("selection.deleteTalliesTitle", { count: selectedEntries.length })}
-        description={t("selection.deleteTalliesDescription", { count: selectedEntries.length })}
-        confirmLabel={t("selection.delete")}
-        destructive
-        onConfirm={() => void deleteSelectedTallies()}
-        onCancel={() => setConfirmSelectionDelete(false)}
-      />
-      <ConfirmDialog
         visible={confirmDeleteFor !== null}
         title={t("person.delete.title")}
         description={t("person.delete.description")}
@@ -2500,32 +2465,6 @@ const ACTION_COIN_SIZE = 26;
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bgDefault },
-  selectionHeading: {
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 18,
-    paddingTop: 4,
-    paddingBottom: 10,
-    gap: 12,
-  },
-  selectionHeadingText: {
-    fontFamily: fonts.sansSemi,
-    fontSize: 14,
-    color: colors.textDefault,
-    flex: 1,
-  },
-  selectionStart: {
-    minHeight: TOUCH_MIN,
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    paddingHorizontal: 12,
-    borderRadius: radius.pill,
-    backgroundColor: colors.bgMuted,
-    borderWidth: 1,
-    borderColor: colors.borderSubtle,
-  },
-  selectionStartText: { fontFamily: fonts.sansSemi, fontSize: 12, color: colors.textEmphasis },
   fillCenter: { flex: 1, alignItems: "center", justifyContent: "center" },
   notFoundText: { fontSize: 14, fontFamily: fonts.sansRegular, color: colors.textSubtle },
   // One compact action group with separate 44pt targets, mirrored in Dari.
@@ -2585,7 +2524,19 @@ const styles = StyleSheet.create({
   // name, the anchor of the screen, and dropping a weight step here would read
   // as a demotion rather than a scale fix. Same fontFamily-override idiom as
   // Button's `textPill`.
-  nameRow: { flexDirection: "row", alignItems: "center", gap: 7 },
+  identityRow: { alignItems: "center", justifyContent: "space-between", gap: 12 },
+  nameRow: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 7 },
+  groupBadges: { maxWidth: "45%", flexWrap: "wrap", justifyContent: "flex-end", gap: 6 },
+  groupBadge: {
+    maxWidth: "100%",
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: radius.sm,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.borderSubtle,
+    backgroundColor: colors.bgMuted,
+  },
+  groupBadgeText: { ...typography.bodySm, fontFamily: fonts.sansMedium, color: colors.textMuted },
   name: { ...typography.heading, fontFamily: fonts.sansBold, color: colors.textEmphasis },
   phone: {
     fontSize: 13,
@@ -2648,10 +2599,48 @@ const styles = StyleSheet.create({
     letterSpacing: -0.5,
   },
   balanceAfn: { fontSize: 15, fontFamily: fonts.sansMedium, color: colors.textMuted },
-  searchResults: { paddingHorizontal: 16, paddingBottom: 24, gap: 12 },
-  searchRange: { paddingHorizontal: 4 },
-  searchHistorySection: { gap: 10 },
-  searchDeleteConfirm: { padding: 16, gap: 14 },
+  searchArea: { gap: 4 },
+  searchControls: { alignItems: "center", gap: 8 },
+  dateButton: {
+    minWidth: TOUCH_MIN,
+    minHeight: TOUCH_MIN,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: colors.borderDefault,
+    borderRadius: radius.sm,
+  },
+  dateButtonActive: { backgroundColor: colors.bgMuted, borderColor: colors.borderEmphasis },
+  dateSummary: { alignItems: "center", gap: 4 },
+  dateSummaryLabel: { flex: 1, justifyContent: "center", minHeight: TOUCH_MIN },
+  clearDate: {
+    minWidth: TOUCH_MIN,
+    minHeight: TOUCH_MIN,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  searchBox: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    borderWidth: 1,
+    borderColor: colors.borderDefault,
+    borderRadius: radius.sm,
+    paddingHorizontal: 12,
+    minHeight: TOUCH_MIN,
+  },
+  searchInput: { ...typography.body, flex: 1, color: colors.textEmphasis, paddingVertical: 10 },
+  clearSearch: {
+    width: TOUCH_MIN,
+    height: TOUCH_MIN,
+    flexShrink: 0,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  // The Activity stays LTR, so choose the outer physical edge explicitly.
+  clearSearchLTR: { marginRight: -12 },
+  clearSearchRTL: { marginLeft: -12 },
   searchSummary: { ...typography.bodySm, color: colors.textSubtle },
   actions: {
     // INVARIANT: "I received" stays physical LEFT, "I gave" stays physical

@@ -40,6 +40,7 @@ import { SearchFieldTrigger } from "../components/SearchFieldTrigger";
 import { SearchSheet } from "../components/SearchSheet";
 import { afterNativeSearchClosed } from "../lib/native-search";
 import { SelectionToolbar } from "../components/SelectionToolbar";
+import { summarizeSelectedPeople } from "../lib/selection-summary";
 import { ProfileSettingsSheet, type VaultListItem } from "../components/ProfileSettingsSheet";
 import { Tabs } from "../components/Tabs";
 import { useToast, useToastOffset } from "../components/Toast";
@@ -197,6 +198,7 @@ export default function HomeScreen() {
   } | null>(null);
   const [customerQuery, setCustomerQuery] = useState("");
   const [searchVisible, setSearchVisible] = useState(false);
+  const [searchAutoFocus, setSearchAutoFocus] = useState(true);
   const searchGeneration = useRef(0);
   const dismissSearchKeyboard = useCallback(() => {
     Keyboard.dismiss();
@@ -214,12 +216,14 @@ export default function HomeScreen() {
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedPersonIds, setSelectedPersonIds] = useState<string[]>([]);
   const [confirmRemoveIds, setConfirmRemoveIds] = useState<string[] | null>(null);
+  const selectionConfirmationVersion = useRef(0);
   const [selectionBusy, setSelectionBusy] = useState(false);
-  const [selectionDockHeight, setSelectionDockHeight] = useState(160);
   const selectionBusyRef = useRef(false);
   const selectionGeneration = useRef(0);
+  const selectionOwnerActive = useRef(false);
   const closeSelection = useCallback(() => {
     if (selectionBusyRef.current) return;
+    selectionConfirmationVersion.current++;
     selectionGeneration.current++;
     setSelectionMode(false);
     setSelectedPersonIds([]);
@@ -665,10 +669,6 @@ export default function HomeScreen() {
   useRouteFocusEffect(
     useCallback(() => {
       const sub = BackHandler.addEventListener("hardwareBackPress", () => {
-        if (selectionMode) {
-          closeSelection();
-          return true;
-        }
         const now = Date.now();
         if (now - lastBackPressRef.current < 2000) {
           // Second press inside the window → let RN handle (exits the app).
@@ -679,7 +679,7 @@ export default function HomeScreen() {
         return true; // intercept
       });
       return () => sub.remove();
-    }, [toast, selectionMode, closeSelection]),
+    }, [toast]),
   );
 
   // Home always shows the full default overview. Query, groups and sort belong
@@ -730,38 +730,24 @@ export default function HomeScreen() {
     [searchMatches, listPreference, groupByPerson, locale],
   );
   const canSelect = caps.resolved && canAmend && currentVaultScope && currentPeopleScope;
-  const selecting = selectionMode && canSelect;
+  const selecting = searching && selectionMode && canSelect;
   const canSelectRef = useRef(canSelect);
   canSelectRef.current = canSelect;
-  const selectablePeople = useMemo(() => {
-    const shown = searching
-      ? searchPeople
-      : [...(direction === "collect" ? collectPeople : payPeople), ...neverTalliedPeople];
-    return [...new Map(shown.map((person) => [person.id, person])).values()];
-  }, [searching, direction, collectPeople, payPeople, neverTalliedPeople, searchPeople]);
+  const selectablePeople = searchPeople;
   const selectableIds = useMemo(
     () => new Set(selectablePeople.map((person) => person.id)),
     [selectablePeople],
   );
-  const selectedIds = useMemo(
-    () => new Set(selectedPersonIds.filter((id) => selectableIds.has(id))),
-    [selectedPersonIds, selectableIds],
+  const selectedIds = useMemo(() => {
+    const available = new Set(visibleAllPeople.map((person) => person.id));
+    return new Set(selectedPersonIds.filter((id) => available.has(id)));
+  }, [selectedPersonIds, visibleAllPeople]);
+  // The list already carries each account's totals from the same local read.
+  // Selecting only adds those cached amounts; the count and figures change together.
+  const financialSummary = useMemo(
+    () => summarizeSelectedPeople(visibleAllPeople.filter((person) => selectedIds.has(person.id))),
+    [visibleAllPeople, selectedIds],
   );
-  const selectedBalanceTotals = useMemo(() => {
-    const selected = selectablePeople.filter((person) => selectedIds.has(person.id));
-    // Newly discovered shared accounts have no known balance until downloaded.
-    // Mark the summary pending so a partial sum never looks like the full total.
-    const known = selected.filter((person) => person.tab_unsynced !== 1);
-    return {
-      collect: sumAmounts(
-        known.filter((person) => person.balance > 0).map((person) => person.balance),
-      ),
-      pay: sumAmounts(
-        known.filter((person) => person.balance < 0).map((person) => -person.balance),
-      ),
-      pending: known.length !== selected.length,
-    };
-  }, [selectablePeople, selectedIds]);
   const selectedIdsRef = useRef(selectedIds);
   selectedIdsRef.current = selectedIds;
   useEffect(() => {
@@ -772,15 +758,19 @@ export default function HomeScreen() {
     setConfirmRemoveIds(null);
   }, [activeVaultId, activeAccountId, canSelect]);
   useEffect(() => {
+    const available = new Set(visibleAllPeople.map((person) => person.id));
     setSelectedPersonIds((ids) => {
-      const next = ids.filter((id) => selectableIds.has(id));
+      const next = ids.filter((id) => available.has(id));
       return next.length === ids.length ? ids : next;
     });
     setConfirmRemoveIds(null);
-  }, [selectableIds]);
+  }, [visibleAllPeople]);
+  useEffect(() => setConfirmRemoveIds(null), [selectableIds]);
   useFocusEffect(
     useCallback(() => {
+      selectionOwnerActive.current = true;
       return () => {
+        selectionOwnerActive.current = false;
         searchGeneration.current++;
         setSearchVisible(false);
         selectionGeneration.current++;
@@ -793,6 +783,8 @@ export default function HomeScreen() {
   const startSelection = useCallback(
     (person?: PersonWithBalance) => {
       if (
+        !mounted.current ||
+        !selectionOwnerActive.current ||
         !canSelect ||
         selectionBusyRef.current ||
         activeVaultId !== getActiveVaultIdSyncMaybe() ||
@@ -800,12 +792,22 @@ export default function HomeScreen() {
       )
         return;
       dismissSearchKeyboard();
+      if (!searching) {
+        searchGeneration.current++;
+        setCustomerQuery("");
+        preferenceVersion.current++;
+        setListPreference({ ...DEFAULT_CUSTOMER_SEARCH });
+        setSearchVisible(true);
+      }
+      setSearchAutoFocus(false);
       selectionGeneration.current++;
-      setSelectedPersonIds(person && selectableIds.has(person.id) ? [person.id] : []);
+      setSelectedPersonIds(
+        person && visibleAllPeople.some((row) => row.id === person.id) ? [person.id] : [],
+      );
       setSelectionMode(true);
       Haptics.selectionAsync().catch(() => undefined);
     },
-    [canSelect, dismissSearchKeyboard, selectableIds, activeVaultId, activeAccountId],
+    [canSelect, dismissSearchKeyboard, visibleAllPeople, activeVaultId, activeAccountId, searching],
   );
   const removeSelected = async () => {
     if (selectionBusyRef.current || !canSelectRef.current) return;
@@ -911,6 +913,7 @@ export default function HomeScreen() {
   const searchRequest = searchGeneration.current;
   const isCurrentSearch = () =>
     mounted.current &&
+    selectionOwnerActive.current &&
     searching &&
     searchGeneration.current === searchRequest &&
     activeVaultId === getActiveVaultIdSyncMaybe() &&
@@ -925,6 +928,7 @@ export default function HomeScreen() {
   const openSearch = () => {
     if (
       !mounted.current ||
+      !selectionOwnerActive.current ||
       !currentVaultScope ||
       !currentPeopleScope ||
       selectionBusyRef.current ||
@@ -934,6 +938,7 @@ export default function HomeScreen() {
       return;
     searchGeneration.current++;
     closeSelection();
+    setSearchAutoFocus(true);
     setSearchVisible(true);
   };
 
@@ -1054,11 +1059,13 @@ export default function HomeScreen() {
     [router, activeVaultId, activeAccountId, selecting, selectableIds, searching, searchRequest],
   );
 
+  const confirmationVersion = selectionConfirmationVersion.current;
   const selectionToolbar = selecting ? (
     <SelectionToolbar
       count={selectedIds.size}
       total={selectablePeople.length}
-      balanceTotals={selectedBalanceTotals}
+      financialSummary={financialSummary}
+      allSelected={selectableIds.size > 0 && [...selectableIds].every((id) => selectedIds.has(id))}
       onClose={() => {
         if (
           activeVaultId === getActiveVaultIdSyncMaybe() &&
@@ -1075,8 +1082,10 @@ export default function HomeScreen() {
           activeAccountId !== getAccountIdSync()
         )
           return;
-        setSelectedPersonIds(
-          selectedIds.size === selectablePeople.length ? [] : [...selectableIds],
+        setSelectedPersonIds((ids) =>
+          [...selectableIds].every((id) => selectedIds.has(id))
+            ? ids.filter((id) => !selectableIds.has(id))
+            : [...new Set([...ids, ...selectableIds])],
         );
       }}
       busy={selectionBusy}
@@ -1088,10 +1097,15 @@ export default function HomeScreen() {
           destructive: true,
           onPress: () => {
             if (
-              activeVaultId === getActiveVaultIdSyncMaybe() &&
-              activeAccountId === getAccountIdSync()
+              selectionBusyRef.current ||
+              !canSelectRef.current ||
+              !isCurrentSearch() ||
+              selectedIds.size === 0
             )
-              setConfirmRemoveIds([...selectedIds]);
+              return;
+            dismissSearchKeyboard();
+            selectionConfirmationVersion.current++;
+            setConfirmRemoveIds([...selectedIds]);
           },
         },
       ]}
@@ -1402,16 +1416,11 @@ export default function HomeScreen() {
                   creditByPerson={creditByPerson}
                   vaultId={activeVaultId}
                   width={screenWidth}
-                  paddingBottom={
-                    (selecting && !searching ? selectionDockHeight + 40 : 96) + insets.bottom
-                  }
+                  paddingBottom={96 + insets.bottom}
                   refreshing={refreshing}
                   onRefresh={onRefresh}
                   onPersonPress={openPerson}
-                  onPersonLongPress={canAmend && !selecting ? setSheetFor : undefined}
-                  selecting={selecting && !searching}
-                  selectedIds={selectedIds}
-                  selectionBusy={selectionBusy}
+                  onPersonLongPress={canAmend ? setSheetFor : undefined}
                 />
                 <TabPage
                   direction="pay"
@@ -1427,16 +1436,11 @@ export default function HomeScreen() {
                   creditByPerson={creditByPerson}
                   vaultId={activeVaultId}
                   width={screenWidth}
-                  paddingBottom={
-                    (selecting && !searching ? selectionDockHeight + 40 : 96) + insets.bottom
-                  }
+                  paddingBottom={96 + insets.bottom}
                   refreshing={refreshing}
                   onRefresh={onRefresh}
                   onPersonPress={openPerson}
-                  onPersonLongPress={canAmend && !selecting ? setSheetFor : undefined}
-                  selecting={selecting && !searching}
-                  selectedIds={selectedIds}
-                  selectionBusy={selectionBusy}
+                  onPersonLongPress={canAmend ? setSheetFor : undefined}
                 />
               </Animated.View>
             </GestureDetector>
@@ -1451,20 +1455,7 @@ export default function HomeScreen() {
           )}
 
           {/* The field opens search. Its filters never change this overview. */}
-          {selecting && !searching ? (
-            <Animated.View
-              onLayout={(event) => setSelectionDockHeight(event.nativeEvent.layout.height)}
-              style={[
-                styles.selectionDock,
-                {
-                  bottom: 20 + insets.bottom,
-                  transform: [{ translateY: toastOffset }],
-                },
-              ]}
-            >
-              {selectionToolbar}
-            </Animated.View>
-          ) : activeVaultId ? (
+          {activeVaultId ? (
             <Animated.View
               style={[
                 styles.dock,
@@ -1678,7 +1669,8 @@ export default function HomeScreen() {
         dismissDisabled={selectionBusy}
         canDismiss={() => !selectionBusyRef.current}
         contextKey={`${getAccountIdSync() ?? "local"}:${activeVaultId ?? "none"}`}
-        title={t("customers.search.title")}
+        title={t(selecting ? "selection.contacts" : "customers.search.title")}
+        autoFocus={searchAutoFocus}
         resultSummary={t(
           searchPeople.length === 1 ? "customers.search.result" : "customers.search.results",
           { count: searchPeople.length },
@@ -1745,61 +1737,60 @@ export default function HomeScreen() {
             ) : null}
           </>
         }
-        footer={
-          searching ? (
-            confirmRemoveIds !== null && selecting ? (
-              <View style={styles.searchConfirmation}>
-                <Text style={[styles.searchTitle, textDir(isRTL)]}>
-                  {t("selection.removeContactsTitle", { count: confirmRemoveIds.length })}
-                </Text>
-                <Text style={[styles.loadErrorText, textDir(isRTL)]}>
-                  {t("selection.removeContactsDescription")}
-                </Text>
-                <View style={[styles.searchConfirmActions, rowDir(isRTL)]}>
-                  <Button
-                    label={t("common.cancel")}
-                    variant="secondary"
-                    onPress={() => {
-                      if (isCurrentSearch()) setConfirmRemoveIds(null);
-                    }}
-                  />
-                  <Button
-                    label={t("selection.remove")}
-                    variant="danger"
-                    onPress={() => {
-                      if (isCurrentSearch()) void removeSelected();
-                    }}
-                  />
-                </View>
-              </View>
-            ) : (
-              selectionToolbar
+        footer={searching ? selectionToolbar : undefined}
+        confirmation={{
+          visible: searching && selecting && confirmRemoveIds !== null,
+          title: t("selection.removeContactsTitle", { count: confirmRemoveIds?.length ?? 0 }),
+          description: t("selection.removeContactsDescription"),
+          confirmLabel: t("selection.remove"),
+          destructive: true,
+          onCancel: () => {
+            if (
+              !isCurrentSearch() ||
+              selectionBusyRef.current ||
+              confirmationVersion !== selectionConfirmationVersion.current
             )
-          ) : undefined
-        }
+              return;
+            selectionConfirmationVersion.current++;
+            setConfirmRemoveIds(null);
+          },
+          onConfirm: () => {
+            if (
+              !isCurrentSearch() ||
+              selectionBusyRef.current ||
+              confirmRemoveIds === null ||
+              confirmationVersion !== selectionConfirmationVersion.current
+            )
+              return;
+            selectionConfirmationVersion.current++;
+            void removeSelected();
+          },
+        }}
       >
-        {searching ? (
-          <SearchResultsPage
-            people={searchPeople}
-            scrollRef={searchScrollRef}
-            groupFilterLabel={groupFilterLabel}
-            groupFilterCount={groupFilterCount}
-            onClearGroupFilter={() => changeListPreference({ ...listPreference, group: "all" })}
-            creditByPerson={creditByPerson}
-            paddingBottom={24}
-            onPersonPress={openPerson}
-            onPersonLongPress={
-              canSelect && !selecting
-                ? (person) => {
-                    if (isCurrentSearch()) startSelection(person);
-                  }
-                : undefined
-            }
-            selecting={selecting}
-            selectedIds={selectedIds}
-            selectionBusy={selectionBusy}
-          />
-        ) : null}
+        {(footerInset) =>
+          searching ? (
+            <SearchResultsPage
+              people={searchPeople}
+              scrollRef={searchScrollRef}
+              groupFilterLabel={groupFilterLabel}
+              groupFilterCount={groupFilterCount}
+              onClearGroupFilter={() => changeListPreference({ ...listPreference, group: "all" })}
+              creditByPerson={creditByPerson}
+              paddingBottom={24 + footerInset}
+              onPersonPress={openPerson}
+              onPersonLongPress={
+                canSelect && !selecting
+                  ? (person) => {
+                      if (isCurrentSearch()) startSelection(person);
+                    }
+                  : undefined
+              }
+              selecting={selecting}
+              selectedIds={selectedIds}
+              selectionBusy={selectionBusy}
+            />
+          ) : null
+        }
       </SearchSheet>
 
       <BottomSheet
@@ -1831,16 +1822,6 @@ export default function HomeScreen() {
             onPress: () => setConfirmDeleteFor(sheetFor),
           },
         ]}
-      />
-
-      <ConfirmDialog
-        visible={confirmRemoveIds !== null && selecting && !searching}
-        title={t("selection.removeContactsTitle", { count: confirmRemoveIds?.length ?? 0 })}
-        description={t("selection.removeContactsDescription")}
-        confirmLabel={t("selection.remove")}
-        destructive
-        onConfirm={() => void removeSelected()}
-        onCancel={() => setConfirmRemoveIds(null)}
       />
 
       <ConfirmDialog
@@ -2296,8 +2277,6 @@ function TabPage(
 }
 
 const styles = StyleSheet.create({
-  searchConfirmation: { padding: 4, gap: 12 },
-  searchConfirmActions: { justifyContent: "flex-end", gap: 8 },
   container: { flex: 1, backgroundColor: colors.bgDefault },
   body: { flex: 1 },
   authOverlay: {
@@ -2435,7 +2414,6 @@ const styles = StyleSheet.create({
   // hair after the header's paddingBottom shrunk to 14 (was 16);
   // marginBottom:16 keeps the rail from feeling glued to the tab strip.
   tabsWrap: { paddingHorizontal: 16, marginTop: 2, marginBottom: 16, gap: 8, alignItems: "center" },
-  selectionDock: { position: "absolute", left: 16, right: 16 },
   groupChip: {
     alignSelf: "flex-start",
     alignItems: "center",

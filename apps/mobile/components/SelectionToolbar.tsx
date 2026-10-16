@@ -5,9 +5,10 @@ import { colors } from "../lib/colors";
 import { getCurrentCurrencySymbol } from "../lib/currency";
 import { rowDir, textDir, useIsRTL } from "../lib/direction";
 import { formatAmount } from "../lib/format";
+import { fonts, monoLineHeight } from "../lib/fonts";
 import { t } from "../lib/i18n";
-import { faDigits } from "../lib/jalali";
 import { lift, radius, space, TOUCH_MIN, typography } from "../lib/tokens";
+import type { SelectionFinancialSummary } from "../lib/selection-summary";
 
 export type SelectionAction = {
   key: string;
@@ -27,7 +28,8 @@ export function SelectionToolbar({
   actions = [],
   busy = false,
   summary,
-  balanceTotals,
+  financialSummary,
+  allSelected: allSelectedOverride,
 }: {
   count: number;
   total: number;
@@ -36,11 +38,74 @@ export function SelectionToolbar({
   actions?: SelectionAction[];
   busy?: boolean;
   summary?: string;
-  balanceTotals?: { collect: number; pay: number; pending: boolean };
+  financialSummary?: SelectionFinancialSummary;
+  allSelected?: boolean;
 }) {
   const isRTL = useIsRTL();
-  const allSelected = total > 0 && count === total;
-  const currency = balanceTotals ? getCurrentCurrencySymbol() : "";
+  const allSelected = allSelectedOverride ?? (total > 0 && count === total);
+  const toggleLabel = t(
+    allSelectedOverride !== undefined
+      ? allSelected
+        ? "selection.clearResults"
+        : "selection.allResults"
+      : allSelected
+        ? "selection.clear"
+        : "selection.all",
+  );
+  const currency = financialSummary ? getCurrentCurrencySymbol() : "";
+  const unavailable = !!financialSummary?.pending;
+  const unavailableLabel = t("selection.summary.unavailable");
+  const remainingKey =
+    unavailable || !financialSummary?.net
+      ? "selection.summary.remaining"
+      : financialSummary.net > 0
+        ? "selection.summary.collect"
+        : "selection.summary.pay";
+  const metric = (label: string, value: number, count: number, color: string, key: string) => {
+    const countValue = unavailable ? "—" : count;
+    const transactions = t(
+      count === 1 && !unavailable
+        ? "selection.summary.transaction"
+        : "selection.summary.transactions",
+      { count: countValue },
+    );
+    return (
+      <View
+        key={key}
+        accessible
+        accessibilityLiveRegion="polite"
+        accessibilityLabel={`${label}, ${unavailable ? unavailableLabel : `${formatAmount(value)} ${currency}, ${transactions}`}`}
+        style={styles.total}
+      >
+        <View style={[styles.metricRow, rowDir(isRTL)]}>
+          <Text style={[styles.totalLabel, styles.metricLabel, textDir(isRTL)]}>{label}</Text>
+          <Text
+            style={[
+              styles.totalLabel,
+              styles.metricEndLabel,
+              textDir(isRTL),
+              { textAlign: isRTL ? "left" : "right" },
+            ]}
+          >
+            {t("selection.summary.transactionsLabel")}
+          </Text>
+        </View>
+        <View style={[styles.metricRow, rowDir(isRTL)]}>
+          <View style={[styles.totalValue, styles.metricValue, rowDir(isRTL)]}>
+            <Text style={[styles.totalAmount, { color }]}>
+              {unavailable ? "—" : formatAmount(value)}
+            </Text>
+            <Text style={styles.currency}>{currency}</Text>
+          </View>
+          <Text
+            style={[styles.metricCount, textDir(isRTL), { textAlign: isRTL ? "left" : "right" }]}
+          >
+            {countValue}
+          </Text>
+        </View>
+      </View>
+    );
+  };
   return (
     <View style={[styles.panel, lift]} accessibilityState={{ busy }}>
       <View style={[styles.header, rowDir(isRTL)]}>
@@ -61,12 +126,12 @@ export function SelectionToolbar({
         <View style={[styles.selection, rowDir(isRTL)]}>
           {busy ? <ActivityIndicator size="small" color={colors.actionPrimary} /> : null}
           <Text accessibilityLiveRegion="polite" style={[styles.count, textDir(isRTL)]}>
-            {t("selection.count", { count: isRTL ? faDigits(String(count)) : count })}
+            {t("selection.count", { count })}
           </Text>
         </View>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={t(allSelected ? "selection.clear" : "selection.all")}
+          accessibilityLabel={toggleLabel}
           accessibilityState={{ disabled: busy || total === 0 }}
           disabled={busy || total === 0}
           onPress={onToggleAll}
@@ -76,42 +141,65 @@ export function SelectionToolbar({
             (busy || total === 0) && styles.disabled,
           ]}
         >
-          <Text style={[styles.toggleLabel, textDir(isRTL)]}>
-            {t(allSelected ? "selection.clear" : "selection.all")}
-          </Text>
+          <Text style={[styles.toggleLabel, textDir(isRTL)]}>{toggleLabel}</Text>
         </Pressable>
       </View>
       {summary || count === 0 ? (
         <Text style={[styles.summary, textDir(isRTL)]}>{summary || t("selection.empty")}</Text>
       ) : null}
-      {count > 0 && balanceTotals ? (
+      {count > 0 && financialSummary ? (
         <>
           <View style={[styles.totals, rowDir(isRTL)]}>
-            {(["collect", "pay"] as const).map((direction) => {
-              const label = t(`home.total.label.${direction}`);
-              const amount = balanceTotals.pending ? "…" : formatAmount(balanceTotals[direction]);
-              const color = direction === "collect" ? colors.collectStrong : colors.payStrong;
-              return (
-                <View
-                  key={direction}
-                  accessible
-                  accessibilityLiveRegion="polite"
-                  accessibilityLabel={`${label}, ${balanceTotals.pending ? t("selection.balancesPending") : `${amount} ${currency}`}`}
-                  style={styles.total}
-                >
-                  <Text style={[styles.totalLabel, textDir(isRTL)]}>{label}</Text>
-                  <View style={[styles.totalValue, rowDir(isRTL)]}>
-                    <Text style={[styles.totalAmount, { color }]}>{amount}</Text>
-                    {!balanceTotals.pending ? (
-                      <Text style={styles.currency}>{currency}</Text>
-                    ) : null}
-                  </View>
-                </View>
-              );
-            })}
+            {metric(
+              t("selection.summary.debt"),
+              financialSummary.debt,
+              financialSummary.debtCount,
+              colors.collectStrong,
+              "debt",
+            )}
+            {metric(
+              t("selection.summary.credit"),
+              financialSummary.credit,
+              financialSummary.creditCount,
+              colors.payStrong,
+              "credit",
+            )}
           </View>
-          {balanceTotals.pending ? (
-            <Text style={[styles.summary, textDir(isRTL)]}>{t("selection.balancesPending")}</Text>
+          <View
+            accessible
+            style={[styles.remaining, rowDir(isRTL)]}
+            accessibilityLiveRegion="polite"
+            accessibilityLabel={`${t(remainingKey)}, ${unavailable ? unavailableLabel : `${formatAmount(Math.abs(financialSummary.net))} ${currency}`}`}
+          >
+            <Text style={[styles.remainingLabel, textDir(isRTL)]}>{t(remainingKey)}</Text>
+            <View
+              style={[
+                styles.totalValue,
+                styles.remainingValue,
+                rowDir(isRTL),
+                isRTL ? { marginRight: "auto" } : { marginLeft: "auto" },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.summaryAmount,
+                  {
+                    color:
+                      unavailable || financialSummary.net === 0
+                        ? colors.textSubtle
+                        : financialSummary.net > 0
+                          ? colors.collectStrong
+                          : colors.payStrong,
+                  },
+                ]}
+              >
+                {unavailable ? "—" : formatAmount(Math.abs(financialSummary.net))}
+              </Text>
+              <Text style={styles.currency}>{currency}</Text>
+            </View>
+          </View>
+          {unavailable ? (
+            <Text style={[styles.summary, textDir(isRTL)]}>{unavailableLabel}</Text>
           ) : null}
         </>
       ) : null}
@@ -188,18 +276,49 @@ const styles = StyleSheet.create({
   },
   toggleLabel: { ...typography.bodySm, color: colors.textDefault },
   summary: { ...typography.bodySm, color: colors.textSubtle, paddingHorizontal: space.sm },
+  summaryAmount: {
+    fontFamily: fonts.monoBold,
+    fontSize: 17,
+    lineHeight: monoLineHeight(17, 24),
+    color: colors.textEmphasis,
+    writingDirection: "ltr",
+    flexShrink: 1,
+  },
+  remaining: {
+    alignItems: "baseline",
+    justifyContent: "space-between",
+    flexWrap: "wrap",
+    gap: space.sm,
+    padding: space.sm,
+  },
+  remainingLabel: {
+    ...typography.labelBold,
+    color: colors.textDefault,
+    flexShrink: 1,
+    minWidth: 100,
+  },
+  remainingValue: { flexShrink: 1, minWidth: 0, justifyContent: "flex-end" },
   totals: { flexWrap: "wrap", gap: space.sm },
   total: {
     flexGrow: 1,
-    flexBasis: 120,
+    flexBasis: 140,
     minWidth: 0,
     padding: space.sm,
     borderRadius: radius.md,
     backgroundColor: colors.bgMuted,
     gap: space.xs,
   },
+  metricRow: { alignItems: "baseline", justifyContent: "space-between", gap: space.sm },
+  metricLabel: { flex: 1, minWidth: 0 },
+  metricEndLabel: { flexShrink: 1, maxWidth: "55%" },
+  metricValue: { flexShrink: 1, minWidth: 0 },
+  metricCount: {
+    ...typography.numRow,
+    color: colors.textSubtle,
+    flexShrink: 1,
+  },
   totalLabel: { ...typography.bodySm, color: colors.textSubtle },
-  totalValue: { alignItems: "baseline", flexWrap: "wrap", gap: space.xs },
+  totalValue: { alignItems: "baseline", gap: space.xs },
   totalAmount: { ...typography.numRow, writingDirection: "ltr", flexShrink: 1 },
   currency: { ...typography.numMeta, color: colors.textMuted },
   actions: {

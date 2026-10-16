@@ -4253,6 +4253,10 @@ type RawPersonRow = PersonWithBalance & {
   tab_last_at: number | null;
   tab_last_direction: TabDirection | null;
   tab_role: "a" | "b" | null;
+  selection_debt_count?: number;
+  selection_credit_count?: number;
+  selection_debt_minor?: number;
+  selection_credit_minor?: number;
 };
 
 /** The tab-aware SELECT columns shared by selectAllPeopleRaw and getPerson. */
@@ -4302,7 +4306,7 @@ const PERSON_BALANCE_SQL = `
  */
 const TAB_LINK_JOIN = `LEFT JOIN tab_links tl ON tl.tab_id = (
        SELECT t2.tab_id FROM tab_links t2
-        WHERE t2.relationship_id = r.id
+        WHERE t2.relationship_id = r.id AND t2.vault_id = r.vault_id
         ORDER BY (t2.closed_at IS NULL) DESC, t2.linked_at DESC
         LIMIT 1)`;
 
@@ -4315,7 +4319,24 @@ const TAB_LINK_JOIN = `LEFT JOIN tab_links tl ON tl.tab_id = (
  * Unlinked rows pass through untouched.
  */
 function finishTabColumns(row: RawPersonRow): PersonWithBalance {
-  const { tab_last_at, tab_last_direction, tab_role, ...person } = row;
+  const {
+    tab_last_at,
+    tab_last_direction,
+    tab_role,
+    selection_debt_count,
+    selection_credit_count,
+    selection_debt_minor,
+    selection_credit_minor,
+    ...person
+  } = row;
+  if (selection_debt_count != null && selection_credit_count != null) {
+    person.selection_totals = {
+      debtCount: selection_debt_count,
+      creditCount: selection_credit_count,
+      debtMinor: selection_debt_minor!,
+      creditMinor: selection_credit_minor!,
+    };
+  }
   if (row.tab_id != null && tab_last_at != null) {
     const localAt = person.last_entry_at;
     if (localAt == null || tab_last_at >= localAt) {
@@ -4338,12 +4359,46 @@ async function selectAllPeopleRaw(
   // Pre-onboarding (no vault yet) returns [] cleanly.
   if (!vaultId) return [];
   const rows = await db.getAllAsync<RawPersonRow>(
-    `SELECT u.id            AS id,
+    `WITH selection_tab_totals AS (
+       -- Aggregate each shared book once, before the local-entry join. The
+       -- current link below chooses its one carried opening/history; neither
+       -- older books nor pre-link local records may be counted again.
+       SELECT te.tab_id,
+              SUM(CASE WHEN te.direction = CASE WHEN stl.role = 'a' THEN 'a_to_b' ELSE 'b_to_a' END
+                       THEN 1 ELSE 0 END) AS debt_count,
+              SUM(CASE WHEN te.direction <> CASE WHEN stl.role = 'a' THEN 'a_to_b' ELSE 'b_to_a' END
+                       THEN 1 ELSE 0 END) AS credit_count,
+              SUM(CASE WHEN te.direction = CASE WHEN stl.role = 'a' THEN 'a_to_b' ELSE 'b_to_a' END
+                       THEN te.amount_minor ELSE 0 END) AS debt_minor,
+              SUM(CASE WHEN te.direction <> CASE WHEN stl.role = 'a' THEN 'a_to_b' ELSE 'b_to_a' END
+                       THEN te.amount_minor ELSE 0 END) AS credit_minor
+         FROM tab_links stl INNER JOIN tab_entries te ON te.tab_id = stl.tab_id
+        WHERE stl.vault_id = ? AND te.kind IN ('entry', 'opening')
+          AND te.voided_by_entry_id IS NULL AND te.status <> 'disputed'
+        GROUP BY te.tab_id
+     )
+     SELECT u.id            AS id,
             u.display_name  AS name,
             u.phone_e164    AS phone,
             u.created_at    AS created_at,
             r.archived_at   AS archived_at,
             ${PERSON_BALANCE_SQL},
+            COALESCE(st.debt_count, 0)
+              + SUM(CASE WHEN e.deleted_at IS NULL AND e.type = 'debt'
+                          AND (tl.tab_id IS NULL OR e.created_at > tl.linked_at)
+                         THEN 1 ELSE 0 END) AS selection_debt_count,
+            COALESCE(st.credit_count, 0)
+              + SUM(CASE WHEN e.deleted_at IS NULL AND e.type = 'payment'
+                          AND (tl.tab_id IS NULL OR e.created_at > tl.linked_at)
+                         THEN 1 ELSE 0 END) AS selection_credit_count,
+            COALESCE(st.debt_minor, 0)
+              + SUM(CASE WHEN e.deleted_at IS NULL AND e.type = 'debt'
+                          AND (tl.tab_id IS NULL OR e.created_at > tl.linked_at)
+                         THEN CAST(ROUND(e.amount_afn * 100) AS INTEGER) ELSE 0 END) AS selection_debt_minor,
+            COALESCE(st.credit_minor, 0)
+              + SUM(CASE WHEN e.deleted_at IS NULL AND e.type = 'payment'
+                          AND (tl.tab_id IS NULL OR e.created_at > tl.linked_at)
+                         THEN CAST(ROUND(e.amount_afn * 100) AS INTEGER) ELSE 0 END) AS selection_credit_minor,
             MAX(CASE WHEN e.deleted_at IS NULL THEN e.created_at END) AS last_entry_at,
             -- Type of the most-recent non-deleted entry. Only meaningful for a
             -- SETTLED person (balance 0): that entry is the one that zeroed them,
@@ -4386,13 +4441,15 @@ async function selectAllPeopleRaw(
      FROM relationships r
      INNER JOIN users u ON u.id = r.user_b_id
      ${TAB_LINK_JOIN}
+     LEFT JOIN selection_tab_totals st ON st.tab_id = tl.tab_id
      LEFT JOIN entries e
        ON e.relationship_id = r.id
       AND e.vault_id = ?
      WHERE r.vault_id   = ?
        AND r.archived_at IS NULL
      GROUP BY u.id`,
-    vaultId, // last_entry_type correlated subquery (appears first in SELECT)
+    vaultId, // shared financial totals, aggregated once per book
+    vaultId, // last_entry_type correlated subquery
     vaultId, // LEFT JOIN entries e ON ... e.vault_id = ?
     vaultId, // WHERE r.vault_id = ?
   );

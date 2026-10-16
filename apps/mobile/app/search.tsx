@@ -1,7 +1,15 @@
-import { Stack, useLocalSearchParams, useNavigation, useRoute, useRouter } from "expo-router";
+import {
+  Stack,
+  useIsFocused,
+  useLocalSearchParams,
+  useNavigation,
+  useRoute,
+  useRouter,
+} from "expo-router";
 import { usePreventRemove } from "expo-router/react-navigation";
 import { cloneElement, isValidElement, useEffect, useSyncExternalStore } from "react";
 import { BackHandler, View } from "react-native";
+import { ToastHost } from "../components/Toast";
 import {
   closeNativeSearch,
   getNativeSearch,
@@ -20,6 +28,7 @@ export default function NativeSearchScreen() {
     () => null,
   );
   const navigation = useNavigation();
+  const focused = useIsFocused();
   const route = useRoute();
   const router = useRouter();
   const valid =
@@ -58,6 +67,7 @@ export default function NativeSearchScreen() {
         {valid && isValidElement<{ active?: boolean }>(session.content)
           ? cloneElement(session.content, { active: !session.closing })
           : null}
+        {valid && !session.closing && focused ? <ToastHost /> : null}
       </View>
     </>
   );

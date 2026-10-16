@@ -3,7 +3,6 @@
 // and screen-reader announcements still need an iOS/Android device check.
 import assert from "node:assert/strict";
 import { colors } from "../colors";
-import { faDigits } from "../jalali";
 import { formatMoneyAmount } from "../money";
 import { compileUI, flattenStyle, jsx, nodes, type UINode } from "./ui-fixture";
 
@@ -51,7 +50,7 @@ const shared = {
   "../lib/direction": direction,
   "../lib/format": { formatAmount: formatMoneyAmount },
   "../lib/i18n": i18n,
-  "../lib/jalali": { faDigits },
+  "../lib/fonts": { fonts, monoLineHeight: (_size: number, height: number) => height },
   "../lib/tokens": tokens,
 };
 const { SelectionToolbar } = compileUI("../../components/SelectionToolbar", shared);
@@ -81,6 +80,14 @@ const styleOf = (node: UINode) =>
       ? node.props.style({ pressed: false })
       : node.props.style,
   );
+const visibleText = (tree: any): string =>
+  typeof tree === "string" || typeof tree === "number"
+    ? String(tree)
+    : Array.isArray(tree)
+      ? tree.map(visibleText).join("")
+      : tree?.props && styleOf(tree)?.opacity !== 0
+        ? visibleText(tree.props.children)
+        : "";
 const button = (tree: UINode, label: string) => {
   const found = nodes(tree).find(
     (node) => node.type === "Pressable" && node.props.accessibilityLabel === label,
@@ -128,8 +135,8 @@ for (const locale of ["en", "fa"] as const) {
   };
   const initial = SelectionToolbar(props);
   assert.ok(
-    textContent(initial).includes(i18n.t("selection.count", { count: rtl ? faDigits("1") : 1 })),
-    "The selected count uses the current language and digit script",
+    textContent(initial).includes(i18n.t("selection.count", { count: 1 })),
+    "The selected count keeps English digits in either language",
   );
   const count = nodes(initial).find((node) => node.props.accessibilityLiveRegion === "polite")!;
   assert.equal(styleOf(count).writingDirection, rtl ? "rtl" : "ltr");
@@ -180,52 +187,182 @@ for (const locale of ["en", "fa"] as const) {
   }
   assert.deepEqual([closed, toggled, removed], [1, 1, 1], "Busy cannot issue duplicate work");
 
-  const balanceTotals = { collect: 0.3, pay: 1.05, pending: false };
-  const totals = SelectionToolbar({ ...props, count: 2, balanceTotals });
-  for (const [side, amount, color] of [
-    ["collect", "0.30", colors.collectStrong],
-    ["pay", "1.05", colors.payStrong],
-  ] as const) {
-    const metric = nodes(totals).find(
+  const financialSummary = {
+    debtCount: 3,
+    creditCount: 1,
+    debt: 30.2,
+    credit: 20.1,
+    collect: 15.2,
+    pay: 5.1,
+    net: 10.1,
+    pending: false,
+  };
+  const financial = SelectionToolbar({
+    ...props,
+    count: 2,
+    total: 1,
+    allSelected: true,
+    financialSummary,
+  });
+  assert.ok(
+    button(financial, i18n.t("selection.clearResults")),
+    "Visible Select all is independent of hidden selections",
+  );
+  assert.equal(
+    textContent(financial).includes(i18n.t("selection.summary.transactions", { count: 4 })),
+    false,
+    "There is no combined transaction count",
+  );
+  assert.equal(textContent(financial).includes("50.30"), false, "There is no combined amount");
+  assert.ok(visibleText(financial).includes(i18n.t("selection.summary.collect")));
+  assert.equal(visibleText(financial).includes(i18n.t("selection.summary.pay")), false);
+  assert.ok(textContent(financial).includes("10.10"));
+  const payable = SelectionToolbar({
+    ...props,
+    financialSummary: { ...financialSummary, net: -10.1 },
+  });
+  assert.ok(visibleText(payable).includes(i18n.t("selection.summary.pay")));
+  const balanced = SelectionToolbar({
+    ...props,
+    financialSummary: { ...financialSummary, net: 0 },
+  });
+  assert.ok(visibleText(balanced).includes(i18n.t("selection.summary.remaining")));
+  const unavailable = SelectionToolbar({
+    ...props,
+    financialSummary: { ...financialSummary, pending: true },
+  });
+  assert.ok(visibleText(unavailable).includes(i18n.t("selection.summary.unavailable")));
+  assert.ok(visibleText(unavailable).includes(i18n.t("selection.summary.remaining")));
+  assert.equal(
+    nodes(unavailable).filter((node) =>
+      node.props.accessibilityLabel?.includes(i18n.t("selection.summary.unavailable")),
+    ).length,
+    3,
+    "Missing restored account data is identified on every financial field",
+  );
+  assert.equal(
+    nodes(unavailable).filter((node) => node.type === "Text" && textContent(node) === "—").length,
+    5,
+    "Unavailable amounts and separate transaction counts never show a partial sum",
+  );
+  for (const amount of ["50.30", "30.20", "20.10", "10.10"])
+    assert.equal(textContent(unavailable).includes(amount), false);
+
+  for (const tree of [financial, payable, balanced, unavailable]) {
+    assert.equal(
+      nodes(tree).some((node) => node.type === "ActivityIndicator"),
+      false,
+    );
+    assert.equal(
+      nodes(tree).some((node) => node.props.accessibilityState?.busy),
+      false,
+    );
+    assert.equal(
+      nodes(tree).some((node) => node.props.testID?.includes("skeleton")),
+      false,
+    );
+    assert.equal(textContent(tree).includes("0,000.00"), false, "No hidden layout placeholder");
+    for (const node of nodes(tree)) {
+      assert.equal(styleOf(node)?.height, undefined, "Financial values can grow with text size");
+      assert.notEqual(styleOf(node)?.overflow, "hidden");
+      assert.notEqual(styleOf(node)?.opacity, 0, "No invisible sizing labels");
+      if (node.type === "Text") {
+        assert.equal(node.props.numberOfLines, undefined);
+        assert.notEqual(node.props.allowFontScaling, false);
+      }
+    }
+    const remaining = nodes(tree).find(
       (node) =>
-        node.props.accessibilityLabel === `${i18n.t(`home.total.label.${side}`)}, ${amount} AFN`,
+        node.props.accessible &&
+        ["selection.summary.collect", "selection.summary.pay", "selection.summary.remaining"].some(
+          (key) => node.props.accessibilityLabel?.startsWith(`${i18n.t(key)},`),
+        ),
+    )!;
+    assert.ok(remaining, "The selected balance stays in its own summary row");
+    assert.equal(styleOf(remaining).justifyContent, "space-between");
+    assert.equal(styleOf(remaining).flexDirection, rtl ? "row-reverse" : "row");
+    const [remainingLabel, remainingAmount] = remaining.props.children;
+    assert.equal(styleOf(remainingLabel).textAlign, rtl ? "right" : "left");
+    assert.equal(styleOf(remainingAmount).justifyContent, "flex-end");
+    assert.equal(styleOf(remainingAmount).flexGrow, undefined);
+    assert.equal(styleOf(remainingAmount).flexBasis, undefined);
+    const balanceValue = remainingAmount.props.children[0];
+    assert.equal(styleOf(balanceValue).fontFamily, fonts.monoBold);
+    assert.equal(styleOf(balanceValue).fontSize, 17);
+    assert.equal(styleOf(balanceValue).lineHeight, 24);
+  }
+  for (const [key, amount, count, color] of [
+    ["debt", "30.20", 3, colors.collectStrong],
+    ["credit", "20.10", 1, colors.payStrong],
+  ] as const) {
+    const countLabel = i18n.t(
+      count === 1 ? "selection.summary.transaction" : "selection.summary.transactions",
+      { count },
     );
-    assert.ok(
-      metric?.props.accessible,
-      "Each selected balance has a readable direction and currency",
-    );
+    const metric = nodes(financial).find(
+      (node) =>
+        node.props.accessibilityLabel ===
+        `${i18n.t(`selection.summary.${key}`)}, ${amount} AFN, ${countLabel}`,
+    )!;
+    assert.ok(metric, "Each grey card identifies its own amount and transaction count");
+    assert.ok(metric.props.accessible);
     assert.equal(metric.props.accessibilityLiveRegion, "polite");
-    const value = nodes(metric).find(
+    assert.equal(styleOf(metric).backgroundColor, colors.bgMuted);
+    assert.ok(
+      styleOf(metric).flexDirection === undefined || styleOf(metric).flexDirection === "column",
+      "Each grey card stacks its label row above its value row",
+    );
+    const metricRows = metric.props.children;
+    assert.equal(metricRows.length, 2, "Each grey card has exactly two rows");
+    for (const row of metricRows) {
+      assert.equal(row.type, "View");
+      assert.equal(styleOf(row).flexDirection, rtl ? "row-reverse" : "row");
+      assert.equal(styleOf(row).justifyContent, "space-between");
+      assert.equal(row.props.children.length, 2, "Each row places content at opposite ends");
+    }
+    const [label, transactionsLabel] = metricRows[0].props.children;
+    assert.equal(label.type, "Text");
+    assert.equal(textContent(label), i18n.t(`selection.summary.${key}`));
+    assert.equal(styleOf(label).textAlign, rtl ? "right" : "left");
+    assert.equal(transactionsLabel.type, "Text");
+    assert.equal(textContent(transactionsLabel), i18n.t("selection.summary.transactionsLabel"));
+    assert.equal(styleOf(transactionsLabel).textAlign, rtl ? "left" : "right");
+    const [amountRow, transactionCount] = metricRows[1].props.children;
+    assert.equal(amountRow.type, "View");
+    assert.equal(styleOf(amountRow).alignItems, "baseline");
+    assert.equal(styleOf(amountRow).flexDirection, rtl ? "row-reverse" : "row");
+    assert.equal(transactionCount.type, "Text");
+    assert.equal(textContent(transactionCount), String(count));
+    assert.equal(styleOf(transactionCount).textAlign, rtl ? "left" : "right");
+    assert.equal(styleOf(transactionCount).writingDirection, rtl ? "rtl" : "ltr");
+    assert.equal(styleOf(transactionCount).fontFamily, tokens.typography.numRow.fontFamily);
+    const value = nodes(amountRow).find(
       (node) => node.type === "Text" && textContent(node) === amount,
     )!;
     assert.equal(styleOf(value).color, color);
-    assert.equal(styleOf(value).writingDirection, "ltr", "Amounts retain their Latin digit order");
-    assert.equal(value.props.numberOfLines, undefined, "Large balance text may wrap");
-    assert.equal(styleOf(metric).height, undefined);
+    assert.equal(styleOf(value).writingDirection, "ltr");
+    assert.ok(nodes(amountRow).some((node) => node.type === "Text" && textContent(node) === "AFN"));
   }
   assert.equal(
-    nodes(totals).filter((node) => textContent(node) === "AFN" && node.type === "Text").length,
-    2,
-    "Both selected totals identify the kaata currency",
+    nodes(financial).filter((node) => textContent(node) === "AFN" && node.type === "Text").length,
+    3,
+    "Every financial amount identifies its currency",
   );
-  const pendingTotals = SelectionToolbar({
+  const zeroCredit = SelectionToolbar({
     ...props,
-    balanceTotals: { ...balanceTotals, pending: true },
+    financialSummary: { ...financialSummary, credit: 0, creditCount: 0 },
   });
-  assert.ok(textContent(pendingTotals).includes(i18n.t("selection.balancesPending")));
+  const zeroCreditMetric = nodes(zeroCredit).find((node) =>
+    node.props.accessibilityLabel?.startsWith(`${i18n.t("selection.summary.credit")},`),
+  )!;
   assert.equal(
-    textContent(pendingTotals).includes("0.30"),
-    false,
-    "Unknown shared balances never show a partial total",
+    textContent(zeroCreditMetric.props.children[1].props.children[1]),
+    "0",
+    "A side with no transactions shows a standalone zero count",
   );
-  assert.equal(textContent(pendingTotals).includes("1.05"), false);
-  const emptyTotals = SelectionToolbar({ ...props, count: 0, balanceTotals });
+  const emptyTotals = SelectionToolbar({ ...props, count: 0, financialSummary });
   assert.ok(textContent(emptyTotals).includes(i18n.t("selection.empty")));
-  assert.equal(
-    textContent(emptyTotals).includes("AFN"),
-    false,
-    "Empty selection keeps the selection hint",
-  );
+  assert.equal(textContent(emptyTotals).includes("AFN"), false);
 
   let opened = 0;
   const person = {
@@ -257,8 +394,8 @@ for (const locale of ["en", "fa"] as const) {
   }
   assert.equal(PersonRow({ person, onPress: () => opened++ }).props.accessibilityRole, "button");
 
-  // A mixed search list carries direction on each known live balance. The
-  // homepage's existing single-direction tabs keep their neutral row style.
+  // Search uses a sign directly beside each known live balance. The homepage's
+  // single-direction tabs keep their neutral, unsigned amounts.
   for (const [balance, key, color] of [
     [20, "home.tab.collect", colors.collectText],
     [-20, "home.tab.pay", colors.payText],
@@ -270,21 +407,22 @@ for (const locale of ["en", "fa"] as const) {
       onPress: () => undefined,
     });
     const rowNodes = nodes(row);
-    const label = rowNodes.find(
-      (node) => node.type === "Text" && textContent(node) === i18n.t(key),
+    assert.equal(
+      rowNodes.some((node) => node.type === "Text" && textContent(node) === i18n.t(key)),
+      false,
+      "Search does not repeat direction as a subtitle",
+    );
+    const signedAmount = balance > 0 ? "+20" : "−20";
+    const amount = rowNodes.find(
+      (node) => node.type === "Text" && textContent(node) === signedAmount,
     )!;
-    assert.ok(label, "Mixed search balances identify which direction the money goes");
-    assert.equal(styleOf(label).color, color);
-    assert.equal(styleOf(label).writingDirection, rtl ? "rtl" : "ltr");
-    assert.equal(styleOf(label).textAlign, rtl ? "right" : "left");
-    assert.notEqual(label.props.allowFontScaling, false);
-    assert.equal(label.props.numberOfLines, undefined, "Direction labels may grow with large text");
-    assert.equal(styleOf(row).height, undefined, "The row can grow for its direction label");
-    const amount = rowNodes.find((node) => node.type === "Text" && textContent(node) === "20")!;
+    assert.ok(amount, "The sign and amount share one text node");
     assert.equal(styleOf(amount).color, color);
+    assert.equal(styleOf(amount).writingDirection, "ltr", "The sign stays before the number");
+    assert.equal(amount.props.accessibilityLabel, `${i18n.t(key)}, 20`);
     assert.ok(
-      rowNodes.indexOf(label) < rowNodes.findIndex((node) => node.type === "CreditStatusBadge"),
-      "Direction stays below the amount and before the credit-limit status",
+      rowNodes.indexOf(amount) < rowNodes.findIndex((node) => node.type === "CreditStatusBadge"),
+      "Credit-limit status stays below the signed amount",
     );
 
     const home = PersonRow({ person: { ...person, balance }, onPress: () => undefined });
@@ -297,6 +435,11 @@ for (const locale of ["en", "fa"] as const) {
       (node) => node.type === "Text" && textContent(node) === "20",
     )!;
     assert.equal(styleOf(homeAmount).color, colors.textEmphasis);
+    assert.equal(homeAmount.props.accessibilityLabel, undefined);
+    assert.equal(
+      nodes(home).some((node) => node.type === "Text" && textContent(node) === signedAmount),
+      false,
+    );
   }
   for (const state of [
     { balance: 0, is_settled: 0 },
@@ -313,6 +456,11 @@ for (const locale of ["en", "fa"] as const) {
       assert.notEqual(textContent(node), i18n.t("home.tab.pay"));
       assert.notEqual(styleOf(node).color, colors.collectText);
       assert.notEqual(styleOf(node).color, colors.payText);
+      assert.equal(
+        /[+−]\d/.test(textContent(node)),
+        false,
+        "Neutral and unknown amounts have no sign",
+      );
     }
     if (state.tab_unsynced) {
       assert.ok(textContent(row).includes("…"), "Unknown balances keep their download placeholder");

@@ -243,7 +243,12 @@ export const EntryRow = memo(function EntryRow(props: {
           props.selecting ? props.onToggleSelection?.(entry) : setOpen((value) => !value)
         }
         onLongPress={
-          !props.selecting && props.onLongPress ? () => props.onLongPress?.(entry) : undefined
+          // Keep this installed when a hold enters selection: native Pressability
+          // consults the new props on release before suppressing the ordinary tap.
+          props.onLongPress || props.selecting
+            ? () =>
+                props.selecting ? props.onToggleSelection?.(entry) : props.onLongPress?.(entry)
+            : undefined
         }
         disabled={props.selecting && (!props.onToggleSelection || props.selectionDisabled)}
         delayLongPress={250}

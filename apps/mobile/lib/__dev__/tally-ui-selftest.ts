@@ -877,18 +877,27 @@ for (const direction of [false, true]) {
   const row = render(props);
   assert.equal(body(row)?.props.accessibilityRole, "checkbox");
   assert.deepEqual(body(row)?.props.accessibilityState, { checked: true, disabled: undefined });
-  assert.equal(body(row)?.props.onLongPress, undefined, "selection suppresses the edit gesture");
+  assert.equal(
+    typeof body(row)?.props.onLongPress,
+    "function",
+    "selection retains native release suppression",
+  );
   assert.equal(labelled(row, "tab.accept").length, 0, "selection suppresses final review actions");
   assert.equal(nodes(row).find((node) => node.type === "SelectionMark")?.props.selected, true);
   body(row)?.props.onPress();
+  body(row)?.props.onLongPress();
   body(row)?.props.onAccessibilityAction({ nativeEvent: { actionName: "activate" } });
-  assert.deepEqual(selected, ["1", "1"], "tap and assistive activation toggle selection");
+  assert.deepEqual(
+    selected,
+    ["1", "1", "1"],
+    "tap, hold and assistive activation toggle selection",
+  );
   assert.equal(body(render(props))?.props.accessibilityState.expanded, undefined);
-  assert.equal(held, 0);
+  assert.equal(held, 0, "selection suppresses the edit gesture");
   const busy = render({ ...props, selectionDisabled: true });
   assert.equal(body(busy)?.props.disabled, true);
   body(busy)?.props.onAccessibilityAction({ nativeEvent: { actionName: "activate" } });
-  assert.equal(selected.length, 2, "busy rows ignore assistive activation too");
+  assert.equal(selected.length, 3, "busy rows ignore assistive activation too");
 }
 console.log(
   "PASS: selected tally checkboxes replace expansion/review gestures and respect busy state in EN/FA",

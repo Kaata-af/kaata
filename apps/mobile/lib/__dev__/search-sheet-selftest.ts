@@ -4,6 +4,7 @@ import { createElement } from "react";
 import { colors } from "../colors";
 import * as nativeSearch from "../native-search";
 import { compileUI, flattenStyle, jsx, nodes, uiHooks } from "./ui-fixture";
+import type { SearchSheetProps } from "../../components/SearchSheet";
 
 const direction = {
   rowDir: (rtl: boolean) => ({ flexDirection: rtl ? "row-reverse" : "row" }),
@@ -27,6 +28,7 @@ const shared = {
   "../lib/native-search": nativeSearch,
   "./SettingsScreen": { ScreenHeader: "ScreenHeader" },
   "./Button": { Button: "Button" },
+  "./ConfirmDialog": { ConfirmDialog: "ConfirmDialog" },
 };
 const label = (tree: any, text: string) => {
   const node = nodes(tree).find((node) => node.props.accessibilityLabel === text);
@@ -71,6 +73,7 @@ const baseProps = {
   filters: jsx("FilterOptions", {}),
   children: jsx("MatchingResults", {}),
   footer: jsx("SelectionFooter", {}),
+  confirmation: undefined as SearchSheetProps["confirmation"],
 };
 
 // Execute the real content for both native branches and writing directions.
@@ -123,6 +126,7 @@ for (const rtl of [false, true]) {
       onChangeQuery: (query: string) => changes.push(query),
       onDismiss: () => dismissed++,
       onClearAll: () => cleared++,
+      autoFocus: true,
     };
     const render = (next: Partial<typeof props> = {}) => {
       props = { ...props, ...next };
@@ -200,7 +204,10 @@ for (const rtl of [false, true]) {
     ]) {
       dimensions = viewport;
       const fullFilters = render();
-      const scrolls = nodes(fullFilters).filter((node) => node.type === "ScrollView");
+      const filterRegion = nodes(fullFilters).find(
+        (node) => node.props.testID === "search-filter-panel",
+      )!;
+      const scrolls = nodes(filterRegion).filter((node) => node.type === "ScrollView");
       assert.equal(scrolls.length, 1, "Filters use one scroll region instead of nested lists");
       const scroll = scrolls[0];
       assert.equal(flattenStyle(scroll.props.style).flex, 1);
@@ -342,6 +349,98 @@ for (const rtl of [false, true]) {
     assert.equal(changes.includes("during native exit"), false);
     find(closing, "MatchingResults");
     assert.equal(focused, 2, "The exiting view stays drawn without stealing focus");
+    render({ visible: false, active: true, autoFocus: false });
+    const selecting = render({ visible: true });
+    runTimers();
+    assert.equal(focused, 2, "Opening selection leaves the keyboard closed");
+    const overlay = nodes(selecting).find(
+      (node) => node.props.testID === "search-selection-overlay",
+    )!;
+    assert.equal(flattenStyle(overlay.props.style).backgroundColor, "transparent");
+    assert.equal(
+      flattenStyle(overlay.props.style).position,
+      "absolute",
+      "Results extend behind the rounded selection card",
+    );
+    assert.equal(
+      flattenStyle(overlay.props.style).maxHeight,
+      "60%",
+      "Large text and the keyboard leave room for results",
+    );
+    overlay.props.onLayout({ nativeEvent: { layout: { height: 280 } } });
+    const renderResults = (footerInset: number) => jsx("InsetResults", { footerInset });
+    const insetTree = hooks.render(() => SearchSheetContent({ ...props, children: renderResults }));
+    assert.equal(
+      find(insetTree, "InsetResults").props.footerInset,
+      280,
+      "The last row can scroll above the measured selection card",
+    );
+    const noFooter = hooks.render(() =>
+      SearchSheetContent({ ...props, children: renderResults, footer: undefined }),
+    );
+    assert.equal(find(noFooter, "InsetResults").props.footerInset, 0);
+    let confirmed = 0,
+      cancelled = 0;
+    const confirmation = {
+      visible: true,
+      title: "Remove 2 contacts?",
+      description: "They can be restored later.",
+      confirmLabel: "Remove",
+      destructive: true,
+      onConfirm: () => confirmed++,
+      onCancel: () => cancelled++,
+    };
+    const confirming = render({ confirmation });
+    const dialog = find(confirming, "ConfirmDialog");
+    assert.equal(dialog.props.visible, true);
+    assert.equal(dialog.props.destructive, true);
+    assert.equal(dialog.props.title, confirmation.title);
+    assert.equal(
+      nodes(find(confirming, "KeyboardAvoidingView")).includes(dialog),
+      false,
+      "The real native dialog is outside the footer and keyboard-sized result area",
+    );
+    assert.equal(
+      find(confirming, "SelectionFooter"),
+      baseProps.footer,
+      "Confirmation retains the totals card underneath",
+    );
+    assert.equal(find(confirming, "TextInput").props.editable, false);
+    find(selecting, "TextInput").props.onChangeText("behind confirmation");
+    assert.equal(changes.includes("behind confirmation"), false);
+    find(confirming, "ScreenHeader").props.onBack();
+    assert.equal(dismissed, 1, "Confirmation prevents dismissing the sheet behind it");
+    dialog.props.onCancel();
+    dialog.props.onConfirm();
+    assert.deepEqual(
+      [confirmed, cancelled],
+      [0, 1],
+      "Cancel wins over a queued confirm before rerender",
+    );
+    const cancelledDialog = find(
+      render({ confirmation: { ...confirmation, visible: false, title: "Remove 0 contacts?" } }),
+      "ConfirmDialog",
+    );
+    assert.equal(
+      cancelledDialog.props.title,
+      confirmation.title,
+      "The fading dialog retains its original selected count",
+    );
+    const reopenedDialog = find(render({ confirmation }), "ConfirmDialog");
+    dialog.props.onConfirm();
+    assert.equal(confirmed, 0, "A canceled dialog cannot confirm a later opening");
+    reopenedDialog.props.onConfirm();
+    reopenedDialog.props.onConfirm();
+    assert.equal(confirmed, 1, "A confirmation dispatches at most once");
+    render({ confirmation: { ...confirmation, visible: false } });
+    const oldDialog = find(render({ confirmation }), "ConfirmDialog");
+    render({ contextKey: "next-account:next-kaata" });
+    oldDialog.props.onConfirm();
+    assert.equal(confirmed, 1, "Old dialog cannot confirm in the next scope");
+    const leavingDialog = find(render({ active: false }), "ConfirmDialog");
+    assert.equal(leavingDialog.props.visible, false, "Native exit never leaves another modal open");
+    leavingDialog.props.onConfirm();
+    assert.equal(confirmed, 1);
     hooks.unmount();
     find(reopened, "TextInput").props.onChangeText("after unmount");
     runTimers();
@@ -450,6 +549,22 @@ for (const rtl of [false, true]) {
   assert.equal((updated.content as any).props.query, "Ahmad");
   assert.equal((updated.content as any).props.children.props.revision, 2);
   assert.equal(pushes.length, 1, "Live owner updates never push another modal");
+  render({
+    confirmation: { visible: true, title: "Remove contacts?", onConfirm() {}, onCancel() {} },
+  });
+  assert.equal(
+    nativeSearch.getNativeSearch(firstId)?.busy,
+    true,
+    "A native confirmation disables the search sheet swipe gesture",
+  );
+  nativeSearch.closeNativeSearch(firstId);
+  assert.equal(nativeSearch.getNativeSearch(firstId)?.closing, false);
+  render({ confirmation: undefined });
+  assert.equal(
+    nativeSearch.getNativeSearch(firstId)?.busy,
+    false,
+    "Cancel restores ordinary sheet dismissal",
+  );
   mayDismiss = false;
   nativeSearch.closeNativeSearch(firstId);
   assert.equal(nativeSearch.getNativeSearch(firstId)?.closing, false);
@@ -586,6 +701,7 @@ function host(
       Stack: { Screen: "StackScreen" },
       useLocalSearchParams: () => params,
       useNavigation: () => navigation,
+      useIsFocused: () => navigation.isFocused(),
       useRoute: () => ({ key: "search-route" }),
       useRouter: () => router,
     },
@@ -609,6 +725,7 @@ function host(
       },
     },
     "../lib/native-search": nativeSearch,
+    "../components/Toast": { ToastHost: "ToastHost" },
   }).default;
   return {
     render: () => hooks.render(() => NativeSearchScreen()),
@@ -644,7 +761,14 @@ function host(
   const id = nativeSearch.createNativeSearch("owner", "account:kaata", () => dismissed++);
   nativeSearch.publishNativeSearch(id, createElement("FirstResults", {}), false);
   const screen = host({ sessionId: id, ownerKey: "owner" });
-  find(screen.render(), "FirstResults");
+  const opened = screen.render();
+  find(opened, "FirstResults");
+  const sheetContent = find(opened, "View");
+  assert.equal(
+    sheetContent.props.children.at(-1).type,
+    "ToastHost",
+    "Success feedback renders inside the native sheet above its content",
+  );
   nativeSearch.publishNativeSearch(id, createElement("RefreshedResults", { balance: 1200 }), false);
   assert.equal(find(screen.render(), "RefreshedResults").props.balance, 1200);
   nativeSearch.publishNativeSearch(id, createElement("RefreshedResults", {}), true);
@@ -660,6 +784,10 @@ function host(
   assert.equal(screen.back(), true);
   assert.equal(dismissed, 1);
   const closing = screen.render();
+  assert.equal(
+    nodes(closing).some((node) => node.type === "ToastHost"),
+    false,
+  );
   assert.equal(find(closing, "RefreshedResults").props.active, false);
   assert.equal(find(closing, "View").props.pointerEvents, "none");
   assert.deepEqual(
@@ -687,6 +815,11 @@ function host(
   const screen = host({ sessionId: id, ownerKey: "owner" });
   screen.render();
   screen.pushDestination();
+  assert.equal(
+    nodes(screen.render()).some((node) => node.type === "ToastHost"),
+    false,
+    "A covered search cannot keep the toast host behind another route",
+  );
   assert.equal(screen.back(), false, "A covered search does not intercept the destination's Back");
   nativeSearch.closeNativeSearch(id);
   screen.render();
@@ -699,6 +832,10 @@ function host(
 }
 {
   const missing = host({});
+  assert.equal(
+    nodes(missing.render()).some((node) => node.type === "ToastHost"),
+    false,
+  );
   assert.equal(
     nodes(missing.render()).some((node) => node.type === "Results"),
     false,

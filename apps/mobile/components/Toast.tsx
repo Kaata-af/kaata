@@ -5,6 +5,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
 } from "react";
@@ -22,11 +23,10 @@ import { fonts, sansLineHeight } from "../lib/fonts";
 // Rendered as a regular absolute-positioned View at the root of the app
 // (not inside a <Modal>) so taps on the rest of the UI still go through.
 // `pointerEvents="box-none"` on the wrapper lets touches outside the toast
-// items fall through to whatever is behind. Trade-off: toasts won't render
-// above natively-presented stack modals (entry/new, person/new) — errors
-// fired from those screens are queued and shown when the user returns to
-// the parent. For now we accept this; if it becomes a problem, the affected
-// in-modal forms can surface validation inline next to the offending field.
+// items fall through to whatever is behind. Native stack sheets can mount a
+// ToastHost to display this same queue inside their own native surface. Only
+// the latest mounted host renders it, so feedback is not hidden behind the
+// sheet or duplicated in the parent screen.
 
 type ToastKind = "success" | "error" | "info";
 
@@ -71,6 +71,16 @@ type ToastContextValue = {
 };
 
 const ToastContext = createContext<ToastContextValue | null>(null);
+
+// Presentation changes must not update the stable useToast context: screens
+// calling push should not rerender for every toast's appearance and expiry.
+type ToastViewportContextValue = {
+  toasts: Toast[];
+  onDismiss: (id: string) => void;
+  registerHost: (id: symbol) => () => void;
+  activeHost: symbol | null;
+};
+const ToastViewportContext = createContext<ToastViewportContextValue | null>(null);
 
 // Visible-count channel for useToastOffset — a module-level subscription
 // (same pattern as pendingToasts above), NOT context state. The old
@@ -123,6 +133,12 @@ const TOAST_TEXT_LINE_DELTA = sansLineHeight(14, 19) - 19;
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const [hosts, setHosts] = useState<symbol[]>([]);
+  const registerHost = useCallback((id: symbol) => {
+    setHosts((current) => [...current.filter((host) => host !== id), id]);
+    return () => setHosts((current) => current.filter((host) => host !== id));
+  }, []);
+  const activeHost = hosts.at(-1) ?? null;
 
   // Removal helper used by both the auto-dismiss timer and the user's swipe.
   // Calls to remove an already-gone id are a no-op (idempotent filter), so a
@@ -174,10 +190,30 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 
   return (
     <ToastContext.Provider value={ctxValue}>
-      {children}
-      <ToastViewport toasts={toasts} onDismiss={remove} />
+      <ToastViewportContext.Provider
+        value={{ toasts, onDismiss: remove, registerHost, activeHost }}
+      >
+        {children}
+        {activeHost === null ? <ToastViewport toasts={toasts} onDismiss={remove} /> : null}
+      </ToastViewportContext.Provider>
     </ToastContext.Provider>
   );
+}
+
+/** Mount inside an active native sheet to bring the existing toast queue above it. */
+export function ToastHost() {
+  const context = useContext(ToastViewportContext);
+  if (!context) throw new Error("ToastHost must be used inside <ToastProvider>");
+  const id = useRef<symbol | null>(null);
+  id.current ??= Symbol("toast-host");
+  const hostId = id.current;
+  const { registerHost } = context;
+  // Transfer the viewport before paint; do not create another queue, timeout,
+  // or accessibility announcement when presentation moves between screens.
+  useLayoutEffect(() => registerHost(hostId), [registerHost, hostId]);
+  return context.activeHost === hostId ? (
+    <ToastViewport toasts={context.toasts} onDismiss={context.onDismiss} />
+  ) : null;
 }
 
 export function useToast(): ToastContextValue {
