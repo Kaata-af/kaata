@@ -10,10 +10,23 @@ import { toAsciiDigits } from "./digits";
 // mid-typing "070" collapse into a 2-digit needle.
 export const PHONE_SEARCH_MIN_DIGITS = 3;
 
-// NFKD + diacritic strip + lowercase + whitespace collapse, so that "Áhmad"
-// matches "ahmad" and "  Ahmad  Khan " matches "ahmad khan".
+// Match keyboard/spelling variants without changing the stored name: Latin
+// accents, Arabic vowel marks, Persian/Arabic Yeh and Kaf, and optional joining
+// marks. ZWNJ is a word boundary, like a space typed on a different keyboard.
 export function normalize(s: string): string {
-  return s.normalize("NFKD").replace(/[̀-ͯ]/g, "").toLowerCase().trim().replace(/\s+/g, " ");
+  return s
+    .normalize("NFKD")
+    .replace(
+      /[\u0300-\u036f\u0610-\u061a\u064b-\u065f\u0670\u06d6-\u06dc\u06df-\u06e4\u06e7\u06e8\u06ea-\u06ed]/g,
+      "",
+    )
+    .replace(/[يى]/g, "ی")
+    .replace(/ك/g, "ک")
+    .replace(/[\u0640\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, "")
+    .replace(/\u200c/g, " ")
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, " ");
 }
 
 function isSubsequence(needle: string, haystack: string): boolean {
@@ -137,6 +150,34 @@ export function searchContacts<T extends { name: string; phone?: string | null }
   }
   scored.sort((a, b) => b.s - a.s || a.item.name.localeCompare(b.item.name));
   return scored.map((x) => x.item);
+}
+
+/** A single customer-search field matches the whole name. Add Customer keeps
+ * its separate first/last-field ranking in searchContacts. Relevance is kept
+ * separate from display order so the chosen sort can order equally relevant
+ * customers without burying a literal name match beneath a loose abbreviation.
+ * The caller parses phone queries before this helper, applying the same digit
+ * floor as the other contact pickers. Phone matching shares their trunk-zero
+ * and Persian/Arabic-Indic digit handling. */
+export function searchCustomerMatches<
+  T extends { id: string; name: string; phone?: string | null },
+>(
+  query: { first: string; last: string; phoneDigits: string },
+  people: T[],
+): { people: T[]; relevanceById: Map<string, number> } {
+  const q = normalize(`${query.first} ${query.last}`);
+  const candidates = query.phoneDigits ? searchContacts("", "", query.phoneDigits, people) : people;
+  const relevanceById = new Map<string, number>();
+  if (!q) return { people: candidates, relevanceById };
+
+  const matches = candidates.filter((person) => {
+    const name = normalize(person.name);
+    const relevance = name === q ? 3 : name.includes(q) ? 2 : isSubsequence(q, name) ? 1 : 0;
+    if (!relevance) return false;
+    relevanceById.set(person.id, relevance);
+    return true;
+  });
+  return { people: matches, relevanceById };
 }
 
 // Strict equality after normalization — used to decide whether the Done key

@@ -2,7 +2,9 @@ import type { ComponentProps } from "react";
 import { Ionicons } from "@expo/vector-icons";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 import { colors } from "../lib/colors";
+import { getCurrentCurrencySymbol } from "../lib/currency";
 import { rowDir, textDir, useIsRTL } from "../lib/direction";
+import { formatAmount } from "../lib/format";
 import { t } from "../lib/i18n";
 import { faDigits } from "../lib/jalali";
 import { lift, radius, space, TOUCH_MIN, typography } from "../lib/tokens";
@@ -25,6 +27,7 @@ export function SelectionToolbar({
   actions = [],
   busy = false,
   summary,
+  balanceTotals,
 }: {
   count: number;
   total: number;
@@ -33,9 +36,11 @@ export function SelectionToolbar({
   actions?: SelectionAction[];
   busy?: boolean;
   summary?: string;
+  balanceTotals?: { collect: number; pay: number; pending: boolean };
 }) {
   const isRTL = useIsRTL();
   const allSelected = total > 0 && count === total;
+  const currency = balanceTotals ? getCurrentCurrencySymbol() : "";
   return (
     <View style={[styles.panel, lift]} accessibilityState={{ busy }}>
       <View style={[styles.header, rowDir(isRTL)]}>
@@ -78,6 +83,37 @@ export function SelectionToolbar({
       </View>
       {summary || count === 0 ? (
         <Text style={[styles.summary, textDir(isRTL)]}>{summary || t("selection.empty")}</Text>
+      ) : null}
+      {count > 0 && balanceTotals ? (
+        <>
+          <View style={[styles.totals, rowDir(isRTL)]}>
+            {(["collect", "pay"] as const).map((direction) => {
+              const label = t(`home.total.label.${direction}`);
+              const amount = balanceTotals.pending ? "…" : formatAmount(balanceTotals[direction]);
+              const color = direction === "collect" ? colors.collectStrong : colors.payStrong;
+              return (
+                <View
+                  key={direction}
+                  accessible
+                  accessibilityLiveRegion="polite"
+                  accessibilityLabel={`${label}, ${balanceTotals.pending ? t("selection.balancesPending") : `${amount} ${currency}`}`}
+                  style={styles.total}
+                >
+                  <Text style={[styles.totalLabel, textDir(isRTL)]}>{label}</Text>
+                  <View style={[styles.totalValue, rowDir(isRTL)]}>
+                    <Text style={[styles.totalAmount, { color }]}>{amount}</Text>
+                    {!balanceTotals.pending ? (
+                      <Text style={styles.currency}>{currency}</Text>
+                    ) : null}
+                  </View>
+                </View>
+              );
+            })}
+          </View>
+          {balanceTotals.pending ? (
+            <Text style={[styles.summary, textDir(isRTL)]}>{t("selection.balancesPending")}</Text>
+          ) : null}
+        </>
       ) : null}
       {actions.length > 0 ? (
         <View style={[styles.actions, rowDir(isRTL)]}>
@@ -152,6 +188,20 @@ const styles = StyleSheet.create({
   },
   toggleLabel: { ...typography.bodySm, color: colors.textDefault },
   summary: { ...typography.bodySm, color: colors.textSubtle, paddingHorizontal: space.sm },
+  totals: { flexWrap: "wrap", gap: space.sm },
+  total: {
+    flexGrow: 1,
+    flexBasis: 120,
+    minWidth: 0,
+    padding: space.sm,
+    borderRadius: radius.md,
+    backgroundColor: colors.bgMuted,
+    gap: space.xs,
+  },
+  totalLabel: { ...typography.bodySm, color: colors.textSubtle },
+  totalValue: { alignItems: "baseline", flexWrap: "wrap", gap: space.xs },
+  totalAmount: { ...typography.numRow, writingDirection: "ltr", flexShrink: 1 },
+  currency: { ...typography.numMeta, color: colors.textMuted },
   actions: {
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: colors.borderDefault,

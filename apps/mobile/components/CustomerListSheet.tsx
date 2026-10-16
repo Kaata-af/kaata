@@ -23,11 +23,122 @@ import {
   type CustomerListPreference,
 } from "../lib/customer-list";
 import type { CustomerGroup } from "../lib/customer-groups";
-import { icon, radius } from "../lib/tokens";
+import { radius, space, TOUCH_MIN, typography } from "../lib/tokens";
 import { Button } from "./Button";
 import { SheetBackdrop } from "./SheetBackdrop";
 import { SheetHandle } from "./SheetHandle";
 import { useSheetDrag } from "../lib/use-sheet-drag";
+
+type CustomerListOptionsProps = {
+  preference: CustomerListPreference;
+  groups: readonly CustomerGroup[];
+  isRTL: boolean;
+  onChange: (preference: CustomerListPreference) => void;
+};
+
+/** Shared in-flow controls, including inside the search sheet's own scroll area. */
+export function CustomerListOptions(props: CustomerListOptionsProps) {
+  const choice = (
+    key: string,
+    label: string,
+    selected: boolean,
+    onPress: () => void,
+    kind: "sort" | "group",
+  ) => (
+    <Pressable
+      key={key}
+      accessibilityRole={kind === "sort" ? "radio" : "checkbox"}
+      accessibilityLabel={label}
+      accessibilityState={{ checked: selected, selected }}
+      onPress={onPress}
+      style={({ pressed }) => [
+        kind === "sort" ? styles.sortChoice : styles.groupChoice,
+        kind === "sort" && key === "outstanding_name" && styles.defaultSort,
+        rowDir(props.isRTL),
+        selected && (kind === "sort" ? styles.sortSelected : styles.groupSelected),
+        pressed && styles.pressed,
+      ]}
+    >
+      <Ionicons
+        name={
+          kind === "sort"
+            ? selected
+              ? "radio-button-on"
+              : "radio-button-off"
+            : selected
+              ? "checkbox"
+              : "square-outline"
+        }
+        size={18}
+        color={selected && kind === "sort" ? colors.textInverted : colors.textSubtle}
+      />
+      <Text
+        style={[
+          styles.choiceLabel,
+          textDir(props.isRTL),
+          selected && styles.selectedLabel,
+          selected && kind === "sort" && styles.sortSelectedLabel,
+        ]}
+      >
+        {label}
+      </Text>
+    </Pressable>
+  );
+  return (
+    <View style={styles.options}>
+      <View style={styles.optionsSection}>
+        <View style={[styles.sectionHeading, rowDir(props.isRTL)]}>
+          <Ionicons name="swap-vertical-outline" size={18} color={colors.textSubtle} />
+          <Text style={[styles.section, textDir(props.isRTL)]}>{t("customers.sort")}</Text>
+        </View>
+        <View style={[styles.sortChoices, rowDir(props.isRTL)]}>
+          {CUSTOMER_SORTS.map((sort) =>
+            choice(
+              sort,
+              t(`customers.sort.${sort}`),
+              props.preference.sort === sort,
+              () => props.onChange({ ...props.preference, sort }),
+              "sort",
+            ),
+          )}
+        </View>
+      </View>
+      {props.groups.length > 0 ? (
+        <View style={styles.optionsSection}>
+          <View style={[styles.sectionHeading, rowDir(props.isRTL)]}>
+            <Ionicons name="people-outline" size={18} color={colors.textSubtle} />
+            <Text style={[styles.section, textDir(props.isRTL)]}>{t("groups.filter")}</Text>
+          </View>
+          <Text style={[styles.help, textDir(props.isRTL)]}>{t("groups.filterHelp")}</Text>
+          <View style={[styles.groupChoices, rowDir(props.isRTL)]}>
+            {[
+              { id: "all", name: t("groups.all") },
+              { id: "ungrouped", name: t("groups.ungrouped") },
+              ...props.groups,
+            ].map((group) =>
+              choice(
+                group.id,
+                group.name,
+                group.id === "all" || group.id === "ungrouped"
+                  ? props.preference.group === group.id
+                  : selectedCustomerGroupIds(props.preference.group).includes(group.id),
+                () =>
+                  props.onChange({
+                    ...props.preference,
+                    group:
+                      group.id === "all" || group.id === "ungrouped"
+                        ? group.id
+                        : toggleCustomerGroupFilter(props.preference.group, group.id),
+                  }),
+                "group",
+              ),
+            )}
+          </View>
+        </View>
+      ) : null}
+    </View>
+  );
+}
 
 /** One small entry point, two independent choices; no permanent filter bar. */
 export function CustomerListSheet(props: {
@@ -123,25 +234,6 @@ export function CustomerListSheet(props: {
     };
   }, [props.visible, reducedMotion, slide]);
   if (!rendered) return null;
-  const row = (key: string, label: string, selected: boolean, onPress: () => void) => (
-    <Pressable
-      key={key}
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      accessibilityState={{ selected }}
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.row,
-        rowDir(props.isRTL),
-        pressed && { backgroundColor: colors.bgMuted },
-      ]}
-    >
-      <Text style={[styles.label, textDir(props.isRTL)]} numberOfLines={2}>
-        {label}
-      </Text>
-      {selected ? <Ionicons name="checkmark" size={icon.row} color={colors.actionPrimary} /> : null}
-    </Pressable>
-  );
   return (
     <Modal
       visible
@@ -180,43 +272,7 @@ export function CustomerListSheet(props: {
           <SheetHandle panHandlers={drag.panHandlers} onDismiss={drag.dismiss} />
           <Text style={[styles.title, textDir(props.isRTL)]}>{t("customers.listOptions")}</Text>
           <ScrollView bounces={false} style={styles.optionsScroll}>
-            <Text style={[styles.section, textDir(props.isRTL)]}>{t("customers.sort")}</Text>
-            {CUSTOMER_SORTS.map((sort) =>
-              row(sort, t(`customers.sort.${sort}`), props.preference.sort === sort, () =>
-                props.onChange({ ...props.preference, sort }),
-              ),
-            )}
-            {props.groups.length > 0 ? (
-              <Text style={[styles.section, textDir(props.isRTL)]}>{t("groups.filter")}</Text>
-            ) : null}
-            {/* All/Ungrouped mean nothing until a group exists. */}
-            {props.groups.length > 0 ? (
-              <Text style={[styles.help, textDir(props.isRTL)]}>{t("groups.filterHelp")}</Text>
-            ) : null}
-            {(props.groups.length > 0
-              ? [
-                  { id: "all", name: t("groups.all") },
-                  { id: "ungrouped", name: t("groups.ungrouped") },
-                  ...props.groups,
-                ]
-              : []
-            ).map((group) =>
-              row(
-                group.id,
-                group.name,
-                group.id === "all" || group.id === "ungrouped"
-                  ? props.preference.group === group.id
-                  : selectedCustomerGroupIds(props.preference.group).includes(group.id),
-                () =>
-                  props.onChange({
-                    ...props.preference,
-                    group:
-                      group.id === "all" || group.id === "ungrouped"
-                        ? group.id
-                        : toggleCustomerGroupFilter(props.preference.group, group.id),
-                  }),
-              ),
-            )}
+            {CustomerListOptions(props)}
           </ScrollView>
           {props.canManage ? (
             <View style={styles.manageFooter}>
@@ -276,21 +332,51 @@ const styles = StyleSheet.create({
     padding: 20,
     paddingBottom: 4,
   },
-  section: {
-    fontFamily: fonts.sansSemi,
-    fontSize: 12,
-    color: colors.textSubtle,
-    paddingHorizontal: 20,
-    paddingTop: 20,
-    paddingBottom: 8,
+  options: { padding: space.lg, gap: space.lg },
+  optionsSection: {
+    padding: space.md,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.borderDefault,
+    backgroundColor: colors.bgDefault,
+    gap: space.md,
   },
-  row: { minHeight: 48, paddingVertical: 12, paddingHorizontal: 20, alignItems: "center", gap: 12 },
-  label: { flex: 1, fontFamily: fonts.sansRegular, fontSize: 15, color: colors.textDefault },
-  help: {
-    fontFamily: fonts.sansRegular,
-    fontSize: 12,
-    color: colors.textSubtle,
-    paddingHorizontal: 20,
-    paddingBottom: 8,
+  sectionHeading: { alignItems: "center", gap: space.sm },
+  section: { ...typography.labelBold, color: colors.textEmphasis, flexShrink: 1 },
+  help: { ...typography.bodySm, color: colors.textSubtle },
+  sortChoices: { flexWrap: "wrap", gap: space.sm },
+  sortChoice: {
+    flexGrow: 1,
+    flexBasis: "45%",
+    minWidth: 0,
+    maxWidth: "100%",
+    minHeight: TOUCH_MIN,
+    padding: space.sm,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.borderDefault,
+    backgroundColor: colors.bgMuted,
+    alignItems: "center",
+    gap: space.sm,
   },
+  defaultSort: { flexBasis: "100%" },
+  sortSelected: { backgroundColor: colors.bgInverted, borderColor: colors.bgInverted },
+  sortSelectedLabel: { color: colors.textInverted },
+  groupChoices: { flexWrap: "wrap", gap: space.sm },
+  groupChoice: {
+    minHeight: TOUCH_MIN,
+    maxWidth: "100%",
+    paddingHorizontal: space.md,
+    paddingVertical: space.sm,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.borderDefault,
+    backgroundColor: colors.bgMuted,
+    alignItems: "center",
+    gap: space.sm,
+  },
+  groupSelected: { borderColor: colors.actionPrimary, backgroundColor: colors.bgSubtle },
+  choiceLabel: { ...typography.bodySm, color: colors.textDefault, flexShrink: 1 },
+  selectedLabel: { fontFamily: fonts.sansSemi },
+  pressed: { opacity: 0.65 },
 });

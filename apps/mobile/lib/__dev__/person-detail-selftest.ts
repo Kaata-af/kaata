@@ -73,7 +73,14 @@ const nodes = (n: any): Node[] =>
   Array.isArray(n)
     ? n.flatMap(nodes)
     : n?.props
-      ? [n, ...nodes(n.type === "SearchControlSlot" && !n.props.visible ? null : n.props.children)]
+      ? n.type === "SearchSheet"
+        ? [
+            n,
+            ...(n.props.visible
+              ? [...nodes(n.props.children), ...nodes(n.props.footer), ...nodes(n.props.filters)]
+              : []),
+          ]
+        : [n, ...nodes(n.props.children)]
       : [];
 const kids = (n: any): Node[] => [n?.props?.children].flat(Infinity).filter((v) => v?.props);
 const words = (n: any): string =>
@@ -85,9 +92,29 @@ const words = (n: any): string =>
         ? words(n.props.children)
         : "";
 const find = (type: string) => nodes(tree).find((n) => n.type === type);
-const tallies = () => nodes(tree).filter((n) => n.type === "EntryRow");
+const searchSheet = () => find("SearchSheet")!;
+const pageNodes = (n: any): Node[] =>
+  Array.isArray(n)
+    ? n.flatMap(pageNodes)
+    : n?.props
+      ? [n, ...(n.type === "SearchSheet" ? [] : pageNodes(n.props.children))]
+      : [];
+const tallies = () =>
+  (searchSheet()?.props.visible ? nodes(searchSheet().props.children) : pageNodes(tree)).filter(
+    (n) => n.type === "EntryRow",
+  );
 const rowIds = () => tallies().map((n) => n.props.entry.id);
-const query = (value: string) => find("TextInput")!.props.onChangeText(value);
+const openSearch = () => {
+  if (!searchSheet().props.visible) {
+    find("SearchFieldTrigger")!.props.onPress();
+    render();
+  }
+};
+const query = (value: string) => {
+  openSearch();
+  searchSheet().props.onChangeQuery(value);
+};
+const dateControl = () => searchSheet().props.filters;
 const pingButton = () => nodes(tree).find((n) => n.props.testID === "whatsapp-reminder")!;
 
 let params: Record<string, string> = { id: "person" };
@@ -230,8 +257,8 @@ const native: any = {
 const components = Object.fromEntries(
   [
     "BottomSheet",
-    "TallyDateFilterSheet",
-    "SearchControlSlot",
+    "SearchFieldTrigger",
+    "SearchSheet",
     "Chip",
     "ConfirmDialog",
     "EmptyState",
@@ -249,6 +276,7 @@ const components = Object.fromEntries(
 );
 const mocks: Record<string, any> = {
   ...components,
+  "../../components/TallyDateFilterSheet": { TallyDateFilterContent: "TallyDateFilterContent" },
   "../../components/SheetBackdrop": { useSheetMotionPreference: () => reducedMotion },
   "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
   react,
@@ -436,6 +464,10 @@ const mocks: Record<string, any> = {
   "../../lib/customer-reminders": { reminderOwnerScope: reminderOwner },
 };
 // Execute the real automatic handoff hook inside the actual person screen.
+mocks["../../lib/use-search-focus-effect"] = {
+  useSearchFocusEffect: mocks["expo-router"].useFocusEffect,
+};
+mocks["../../lib/native-search"] = { afterNativeSearchClosed: () => false };
 mocks["../../lib/use-reminder-ping"] = compileUI("../use-reminder-ping", {
   react,
   "react-native": native,
@@ -751,10 +783,16 @@ async function notificationReminderFlowTests() {
 }
 
 async function tallySelectionTests() {
-  const start = () =>
-    nodes(tree)
-      .find((node) => node.props.testID === "select-tallies")!
+  const start = () => {
+    const scope = searchSheet()?.props.visible ? nodes(searchSheet().props.children) : nodes(tree);
+    scope
+      .find(
+        (node) =>
+          node.props.testID === "select-tallies" ||
+          (node.type === "Pressable" && node.props.accessibilityLabel === "selection.start"),
+      )!
       .props.onPress();
+  };
   const toolbar = () => find("SelectionToolbar")!;
   const chooseAll = async () => {
     toolbar().props.onToggleAll();
@@ -917,6 +955,46 @@ async function tallySelectionTests() {
   await flush();
   query("tea");
   await flush();
+  const pendingQuery = searchSheet().props.onChangeQuery;
+  const pendingDate = dateControl().props.onChange;
+  start();
+  await flush();
+  await chooseAll();
+  let finishSearchDelete!: () => void;
+  deleteEntryImpl = () =>
+    new Promise((resolve) => {
+      finishSearchDelete = resolve;
+    });
+  await askDelete();
+  nodes(searchSheet().props.footer)
+    .find((node) => node.type === "Pressable" && words(node) === "selection.delete")!
+    .props.onPress();
+  await flush();
+  assert.equal(
+    searchSheet().props.dismissDisabled,
+    true,
+    "in-flight search selection locks sheet dismissal",
+  );
+  pendingQuery("rice");
+  pendingDate(dateRangeBetween(0, 0));
+  searchSheet().props.onClearAll();
+  searchSheet().props.onDismiss();
+  await flush();
+  assert.equal(
+    searchSheet().props.query,
+    "tea",
+    "in-flight selection keeps query eligibility fixed",
+  );
+  assert.equal(dateControl().props.range, null);
+  assert.equal(searchSheet().props.visible, true);
+  finishSearchDelete();
+  await flush();
+  assert.equal(searchSheet().props.dismissDisabled, false);
+  assert.deepEqual(deletedEntries, ["new-tea"]);
+  fixture();
+  await flush();
+  query("tea");
+  await flush();
   start();
   await flush();
   assert.equal(
@@ -924,6 +1002,22 @@ async function tallySelectionTests() {
     1,
     "filtered select all is limited to matching amendable tallies",
   );
+  await chooseAll();
+  await askDelete();
+  assert.equal(
+    dialog(),
+    undefined,
+    "sheet selection confirms inline instead of nesting a native modal",
+  );
+  assert.ok(words(searchSheet().props.footer).includes("selection.deleteTalliesDescription"));
+  searchSheet().props.onDismiss();
+  await flush();
+  assert.equal(toolbar(), undefined, "closing search ends selection and its pending confirmation");
+  assert.equal(searchSheet().props.query, "tea");
+  openSearch();
+  await flush();
+  start();
+  await flush();
   params = { id: "another-person" };
   dirty = true;
   await flush();
@@ -952,181 +1046,31 @@ async function main() {
       rtl = r;
       fixture();
       await flush();
-      const dock = nodes(tree).find(
-        (node) =>
-          node.type === "AnimatedView" && nodes(node).some((child) => child.type === "TextInput"),
-      )!;
-      assert.ok(dock, "search lives in the bottom action dock");
-      assert.ok(
-        words(tree).includes("groups.view"),
-        "the customer's groups show on their page for every role",
-      );
-      // The dock is opaque: "box-none" passed taps on its background to the
-      // hidden tally rows underneath, including final Accept/Reject pills.
-      assert.notEqual(dock.props.pointerEvents, "box-none", "the opaque dock takes its own taps");
-      const dockStyle = Object.assign({}, ...[dock.props.style].flat(2).filter(Boolean));
-      assert.ok(
-        -dockStyle.bottom >= TOAST_LIFT,
-        "the dock's own background reaches past the full toast lift",
-      );
+      assert.ok(find("SearchFieldTrigger"), "the page has an input-style search trigger");
+      assert.equal(find("TextInput"), undefined, "typing belongs inside the search sheet");
+      assert.equal(searchSheet().props.visible, false);
       assert.equal(
-        dockStyle.paddingBottom + dockStyle.bottom,
-        20,
-        "at rest the controls stay 20pt above the safe area",
-      );
-      assert.equal(dockStyle.transform[0].translateY, toastOffset, "toasts still lift the dock");
-      assert.equal(
-        nodes(tree).find((node) => node.props.accessibilityLabel === "common.hideKeyboard"),
-        undefined,
-      );
-      assert.equal(find("TextInput")!.props.submitBehavior, "blurAndSubmit");
-      let inputBlurs = 0;
-      find("TextInput")!.props.ref.current = { blur: () => inputBlurs++ };
-      find("TextInput")!.props.onFocus();
-      if (p === "ios") {
-        keyboardEvent("keyboardWillShow");
-        await flush();
-        assert.ok(
-          !words(tree).includes("person.action.iGave"),
-          "the dock compacts when the keyboard begins moving, not afterward",
-        );
-        assert.equal(scheduledKeyboardLayouts.length, 1);
-        keyboardEvent("keyboardWillHide");
-        await flush();
-        assert.equal(inputBlurs, 0, "interactive closing does not blur before completion");
-        assert.ok(
-          nodes(tree).find((node) => node.props.accessibilityLabel === "common.hideKeyboard"),
-        );
-        keyboardEvent("keyboardWillShow");
-        await flush();
-        assert.ok(
-          !words(tree).includes("person.action.iGave"),
-          "cancelled close returns the compact dock without losing focus",
-        );
-        const beforeLeavingRoute = scheduledKeyboardLayouts.length;
-        blur();
-        keyboardEvent("keyboardWillShow");
-        keyboardEvent("keyboardWillHide");
-        await flush();
-        assert.equal(
-          scheduledKeyboardLayouts.length,
-          beforeLeavingRoute,
-          "a retained hidden route does not animate another page's keyboard",
-        );
-        refocus();
-        keyboardEvent("keyboardWillShow");
-        await flush();
-        assert.equal(
-          scheduledKeyboardLayouts.length,
-          beforeLeavingRoute + 1,
-          "returning restores the route's keyboard synchronization",
-        );
-      }
-      keyboardEvent("keyboardDidShow");
-      await flush();
-      const typingDock = nodes(tree).find(
-        (node) =>
-          node.type === "AnimatedView" && nodes(node).some((child) => child.type === "TextInput"),
-      )!;
-      // Audit #31: typing a search leaves room for results above the keyboard.
-      const typingStyle = Object.assign({}, ...[typingDock.props.style].flat(2).filter(Boolean));
-      assert.ok(
-        typingStyle.paddingBottom + typingStyle.bottom < 20,
-        "no safe-area band under the search while the keyboard covers it",
-      );
-      assert.equal(
-        words(typingDock).includes("person.action.iGave"),
+        pageNodes(tree).some((n) => n.type === "TallyDateFilterContent"),
         false,
-        "the entry buttons step aside while typing",
       );
-      assert.equal(
-        Object.assign({}, ...[typingDock.props.style].flat(2).filter(Boolean)).transform[0]
-          .translateY,
-        0,
-        "a toast behind the keyboard does not make the dock jump while typing",
-      );
-      const closeEmptySearch = nodes(tree).find(
-        (node) => node.props.accessibilityLabel === "common.hideKeyboard",
-      )!;
-      assert.ok(closeEmptySearch, "empty tally search has a reachable keyboard close control");
-      const closeStyle = Object.assign(
-        {},
-        ...[closeEmptySearch.props.style].flat(2).filter(Boolean),
-      );
-      assert.ok(
-        (closeStyle.width ?? closeStyle.minWidth) >= 44 &&
-          (closeStyle.height ?? closeStyle.minHeight) >= 44,
-        "tally dismiss target is at least 44pt",
-      );
-      const beforeEmptyClose = keyboardDismissals;
-      closeEmptySearch.props.onPress();
-      await flush();
-      assert.equal(keyboardDismissals, beforeEmptyClose + 1);
-      assert.equal(inputBlurs, 1, "down releases the tally input itself");
-      assert.equal(find("TextInput")!.props.value, "");
-      assert.equal(
-        nodes(tree).find((node) => node.props.accessibilityLabel === "common.hideKeyboard"),
-        undefined,
-      );
-      keyboardEvent("keyboardDidHide");
-      await flush();
-      const dockNodes = nodes(dock);
-      assert.ok(
-        dockNodes.findIndex((node) => words(node) === "person.action.iReceived") <
-          dockNodes.findIndex((node) => node.type === "TextInput"),
-        "search appears below I received/I gave",
-      );
-      const avoid = find("Keyboard")!;
-      assert.equal(
-        avoid.props.behavior,
-        p === "android" ? "height" : "padding",
-        "lower search dock stays above keyboard on both platforms",
-      );
-      assert.equal(
-        find("ScrollView")?.props.automaticallyAdjustKeyboardInsets,
-        false,
-        "KAV owns keyboard avoidance; do not add duplicate automatic scroll insets",
-      );
-      assert.equal(
-        find("ScrollView")!.props.keyboardDismissMode,
-        p === "ios" ? "interactive" : "on-drag",
-      );
+      assert.ok(words(tree).includes("groups.view"));
       assert.deepEqual(rowIds(), ["new-rice", "new-tea"], "settled history starts folded");
       query("rice");
-      find("TextInput")!.props.onFocus();
       await flush();
+      assert.equal(searchSheet().props.visible, true);
       assert.deepEqual(rowIds(), ["new-rice", "old-rice"], "search spans settled chapters");
-      nodes(tree)
-        .find((node) => node.props.accessibilityLabel === "common.hideKeyboard")!
-        .props.onPress();
-      await flush();
-      assert.equal(find("TextInput")!.props.value, "rice", "down keeps tally search text");
       assert.deepEqual(
-        rowIds(),
-        ["new-rice", "old-rice"],
-        "down keeps current/settled search matches",
+        pageNodes(tree)
+          .filter((n) => n.type === "EntryRow")
+          .map((n) => n.props.entry.id),
+        ["new-rice", "new-tea"],
+        "the underlying page stays unfiltered",
       );
-      find("TextInput")!.props.onFocus();
-      await flush();
-      find("TextInput")!.props.onSubmitEditing();
-      await flush();
-      assert.equal(
-        nodes(tree).find((node) => node.props.accessibilityLabel === "common.hideKeyboard"),
-        undefined,
-      );
-      assert.equal(find("TextInput")!.props.value, "rice", "Search return keeps tally search text");
-      find("TextInput")!.props.onFocus();
-      await flush();
-      keyboardEvent("keyboardDidHide");
-      await flush();
-      assert.equal(
-        nodes(tree).find((node) => node.props.accessibilityLabel === "common.hideKeyboard"),
-        undefined,
-      );
+      assert.equal(searchSheet().props.query, "rice");
       // The dated settlement line stays between a current and a settled
       // result, so an old paid tally never reads as current (audit #3).
       assert.deepEqual(
-        nodes(tree).flatMap((n) =>
+        nodes(searchSheet().props.children).flatMap((n) =>
           n.type === "EntryRow"
             ? [n.props.entry.id]
             : n.props?.children === "person.history.settledOn"
@@ -1203,59 +1147,118 @@ async function main() {
       shares[0].resolve(true);
       await flush();
       assert.equal(pingButton().props.accessibilityLabel, "person.ping.button");
-      nodes(tree)
-        .find((n) => n.props.accessibilityLabel === "person.search.clear")!
-        .props.onPress();
+      searchSheet().props.onDismiss();
       await flush();
+      assert.equal(searchSheet().props.visible, false);
+      assert.equal(searchSheet().props.query, "rice", "closing keeps the search for this person");
       assert.deepEqual(
         rowIds(),
         ["new-rice", "new-tea"],
-        "clearing returns to the previous chapter view",
+        "closing returns to the unchanged chapter",
       );
+      assert.equal(
+        find("SearchFieldTrigger")!.props.query,
+        undefined,
+        "the page trigger never advertises search state",
+      );
+      openSearch();
+      await flush();
+      assert.deepEqual(rowIds(), ["new-rice", "old-rice"]);
     }
   console.log(
-    "PASS: real person screen search spans settled history without narrowing balances/export/reminders; Android/iOS EN/FA keyboard gates and spinner-only reminder/duplicate guard",
+    "PASS: real person screen search spans settled history without narrowing balances/export/reminders; Android/iOS EN/FA search sheet scopes and spinner-only reminder/duplicate guard",
   );
 
   fixture();
-  canCreate = false;
   await flush();
-  assert.ok(find("TextInput"), "viewers keep tally search");
-  assert.equal(
-    nodes(tree).some((node) => words(node) === "person.action.iReceived"),
-    false,
-    "viewers do not get tally creation buttons",
-  );
-  assert.ok(
-    nodes(tree).some((node) => node.props.accessibilityLabel === "person.date.title"),
-    "viewers keep date filter",
-  );
-  find("TextInput")!.props.onFocus();
+  query("tea");
   await flush();
-  const viewerDismiss = nodes(tree).find(
-    (node) => node.props.accessibilityLabel === "common.hideKeyboard",
-  )!;
-  assert.ok(viewerDismiss, "viewers can close the tally keyboard too");
-  viewerDismiss.props.onPress();
+  tallies()[0].props.onLongPress(tallies()[0].props.entry);
   await flush();
-  assert.equal(
-    nodes(tree).find((node) => node.props.accessibilityLabel === "common.hideKeyboard"),
-    undefined,
+  assert.equal(searchSheet().props.visible, false, "individual tally options first close search");
+  const actionSheet = () =>
+    nodes(tree).find((node) => node.type === "BottomSheet" && node.props.visible);
+  assert.equal(actionSheet(), undefined, "native sheets never overlap");
+  advance(240);
+  await flush();
+  assert.deepEqual(
+    actionSheet()!.props.actions.map((item: any) => item.label),
+    ["selection.start", "person.sheet.edit", "person.sheet.delete"],
+    "a found tally keeps its existing edit, delete and selection actions",
   );
-  if (platform === "ios") {
-    reducedMotion = true;
-    dirty = true;
+  actionSheet()!.props.actions[1].onPress();
+  assert.deepEqual(routes.at(-1), { pathname: "/entry/[id]/edit", params: { id: "new-tea" } });
+  for (const depart of ["reopen", "person", "vault", "blur"] as const) {
+    fixture();
     await flush();
-    const beforeReducedLayouts = scheduledKeyboardLayouts.length;
-    keyboardEvent("keyboardWillShow");
-    keyboardEvent("keyboardWillHide");
+    query("tea");
     await flush();
-    assert.equal(
-      scheduledKeyboardLayouts.length,
-      beforeReducedLayouts,
-      "Reduce Motion skips added tally keyboard animation scheduling",
-    );
+    tallies()[0].props.onLongPress(tallies()[0].props.entry);
+    await flush();
+    if (depart === "reopen") openSearch();
+    else if (depart === "person") {
+      params = { id: "another-person" };
+      dirty = true;
+    } else if (depart === "vault") {
+      vaultId = "another-vault";
+      dirty = true;
+    } else blur();
+    await flush();
+    advance(240);
+    await flush();
+    assert.equal(actionSheet(), undefined, `${depart} cancels pending tally options`);
   }
+  fixture();
+  await flush();
+  query("tea");
+  await flush();
+  const closedQuery = searchSheet().props.onChangeQuery;
+  const closedDate = dateControl().props.onChange;
+  searchSheet().props.onDismiss();
+  await flush();
+  closedQuery("rice");
+  closedDate(dateRangeBetween(0, 0));
+  await flush();
+  assert.equal(
+    searchSheet().props.query,
+    "tea",
+    "closed callbacks cannot change the remembered search",
+  );
+  assert.equal(dateControl().props.range, null);
+  assert.deepEqual(rowIds(), ["new-rice", "new-tea"]);
+  openSearch();
+  await flush();
+  const departedQuery = searchSheet().props.onChangeQuery;
+  const departedDate = dateControl().props.onChange;
+  accountId = "other-account";
+  dirty = true;
+  await flush();
+  departedQuery("old account text");
+  departedDate(dateRangeBetween(0, 0));
+  await flush();
+  assert.equal(searchSheet().props.visible, false, "account changes dismiss search");
+  assert.equal(searchSheet().props.query, "");
+  assert.equal(
+    dateControl().props.range,
+    null,
+    "old account callbacks cannot paint filters into another account",
+  );
+  fixture();
+  canCreate = false;
+  canAmend = false;
+  await flush();
+  assert.ok(find("SearchFieldTrigger"), "viewers keep tally search");
+  assert.equal(
+    pageNodes(tree).some((node) => words(node) === "person.action.iReceived"),
+    false,
+  );
+  openSearch();
+  await flush();
+  assert.ok(dateControl(), "viewers keep date search inside the sheet");
+  assert.equal(
+    tallies().some((row) => row.props.onLongPress),
+    false,
+  );
   fixture(true);
   const datedAt = new Date(2026, 9, 11, 12).getTime();
   entries[0].created_at = datedAt;
@@ -1277,39 +1280,21 @@ async function main() {
   await flush();
   assert.deepEqual(rowIds(), [], "date text no longer matches timestamp fields");
   query("");
-  find("TallyDateFilterSheet")!.props.onChange(dateRangeBetween(datedAt, datedAt));
+  dateControl().props.onChange(dateRangeBetween(datedAt, datedAt));
   await flush();
   assert.deepEqual(rowIds(), ["rejected-rice"], "proper range selects the tally business day");
-  const selectedRange = find("TallyDateFilterSheet")!.props.range;
+  const selectedRange = dateControl().props.range;
   query("rice");
-  find("TextInput")!.props.onFocus();
   await flush();
-  nodes(tree)
-    .find((node) => node.props.accessibilityLabel === "common.hideKeyboard")!
-    .props.onPress();
+  searchSheet().props.onDismiss();
   await flush();
-  assert.deepEqual(
-    find("TallyDateFilterSheet")!.props.range,
-    selectedRange,
-    "closing the keyboard retains the date range",
-  );
-  assert.equal(find("TextInput")!.props.value, "rice");
-  assert.deepEqual(
-    rowIds(),
-    ["rejected-rice"],
-    "note/date matches stay in place after keyboard dismissal",
-  );
-  find("TextInput")!.props.onFocus();
+  assert.deepEqual(dateControl().props.range, selectedRange, "closing remembers the date range");
+  assert.equal(searchSheet().props.query, "rice");
+  assert.ok(rowIds().includes("new-tea"), "closing restores all current chapter rows");
+  openSearch();
   await flush();
-  nodes(tree)
-    .find((node) => node.props.accessibilityLabel === "person.search.clear")!
-    .props.onPress();
-  await flush();
-  assert.ok(
-    nodes(tree).find((node) => node.props.accessibilityLabel === "common.hideKeyboard"),
-    "tally Clear leaves typing available",
-  );
-  keyboardEvent("keyboardDidHide");
+  assert.deepEqual(rowIds(), ["rejected-rice"], "reopening restores note/date matches");
+  query("");
   await flush();
   for (const selected of ["jalali", "qamari"] as Calendar[]) {
     calendar = selected;
@@ -1327,9 +1312,7 @@ async function main() {
     for (const language of ["en", "fa"] as const) {
       rtl = language === "fa";
       entries[0].created_at = datedAt + 59_999;
-      find("TallyDateFilterSheet")!.props.onChange(
-        customDateRange(datedAt, datedAt, 12 * 60, 12 * 60),
-      );
+      dateControl().props.onChange(customDateRange(datedAt, datedAt, 12 * 60, 12 * 60));
       await flush();
       assert.deepEqual(rowIds(), ["rejected-rice"], "custom end includes its entire minute");
       const label = formatDateRangeLabel(
@@ -1343,33 +1326,28 @@ async function main() {
       );
       if (language === "fa")
         assert.ok(!label.includes("·"), "no middle dot beside Persian digits in the Dari label");
-      assert.equal(
-        nodes(tree).find((node) => node.type === "Text" && words(node).includes(label))?.props
-          .numberOfLines,
-        2,
-        "timed summaries allow two lines so the end clock is not squeezed into one line",
-      );
       entries[0].created_at = datedAt + 60_000;
-      find("TallyDateFilterSheet")!.props.onChange(
-        customDateRange(datedAt, datedAt, 12 * 60, 12 * 60),
-      );
+      dateControl().props.onChange(customDateRange(datedAt, datedAt, 12 * 60, 12 * 60));
       await flush();
       assert.deepEqual(rowIds(), [], "custom time excludes the next minute on the actual screen");
     }
   }
   entries[0].created_at = datedAt;
-  find("TallyDateFilterSheet")!.props.onChange(null);
-  // Audit #3: a tally just saved from this page clears an active search so it
-  // shows, instead of vanishing behind the filter it does not match.
+  dateControl().props.onChange(null);
+  // New writes are visible on the unchanged page without losing a remembered search.
   query("no such words");
   await flush();
   justSaved = "new-entry";
   tabListeners.forEach((fn) => fn({ relationshipId: "relationship", origin: "local" }));
   await flush();
-  assert.equal(find("TextInput")!.props.value, "", "the search clears for the new tally");
+  assert.equal(
+    searchSheet().props.query,
+    "no such words",
+    "new writes preserve sheet search state",
+  );
   query("rice 10");
   await flush();
-  const searchRows = nodes(tree).filter((n) => n.type === "EntryRow");
+  const searchRows = tallies();
   assert.ok(
     searchRows.length > 0 && searchRows.every((n) => n.props.showFullNote === true),
     "a note search shows whole notes, so a late match is visible (audit #3)",
@@ -1420,18 +1398,18 @@ async function main() {
   appListeners.forEach((fn) => fn("active"));
   await flush();
   assert.equal(seen.length, beforeSeen, "foreground does not acknowledge hidden search results");
-  query("");
+  searchSheet().props.onDismiss();
   await flush();
-  assert.equal(seen.at(-1)?.rev, 6, "clearing search acknowledges the displayed revision");
+  assert.equal(seen.at(-1)?.rev, 6, "closing search acknowledges the visible complete ledger");
   query("rice");
   await flush();
   params = { id: "person", entryId: "incoming-rent", notificationKey: "notification-1" };
   dirty = true;
   await flush();
   assert.equal(
-    find("TextInput")?.props.value,
-    "",
-    "notification navigation clears an obstructing filter",
+    searchSheet().props.visible,
+    false,
+    "notification navigation closes the search sheet",
   );
   assert.ok(rowIds().includes("incoming-rent"));
   const scroll = find("ScrollView")!;

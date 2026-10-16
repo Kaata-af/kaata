@@ -4,6 +4,7 @@
 import assert from "node:assert/strict";
 import { colors } from "../colors";
 import { faDigits } from "../jalali";
+import { formatMoneyAmount } from "../money";
 import { compileUI, flattenStyle, jsx, nodes, type UINode } from "./ui-fixture";
 
 const i18n = compileUI("../i18n", {
@@ -46,7 +47,9 @@ const shared = {
   "react-native": native,
   "@expo/vector-icons": { Ionicons: "Icon" },
   "../lib/colors": { colors },
+  "../lib/currency": { getCurrentCurrencySymbol: () => "AFN" },
   "../lib/direction": direction,
+  "../lib/format": { formatAmount: formatMoneyAmount },
   "../lib/i18n": i18n,
   "../lib/jalali": { faDigits },
   "../lib/tokens": tokens,
@@ -177,6 +180,53 @@ for (const locale of ["en", "fa"] as const) {
   }
   assert.deepEqual([closed, toggled, removed], [1, 1, 1], "Busy cannot issue duplicate work");
 
+  const balanceTotals = { collect: 0.3, pay: 1.05, pending: false };
+  const totals = SelectionToolbar({ ...props, count: 2, balanceTotals });
+  for (const [side, amount, color] of [
+    ["collect", "0.30", colors.collectStrong],
+    ["pay", "1.05", colors.payStrong],
+  ] as const) {
+    const metric = nodes(totals).find(
+      (node) =>
+        node.props.accessibilityLabel === `${i18n.t(`home.total.label.${side}`)}, ${amount} AFN`,
+    );
+    assert.ok(
+      metric?.props.accessible,
+      "Each selected balance has a readable direction and currency",
+    );
+    assert.equal(metric.props.accessibilityLiveRegion, "polite");
+    const value = nodes(metric).find(
+      (node) => node.type === "Text" && textContent(node) === amount,
+    )!;
+    assert.equal(styleOf(value).color, color);
+    assert.equal(styleOf(value).writingDirection, "ltr", "Amounts retain their Latin digit order");
+    assert.equal(value.props.numberOfLines, undefined, "Large balance text may wrap");
+    assert.equal(styleOf(metric).height, undefined);
+  }
+  assert.equal(
+    nodes(totals).filter((node) => textContent(node) === "AFN" && node.type === "Text").length,
+    2,
+    "Both selected totals identify the kaata currency",
+  );
+  const pendingTotals = SelectionToolbar({
+    ...props,
+    balanceTotals: { ...balanceTotals, pending: true },
+  });
+  assert.ok(textContent(pendingTotals).includes(i18n.t("selection.balancesPending")));
+  assert.equal(
+    textContent(pendingTotals).includes("0.30"),
+    false,
+    "Unknown shared balances never show a partial total",
+  );
+  assert.equal(textContent(pendingTotals).includes("1.05"), false);
+  const emptyTotals = SelectionToolbar({ ...props, count: 0, balanceTotals });
+  assert.ok(textContent(emptyTotals).includes(i18n.t("selection.empty")));
+  assert.equal(
+    textContent(emptyTotals).includes("AFN"),
+    false,
+    "Empty selection keeps the selection hint",
+  );
+
   let opened = 0;
   const person = {
     id: "contact",
@@ -206,6 +256,77 @@ for (const locale of ["en", "fa"] as const) {
     assert.equal(nodes(mark).filter((node) => node.type === "Icon").length, selected ? 1 : 0);
   }
   assert.equal(PersonRow({ person, onPress: () => opened++ }).props.accessibilityRole, "button");
+
+  // A mixed search list carries direction on each known live balance. The
+  // homepage's existing single-direction tabs keep their neutral row style.
+  for (const [balance, key, color] of [
+    [20, "home.tab.collect", colors.collectText],
+    [-20, "home.tab.pay", colors.payText],
+  ] as const) {
+    const row = PersonRow({
+      person: { ...person, balance },
+      showDirection: true,
+      creditStatus: "near",
+      onPress: () => undefined,
+    });
+    const rowNodes = nodes(row);
+    const label = rowNodes.find(
+      (node) => node.type === "Text" && textContent(node) === i18n.t(key),
+    )!;
+    assert.ok(label, "Mixed search balances identify which direction the money goes");
+    assert.equal(styleOf(label).color, color);
+    assert.equal(styleOf(label).writingDirection, rtl ? "rtl" : "ltr");
+    assert.equal(styleOf(label).textAlign, rtl ? "right" : "left");
+    assert.notEqual(label.props.allowFontScaling, false);
+    assert.equal(label.props.numberOfLines, undefined, "Direction labels may grow with large text");
+    assert.equal(styleOf(row).height, undefined, "The row can grow for its direction label");
+    const amount = rowNodes.find((node) => node.type === "Text" && textContent(node) === "20")!;
+    assert.equal(styleOf(amount).color, color);
+    assert.ok(
+      rowNodes.indexOf(label) < rowNodes.findIndex((node) => node.type === "CreditStatusBadge"),
+      "Direction stays below the amount and before the credit-limit status",
+    );
+
+    const home = PersonRow({ person: { ...person, balance }, onPress: () => undefined });
+    assert.equal(
+      nodes(home).some((node) => node.type === "Text" && textContent(node) === i18n.t(key)),
+      false,
+      "Ordinary homepage rows do not repeat their containing tab's direction",
+    );
+    const homeAmount = nodes(home).find(
+      (node) => node.type === "Text" && textContent(node) === "20",
+    )!;
+    assert.equal(styleOf(homeAmount).color, colors.textEmphasis);
+  }
+  for (const state of [
+    { balance: 0, is_settled: 0 },
+    { balance: 20, is_settled: 1 },
+    { balance: 20, is_settled: 0, tab_unsynced: 1 },
+  ]) {
+    const row = PersonRow({
+      person: { ...person, ...state },
+      showDirection: true,
+      onPress: () => undefined,
+    });
+    for (const node of nodes(row).filter((candidate) => candidate.type === "Text")) {
+      assert.notEqual(textContent(node), i18n.t("home.tab.collect"));
+      assert.notEqual(textContent(node), i18n.t("home.tab.pay"));
+      assert.notEqual(styleOf(node).color, colors.collectText);
+      assert.notEqual(styleOf(node).color, colors.payText);
+    }
+    if (state.tab_unsynced) {
+      assert.ok(textContent(row).includes("…"), "Unknown balances keep their download placeholder");
+      assert.equal(textContent(row).includes("20"), false);
+    } else if (state.is_settled) {
+      assert.ok(
+        nodes(row).some((node) => node.type === "Icon" && node.props.name === "checkmark"),
+        "Settled balances keep their neutral checkmark",
+      );
+    } else {
+      const amount = nodes(row).find((node) => node.type === "Text" && textContent(node) === "0")!;
+      assert.equal(styleOf(amount).color, colors.textMuted);
+    }
+  }
 
   for (const key of [
     "selection.removeContactsTitle",

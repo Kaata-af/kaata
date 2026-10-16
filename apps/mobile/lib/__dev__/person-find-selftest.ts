@@ -6,6 +6,7 @@ import ts from "typescript";
 import { toAsciiDigits } from "../digits";
 import * as search from "../search";
 import { colors } from "../colors";
+import { sumAmounts } from "../money";
 import { canPerformAction } from "../vault-roles";
 
 type Node = { type: string; props: Record<string, any> };
@@ -17,7 +18,7 @@ let slots: any[] = [],
 let effects: (() => void)[] = [];
 const tParams = new Map<string, Record<string, unknown> | undefined>();
 let screen: () => Node;
-let role: "owner" | "clerk" | "viewer" = "viewer";
+let role: "owner" | "editor" | "clerk" | "viewer" = "viewer";
 let rtl = false,
   platform = "android",
   vaultId: string | null = "kaata";
@@ -45,7 +46,8 @@ let archivedState: "active" | "archived" | "none" = "active";
 let delayedGuard: Promise<{ state: string }> | null = null;
 let delayedRole: Promise<void> | null = null;
 let delayedPeople: Promise<void> | null = null;
-let peopleByVault: Map<string | null, typeof people>;
+type FixturePerson = (typeof people)[number] & { tab_id?: string; tab_unsynced?: 0 | 1 };
+let peopleByVault: Map<string | null, FixturePerson[]>;
 let activeVaultsOverride: { id: string; name: string; currency: string }[] | null = null;
 const homeReadScopes: (string | null)[] = [];
 let appState = "active";
@@ -58,6 +60,7 @@ const identityListeners = new Set<() => void>();
 const routes: any[] = [],
   toasts: any[] = [],
   writes: any[] = [];
+const homePreferenceMeta = new Map<string, string>();
 const archivedPeople: { id: string; vaultId: string | null; accountId: string | null }[] = [];
 const archiveFailures = new Set<string>();
 let delayedArchive: Promise<void> | null = null;
@@ -110,7 +113,11 @@ const react = {
     });
   },
 };
-const jsx = (type: string, props: any): Node => ({ type, props });
+const jsx = (type: string, props: any): Node => ({
+  type,
+  props:
+    type === "SearchFieldTrigger" ? { ...props, accessibilityLabel: props.placeholder } : props,
+});
 const nodes = (node: any): Node[] =>
   Array.isArray(node)
     ? node.flatMap(nodes)
@@ -119,7 +126,13 @@ const nodes = (node: any): Node[] =>
       : [
           node,
           ...nodes(
-            node.type === "SearchControlSlot" && !node.props.visible ? null : node.props?.children,
+            node.type === "SearchSheet"
+              ? node.props.visible
+                ? [node.props.children, node.props.filters, node.props.footer]
+                : null
+              : node.type === "SearchControlSlot" && !node.props.visible
+                ? null
+                : node.props?.children,
           ),
         ];
 const text = (node: any): string =>
@@ -362,6 +375,10 @@ const libMocks: Record<string, any> = {
   "tabs/sync": { syncAllTabs: async () => {} },
   tokens,
   "use-vault-role": roleHooks,
+  "use-search-focus-effect": {
+    useSearchFocusEffect: sharedMocks["expo-router"].useFocusEffect,
+  },
+  "native-search": { afterNativeSearchClosed: () => false },
   "db-tx": {
     clearActiveVaultId: async () => {
       vaultId = null;
@@ -393,8 +410,11 @@ const libMocks: Record<string, any> = {
     },
     getActiveVaultArchivedAt: async () => null,
     getActiveVaultArchivedState: async () => delayedGuard ?? { state: archivedState },
-    getAppMeta: async (key: string) => (key === "account_id" ? persistedAccountId : null),
-    setAppMeta: async () => {},
+    getAppMeta: async (key: string) =>
+      key === "account_id" ? persistedAccountId : (homePreferenceMeta.get(key) ?? null),
+    setAppMeta: async (key: string, value: string) => {
+      homePreferenceMeta.set(key, value);
+    },
     listActiveVaults: async () =>
       activeVaultsOverride ?? (vaultId ? [{ id: vaultId, name: "Shop", currency: "AFN" }] : []),
     listAllVaultsIncludingArchived: async () =>
@@ -417,7 +437,7 @@ const libMocks: Record<string, any> = {
   auth: { getSessionUser: async () => null, signOut: async () => {} },
   "ledger-events": ledgerEvents,
   "app-meta-context": { useAppMeta: () => ({ forceUpdate: false }) },
-  money: { sumAmounts: (values: number[]) => values.reduce((a, b) => a + b, 0) },
+  money: { sumAmounts },
   "battery-exemption": new Proxy({}, { get: () => async () => false }),
   "trust/backfill": { ensureChainBackfill: async () => {} },
   "vault-api": { retryPendingVaultMaterialize: async () => {} },
@@ -443,7 +463,12 @@ const libMocks: Record<string, any> = {
   "use-device-contacts": contactsHook,
 };
 const componentMocks: Record<string, any> = {
-  CustomerListSheet: { CustomerListSheet: "CustomerListSheet" },
+  CustomerListSheet: {
+    CustomerListSheet: "CustomerListSheet",
+    CustomerListOptions: "CustomerListOptions",
+  },
+  SearchSheet: { SearchSheet: "SearchSheet" },
+  SearchFieldTrigger: { SearchFieldTrigger: "SearchFieldTrigger" },
   SearchControlSlot: { SearchControlSlot: "SearchControlSlot" },
   SheetBackdrop: { useSheetMotionPreference: () => reducedMotion },
   BottomSheet: { BottomSheet: "BottomSheet" },
@@ -535,6 +560,7 @@ function fixture(
   routes.length = 0;
   toasts.length = 0;
   writes.length = 0;
+  homePreferenceMeta.clear();
   archivedPeople.length = 0;
   archiveFailures.clear();
   delayedArchive = null;
@@ -603,16 +629,16 @@ async function main() {
   assert.equal(contactsReads, 0, "resolved viewer never starts a phone-book read");
 
   const homePages = () => nodes(tree).filter((node) => "filterTotal" in node.props);
-  const homeSearch = () =>
-    nodes(tree).find((node) => "collectPeople" in node.props && "payPeople" in node.props);
+  const homeSearch = () => {
+    const sheet = find("SearchSheet");
+    return sheet?.props.visible
+      ? nodes(sheet.props.children).find((node) => "people" in node.props)
+      : undefined;
+  };
   const homeIds = () => {
     const results = homeSearch();
     return results
-      ? [
-          ...results.props.collectPeople,
-          ...results.props.payPeople,
-          ...results.props.neverTalliedPeople,
-        ].map((person: any) => person.id)
+      ? results.props.people.map((person: any) => person.id)
       : [
           ...new Set(
             homePages().flatMap((page) =>
@@ -639,6 +665,27 @@ async function main() {
     nodes(renderList(homeSearch() ?? homePages())).filter((node) => node.type === "PersonRow");
   const homeRow = (id: string) => homeRows().find((node) => node.props.person.id === id)!;
   const selection = () => find("SelectionToolbar");
+  const openHomeSearch = async () => {
+    await flush();
+    if (!find("SearchSheet")?.props.visible) {
+      if (selection()) {
+        selection()!.props.onClose();
+        await flush();
+      }
+      byLabel("customers.search")!.props.onPress();
+      await flush();
+    }
+    assert.equal(find("SearchSheet")!.props.visible, true);
+  };
+  const changeHomeQuery = async (query: string) => {
+    await openHomeSearch();
+    find("SearchSheet")!.props.onChangeQuery(query);
+    await flush();
+  };
+  const closeHomeSearch = async () => {
+    find("SearchSheet")!.props.onDismiss();
+    await flush();
+  };
   const selectedHomeIds = () => [
     ...new Set(
       homeRows()
@@ -647,11 +694,37 @@ async function main() {
     ),
   ];
   const openSelection = async () => {
-    const trigger = byLabel("selection.contacts");
-    assert.ok(trigger, "writers have an explicit contact selection control");
-    trigger.props.onPress();
+    assert.equal(
+      byLabel("selection.contacts"),
+      undefined,
+      "the page indicators do not have a duplicate selection trigger",
+    );
+    const row = homeRows().find((candidate) => typeof candidate.props.onLongPress === "function");
+    assert.ok(row, "eligible members can select contacts");
+    row.props.onLongPress(row.props.person);
     await flush();
-    assert.ok(selection(), "Select contacts opens the selection toolbar");
+    if (homeSearch()) {
+      assert.equal(
+        find("BottomSheet")!.props.visible,
+        false,
+        "search long press selects directly without stacking a modal",
+      );
+    } else {
+      const sheet = find("BottomSheet")!;
+      assert.equal(sheet.props.visible, true);
+      const action = sheet.props.actions.find((item: any) => item.label === "selection.start");
+      assert.ok(action, "the contact action sheet offers Select");
+      sheet.props.onDismiss();
+      await flush();
+      action.onPress();
+      await flush();
+    }
+    assert.ok(selection(), "the sheet's Select action opens the selection toolbar");
+    assert.equal(selection()!.props.count, 1, "Select preselects the long-pressed contact");
+    assert.deepEqual(selectedHomeIds(), [row.props.person.id]);
+    homeRow(row.props.person.id).props.onPress(row.props.person);
+    await flush();
+    assert.equal(selection()!.props.count, 0, "the starting contact can be deselected");
   };
   const removeSelected = async () => {
     const action = selection()?.props.actions.find((item: any) => item.key === "remove");
@@ -671,9 +744,8 @@ async function main() {
     const payPerson = { ...people[0], id: "pay-person", name: "Pay Person", balance: -200 };
     peopleByVault.set("kaata", [...people, payPerson]);
     await flush();
-    const changeSelectionQuery = byLabel("customers.search")!.props.onChangeText;
     await openSelection();
-    assert.equal(selection()!.props.count, 0, "explicit selection starts empty");
+    assert.equal(selection()!.props.count, 0, "the preselected contact was cleared by the helper");
     assert.equal(
       selection()!.props.total,
       2,
@@ -712,6 +784,12 @@ async function main() {
     assert.equal(selection()!.props.count, 0, "select-all toggles back to an empty selection");
     selection()!.props.onToggleAll();
     await flush();
+    await openHomeSearch();
+    assert.equal(selection(), undefined, "opening search finishes the overview selection");
+    const changeSelectionQuery = find("SearchSheet")!.props.onChangeQuery;
+    await openSelection();
+    selection()!.props.onToggleAll();
+    await flush();
     changeSelectionQuery("فاطمه");
     await flush();
     assert.equal(selection()!.props.count, 1, "search prunes selected contacts outside the result");
@@ -734,16 +812,151 @@ async function main() {
     assert.equal(archivedPeople.length, 0, "selecting and closing do not write ledger data");
   }
 
+  // Search can select both financial sides. Keep each side's current balance,
+  // including cents, instead of netting debts and credits or summing tallies.
+  for (const nextRtl of [false, true]) {
+    fixture(home, "owner", nextRtl);
+    const creditA = { ...people[0], id: "credit-a", name: "Team Alpha", balance: 0.1 };
+    const creditB = { ...people[0], id: "credit-b", name: "Team Beta", balance: 0.2 };
+    const payA = { ...people[0], id: "pay-a", name: "Team Gamma", balance: -0.29 };
+    const payB = { ...people[0], id: "pay-b", name: "Team Delta", balance: -0.11 };
+    const neutral = { ...people[1], id: "neutral", name: "Team Neutral" };
+    const outsideSearch = { ...people[0], id: "other", name: "Other", balance: 999 };
+    peopleByVault.set("kaata", [creditA, creditB, payA, payB, neutral, outsideSearch]);
+    groupState = {
+      groups: [{ id: "family", name: "Family", member_count: 2 }],
+      groupsByPerson: { "credit-b": ["family"], "pay-b": ["family"] },
+    };
+    await flush();
+    await openHomeSearch();
+    const changeTotalsQuery = find("SearchSheet")!.props.onChangeQuery;
+    changeTotalsQuery("Team");
+    await flush();
+    await openSelection();
+    assert.deepEqual(selection()!.props.balanceTotals, { collect: 0, pay: 0, pending: false });
+    selection()!.props.onToggleAll();
+    await flush();
+    assert.equal(selection()!.props.count, 5, "mixed search selects both sides and neutral once");
+    assert.deepEqual(
+      selection()!.props.balanceTotals,
+      { collect: 0.3, pay: 0.4, pending: false },
+      "selected debt and credit balances sum independently with exact cents",
+    );
+    homeRow("credit-b").props.onPress(creditB);
+    await flush();
+    assert.deepEqual(selection()!.props.balanceTotals, { collect: 0.1, pay: 0.4, pending: false });
+    selection()!.props.onToggleAll();
+    await flush();
+    assert.deepEqual(selection()!.props.balanceTotals, { collect: 0.3, pay: 0.4, pending: false });
+    selection()!.props.onToggleAll();
+    await flush();
+    assert.deepEqual(
+      selection()!.props.balanceTotals,
+      { collect: 0, pay: 0, pending: false },
+      "deselect-all immediately clears both amounts",
+    );
+    homeRow("credit-a").props.onPress(creditA);
+    homeRow("pay-a").props.onPress(payA);
+    await flush();
+    assert.deepEqual(selection()!.props.balanceTotals, { collect: 0.1, pay: 0.29, pending: false });
+    find("CustomerListOptions")!.props.onChange({ sort: "recent", group: "family" });
+    await flush();
+    assert.equal(selection()!.props.count, 0, "a group filter prunes both hidden selections");
+    assert.deepEqual(selection()!.props.balanceTotals, { collect: 0, pay: 0, pending: false });
+    selection()!.props.onToggleAll();
+    await flush();
+    assert.deepEqual(selection()!.props.balanceTotals, { collect: 0.2, pay: 0.11, pending: false });
+    find("CustomerListOptions")!.props.onChange({ sort: "recent", group: "all" });
+    await flush();
+    assert.deepEqual(
+      selection()!.props.balanceTotals,
+      { collect: 0.2, pay: 0.11, pending: false },
+      "clearing a filter never adds the newly visible contacts to the sums",
+    );
+
+    const changedCredit = { ...creditB, balance: -10.01 };
+    peopleByVault.set("kaata", [creditA, changedCredit, payA, payB, neutral, outsideSearch]);
+    ledgerEvents.emitLedgerApplied(vaultId, "remote");
+    await runTimers();
+    assert.equal(selection()!.props.count, 2);
+    assert.deepEqual(
+      selection()!.props.balanceTotals,
+      { collect: 0, pay: 10.12, pending: false },
+      "live balance changes move a selected contact between debt and credit totals",
+    );
+    peopleByVault.set("kaata", [creditA, payA, payB, neutral, outsideSearch]);
+    ledgerEvents.emitLedgerApplied(vaultId, "remote");
+    await runTimers();
+    assert.deepEqual(
+      selection()!.props.balanceTotals,
+      { collect: 0, pay: 0.11, pending: false },
+      "a remotely removed contact leaves the sum together with the selection",
+    );
+    changeTotalsQuery("Team Alpha");
+    await flush();
+    assert.deepEqual(selection()!.props.balanceTotals, { collect: 0, pay: 0, pending: false });
+    assert.equal(selection()!.props.count, 0, "narrowing search removes the last selected balance");
+
+    selection()!.props.onClose();
+    changeTotalsQuery("Team");
+    const unknown: FixturePerson = {
+      ...people[0],
+      id: "unknown",
+      name: "Team Unsynced",
+      balance: 500,
+      tab_id: "shared-ledger",
+      tab_unsynced: 1,
+    };
+    peopleByVault.set("kaata", [creditA, creditB, payA, payB, neutral, unknown]);
+    ledgerEvents.emitLedgerApplied(vaultId, "remote");
+    await runTimers();
+    await openSelection();
+    selection()!.props.onToggleAll();
+    await flush();
+    assert.equal(selection()!.props.count, 6, "an unsynced shared contact remains selectable");
+    assert.deepEqual(
+      selection()!.props.balanceTotals,
+      { collect: 0.3, pay: 0.4, pending: true },
+      "an unknown shared balance marks totals pending and excludes its stale amount",
+    );
+    homeRow("unknown").props.onPress(unknown);
+    await flush();
+    assert.deepEqual(
+      selection()!.props.balanceTotals,
+      { collect: 0.3, pay: 0.4, pending: false },
+      "deselecting the unknown contact restores precise selected totals",
+    );
+    homeRow("unknown").props.onPress(unknown);
+    await flush();
+    peopleByVault.set("kaata", [
+      creditA,
+      creditB,
+      payA,
+      payB,
+      neutral,
+      { ...unknown, balance: -2.25, tab_unsynced: 0 },
+    ]);
+    ledgerEvents.emitLedgerApplied(vaultId, "remote");
+    await runTimers();
+    assert.deepEqual(
+      selection()!.props.balanceTotals,
+      { collect: 0.3, pay: 2.65, pending: false },
+      "the first shared sync replaces pending state with the current signed balance",
+    );
+    assert.equal(archivedPeople.length, 0, "selection totals never write financial data");
+  }
+
   fixture(home, "owner");
   groupState = {
     groups: [{ id: "family", name: "Family", member_count: 1 }],
     groupsByPerson: { ahmad: ["family"] },
   };
   await flush();
+  await openHomeSearch();
   await openSelection();
   selection()!.props.onToggleAll();
   await flush();
-  find("CustomerListSheet")!.props.onChange({ sort: "recent", group: "family" });
+  find("CustomerListOptions")!.props.onChange({ sort: "recent", group: "family" });
   await flush();
   assert.equal(selection()!.props.count, 1, "group filtering prunes hidden selected contacts");
   assert.deepEqual(selectedHomeIds(), ["ahmad"]);
@@ -907,309 +1120,370 @@ async function main() {
   );
   assert.deepEqual(homeIds(), []);
 
-  for (const nextRole of ["viewer", "owner", "clerk"] as const)
+  for (const nextRole of ["viewer", "owner", "editor", "clerk"] as const)
     for (const nextPlatform of ["android", "ios"])
       for (const nextRtl of [false, true]) {
         fixture(home, nextRole, nextRtl, nextPlatform);
         screenWidth = 320;
         await flush();
-        const input = byLabel("customers.search")!;
-        const sort = byLabel("customers.listOptions")!;
+        const trigger = byLabel("customers.search")!;
         const button = byLabel("personAdd.new");
-        assert.ok(input && sort, `${nextRole} has persistent search and sort`);
-        assert.equal(button != null, nextRole !== "viewer", "only writers get the plus");
+        assert.ok(trigger, `${nextRole} has an input-style search trigger`);
+        assert.equal(trigger.type, "SearchFieldTrigger");
         assert.equal(
-          byLabel("selection.contacts") != null,
-          nextRole === "owner",
-          "clerks and viewers have no bulk history mutation control",
+          trigger.props.onChangeText,
+          undefined,
+          "the overview field opens the sheet instead of editing its list",
         );
+        assert.equal(trigger.props.isRTL, nextRtl);
         assert.equal(
-          nodes(tree).some(
-            (node) => node.type === "Text" && node.props.children === "readonly.badge",
+          byLabel("customers.listOptions"),
+          undefined,
+          "home has no filter or sort button",
+        );
+        assert.equal(button != null, nextRole !== "viewer", "only writers get Add");
+        assert.equal(
+          byLabel("selection.contacts"),
+          undefined,
+          "no duplicate Select beside page indicators",
+        );
+        const canSelect = nextRole === "owner" || nextRole === "editor";
+        assert.equal(typeof homeRows()[0].props.onLongPress === "function", canSelect);
+        assert.deepEqual(homeIds(), ["ahmad", "fatima"]);
+        const overviewScrolls = nodes(renderList(homePages())).filter(
+          (node) => node.type === "ScrollView",
+        );
+        assert.equal(overviewScrolls.length, 2);
+        assert.ok(
+          overviewScrolls.every(
+            (node) =>
+              node.props.refreshControl?.type === "RefreshControl" &&
+              typeof node.props.refreshControl.props.onRefresh === "function",
           ),
-          nextRole === "viewer",
-          "only a resolved viewer displays the read-only badge",
+          "both homepage lists retain pull-to-refresh",
         );
-        const dock = nodes(tree).find(
-          (node) => node.type === "AnimatedView" && nodes(node).includes(input),
-        )!;
-        assert.equal(
-          flattenStyle(dock.props.style).flexDirection,
-          "row",
-          "sort stays physically left and add right in both languages",
-        );
-        assert.deepEqual(
-          nodes(dock.props.children)
-            .filter((node) =>
-              ["customers.listOptions", "customers.search", "personAdd.new"].includes(
-                node.props.accessibilityLabel,
-              ),
-            )
-            .map((node) => node.props.accessibilityLabel),
-          nextRole === "viewer"
-            ? ["customers.listOptions", "customers.search"]
-            : ["customers.listOptions", "customers.search", "personAdd.new"],
-          "sort/search/add are neighboring dock controls",
-        );
-        assert.equal(
-          flattenStyle(input.props.style).minWidth,
-          0,
-          "search can shrink on a 320px screen",
-        );
-        assert.equal(flattenStyle(input.props.style).textAlign, nextRtl ? "right" : "left");
-        const keyboard = find("Keyboard")!;
-        assert.equal(keyboard.props.behavior, nextPlatform === "ios" ? "padding" : "height");
-        const body = nodes(keyboard.props.children).find(
-          (node) => node.type === "View" && node.props.children && nodes(node).includes(dock),
-        )!;
-        assert.equal(
-          flattenStyle(body.props.style).flex,
-          1,
-          "dock containing block shrinks above keyboard",
-        );
-        assert.equal(
-          byLabel("common.hideKeyboard"),
-          undefined,
-          "idle search adds no dismiss control",
-        );
-        assert.equal(input.props.submitBehavior, "blurAndSubmit");
-        let inputBlurs = 0;
-        input.props.ref.current = { blur: () => inputBlurs++ };
-        input.props.onFocus();
-        await flush();
-        const closeEmptySearch = byLabel("common.hideKeyboard")!;
-        assert.ok(
-          closeEmptySearch,
-          "every role can dismiss a focused empty search without blank space",
-        );
-        assert.equal(
-          byLabel("personAdd.new"),
-          undefined,
-          "the down control uses the home add slot while typing",
-        );
-        assert.ok(byLabel("customers.listOptions"), "sort remains available while typing");
-        const dismissStyle = flattenStyle(closeEmptySearch.props.style({ pressed: false }));
-        assert.ok(
-          dismissStyle.width >= 44 && dismissStyle.height >= 44,
-          "dismiss target is easy to hit",
-        );
-        closeEmptySearch.props.onPress();
-        await flush();
-        assert.equal(inputBlurs, 1, "the down control releases the focused input itself");
-        assert.equal(
-          byLabel("customers.search")!.props.value,
-          "",
-          "closing empty search does not insert a query",
-        );
-        assert.equal(byLabel("common.hideKeyboard"), undefined);
-        assert.equal(byLabel("personAdd.new") != null, nextRole !== "viewer");
-        for (const page of homePages())
-          assert.equal(
-            nodes(renderList(page)).find((node) => node.type === "ScrollView")!.props
-              .keyboardDismissMode,
-            nextPlatform === "ios" ? "interactive" : "on-drag",
-            "both idle home lists allow keyboard dismissal by dragging",
-          );
-        assert.deepEqual(homeIds(), ["ahmad", "fatima"], "idle home retains zero-tally contacts");
-        for (const page of homePages()) {
-          assert.deepEqual(
-            page.props.neverTalliedPeople.map((person: any) => person.id),
-            ["fatima"],
-            "a new contact remains visible from either previous tab",
-          );
-          assert.ok(
-            !page.props.allPeople.some((person: any) => person.id === "fatima"),
-            "no-tally contacts stay outside financial totals and counts",
-          );
-          assert.equal(
-            nodes(renderList(page)).filter((node) => node.type === "EmptyState").length,
-            0,
-            "existing no-tally contacts replace the otherwise empty financial list",
-          );
-        }
-        input.props.onFocus();
-        input.props.onChangeText("فاطمه");
-        await flush();
-        assert.deepEqual(homeIds(), ["fatima"], "Dari search reaches zero-tally customers");
-        const results = homeSearch()!;
-        assert.ok(results, "search uses one combined result view");
-        assert.equal(homePages().length, 0, "directional overview is hidden during search");
-        assert.equal(find("Tabs"), undefined, "a selected tab cannot mislabel mixed results");
-        assert.equal(find("Gesture"), undefined, "search results do not swipe between sides");
-        const resultTree = renderList(results);
-        assert.equal(nodes(resultTree).filter((node) => node.type === "ScrollView").length, 1);
-        assert.equal(
-          nodes(resultTree).find((node) => node.type === "ScrollView")!.props.keyboardDismissMode,
-          nextPlatform === "ios" ? "interactive" : "on-drag",
-          "combined results support the same drag dismissal",
-        );
-        const beforeClose = keyboardDismissals;
-        byLabel("common.hideKeyboard")!.props.onPress();
-        await flush();
-        assert.equal(keyboardDismissals, beforeClose + 1, "down explicitly dismisses the keyboard");
-        assert.equal(byLabel("customers.search")!.props.value, "فاطمه");
-        assert.deepEqual(homeIds(), ["fatima"], "hiding the keyboard retains search results");
-        assert.ok(
-          byLabel("customers.search.clear"),
-          "query clear stays separate from keyboard dismissal",
-        );
-        assert.equal(byLabel("common.hideKeyboard"), undefined);
-        assert.ok(text(resultTree).includes("customers.noTallies"));
-        assert.ok(!text(resultTree).includes("home.tab.collect"));
-        assert.ok(!text(resultTree).includes("home.tab.pay"), "empty result sections stay hidden");
-        assert.ok(
-          !text(resultTree).includes("home.total.label"),
-          "search has no directional total",
-        );
-        assert.equal(
-          results.props.onPersonLongPress != null,
-          nextRole === "owner",
-          "combined results keep clerks and viewers out of edit/delete actions",
-        );
-        byLabel("customers.search")!.props.onChangeText("۰۷۰۰۱۲۳۴۵۶");
-        byLabel("customers.search")!.props.onFocus();
-        await flush();
+        const overviewBefore = homePages().map((page) => ({
+          people: page.props.people.map((person: any) => person.id),
+          neutral: page.props.neverTalliedPeople.map((person: any) => person.id),
+          total: page.props.allPeople.reduce((sum: number, person: any) => sum + person.balance, 0),
+        }));
+        await openHomeSearch();
         assert.deepEqual(
           homeIds(),
-          ["ahmad"],
-          "localized trunk-format numbers find E.164 customers",
+          ["ahmad", "fatima"],
+          "an empty query shows both sides in the sheet",
         );
-        byLabel("customers.search")!.props.onSubmitEditing();
-        await flush();
+        assert.equal(find("SearchSheet")!.props.title, "customers.search.title");
+        assert.equal(find("SearchSheet")!.props.resultSummary, "customers.search.results");
+        assert.equal(tParams.get("customers.search.results")?.count, 2);
+        assert.ok(
+          find("CustomerListOptions"),
+          "sort and group controls are inside the search sheet",
+        );
+        await changeHomeQuery("فاطمه");
+        assert.deepEqual(homeIds(), ["fatima"], "Dari search reaches no-tally contacts");
+        const results = homeSearch()!;
+        const resultTree = renderList(results);
+        assert.equal(find("SearchSheet")!.props.resultSummary, "customers.search.result");
+        assert.equal(tParams.get("customers.search.result")?.count, 1);
         assert.equal(
-          byLabel("common.hideKeyboard"),
-          undefined,
-          "Search return closes the keyboard",
+          nodes(resultTree).some(
+            (node) =>
+              node.type === "Text" &&
+              ["customers.search.result", "customers.search.results"].includes(node.props.children),
+          ),
+          false,
+          "The scrolling list does not duplicate the shared summary count",
         );
-        assert.deepEqual(homeIds(), ["ahmad"], "Search return preserves the current query");
-        byLabel("customers.search")!.props.onFocus();
-        await flush();
-        keyboardEvent("keyboardDidHide");
-        await flush();
         assert.equal(
-          byLabel("common.hideKeyboard"),
-          undefined,
-          "native Back or drag-hide restores idle controls",
+          nodes(resultTree).filter((node) => node.type === "ScrollView").length,
+          1,
+          "all matches share one scroll list",
         );
-        assert.equal(byLabel("personAdd.new") != null, nextRole !== "viewer");
-        byLabel("customers.search")!.props.onChangeText("nobody");
-        byLabel("customers.search")!.props.onFocus();
-        await flush();
+        const resultScroll = nodes(resultTree).find((node) => node.type === "ScrollView")!;
+        assert.equal(
+          resultScroll.props.refreshControl,
+          undefined,
+          "search has no refresh spinner to intercept a downward sheet gesture",
+        );
+        assert.equal(
+          resultScroll.props.keyboardDismissMode,
+          "on-drag",
+          "search dismisses the keyboard on drag like Add Customer",
+        );
+        assert.notEqual(
+          resultScroll.props.bounces,
+          false,
+          "search preserves native overscroll for iOS modal gesture handoff",
+        );
+        assert.equal(results.props.refreshing, undefined);
+        assert.equal(results.props.onRefresh, undefined);
+        assert.equal(
+          nodes(resultTree).filter((node) => node.type === "Tabs" || node.type === "Gesture")
+            .length,
+          0,
+          "results never require switching pages",
+        );
+        assert.equal(results.props.onPersonLongPress != null, canSelect);
+        assert.deepEqual(
+          homePages().map((page) => ({
+            people: page.props.people.map((person: any) => person.id),
+            neutral: page.props.neverTalliedPeople.map((person: any) => person.id),
+            total: page.props.allPeople.reduce(
+              (sum: number, person: any) => sum + person.balance,
+              0,
+            ),
+          })),
+          overviewBefore,
+          "search never changes the overview rows, order or totals",
+        );
+        await changeHomeQuery("۰۷۰۰۱۲۳۴۵۶");
+        assert.deepEqual(homeIds(), ["ahmad"], "localized phone digits find E.164 customers");
+        await changeHomeQuery("nobody");
         assert.deepEqual(homeIds(), []);
+        assert.equal(find("SearchSheet")!.props.resultSummary, "customers.search.results");
+        assert.equal(tParams.get("customers.search.results")?.count, 0);
         assert.equal(
           nodes(renderList(homeSearch()!)).filter((node) => node.type === "EmptyState").length,
           1,
-          "no match produces one empty state for both sides",
         );
-        byLabel("customers.search.clear")!.props.onPress();
-        await flush();
-        assert.ok(
-          byLabel("common.hideKeyboard"),
-          "Clear removes the query without dismissing typing",
-        );
-        byLabel("common.hideKeyboard")!.props.onPress();
-        await flush();
-        assert.deepEqual(homeIds(), ["ahmad", "fatima"]);
-        assert.equal(find("Tabs")!.props.value, "collect");
+        const staleQuery = find("SearchSheet")!.props.onChangeQuery;
+        await closeHomeSearch();
         assert.equal(homeSearch(), undefined);
-        assert.deepEqual(
-          homePages()[0].props.allPeople.map((person: any) => person.id),
-          ["ahmad"],
+        assert.deepEqual(homeIds(), ["ahmad", "fatima"]);
+        assert.equal(
+          trigger.props.placeholder,
+          "customers.search",
+          "the overview trigger never displays a persisted search",
         );
-        sort.props.onPress();
+        staleQuery("stale callback");
         await flush();
-        assert.equal(find("CustomerListSheet")!.props.visible, true, "sort sheet opens from dock");
-        assert.ok(keyboardDismissals >= 4, "dismissal and sort all hide the keyboard explicitly");
-        assert.equal(contactsReads, 0, "home search does not read the phone book");
+        await openHomeSearch();
+        assert.equal(
+          find("SearchSheet")!.props.query,
+          "nobody",
+          "close and reopen remembers the query and ignores stale updates",
+        );
+        find("SearchSheet")!.props.onClearAll();
+        await flush();
+        assert.equal(find("SearchSheet")!.props.query, "");
+        assert.deepEqual(homeIds(), ["ahmad", "fatima"]);
+        await closeHomeSearch();
+        assert.equal(contactsReads, 0, "search never reads the phone book");
         assert.equal(permissionRequests, 0);
-        assert.equal(writes.length, 0);
+        assert.equal(writes.length, 0, "search never creates ledger data");
         if (button) {
-          assert.equal(
-            flattenStyle(button.props.style({ pressed: false })).backgroundColor,
-            "#000000",
-          );
-          assert.equal(nodes(button).find((node) => node.type === "Icon")?.props.name, "add");
           await button.props.onPress();
           assert.deepEqual(routes.at(-1), { pathname: "/person/new", params: { mode: "add" } });
           archivedState = "archived";
           await button.props.onPress();
           assert.equal(routes.length, 1, "archived kaata cannot enter add");
-          assert.equal(toasts.at(-1)?.[0], "home.fab.blockedArchived");
         }
       }
 
-  fixture(home, "viewer", false, "ios");
-  homeToastOffset = -78;
-  await flush();
-  const smoothInput = byLabel("customers.search")!;
-  const currentHomeDock = () =>
-    nodes(tree).find(
-      (node) =>
-        node.type === "AnimatedView" &&
-        nodes(node).some((child) => child.props.accessibilityLabel === "customers.search"),
-    )!;
-  assert.equal(flattenStyle(currentHomeDock().props.style).transform[0].translateY, -78);
-  smoothInput.props.onFocus();
-  keyboardEvent("keyboardWillShow");
-  await flush();
-  assert.equal(
-    flattenStyle(currentHomeDock().props.style).transform[0].translateY,
-    0,
-    "keyboard motion suppresses independent toast lift",
-  );
-  assert.equal(
-    scheduledKeyboardLayouts.length,
-    1,
-    "opening uses the native keyboard animation boundary",
-  );
-  keyboardEvent("keyboardDidShow");
-  await flush();
-  const beforeTypingLayouts = scheduledKeyboardLayouts.length;
-  for (const value of ["F", "Fa", "فاطمه"]) {
-    byLabel("customers.search")!.props.onChangeText(value);
+  for (const nextPlatform of ["android", "ios"]) {
+    fixture(home, "viewer", false, nextPlatform);
     await flush();
-    assert.equal(
-      byLabel("customers.search")!.props.ref,
-      smoothInput.props.ref,
-      "typing keeps the same native input",
+    await changeHomeQuery("RemoteMatch");
+    assert.deepEqual(homeIds(), []);
+    const remotePerson = { ...people[0], id: "search-live", name: "RemoteMatch", balance: 75 };
+    peopleByVault.set("kaata", [...people, remotePerson]);
+    ledgerEvents.emitLedgerApplied("kaata", "remote");
+    await runTimers();
+    assert.equal(find("SearchSheet")!.props.visible, true);
+    assert.equal(find("SearchSheet")!.props.query, "RemoteMatch");
+    assert.deepEqual(
+      homeIds(),
+      ["search-live"],
+      "synced contacts update open search without a pull",
+    );
+
+    changeAppState("background");
+    peopleByVault.set("kaata", [
+      ...people,
+      remotePerson,
+      { ...remotePerson, id: "search-resume", name: "RemoteMatch Resume" },
+    ]);
+    changeAppState("active");
+    await flush();
+    assert.deepEqual(
+      homeIds(),
+      ["search-live", "search-resume"],
+      "resuming the app reloads open search without its own refresh control",
+    );
+    await closeHomeSearch();
+    assert.deepEqual(
+      new Set(homeIds()),
+      new Set(["ahmad", "fatima", "search-live", "search-resume"]),
+      "the overview receives the same live and resume updates",
     );
   }
+
+  fixture(home, "owner");
+  await flush();
+  await changeHomeQuery("Ahmad");
+  const staleSearchRow = homeSearch()!.props.onPersonPress;
+  await openSelection();
+  homeRow("ahmad").props.onPress(people[0]);
+  await flush();
+  assert.equal(selection()!.props.count, 1);
   assert.equal(
-    scheduledKeyboardLayouts.length,
-    beforeTypingLayouts,
-    "typing does not trigger keyboard-wide layout animations",
+    find("SearchSheet")!.props.footer.type,
+    "SelectionToolbar",
+    "selected totals live in the search sheet footer",
   );
-  keyboardEvent("keyboardWillHide");
+  assert.ok(
+    homePages().every((page) => !page.props.selecting),
+    "underlying home rows never enter the sheet's selection mode",
+  );
+  selection()!.props.actions[0].onPress();
   await flush();
   assert.ok(
-    byLabel("common.hideKeyboard"),
-    "a started interactive close does not prematurely blur the field",
+    nodes(tree)
+      .filter((node) => node.type === "ConfirmDialog")
+      .every((node) => !node.props.visible),
+    "search removal does not stack a confirmation modal",
   );
-  keyboardEvent("keyboardWillShow");
+  const inlineCancel = nodes(find("SearchSheet")!.props.footer).find(
+    (node) => node.type === "Button" && node.props.label === "common.cancel",
+  )!;
+  assert.ok(inlineCancel, "confirmation stays inside the search footer");
+  inlineCancel.props.onPress();
   await flush();
-  assert.ok(byLabel("common.hideKeyboard"), "cancelling the close preserves typing");
-  keyboardEvent("keyboardWillHide");
-  keyboardEvent("keyboardDidHide");
+  assert.equal(selection()!.props.count, 1, "cancelling keeps the search selection");
+  await closeHomeSearch();
+  assert.equal(selection(), undefined, "closing search ends its selection");
+  staleSearchRow(people[0]);
   await flush();
-  assert.equal(byLabel("common.hideKeyboard"), undefined);
-  assert.equal(byLabel("customers.search")!.props.value, "فاطمه");
-  assert.equal(
-    flattenStyle(currentHomeDock().props.style).transform[0].translateY,
-    -78,
-    "toast clearance returns after completed dismissal",
-  );
-  reducedMotion = true;
-  dirty = true;
-  await flush();
-  const beforeReducedLayouts = scheduledKeyboardLayouts.length;
-  keyboardEvent("keyboardWillShow");
-  keyboardEvent("keyboardWillHide");
+  assert.equal(routes.length, 0, "a result callback cannot navigate after search closes");
+  await openHomeSearch();
+  assert.equal(find("SearchSheet")!.props.query, "Ahmad");
+  staleSearchRow(people[0]);
   await flush();
   assert.equal(
-    scheduledKeyboardLayouts.length,
-    beforeReducedLayouts,
-    "Reduce Motion skips added keyboard animation scheduling",
+    routes.length,
+    0,
+    "a result from the previous search session cannot navigate after reopening",
   );
+  await openSelection();
+  homeRow("ahmad").props.onPress(people[0]);
+  await flush();
+  selection()!.props.actions[0].onPress();
+  await flush();
+  let finishSearchRemoval!: () => void;
+  delayedArchive = new Promise((resolve) => {
+    finishSearchRemoval = resolve;
+  });
+  const inlineConfirm = nodes(find("SearchSheet")!.props.footer).find(
+    (node) => node.type === "Button" && node.props.label === "selection.remove",
+  )!;
+  inlineConfirm.props.onPress();
+  await flush();
+  assert.equal(
+    find("SearchSheet")!.props.dismissDisabled,
+    true,
+    "search drag and dismiss are disabled while removal is running",
+  );
+  find("SearchSheet")!.props.onChangeQuery("queued input");
+  find("CustomerListOptions")!.props.onChange({ sort: "name_desc", group: "all" });
+  find("SearchSheet")!.props.onClearAll();
+  await flush();
+  assert.equal(
+    find("SearchSheet")!.props.query,
+    "Ahmad",
+    "queued search and Clear all callbacks cannot change an in-flight removal",
+  );
+  assert.equal(
+    find("CustomerListOptions")!.props.preference.sort,
+    "outstanding_name",
+    "queued filter callbacks cannot change an in-flight removal",
+  );
+  find("SearchSheet")!.props.onDismiss();
+  await flush();
+  assert.equal(find("SearchSheet")!.props.visible, true);
+  finishSearchRemoval();
+  await flush();
+  assert.equal(find("SearchSheet")!.props.dismissDisabled, false);
+  assert.deepEqual(
+    archivedPeople.map((person) => person.id),
+    ["ahmad"],
+  );
+
+  fixture(home, "viewer");
+  persistedAccountId = cachedAccountId = "first-account";
+  groupState = {
+    groups: [{ id: "family", name: "Family", member_count: 1 }],
+    groupsByPerson: { ahmad: ["family"] },
+  };
+  homePreferenceMeta.set(
+    "customer_search:first-account:kaata",
+    JSON.stringify({ sort: "amount_asc", group: "family" }),
+  );
+  await flush();
+  assert.deepEqual(
+    homeIds(),
+    ["ahmad", "fatima"],
+    "stored search filters never apply to the home overview",
+  );
+  await openHomeSearch();
+  assert.deepEqual(homeIds(), ["ahmad"], "stored search preference is loaded only into its sheet");
+  await changeHomeQuery("Ahmad");
+  const oldScopeQuery = find("SearchSheet")!.props.onChangeQuery;
+  const oldScopePreference = find("CustomerListOptions")!.props.onChange;
+  const oldScopeTrigger = byLabel("customers.search")!.props.onPress;
+  cachedAccountId = "second-account";
+  for (const listener of [...identityListeners]) listener();
+  await flush();
+  assert.equal(find("SearchSheet")!.props.visible, false, "an account change closes search");
+  assert.equal(find("SearchSheet")!.props.query, "", "an account change clears the old query");
+  oldScopeQuery("old account query");
+  oldScopePreference({ sort: "name_desc", group: "family" });
+  oldScopeTrigger();
+  await flush();
+  assert.equal(
+    find("SearchSheet")!.props.visible,
+    false,
+    "stale field callbacks cannot reopen another account's search",
+  );
+  await openHomeSearch();
+  assert.deepEqual(find("CustomerListOptions")!.props.preference, {
+    sort: "outstanding_name",
+    group: "all",
+  });
+  assert.deepEqual(
+    homeIds(),
+    ["ahmad", "fatima"],
+    "another account starts with its own search preferences",
+  );
+  find("CustomerListOptions")!.props.onChange({ sort: "name_desc", group: "all" });
+  await flush();
+  assert.equal(
+    JSON.parse(homePreferenceMeta.get("customer_search:second-account:kaata")!).sort,
+    "name_desc",
+  );
+  cachedAccountId = "first-account";
+  for (const listener of [...identityListeners]) listener();
+  await flush();
+  await openHomeSearch();
+  assert.deepEqual(
+    find("CustomerListOptions")!.props.preference,
+    { sort: "amount_asc", group: ["family"] },
+    "returning to an account restores only its own saved preference",
+  );
+  assert.equal(find("SearchSheet")!.props.query, "");
+  vaultId = "next-kaata";
+  peopleByVault.set(vaultId, [{ ...people[0], id: "next-person", name: "Next Person" }]);
+  activeVaultsOverride = [{ id: vaultId, name: "Next", currency: "AFN" }];
+  ledgerEvents.emitLedgerApplied(vaultId, "remote");
+  await runTimers();
+  assert.equal(find("SearchSheet")!.props.visible, false);
+  await openHomeSearch();
+  assert.deepEqual(
+    find("CustomerListOptions")!.props.preference,
+    { sort: "outstanding_name", group: "all" },
+    "new kaata does not inherit the old kaata's search filters",
+  );
+  assert.deepEqual(homeIds(), ["next-person"]);
 
   fixture(home, "owner");
   let finishHomeRole!: () => void;
@@ -1246,7 +1520,7 @@ async function main() {
 
   fixture(home, "viewer");
   await flush();
-  byLabel("customers.search")!.props.onChangeText("Ahmad");
+  await changeHomeQuery("Ahmad");
   await flush();
   const oldHomePersonTap = homeSearch()!.props.onPersonPress;
   const otherPerson = { ...people[0], id: "nadia", name: "Nadia", last_entry_at: 200 };
@@ -1255,10 +1529,155 @@ async function main() {
   activeVaultsOverride = [{ id: vaultId, name: "Second", currency: "AFN" }];
   ledgerEvents.emitLedgerApplied(vaultId, "remote");
   await runTimers();
-  assert.equal(byLabel("customers.search")!.props.value, "", "kaata switch clears the old query");
+  assert.equal(find("SearchSheet")!.props.query, "", "kaata switch clears the old query");
   assert.deepEqual(homeIds(), ["nadia"]);
   oldHomePersonTap(people[0]);
   assert.equal(routes.length, 0, "old search row cannot navigate after a kaata switch");
+
+  for (const nextPlatform of ["android", "ios"]) {
+    fixture(home, "viewer", false, nextPlatform);
+    const mixedDefaultPeople = [
+      { ...people[0], id: "zara", name: "Zara collect", balance: 100, last_entry_at: 100 },
+      { ...people[0], id: "ali", name: "Ali pay", balance: -700, last_entry_at: 10 },
+      {
+        ...people[0],
+        id: "shared-unknown",
+        name: "Aaron shared",
+        balance: 500,
+        tab_id: "shared-tab",
+        tab_unsynced: 1 as const,
+      },
+      {
+        ...people[0],
+        id: "settled",
+        name: "Behram settled",
+        balance: 0,
+        is_settled: 1,
+        last_entry_at: 600,
+      },
+      { ...people[0], id: "zero", name: "Ahmad zero", balance: 0, last_entry_at: 500 },
+      { ...people[1], id: "empty", name: "Zaid empty", created_at: 900 },
+    ];
+    peopleByVault.set("kaata", mixedDefaultPeople);
+    await flush();
+    const overviewBefore = homePages().map((page) => ({
+      people: page.props.people.map((person: any) => person.id),
+      neutral: page.props.neverTalliedPeople.map((person: any) => person.id),
+      total: page.props.allPeople.reduce((sum: number, person: any) => sum + person.balance, 0),
+    }));
+    await openHomeSearch();
+    assert.deepEqual(find("CustomerListOptions")!.props.preference, {
+      sort: "outstanding_name",
+      group: "all",
+    });
+    assert.equal(
+      find("SearchSheet")!.props.filtersActive,
+      false,
+      "the default sort is not a filter",
+    );
+    assert.deepEqual(
+      homeIds(),
+      ["ali", "zara", "shared-unknown", "zero", "settled", "empty"],
+      "blank search lists known balances alphabetically, then unknown, then zero/settled contacts",
+    );
+    const unifiedResults = renderList(homeSearch()!);
+    for (const key of ["home.tab.collect", "home.tab.pay", "customers.noTallies"]) {
+      assert.equal(
+        text(unifiedResults).includes(key),
+        false,
+        "search has no financial section headings",
+      );
+    }
+    assert.equal(
+      nodes(unifiedResults).filter((node) => node.type === "PersonRow").length,
+      mixedDefaultPeople.length,
+      "every contact appears exactly once in the combined list",
+    );
+    find("CustomerListOptions")!.props.onChange({ sort: "name_asc", group: "all" });
+    await flush();
+    assert.deepEqual(
+      homeIds(),
+      ["shared-unknown", "zero", "ali", "settled", "empty", "zara"],
+      "the pure name option orders both directions and zero/settled contacts together",
+    );
+    assert.deepEqual(
+      homePages().map((page) => ({
+        people: page.props.people.map((person: any) => person.id),
+        neutral: page.props.neverTalliedPeople.map((person: any) => person.id),
+        total: page.props.allPeople.reduce((sum: number, person: any) => sum + person.balance, 0),
+      })),
+      overviewBefore,
+      "changing the unified search sort preserves homepage rows, ordering and totals",
+    );
+
+    // Screenshot regression: recent scattered-character matches used to push
+    // names containing the actual word احمد down the list. A later name token
+    // is still a literal match, on either balance side and even at zero.
+    fixture(home, "viewer", true, nextPlatform);
+    const screenshotPeople = [
+      {
+        ...people[0],
+        id: "fuzzy-newest",
+        name: "اکبر حامد",
+        balance: 900,
+        last_entry_at: 1000,
+      },
+      {
+        ...people[0],
+        id: "literal-collect",
+        name: "محمد شفیق احمد آباد",
+        balance: 1600,
+        last_entry_at: 10,
+      },
+      {
+        ...people[0],
+        id: "literal-pay",
+        name: "نصیر احمد حمیدی",
+        balance: -11840,
+        last_entry_at: 20,
+      },
+      {
+        ...people[0],
+        id: "literal-zero",
+        name: "فرید احمد",
+        balance: 0,
+        last_entry_at: 30,
+      },
+    ];
+    peopleByVault.set("kaata", screenshotPeople);
+    await flush();
+    await changeHomeQuery("احمد");
+    const literalIds = ["literal-collect", "literal-pay", "literal-zero"];
+    for (const sort of ["outstanding_name", "recent"] as const) {
+      find("CustomerListOptions")!.props.onChange({ sort, group: "all" });
+      await flush();
+      const ids = homeIds();
+      assert.equal(ids.length, screenshotPeople.length, "loose abbreviations remain findable");
+      assert.equal(
+        ids.at(-1),
+        "fuzzy-newest",
+        `${sort} keeps literal names above a recent fuzzy match`,
+      );
+      assert.deepEqual(new Set(ids.slice(0, 3)), new Set(literalIds));
+      if (sort === "outstanding_name") {
+        assert.equal(ids[2], "literal-zero", "within literal matches, zero follows known balances");
+      } else {
+        assert.deepEqual(
+          ids,
+          ["literal-zero", "literal-pay", "literal-collect", "fuzzy-newest"],
+          "recent orders equally relevant literal matches across all balance states",
+        );
+      }
+    }
+    await changeHomeQuery("۰۷۰۰۱۲۳۴۵۶");
+    assert.deepEqual(
+      new Set(homeIds()),
+      new Set(screenshotPeople.map((person) => person.id)),
+      "customer-name ranking preserves Persian-digit phone matching",
+    );
+    assert.equal(contactsReads, 0);
+    assert.equal(writes.length, 0, "ranking never changes contact or ledger data");
+  }
 
   fixture(home, "viewer");
   const ahmadLow = { ...people[0], id: "ahmad-low", name: "Ahmad Amini", balance: 100 };
@@ -1277,18 +1696,24 @@ async function main() {
     },
   };
   await flush();
-  byLabel("customers.search")!.props.onChangeText("Ahmad");
+  await changeHomeQuery("Ahmad");
   await flush();
-  find("CustomerListSheet")!.props.onChange({ sort: "amount_asc", group: ["family", "shop"] });
+  find("CustomerListOptions")!.props.onChange({ sort: "amount_asc", group: ["family", "shop"] });
   await flush();
   assert.deepEqual(
     homeIds(),
-    ["ahmad", "ahmad-high", "ahmad-other"],
-    "search composes with multi-group OR and amount order on each side",
+    ["ahmad", "ahmad-other", "ahmad-high"],
+    "search composes with multi-group OR and one amount order across both sides",
   );
   const mixedResults = renderList(homeSearch()!);
-  assert.ok(text(mixedResults).includes("home.tab.collect"));
-  assert.ok(text(mixedResults).includes("home.tab.pay"));
+  assert.ok(!text(mixedResults).includes("home.tab.collect"));
+  assert.ok(!text(mixedResults).includes("home.tab.pay"));
+  assert.ok(
+    nodes(mixedResults)
+      .filter((node) => node.type === "PersonRow")
+      .every((node) => node.props.showDirection === true),
+    "direction belongs to each mixed row instead of separate section headings",
+  );
   assert.equal(
     nodes(mixedResults).filter((node) => node.type === "PersonRow").length,
     3,
@@ -1296,32 +1721,35 @@ async function main() {
   );
   // A match on the opposite balance side is immediately visible, even when
   // searching started from To collect; no tab-switch link is required.
-  byLabel("customers.search")!.props.onChangeText("Hamidi");
+  await changeHomeQuery("Hamidi");
   await flush();
   assert.deepEqual(homeIds(), ["ahmad-other"]);
   const oppositeResults = renderList(homeSearch()!);
-  assert.ok(text(oppositeResults).includes("home.tab.pay"));
+  assert.ok(!text(oppositeResults).includes("home.tab.pay"));
   assert.ok(!text(oppositeResults).includes("home.tab.collect"));
   assert.equal(nodes(oppositeResults).filter((node) => node.type === "EmptyState").length, 0);
   const oppositeRow = nodes(oppositeResults).find((node) => node.type === "PersonRow")!;
+  assert.equal(oppositeRow.props.showDirection, true);
   oppositeRow.props.onPress(oppositeRow.props.person);
   assert.deepEqual(
     routes.at(-1),
     { pathname: "/person/[id]", params: { id: "ahmad-other" } },
     "opposite-side result opens that customer",
   );
-  byLabel("customers.search")!.props.onChangeText("Ahmad");
+  await changeHomeQuery("Ahmad");
   await flush();
-  // The active group filter is named on home, the sort button carries a dot,
-  // and the chip's clear restores every customer.
+  // Active filters are named and removable only inside the sheet.
   const groupedPage = homeSearch()!;
   assert.equal(groupedPage.props.groupFilterLabel, "Family, Shop", "home names the active groups");
   assert.equal(groupedPage.props.groupFilterCount, 2);
-  const listOptions = byLabel("customers.listOptions")!;
-  assert.equal(listOptions.props.accessibilityState.selected, true);
+  assert.equal(
+    byLabel("customers.listOptions"),
+    undefined,
+    "no homepage filter button or badge appears for search filters",
+  );
+  assert.equal(find("SearchSheet")!.props.filtersActive, true);
   assert.ok(
-    nodes(listOptions.props.children).some((node) => node.type === "View"),
-    "a customized sort or filter shows a dot on the sort button",
+    homePages().every((page) => !page.props.filtered && page.props.groupFilterLabel === null),
   );
   const groupedTree = renderList(groupedPage);
   assert.ok(
@@ -1335,28 +1763,28 @@ async function main() {
   groupChip!.props.onPress();
   await flush();
   assert.equal(homeSearch()!.props.groupFilterLabel, null, "the chip clears the group filter");
-  find("CustomerListSheet")!.props.onChange({ sort: "name_desc", group: "all" });
+  find("CustomerListOptions")!.props.onChange({ sort: "name_desc", group: "all" });
   await flush();
   assert.deepEqual(
     homeIds(),
-    ["ahmad-high", "ahmad", "ahmad-low", "ahmad-other"],
-    "name sorting remains effective during search",
+    ["ahmad-high", "ahmad", "ahmad-other", "ahmad-low"],
+    "name sorting orders both money directions together during search",
   );
   // Both previous pages survive a complete search session. A delayed swipe
   // callback from the old rail must not change that remembered page.
-  byLabel("customers.search.clear")!.props.onPress();
+  await closeHomeSearch();
   await flush();
   assert.equal(find("Tabs")!.props.value, "collect");
   for (const previousDirection of ["collect", "pay"]) {
     find("Tabs")!.props.onChange(previousDirection);
     await flush();
     const oldGestureEnd = gestureHandlers.onEnd;
-    byLabel("customers.search")!.props.onChangeText("Ahmad");
+    await changeHomeQuery("Ahmad");
     await flush();
-    assert.deepEqual(homeIds(), ["ahmad-high", "ahmad", "ahmad-low", "ahmad-other"]);
+    assert.deepEqual(homeIds(), ["ahmad-high", "ahmad", "ahmad-other", "ahmad-low"]);
     oldGestureEnd({ translationX: previousDirection === "collect" ? -200 : 200, velocityX: 0 });
     await flush();
-    byLabel("customers.search.clear")!.props.onPress();
+    await closeHomeSearch();
     await flush();
     assert.equal(find("Tabs")!.props.value, previousDirection);
     assert.equal(springTargets.at(-1), previousDirection === "collect" ? 0 : -screenWidth);
@@ -1375,9 +1803,10 @@ async function main() {
       "combined search never changes the normal overview totals",
     );
   }
-  byLabel("customers.search")!.props.onChangeText("   ");
+  await changeHomeQuery("   ");
   await flush();
-  assert.equal(homeSearch(), undefined, "whitespace restores the normal overview");
+  assert.ok(homeSearch(), "whitespace keeps the combined search sheet open");
+  await closeHomeSearch();
   assert.equal(find("Tabs")!.props.value, "pay");
 
   // Return to To pay after adding a contact with no financial activity. The
@@ -1411,7 +1840,7 @@ async function main() {
     assert.deepEqual(routes.at(-1), { pathname: "/person/[id]", params: { id: "new-person" } });
     assert.ok(!page.props.allPeople.some((person: any) => person.id === "new-person"));
   }
-  byLabel("customers.search")!.props.onChangeText("Zarif");
+  await changeHomeQuery("Zarif");
   await flush();
   assert.deepEqual(homeIds(), ["new-person"], "home search finds a saved no-tally contact");
   const neutralSearch = renderList(homeSearch()!);
@@ -1422,8 +1851,13 @@ async function main() {
   );
   assert.ok(!text(neutralSearch).includes("home.tab.collect"));
   assert.ok(!text(neutralSearch).includes("home.tab.pay"));
-  assert.ok(text(neutralSearch).includes("customers.noTallies"));
-  byLabel("customers.search.clear")!.props.onPress();
+  assert.ok(!text(neutralSearch).includes("customers.noTallies"));
+  assert.equal(
+    nodes(neutralSearch).find((node) => node.type === "PersonRow")!.props.showDirection,
+    true,
+    "empty contacts share the same mixed row presentation without a separate heading",
+  );
+  await closeHomeSearch();
   await flush();
   assert.equal(find("Tabs")!.props.value, "pay");
 
@@ -1439,21 +1873,21 @@ async function main() {
   focusEpoch++;
   dirty = true;
   await flush();
-  find("CustomerListSheet")!.props.onChange({ sort: "recent", group: "newcomers" });
+  await openHomeSearch();
+  find("CustomerListOptions")!.props.onChange({ sort: "recent", group: "newcomers" });
   await flush();
   for (const page of homePages()) {
-    const neutralGroupTree = renderList(page);
-    assert.equal(nodes(neutralGroupTree).filter((node) => node.type === "PersonRow").length, 2);
-    assert.equal(tParams.get("customers.filtered")?.shown, 0);
+    assert.equal(page.props.filtered, false);
+    assert.equal(page.props.groupFilterLabel, null);
     assert.equal(
-      tParams.get("customers.filtered")?.direction,
-      page.props.direction === "collect" ? "home.tab.collect" : "home.tab.pay",
-      "the zero financial match count explicitly names its side, separate from neutral rows",
+      page.props.neverTalliedPeople.length,
+      2,
+      "search group filters never hide neutral contacts from home",
     );
   }
-  find("CustomerListSheet")!.props.onChange({ sort: "recent", group: "family" });
+  find("CustomerListOptions")!.props.onChange({ sort: "recent", group: "family" });
   await flush();
-  byLabel("customers.search")!.props.onChangeText("Zarif");
+  await changeHomeQuery("Zarif");
   await flush();
   assert.deepEqual(homeIds(), [], "selected groups still filter a new ungrouped contact");
   const clearNewPersonFilter = nodes(renderList(homeSearch()!)).find(
@@ -1469,6 +1903,7 @@ async function main() {
   focusEpoch++;
   dirty = true;
   await flush();
+  await openHomeSearch();
   assert.deepEqual(
     homeIds(),
     ["new-person"],
@@ -1476,18 +1911,18 @@ async function main() {
   );
   const firstTallyResults = homeSearch()!;
   assert.deepEqual(
-    firstTallyResults.props.payPeople.map((person: any) => person.id),
+    firstTallyResults.props.people.map((person: any) => person.id),
     ["new-person"],
   );
   assert.deepEqual(
-    firstTallyResults.props.neverTalliedPeople,
-    [],
-    "first activity removes the neutral row",
+    firstTallyResults.props.people[0].balance,
+    -250,
+    "first activity updates the same mixed-list contact's balance",
   );
   assert.equal(
     nodes(renderList(firstTallyResults)).filter((node) => node.type === "PersonRow").length,
     1,
-    "moving into the financial section does not duplicate the contact",
+    "adding financial activity does not duplicate the contact",
   );
 
   fixture(home, "owner");
@@ -1912,7 +2347,7 @@ async function main() {
   assert.deepEqual(routes.at(-1), { pathname: "/person/[id]", params: { id: "created" } });
   unmount();
   console.log(
-    "PASS: contact multi-select, visible-side select-all, search/group/remote pruning, role/account/vault clearing, Back/Done/cancel, guarded bulk removal and partial-failure retry; combined collect/pay home search, direction headings and remembered-tab/stale-swipe guards, persistent sort/add controls, EN/FA and 320px keyboard layout, zero-tally/phone searches, multi-group/sort composition, scoped live/resume reloads, in-place role downgrades, late-read and unmount guards, no viewer phone-book reads/prompts or writes, stable writable tally refresh and authorized creation",
+    "PASS: contact action-sheet multi-select with no header duplicate, exact selected debt/credit totals and pending shared balances, visible-side select-all, search/group/remote pruning, role/account/vault clearing, Back/Done/cancel, guarded bulk removal and partial-failure retry; input-triggered search sheet, sheet-only groups/sort/query with unchanged home rows and totals, combined collect/pay results, remembered-tab/stale-swipe guards, EN/FA and 320px access, zero-tally/phone searches, multi-group/sort composition, scoped live/resume reloads, in-place role downgrades, late-read and unmount guards, no viewer phone-book reads/prompts or writes, stable writable tally refresh and authorized creation",
   );
 }
 void main().catch((error) => {

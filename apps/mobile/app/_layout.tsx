@@ -925,6 +925,7 @@ export default function RootLayout() {
                 <Stack.Screen name="groups" options={{ presentation: "modal" }} />
                 <Stack.Screen name="group-members" options={{ presentation: "modal" }} />
                 <Stack.Screen name="person/new" options={{ presentation: "modal" }} />
+                <Stack.Screen name="search" options={{ presentation: "modal" }} />
                 <Stack.Screen name="entry/new" options={{ presentation: "modal" }} />
                 <Stack.Screen name="entry/[id]/edit" options={{ presentation: "modal" }} />
                 <Stack.Screen name="tab/dispute" options={{ presentation: "modal" }} />

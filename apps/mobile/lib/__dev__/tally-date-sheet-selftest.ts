@@ -25,6 +25,8 @@ for (const calendar of ["gregorian", "jalali", "qamari"] as Calendar[])
         dismisses: string[] = [];
       let throwNextPicker = false;
       let activeCalendar = calendar;
+      let inline = false;
+      let contextKey = "account:vault:person";
       const module = compileUI(
         "../../components/TallyDateFilterSheet",
         {
@@ -82,7 +84,8 @@ for (const calendar of ["gregorian", "jalali", "qamari"] as Calendar[])
             }),
           },
           "../lib/tokens": {
-            radius: { sm: 8, sheet: 18, grabber: 2 },
+            radius: { sm: 8, md: 12, lg: 16, sheet: 18, grabber: 2, pill: 999 },
+            space: { sm: 8, md: 12, lg: 16 },
             TOUCH_MIN: 44,
             typography: {},
           },
@@ -99,6 +102,8 @@ for (const calendar of ["gregorian", "jalali", "qamari"] as Calendar[])
         hooks.render(() =>
           module.TallyDateFilterSheet({
             visible,
+            inline,
+            contextKey,
             range,
             calendar: activeCalendar,
             isRTL: locale === "fa",
@@ -156,6 +161,13 @@ for (const calendar of ["gregorian", "jalali", "qamari"] as Calendar[])
         }
       };
       render();
+      assert.ok(
+        nodes(hooks.tree).some(
+          (node) =>
+            node.type === "View" && flattenStyle(node.props.style)?.paddingHorizontal === 20,
+        ),
+        "standalone sheet retains its own 20px gutter",
+      );
       assert.equal(
         nodes(hooks.tree).some((node) => node.type === "Button"),
         false,
@@ -386,6 +398,77 @@ for (const calendar of ["gregorian", "jalali", "qamari"] as Calendar[])
         assert.equal(requests.length, beforeSynchronousRetry + 1);
       }
 
+      // Search embeds exactly the same controls without another native Modal.
+      visible = false;
+      render();
+      inline = true;
+      visible = true;
+      render();
+      assert.equal(
+        nodes(hooks.tree).some((node) => node.type === "Modal"),
+        false,
+      );
+      assert.equal(
+        nodes(hooks.tree).some((node) => node.type === "ScrollView"),
+        false,
+        "inline filters use only the parent editor's scroll area",
+      );
+      assert.equal(
+        flattenStyle(nodes(hooks.tree)[0].props.style).paddingHorizontal,
+        16,
+        "inline date filters own one ledger gutter",
+      );
+      const inlineChoices = nodes(hooks.tree).filter(
+        (node) => node.props.accessibilityRole === "radio",
+      );
+      assert.equal(inlineChoices.length, 6, "all presets remain available as wrapping choices");
+      assert.equal(
+        inlineChoices.filter((node) => node.props.accessibilityState.checked).length,
+        1,
+        "the applied range is announced as the selected choice",
+      );
+      for (const node of inlineChoices) {
+        const style = flattenStyle(node.props.style({ pressed: false }));
+        assert.ok(style.minHeight >= 44, "preset cards retain comfortable touch targets");
+        assert.equal(style.maxWidth, "100%", "long labels fit the editor width");
+        assert.equal(style.borderRadius, 12, "choices follow the shared rounded card design");
+        assert.equal(style.flexDirection, locale === "fa" ? "row-reverse" : "row");
+      }
+      press("person.date.custom");
+      const beforeBackClock = clockValue("start");
+      const backedOutPicker = openClock("start");
+      press("common.back");
+      assert.equal(
+        nodes(hooks.tree).filter((node) => node.props.accessibilityRole === "radio").length,
+        6,
+        "custom calendar returns to presets without closing search filters",
+      );
+      backedOutPicker.onValueChange({}, new Date(2000, 0, 15, 3, 4));
+      render();
+      press("person.date.custom");
+      assert.equal(
+        clockValue("start"),
+        beforeBackClock,
+        "leaving custom range cancels its native picker callbacks",
+      );
+      const abandonedStart = clockValue("start");
+      const abandonedScope = openClock("start");
+      contextKey = "other-account:other-vault:person";
+      render();
+      const beforeAbandoned = changes.length;
+      abandonedScope.onValueChange({}, new Date(2000, 0, 15, 1, 1));
+      render();
+      assert.equal(
+        changes.length,
+        beforeAbandoned,
+        "departed native picker cannot commit another search scope",
+      );
+      press("person.date.custom");
+      assert.equal(
+        clockValue("start"),
+        abandonedStart,
+        "a stale wheel cannot alter the next scope's draft",
+      );
       const unmounted = openClock("start");
       hooks.unmount();
       unmounted.onValueChange({}, new Date(2000, 0, 15, 2, 5));

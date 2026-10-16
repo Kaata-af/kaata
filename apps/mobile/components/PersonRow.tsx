@@ -17,7 +17,8 @@ import { SelectionMark } from "./SelectionMark";
 // borderWidth:1 and divider Views between rows.
 //
 // `balance` is signed at the type level but the row always shows the absolute
-// amount — direction is conveyed by the containing tab or search section.
+// amount — direction is conveyed by the containing tab or an optional label
+// when rows from both directions are listed together in search.
 //
 // Memoized, and the callbacks take the person so parents can pass STABLE
 // handlers — home renders every person in two lists, and without the memo a
@@ -28,6 +29,7 @@ export const PersonRow = memo(function PersonRow(props: {
   onPress: (person: PersonWithBalance) => void;
   onLongPress?: (person: PersonWithBalance) => void;
   creditStatus?: CreditStatus;
+  showDirection?: boolean;
   selecting?: boolean;
   selected?: boolean;
   disabled?: boolean;
@@ -53,6 +55,8 @@ export const PersonRow = memo(function PersonRow(props: {
   // A shared account found on this phone but not downloaded yet has no known
   // balance: say so rather than show a false 0.
   const unsynced = person.tab_unsynced === 1;
+  const showDirection = props.showDirection && !unsynced && !settled && person.balance !== 0;
+  const directionColor = person.balance > 0 ? colors.collectText : colors.payText;
   const subtitle = unsynced
     ? t("tab.row.notDownloaded")
     : person.tab_id && person.tab_pending > 0
@@ -138,7 +142,11 @@ export const PersonRow = memo(function PersonRow(props: {
               {/* L41: cap the amount's font scaling so it can't grow so wide at
                 large OS font that it crushes the flex:1 name column. */}
               <Text
-                style={[styles.amount, abs === 0 && { color: colors.textMuted }]}
+                style={[
+                  styles.amount,
+                  abs === 0 && { color: colors.textMuted },
+                  showDirection && { color: directionColor },
+                ]}
                 numberOfLines={1}
                 maxFontSizeMultiplier={1.5}
               >
@@ -150,6 +158,11 @@ export const PersonRow = memo(function PersonRow(props: {
             </>
           )}
         </View>
+        {showDirection ? (
+          <Text style={[styles.direction, textDir(isRTL), { color: directionColor }]}>
+            {t(person.balance > 0 ? "home.tab.collect" : "home.tab.pay")}
+          </Text>
+        ) : null}
         <CreditStatusBadge status={props.creditStatus ?? "none"} />
       </View>
     </Pressable>
@@ -195,5 +208,10 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontFamily: fonts.sansMedium,
     color: colors.textMuted,
+  },
+  direction: {
+    fontSize: 11,
+    fontFamily: fonts.sansMedium,
+    marginTop: 2,
   },
 });

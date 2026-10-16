@@ -2,14 +2,16 @@
 // are controlled so stopped callbacks can still be delivered adversarially.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { compileUI, deferred, jsx, nodes, settleUI, uiHooks } from "./ui-fixture";
+import { compileUI, deferred, flattenStyle, jsx, nodes, settleUI, uiHooks } from "./ui-fixture";
 import { searchContacts } from "../search";
+import { colors } from "../colors";
 import {
   compareCustomerNames,
   DEFAULT_CUSTOMER_LIST,
   CUSTOMER_SORTS,
   selectedCustomerGroupIds,
   toggleCustomerGroupFilter,
+  type CustomerListPreference,
 } from "../customer-list";
 
 export async function customerGroupUIChecks() {
@@ -62,7 +64,7 @@ export async function customerGroupUIChecks() {
       props.visible = false;
     },
   };
-  const { CustomerListSheet } = compileUI(
+  const { CustomerListSheet, CustomerListOptions } = compileUI(
     "../../components/CustomerListSheet.tsx",
     {
       react: hooks.react,
@@ -87,9 +89,12 @@ export async function customerGroupUIChecks() {
         StyleSheet: { create: (s: any) => s, absoluteFill: {} },
       },
       "react-native-safe-area-context": { SafeAreaView: "SafeAreaView" },
-      "../lib/colors": { colors: {} },
+      "../lib/colors": { colors },
       "../lib/fonts": { fonts: {} },
-      "../lib/direction": { rowDir: () => ({}), textDir: () => ({}) },
+      "../lib/direction": {
+        rowDir: (rtl: boolean) => ({ flexDirection: rtl ? "row-reverse" : "row" }),
+        textDir: (rtl: boolean) => ({ textAlign: rtl ? "right" : "left" }),
+      },
       "../lib/i18n": { t: (key: string) => key },
       "../lib/customer-list": {
         CUSTOMER_SORTS,
@@ -105,7 +110,12 @@ export async function customerGroupUIChecks() {
           dismiss: onDismiss,
         }),
       },
-      "../lib/tokens": { icon: { row: 22 }, radius: { sheet: 18, grabber: 2 } },
+      "../lib/tokens": {
+        radius: { sheet: 18, grabber: 2, md: 12, lg: 16 },
+        space: { xs: 4, sm: 8, md: 12, lg: 16 },
+        TOUCH_MIN: 44,
+        typography: { bodySm: {}, labelBold: {} },
+      },
     },
     {
       requestAnimationFrame: (fn: () => void) => {
@@ -122,6 +132,73 @@ export async function customerGroupUIChecks() {
       clearTimeout: (id: number) => timers.delete(id),
     },
   );
+  // Compact controls retain every sort and group combination in both directions.
+  // Actual glyph sizing/line wrapping is still a phone check; these checks protect
+  // the target floor, wrapping constraints, and visible/announced selection states.
+  for (const isRTL of [false, true]) {
+    let preference: CustomerListPreference = { sort: "outstanding_name", group: "all" };
+    const longName = "مشتری‌های خانوادگی و همسایه‌های نزدیک خانه و دوستان قدیمی";
+    const optionProps = () => ({
+      preference,
+      groups: [
+        { id: "family", name: "Family", member_count: 1 },
+        { id: "neighbors", name: longName, member_count: 1 },
+      ],
+      isRTL,
+      onChange: (next: CustomerListPreference) => (preference = next),
+    });
+    const options = () => CustomerListOptions(optionProps());
+    const choice = (label: string) => {
+      const control = nodes(options()).find((node) => node.props.accessibilityLabel === label);
+      assert.ok(control, `Missing filter choice ${label}`);
+      return control;
+    };
+    const style = (control: any) => flattenStyle(control.props.style({ pressed: false }));
+    assert.equal(
+      nodes(options()).some((node) => node.type === "ScrollView"),
+      false,
+    );
+    assert.equal(
+      nodes(options()).filter((node) => node.props.accessibilityRole === "radio").length,
+      7,
+    );
+    for (const sort of CUSTOMER_SORTS) {
+      const control = choice(`customers.sort.${sort}`);
+      assert.ok(style(control).minHeight >= 44);
+      control.props.onPress();
+      assert.equal(preference.sort, sort);
+      const selected = choice(`customers.sort.${sort}`);
+      assert.equal(selected.props.accessibilityState.checked, true);
+      assert.equal(style(selected).backgroundColor, colors.bgInverted);
+      assert.equal(
+        nodes(options()).filter(
+          (node) =>
+            node.props.accessibilityRole === "radio" && node.props.accessibilityState.checked,
+        ).length,
+        1,
+      );
+    }
+    choice("Family").props.onPress();
+    choice(longName).props.onPress();
+    assert.deepEqual(selectedCustomerGroupIds(preference.group), ["family", "neighbors"]);
+    for (const label of ["Family", longName]) {
+      const control = choice(label);
+      assert.equal(control.props.accessibilityRole, "checkbox");
+      assert.equal(control.props.accessibilityState.checked, true);
+      assert.equal(style(control).borderColor, colors.actionPrimary);
+      assert.ok(style(control).minHeight >= 44);
+      assert.equal(style(control).maxWidth, "100%");
+      assert.equal(style(control).flexDirection, isRTL ? "row-reverse" : "row");
+      const text = nodes(control).find((node) => node.type === "Text")!;
+      assert.equal(text.props.numberOfLines, undefined, "long group names are never truncated");
+      assert.equal(flattenStyle(text.props.style).flexShrink, 1);
+    }
+    choice("groups.all").props.onPress();
+    assert.equal(preference.group, "all");
+    choice("groups.ungrouped").props.onPress();
+    assert.equal(preference.group, "ungrouped");
+    assert.equal(choice("Family").props.accessibilityState.checked, false);
+  }
   const render = () => hooks.render(() => CustomerListSheet(props));
   const flushFrames = () => {
     const callbacks = [...frames.values()];

@@ -4,6 +4,7 @@ import type { Direction, PersonWithBalance } from "./types";
 // activity" by mixing settled customers in. A saved "date_desc" parses as
 // "recent", which orders open customers identically.
 export const CUSTOMER_SORTS = [
+  "outstanding_name",
   "recent",
   "name_asc",
   "name_desc",
@@ -15,6 +16,10 @@ export type CustomerSort = (typeof CUSTOMER_SORTS)[number];
 export type CustomerGroupFilter = "all" | "ungrouped" | string | string[];
 export type CustomerListPreference = { sort: CustomerSort; group: CustomerGroupFilter };
 export const DEFAULT_CUSTOMER_LIST: CustomerListPreference = { sort: "recent", group: "all" };
+export const DEFAULT_CUSTOMER_SEARCH: CustomerListPreference = {
+  sort: "outstanding_name",
+  group: "all",
+};
 
 /** Empty selection means All. Selecting several groups matches any of them. */
 export function selectedCustomerGroupIds(filter: CustomerGroupFilter): string[] {
@@ -44,6 +49,18 @@ export function toggleCustomerGroupFilter(
 }
 
 export function parseCustomerListPreference(raw: string | null): CustomerListPreference {
+  return parsePreference(raw, DEFAULT_CUSTOMER_LIST);
+}
+
+/** Search has its own default without changing the home page's ordering. */
+export function parseCustomerSearchPreference(raw: string | null): CustomerListPreference {
+  return parsePreference(raw, DEFAULT_CUSTOMER_SEARCH);
+}
+
+function parsePreference(
+  raw: string | null,
+  fallback: CustomerListPreference,
+): CustomerListPreference {
   try {
     const value = JSON.parse(raw ?? "null");
     const groupIds = Array.isArray(value?.group)
@@ -59,7 +76,7 @@ export function parseCustomerListPreference(raw: string | null): CustomerListPre
           .slice(0, 100)
       : null;
     return {
-      sort: CUSTOMER_SORTS.includes(value?.sort) ? value.sort : "recent",
+      sort: CUSTOMER_SORTS.includes(value?.sort) ? value.sort : fallback.sort,
       group: groupIds
         ? groupIds.length
           ? groupIds
@@ -69,7 +86,7 @@ export function parseCustomerListPreference(raw: string | null): CustomerListPre
           : "all",
     };
   } catch {
-    return { ...DEFAULT_CUSTOMER_LIST };
+    return { ...fallback };
   }
 }
 
@@ -160,6 +177,34 @@ export function selectNeverTalliedCustomers<T extends PersonWithBalance>(
   );
 }
 
+/** Search interleaves both financial sides and empty contacts. Relevance is a
+ * coarse match tier, so literal matches stay above fuzzy suggestions while the
+ * selected sort still orders equally relevant results. */
+export function selectSearchCustomers<T extends PersonWithBalance>(
+  people: readonly T[],
+  preference: CustomerListPreference,
+  groupByPerson: Readonly<Record<string, string | readonly string[] | null>>,
+  locale: "en" | "fa",
+  relevanceById?: ReadonlyMap<string, number>,
+): T[] {
+  return selectCustomerRows(
+    [...new Map(people.map((person) => [person.id, person])).values()],
+    () => true,
+    preference,
+    groupByPerson,
+    locale,
+    (person) => person.last_entry_at ?? person.created_at,
+    relevanceById,
+  );
+}
+
+function outstandingTier(person: PersonWithBalance): number {
+  // A restored shared ledger's cached balance is unknown, whether it says 500
+  // or zero. Keep it between verified balances and confirmed settled contacts.
+  if (person.tab_unsynced === 1) return 1;
+  return person.balance !== 0 && person.is_settled !== 1 ? 0 : 2;
+}
+
 function selectCustomerRows<T extends PersonWithBalance>(
   people: readonly T[],
   matches: (person: T) => boolean,
@@ -167,6 +212,7 @@ function selectCustomerRows<T extends PersonWithBalance>(
   groupByPerson: Readonly<Record<string, string | readonly string[] | null>>,
   locale: "en" | "fa",
   activityAt: (person: T) => number,
+  relevanceById?: ReadonlyMap<string, number>,
 ): T[] {
   const byName = (a: T, b: T) =>
     compareCustomerNames(a.name, b.name, locale) || a.id.localeCompare(b.id);
@@ -189,7 +235,11 @@ function selectCustomerRows<T extends PersonWithBalance>(
           })()),
     )
     .sort((a, b) => {
+      const relevance = (relevanceById?.get(b.id) ?? 0) - (relevanceById?.get(a.id) ?? 0);
+      if (relevance) return relevance;
       switch (preference.sort) {
+        case "outstanding_name":
+          return outstandingTier(a) - outstandingTier(b) || byName(a, b);
         case "name_asc":
           return byName(a, b);
         case "name_desc":
