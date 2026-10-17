@@ -1,0 +1,4 @@
+Kaata 2.2.1
+
+- Fixed an Android crash when opening a customer from search results.
+- Improved stability when closing customer search.

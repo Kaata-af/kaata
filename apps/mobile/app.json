@@ -3,7 +3,7 @@
     "name": "Kaata",
     "slug": "kaata",
     "scheme": "kaata",
-    "version": "2.2.0",
+    "version": "2.2.1",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -37,7 +37,7 @@
         "android.permission.SYSTEM_ALERT_WINDOW",
         "android.permission.RECORD_AUDIO"
       ],
-      "versionCode": 59
+      "versionCode": 60
     },
     "web": {
       "favicon": "./assets/favicon.png"

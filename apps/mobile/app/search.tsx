@@ -63,7 +63,14 @@ export default function NativeSearchScreen() {
   return (
     <>
       <Stack.Screen options={{ gestureEnabled: !busy }} />
-      <View style={{ flex: 1 }} pointerEvents={valid && !session?.closing ? "auto" : "none"}>
+      {/* Keep a native parent while pointerEvents changes on dismissal. Otherwise
+          Fabric unflattens this View during the native exit and reparents content
+          still held by ScreenContentWrapper, crashing Android with addViewAt. */}
+      <View
+        collapsable={false}
+        style={{ flex: 1 }}
+        pointerEvents={valid && !session?.closing ? "auto" : "none"}
+      >
         {valid && isValidElement<{ active?: boolean }>(session.content)
           ? cloneElement(session.content, { active: !session.closing })
           : null}

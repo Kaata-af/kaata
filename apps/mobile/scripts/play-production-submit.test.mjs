@@ -18,7 +18,7 @@ after(() => {
   rmdirSync(dir);
 });
 const sha256 = createHash("sha256").update(bytes).digest("hex");
-const app = { version: "2.2.0", android: { package: "af.kaata.app", versionCode: 59 } };
+const app = { version: "2.2.1", android: { package: "af.kaata.app", versionCode: 60 } };
 const expectedImages = Object.entries({
   phoneScreenshots: 6,
   sevenInchScreenshots: 6,
@@ -31,7 +31,7 @@ const expectedImages = Object.entries({
     sha256: `${type}-hash-${index}`,
   })),
 }));
-const notes = "Kaata 2.2.0: improved search, shared accounts and account recovery.";
+const notes = "Kaata 2.2.1: fixed an Android crash when opening customers from search.";
 const token = "private-mock-token";
 const response = (body, status = 200) =>
   new Response(status === 204 ? null : JSON.stringify(body), { status });
@@ -69,7 +69,7 @@ function mock(options = {}) {
             language: "en-US",
             title: "Kaata",
             fullDescription:
-              options.textDrift && tracks[0].releases[0].versionCodes[0] === "59"
+              options.textDrift && tracks[0].releases[0].versionCodes[0] === "60"
                 ? "changed"
                 : "existing text",
           },
@@ -86,14 +86,14 @@ function mock(options = {}) {
       return response({ images });
     }
     if (init.method === "GET" && endpoint.endsWith("/bundles"))
-      return response({ bundles: [{ versionCode: options.usedCode ? 59 : 58 }] });
+      return response({ bundles: [{ versionCode: options.usedCode ? 60 : 59 }] });
     if (init.method === "GET" && endpoint.endsWith("/apks")) return response({});
     if (init.method === "POST" && endpoint.endsWith("/bundles")) {
       assert.equal(parsed.searchParams.get("uploadType"), "media");
       assert.deepEqual(body, bytes);
       if (options.ambiguousUpload) throw new Error("private-mock-token must never appear");
       return response({
-        versionCode: options.wrongCode ? 58 : 59,
+        versionCode: options.wrongCode ? 59 : 60,
         sha256: options.wrongHash ? "wrong" : sha256,
       });
     }
@@ -101,10 +101,10 @@ function mock(options = {}) {
       const name = endpoint.split("/").at(-1);
       assert.equal(body.track, name);
       assert.equal(body.releases[0].status, "completed");
-      assert.deepEqual(body.releases[0].versionCodes, ["59"]);
+      assert.deepEqual(body.releases[0].versionCodes, ["60"]);
       tracks[tracks.findIndex((track) => track.track === name)] = structuredClone(body);
       if (options.closedTrackDrift && name === "production")
-        tracks[2].releases[0].versionCodes = ["59"];
+        tracks[2].releases[0].versionCodes = ["60"];
       return response(body);
     }
     if (init.method === "GET" && endpoint.endsWith("/tracks/internal"))
@@ -127,8 +127,8 @@ function mock(options = {}) {
       return response({
         releases: [
           {
-            releaseName: "2.2.0",
-            activeArtifacts: [{ versionCode: committed ? 59 : 58 }],
+            releaseName: "2.2.1",
+            activeArtifacts: [{ versionCode: committed ? 60 : 59 }],
             releaseLifecycleState: "RELEASE_LIFECYCLE_STATE_IN_REVIEW",
           },
         ],
@@ -241,7 +241,7 @@ test("wrong app, changed AAB, invalid notes fail before network access", async (
 
 test("checked-in notes fit Play's limit and describe the production release", async () => {
   const releaseNotes = readFileSync(
-    new URL("./release-notes/2.2.0-play.txt", import.meta.url),
+    new URL("./release-notes/2.2.1-play.txt", import.meta.url),
     "utf8",
   ).trim();
   const transport = mock();

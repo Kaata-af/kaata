@@ -765,6 +765,11 @@ function host(
   find(opened, "FirstResults");
   const sheetContent = find(opened, "View");
   assert.equal(
+    sheetContent.props.collapsable,
+    false,
+    "Search keeps a native parent before pointerEvents changes during Android dismissal",
+  );
+  assert.equal(
     sheetContent.props.children.at(-1).type,
     "ToastHost",
     "Success feedback renders inside the native sheet above its content",
@@ -789,6 +794,7 @@ function host(
     false,
   );
   assert.equal(find(closing, "RefreshedResults").props.active, false);
+  assert.equal(find(closing, "View").props.collapsable, false);
   assert.equal(find(closing, "View").props.pointerEvents, "none");
   assert.deepEqual(
     screen.state.routes.map((route: any) => route.key),
