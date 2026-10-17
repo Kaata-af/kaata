@@ -38,6 +38,8 @@ const keyboardEvent = (event: string) => {
   for (const listener of [...keyboardListeners]) if (listener.event === event) listener.fn(payload);
 };
 const springTargets: number[] = [];
+let deferRailCallbacks = false;
+const railCallbacks: (() => void)[] = [];
 let groupState = {
   groups: [] as { id: string; name: string; member_count: number }[],
   groupsByPerson: {} as Record<string, string[]>,
@@ -517,9 +519,9 @@ function screenMocks(prefix: string) {
   };
 }
 const gesture: any = {};
-const gestureHandlers: Record<string, (event: any) => void> = {};
-for (const name of ["activeOffsetX", "failOffsetY", "runOnJS"]) gesture[name] = () => gesture;
-for (const name of ["onUpdate", "onEnd"])
+const gestureHandlers: Record<string, (...args: any[]) => void> = {};
+for (const name of ["enabled", "activeOffsetX", "failOffsetY"]) gesture[name] = () => gesture;
+for (const name of ["onStart", "onUpdate", "onEnd", "onFinalize"])
   gesture[name] = (handler: (event: any) => void) => {
     gestureHandlers[name] = handler;
     return gesture;
@@ -532,6 +534,28 @@ const home = compile("../../app/index", {
     ImpactFeedbackStyle: { Light: "light", Soft: "soft" },
   },
   "react-native-gesture-handler": { Gesture: { Pan: () => gesture }, GestureDetector: "Gesture" },
+  "react-native-reanimated": {
+    __esModule: true,
+    default: { View: "RailView" },
+    useSharedValue: (value: unknown) => react.useRef({ value }).current,
+    useAnimatedStyle: (read: () => { transform: unknown }) => ({
+      get transform() {
+        return read().transform;
+      },
+    }),
+    withSpring: (target: number) => {
+      springTargets.push(target);
+      return target;
+    },
+    cancelAnimation: () => {},
+  },
+  "react-native-worklets": {
+    scheduleOnUI: (work: () => void) => work(),
+    scheduleOnRN: (work: (...args: any[]) => void, ...args: any[]) => {
+      if (deferRailCallbacks) railCallbacks.push(() => work(...args));
+      else work(...args);
+    },
+  },
 }).default;
 const addOrFind = compile("../../app/person/new", screenMocks("../../")).default;
 function unmount() {
@@ -571,6 +595,8 @@ function fixture(
   homeToastOffset = 0;
   scheduledKeyboardLayouts.length = 0;
   springTargets.length = 0;
+  deferRailCallbacks = false;
+  railCallbacks.length = 0;
   groupState = { groups: [], groupsByPerson: {} };
   focusEpoch = 0;
   routes.length = 0;
@@ -841,6 +867,118 @@ async function main() {
     assert.ok(homeRows().every((row) => !row.props.selecting && !row.props.selected));
     assert.equal(archivedPeople.length, 0, "selecting and closing do not write ledger data");
   }
+
+  // A busy RN thread must not stall the rail or make a second swipe depend
+  // on React having received the first swipe's selected-tab notification.
+  fixture(home, "owner");
+  await flush();
+  assert.ok(find("RailView"), "Loaded home includes its animated rail");
+  const railPosition = () =>
+    Object.assign({}, ...find("RailView")!.props.style).transform[0].translateX;
+  assert.equal(
+    railPosition(),
+    0,
+    "The first paint includes the Collect transform without a gesture",
+  );
+  assert.equal(find("RailView")!.props.collapsable, false, "The rail has a stable native view");
+  deferRailCallbacks = true;
+  gestureHandlers.onStart({});
+  gestureHandlers.onUpdate({ translationX: -160 });
+  assert.equal(railPosition(), -160, "The finger moves the rail while RN callbacks are paused");
+  gestureHandlers.onEnd({ translationX: -160, velocityX: 0 });
+  assert.equal(railPosition(), -screenWidth, "The spring reaches Pay without a React commit");
+  assert.equal(find("Tabs")!.props.value, "collect");
+  gestureHandlers.onStart({});
+  gestureHandlers.onUpdate({ translationX: 160 });
+  assert.equal(
+    railPosition(),
+    -screenWidth + 160,
+    "The next pan starts from the UI's current side",
+  );
+  gestureHandlers.onEnd({ translationX: 160, velocityX: 0 });
+  assert.equal(railPosition(), 0);
+  assert.equal(railCallbacks.length, 2);
+  railCallbacks.shift()!();
+  await flush();
+  assert.equal(
+    find("Tabs")!.props.value,
+    "collect",
+    "An older Pay result cannot rewind the newer Collect swipe",
+  );
+  railCallbacks.shift()!();
+  await flush();
+
+  gestureHandlers.onStart({});
+  gestureHandlers.onUpdate({ translationX: -40 });
+  gestureHandlers.onEnd({ translationX: -40, velocityX: 0 });
+  assert.equal(railPosition(), 0, "A short slow drag springs back to the same tab");
+  railCallbacks.shift()!();
+  await flush();
+  gestureHandlers.onStart({});
+  gestureHandlers.onEnd({ translationX: -40, velocityX: -600 });
+  assert.equal(railPosition(), -screenWidth, "A short fast flick still commits");
+  // Starting another pan invalidates the old queued result. Cancelling that
+  // pan must still publish the current side so the header eventually agrees.
+  gestureHandlers.onStart({});
+  gestureHandlers.onUpdate({ translationX: 50 });
+  gestureHandlers.onFinalize({}, false);
+  assert.equal(railPosition(), -screenWidth, "A cancelled pan settles on the last completed side");
+  while (railCallbacks.length) railCallbacks.shift()!();
+  await flush();
+  assert.equal(find("Tabs")!.props.value, "pay");
+  find("Tabs")!.props.onChange("collect");
+  assert.equal(railPosition(), 0, "Tab taps use the UI spring too");
+  while (railCallbacks.length) railCallbacks.shift()!();
+  await flush();
+  gestureHandlers.onStart({});
+  gestureHandlers.onEnd({ translationX: -160, velocityX: 0 });
+  const preResizeTabChange = find("Tabs")!.props.onChange;
+  const preResizePanStart = gestureHandlers.onStart;
+  const preResizePanUpdate = gestureHandlers.onUpdate;
+  const preResizePanEnd = gestureHandlers.onEnd;
+  const preResizePanFinalize = gestureHandlers.onFinalize;
+  screenWidth = 320;
+  dirty = true;
+  await flush();
+  assert.equal(railPosition(), -320, "A width change rebases the current UI tab");
+  while (railCallbacks.length) railCallbacks.shift()!();
+  await flush();
+  assert.equal(
+    find("Tabs")!.props.value,
+    "pay",
+    "Resizing while RN is delayed still publishes the visible tab",
+  );
+  preResizeTabChange("pay");
+  assert.equal(railPosition(), -320, "A delayed pre-resize tab tap cannot restore the old width");
+  preResizePanStart({});
+  preResizePanUpdate({ translationX: 120 });
+  preResizePanEnd({ translationX: 120, velocityX: 600 });
+  preResizePanFinalize({}, false);
+  assert.equal(railPosition(), -320, "Pre-resize pan callbacks cannot move the resized rail");
+  screenWidth = 390;
+  dirty = true;
+  await flush();
+  find("Tabs")!.props.onChange("collect");
+  while (railCallbacks.length) railCallbacks.shift()!();
+  await flush();
+  gestureHandlers.onStart({});
+  gestureHandlers.onUpdate({ translationX: -screenWidth * 2 });
+  assert.equal(railPosition(), -screenWidth, "Dragging cannot expose space beyond Pay");
+  gestureHandlers.onEnd({ translationX: -screenWidth * 2, velocityX: 0 });
+  const staleRailCallback = railCallbacks.shift()!;
+  await openHomeSearch();
+  assert.equal(railPosition(), 0, "Opening search retains the last React-committed tab");
+  staleRailCallback();
+  await closeHomeSearch();
+  staleRailCallback();
+  await flush();
+  assert.equal(
+    find("Tabs")!.props.value,
+    "collect",
+    "A queued swipe result stays invalid after search closes",
+  );
+  assert.equal(railPosition(), 0);
+  deferRailCallbacks = false;
 
   // Search can select both financial sides. Keep each side's current balance,
   // including cents, instead of netting debts and credits or summing tallies.

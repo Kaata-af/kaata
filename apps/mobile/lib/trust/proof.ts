@@ -22,7 +22,7 @@ import {
   type MembershipState,
   type VaultRole,
 } from "./chain";
-import { runtimeChainCrypto } from "./crypto-runtime";
+import { prewarmMembershipSignatures, runtimeChainCrypto } from "./crypto-runtime";
 
 /**
  * Hard cap on how many membership events we load / present. Real shops
@@ -241,15 +241,25 @@ export async function getLocalMembershipState(
   vaultId: string,
   publishedOnly = false,
 ): Promise<MembershipState | null> {
-  const anchorPubkeyB64 = await loadVaultAnchorPubkeyB64(vaultId);
-  if (!anchorPubkeyB64) return null;
-  return foldMembership({
-    vaultId,
-    anchorPubkeyB64,
-    serverWitnessPubkeysB64: await loadPinnedWitnessPubkeysB64(),
-    events: await loadLocalMembershipEvents(vaultId, PROOF_BUNDLE_CAP, publishedOnly),
-    crypto: runtimeChainCrypto,
-  });
+  const readInputs = async () => {
+    const anchorPubkeyB64 = await loadVaultAnchorPubkeyB64(vaultId);
+    if (!anchorPubkeyB64) return null;
+    return {
+      vaultId,
+      anchorPubkeyB64,
+      serverWitnessPubkeysB64: await loadPinnedWitnessPubkeysB64(),
+      events: await loadLocalMembershipEvents(vaultId, PROOF_BUNDLE_CAP, publishedOnly),
+      crypto: runtimeChainCrypto,
+    };
+  };
+  const before = await readInputs();
+  if (!before) return null;
+  await prewarmMembershipSignatures(before.events, before.serverWitnessPubkeysB64);
+  // Native verification runs without a DB transaction. Reload authority
+  // after the await so a newly received removal, tombstone or rotated pin
+  // takes effect even if it arrived while the mathematical checks ran.
+  const current = await readInputs();
+  return current ? foldMembership(current) : null;
 }
 
 // ---------------------------------------------------------------------------

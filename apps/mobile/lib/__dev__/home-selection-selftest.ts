@@ -66,7 +66,15 @@ const router = { push: noop, replace: noop };
 const metadata = new Map<string, string>();
 const pan = () => {
   const chain: any = {};
-  for (const name of ["activeOffsetX", "failOffsetY", "runOnJS", "onUpdate", "onEnd"])
+  for (const name of [
+    "enabled",
+    "activeOffsetX",
+    "failOffsetY",
+    "onStart",
+    "onUpdate",
+    "onEnd",
+    "onFinalize",
+  ])
     chain[name] = () => chain;
   return chain;
 };
@@ -130,6 +138,18 @@ const mocks: Record<string, any> = {
   },
   "@expo/vector-icons": { Ionicons: "Icon" },
   "react-native-gesture-handler": { Gesture: { Pan: pan }, GestureDetector: "GestureDetector" },
+  "react-native-reanimated": {
+    __esModule: true,
+    default: { View: "RailView" },
+    useSharedValue: (value: unknown) => react.useRef({ value }).current,
+    useAnimatedStyle: (read: () => unknown) => read(),
+    withSpring: (target: number) => target,
+    cancelAnimation: noop,
+  },
+  "react-native-worklets": {
+    scheduleOnUI: (work: () => void) => work(),
+    scheduleOnRN: (work: (...args: any[]) => void, ...args: any[]) => work(...args),
+  },
   "react-native-safe-area-context": {
     SafeAreaView: "SafeAreaView",
     useSafeAreaInsets: () => ({ bottom: 0, top: 0 }),

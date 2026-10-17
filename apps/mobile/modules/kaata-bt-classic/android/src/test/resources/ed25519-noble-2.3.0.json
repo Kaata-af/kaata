@@ -1,0 +1,2633 @@
+{
+  "nobleVersion": "2.3.0",
+  "vectors": [
+    {
+      "name": "unicode message",
+      "category": "canonical",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "ZL3O09H9fe9OmurFB0vvQenGi3yBVZC0ba8Qh6DXH0Q30Yq/+ws83DPohcWZjN9XPr7TSNHZE9OcQCVMW5FvDw==",
+      "publicKeyBase64": "WsfrBHTv9cyt5jh+97pGhEGRoIrvta5iKHxspeYseSg=",
+      "noble": true,
+      "requiredNative": true
+    },
+    {
+      "name": "message length 0",
+      "category": "canonical",
+      "messageBase64": "",
+      "signatureBase64": "/Cwe/IdNri7B1GOYXxwNlqVqm/Vgy0A3Dbkl0YpFAGw6NpzN25BErcmeTrlmFt2kyMuV50i8R8TKsiVZ+FHeCA==",
+      "publicKeyBase64": "WsfrBHTv9cyt5jh+97pGhEGRoIrvta5iKHxspeYseSg=",
+      "noble": true,
+      "requiredNative": true
+    },
+    {
+      "name": "message length 1",
+      "category": "canonical",
+      "messageBase64": "AQ==",
+      "signatureBase64": "Vnb3gy+bTDfHt92mURnN9DxPozEhS+t+/m1APhF6ajGR0DLx9EVV6UvX4jbUCzZB/p/AOXJLSlmYUzdujEC/Ag==",
+      "publicKeyBase64": "WsfrBHTv9cyt5jh+97pGhEGRoIrvta5iKHxspeYseSg=",
+      "noble": true,
+      "requiredNative": true
+    },
+    {
+      "name": "message length 2",
+      "category": "canonical",
+      "messageBase64": "Aks=",
+      "signatureBase64": "u9mUAQSEPe+XL9n13bJH+3wCXk+n+vxOmXjjFiLg+O17PBVi9DR0rTa6RRs0Zgv0jzuVt/FD+aQ6mZADsnXiCg==",
+      "publicKeyBase64": "WsfrBHTv9cyt5jh+97pGhEGRoIrvta5iKHxspeYseSg=",
+      "noble": true,
+      "requiredNative": true
+    },
+    {
+      "name": "message length 31",
+      "category": "canonical",
+      "messageBase64": "H2ix+kOM1R5nsPlCi9QdZq/4QYrTHGWu90CJ0htkrQ==",
+      "signatureBase64": "1O1s9MHR8MIoyvYM8u3s+DPO5Ad74u3p7y019nJl/HpAD6yhJ7LZQofrbce781FCS+DjozSrLI4RA9cgqjpBCQ==",
+      "publicKeyBase64": "WsfrBHTv9cyt5jh+97pGhEGRoIrvta5iKHxspeYseSg=",
+      "noble": true,
+      "requiredNative": true
+    },
+    {
+      "name": "message length 255",
+      "category": "canonical",
+      "messageBase64": "/0iR2iNstf5HkNkia7T9Ro/YIWqz/EWO1yBpsvtEjdYfaLH6Q4zVHmew+UKL1B1mr/hBitMcZa73QInSG2St9j+I0RpjrPU+h9AZYqv0PYbPGGGq8zyFzhdgqfI7hM0WX6jxOoPMFV6n8DmCyxRdpu84gcoTXKXuN4DJEluk7TZ/yBFao+w1fscQWaLrNH3GD1ih6jN8xQ5XoOkye8QNVp/oMXrDDFWe5zB5wgtUneYveMEKU5zlLnfACVKb5C12vwhRmuMsdb4HUJniK3S9Bk+Y4SpzvAVOl+ApcrsETZbfKHG6A0yV3idwuQJLlN0mb7gBSpPcJW63AEmS2yRt",
+      "signatureBase64": "99AsmAAEL/Ap8q8LmYp7UzyUW1SSzAhrtZR/3b2Ohuh2O09FDfirh7zCwi7lqAVfGt2YYFvdDwg0E/u1aIIcCQ==",
+      "publicKeyBase64": "WsfrBHTv9cyt5jh+97pGhEGRoIrvta5iKHxspeYseSg=",
+      "noble": true,
+      "requiredNative": true
+    },
+    {
+      "name": "message length 4096",
+      "category": "canonical",
+      "messageBase64": "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",
+      "signatureBase64": "VgkD7EvEvcBVpG8KdZGJN10RSuR5JR5JIRQH109PGLrHJkjlSLFmxoBW93AlVCqjwaSLxQwqZqB16l0NO3gkAw==",
+      "publicKeyBase64": "WsfrBHTv9cyt5jh+97pGhEGRoIrvta5iKHxspeYseSg=",
+      "noble": true,
+      "requiredNative": true
+    },
+    {
+      "name": "message length 16384",
+      "category": "canonical",
+      "messageBase64": "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",
+      "signatureBase64": "JGceOTIYKCiOLpbgmd0jWiJH1+OHKdOJlOgJbzzL6icR8m8fv36pnlyaT+DOD9Kh8fEf31xuhH/V8H7DuOy1DA==",
+      "publicKeyBase64": "WsfrBHTv9cyt5jh+97pGhEGRoIrvta5iKHxspeYseSg=",
+      "noble": true,
+      "requiredNative": true
+    },
+    {
+      "name": "deterministic random valid 0",
+      "category": "random-valid",
+      "messageBase64": "",
+      "signatureBase64": "M3s6wc8yeHdfoMpt9Y9FVZbrx6EQD4FYKEa+8j1feRdWQzxqwbmEGDQzzbbCh33Gb5EiwlGrOVUhQ/CofLvDDQ==",
+      "publicKeyBase64": "G57LYHLf94IkWLrUzut1TF8I8ztdAPHWZsoUkGo1714=",
+      "noble": true,
+      "requiredNative": true
+    },
+    {
+      "name": "tampered message 0",
+      "category": "tampered",
+      "messageBase64": "Yw==",
+      "signatureBase64": "M3s6wc8yeHdfoMpt9Y9FVZbrx6EQD4FYKEa+8j1feRdWQzxqwbmEGDQzzbbCh33Gb5EiwlGrOVUhQ/CofLvDDQ==",
+      "publicKeyBase64": "G57LYHLf94IkWLrUzut1TF8I8ztdAPHWZsoUkGo1714=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "tampered signature 0",
+      "category": "tampered",
+      "messageBase64": "",
+      "signatureBase64": "Mns6wc8yeHdfoMpt9Y9FVZbrx6EQD4FYKEa+8j1feRdWQzxqwbmEGDQzzbbCh33Gb5EiwlGrOVUhQ/CofLvDDQ==",
+      "publicKeyBase64": "G57LYHLf94IkWLrUzut1TF8I8ztdAPHWZsoUkGo1714=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "wrong public key 0",
+      "category": "tampered",
+      "messageBase64": "",
+      "signatureBase64": "M3s6wc8yeHdfoMpt9Y9FVZbrx6EQD4FYKEa+8j1feRdWQzxqwbmEGDQzzbbCh33Gb5EiwlGrOVUhQ/CofLvDDQ==",
+      "publicKeyBase64": "WsfrBHTv9cyt5jh+97pGhEGRoIrvta5iKHxspeYseSg=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "deterministic random valid 1",
+      "category": "random-valid",
+      "messageBase64": "GDDyNoMMT9Ngm00=",
+      "signatureBase64": "xh9o247E6DcLpfzEXoeoL2ZskB5rrJW39GmjsG4JrEw72AUpHBa2m8pgqspwQKeH0Nima6KJlLdldth3XdbDCg==",
+      "publicKeyBase64": "eC3FUVNx9HNwl4eCTsO1rTjo63toEHPrXcwCVl0RvEY=",
+      "noble": true,
+      "requiredNative": true
+    },
+    {
+      "name": "tampered message 1",
+      "category": "tampered",
+      "messageBase64": "GDDyNoMMT9Ngm01j",
+      "signatureBase64": "xh9o247E6DcLpfzEXoeoL2ZskB5rrJW39GmjsG4JrEw72AUpHBa2m8pgqspwQKeH0Nima6KJlLdldth3XdbDCg==",
+      "publicKeyBase64": "eC3FUVNx9HNwl4eCTsO1rTjo63toEHPrXcwCVl0RvEY=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "tampered signature 1",
+      "category": "tampered",
+      "messageBase64": "GDDyNoMMT9Ngm00=",
+      "signatureBase64": "xh5o247E6DcLpfzEXoeoL2ZskB5rrJW39GmjsG4JrEw72AUpHBa2m8pgqspwQKeH0Nima6KJlLdldth3XdbDCg==",
+      "publicKeyBase64": "eC3FUVNx9HNwl4eCTsO1rTjo63toEHPrXcwCVl0RvEY=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "wrong public key 1",
+      "category": "tampered",
+      "messageBase64": "GDDyNoMMT9Ngm00=",
+      "signatureBase64": "xh9o247E6DcLpfzEXoeoL2ZskB5rrJW39GmjsG4JrEw72AUpHBa2m8pgqspwQKeH0Nima6KJlLdldth3XdbDCg==",
+      "publicKeyBase64": "WsfrBHTv9cyt5jh+97pGhEGRoIrvta5iKHxspeYseSg=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "deterministic random valid 2",
+      "category": "random-valid",
+      "messageBase64": "BhbrDnkp/atRxGLK0aH0je8uakRHxw==",
+      "signatureBase64": "+EQQcU+shR04MAhsKMhBQnK+Qt5bkShVzTxfS6c2eMg3UW40PRPqaC2jYa3CEgh01FRckuXCoJz8S2PQewOEBw==",
+      "publicKeyBase64": "7cpxqv0oiLQjvwc2f1AFGifoQQKVEcsOwtTfu2ApGgc=",
+      "noble": true,
+      "requiredNative": true
+    },
+    {
+      "name": "tampered message 2",
+      "category": "tampered",
+      "messageBase64": "BhbrDnkp/atRxGLK0aH0je8uakRHx2M=",
+      "signatureBase64": "+EQQcU+shR04MAhsKMhBQnK+Qt5bkShVzTxfS6c2eMg3UW40PRPqaC2jYa3CEgh01FRckuXCoJz8S2PQewOEBw==",
+      "publicKeyBase64": "7cpxqv0oiLQjvwc2f1AFGifoQQKVEcsOwtTfu2ApGgc=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "tampered signature 2",
+      "category": "tampered",
+      "messageBase64": "BhbrDnkp/atRxGLK0aH0je8uakRHxw==",
+      "signatureBase64": "+EQRcU+shR04MAhsKMhBQnK+Qt5bkShVzTxfS6c2eMg3UW40PRPqaC2jYa3CEgh01FRckuXCoJz8S2PQewOEBw==",
+      "publicKeyBase64": "7cpxqv0oiLQjvwc2f1AFGifoQQKVEcsOwtTfu2ApGgc=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "wrong public key 2",
+      "category": "tampered",
+      "messageBase64": "BhbrDnkp/atRxGLK0aH0je8uakRHxw==",
+      "signatureBase64": "+EQQcU+shR04MAhsKMhBQnK+Qt5bkShVzTxfS6c2eMg3UW40PRPqaC2jYa3CEgh01FRckuXCoJz8S2PQewOEBw==",
+      "publicKeyBase64": "WsfrBHTv9cyt5jh+97pGhEGRoIrvta5iKHxspeYseSg=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "deterministic random valid 3",
+      "category": "random-valid",
+      "messageBase64": "P9+ql3GYrjCuR11vjlJy/vwV28NDK3YqvTIiMMnnrbHf",
+      "signatureBase64": "E3kkwy1pZH5gk7kRTMuRMqux1epca5j8Nrj1+9yksCXdvxvG/folZ1wQOliV4V3AdkguuI9aVHQ6JtDcAtBRDQ==",
+      "publicKeyBase64": "yssb9UjKKK75z+go/a9bHbc5Q+BeopEMByUkgNZ+Ehk=",
+      "noble": true,
+      "requiredNative": true
+    },
+    {
+      "name": "tampered message 3",
+      "category": "tampered",
+      "messageBase64": "P9+ql3GYrjCuR11vjlJy/vwV28NDK3YqvTIiMMnnrbHfYw==",
+      "signatureBase64": "E3kkwy1pZH5gk7kRTMuRMqux1epca5j8Nrj1+9yksCXdvxvG/folZ1wQOliV4V3AdkguuI9aVHQ6JtDcAtBRDQ==",
+      "publicKeyBase64": "yssb9UjKKK75z+go/a9bHbc5Q+BeopEMByUkgNZ+Ehk=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "tampered signature 3",
+      "category": "tampered",
+      "messageBase64": "P9+ql3GYrjCuR11vjlJy/vwV28NDK3YqvTIiMMnnrbHf",
+      "signatureBase64": "E3kkwi1pZH5gk7kRTMuRMqux1epca5j8Nrj1+9yksCXdvxvG/folZ1wQOliV4V3AdkguuI9aVHQ6JtDcAtBRDQ==",
+      "publicKeyBase64": "yssb9UjKKK75z+go/a9bHbc5Q+BeopEMByUkgNZ+Ehk=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "wrong public key 3",
+      "category": "tampered",
+      "messageBase64": "P9+ql3GYrjCuR11vjlJy/vwV28NDK3YqvTIiMMnnrbHf",
+      "signatureBase64": "E3kkwy1pZH5gk7kRTMuRMqux1epca5j8Nrj1+9yksCXdvxvG/folZ1wQOliV4V3AdkguuI9aVHQ6JtDcAtBRDQ==",
+      "publicKeyBase64": "WsfrBHTv9cyt5jh+97pGhEGRoIrvta5iKHxspeYseSg=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "deterministic random valid 4",
+      "category": "random-valid",
+      "messageBase64": "WjA5XLWuwdhJ1v8yjoj/9qH1D7FFzSgcrUMH/WtsuHsBSOkYbWBsoa77wLY=",
+      "signatureBase64": "d5/9qWxwn1c2Iu5OdUFh3ybcGT2fSdxcJfb7fP3D23ZQnEPRpBCI+vqvC4sTESVkJ6rzpUsm/AzD/MB6S6nCCQ==",
+      "publicKeyBase64": "HvP7hECOBYqnXLrMH/dAMZNAupqBFl76NXcakbnDFm0=",
+      "noble": true,
+      "requiredNative": true
+    },
+    {
+      "name": "tampered message 4",
+      "category": "tampered",
+      "messageBase64": "WjA5XLWuwdhJ1v8yjoj/9qH1D7FFzSgcrUMH/WtsuHsBSOkYbWBsoa77wLZj",
+      "signatureBase64": "d5/9qWxwn1c2Iu5OdUFh3ybcGT2fSdxcJfb7fP3D23ZQnEPRpBCI+vqvC4sTESVkJ6rzpUsm/AzD/MB6S6nCCQ==",
+      "publicKeyBase64": "HvP7hECOBYqnXLrMH/dAMZNAupqBFl76NXcakbnDFm0=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "tampered signature 4",
+      "category": "tampered",
+      "messageBase64": "WjA5XLWuwdhJ1v8yjoj/9qH1D7FFzSgcrUMH/WtsuHsBSOkYbWBsoa77wLY=",
+      "signatureBase64": "d5/9qW1wn1c2Iu5OdUFh3ybcGT2fSdxcJfb7fP3D23ZQnEPRpBCI+vqvC4sTESVkJ6rzpUsm/AzD/MB6S6nCCQ==",
+      "publicKeyBase64": "HvP7hECOBYqnXLrMH/dAMZNAupqBFl76NXcakbnDFm0=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "wrong public key 4",
+      "category": "tampered",
+      "messageBase64": "WjA5XLWuwdhJ1v8yjoj/9qH1D7FFzSgcrUMH/WtsuHsBSOkYbWBsoa77wLY=",
+      "signatureBase64": "d5/9qWxwn1c2Iu5OdUFh3ybcGT2fSdxcJfb7fP3D23ZQnEPRpBCI+vqvC4sTESVkJ6rzpUsm/AzD/MB6S6nCCQ==",
+      "publicKeyBase64": "WsfrBHTv9cyt5jh+97pGhEGRoIrvta5iKHxspeYseSg=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "deterministic random valid 5",
+      "category": "random-valid",
+      "messageBase64": "M9lS+EXjySPTqIE+CN4zUNIsR71ccoiZkKMdle65XyFvRhb7cMmHCVlnkRL6t/qSgwCTaARNjg==",
+      "signatureBase64": "/ZqXavW/uWGSFvYxk18tPnRR5SBBtu4lo4FIZlG5zhWyjUobFDyUzcT2Um5XZB2/7Tmg3/T8G4rBD5CMyR1zBg==",
+      "publicKeyBase64": "ZWJ5hF6VLvHdKdxb9a8bTDbHSaLJJ658DNQe0pifOWg=",
+      "noble": true,
+      "requiredNative": true
+    },
+    {
+      "name": "tampered message 5",
+      "category": "tampered",
+      "messageBase64": "M9lS+EXjySPTqIE+CN4zUNIsR71ccoiZkKMdle65XyFvRhb7cMmHCVlnkRL6t/qSgwCTaARNjmM=",
+      "signatureBase64": "/ZqXavW/uWGSFvYxk18tPnRR5SBBtu4lo4FIZlG5zhWyjUobFDyUzcT2Um5XZB2/7Tmg3/T8G4rBD5CMyR1zBg==",
+      "publicKeyBase64": "ZWJ5hF6VLvHdKdxb9a8bTDbHSaLJJ658DNQe0pifOWg=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "tampered signature 5",
+      "category": "tampered",
+      "messageBase64": "M9lS+EXjySPTqIE+CN4zUNIsR71ccoiZkKMdle65XyFvRhb7cMmHCVlnkRL6t/qSgwCTaARNjg==",
+      "signatureBase64": "/ZqXavW+uWGSFvYxk18tPnRR5SBBtu4lo4FIZlG5zhWyjUobFDyUzcT2Um5XZB2/7Tmg3/T8G4rBD5CMyR1zBg==",
+      "publicKeyBase64": "ZWJ5hF6VLvHdKdxb9a8bTDbHSaLJJ658DNQe0pifOWg=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "wrong public key 5",
+      "category": "tampered",
+      "messageBase64": "M9lS+EXjySPTqIE+CN4zUNIsR71ccoiZkKMdle65XyFvRhb7cMmHCVlnkRL6t/qSgwCTaARNjg==",
+      "signatureBase64": "/ZqXavW/uWGSFvYxk18tPnRR5SBBtu4lo4FIZlG5zhWyjUobFDyUzcT2Um5XZB2/7Tmg3/T8G4rBD5CMyR1zBg==",
+      "publicKeyBase64": "WsfrBHTv9cyt5jh+97pGhEGRoIrvta5iKHxspeYseSg=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "deterministic random valid 6",
+      "category": "random-valid",
+      "messageBase64": "mp0=",
+      "signatureBase64": "WPyAsAM1wZcy4YI7bsizUpwlZMtB2nO6O6dVhK4YIDwEnAd4clkUAo0p1Jl7ng9/1SdyRWobJkTQD0lyPGaeCA==",
+      "publicKeyBase64": "b0gb7nQJJmQ6FzDtJF0jZVf3Yy5SZA4RZ8FPfZZt9iA=",
+      "noble": true,
+      "requiredNative": true
+    },
+    {
+      "name": "tampered message 6",
+      "category": "tampered",
+      "messageBase64": "mp1j",
+      "signatureBase64": "WPyAsAM1wZcy4YI7bsizUpwlZMtB2nO6O6dVhK4YIDwEnAd4clkUAo0p1Jl7ng9/1SdyRWobJkTQD0lyPGaeCA==",
+      "publicKeyBase64": "b0gb7nQJJmQ6FzDtJF0jZVf3Yy5SZA4RZ8FPfZZt9iA=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "tampered signature 6",
+      "category": "tampered",
+      "messageBase64": "mp0=",
+      "signatureBase64": "WPyAsAM1wJcy4YI7bsizUpwlZMtB2nO6O6dVhK4YIDwEnAd4clkUAo0p1Jl7ng9/1SdyRWobJkTQD0lyPGaeCA==",
+      "publicKeyBase64": "b0gb7nQJJmQ6FzDtJF0jZVf3Yy5SZA4RZ8FPfZZt9iA=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "wrong public key 6",
+      "category": "tampered",
+      "messageBase64": "mp0=",
+      "signatureBase64": "WPyAsAM1wZcy4YI7bsizUpwlZMtB2nO6O6dVhK4YIDwEnAd4clkUAo0p1Jl7ng9/1SdyRWobJkTQD0lyPGaeCA==",
+      "publicKeyBase64": "WsfrBHTv9cyt5jh+97pGhEGRoIrvta5iKHxspeYseSg=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "deterministic random valid 7",
+      "category": "random-valid",
+      "messageBase64": "c+Xhxy8hCgXCxdlifQ==",
+      "signatureBase64": "Dph3onDxtcXmbgQ0lSK4MYizvayPEk8tdS2bkL74hmWca3EXftew6+zZx+wb4qmUvTNPtp6/SqFSIM73SXvYDw==",
+      "publicKeyBase64": "y1+od3XGiBa9ub9f9TUo/zTDNkg7QQ9HRi01C2SeaNg=",
+      "noble": true,
+      "requiredNative": true
+    },
+    {
+      "name": "tampered message 7",
+      "category": "tampered",
+      "messageBase64": "c+Xhxy8hCgXCxdlifWM=",
+      "signatureBase64": "Dph3onDxtcXmbgQ0lSK4MYizvayPEk8tdS2bkL74hmWca3EXftew6+zZx+wb4qmUvTNPtp6/SqFSIM73SXvYDw==",
+      "publicKeyBase64": "y1+od3XGiBa9ub9f9TUo/zTDNkg7QQ9HRi01C2SeaNg=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "tampered signature 7",
+      "category": "tampered",
+      "messageBase64": "c+Xhxy8hCgXCxdlifQ==",
+      "signatureBase64": "Dph3onDxtcTmbgQ0lSK4MYizvayPEk8tdS2bkL74hmWca3EXftew6+zZx+wb4qmUvTNPtp6/SqFSIM73SXvYDw==",
+      "publicKeyBase64": "y1+od3XGiBa9ub9f9TUo/zTDNkg7QQ9HRi01C2SeaNg=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "wrong public key 7",
+      "category": "tampered",
+      "messageBase64": "c+Xhxy8hCgXCxdlifQ==",
+      "signatureBase64": "Dph3onDxtcXmbgQ0lSK4MYizvayPEk8tdS2bkL74hmWca3EXftew6+zZx+wb4qmUvTNPtp6/SqFSIM73SXvYDw==",
+      "publicKeyBase64": "WsfrBHTv9cyt5jh+97pGhEGRoIrvta5iKHxspeYseSg=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "deterministic random valid 8",
+      "category": "random-valid",
+      "messageBase64": "ZaSe73lyn7qHJxHLAUN2i57D9Y7hSkat",
+      "signatureBase64": "lh+TNw8h70WnjvAwr4OZYTQb+VZ4/cg/4AEDk7o8XPgGDKs2EtdY5TE0nwz64qQ03Z/QKftsXWEx7eHFPY0aBA==",
+      "publicKeyBase64": "K8TlVDEjBG/Qw4efYi2OmwlwoaamuHovfPPNjWHVetY=",
+      "noble": true,
+      "requiredNative": true
+    },
+    {
+      "name": "tampered message 8",
+      "category": "tampered",
+      "messageBase64": "ZaSe73lyn7qHJxHLAUN2i57D9Y7hSkatYw==",
+      "signatureBase64": "lh+TNw8h70WnjvAwr4OZYTQb+VZ4/cg/4AEDk7o8XPgGDKs2EtdY5TE0nwz64qQ03Z/QKftsXWEx7eHFPY0aBA==",
+      "publicKeyBase64": "K8TlVDEjBG/Qw4efYi2OmwlwoaamuHovfPPNjWHVetY=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "tampered signature 8",
+      "category": "tampered",
+      "messageBase64": "ZaSe73lyn7qHJxHLAUN2i57D9Y7hSkat",
+      "signatureBase64": "lh+TNw8h70WmjvAwr4OZYTQb+VZ4/cg/4AEDk7o8XPgGDKs2EtdY5TE0nwz64qQ03Z/QKftsXWEx7eHFPY0aBA==",
+      "publicKeyBase64": "K8TlVDEjBG/Qw4efYi2OmwlwoaamuHovfPPNjWHVetY=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "wrong public key 8",
+      "category": "tampered",
+      "messageBase64": "ZaSe73lyn7qHJxHLAUN2i57D9Y7hSkat",
+      "signatureBase64": "lh+TNw8h70WnjvAwr4OZYTQb+VZ4/cg/4AEDk7o8XPgGDKs2EtdY5TE0nwz64qQ03Z/QKftsXWEx7eHFPY0aBA==",
+      "publicKeyBase64": "WsfrBHTv9cyt5jh+97pGhEGRoIrvta5iKHxspeYseSg=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "deterministic random valid 9",
+      "category": "random-valid",
+      "messageBase64": "zbaULwnBR2yRAvGFgG8dKV/UoaGWFs62T9Af7k9BKsUZQtE=",
+      "signatureBase64": "mqW+EJiyf9Pkdz3STZsEtISFuPiX6DPMTTysubI+PLXnSYYEojuOMb/IwP0br5lm7ZHXs4uog3Ja/StWEjQgBQ==",
+      "publicKeyBase64": "P+Y+e7acVk5lIdTQqwH2pvVsjYGl3HFc7EKgsajsDw8=",
+      "noble": true,
+      "requiredNative": true
+    },
+    {
+      "name": "tampered message 9",
+      "category": "tampered",
+      "messageBase64": "zbaULwnBR2yRAvGFgG8dKV/UoaGWFs62T9Af7k9BKsUZQtFj",
+      "signatureBase64": "mqW+EJiyf9Pkdz3STZsEtISFuPiX6DPMTTysubI+PLXnSYYEojuOMb/IwP0br5lm7ZHXs4uog3Ja/StWEjQgBQ==",
+      "publicKeyBase64": "P+Y+e7acVk5lIdTQqwH2pvVsjYGl3HFc7EKgsajsDw8=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "tampered signature 9",
+      "category": "tampered",
+      "messageBase64": "zbaULwnBR2yRAvGFgG8dKV/UoaGWFs62T9Af7k9BKsUZQtE=",
+      "signatureBase64": "mqW+EJiyf9Pkdj3STZsEtISFuPiX6DPMTTysubI+PLXnSYYEojuOMb/IwP0br5lm7ZHXs4uog3Ja/StWEjQgBQ==",
+      "publicKeyBase64": "P+Y+e7acVk5lIdTQqwH2pvVsjYGl3HFc7EKgsajsDw8=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "wrong public key 9",
+      "category": "tampered",
+      "messageBase64": "zbaULwnBR2yRAvGFgG8dKV/UoaGWFs62T9Af7k9BKsUZQtE=",
+      "signatureBase64": "mqW+EJiyf9Pkdz3STZsEtISFuPiX6DPMTTysubI+PLXnSYYEojuOMb/IwP0br5lm7ZHXs4uog3Ja/StWEjQgBQ==",
+      "publicKeyBase64": "WsfrBHTv9cyt5jh+97pGhEGRoIrvta5iKHxspeYseSg=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "deterministic random valid 10",
+      "category": "random-valid",
+      "messageBase64": "Aqj6GHu9i6ndiurSzYI7aY7OpJDDuQ3qQQZehk+1b/TeveAtUdUGwLOoNYD2UA==",
+      "signatureBase64": "BzYfDhTRtBiNzA5tsY+qOWNZ32hA53rPGwrDJ/Jm3t1gfMri4b4xhdiziceaNzuEYw3Hc++FAQz+hIEuvAXBAg==",
+      "publicKeyBase64": "JARRjBVVwzCZoQ10a+0YIKm9EJcRAZ/tpijWRkcLU+M=",
+      "noble": true,
+      "requiredNative": true
+    },
+    {
+      "name": "tampered message 10",
+      "category": "tampered",
+      "messageBase64": "Aqj6GHu9i6ndiurSzYI7aY7OpJDDuQ3qQQZehk+1b/TeveAtUdUGwLOoNYD2UGM=",
+      "signatureBase64": "BzYfDhTRtBiNzA5tsY+qOWNZ32hA53rPGwrDJ/Jm3t1gfMri4b4xhdiziceaNzuEYw3Hc++FAQz+hIEuvAXBAg==",
+      "publicKeyBase64": "JARRjBVVwzCZoQ10a+0YIKm9EJcRAZ/tpijWRkcLU+M=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "tampered signature 10",
+      "category": "tampered",
+      "messageBase64": "Aqj6GHu9i6ndiurSzYI7aY7OpJDDuQ3qQQZehk+1b/TeveAtUdUGwLOoNYD2UA==",
+      "signatureBase64": "BzYfDhTRtBiNzA9tsY+qOWNZ32hA53rPGwrDJ/Jm3t1gfMri4b4xhdiziceaNzuEYw3Hc++FAQz+hIEuvAXBAg==",
+      "publicKeyBase64": "JARRjBVVwzCZoQ10a+0YIKm9EJcRAZ/tpijWRkcLU+M=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "wrong public key 10",
+      "category": "tampered",
+      "messageBase64": "Aqj6GHu9i6ndiurSzYI7aY7OpJDDuQ3qQQZehk+1b/TeveAtUdUGwLOoNYD2UA==",
+      "signatureBase64": "BzYfDhTRtBiNzA5tsY+qOWNZ32hA53rPGwrDJ/Jm3t1gfMri4b4xhdiziceaNzuEYw3Hc++FAQz+hIEuvAXBAg==",
+      "publicKeyBase64": "WsfrBHTv9cyt5jh+97pGhEGRoIrvta5iKHxspeYseSg=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "deterministic random valid 11",
+      "category": "random-valid",
+      "messageBase64": "EuI4WeBFqgmwTYT4jvecaooIfnbucnopCaLQcBP+UUwe7k6LVgU4osqFiKs96+zob7jPYQDitOuB",
+      "signatureBase64": "VJcyqX3+/haHYQ05cl0WQpsZXEAooFrWAsCdplQCYK9kpX92S07pr3HNKwrA+8nYfOIQkeIw2IEQrN0oUfOJAw==",
+      "publicKeyBase64": "krFfwlHYRtBmeeWrr/cYHD00oZXAzeRSYetAUO0RyBw=",
+      "noble": true,
+      "requiredNative": true
+    },
+    {
+      "name": "tampered message 11",
+      "category": "tampered",
+      "messageBase64": "EuI4WeBFqgmwTYT4jvecaooIfnbucnopCaLQcBP+UUwe7k6LVgU4osqFiKs96+zob7jPYQDitOuBYw==",
+      "signatureBase64": "VJcyqX3+/haHYQ05cl0WQpsZXEAooFrWAsCdplQCYK9kpX92S07pr3HNKwrA+8nYfOIQkeIw2IEQrN0oUfOJAw==",
+      "publicKeyBase64": "krFfwlHYRtBmeeWrr/cYHD00oZXAzeRSYetAUO0RyBw=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "tampered signature 11",
+      "category": "tampered",
+      "messageBase64": "EuI4WeBFqgmwTYT4jvecaooIfnbucnopCaLQcBP+UUwe7k6LVgU4osqFiKs96+zob7jPYQDitOuB",
+      "signatureBase64": "VJcyqX3+/haHYQ04cl0WQpsZXEAooFrWAsCdplQCYK9kpX92S07pr3HNKwrA+8nYfOIQkeIw2IEQrN0oUfOJAw==",
+      "publicKeyBase64": "krFfwlHYRtBmeeWrr/cYHD00oZXAzeRSYetAUO0RyBw=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "wrong public key 11",
+      "category": "tampered",
+      "messageBase64": "EuI4WeBFqgmwTYT4jvecaooIfnbucnopCaLQcBP+UUwe7k6LVgU4osqFiKs96+zob7jPYQDitOuB",
+      "signatureBase64": "VJcyqX3+/haHYQ05cl0WQpsZXEAooFrWAsCdplQCYK9kpX92S07pr3HNKwrA+8nYfOIQkeIw2IEQrN0oUfOJAw==",
+      "publicKeyBase64": "WsfrBHTv9cyt5jh+97pGhEGRoIrvta5iKHxspeYseSg=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "deterministic random valid 12",
+      "category": "random-valid",
+      "messageBase64": "LWFfVw==",
+      "signatureBase64": "34TVrg6H+tbrKe6mM8K7b0162GLvgDwO0eSnMe/xpJ6aHevV6Qc6fIMPYjC3DGR1QK2KgevkwhJV0yphiaxVBA==",
+      "publicKeyBase64": "v60lN5hZVGpwn61ND9thC+Cc5THVaEoEmX2JZAhD6io=",
+      "noble": true,
+      "requiredNative": true
+    },
+    {
+      "name": "tampered message 12",
+      "category": "tampered",
+      "messageBase64": "LWFfV2M=",
+      "signatureBase64": "34TVrg6H+tbrKe6mM8K7b0162GLvgDwO0eSnMe/xpJ6aHevV6Qc6fIMPYjC3DGR1QK2KgevkwhJV0yphiaxVBA==",
+      "publicKeyBase64": "v60lN5hZVGpwn61ND9thC+Cc5THVaEoEmX2JZAhD6io=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "tampered signature 12",
+      "category": "tampered",
+      "messageBase64": "LWFfVw==",
+      "signatureBase64": "34TVrg6H+tbrKe6mMsK7b0162GLvgDwO0eSnMe/xpJ6aHevV6Qc6fIMPYjC3DGR1QK2KgevkwhJV0yphiaxVBA==",
+      "publicKeyBase64": "v60lN5hZVGpwn61ND9thC+Cc5THVaEoEmX2JZAhD6io=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "wrong public key 12",
+      "category": "tampered",
+      "messageBase64": "LWFfVw==",
+      "signatureBase64": "34TVrg6H+tbrKe6mM8K7b0162GLvgDwO0eSnMe/xpJ6aHevV6Qc6fIMPYjC3DGR1QK2KgevkwhJV0yphiaxVBA==",
+      "publicKeyBase64": "WsfrBHTv9cyt5jh+97pGhEGRoIrvta5iKHxspeYseSg=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "deterministic random valid 13",
+      "category": "random-valid",
+      "messageBase64": "3SeG0zcrCtQE9iXDB+CF",
+      "signatureBase64": "HkbZMMiqLk9w/q2g+sk/E6HExlcMwYTT3KB2J1OpMTRk56clQRl2/6szIjfUy938wuidXUPWXD0krt5v3roxCw==",
+      "publicKeyBase64": "QivLWqSclZSGryBiZAWFE7sHLskW79sbG59MorJcJ1M=",
+      "noble": true,
+      "requiredNative": true
+    },
+    {
+      "name": "tampered message 13",
+      "category": "tampered",
+      "messageBase64": "3SeG0zcrCtQE9iXDB+CFYw==",
+      "signatureBase64": "HkbZMMiqLk9w/q2g+sk/E6HExlcMwYTT3KB2J1OpMTRk56clQRl2/6szIjfUy938wuidXUPWXD0krt5v3roxCw==",
+      "publicKeyBase64": "QivLWqSclZSGryBiZAWFE7sHLskW79sbG59MorJcJ1M=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "tampered signature 13",
+      "category": "tampered",
+      "messageBase64": "3SeG0zcrCtQE9iXDB+CF",
+      "signatureBase64": "HkbZMMiqLk9w/q2g+sg/E6HExlcMwYTT3KB2J1OpMTRk56clQRl2/6szIjfUy938wuidXUPWXD0krt5v3roxCw==",
+      "publicKeyBase64": "QivLWqSclZSGryBiZAWFE7sHLskW79sbG59MorJcJ1M=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "wrong public key 13",
+      "category": "tampered",
+      "messageBase64": "3SeG0zcrCtQE9iXDB+CF",
+      "signatureBase64": "HkbZMMiqLk9w/q2g+sk/E6HExlcMwYTT3KB2J1OpMTRk56clQRl2/6szIjfUy938wuidXUPWXD0krt5v3roxCw==",
+      "publicKeyBase64": "WsfrBHTv9cyt5jh+97pGhEGRoIrvta5iKHxspeYseSg=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "deterministic random valid 14",
+      "category": "random-valid",
+      "messageBase64": "9CupophKzLRwhMcGRhHGNwQn/5zJVUGqq+U=",
+      "signatureBase64": "u6E6norfivFdIm4yflpoHljuYF8dpYnFYEmEN69yBlyGblUBw9lsqFxOz1Rl8upKRIXvAzg44iNn7R2+4mowCw==",
+      "publicKeyBase64": "0438ibLF55yVS/WoHFgaTkLhk0jni2S/j87TJlPxfQM=",
+      "noble": true,
+      "requiredNative": true
+    },
+    {
+      "name": "tampered message 14",
+      "category": "tampered",
+      "messageBase64": "9CupophKzLRwhMcGRhHGNwQn/5zJVUGqq+Vj",
+      "signatureBase64": "u6E6norfivFdIm4yflpoHljuYF8dpYnFYEmEN69yBlyGblUBw9lsqFxOz1Rl8upKRIXvAzg44iNn7R2+4mowCw==",
+      "publicKeyBase64": "0438ibLF55yVS/WoHFgaTkLhk0jni2S/j87TJlPxfQM=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "tampered signature 14",
+      "category": "tampered",
+      "messageBase64": "9CupophKzLRwhMcGRhHGNwQn/5zJVUGqq+U=",
+      "signatureBase64": "u6E6norfivFdIm4yflppHljuYF8dpYnFYEmEN69yBlyGblUBw9lsqFxOz1Rl8upKRIXvAzg44iNn7R2+4mowCw==",
+      "publicKeyBase64": "0438ibLF55yVS/WoHFgaTkLhk0jni2S/j87TJlPxfQM=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "wrong public key 14",
+      "category": "tampered",
+      "messageBase64": "9CupophKzLRwhMcGRhHGNwQn/5zJVUGqq+U=",
+      "signatureBase64": "u6E6norfivFdIm4yflpoHljuYF8dpYnFYEmEN69yBlyGblUBw9lsqFxOz1Rl8upKRIXvAzg44iNn7R2+4mowCw==",
+      "publicKeyBase64": "WsfrBHTv9cyt5jh+97pGhEGRoIrvta5iKHxspeYseSg=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "deterministic random valid 15",
+      "category": "random-valid",
+      "messageBase64": "fJZXkva+8ZGYeJvnUS3xWOh26MZQTD9Njte5117jyphEOPsIrA==",
+      "signatureBase64": "9rvHWZIkuPy61F5SHSGuZKUVe/vBxLQm1gP1JF0WctSjjVvpbb6OZ/WLdhPY2T4HIgQp/wZzyzS2jG5PwcTnDQ==",
+      "publicKeyBase64": "v2xdXr5sA9kOAem6D1/LPHEyVUBKDnIqAtFg/H1CSqE=",
+      "noble": true,
+      "requiredNative": true
+    },
+    {
+      "name": "tampered message 15",
+      "category": "tampered",
+      "messageBase64": "fJZXkva+8ZGYeJvnUS3xWOh26MZQTD9Njte5117jyphEOPsIrGM=",
+      "signatureBase64": "9rvHWZIkuPy61F5SHSGuZKUVe/vBxLQm1gP1JF0WctSjjVvpbb6OZ/WLdhPY2T4HIgQp/wZzyzS2jG5PwcTnDQ==",
+      "publicKeyBase64": "v2xdXr5sA9kOAem6D1/LPHEyVUBKDnIqAtFg/H1CSqE=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "tampered signature 15",
+      "category": "tampered",
+      "messageBase64": "fJZXkva+8ZGYeJvnUS3xWOh26MZQTD9Njte5117jyphEOPsIrA==",
+      "signatureBase64": "9rvHWZIkuPy61F5SHSGuZaUVe/vBxLQm1gP1JF0WctSjjVvpbb6OZ/WLdhPY2T4HIgQp/wZzyzS2jG5PwcTnDQ==",
+      "publicKeyBase64": "v2xdXr5sA9kOAem6D1/LPHEyVUBKDnIqAtFg/H1CSqE=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "wrong public key 15",
+      "category": "tampered",
+      "messageBase64": "fJZXkva+8ZGYeJvnUS3xWOh26MZQTD9Njte5117jyphEOPsIrA==",
+      "signatureBase64": "9rvHWZIkuPy61F5SHSGuZKUVe/vBxLQm1gP1JF0WctSjjVvpbb6OZ/WLdhPY2T4HIgQp/wZzyzS2jG5PwcTnDQ==",
+      "publicKeyBase64": "WsfrBHTv9cyt5jh+97pGhEGRoIrvta5iKHxspeYseSg=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "deterministic random valid 16",
+      "category": "random-valid",
+      "messageBase64": "e84Ytga5kzF7PuyNc6mv5qF6VMfEq383XfIgk7/EZ3UQeuNDpxKNRyCYL5Dcx4ZO",
+      "signatureBase64": "I4iBnt95SxtpnqoASe4ZE9pU1fiFfpL8KSa8722tASoq7aqDq9IdmNUs/9UBXZM6vaQdFJ+j+AN/9hIQC4GMBg==",
+      "publicKeyBase64": "WPjrfOj4EM1kktUQUo+ChoNeM9rCX+KgxY8hmpGB8Ew=",
+      "noble": true,
+      "requiredNative": true
+    },
+    {
+      "name": "tampered message 16",
+      "category": "tampered",
+      "messageBase64": "e84Ytga5kzF7PuyNc6mv5qF6VMfEq383XfIgk7/EZ3UQeuNDpxKNRyCYL5Dcx4ZOYw==",
+      "signatureBase64": "I4iBnt95SxtpnqoASe4ZE9pU1fiFfpL8KSa8722tASoq7aqDq9IdmNUs/9UBXZM6vaQdFJ+j+AN/9hIQC4GMBg==",
+      "publicKeyBase64": "WPjrfOj4EM1kktUQUo+ChoNeM9rCX+KgxY8hmpGB8Ew=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "tampered signature 16",
+      "category": "tampered",
+      "messageBase64": "e84Ytga5kzF7PuyNc6mv5qF6VMfEq383XfIgk7/EZ3UQeuNDpxKNRyCYL5Dcx4ZO",
+      "signatureBase64": "I4iBnt95SxtpnqoASe4ZE9tU1fiFfpL8KSa8722tASoq7aqDq9IdmNUs/9UBXZM6vaQdFJ+j+AN/9hIQC4GMBg==",
+      "publicKeyBase64": "WPjrfOj4EM1kktUQUo+ChoNeM9rCX+KgxY8hmpGB8Ew=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "wrong public key 16",
+      "category": "tampered",
+      "messageBase64": "e84Ytga5kzF7PuyNc6mv5qF6VMfEq383XfIgk7/EZ3UQeuNDpxKNRyCYL5Dcx4ZO",
+      "signatureBase64": "I4iBnt95SxtpnqoASe4ZE9pU1fiFfpL8KSa8722tASoq7aqDq9IdmNUs/9UBXZM6vaQdFJ+j+AN/9hIQC4GMBg==",
+      "publicKeyBase64": "WsfrBHTv9cyt5jh+97pGhEGRoIrvta5iKHxspeYseSg=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "deterministic random valid 17",
+      "category": "random-valid",
+      "messageBase64": "HdD8zJMX0o94ZghzR2IZ+E0/vS4+cHdN+6S1wkDEdSK6e6IuQgQnzbIQ2nhZ1X15+WUQeOguqegEL0g=",
+      "signatureBase64": "/Wgx5gKSB9qy5ut+gpmM5O0kAXRuiludEFGKrgBMTZ9hwzH9Q8pN5ehLCo9Zp3y71f5BLMl0MIlu6R6tdtd1CQ==",
+      "publicKeyBase64": "mY67MRlc3s2xkhKdYo2kbzFSZA3dJt+iUHQ0te4tfD4=",
+      "noble": true,
+      "requiredNative": true
+    },
+    {
+      "name": "tampered message 17",
+      "category": "tampered",
+      "messageBase64": "HdD8zJMX0o94ZghzR2IZ+E0/vS4+cHdN+6S1wkDEdSK6e6IuQgQnzbIQ2nhZ1X15+WUQeOguqegEL0hj",
+      "signatureBase64": "/Wgx5gKSB9qy5ut+gpmM5O0kAXRuiludEFGKrgBMTZ9hwzH9Q8pN5ehLCo9Zp3y71f5BLMl0MIlu6R6tdtd1CQ==",
+      "publicKeyBase64": "mY67MRlc3s2xkhKdYo2kbzFSZA3dJt+iUHQ0te4tfD4=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "tampered signature 17",
+      "category": "tampered",
+      "messageBase64": "HdD8zJMX0o94ZghzR2IZ+E0/vS4+cHdN+6S1wkDEdSK6e6IuQgQnzbIQ2nhZ1X15+WUQeOguqegEL0g=",
+      "signatureBase64": "/Wgx5gKSB9qy5ut+gpmM5O0lAXRuiludEFGKrgBMTZ9hwzH9Q8pN5ehLCo9Zp3y71f5BLMl0MIlu6R6tdtd1CQ==",
+      "publicKeyBase64": "mY67MRlc3s2xkhKdYo2kbzFSZA3dJt+iUHQ0te4tfD4=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "wrong public key 17",
+      "category": "tampered",
+      "messageBase64": "HdD8zJMX0o94ZghzR2IZ+E0/vS4+cHdN+6S1wkDEdSK6e6IuQgQnzbIQ2nhZ1X15+WUQeOguqegEL0g=",
+      "signatureBase64": "/Wgx5gKSB9qy5ut+gpmM5O0kAXRuiludEFGKrgBMTZ9hwzH9Q8pN5ehLCo9Zp3y71f5BLMl0MIlu6R6tdtd1CQ==",
+      "publicKeyBase64": "WsfrBHTv9cyt5jh+97pGhEGRoIrvta5iKHxspeYseSg=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "deterministic random valid 18",
+      "category": "random-valid",
+      "messageBase64": "lhlS6WvM",
+      "signatureBase64": "DK1EpDb4K+TIqLrgJCo5AdPa2WpKsuekg3ultgGbPAMe8S222CPv6+RlVICz4f9r766Ks606OaQ4p0A7eY+YCA==",
+      "publicKeyBase64": "bF8cF5Peb6t0f+FixPw7hG5uGA7psiprKXasH/mvkq8=",
+      "noble": true,
+      "requiredNative": true
+    },
+    {
+      "name": "tampered message 18",
+      "category": "tampered",
+      "messageBase64": "lhlS6WvMYw==",
+      "signatureBase64": "DK1EpDb4K+TIqLrgJCo5AdPa2WpKsuekg3ultgGbPAMe8S222CPv6+RlVICz4f9r766Ks606OaQ4p0A7eY+YCA==",
+      "publicKeyBase64": "bF8cF5Peb6t0f+FixPw7hG5uGA7psiprKXasH/mvkq8=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "tampered signature 18",
+      "category": "tampered",
+      "messageBase64": "lhlS6WvM",
+      "signatureBase64": "DK1EpDb4K+TIqLrgJCo5AdPa2GpKsuekg3ultgGbPAMe8S222CPv6+RlVICz4f9r766Ks606OaQ4p0A7eY+YCA==",
+      "publicKeyBase64": "bF8cF5Peb6t0f+FixPw7hG5uGA7psiprKXasH/mvkq8=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "wrong public key 18",
+      "category": "tampered",
+      "messageBase64": "lhlS6WvM",
+      "signatureBase64": "DK1EpDb4K+TIqLrgJCo5AdPa2WpKsuekg3ultgGbPAMe8S222CPv6+RlVICz4f9r766Ks606OaQ4p0A7eY+YCA==",
+      "publicKeyBase64": "WsfrBHTv9cyt5jh+97pGhEGRoIrvta5iKHxspeYseSg=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "deterministic random valid 19",
+      "category": "random-valid",
+      "messageBase64": "obIh6v43Nst8FHXkK3B8dBs=",
+      "signatureBase64": "1XdvOuqxoW5CpyE/MC1/L2qXr0DQDbV+yjvR+51VbB7N8XHSP6+3mCznyTRHHNMbkvQiCCQpZA/oG3Y2e3ODCw==",
+      "publicKeyBase64": "apdm4aKwqgzpim11KKckxeOEc4MBvFr0Hj437flCgiQ=",
+      "noble": true,
+      "requiredNative": true
+    },
+    {
+      "name": "tampered message 19",
+      "category": "tampered",
+      "messageBase64": "obIh6v43Nst8FHXkK3B8dBtj",
+      "signatureBase64": "1XdvOuqxoW5CpyE/MC1/L2qXr0DQDbV+yjvR+51VbB7N8XHSP6+3mCznyTRHHNMbkvQiCCQpZA/oG3Y2e3ODCw==",
+      "publicKeyBase64": "apdm4aKwqgzpim11KKckxeOEc4MBvFr0Hj437flCgiQ=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "tampered signature 19",
+      "category": "tampered",
+      "messageBase64": "obIh6v43Nst8FHXkK3B8dBs=",
+      "signatureBase64": "1XdvOuqxoW5CpyE/MC1/L2qXr0HQDbV+yjvR+51VbB7N8XHSP6+3mCznyTRHHNMbkvQiCCQpZA/oG3Y2e3ODCw==",
+      "publicKeyBase64": "apdm4aKwqgzpim11KKckxeOEc4MBvFr0Hj437flCgiQ=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "wrong public key 19",
+      "category": "tampered",
+      "messageBase64": "obIh6v43Nst8FHXkK3B8dBs=",
+      "signatureBase64": "1XdvOuqxoW5CpyE/MC1/L2qXr0DQDbV+yjvR+51VbB7N8XHSP6+3mCznyTRHHNMbkvQiCCQpZA/oG3Y2e3ODCw==",
+      "publicKeyBase64": "WsfrBHTv9cyt5jh+97pGhEGRoIrvta5iKHxspeYseSg=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "deterministic random valid 20",
+      "category": "random-valid",
+      "messageBase64": "saN/MI8tHkC5EypK0iW7E+XYc6arh8p6FOJaMg==",
+      "signatureBase64": "PmSW8D1jngnh9qmxrVWiseiI4uSWr/tJFHWpj3Ow9Z2vtOpxnQ9XDep6xcwx2+1AarLg+v6yzFBZhc3ECKshAA==",
+      "publicKeyBase64": "bRgFDfRLUl1hijVfPtnGJjcH/K0DoW0US3LN3iPqEoc=",
+      "noble": true,
+      "requiredNative": true
+    },
+    {
+      "name": "tampered message 20",
+      "category": "tampered",
+      "messageBase64": "saN/MI8tHkC5EypK0iW7E+XYc6arh8p6FOJaMmM=",
+      "signatureBase64": "PmSW8D1jngnh9qmxrVWiseiI4uSWr/tJFHWpj3Ow9Z2vtOpxnQ9XDep6xcwx2+1AarLg+v6yzFBZhc3ECKshAA==",
+      "publicKeyBase64": "bRgFDfRLUl1hijVfPtnGJjcH/K0DoW0US3LN3iPqEoc=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "tampered signature 20",
+      "category": "tampered",
+      "messageBase64": "saN/MI8tHkC5EypK0iW7E+XYc6arh8p6FOJaMg==",
+      "signatureBase64": "PmSW8D1jngnh9qmxrVWiseiI4uSXr/tJFHWpj3Ow9Z2vtOpxnQ9XDep6xcwx2+1AarLg+v6yzFBZhc3ECKshAA==",
+      "publicKeyBase64": "bRgFDfRLUl1hijVfPtnGJjcH/K0DoW0US3LN3iPqEoc=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "wrong public key 20",
+      "category": "tampered",
+      "messageBase64": "saN/MI8tHkC5EypK0iW7E+XYc6arh8p6FOJaMg==",
+      "signatureBase64": "PmSW8D1jngnh9qmxrVWiseiI4uSWr/tJFHWpj3Ow9Z2vtOpxnQ9XDep6xcwx2+1AarLg+v6yzFBZhc3ECKshAA==",
+      "publicKeyBase64": "WsfrBHTv9cyt5jh+97pGhEGRoIrvta5iKHxspeYseSg=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "deterministic random valid 21",
+      "category": "random-valid",
+      "messageBase64": "V9fsWfpc9rBduzAGYKp3rt6CVkhVGFnU58+6YTRpLOSpx4YEfLLW",
+      "signatureBase64": "Z+z/+DfS+LSi44y9njMfMMwwsfy1xVgdXQI971Fbg8GpB4/txI7CpjstiNyP4x9ecrT98Akm1Dd+DwZBS6D4DQ==",
+      "publicKeyBase64": "DiD6BK81jMbIVlDuhGaDaDMy8ey13sP/M6DpN0hsZ44=",
+      "noble": true,
+      "requiredNative": true
+    },
+    {
+      "name": "tampered message 21",
+      "category": "tampered",
+      "messageBase64": "V9fsWfpc9rBduzAGYKp3rt6CVkhVGFnU58+6YTRpLOSpx4YEfLLWYw==",
+      "signatureBase64": "Z+z/+DfS+LSi44y9njMfMMwwsfy1xVgdXQI971Fbg8GpB4/txI7CpjstiNyP4x9ecrT98Akm1Dd+DwZBS6D4DQ==",
+      "publicKeyBase64": "DiD6BK81jMbIVlDuhGaDaDMy8ey13sP/M6DpN0hsZ44=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "tampered signature 21",
+      "category": "tampered",
+      "messageBase64": "V9fsWfpc9rBduzAGYKp3rt6CVkhVGFnU58+6YTRpLOSpx4YEfLLW",
+      "signatureBase64": "Z+z/+DfS+LSi44y9njMfMMwwsfy1xFgdXQI971Fbg8GpB4/txI7CpjstiNyP4x9ecrT98Akm1Dd+DwZBS6D4DQ==",
+      "publicKeyBase64": "DiD6BK81jMbIVlDuhGaDaDMy8ey13sP/M6DpN0hsZ44=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "wrong public key 21",
+      "category": "tampered",
+      "messageBase64": "V9fsWfpc9rBduzAGYKp3rt6CVkhVGFnU58+6YTRpLOSpx4YEfLLW",
+      "signatureBase64": "Z+z/+DfS+LSi44y9njMfMMwwsfy1xVgdXQI971Fbg8GpB4/txI7CpjstiNyP4x9ecrT98Akm1Dd+DwZBS6D4DQ==",
+      "publicKeyBase64": "WsfrBHTv9cyt5jh+97pGhEGRoIrvta5iKHxspeYseSg=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "deterministic random valid 22",
+      "category": "random-valid",
+      "messageBase64": "7ILFm7eMQD509eikuEA2LV/DzFLvTEqimXxGg27mdWqFGmRL/D5MKPec5RhnDmxgZPo=",
+      "signatureBase64": "884Nh72ynwfh9aTXPNs0a+BeBW6Sa50EHyF9aGgsDhThz9iCASQP+lFI1duTSfX0SaTmFP+X0aUd+8IduBswDw==",
+      "publicKeyBase64": "3HLn+FcJ9ll7QypWkphtgFlJZGq5CAk1C8s2rHbpj68=",
+      "noble": true,
+      "requiredNative": true
+    },
+    {
+      "name": "tampered message 22",
+      "category": "tampered",
+      "messageBase64": "7ILFm7eMQD509eikuEA2LV/DzFLvTEqimXxGg27mdWqFGmRL/D5MKPec5RhnDmxgZPpj",
+      "signatureBase64": "884Nh72ynwfh9aTXPNs0a+BeBW6Sa50EHyF9aGgsDhThz9iCASQP+lFI1duTSfX0SaTmFP+X0aUd+8IduBswDw==",
+      "publicKeyBase64": "3HLn+FcJ9ll7QypWkphtgFlJZGq5CAk1C8s2rHbpj68=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "tampered signature 22",
+      "category": "tampered",
+      "messageBase64": "7ILFm7eMQD509eikuEA2LV/DzFLvTEqimXxGg27mdWqFGmRL/D5MKPec5RhnDmxgZPo=",
+      "signatureBase64": "884Nh72ynwfh9aTXPNs0a+BeBW6Sa5wEHyF9aGgsDhThz9iCASQP+lFI1duTSfX0SaTmFP+X0aUd+8IduBswDw==",
+      "publicKeyBase64": "3HLn+FcJ9ll7QypWkphtgFlJZGq5CAk1C8s2rHbpj68=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "wrong public key 22",
+      "category": "tampered",
+      "messageBase64": "7ILFm7eMQD509eikuEA2LV/DzFLvTEqimXxGg27mdWqFGmRL/D5MKPec5RhnDmxgZPo=",
+      "signatureBase64": "884Nh72ynwfh9aTXPNs0a+BeBW6Sa50EHyF9aGgsDhThz9iCASQP+lFI1duTSfX0SaTmFP+X0aUd+8IduBswDw==",
+      "publicKeyBase64": "WsfrBHTv9cyt5jh+97pGhEGRoIrvta5iKHxspeYseSg=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "deterministic random valid 23",
+      "category": "random-valid",
+      "messageBase64": "IcvhG+/ja4NOdxBaWQxApV7F+rNKAoIOIJL0th+YGyJ/upo6OlT4pkZT0IgMpkW8Pth2Hz2i6UQmEiWakg==",
+      "signatureBase64": "fnLiOFT/bzyfT7SX5LyeHbHjPRlDrTanj75GiZSEUMydsd6FYm/4ais9YO//FYXbtLtdlinw5E+xXEAw1XwNCw==",
+      "publicKeyBase64": "okUyfkml3Y79l8gOrTUIyxoZFyx4eI5VXe8S/jxwe90=",
+      "noble": true,
+      "requiredNative": true
+    },
+    {
+      "name": "tampered message 23",
+      "category": "tampered",
+      "messageBase64": "IcvhG+/ja4NOdxBaWQxApV7F+rNKAoIOIJL0th+YGyJ/upo6OlT4pkZT0IgMpkW8Pth2Hz2i6UQmEiWakmM=",
+      "signatureBase64": "fnLiOFT/bzyfT7SX5LyeHbHjPRlDrTanj75GiZSEUMydsd6FYm/4ais9YO//FYXbtLtdlinw5E+xXEAw1XwNCw==",
+      "publicKeyBase64": "okUyfkml3Y79l8gOrTUIyxoZFyx4eI5VXe8S/jxwe90=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "tampered signature 23",
+      "category": "tampered",
+      "messageBase64": "IcvhG+/ja4NOdxBaWQxApV7F+rNKAoIOIJL0th+YGyJ/upo6OlT4pkZT0IgMpkW8Pth2Hz2i6UQmEiWakg==",
+      "signatureBase64": "fnLiOFT/bzyfT7SX5LyeHbHjPRlDrTamj75GiZSEUMydsd6FYm/4ais9YO//FYXbtLtdlinw5E+xXEAw1XwNCw==",
+      "publicKeyBase64": "okUyfkml3Y79l8gOrTUIyxoZFyx4eI5VXe8S/jxwe90=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "wrong public key 23",
+      "category": "tampered",
+      "messageBase64": "IcvhG+/ja4NOdxBaWQxApV7F+rNKAoIOIJL0th+YGyJ/upo6OlT4pkZT0IgMpkW8Pth2Hz2i6UQmEiWakg==",
+      "signatureBase64": "fnLiOFT/bzyfT7SX5LyeHbHjPRlDrTanj75GiZSEUMydsd6FYm/4ais9YO//FYXbtLtdlinw5E+xXEAw1XwNCw==",
+      "publicKeyBase64": "WsfrBHTv9cyt5jh+97pGhEGRoIrvta5iKHxspeYseSg=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "signature length 0",
+      "category": "malformed",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "",
+      "publicKeyBase64": "WsfrBHTv9cyt5jh+97pGhEGRoIrvta5iKHxspeYseSg=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "signature length 1",
+      "category": "malformed",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "AA==",
+      "publicKeyBase64": "WsfrBHTv9cyt5jh+97pGhEGRoIrvta5iKHxspeYseSg=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "signature length 31",
+      "category": "malformed",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "WsfrBHTv9cyt5jh+97pGhEGRoIrvta5iKHxspeYseSg=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "signature length 32",
+      "category": "malformed",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+      "publicKeyBase64": "WsfrBHTv9cyt5jh+97pGhEGRoIrvta5iKHxspeYseSg=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "signature length 63",
+      "category": "malformed",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "publicKeyBase64": "WsfrBHTv9cyt5jh+97pGhEGRoIrvta5iKHxspeYseSg=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "signature length 65",
+      "category": "malformed",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+      "publicKeyBase64": "WsfrBHTv9cyt5jh+97pGhEGRoIrvta5iKHxspeYseSg=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "signature length 96",
+      "category": "malformed",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "publicKeyBase64": "WsfrBHTv9cyt5jh+97pGhEGRoIrvta5iKHxspeYseSg=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "public key length 0",
+      "category": "malformed",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "ZL3O09H9fe9OmurFB0vvQenGi3yBVZC0ba8Qh6DXH0Q30Yq/+ws83DPohcWZjN9XPr7TSNHZE9OcQCVMW5FvDw==",
+      "publicKeyBase64": "",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "public key length 1",
+      "category": "malformed",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "ZL3O09H9fe9OmurFB0vvQenGi3yBVZC0ba8Qh6DXH0Q30Yq/+ws83DPohcWZjN9XPr7TSNHZE9OcQCVMW5FvDw==",
+      "publicKeyBase64": "AA==",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "public key length 31",
+      "category": "malformed",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "ZL3O09H9fe9OmurFB0vvQenGi3yBVZC0ba8Qh6DXH0Q30Yq/+ws83DPohcWZjN9XPr7TSNHZE9OcQCVMW5FvDw==",
+      "publicKeyBase64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "public key length 33",
+      "category": "malformed",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "ZL3O09H9fe9OmurFB0vvQenGi3yBVZC0ba8Qh6DXH0Q30Yq/+ws83DPohcWZjN9XPr7TSNHZE9OcQCVMW5FvDw==",
+      "publicKeyBase64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "public key length 64",
+      "category": "malformed",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "ZL3O09H9fe9OmurFB0vvQenGi3yBVZC0ba8Qh6DXH0Q30Yq/+ws83DPohcWZjN9XPr7TSNHZE9OcQCVMW5FvDw==",
+      "publicKeyBase64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "noncanonical scalar 7237005577332262213973186563042994240857116359379907606001950938285454250989",
+      "category": "scalar",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "ZL3O09H9fe9OmurFB0vvQenGi3yBVZC0ba8Qh6DXH0Tt0/VcGmMSWNac96Le+d4UAAAAAAAAAAAAAAAAAAAAEA==",
+      "publicKeyBase64": "WsfrBHTv9cyt5jh+97pGhEGRoIrvta5iKHxspeYseSg=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "noncanonical scalar 7237005577332262213973186563042994240857116359379907606001950938285454250990",
+      "category": "scalar",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "ZL3O09H9fe9OmurFB0vvQenGi3yBVZC0ba8Qh6DXH0Tu0/VcGmMSWNac96Le+d4UAAAAAAAAAAAAAAAAAAAAEA==",
+      "publicKeyBase64": "WsfrBHTv9cyt5jh+97pGhEGRoIrvta5iKHxspeYseSg=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "noncanonical scalar 57896044618658097711785492504343953926634992332820282019728792003956564819968",
+      "category": "scalar",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "ZL3O09H9fe9OmurFB0vvQenGi3yBVZC0ba8Qh6DXH0QAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgA==",
+      "publicKeyBase64": "WsfrBHTv9cyt5jh+97pGhEGRoIrvta5iKHxspeYseSg=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "noncanonical scalar 115792089237316195423570985008687907853269984665640564039457584007913129639935",
+      "category": "scalar",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "ZL3O09H9fe9OmurFB0vvQenGi3yBVZC0ba8Qh6DXH0T//////////////////////////////////////////w==",
+      "publicKeyBase64": "WsfrBHTv9cyt5jh+97pGhEGRoIrvta5iKHxspeYseSg=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "torsion A0 R0",
+      "category": "torsion",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "torsion A0 R1",
+      "category": "torsion",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3oAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "torsion A0 R2",
+      "category": "torsion",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "torsion A0 R3",
+      "category": "torsion",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "JuiVj8KyJ7BFw/SJ8u+Y8NXfrAXTxjM5sTgCiG1T/AUAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "torsion A0 R4",
+      "category": "torsion",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "7P///////////////////////////////////////38AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "torsion A0 R5",
+      "category": "torsion",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "JuiVj8KyJ7BFw/SJ8u+Y8NXfrAXTxjM5sTgCiG1T/IUAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "torsion A0 R6",
+      "category": "torsion",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "torsion A0 R7",
+      "category": "torsion",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA/oAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "torsion A1 R0",
+      "category": "torsion",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3o=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "torsion A1 R1",
+      "category": "torsion",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3oAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3o=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "torsion A1 R2",
+      "category": "torsion",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3o=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "torsion A1 R3",
+      "category": "torsion",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "JuiVj8KyJ7BFw/SJ8u+Y8NXfrAXTxjM5sTgCiG1T/AUAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3o=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "torsion A1 R4",
+      "category": "torsion",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "7P///////////////////////////////////////38AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3o=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "torsion A1 R5",
+      "category": "torsion",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "JuiVj8KyJ7BFw/SJ8u+Y8NXfrAXTxjM5sTgCiG1T/IUAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3o=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "torsion A1 R6",
+      "category": "torsion",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3o=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "torsion A1 R7",
+      "category": "torsion",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA/oAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3o=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "torsion A2 R0",
+      "category": "torsion",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIA=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "torsion A2 R1",
+      "category": "torsion",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3oAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIA=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "torsion A2 R2",
+      "category": "torsion",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIA=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "torsion A2 R3",
+      "category": "torsion",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "JuiVj8KyJ7BFw/SJ8u+Y8NXfrAXTxjM5sTgCiG1T/AUAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIA=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "torsion A2 R4",
+      "category": "torsion",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "7P///////////////////////////////////////38AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIA=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "torsion A2 R5",
+      "category": "torsion",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "JuiVj8KyJ7BFw/SJ8u+Y8NXfrAXTxjM5sTgCiG1T/IUAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIA=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "torsion A2 R6",
+      "category": "torsion",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIA=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "torsion A2 R7",
+      "category": "torsion",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA/oAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIA=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "torsion A3 R0",
+      "category": "torsion",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "JuiVj8KyJ7BFw/SJ8u+Y8NXfrAXTxjM5sTgCiG1T/AU=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "torsion A3 R1",
+      "category": "torsion",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3oAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "JuiVj8KyJ7BFw/SJ8u+Y8NXfrAXTxjM5sTgCiG1T/AU=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "torsion A3 R2",
+      "category": "torsion",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "JuiVj8KyJ7BFw/SJ8u+Y8NXfrAXTxjM5sTgCiG1T/AU=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "torsion A3 R3",
+      "category": "torsion",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "JuiVj8KyJ7BFw/SJ8u+Y8NXfrAXTxjM5sTgCiG1T/AUAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "JuiVj8KyJ7BFw/SJ8u+Y8NXfrAXTxjM5sTgCiG1T/AU=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "torsion A3 R4",
+      "category": "torsion",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "7P///////////////////////////////////////38AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "JuiVj8KyJ7BFw/SJ8u+Y8NXfrAXTxjM5sTgCiG1T/AU=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "torsion A3 R5",
+      "category": "torsion",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "JuiVj8KyJ7BFw/SJ8u+Y8NXfrAXTxjM5sTgCiG1T/IUAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "JuiVj8KyJ7BFw/SJ8u+Y8NXfrAXTxjM5sTgCiG1T/AU=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "torsion A3 R6",
+      "category": "torsion",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "JuiVj8KyJ7BFw/SJ8u+Y8NXfrAXTxjM5sTgCiG1T/AU=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "torsion A3 R7",
+      "category": "torsion",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA/oAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "JuiVj8KyJ7BFw/SJ8u+Y8NXfrAXTxjM5sTgCiG1T/AU=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "torsion A4 R0",
+      "category": "torsion",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "7P///////////////////////////////////////38=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "torsion A4 R1",
+      "category": "torsion",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3oAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "7P///////////////////////////////////////38=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "torsion A4 R2",
+      "category": "torsion",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "7P///////////////////////////////////////38=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "torsion A4 R3",
+      "category": "torsion",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "JuiVj8KyJ7BFw/SJ8u+Y8NXfrAXTxjM5sTgCiG1T/AUAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "7P///////////////////////////////////////38=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "torsion A4 R4",
+      "category": "torsion",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "7P///////////////////////////////////////38AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "7P///////////////////////////////////////38=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "torsion A4 R5",
+      "category": "torsion",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "JuiVj8KyJ7BFw/SJ8u+Y8NXfrAXTxjM5sTgCiG1T/IUAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "7P///////////////////////////////////////38=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "torsion A4 R6",
+      "category": "torsion",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "7P///////////////////////////////////////38=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "torsion A4 R7",
+      "category": "torsion",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA/oAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "7P///////////////////////////////////////38=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "torsion A5 R0",
+      "category": "torsion",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "JuiVj8KyJ7BFw/SJ8u+Y8NXfrAXTxjM5sTgCiG1T/IU=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "torsion A5 R1",
+      "category": "torsion",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3oAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "JuiVj8KyJ7BFw/SJ8u+Y8NXfrAXTxjM5sTgCiG1T/IU=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "torsion A5 R2",
+      "category": "torsion",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "JuiVj8KyJ7BFw/SJ8u+Y8NXfrAXTxjM5sTgCiG1T/IU=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "torsion A5 R3",
+      "category": "torsion",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "JuiVj8KyJ7BFw/SJ8u+Y8NXfrAXTxjM5sTgCiG1T/AUAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "JuiVj8KyJ7BFw/SJ8u+Y8NXfrAXTxjM5sTgCiG1T/IU=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "torsion A5 R4",
+      "category": "torsion",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "7P///////////////////////////////////////38AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "JuiVj8KyJ7BFw/SJ8u+Y8NXfrAXTxjM5sTgCiG1T/IU=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "torsion A5 R5",
+      "category": "torsion",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "JuiVj8KyJ7BFw/SJ8u+Y8NXfrAXTxjM5sTgCiG1T/IUAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "JuiVj8KyJ7BFw/SJ8u+Y8NXfrAXTxjM5sTgCiG1T/IU=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "torsion A5 R6",
+      "category": "torsion",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "JuiVj8KyJ7BFw/SJ8u+Y8NXfrAXTxjM5sTgCiG1T/IU=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "torsion A5 R7",
+      "category": "torsion",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA/oAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "JuiVj8KyJ7BFw/SJ8u+Y8NXfrAXTxjM5sTgCiG1T/IU=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "torsion A6 R0",
+      "category": "torsion",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "torsion A6 R1",
+      "category": "torsion",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3oAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "torsion A6 R2",
+      "category": "torsion",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "torsion A6 R3",
+      "category": "torsion",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "JuiVj8KyJ7BFw/SJ8u+Y8NXfrAXTxjM5sTgCiG1T/AUAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "torsion A6 R4",
+      "category": "torsion",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "7P///////////////////////////////////////38AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "torsion A6 R5",
+      "category": "torsion",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "JuiVj8KyJ7BFw/SJ8u+Y8NXfrAXTxjM5sTgCiG1T/IUAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "torsion A6 R6",
+      "category": "torsion",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "torsion A6 R7",
+      "category": "torsion",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA/oAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "torsion A7 R0",
+      "category": "torsion",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA/o=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "torsion A7 R1",
+      "category": "torsion",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3oAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA/o=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "torsion A7 R2",
+      "category": "torsion",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA/o=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "torsion A7 R3",
+      "category": "torsion",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "JuiVj8KyJ7BFw/SJ8u+Y8NXfrAXTxjM5sTgCiG1T/AUAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA/o=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "torsion A7 R4",
+      "category": "torsion",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "7P///////////////////////////////////////38AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA/o=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "torsion A7 R5",
+      "category": "torsion",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "JuiVj8KyJ7BFw/SJ8u+Y8NXfrAXTxjM5sTgCiG1T/IUAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA/o=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "torsion A7 R6",
+      "category": "torsion",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA/o=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "torsion A7 R7",
+      "category": "torsion",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA/oAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA/o=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "unreduced A y=p+0 sign0",
+      "category": "noncanonical",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3oAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "7f///////////////////////////////////////38=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "unreduced R y=p+0 sign0",
+      "category": "noncanonical",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "7f///////////////////////////////////////38AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3o=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "unreduced A y=p+0 sign128",
+      "category": "noncanonical",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3oAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "7f////////////////////////////////////////8=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "unreduced R y=p+0 sign128",
+      "category": "noncanonical",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "7f////////////////////////////////////////8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3o=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "unreduced A y=p+1 sign0",
+      "category": "noncanonical",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3oAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "7v///////////////////////////////////////38=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "unreduced R y=p+1 sign0",
+      "category": "noncanonical",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "7v///////////////////////////////////////38AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3o=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "unreduced A y=p+1 sign128",
+      "category": "noncanonical",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3oAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "7v////////////////////////////////////////8=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "unreduced R y=p+1 sign128",
+      "category": "noncanonical",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "7v////////////////////////////////////////8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3o=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "unreduced A y=p+2 sign0",
+      "category": "noncanonical",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3oAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "7////////////////////////////////////////38=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "unreduced R y=p+2 sign0",
+      "category": "noncanonical",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "7////////////////////////////////////////38AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3o=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "unreduced A y=p+2 sign128",
+      "category": "noncanonical",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3oAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "7/////////////////////////////////////////8=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "unreduced R y=p+2 sign128",
+      "category": "noncanonical",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "7/////////////////////////////////////////8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3o=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "unreduced A y=p+3 sign0",
+      "category": "noncanonical",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3oAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "8P///////////////////////////////////////38=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "unreduced R y=p+3 sign0",
+      "category": "noncanonical",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "8P///////////////////////////////////////38AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3o=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "unreduced A y=p+3 sign128",
+      "category": "noncanonical",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3oAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "8P////////////////////////////////////////8=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "unreduced R y=p+3 sign128",
+      "category": "noncanonical",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "8P////////////////////////////////////////8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3o=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "unreduced A y=p+4 sign0",
+      "category": "noncanonical",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3oAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "8f///////////////////////////////////////38=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "unreduced R y=p+4 sign0",
+      "category": "noncanonical",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "8f///////////////////////////////////////38AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3o=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "unreduced A y=p+4 sign128",
+      "category": "noncanonical",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3oAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "8f////////////////////////////////////////8=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "unreduced R y=p+4 sign128",
+      "category": "noncanonical",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "8f////////////////////////////////////////8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3o=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "unreduced A y=p+5 sign0",
+      "category": "noncanonical",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3oAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "8v///////////////////////////////////////38=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "unreduced R y=p+5 sign0",
+      "category": "noncanonical",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "8v///////////////////////////////////////38AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3o=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "unreduced A y=p+5 sign128",
+      "category": "noncanonical",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3oAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "8v////////////////////////////////////////8=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "unreduced R y=p+5 sign128",
+      "category": "noncanonical",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "8v////////////////////////////////////////8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3o=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "unreduced A y=p+6 sign0",
+      "category": "noncanonical",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3oAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "8////////////////////////////////////////38=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "unreduced R y=p+6 sign0",
+      "category": "noncanonical",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "8////////////////////////////////////////38AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3o=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "unreduced A y=p+6 sign128",
+      "category": "noncanonical",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3oAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "8/////////////////////////////////////////8=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "unreduced R y=p+6 sign128",
+      "category": "noncanonical",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "8/////////////////////////////////////////8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3o=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "unreduced A y=p+7 sign0",
+      "category": "noncanonical",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3oAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "9P///////////////////////////////////////38=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "unreduced R y=p+7 sign0",
+      "category": "noncanonical",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "9P///////////////////////////////////////38AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3o=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "unreduced A y=p+7 sign128",
+      "category": "noncanonical",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3oAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "9P////////////////////////////////////////8=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "unreduced R y=p+7 sign128",
+      "category": "noncanonical",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "9P////////////////////////////////////////8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3o=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "unreduced A y=p+8 sign0",
+      "category": "noncanonical",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3oAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "9f///////////////////////////////////////38=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "unreduced R y=p+8 sign0",
+      "category": "noncanonical",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "9f///////////////////////////////////////38AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3o=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "unreduced A y=p+8 sign128",
+      "category": "noncanonical",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3oAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "9f////////////////////////////////////////8=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "unreduced R y=p+8 sign128",
+      "category": "noncanonical",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "9f////////////////////////////////////////8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3o=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "unreduced A y=p+9 sign0",
+      "category": "noncanonical",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3oAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "9v///////////////////////////////////////38=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "unreduced R y=p+9 sign0",
+      "category": "noncanonical",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "9v///////////////////////////////////////38AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3o=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "unreduced A y=p+9 sign128",
+      "category": "noncanonical",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3oAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "9v////////////////////////////////////////8=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "unreduced R y=p+9 sign128",
+      "category": "noncanonical",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "9v////////////////////////////////////////8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3o=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "unreduced A y=p+10 sign0",
+      "category": "noncanonical",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3oAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "9////////////////////////////////////////38=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "unreduced R y=p+10 sign0",
+      "category": "noncanonical",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "9////////////////////////////////////////38AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3o=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "unreduced A y=p+10 sign128",
+      "category": "noncanonical",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3oAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "9/////////////////////////////////////////8=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "unreduced R y=p+10 sign128",
+      "category": "noncanonical",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "9/////////////////////////////////////////8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3o=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "unreduced A y=p+11 sign0",
+      "category": "noncanonical",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3oAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "+P///////////////////////////////////////38=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "unreduced R y=p+11 sign0",
+      "category": "noncanonical",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "+P///////////////////////////////////////38AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3o=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "unreduced A y=p+11 sign128",
+      "category": "noncanonical",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3oAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "+P////////////////////////////////////////8=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "unreduced R y=p+11 sign128",
+      "category": "noncanonical",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "+P////////////////////////////////////////8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3o=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "unreduced A y=p+12 sign0",
+      "category": "noncanonical",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3oAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "+f///////////////////////////////////////38=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "unreduced R y=p+12 sign0",
+      "category": "noncanonical",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "+f///////////////////////////////////////38AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3o=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "unreduced A y=p+12 sign128",
+      "category": "noncanonical",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3oAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "+f////////////////////////////////////////8=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "unreduced R y=p+12 sign128",
+      "category": "noncanonical",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "+f////////////////////////////////////////8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3o=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "unreduced A y=p+13 sign0",
+      "category": "noncanonical",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3oAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "+v///////////////////////////////////////38=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "unreduced R y=p+13 sign0",
+      "category": "noncanonical",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "+v///////////////////////////////////////38AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3o=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "unreduced A y=p+13 sign128",
+      "category": "noncanonical",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3oAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "+v////////////////////////////////////////8=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "unreduced R y=p+13 sign128",
+      "category": "noncanonical",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "+v////////////////////////////////////////8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3o=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "unreduced A y=p+14 sign0",
+      "category": "noncanonical",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3oAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "+////////////////////////////////////////38=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "unreduced R y=p+14 sign0",
+      "category": "noncanonical",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "+////////////////////////////////////////38AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3o=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "unreduced A y=p+14 sign128",
+      "category": "noncanonical",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3oAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "+/////////////////////////////////////////8=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "unreduced R y=p+14 sign128",
+      "category": "noncanonical",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "+/////////////////////////////////////////8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3o=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "unreduced A y=p+15 sign0",
+      "category": "noncanonical",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3oAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "/P///////////////////////////////////////38=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "unreduced R y=p+15 sign0",
+      "category": "noncanonical",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "/P///////////////////////////////////////38AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3o=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "unreduced A y=p+15 sign128",
+      "category": "noncanonical",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3oAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "/P////////////////////////////////////////8=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "unreduced R y=p+15 sign128",
+      "category": "noncanonical",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "/P////////////////////////////////////////8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3o=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "unreduced A y=p+16 sign0",
+      "category": "noncanonical",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3oAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "/f///////////////////////////////////////38=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "unreduced R y=p+16 sign0",
+      "category": "noncanonical",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "/f///////////////////////////////////////38AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3o=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "unreduced A y=p+16 sign128",
+      "category": "noncanonical",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3oAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "/f////////////////////////////////////////8=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "unreduced R y=p+16 sign128",
+      "category": "noncanonical",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "/f////////////////////////////////////////8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3o=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "unreduced A y=p+17 sign0",
+      "category": "noncanonical",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3oAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "/v///////////////////////////////////////38=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "unreduced R y=p+17 sign0",
+      "category": "noncanonical",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "/v///////////////////////////////////////38AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3o=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "unreduced A y=p+17 sign128",
+      "category": "noncanonical",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3oAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "/v////////////////////////////////////////8=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "unreduced R y=p+17 sign128",
+      "category": "noncanonical",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "/v////////////////////////////////////////8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3o=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "unreduced A y=p+18 sign0",
+      "category": "noncanonical",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3oAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "/////////////////////////////////////////38=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "unreduced R y=p+18 sign0",
+      "category": "noncanonical",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "/////////////////////////////////////////38AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3o=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "unreduced A y=p+18 sign128",
+      "category": "noncanonical",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3oAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "//////////////////////////////////////////8=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "unreduced R y=p+18 sign128",
+      "category": "noncanonical",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "//////////////////////////////////////////8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3o=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "negative-zero public key AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+      "category": "sign-zero",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3oAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIA=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "negative-zero R AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+      "category": "sign-zero",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "WsfrBHTv9cyt5jh+97pGhEGRoIrvta5iKHxspeYseSg=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "negative-zero public key 7P///////////////////////////////////////38=",
+      "category": "sign-zero",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3oAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "7P////////////////////////////////////////8=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "negative-zero R 7P///////////////////////////////////////38=",
+      "category": "sign-zero",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "7P////////////////////////////////////////8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "publicKeyBase64": "WsfrBHTv9cyt5jh+97pGhEGRoIrvta5iKHxspeYseSg=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "valid RFC8032 nonce-zero signature",
+      "category": "identity-R",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD/I4lOs5JwkY356i/XRKjU4tO+bmJNHJfipNVlzbOnCA==",
+      "publicKeyBase64": "WsfrBHTv9cyt5jh+97pGhEGRoIrvta5iKHxspeYseSg=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "mixed A torsion1",
+      "category": "mixed-order",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "yRLBnddVwjbGiCxlvJ9GaODLUu757Q4ZKaeBqJq7rRNtHRKHyergQ+Ydi8dJOX+znPzSqkbElk8OU6L53N43BA==",
+      "publicKeyBase64": "YoFztl7FwTAeOVjHbZqYKerBRCuPTszNImwRC/q2pk8=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "mixed R torsion1",
+      "category": "mixed-order",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "3k7HDvnXlGd7lWhfvzh95RvmC3Gur3DOpiWoLldUPCjvD8D1mpdt2U7oidC2z+GY5mLo0MmvbfzjIeG2pLViCA==",
+      "publicKeyBase64": "WsfrBHTv9cyt5jh+97pGhEGRoIrvta5iKHxspeYseSg=",
+      "noble": true,
+      "requiredNative": null
+    },
+    {
+      "name": "mixed A and R torsion1",
+      "category": "mixed-order",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "4wihiKdF9D2ai/P+2a7WNKx9f4H3Kh1ZwzjDF/PcOK2Nq7F5gW9Olp3y6tLZww1mVmV3b8yyXAnZMBUj7zOsBg==",
+      "publicKeyBase64": "YoFztl7FwTAeOVjHbZqYKerBRCuPTszNImwRC/q2pk8=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "mixed A torsion2",
+      "category": "mixed-order",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "yRLBnddVwjbGiCxlvJ9GaODLUu757Q4ZKaeBqJq7rROqQ2R2lEXATYjko10mCpNCua7cCPVhZlAC+5HwE/d+Cw==",
+      "publicKeyBase64": "SDIqYj3aouhcO0+QrvvhCWllISOXYCtO22rHU6rIz4A=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "mixed R torsion2",
+      "category": "mixed-order",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "RLfaeigphDPbp3owSpHLkmGzSPs9j0hVkBLHnpU9Ja+mSXIxxQd7cB10qJNTio7nmqR/D71dnj+7DEEjKXVOBA==",
+      "publicKeyBase64": "WsfrBHTv9cyt5jh+97pGhEGRoIrvta5iKHxspeYseSg=",
+      "noble": true,
+      "requiredNative": null
+    },
+    {
+      "name": "mixed A and R torsion2",
+      "category": "mixed-order",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "qUglhdfWe8wkWIXPtW40bZ5MtwTCcLeqb+04YWrC2lC4bor81Vfe8LHJri1RjD+WxuxsljF3hGataEgqt0DGAg==",
+      "publicKeyBase64": "SDIqYj3aouhcO0+QrvvhCWllISOXYCtO22rHU6rIz4A=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "mixed A torsion3",
+      "category": "mixed-order",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "yRLBnddVwjbGiCxlvJ9GaODLUu757Q4ZKaeBqJq7rRNxEHpnRXTlpEyY5hHuqAirAefX5fWkuu9Lq6rMUkAmCA==",
+      "publicKeyBase64": "2LEFUpRJ0kIWKGoIFQxHBZdqwOiO1J/COzM85fsDeeE=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "mixed R torsion3",
+      "category": "mixed-order",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "Cvded1i6C8JldAwBJlEpy1OCgH4I1eKmPMc86Awjx1KIT1LBiVS5YjLSA0Dzkz5Fgm8Xo1bh/Uj3pDh2PTK4DQ==",
+      "publicKeyBase64": "WsfrBHTv9cyt5jh+97pGhEGRoIrvta5iKHxspeYseSg=",
+      "noble": true,
+      "requiredNative": null
+    },
+    {
+      "name": "mixed A and R torsion3",
+      "category": "mixed-order",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "D7E48QYoa5iEapegQMeCGuQZ9I5RUI8xWdpX0airw9dXJVUIdQ3qnHQFAQFsjFJtNZYH23IuKv+j2RfxECw3Aw==",
+      "publicKeyBase64": "2LEFUpRJ0kIWKGoIFQxHBZdqwOiO1J/COzM85fsDeeE=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "mixed A torsion4",
+      "category": "mixed-order",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "yRLBnddVwjbGiCxlvJ9GaODLUu757Q4ZKaeBqJq7rRNok3QvkSYDE3ya0mofmOk9k2XJASX41Qwf4tjDtnJ/BA==",
+      "publicKeyBase64": "kzgU+4sQCjNSGceBCEW5e75uX3UQSlGd14OTWhnThtc=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "mixed R torsion4",
+      "category": "mixed-order",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "JO0+YiiqPck5d9OaQ2C5lx80rREGEvHm1lh+V2VEUuwPYYNB38yNrQ/rVV4vzGxHtcN4Df8PJk3QWfSXwzc3Cg==",
+      "publicKeyBase64": "WsfrBHTv9cyt5jh+97pGhEGRoIrvta5iKHxspeYseSg=",
+      "noble": true,
+      "requiredNative": null
+    },
+    {
+      "name": "mixed A and R torsion4",
+      "category": "mixed-order",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "JO0+YiiqPck5d9OaQ2C5lx80rREGEvHm1lh+V2VEUuwJ6xnQQf6IAcaQRFNyoW3eBPxh3Sz6ksqh8jgDSkiuAQ==",
+      "publicKeyBase64": "kzgU+4sQCjNSGceBCEW5e75uX3UQSlGd14OTWhnThtc=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "mixed A torsion5",
+      "category": "mixed-order",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "yRLBnddVwjbGiCxlvJ9GaODLUu757Q4ZKaeBqJq7rRMnGjA1MajI1s/u1v2ZOL26pkPQz2HbhiguQt1S0FV9Bw==",
+      "publicKeyBase64": "i36MSaE6Ps/hxqc4kmVn1hU+u9RwsTMy3ZPu9AVJWbA=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "mixed R torsion5",
+      "category": "mixed-order",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "D7E48QYoa5iEapegQMeCGuQZ9I5RUI8xWdpX0airw9dqH96KCyg76Ycncl6EADoIZKlvLZOHkHyGY5iV4qUoBw==",
+      "publicKeyBase64": "WsfrBHTv9cyt5jh+97pGhEGRoIrvta5iKHxspeYseSg=",
+      "noble": true,
+      "requiredNative": null
+    },
+    {
+      "name": "mixed A and R torsion5",
+      "category": "mixed-order",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "Cvded1i6C8JldAwBJlEpy1OCgH4I1eKmPMc86Awjx1KYt6qNuRNR0vJ4p8btOrcE6wN0WDcOCzm2js5ZxTJaBw==",
+      "publicKeyBase64": "i36MSaE6Ps/hxqc4kmVn1hU+u9RwsTMy3ZPu9AVJWbA=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "mixed A torsion6",
+      "category": "mixed-order",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "yRLBnddVwjbGiCxlvJ9GaODLUu757Q4ZKaeBqJq7rRMOHgHbiO5xWQxj0eEOrArwwsEa1JQS+1Qggx/hVg0oCA==",
+      "publicKeyBase64": "pc3VncIlXRejxLBvUQQe9paa3txon9SxJJU4rFU3MH8=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "mixed R torsion6",
+      "category": "mixed-order",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "qUglhdfWe8wkWIXPtW40bZ5MtwTCcLeqb+04YWrC2lBVb0+6fefZWbqYmzyJ2bVqum5XYVYoGevJBN1aiOHyAw==",
+      "publicKeyBase64": "WsfrBHTv9cyt5jh+97pGhEGRoIrvta5iKHxspeYseSg=",
+      "noble": true,
+      "requiredNative": null
+    },
+    {
+      "name": "mixed A and R torsion6",
+      "category": "mixed-order",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "RLfaeigphDPbp3owSpHLkmGzSPs9j0hVkBLHnpU9Ja8IWxBr7Zxi+reeB2aS3L1C6T/wKkMuXnb9N5Yt+XNABw==",
+      "publicKeyBase64": "pc3VncIlXRejxLBvUQQe9paa3txon9SxJJU4rFU3MH8=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "mixed A torsion7",
+      "category": "mixed-order",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "yRLBnddVwjbGiCxlvJ9GaODLUu757Q4ZKaeBqJq7rRNaIGugaOmfieOBAbhcEWYdig4gXmdbD+almz8XnoWABA==",
+      "publicKeyBase64": "FU76rWu2Lb3p15X36vO4+miVPxdxK2A9xMzDGgT8hh4=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "mixed R torsion7",
+      "category": "mixed-order",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "4wihiKdF9D2ai/P+2a7WNKx9f4H3Kh1ZwzjDF/PcOK0KWdT1vtTin8pBMWqi5y8bpONb+eYWspxzEr8W+iXXAQ==",
+      "publicKeyBase64": "WsfrBHTv9cyt5jh+97pGhEGRoIrvta5iKHxspeYseSg=",
+      "noble": true,
+      "requiredNative": null
+    },
+    {
+      "name": "mixed A and R torsion7",
+      "category": "mixed-order",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "3k7HDvnXlGd7lWhfvzh95RvmC3Gur3DOpiWoLldUPCij47FLmIUbm6JRtSfTr4UVdec+lVziyf5uhw0oWPL8DA==",
+      "publicKeyBase64": "FU76rWu2Lb3p15X36vO4+miVPxdxK2A9xMzDGgT8hh4=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "base64 URL alphabet",
+      "category": "base64",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "ZL3O09H9fe9OmurFB0vvQenGi3yBVZC0ba8Qh6DXH0Q30Yq_-ws83DPohcWZjN9XPr7TSNHZE9OcQCVMW5FvDw==",
+      "publicKeyBase64": "WsfrBHTv9cyt5jh+97pGhEGRoIrvta5iKHxspeYseSg=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "base64 missing padding",
+      "category": "base64",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "ZL3O09H9fe9OmurFB0vvQenGi3yBVZC0ba8Qh6DXH0Q30Yq/+ws83DPohcWZjN9XPr7TSNHZE9OcQCVMW5FvDw",
+      "publicKeyBase64": "WsfrBHTv9cyt5jh+97pGhEGRoIrvta5iKHxspeYseSg=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "base64 extra padding",
+      "category": "base64",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "ZL3O09H9fe9OmurFB0vvQenGi3yBVZC0ba8Qh6DXH0Q30Yq/+ws83DPohcWZjN9XPr7TSNHZE9OcQCVMW5FvDw===",
+      "publicKeyBase64": "WsfrBHTv9cyt5jh+97pGhEGRoIrvta5iKHxspeYseSg=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "base64 interior padding",
+      "category": "base64",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "ZL3O09H9fe9O=murFB0vvQenGi3yBVZC0ba8Qh6DXH0Q30Yq/+ws83DPohcWZjN9XPr7TSNHZE9OcQCVMW5FvDw==",
+      "publicKeyBase64": "WsfrBHTv9cyt5jh+97pGhEGRoIrvta5iKHxspeYseSg=",
+      "noble": false,
+      "requiredNative": false
+    },
+    {
+      "name": "base64 space",
+      "category": "base64",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": " ZL3O09H9fe9OmurFB0vvQenGi3yBVZC0ba8Qh6DXH0Q30Yq/+ws83DPohcWZjN9XPr7TSNHZE9OcQCVMW5FvDw==",
+      "publicKeyBase64": "WsfrBHTv9cyt5jh+97pGhEGRoIrvta5iKHxspeYseSg=",
+      "noble": true,
+      "requiredNative": false
+    },
+    {
+      "name": "base64 invalid character",
+      "category": "base64",
+      "messageBase64": "S2FhdGEgc2lnbmF0dXJlIHN1YnNldDog2K3Ys9in2Kgg2YXYtNiq2LHaqQA=",
+      "signatureBase64": "!L3O09H9fe9OmurFB0vvQenGi3yBVZC0ba8Qh6DXH0Q30Yq/+ws83DPohcWZjN9XPr7TSNHZE9OcQCVMW5FvDw==",
+      "publicKeyBase64": "WsfrBHTv9cyt5jh+97pGhEGRoIrvta5iKHxspeYseSg=",
+      "noble": false,
+      "requiredNative": false
+    }
+  ]
+}

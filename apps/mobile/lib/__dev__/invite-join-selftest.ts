@@ -5,6 +5,8 @@ import { randomBytes, randomUUID } from "node:crypto";
 import Database from "better-sqlite3";
 import * as ed from "@noble/ed25519";
 import * as chain from "../trust/chain";
+import * as verificationCache from "../trust/successful-verification-cache";
+import * as ownershipTransfer from "../trust/ownership-transfer";
 import { compileUI, deferred, settleUI, uiHooks, jsx, nodes } from "./ui-fixture";
 
 const eventSig = compileUI("../event-sig", {
@@ -12,7 +14,13 @@ const eventSig = compileUI("../event-sig", {
   "@noble/ed25519": ed,
   "expo-crypto": { getRandomBytes: randomBytes },
 });
-const runtime = compileUI("../trust/crypto-runtime", { "../event-sig": eventSig });
+const runtime = compileUI("../trust/crypto-runtime", {
+  "../event-sig": eventSig,
+  "./successful-verification-cache": verificationCache,
+  "./chain": chain,
+  "./ownership-transfer": ownershipTransfer,
+  "kaata-bt-classic": { verifyEd25519BatchAsync: async () => null },
+});
 const ownerSeed = new Uint8Array(32).fill(4),
   peerSeed = new Uint8Array(32).fill(5),
   serverSeed = new Uint8Array(32).fill(6);

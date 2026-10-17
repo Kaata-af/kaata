@@ -27,6 +27,13 @@ import {
   View,
 } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import Reanimated, {
+  cancelAnimation,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+} from "react-native-reanimated";
+import { scheduleOnRN, scheduleOnUI } from "react-native-worklets";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { BottomSheet } from "../components/BottomSheet";
 import { CustomerListOptions } from "../components/CustomerListSheet";
@@ -142,7 +149,7 @@ const FLICK_VELOCITY = 500;
 const DRAG_COMMIT_FRACTION = 0.3;
 // Spring config for both the gesture-end animation and the tab-tap animation.
 // Mid-stiffness: fast settle without overshoot.
-const RAIL_SPRING = { friction: 14, tension: 110 } as const;
+const RAIL_SPRING = { mass: 1, damping: 24, stiffness: 240, overshootClamping: true } as const;
 
 /**
  * ONE sync toggle: enabling Nearby sync also turns on the native background
@@ -308,22 +315,24 @@ export default function HomeScreen() {
   // local session.
   const [signOutConfirm, setSignOutConfirm] = useState(false);
 
-  // Rail position: 0 = collect tab visible, -screenWidth = pay tab visible.
-  //
-  // JS-DRIVEN ON PURPOSE (useNativeDriver:false everywhere translateX is
-  // animated). The Xiaomi/MIUI "blank page until you swipe" bug is the
-  // native-driver initial-frame problem: with useNativeDriver:true an
-  // Animated.View's starting transform isn't pushed to the native layer until
-  // the first animation/interaction, so on some OEMs the rail paints blank
-  // until a swipe kicks it. The 0ms-timing commit hack we tried did NOT fix it
-  // on the Mi 10T. JS-driven Animated resolves the current value into a plain
-  // style on every React render, so the very first paint already has
-  // transform: translateX(0) (collect visible) — no native commit required.
-  // Cost is ~nil here: the pan gesture is runOnJS(true) and already calls
-  // .setValue() on the JS thread, so we weren't getting the UI-thread win
-  // anyway; only the short tab-switch/spring-back springs move to JS, which is
-  // imperceptible for a single transform.
-  const translateX = useRef(new Animated.Value(0)).current;
+  // The rail must follow the finger even while background JS is busy. Keep
+  // its position AND selected side on the UI runtime; React only receives
+  // the final tab label. A second swipe can therefore start before JS catches
+  // up with the first one. The explicit initial transform below also keeps
+  // the Mi 10T's first paint independent of an animation starting.
+  const railX = useSharedValue(0);
+  const railSide = useSharedValue<Direction>("collect");
+  const railSequence = useSharedValue(0);
+  const railBlocked = useSharedValue(false);
+  const railGeneration = useSharedValue(0);
+  const railWidth = useSharedValue(screenWidth);
+  const panSide = useSharedValue<Direction>("collect");
+  const panStartX = useSharedValue(0);
+  const panSequence = useSharedValue(-1);
+  const railStyle = useAnimatedStyle(() => ({ transform: [{ translateX: railX.value }] }));
+  const railEnvironment = useRef<{ width: number; searching: boolean; generation: number } | null>(
+    null,
+  );
 
   // Timestamp of the last hardware back press while home is focused. Lives
   // OUTSIDE the useFocusEffect callback so it persists across re-subscriptions —
@@ -942,55 +951,133 @@ export default function HomeScreen() {
     setSearchVisible(true);
   };
 
-  // Animate the rail to the resting position for the current direction.
-  // Fires on both tab taps (direction changes via Tabs) and post-commit
-  // direction changes from swipe. Cleanup stops any in-flight spring so
-  // a rapid tap-then-swipe (or vice-versa) doesn't stall mid-screen.
-  useEffect(() => {
-    const target = direction === "collect" ? 0 : -screenWidth;
-    if (searching) {
-      // setValue stops any swipe spring while the rail is hidden. The effect
-      // reruns on clearing search, so the remembered tab remounts at rest.
-      translateX.setValue(target);
-      return;
-    }
-    const animation = Animated.spring(translateX, {
-      toValue: target,
-      useNativeDriver: false, // see translateX decl — JS-driven to fix MIUI blank-on-mount
-      ...RAIL_SPRING,
-    });
-    animation.start();
-    return () => animation.stop();
-  }, [direction, screenWidth, translateX, searching]);
+  const commitRailSide = useCallback(
+    (next: Direction, generation: number, sequence: number, haptic: boolean) => {
+      if (
+        !mounted.current ||
+        searchGestureState.current.active ||
+        searchGestureState.current.generation !== generation ||
+        railSequence.value !== sequence
+      )
+        return;
+      setDirection(next);
+      if (haptic) Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Soft).catch(() => undefined);
+    },
+    [railSequence],
+  );
 
-  // (The old 0ms native-driver "commit the initial transform" effect was
-  // removed — it didn't fix the Mi 10T blank-on-mount. The rail is now
-  // JS-driven so the first paint already carries the correct transform; see the
-  // translateX declaration above.)
+  // Search and width changes invalidate an in-flight pan. A delayed React
+  // label update alone must never rewind a more recent UI-thread swipe.
+  useEffect(() => {
+    const previous = railEnvironment.current;
+    if (
+      previous?.width === screenWidth &&
+      previous.searching === searching &&
+      previous.generation === searchGestureGeneration
+    )
+      return;
+    railEnvironment.current = {
+      width: screenWidth,
+      searching,
+      generation: searchGestureGeneration,
+    };
+    scheduleOnUI(() => {
+      "worklet";
+      railBlocked.value = searching;
+      railGeneration.value = searchGestureGeneration;
+      railWidth.value = screenWidth;
+      const sequence = ++railSequence.value;
+      cancelAnimation(railX);
+      if (searching) railSide.value = direction;
+      railX.value = railSide.value === "collect" ? 0 : -screenWidth;
+      if (!searching)
+        scheduleOnRN(commitRailSide, railSide.value, searchGestureGeneration, sequence, false);
+    });
+  }, [
+    direction,
+    screenWidth,
+    searching,
+    searchGestureGeneration,
+    railBlocked,
+    railGeneration,
+    railSequence,
+    railSide,
+    railWidth,
+    railX,
+    commitRailSide,
+  ]);
+  const selectRailSide = useCallback(
+    (next: Direction) => {
+      if (searchGestureState.current.active) return;
+      const generation = searchGestureState.current.generation;
+      scheduleOnUI(() => {
+        "worklet";
+        if (
+          railBlocked.value ||
+          railGeneration.value !== generation ||
+          railWidth.value !== screenWidth
+        )
+          return;
+        const sequence = ++railSequence.value;
+        railSide.value = next;
+        railX.value = withSpring(next === "collect" ? 0 : -screenWidth, RAIL_SPRING);
+        scheduleOnRN(commitRailSide, next, generation, sequence, false);
+      });
+    },
+    [
+      screenWidth,
+      railBlocked,
+      railGeneration,
+      railSequence,
+      railSide,
+      railWidth,
+      railX,
+      commitRailSide,
+    ],
+  );
 
   // The swipe gesture. activeOffsetX requires ~24px of horizontal movement
   // before the pan claims the touch — keeps small vertical drags falling
   // through to the inner ScrollView. failOffsetY abandons the gesture entirely
   // if the user starts a clearly-vertical drag.
   const swipeGesture = useMemo(() => {
-    const baseAt = (d: Direction) => (d === "collect" ? 0 : -screenWidth);
     const generation = searchGestureGeneration;
-    const current = () =>
-      !searchGestureState.current.active && searchGestureState.current.generation === generation;
     return Gesture.Pan()
+      .enabled(!searching && screenWidth > 0)
       .activeOffsetX([-24, 24])
       .failOffsetY([-16, 16])
-      .runOnJS(true)
+      .onStart(() => {
+        if (
+          railBlocked.value ||
+          railGeneration.value !== generation ||
+          railWidth.value !== screenWidth
+        )
+          return;
+        cancelAnimation(railX);
+        panSequence.value = ++railSequence.value;
+        panSide.value = railSide.value;
+        panStartX.value = railX.value;
+      })
       .onUpdate((e) => {
-        if (!current()) return;
+        if (
+          railBlocked.value ||
+          railGeneration.value !== generation ||
+          railWidth.value !== screenWidth ||
+          panSequence.value !== railSequence.value
+        )
+          return;
         // Follow finger. Clamp to the rail's bounds so users can't drag
         // past the first/last tab into empty space.
-        const next = baseAt(direction) + e.translationX;
-        const clamped = Math.max(-screenWidth, Math.min(0, next));
-        translateX.setValue(clamped);
+        railX.value = Math.max(-screenWidth, Math.min(0, panStartX.value + e.translationX));
       })
       .onEnd((e) => {
-        if (!current()) return;
+        if (
+          railBlocked.value ||
+          railGeneration.value !== generation ||
+          railWidth.value !== screenWidth ||
+          panSequence.value !== railSequence.value
+        )
+          return;
         const distance = e.translationX;
         const velocity = e.velocityX;
         // Velocity-aware commit: a flick beats a slow drag. Without a flick,
@@ -1001,27 +1088,46 @@ export default function HomeScreen() {
         const dragLeft = distance <= -screenWidth * DRAG_COMMIT_FRACTION;
         const dragRight = distance >= screenWidth * DRAG_COMMIT_FRACTION;
 
-        const commitToPay = direction === "collect" && (dragLeft || flickLeft);
-        const commitToCollect = direction === "pay" && (dragRight || flickRight);
-
-        if (commitToPay) {
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Soft).catch(() => undefined);
-          setDirection("pay");
-        } else if (commitToCollect) {
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Soft).catch(() => undefined);
-          setDirection("collect");
-        } else {
-          // Released below the threshold — spring back to the current tab's
-          // resting position. The post-commit useEffect handles the other
-          // case, so we only need this branch here.
-          Animated.spring(translateX, {
-            toValue: baseAt(direction),
-            useNativeDriver: false, // see translateX decl — JS-driven to fix MIUI blank-on-mount
-            ...RAIL_SPRING,
-          }).start();
-        }
+        const from = panSide.value;
+        const next =
+          from === "collect" && (dragLeft || flickLeft)
+            ? "pay"
+            : from === "pay" && (dragRight || flickRight)
+              ? "collect"
+              : from;
+        railSide.value = next;
+        railX.value = withSpring(next === "collect" ? 0 : -screenWidth, RAIL_SPRING);
+        const sequence = ++railSequence.value;
+        scheduleOnRN(commitRailSide, next, generation, sequence, next !== from);
+      })
+      .onFinalize((_event, success) => {
+        if (
+          success ||
+          railBlocked.value ||
+          railGeneration.value !== generation ||
+          railWidth.value !== screenWidth ||
+          panSequence.value !== railSequence.value
+        )
+          return;
+        railX.value = withSpring(railSide.value === "collect" ? 0 : -screenWidth, RAIL_SPRING);
+        const sequence = ++railSequence.value;
+        scheduleOnRN(commitRailSide, railSide.value, generation, sequence, false);
       });
-  }, [direction, screenWidth, translateX, searching, searchGestureGeneration]);
+  }, [
+    screenWidth,
+    searching,
+    searchGestureGeneration,
+    railBlocked,
+    railGeneration,
+    railSequence,
+    railSide,
+    railWidth,
+    railX,
+    panSequence,
+    panSide,
+    panStartX,
+    commitRailSide,
+  ]);
 
   // Stable row handlers — PersonRow is memoized, and these two props must
   // keep their identity across renders or every row re-renders on each
@@ -1312,7 +1418,7 @@ export default function HomeScreen() {
       {activeVaultId ? (
         <View style={[styles.tabsWrap, rowDir(isRTL)]}>
           <View style={{ flex: 1 }}>
-            <Tabs<Direction> tabs={buildTabs()} value={direction} onChange={setDirection} />
+            <Tabs<Direction> tabs={buildTabs()} value={direction} onChange={selectRailSide} />
           </View>
         </View>
       ) : null}
@@ -1399,8 +1505,13 @@ export default function HomeScreen() {
             // blank-white until a swipe forces a re-layout (the reported bug). Showing
             // the spinner until width resolves makes the main page appear on its own.
             <GestureDetector gesture={swipeGesture}>
-              <Animated.View
-                style={[styles.rail, { width: screenWidth * 2, transform: [{ translateX }] }]}
+              <Reanimated.View
+                collapsable={false}
+                style={[
+                  styles.rail,
+                  { width: screenWidth * 2, transform: [{ translateX: 0 }] },
+                  railStyle,
+                ]}
               >
                 <TabPage
                   direction="collect"
@@ -1442,7 +1553,7 @@ export default function HomeScreen() {
                   onPersonPress={openPerson}
                   onPersonLongPress={canAmend ? setSheetFor : undefined}
                 />
-              </Animated.View>
+              </Reanimated.View>
             </GestureDetector>
           ) : (
             // Pre-load: spinner instead of the rail. Rendering the rail before

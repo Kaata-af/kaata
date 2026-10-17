@@ -8,6 +8,8 @@ import * as ed from "@noble/ed25519";
 import { compileUI } from "./ui-fixture";
 import * as chain from "../trust/chain";
 import * as accountIds from "../trust/account-id";
+import * as verificationCache from "../trust/successful-verification-cache";
+import * as ownershipTransfer from "../trust/ownership-transfer";
 
 const eventSig = compileUI("../event-sig", {
   "@noble/hashes/sha512": require("@noble/hashes/sha512"),
@@ -16,6 +18,10 @@ const eventSig = compileUI("../event-sig", {
 });
 const runtimeCrypto = compileUI("../trust/crypto-runtime", {
   "../event-sig": eventSig,
+  "./successful-verification-cache": verificationCache,
+  "./chain": chain,
+  "./ownership-transfer": ownershipTransfer,
+  "kaata-bt-classic": { verifyEd25519BatchAsync: async () => null },
 });
 const ownerSeed = new Uint8Array(32).fill(7);
 const peerSeed = new Uint8Array(32).fill(8);

@@ -222,6 +222,12 @@ class KaataBtClassicModule : Module() {
 
     OnCreate { registerBtStateReceiver() }
 
+    // Module AsyncFunction uses Expo's background module queue. A synchronous
+    // Function would put this CPU work back on the JavaScript thread.
+    AsyncFunction("verifyEd25519BatchAsync") { items: List<Map<String, String>> ->
+      Ed25519BatchVerifier.verify(items)
+    }
+
     Function("isAvailable") {
       try {
         (appCtx.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager)?.adapter != null

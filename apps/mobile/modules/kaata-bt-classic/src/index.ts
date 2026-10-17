@@ -67,6 +67,64 @@ function getNative(): NativeKaataBtClassic {
   return _native;
 }
 
+export type Ed25519VerificationItem = {
+  messageBase64: string;
+  signatureBase64: string;
+  publicKeyBase64: string;
+};
+
+/** Optional off-thread public signature checks. Only true results may warm an
+ * exact-byte success cache. False/null must fall back to the caller's existing
+ * verifier, whose acceptance rules can be more permissive. No authority,
+ * witness freshness, membership state or private key handling lives here.
+ * Native bounds: 64 checks, 16 KiB/message, 256 KiB total decoded messages. */
+export async function verifyEd25519BatchAsync(
+  items: readonly Ed25519VerificationItem[],
+): Promise<boolean[] | null> {
+  if (Platform.OS !== "android" || !Array.isArray(items) || items.length > 64) return null;
+  if (items.length === 0) return [];
+  try {
+    const maxEncodedMessage = Math.ceil((16 * 1024) / 3) * 4;
+    const maxEncodedBatch = Math.ceil((256 * 1024) / 3) * 4 + 64 * 4;
+    let encodedMessageBytes = 0;
+    // Snapshot before awaiting native execution; caller mutation cannot change
+    // which exact-message inputs a returned position refers to. Reject invalid
+    // shapes/sizes before copying fields or resolving the native module, which
+    // would otherwise allocate/convert an unbounded request across the bridge.
+    const request: Ed25519VerificationItem[] = [];
+    for (const item of items) {
+      if (item == null || typeof item !== "object") return null;
+      const { messageBase64, signatureBase64, publicKeyBase64 } = item;
+      if (
+        typeof messageBase64 !== "string" ||
+        messageBase64.length > maxEncodedMessage ||
+        typeof signatureBase64 !== "string" ||
+        signatureBase64.length !== 88 ||
+        typeof publicKeyBase64 !== "string" ||
+        publicKeyBase64.length !== 44
+      ) {
+        return null;
+      }
+      encodedMessageBytes += messageBase64.length;
+      if (encodedMessageBytes > maxEncodedBatch) return null;
+      request.push({ messageBase64, signatureBase64, publicKeyBase64 });
+    }
+    const result: unknown = await getNative().verifyEd25519BatchAsync(request);
+    if (
+      !Array.isArray(result) ||
+      result.length !== request.length ||
+      !request.every((_, index) => typeof result[index] === "boolean")
+    ) {
+      return null;
+    }
+    return result.map((value) => value === true);
+  } catch {
+    // Expo Go, older native builds and rejected/invalid batches retain the
+    // original verification path instead of treating absence as rejection.
+    return null;
+  }
+}
+
 /** This device's Bluetooth name (e.g. "Galaxy A17"). Readable (unlike the MAC). */
 export async function getLocalName(): Promise<string | null> {
   if (Platform.OS !== "android") return null;
