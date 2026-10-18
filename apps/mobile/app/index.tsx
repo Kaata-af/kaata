@@ -7,7 +7,7 @@ import {
   useRouter,
 } from "expo-router";
 import { useSearchFocusEffect as useFocusEffect } from "../lib/use-search-focus-effect";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   AppState,
@@ -23,17 +23,10 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  useWindowDimensions,
   View,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
 } from "react-native";
-import { Gesture, GestureDetector } from "react-native-gesture-handler";
-import Reanimated, {
-  cancelAnimation,
-  useAnimatedStyle,
-  useSharedValue,
-  withSpring,
-} from "react-native-reanimated";
-import { scheduleOnRN, scheduleOnUI } from "react-native-worklets";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { BottomSheet } from "../components/BottomSheet";
 import { CustomerListOptions } from "../components/CustomerListSheet";
@@ -141,16 +134,6 @@ function buildTabs() {
   ];
 }
 
-// Velocity (px/s) at or above which a "flick" commits the tab switch even with
-// a small drag distance. Standard mobile UX values land around 400-600 px/s.
-const FLICK_VELOCITY = 500;
-// Drag distance (as a fraction of screen width) at or above which a slow drag
-// commits even without a flick. 30% is the common iOS/Material convention.
-const DRAG_COMMIT_FRACTION = 0.3;
-// Spring config for both the gesture-end animation and the tab-tap animation.
-// Mid-stiffness: fast settle without overshoot.
-const RAIL_SPRING = { mass: 1, damping: 24, stiffness: 240, overshootClamping: true } as const;
-
 /**
  * ONE sync toggle: enabling Nearby sync also turns on the native background
  * engine (there is no foreground-only sync — sync IS background sync). Sets the
@@ -188,7 +171,6 @@ export default function HomeScreen() {
   const params = useLocalSearchParams<{ menu?: string }>();
   const toastOffset = useToastOffset();
   const insets = useSafeAreaInsets();
-  const { width: screenWidth } = useWindowDimensions();
   const { forceUpdate } = useAppMeta();
   // Subscribes to locale changes — flipping language in Settings re-renders
   // this screen (and all its children) without an app restart. Strings via
@@ -314,25 +296,6 @@ export default function HomeScreen() {
   // NavRow opens this dialog; only on confirmation do we actually wipe the
   // local session.
   const [signOutConfirm, setSignOutConfirm] = useState(false);
-
-  // The rail must follow the finger even while background JS is busy. Keep
-  // its position AND selected side on the UI runtime; React only receives
-  // the final tab label. A second swipe can therefore start before JS catches
-  // up with the first one. The explicit initial transform below also keeps
-  // the Mi 10T's first paint independent of an animation starting.
-  const railX = useSharedValue(0);
-  const railSide = useSharedValue<Direction>("collect");
-  const railSequence = useSharedValue(0);
-  const railBlocked = useSharedValue(false);
-  const railGeneration = useSharedValue(0);
-  const railWidth = useSharedValue(screenWidth);
-  const panSide = useSharedValue<Direction>("collect");
-  const panStartX = useSharedValue(0);
-  const panSequence = useSharedValue(-1);
-  const railStyle = useAnimatedStyle(() => ({ transform: [{ translateX: railX.value }] }));
-  const railEnvironment = useRef<{ width: number; searching: boolean; generation: number } | null>(
-    null,
-  );
 
   // Timestamp of the last hardware back press while home is focused. Lives
   // OUTSIDE the useFocusEffect callback so it persists across re-subscriptions —
@@ -646,8 +609,12 @@ export default function HomeScreen() {
   }, [params.menu]);
 
   // Phase 6: subscribe to mesh status changes so the Sync toggle's
-  // subtitle reflects live peer count without a 10s polling lag.
+  // subtitle reflects live peer count only while its settings sheet is open.
   useEffect(() => {
+    if (!settingsVisible) {
+      setMeshActivePeers(0);
+      return;
+    }
     let unsub: (() => void) | null = null;
     let cancelled = false;
     void (async () => {
@@ -656,7 +623,7 @@ export default function HomeScreen() {
         if (cancelled) return;
         unsub =
           mesh.onShopModeStatusChange?.((s) => {
-            setMeshActivePeers(s.activePeers);
+            if (!cancelled) setMeshActivePeers(s.activePeers);
           }) ?? null;
         // Seed initial value from the synchronous snapshot.
         const snap = mesh.getShopModeStatus?.();
@@ -669,7 +636,7 @@ export default function HomeScreen() {
       cancelled = true;
       if (unsub) unsub();
     };
-  }, []);
+  }, [settingsVisible]);
 
   // Intercept the Android hardware back button on the home screen so a single
   // tap doesn't immediately close the app. Requires two presses within 2s —
@@ -699,44 +666,36 @@ export default function HomeScreen() {
   const visibleAllPeople = currentPeopleScope ? allPeople : EMPTY_PEOPLE;
   const visibleSearchPeople = currentPeopleScope ? peopleForSearch : EMPTY_PEOPLE;
   const searching = searchVisible && currentPeopleScope && currentVaultScope;
-  // A swipe queued before search must never switch the remembered tab, even
-  // if its JS callback arrives after search is cleared and the rail returns.
-  const searchGestureState = useRef({ active: searching, generation: 0 });
-  if (searchGestureState.current.active !== searching) {
-    searchGestureState.current.active = searching;
-    searchGestureState.current.generation++;
-  }
-  // A discarded concurrent search render can advance the ref even when the
-  // committed `searching` value stays false. Memoize by this generation too.
-  const searchGestureGeneration = searchGestureState.current.generation;
   const searchMatches = useMemo(
-    () => searchCustomerMatches(splitSearchQuery(customerQuery), visibleSearchPeople),
-    [visibleSearchPeople, customerQuery],
+    () => searching
+      ? searchCustomerMatches(splitSearchQuery(customerQuery), visibleSearchPeople)
+      : { people: EMPTY_PEOPLE, relevanceById: new Map<string, number>() },
+    [searching, visibleSearchPeople, customerQuery],
   );
-  const collectPeople = useMemo(
-    () =>
-      selectCustomers(visibleAllPeople, "collect", DEFAULT_CUSTOMER_LIST, groupByPerson, locale),
-    [visibleAllPeople, groupByPerson, locale],
-  );
-  const payPeople = useMemo(
-    () => selectCustomers(visibleAllPeople, "pay", DEFAULT_CUSTOMER_LIST, groupByPerson, locale),
-    [visibleAllPeople, groupByPerson, locale],
-  );
+  // Keep the two financial orders stable while switching tabs. Each cached
+  // direction group keeps its own hero and ID-keyed rows; only its wrapper flips.
+  const homePeople = useMemo(() => {
+    const collect = selectCustomers(visibleAllPeople, "collect", DEFAULT_CUSTOMER_LIST, groupByPerson, locale);
+    const pay = selectCustomers(visibleAllPeople, "pay", DEFAULT_CUSTOMER_LIST, groupByPerson, locale);
+    return { collect, pay };
+  }, [visibleAllPeople, groupByPerson, locale]);
+  const activePeople = homePeople[direction];
   const neverTalliedPeople = useMemo(
     () =>
       selectNeverTalliedCustomers(visibleAllPeople, DEFAULT_CUSTOMER_LIST, groupByPerson, locale),
     [visibleAllPeople, groupByPerson, locale],
   );
   const searchPeople = useMemo(
-    () =>
-      selectSearchCustomers(
+    () => searching
+      ? selectSearchCustomers(
         searchMatches.people,
         listPreference,
         groupByPerson,
         locale,
         searchMatches.relevanceById,
-      ),
-    [searchMatches, listPreference, groupByPerson, locale],
+      )
+      : EMPTY_PEOPLE,
+    [searching, searchMatches, listPreference, groupByPerson, locale],
   );
   const canSelect = caps.resolved && canAmend && currentVaultScope && currentPeopleScope;
   const selecting = searching && selectionMode && canSelect;
@@ -861,15 +820,17 @@ export default function HomeScreen() {
       if (mounted.current) setSelectionBusy(false);
     }
   };
-  const collectAll = useMemo(
-    () =>
-      visibleAllPeople.filter((p) => !isNeverTalliedCustomer(p) && customerSide(p) === "collect"),
+  const homeAll = useMemo(() => ({
+    collect: visibleAllPeople.filter((p) => !isNeverTalliedCustomer(p) && customerSide(p) === "collect"),
+    pay: visibleAllPeople.filter((p) => !isNeverTalliedCustomer(p) && customerSide(p) === "pay"),
+  }), [visibleAllPeople]);
+  const activeAll = homeAll[direction];
+  const homePeopleById = useMemo(
+    () => new Map(visibleAllPeople.map((person) => [person.id, person])),
     [visibleAllPeople],
   );
-  const payAll = useMemo(
-    () => visibleAllPeople.filter((p) => !isNeverTalliedCustomer(p) && customerSide(p) === "pay"),
-    [visibleAllPeople],
-  );
+  const homeInteraction = useRef({ direction, searching, people: homePeopleById });
+  homeInteraction.current = { direction, searching, people: homePeopleById };
   const effectiveGroup = useMemo(
     () => availableCustomerGroupFilter(listPreference.group, customerGroups),
     [listPreference.group, customerGroups],
@@ -895,8 +856,80 @@ export default function HomeScreen() {
       : selectedCustomerGroupIds(effectiveGroup).length;
   // A new order starts at its top; otherwise the first rows of a re-sorted
   // long list are scrolled off-screen.
-  const collectScrollRef = useRef<ScrollView>(null);
-  const payScrollRef = useRef<ScrollView>(null);
+  const homeScrollRef = useRef<ScrollView>(null);
+  // One native page stays mounted across tabs. Only the current side takes
+  // layout space; each side remembers its own scroll position without renders.
+  const nativeHomeScroll = Platform.OS === "android";
+  const searchRequest = searchGeneration.current;
+  const homeScrollScope = JSON.stringify([activeAccountId, activeVaultId]);
+  const homeScrollPositions = useRef({
+    scope: homeScrollScope,
+    collect: 0,
+    pay: 0,
+  });
+  if (homeScrollPositions.current.scope !== homeScrollScope) {
+    homeScrollPositions.current = { scope: homeScrollScope, collect: 0, pay: 0 };
+  }
+  // RN 0.86 performance.now() and Android scroll timestamps both use monotonic
+  // boot time (uptimeMillis). A new drag
+  // must cross this barrier before it can own the reused view's scroll events.
+  const homePage = useMemo(() => ({
+    initialOffset: { x: 0, y: homeScrollPositions.current[direction] },
+    ignoreThrough: performance.now(),
+    dragStartedAt: null as number | null,
+    dragSearchRequest: null as number | null,
+    lastNativeTimestamp: -1,
+    restorationPending: true,
+    restorationStarted: false,
+  }), [direction, homeScrollScope]);
+  const activeHomePage = useRef(homePage);
+  activeHomePage.current = homePage;
+  const homePositions = homeScrollPositions.current;
+  const isCurrentHomePage = useCallback(() =>
+    mounted.current && selectionOwnerActive.current && !searching &&
+    searchGeneration.current === searchRequest && currentVaultScope && currentPeopleScope &&
+    activeVaultId === getActiveVaultIdSyncMaybe() && activeAccountId === getAccountIdSync() &&
+    activeHomePage.current === homePage && homeScrollPositions.current === homePositions,
+  [searching, searchRequest, currentVaultScope, currentPeopleScope, activeVaultId, activeAccountId,
+    homePage, homePositions]);
+  const restoreHomeScroll = useCallback(() => {
+    if (!nativeHomeScroll || !isCurrentHomePage() || !homePage.restorationPending) return;
+    // The imperative RN command aborts an Android fling, unlike contentOffset.
+    // It must run even when both sides restore to the same numeric offset.
+    const scroll = homeScrollRef.current;
+    if (!scroll) return;
+    if (!homePage.restorationStarted) {
+      homePage.ignoreThrough = performance.now();
+      homePage.restorationStarted = true;
+    }
+    scroll.scrollTo({ ...homePage.initialOffset, animated: false });
+  }, [nativeHomeScroll, isCurrentHomePage, homePage]);
+  useLayoutEffect(restoreHomeScroll, [restoreHomeScroll, loaded]);
+  const beginHomeScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    if (!nativeHomeScroll || !isCurrentHomePage()) return;
+    const timestamp = (event.nativeEvent as NativeScrollEvent & { timestamp?: number }).timestamp;
+    if (typeof timestamp !== "number" || !Number.isFinite(timestamp) ||
+        timestamp <= homePage.ignoreThrough || timestamp < homePage.lastNativeTimestamp) return;
+    homePage.dragStartedAt = timestamp;
+    homePage.dragSearchRequest = searchRequest;
+    homePage.lastNativeTimestamp = timestamp;
+    homePage.restorationPending = false;
+    const y = event.nativeEvent.contentOffset.y;
+    if (Number.isFinite(y)) homePositions[direction] = Math.max(0, y);
+  }, [nativeHomeScroll, isCurrentHomePage, homePage, homePositions, direction, searchRequest]);
+  const rememberHomeScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    if (!isCurrentHomePage()) return;
+    if (nativeHomeScroll) {
+      const timestamp = (event.nativeEvent as NativeScrollEvent & { timestamp?: number }).timestamp;
+      if (homePage.dragStartedAt === null || homePage.dragSearchRequest !== searchRequest ||
+          typeof timestamp !== "number" || !Number.isFinite(timestamp) ||
+          timestamp <= homePage.ignoreThrough || timestamp < homePage.dragStartedAt ||
+          timestamp < homePage.lastNativeTimestamp) return;
+      homePage.lastNativeTimestamp = timestamp;
+    }
+    const y = event.nativeEvent.contentOffset.y;
+    if (Number.isFinite(y)) homePositions[direction] = Math.max(0, y);
+  }, [nativeHomeScroll, isCurrentHomePage, direction, homePage, homePositions, searchRequest]);
   const searchScrollRef = useRef<ScrollView>(null);
   const listOrderKey = `${listPreference.sort}|${JSON.stringify(effectiveGroup)}`;
   const shownListOrderKey = useRef(listOrderKey);
@@ -919,7 +952,6 @@ export default function HomeScreen() {
       if (isCurrentSearch()) toast.push(t("entry.saveFailed"), "error");
     });
   };
-  const searchRequest = searchGeneration.current;
   const isCurrentSearch = () =>
     mounted.current &&
     selectionOwnerActive.current &&
@@ -951,190 +983,30 @@ export default function HomeScreen() {
     setSearchVisible(true);
   };
 
-  const commitRailSide = useCallback(
-    (next: Direction, generation: number, sequence: number, haptic: boolean) => {
-      if (
-        !mounted.current ||
-        searchGestureState.current.active ||
-        searchGestureState.current.generation !== generation ||
-        railSequence.value !== sequence
-      )
-        return;
-      setDirection(next);
-      if (haptic) Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Soft).catch(() => undefined);
-    },
-    [railSequence],
-  );
-
-  // Search and width changes invalidate an in-flight pan. A delayed React
-  // label update alone must never rewind a more recent UI-thread swipe.
-  useEffect(() => {
-    const previous = railEnvironment.current;
+  const selectDirection = useCallback((next: Direction) => {
     if (
-      previous?.width === screenWidth &&
-      previous.searching === searching &&
-      previous.generation === searchGestureGeneration
-    )
-      return;
-    railEnvironment.current = {
-      width: screenWidth,
-      searching,
-      generation: searchGestureGeneration,
-    };
-    scheduleOnUI(() => {
-      "worklet";
-      railBlocked.value = searching;
-      railGeneration.value = searchGestureGeneration;
-      railWidth.value = screenWidth;
-      const sequence = ++railSequence.value;
-      cancelAnimation(railX);
-      if (searching) railSide.value = direction;
-      railX.value = railSide.value === "collect" ? 0 : -screenWidth;
-      if (!searching)
-        scheduleOnRN(commitRailSide, railSide.value, searchGestureGeneration, sequence, false);
-    });
-  }, [
-    direction,
-    screenWidth,
-    searching,
-    searchGestureGeneration,
-    railBlocked,
-    railGeneration,
-    railSequence,
-    railSide,
-    railWidth,
-    railX,
-    commitRailSide,
-  ]);
-  const selectRailSide = useCallback(
-    (next: Direction) => {
-      if (searchGestureState.current.active) return;
-      const generation = searchGestureState.current.generation;
-      scheduleOnUI(() => {
-        "worklet";
-        if (
-          railBlocked.value ||
-          railGeneration.value !== generation ||
-          railWidth.value !== screenWidth
-        )
-          return;
-        const sequence = ++railSequence.value;
-        railSide.value = next;
-        railX.value = withSpring(next === "collect" ? 0 : -screenWidth, RAIL_SPRING);
-        scheduleOnRN(commitRailSide, next, generation, sequence, false);
-      });
-    },
-    [
-      screenWidth,
-      railBlocked,
-      railGeneration,
-      railSequence,
-      railSide,
-      railWidth,
-      railX,
-      commitRailSide,
-    ],
-  );
-
-  // The swipe gesture. activeOffsetX requires ~24px of horizontal movement
-  // before the pan claims the touch — keeps small vertical drags falling
-  // through to the inner ScrollView. failOffsetY abandons the gesture entirely
-  // if the user starts a clearly-vertical drag.
-  const swipeGesture = useMemo(() => {
-    const generation = searchGestureGeneration;
-    return Gesture.Pan()
-      .enabled(!searching && screenWidth > 0)
-      .activeOffsetX([-24, 24])
-      .failOffsetY([-16, 16])
-      .onStart(() => {
-        if (
-          railBlocked.value ||
-          railGeneration.value !== generation ||
-          railWidth.value !== screenWidth
-        )
-          return;
-        cancelAnimation(railX);
-        panSequence.value = ++railSequence.value;
-        panSide.value = railSide.value;
-        panStartX.value = railX.value;
-      })
-      .onUpdate((e) => {
-        if (
-          railBlocked.value ||
-          railGeneration.value !== generation ||
-          railWidth.value !== screenWidth ||
-          panSequence.value !== railSequence.value
-        )
-          return;
-        // Follow finger. Clamp to the rail's bounds so users can't drag
-        // past the first/last tab into empty space.
-        railX.value = Math.max(-screenWidth, Math.min(0, panStartX.value + e.translationX));
-      })
-      .onEnd((e) => {
-        if (
-          railBlocked.value ||
-          railGeneration.value !== generation ||
-          railWidth.value !== screenWidth ||
-          panSequence.value !== railSequence.value
-        )
-          return;
-        const distance = e.translationX;
-        const velocity = e.velocityX;
-        // Velocity-aware commit: a flick beats a slow drag. Without a flick,
-        // the user must have dragged at least DRAG_COMMIT_FRACTION of the
-        // screen width in the right direction.
-        const flickLeft = velocity <= -FLICK_VELOCITY;
-        const flickRight = velocity >= FLICK_VELOCITY;
-        const dragLeft = distance <= -screenWidth * DRAG_COMMIT_FRACTION;
-        const dragRight = distance >= screenWidth * DRAG_COMMIT_FRACTION;
-
-        const from = panSide.value;
-        const next =
-          from === "collect" && (dragLeft || flickLeft)
-            ? "pay"
-            : from === "pay" && (dragRight || flickRight)
-              ? "collect"
-              : from;
-        railSide.value = next;
-        railX.value = withSpring(next === "collect" ? 0 : -screenWidth, RAIL_SPRING);
-        const sequence = ++railSequence.value;
-        scheduleOnRN(commitRailSide, next, generation, sequence, next !== from);
-      })
-      .onFinalize((_event, success) => {
-        if (
-          success ||
-          railBlocked.value ||
-          railGeneration.value !== generation ||
-          railWidth.value !== screenWidth ||
-          panSequence.value !== railSequence.value
-        )
-          return;
-        railX.value = withSpring(railSide.value === "collect" ? 0 : -screenWidth, RAIL_SPRING);
-        const sequence = ++railSequence.value;
-        scheduleOnRN(commitRailSide, railSide.value, generation, sequence, false);
-      });
-  }, [
-    screenWidth,
-    searching,
-    searchGestureGeneration,
-    railBlocked,
-    railGeneration,
-    railSequence,
-    railSide,
-    railWidth,
-    railX,
-    panSequence,
-    panSide,
-    panStartX,
-    commitRailSide,
-  ]);
+      mounted.current && selectionOwnerActive.current && !searching &&
+      searchGeneration.current === searchRequest &&
+      currentVaultScope && currentPeopleScope &&
+      activeVaultId === getActiveVaultIdSyncMaybe() &&
+      activeAccountId === getAccountIdSync()
+    ) {
+      if (next !== homeInteraction.current.direction) {
+        activeHomePage.current.dragStartedAt = null;
+        activeHomePage.current.dragSearchRequest = null;
+      }
+      setDirection(next);
+    }
+  }, [searching, searchRequest, currentVaultScope, currentPeopleScope,
+      activeVaultId, activeAccountId]);
 
   // Stable row handlers — PersonRow is memoized, and these two props must
   // keep their identity across renders or every row re-renders on each
   // toast push / locale flip (see PersonRow's memo rationale).
   const openPerson = useCallback(
     (p: PersonWithBalance) => {
-      if (activeVaultId !== getActiveVaultIdSyncMaybe() || activeAccountId !== getAccountIdSync())
+      if (!mounted.current || !selectionOwnerActive.current ||
+          activeVaultId !== getActiveVaultIdSyncMaybe() || activeAccountId !== getAccountIdSync())
         return;
       if (searching && !isCurrentSearch()) return;
       if (selecting) {
@@ -1160,10 +1032,53 @@ export default function HomeScreen() {
           !afterNativeSearchClosed(`${activeAccountId ?? "local"}:${activeVaultId ?? "none"}`, open)
         )
           open();
-      } else router.push({ pathname: "/person/[id]", params: { id: p.id } });
+      } else {
+        const current = homeInteraction.current;
+        const person = current.people.get(p.id);
+        if (current.searching || !person ||
+            (!isNeverTalliedCustomer(person) && customerSide(person) !== current.direction)) return;
+        router.push({ pathname: "/person/[id]", params: { id: p.id } });
+      }
     },
     [router, activeVaultId, activeAccountId, selecting, selectableIds, searching, searchRequest],
   );
+  const openHomePersonActions = useCallback((p: PersonWithBalance) => {
+    const current = homeInteraction.current;
+    const person = current.people.get(p.id);
+    if (!mounted.current || !selectionOwnerActive.current || !canSelectRef.current ||
+        current.searching || activeVaultId !== getActiveVaultIdSyncMaybe() ||
+        activeAccountId !== getAccountIdSync() || !person ||
+        (!isNeverTalliedCustomer(person) && customerSide(person) !== current.direction)) return;
+    setSheetFor(person);
+  }, [activeVaultId, activeAccountId]);
+
+  // Reuse the exact child elements on a tab tap. Their text, row props and
+  // measured widths do not change; the two outer group wrappers own visibility.
+  const cachedHomeContents = useMemo(() => nativeHomeScroll ? {
+    collect: (
+      <HomeDirectionContent
+        direction="collect"
+        people={homePeople.collect}
+        allPeople={homeAll.collect}
+        hasNeutral={neverTalliedPeople.length > 0}
+        creditByPerson={creditByPerson}
+        onPersonPress={openPerson}
+        onPersonLongPress={canAmend ? openHomePersonActions : undefined}
+      />
+    ),
+    pay: (
+      <HomeDirectionContent
+        direction="pay"
+        people={homePeople.pay}
+        allPeople={homeAll.pay}
+        hasNeutral={neverTalliedPeople.length > 0}
+        creditByPerson={creditByPerson}
+        onPersonPress={openPerson}
+        onPersonLongPress={canAmend ? openHomePersonActions : undefined}
+      />
+    ),
+  } : null, [nativeHomeScroll, homePeople, homeAll, neverTalliedPeople, creditByPerson,
+    openPerson, openHomePersonActions, canAmend, locale]);
 
   const confirmationVersion = selectionConfirmationVersion.current;
   const selectionToolbar = selecting ? (
@@ -1418,7 +1333,7 @@ export default function HomeScreen() {
       {activeVaultId ? (
         <View style={[styles.tabsWrap, rowDir(isRTL)]}>
           <View style={{ flex: 1 }}>
-            <Tabs<Direction> tabs={buildTabs()} value={direction} onChange={selectRailSide} />
+            <Tabs<Direction> tabs={buildTabs()} value={direction} onChange={selectDirection} />
           </View>
         </View>
       ) : null}
@@ -1485,7 +1400,7 @@ export default function HomeScreen() {
               />
             </View>
           ) : loaded && loadError && allPeople.length === 0 ? (
-            // Load failed with nothing cached to show. Rendering the rail here
+            // Load failed with nothing cached to show. Rendering the overview here
             // would show "0" totals — the false data-loss signal this audience
             // is most sensitive to. A later successful retry clears this.
             <View style={styles.loadingFill}>
@@ -1499,64 +1414,35 @@ export default function HomeScreen() {
                 <Text style={styles.loadErrorRetryText}>{t("common.tryAgain")}</Text>
               </Pressable>
             </View>
-          ) : loaded && screenWidth > 0 ? (
-            // screenWidth>0 gate: on some devices (Xiaomi/MIUI) useWindowDimensions
-            // returns 0 for the first frame(s); rendering the rail at width 0 paints
-            // blank-white until a swipe forces a re-layout (the reported bug). Showing
-            // the spinner until width resolves makes the main page appear on its own.
-            <GestureDetector gesture={swipeGesture}>
-              <Reanimated.View
-                collapsable={false}
-                style={[
-                  styles.rail,
-                  { width: screenWidth * 2, transform: [{ translateX: 0 }] },
-                  railStyle,
-                ]}
-              >
-                <TabPage
-                  direction="collect"
-                  people={collectPeople}
-                  allPeople={collectAll}
-                  neverTalliedPeople={neverTalliedPeople}
-                  filtered={false}
-                  filterTotal={collectAll.length}
-                  scrollRef={collectScrollRef}
-                  groupFilterLabel={null}
-                  groupFilterCount={0}
-                  onClearGroupFilter={() => {}}
-                  creditByPerson={creditByPerson}
-                  vaultId={activeVaultId}
-                  width={screenWidth}
-                  paddingBottom={96 + insets.bottom}
-                  refreshing={refreshing}
-                  onRefresh={onRefresh}
-                  onPersonPress={openPerson}
-                  onPersonLongPress={canAmend ? setSheetFor : undefined}
-                />
-                <TabPage
-                  direction="pay"
-                  people={payPeople}
-                  allPeople={payAll}
-                  neverTalliedPeople={neverTalliedPeople}
-                  filtered={false}
-                  filterTotal={payAll.length}
-                  scrollRef={payScrollRef}
-                  groupFilterLabel={null}
-                  groupFilterCount={0}
-                  onClearGroupFilter={() => {}}
-                  creditByPerson={creditByPerson}
-                  vaultId={activeVaultId}
-                  width={screenWidth}
-                  paddingBottom={96 + insets.bottom}
-                  refreshing={refreshing}
-                  onRefresh={onRefresh}
-                  onPersonPress={openPerson}
-                  onPersonLongPress={canAmend ? setSheetFor : undefined}
-                />
-              </Reanimated.View>
-            </GestureDetector>
+          ) : loaded ? (
+            <TabPage
+              key={nativeHomeScroll ? homeScrollScope : `${homeScrollScope}:${direction}`}
+              direction={direction}
+              people={activePeople}
+              cachedContents={cachedHomeContents}
+              allPeople={activeAll}
+              neverTalliedPeople={neverTalliedPeople}
+              filtered={false}
+              filterTotal={activeAll.length}
+              scrollRef={homeScrollRef}
+              scrollScope={homeScrollScope}
+              scrollOffset={homePage.initialOffset}
+              onScrollBeginDrag={beginHomeScroll}
+              onScroll={rememberHomeScroll}
+              onContentSizeChange={restoreHomeScroll}
+              groupFilterLabel={null}
+              groupFilterCount={0}
+              onClearGroupFilter={() => {}}
+              creditByPerson={creditByPerson}
+              vaultId={activeVaultId}
+              paddingBottom={96 + insets.bottom}
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              onPersonPress={openPerson}
+              onPersonLongPress={canAmend ? openHomePersonActions : undefined}
+            />
           ) : (
-            // Pre-load: spinner instead of the rail. Rendering the rail before
+            // Pre-load: wait for real balances before showing the overview. Rendering before
             // load() resolves flashed "0" totals + the first-run empty state at
             // every cold launch — a false "my ledger is gone" signal for a
             // shopkeeper with a full book.
@@ -2247,19 +2133,14 @@ function SearchResultsPage(props: CustomerRowsProps & GroupFilterChipProps & Cus
   );
 }
 
-function TabPage(
-  props: CustomerRowsProps &
-    GroupFilterChipProps &
-    RefreshableCustomerScrollProps & {
-      direction: Direction;
-      allPeople: PersonWithBalance[];
-      neverTalliedPeople: PersonWithBalance[];
-      filtered: boolean;
-      filterTotal: number;
-      vaultId: string | null;
-      width: number;
-    },
-) {
+type HomeDirectionContentProps = CustomerRowsProps & {
+  direction: Direction;
+  allPeople: PersonWithBalance[];
+  hasNeutral: boolean;
+};
+
+/** Cached per direction: ordinary row/card structure and a full-width hero. */
+function HomeDirectionContent(props: HomeDirectionContentProps) {
   const isRTL = useIsRTL();
   const total = sumAmounts(props.allPeople.map((p) => Math.abs(p.balance)));
   const active = props.allPeople.filter((p) => p.balance !== 0).length;
@@ -2270,21 +2151,90 @@ function TabPage(
   // person balance number and the web ledger.)
   const totalColor = props.direction === "collect" ? colors.collectStrong : colors.payStrong;
 
-  // Financial and neutral customer sections use ONE real bordered CARD each
-  // (ScrollView + map), not the
-  // old per-row border emulation. That emulation drew the card edges as ASYMMETRIC
-  // per-row borders (first row top-only, last row bottom-only), which Android RN
-  // renders wrong together with borderRadius — the first/last edges + corners
-  // vanished (the "edges of the whole div are missing" report, twice). A single
-  // View with uniform borderWidth + overflow:hidden has no asymmetry and clips the
-  // rounded corners cleanly. overflow:hidden is safe here (it wraps a normal View,
-  // not an intrinsic-height FlatList cell — that was the unrelated blank-row bug).
-  const { people, onPersonPress, onPersonLongPress } = props;
-
   return (
-    <View style={{ width: props.width }}>
+    <>
+    <View style={styles.totalBlock}>
+      <Text style={[styles.totalLabel, textDir(isRTL), trackingSafe(isRTL)]}>{totalLabel}</Text>
+      <View style={[styles.totalRow, rowDir(isRTL)]}>
+        <Text
+          style={[styles.totalAmount, { color: totalColor, flexShrink: 1 }]}
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.5}
+        >
+          {formatAmount(total)}
+        </Text>
+        <Text style={styles.totalAfn}>{getCurrentCurrencySymbol()}</Text>
+      </View>
+      {/* Descriptor for a REAL total ("from 3 people"). At zero it used to
+          switch into empty-state vocabulary that the EmptyState two lines
+          below already says, louder and bigger: an empty tab read "no one
+          here yet" (13px grey) and then "Nothing to collect yet" (15px
+          semibold) — the same sentence twice, at two sizes. One grammar per
+          concept: the zero states belong to EmptyState (nobody on this
+          side) and to PersonRow's settled mark (everyone square), not under
+          the hero number. */}
+      {active > 0 ? (
+        <Text style={[styles.totalSub, textDir(isRTL)]}>
+          {t(active === 1 ? "home.from.someone" : "home.from.many", { count: active })}
+        </Text>
+      ) : null}
+    </View>
+      {props.people.length === 0 && !props.hasNeutral ? (
+        <EmptyState
+          title={props.direction === "collect" ? t("home.empty.collect.title") : t("home.empty.pay.title")}
+          subtitle={props.direction === "collect" ? t("home.empty.collect.subtitle") : t("home.empty.pay.subtitle")}
+          isRTL={isRTL}
+        />
+      ) : null}
+      <View
+        collapsable={false}
+        style={props.people.length ? undefined : styles.emptyFinancialCard}
+        pointerEvents={props.people.length ? "auto" : "none"}
+        accessibilityElementsHidden={props.people.length === 0}
+        importantForAccessibility={props.people.length ? "auto" : "no-hide-descendants"}
+      >
+        <CustomerRows
+          people={props.people}
+          creditByPerson={props.creditByPerson}
+          onPersonPress={props.onPersonPress}
+          onPersonLongPress={props.onPersonLongPress}
+        />
+      </View>
+    </>
+  );
+}
+
+function TabPage(
+  props: CustomerRowsProps &
+    GroupFilterChipProps &
+    RefreshableCustomerScrollProps & {
+      direction: Direction;
+      cachedContents: { collect: React.ReactNode; pay: React.ReactNode } | null;
+      allPeople: PersonWithBalance[];
+      neverTalliedPeople: PersonWithBalance[];
+      filtered: boolean;
+      filterTotal: number;
+      vaultId: string | null;
+      scrollOffset: { x: number; y: number };
+      scrollScope: string;
+      onScrollBeginDrag: (event: NativeSyntheticEvent<NativeScrollEvent>) => void;
+      onScroll: (event: NativeSyntheticEvent<NativeScrollEvent>) => void;
+      onContentSizeChange: () => void;
+    },
+) {
+  return (
+    <View style={styles.body}>
       <ScrollView
+        key={Platform.OS === "android" ? props.scrollScope : `${props.scrollScope}:${props.direction}`}
         ref={props.scrollRef}
+        {...(Platform.OS !== "android" ? { contentOffset: props.scrollOffset } : {})}
+        onScrollBeginDrag={props.onScrollBeginDrag}
+        onScroll={props.onScroll}
+        onScrollEndDrag={props.onScroll}
+        onMomentumScrollEnd={props.onScroll}
+        onContentSizeChange={props.onContentSizeChange}
+        scrollEventThrottle={100}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
         contentContainerStyle={{ paddingBottom: props.paddingBottom }}
@@ -2297,90 +2247,43 @@ function TabPage(
           />
         }
       >
-        <View style={styles.totalBlock}>
-          <Text style={[styles.totalLabel, textDir(isRTL), trackingSafe(isRTL)]}>{totalLabel}</Text>
-          <View style={[styles.totalRow, rowDir(isRTL)]}>
-            <Text
-              style={[styles.totalAmount, { color: totalColor, flexShrink: 1 }]}
-              numberOfLines={1}
-              adjustsFontSizeToFit
-              minimumFontScale={0.5}
-            >
-              {formatAmount(total)}
-            </Text>
-            <Text style={styles.totalAfn}>{getCurrentCurrencySymbol()}</Text>
-          </View>
-          {/* Descriptor for a REAL total ("from 3 people"). At zero it used to
-              switch into empty-state vocabulary that the EmptyState two lines
-              below already says, louder and bigger: an empty tab read "no one
-              here yet" (13px grey) and then "Nothing to collect yet" (15px
-              semibold) — the same sentence twice, at two sizes. One grammar per
-              concept: the zero states belong to EmptyState (nobody on this
-              side) and to PersonRow's settled mark (everyone square), not under
-              the hero number. */}
-          {active > 0 ? (
-            <Text style={[styles.totalSub, textDir(isRTL)]}>
-              {t(active === 1 ? "home.from.someone" : "home.from.many", { count: active })}
-            </Text>
-          ) : null}
-        </View>
-
-        <GroupFilterChip
-          groupFilterLabel={props.groupFilterLabel}
-          groupFilterCount={props.groupFilterCount}
-          onClearGroupFilter={props.onClearGroupFilter}
-        />
-        {props.filtered ? (
-          <Text style={[styles.filterHint, textDir(isRTL)]}>
-            {/* The hero above stays the whole side (by design); what the
-                filtered customers come to was shown nowhere (audit #26). */}
-            {t("customers.filtered", {
-              direction: t(props.direction === "collect" ? "home.tab.collect" : "home.tab.pay"),
-              shown: people.length,
-              total: props.filterTotal,
-              amount: bidiIsolate(
-                `${formatAmount(sumAmounts(people.map((p) => Math.abs(p.balance))))} ${getCurrentCurrencySymbol()}`,
-              ),
+        {props.cachedContents ? (
+          <>
+            {(["collect", "pay"] as const).map((side) => {
+              const visible = props.direction === side;
+              return (
+                <View
+                  key={side}
+                  collapsable={false}
+                  style={[styles.homeDirectionGroup, !visible && styles.homeDirectionGroupHidden]}
+                  pointerEvents={visible ? "auto" : "none"}
+                  accessibilityElementsHidden={!visible}
+                  importantForAccessibility={visible ? "auto" : "no-hide-descendants"}
+                >
+                  {props.cachedContents![side]}
+                </View>
+              );
             })}
-          </Text>
-        ) : null}
-        {people.length === 0 && props.neverTalliedPeople.length === 0 ? (
-          <EmptyState
-            title={
-              props.filtered
-                ? t("customers.noGroupResults")
-                : props.direction === "collect"
-                  ? t("home.empty.collect.title")
-                  : t("home.empty.pay.title")
-            }
-            subtitle={
-              props.filtered
-                ? undefined
-                : props.direction === "collect"
-                  ? t("home.empty.collect.subtitle")
-                  : t("home.empty.pay.subtitle")
-            }
-            isRTL={isRTL}
-          />
-        ) : people.length > 0 ? (
-          <CustomerRows
-            selecting={props.selecting}
-            selectedIds={props.selectedIds}
-            selectionBusy={props.selectionBusy}
-            people={people}
+          </>
+        ) : (
+          <HomeDirectionContent
+            direction={props.direction}
+            people={props.people}
+            allPeople={props.allPeople}
+            hasNeutral={props.neverTalliedPeople.length > 0}
             creditByPerson={props.creditByPerson}
-            onPersonPress={onPersonPress}
-            onPersonLongPress={onPersonLongPress}
+            onPersonPress={props.onPersonPress}
+            onPersonLongPress={props.onPersonLongPress}
           />
-        ) : null}
+        )}
         <NoTalliesSection
           selecting={props.selecting}
           selectedIds={props.selectedIds}
           selectionBusy={props.selectionBusy}
           people={props.neverTalliedPeople}
           creditByPerson={props.creditByPerson}
-          onPersonPress={onPersonPress}
-          onPersonLongPress={onPersonLongPress}
+          onPersonPress={props.onPersonPress}
+          onPersonLongPress={props.onPersonLongPress}
         />
       </ScrollView>
     </View>
@@ -2388,6 +2291,11 @@ function TabPage(
 }
 
 const styles = StyleSheet.create({
+  // Absolute positioning removes the inactive group from flow without a zero
+  // height constraint: Yoga measures its full-width hero/card at intrinsic height.
+  homeDirectionGroup: { overflow: "hidden" },
+  homeDirectionGroupHidden: { position: "absolute", left: 0, right: 0, top: 0, opacity: 0 },
+  emptyFinancialCard: { height: 0, opacity: 0, overflow: "hidden" },
   container: { flex: 1, backgroundColor: colors.bgDefault },
   body: { flex: 1 },
   authOverlay: {
@@ -2521,9 +2429,9 @@ const styles = StyleSheet.create({
     borderRadius: PROFILE_SLOT_SIZE / 2,
     backgroundColor: colors.bgMuted,
   },
-  // tabsWrap — gap above the swipe rail. marginTop:2 closes the gap a
+  // tabsWrap — gap above the customer list. marginTop:2 closes the gap a
   // hair after the header's paddingBottom shrunk to 14 (was 16);
-  // marginBottom:16 keeps the rail from feeling glued to the tab strip.
+  // marginBottom:16 keeps the list from feeling glued to the tab strip.
   tabsWrap: { paddingHorizontal: 16, marginTop: 2, marginBottom: 16, gap: 8, alignItems: "center" },
   groupChip: {
     alignSelf: "flex-start",
@@ -2601,17 +2509,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontFamily: fonts.sansSemi,
     color: colors.textInverted,
-  },
-  rail: {
-    flex: 1,
-    // Keep collect-tab on the physical left, pay-tab on the physical right.
-    // The swipe gesture's translateX math assumes this layout (translateX 0
-    // = collect visible, translateX -screenWidth = pay visible). Yoga
-    // WOULD auto-reverse `flexDirection: 'row'` children if the Activity
-    // were RTL, breaking the gesture. We avoid that by ensuring the
-    // Activity is LTR via _layout.tsx's I18nManager neutralization + the
-    // one-shot migration prompt — see that file for the full architecture.
-    flexDirection: "row",
   },
   totalBlock: { marginHorizontal: 16, marginBottom: 20 },
   totalLabel: {

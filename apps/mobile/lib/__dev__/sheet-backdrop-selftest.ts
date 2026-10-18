@@ -151,9 +151,17 @@ async function main() {
   const animated = uiHooks();
   let visible = false,
     reduced = false,
+    from = 600,
+    scale = false,
     nextFrame = 0;
   const frames = new Map<number, () => void>();
-  const animations: { stopped: boolean; callback?: (result: { finished: boolean }) => void }[] = [];
+  const animations: {
+    kind: string;
+    args: any[];
+    started: boolean;
+    stopped: boolean;
+    callback?: (result: { finished: boolean }) => void;
+  }[] = [];
   class Value {
     constructor(public value: number) {}
     stopAnimation() {}
@@ -161,11 +169,12 @@ async function main() {
       this.value = value;
     }
   }
-  const animation = () => {
-    const item = { stopped: false } as (typeof animations)[number];
+  const animation = (kind: string) => (...args: any[]) => {
+    const item = { kind, args, started: false, stopped: false } as (typeof animations)[number];
     animations.push(item);
     return {
       start: (callback: any) => {
+        item.started = true;
         item.callback = callback;
       },
       stop: () => {
@@ -179,7 +188,12 @@ async function main() {
     {
       react: animated.react,
       "react-native": {
-        Animated: { Value, timing: animation, spring: animation, parallel: animation },
+        Animated: {
+          Value,
+          timing: animation("timing"),
+          spring: animation("spring"),
+          parallel: animation("parallel"),
+        },
       },
       "../components/SheetBackdrop": { useSheetMotionPreference: () => reduced },
     },
@@ -192,16 +206,69 @@ async function main() {
     },
   );
   const render = () =>
-    animated.render(() => ({ type: "Hook", props: hook.useOverlayAnimation(visible) })).props;
+    animated.render(() => ({ type: "Hook", props: hook.useOverlayAnimation(visible, from, scale) })).props;
+  const runFrames = () => {
+    for (const [id, work] of [...frames]) {
+      frames.delete(id);
+      work();
+    }
+  };
   assert.equal(render().rendered, false);
+  assert.equal(animations.length, 0, "an initially closed overlay starts no exit animation");
+  assert.equal(frames.size, 0, "an initially closed overlay schedules no entrance frame");
+  from = 420;
+  scale = true;
+  let closed = render();
+  assert.equal(closed.position.value, 420, "closed geometry changes update the hidden endpoint");
+  assert.equal(closed.opacity.value, 0);
+  reduced = true;
+  render();
+  reduced = false;
+  render();
+  assert.equal(animations.length, 0, "closed geometry and motion changes construct no animations");
+  assert.equal(frames.size, 0);
+
+  // A sheet that has actually opened still owns its exit until native completion.
+  visible = true;
+  assert.equal(render().rendered, true);
+  assert.equal(frames.size, 1);
+  runFrames();
+  assert.equal(animations.at(-1)!.started, true, "a real entrance starts after its scheduled frame");
+  visible = false;
+  assert.equal(render().rendered, true, "an animated exit keeps its sheet mounted until completion");
+  const completedClose = animations.at(-1)!;
+  const closeTimings = animations.slice(-3, -1);
+  assert.deepEqual(closeTimings.map((item) => item.kind), ["timing", "timing"]);
+  assert.deepEqual(closeTimings.map((item) => item.args[1].duration), [140, 140],
+    "scale overlays preserve their real exit duration");
+  assert.deepEqual(closeTimings.map((item) => item.args[1].toValue), [0, 420]);
+  assert.ok(closeTimings.every((item) => item.args[1].useNativeDriver === true));
+  completedClose.callback?.({ finished: true });
+  assert.equal(render().rendered, false);
+  const afterCompletedClose = animations.length;
+  from = 510;
+  scale = false;
+  closed = render();
+  assert.equal(closed.position.value, 510);
+  reduced = true;
+  render();
+  reduced = false;
+  render();
+  assert.equal(animations.length, afterCompletedClose,
+    "an already completed exit is not restarted by offscreen geometry or preferences");
+
+  // Even an entrance canceled before its first frame counts as presented.
   visible = true;
   assert.equal(render().rendered, true);
   visible = false;
-  render();
+  assert.equal(render().rendered, true);
   assert.equal(frames.size, 0, "closing before entrance cancels its queued frame");
   const close = animations.at(-1)!;
+  assert.deepEqual(animations.slice(-3, -1).map((item) => item.args[1].duration), [160, 180],
+    "ordinary sheets preserve both real exit durations");
   visible = true;
   render();
+  assert.equal(close.stopped, true, "reopening stops the prior native exit");
   close.callback?.({ finished: true });
   assert.equal(render().rendered, true, "a stale finished close cannot remove reopened sheet");
   reduced = true;
@@ -209,9 +276,13 @@ async function main() {
   assert.equal(still.opacity.value, 1);
   assert.equal(still.position.value, 0);
   assert.equal(frames.size, 0);
+  const beforeReducedClose = animations.length;
   visible = false;
   assert.equal(render().rendered, false, "Reduce Motion dismisses immediately");
+  assert.equal(animations.length, beforeReducedClose, "Reduce Motion never constructs an exit animation");
   reduced = false;
+  render();
+  assert.equal(animations.length, beforeReducedClose, "turning motion back on while closed does not animate");
   visible = true;
   render();
   animated.unmount();
@@ -219,7 +290,7 @@ async function main() {
   close.callback?.({ finished: true });
   assert.equal(animated.lateWrites, 0);
   console.log(
-    "PASS: SDK57 native target, Android performance fallback, iOS Reduce Transparency, Reduce Motion, dismiss targets and canceled/reopened/unmounted overlay lifetimes",
+    "PASS: SDK57 native target, Android performance fallback, iOS Reduce Transparency, closed overlays schedule no animations, real exit completion, Reduce Motion, dismiss targets and canceled/reopened/unmounted overlay lifetimes",
   );
 }
 void main().catch((error) => {

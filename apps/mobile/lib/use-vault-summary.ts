@@ -1,7 +1,7 @@
 // Lightweight read-only hooks for ProfileSettingsSheet (Phase 7)
 // + the deprecated HamburgerMenuSheet's "this kaata" footprint.
 //
-// useMembersCount(vaultId)
+// useMembersCount(vaultId, enabled)
 //   Counts non-revoked rows in vault_members_mirror for the given vault.
 //   In Phase 2 / local-only mode, the mirror is usually empty AND the user
 //   is still the owner (see use-vault-role.ts's LOCAL_OWNER_DEFAULT rationale);
@@ -9,20 +9,21 @@
 //   "Members (1)" instead of "Members (0)". That matches reality from the
 //   shopkeeper's POV: it's their kaata, they're the member.
 //
-// useLastSyncedRelative(vaultId)
+// useLastSyncedRelative(vaultId, enabled)
 //   Reads sync_state.last_pull_at / last_push_at and returns a localized
 //   relative-time string ("just now", "3 min ago", "2 hr ago") plus the raw
 //   millisecond timestamp for callers that want to render their own copy.
 //   Returns null when sync has never run (local-only install, fresh sign-in
-//   pre-first-poll). The string is recomputed every 30s while mounted so
-//   the menu doesn't go stale during a long inspection.
+//   pre-first-poll). The string is recomputed every 30s while enabled and
+//   foregrounded so the menu doesn't go stale during a long inspection.
 //
-// Both hooks are read-only — they never mutate DB state. The menu sheet calls
-// them on every open; the cost is one short SELECT per hook per refresh
-// (15-second cadence). No notification surface in this file; the consumer
-// re-renders on its own state.
+// Both hooks are read-only — they never mutate DB state. A mounted sheet
+// passes its visibility as enabled, so closed sheets do no reads or polling.
+// Opening/resuming reads immediately; closing/backgrounding retains the
+// displayed value for the existing exit animation and ignores late replies.
 
 import { useEffect, useState } from "react";
+import { AppState } from "react-native";
 import { getDb } from "./db-tx";
 import { getSyncIndicator } from "./sync";
 import { t } from "./i18n";
@@ -30,24 +31,73 @@ import { t } from "./i18n";
 const MEMBERS_REFRESH_MS = 15_000;
 const SYNC_REFRESH_MS = 30_000;
 
-export function useMembersCount(vaultId: string | null): number {
+// Each foreground interval owns its requests. A background/close/reopen edge
+// invalidates the old interval even when its SQLite read cannot be cancelled.
+function startForegroundRefresh(
+  read: (isCurrent: () => boolean) => Promise<void>,
+  cadence: number,
+): () => void {
+  let alive = true;
+  let epoch = 0;
+  let state = AppState.currentState;
+  let timer: ReturnType<typeof setInterval> | null = null;
+
+  function stop() {
+    epoch++;
+    if (timer !== null) clearInterval(timer);
+    timer = null;
+  }
+
+  function start() {
+    if (state !== "active") return;
+    const requestEpoch = epoch;
+    let reading = false;
+    const isCurrent = () => alive && state === "active" && requestEpoch === epoch;
+    async function refresh() {
+      if (reading || !isCurrent()) return;
+      reading = true;
+      try {
+        await read(isCurrent);
+      } finally {
+        reading = false;
+      }
+    }
+    void refresh();
+    timer = setInterval(() => void refresh(), cadence);
+  }
+
+  const subscription = AppState.addEventListener("change", (next) => {
+    if (next === state) return;
+    state = next;
+    stop();
+    start();
+  });
+  start();
+  return () => {
+    alive = false;
+    stop();
+    subscription.remove();
+  };
+}
+
+export function useMembersCount(vaultId: string | null, enabled = true): number {
   // Default 1 means "just you". Empty mirror is the common Phase 2 case —
   // see header comment for why 1 (not 0) is the floor.
   const [count, setCount] = useState<number>(1);
 
   useEffect(() => {
-    if (!vaultId) return;
-    let cancelled = false;
+    if (!enabled || !vaultId) return;
 
-    async function read() {
+    async function read(isCurrent: () => boolean) {
       try {
         const db = await getDb();
+        if (!isCurrent()) return;
         const row = await db.getFirstAsync<{ n: number }>(
           `SELECT COUNT(*) AS n FROM vault_members_mirror
             WHERE vault_id = ? AND revoked_at IS NULL`,
           vaultId,
         );
-        if (cancelled) return;
+        if (!isCurrent()) return;
         const raw = row?.n ?? 0;
         // Empty mirror in Phase 2 means "no rows yet" — present that as a
         // single-member vault (the shopkeeper themself).
@@ -59,13 +109,8 @@ export function useMembersCount(vaultId: string | null): number {
       }
     }
 
-    void read();
-    const id = setInterval(() => void read(), MEMBERS_REFRESH_MS);
-    return () => {
-      cancelled = true;
-      clearInterval(id);
-    };
-  }, [vaultId]);
+    return startForegroundRefresh(read, MEMBERS_REFRESH_MS);
+  }, [vaultId, enabled]);
 
   return count;
 }
@@ -79,21 +124,20 @@ export type LastSyncedInfo = {
   label: string;
 };
 
-export function useLastSyncedRelative(vaultId: string | null): LastSyncedInfo {
+export function useLastSyncedRelative(vaultId: string | null, enabled = true): LastSyncedInfo {
   const [info, setInfo] = useState<LastSyncedInfo>({
     ms: null,
     label: t("menu.sync.never"),
   });
 
   useEffect(() => {
+    if (!enabled) return;
     if (!vaultId) {
       setInfo({ ms: null, label: t("menu.sync.never") });
       return;
     }
-    let cancelled = false;
-
     const vid = vaultId;
-    async function read() {
+    async function read(isCurrent: () => boolean) {
       try {
         const ind = await getSyncIndicator(vid);
         // last_push_at is usually fresher than last_pull_at because the
@@ -103,7 +147,7 @@ export function useLastSyncedRelative(vaultId: string | null): LastSyncedInfo {
         const pull = ind.lastPullAt?.getTime() ?? 0;
         const push = ind.lastPushAt?.getTime() ?? 0;
         const newest = Math.max(pull, push);
-        if (cancelled) return;
+        if (!isCurrent()) return;
         if (newest === 0) {
           setInfo({ ms: null, label: t("menu.sync.never") });
         } else {
@@ -115,13 +159,8 @@ export function useLastSyncedRelative(vaultId: string | null): LastSyncedInfo {
       }
     }
 
-    void read();
-    const id = setInterval(() => void read(), SYNC_REFRESH_MS);
-    return () => {
-      cancelled = true;
-      clearInterval(id);
-    };
-  }, [vaultId]);
+    return startForegroundRefresh(read, SYNC_REFRESH_MS);
+  }, [vaultId, enabled]);
 
   return info;
 }

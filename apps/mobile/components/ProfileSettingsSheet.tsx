@@ -176,7 +176,7 @@ export function ProfileSettingsSheet(props: {
     };
   }
 
-  const membersCount = useMembersCount(props.activeVaultId);
+  const membersCount = useMembersCount(props.activeVaultId, props.visible);
 
   // D-ARCHIVED-SCREEN: host pre-filters props.vaults to active rows.
   // Belt-and-suspenders defensive filter. Archived rows live on

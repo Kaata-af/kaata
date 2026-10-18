@@ -9,6 +9,9 @@ export function useOverlayAnimation(visible: boolean, from = 600, scale = false)
   const [rendered, setRendered] = useState(visible);
   const opacity = useRef(new Animated.Value(0)).current;
   const position = useRef(new Animated.Value(from)).current;
+  // Remain active through a real exit, but do not animate an overlay which
+  // has never opened or already completed its exit.
+  const presented = useRef(visible);
   const generation = useRef(0);
   useEffect(() => {
     const request = ++generation.current;
@@ -16,11 +19,13 @@ export function useOverlayAnimation(visible: boolean, from = 600, scale = false)
     let animation: Animated.CompositeAnimation | undefined;
     opacity.stopAnimation();
     position.stopAnimation();
-    if (reducedMotion) {
+    if (reducedMotion || (!visible && !presented.current)) {
+      presented.current = visible;
       opacity.setValue(visible ? 1 : 0);
       position.setValue(visible ? (scale ? 1 : 0) : from);
       setRendered(visible);
     } else if (visible) {
+      presented.current = true;
       setRendered(true);
       frame = requestAnimationFrame(() => {
         if (request !== generation.current) return;
@@ -53,7 +58,10 @@ export function useOverlayAnimation(visible: boolean, from = 600, scale = false)
         }),
       ]);
       animation.start(({ finished }) => {
-        if (finished && request === generation.current) setRendered(false);
+        if (finished && request === generation.current) {
+          presented.current = false;
+          setRendered(false);
+        }
       });
     }
     return () => {

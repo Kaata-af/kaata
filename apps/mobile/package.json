@@ -54,6 +54,7 @@
     "preview:pdf": "tsx lib/__dev__/pdf-preview.ts",
     "selftest:tally-search": "tsx lib/__dev__/tally-search-selftest.ts",
     "selftest:sheet-backdrop": "tsx lib/__dev__/sheet-backdrop-selftest.ts",
+    "selftest:vault-summary": "tsx lib/__dev__/vault-summary-selftest.ts",
     "selftest:sheet-drag": "tsx lib/__dev__/sheet-drag-selftest.ts",
     "selftest:tally-date-sheet": "tsx lib/__dev__/tally-date-sheet-selftest.ts",
     "selftest:share": "tsx lib/__dev__/share-selftest.ts",

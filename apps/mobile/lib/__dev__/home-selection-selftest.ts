@@ -6,10 +6,17 @@ import * as customerList from "../customer-list";
 import * as search from "../search";
 import * as digits from "../digits";
 import * as money from "../money";
-import { compileUI, deferred, jsx, nodes, settleUI, uiHooks, type UINode } from "./ui-fixture";
+import { compileUI, deferred, flattenStyle, jsx, nodes, settleUI, uiHooks, type UINode } from "./ui-fixture";
 
 const hooks = uiHooks();
-const react = hooks.react;
+const react = { ...hooks.react, useLayoutEffect: hooks.react.useEffect };
+let nativeClock = 1000;
+const scrollCommands: { x: number; y: number; animated: boolean }[] = [];
+const nativeScroll = {
+  scrollTo: (command: { x: number; y: number; animated: boolean }) => {
+    scrollCommands.push({ ...command });
+  },
+};
 let vault = "vault-a",
   account = "account-a";
 let reload: () => Promise<void> = async () => undefined;
@@ -58,6 +65,14 @@ let archivePending: ReturnType<typeof deferred<void>> | null = null;
 let keyboardDismissals = 0;
 const noop = () => undefined;
 const asyncNoop = async () => undefined;
+let meshImports = 0;
+let meshSnapshots = 0,
+  meshSubscriptions = 0,
+  meshRemovals = 0,
+  meshSnapshotPeers = 3;
+let meshImportPending: ReturnType<typeof deferred<any>> | null = null;
+const meshListeners = new Set<(status: { activePeers: number }) => void>();
+const meshCallbacks: ((status: { activePeers: number }) => void)[] = [];
 const toasts: { message: string; kind: string }[] = [];
 const toast = {
   push: (message: string, kind: string) => toasts.push({ message, kind }),
@@ -96,7 +111,7 @@ const native = {
     },
   },
   Linking: {},
-  Platform: { OS: "ios" },
+  Platform: { OS: "android" },
   useWindowDimensions: () => ({ width: 390, height: 844 }),
   Animated: {
     View: "AnimatedView",
@@ -120,7 +135,11 @@ const selectionSummary = compileUI("../selection-summary", {
 });
 const mocks: Record<string, any> = {
   react,
-  "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
+  "react/jsx-runtime": {
+    jsx: (type: any, props: Record<string, any>, key?: string) => ({ ...jsx(type, props), key }),
+    jsxs: (type: any, props: Record<string, any>, key?: string) => ({ ...jsx(type, props), key }),
+    Fragment: "Fragment",
+  },
   "react-native": native,
   "expo-router": {
     Redirect: "Redirect",
@@ -241,8 +260,19 @@ const mocks: Record<string, any> = {
   },
   "../lib/battery-exemption": {},
   "../lib/mesh": {
-    onShopModeStatusChange: () => noop,
-    getShopModeStatus: () => ({ activePeers: 0 }),
+    onShopModeStatusChange: (listener: (status: { activePeers: number }) => void) => {
+      meshSubscriptions++;
+      meshListeners.add(listener);
+      meshCallbacks.push(listener);
+      return () => {
+        meshRemovals++;
+        meshListeners.delete(listener);
+      };
+    },
+    getShopModeStatus: () => {
+      meshSnapshots++;
+      return { activePeers: meshSnapshotPeers };
+    },
   },
   "../lib/trust/backfill": { ensureChainBackfill: asyncNoop },
   "../lib/vault-api": { retryPendingVaultMaterialize: asyncNoop },
@@ -265,7 +295,18 @@ for (const [file, exported] of [
   ["VaultPickerSheet", "VaultPickerSheet"],
 ])
   mocks[`../components/${file}`] = { [exported]: exported };
-const Home = compileUI("../../app/index", mocks, { __DEV__: false }).default;
+const meshMock = mocks["../lib/mesh"];
+Object.defineProperty(mocks, "../lib/mesh", {
+  enumerable: true,
+  get: () => {
+    meshImports++;
+    return meshImportPending?.promise ?? meshMock;
+  },
+});
+const Home = compileUI("../../app/index", mocks, {
+  __DEV__: false,
+  performance: { now: () => nativeClock },
+}).default;
 
 // Home-local list components are real; imported visual components remain opaque.
 function expand(value: any): any {
@@ -275,7 +316,13 @@ function expand(value: any): any {
   return { ...value, props: { ...value.props, children: expand(value.props.children) } };
 }
 let tree: UINode;
-const render = () => (tree = expand(hooks.render(Home)));
+const render = () => {
+  tree = expand(hooks.render(Home));
+  for (const node of nodes(tree)) {
+    if (node.type === "ScrollView" && node.props.ref) node.props.ref.current = nativeScroll;
+  }
+  return tree;
+};
 const flush = async () => {
   await settleUI();
   render();
@@ -303,12 +350,31 @@ const searchRows = () =>
     ),
   ).filter((node) => node.type === "PersonRow");
 const searchIds = () => searchRows().map((node) => node.props.person.id);
-const outsideSheet = (node: any): UINode[] =>
+const cachedHidden = (node: UINode) => {
+  const style = flattenStyle(node.props.style);
+  return style?.position === "absolute" && style.opacity === 0
+    && style.left === 0 && style.right === 0 && style.top === 0;
+};
+const cachedBoundaryFor = (value: any, id: string, boundary: UINode | null = null): UINode | null => {
+  if (Array.isArray(value)) {
+    for (const child of value) {
+      const found = cachedBoundaryFor(child, id, boundary);
+      if (found) return found;
+    }
+    return null;
+  }
+  if (!value?.props || value.type === "SearchSheet") return null;
+  const current = cachedHidden(value) ? value : boundary;
+  if (value.type === "PersonRow" && value.props.person.id === id) return current;
+  return cachedBoundaryFor(value.props.children, id, current);
+};
+const outsideSheet = (node: any, includeHidden = false): UINode[] =>
   Array.isArray(node)
-    ? node.flatMap(outsideSheet)
-    : !node?.props || node.type === "SearchSheet"
+    ? node.flatMap((child) => outsideSheet(child, includeHidden))
+    : !node?.props || node.type === "SearchSheet" ||
+        (!includeHidden && (flattenStyle(node.props.style)?.display === "none" || cachedHidden(node)))
       ? []
-      : [node, ...outsideSheet(node.props.children)];
+      : [node, ...outsideSheet(node.props.children, includeHidden)];
 const startFromContactMenu = () => {
   const row = outsideSheet(tree).find(
     (node) => node.type === "PersonRow" && node.props.person.id === "a",
@@ -364,6 +430,71 @@ const pairSummary = {
 async function main() {
   render();
   await flush();
+  assert.equal(meshImports, 0, "Closed settings never imports the mesh status module");
+  assert.equal(meshSubscriptions, 0, "Closed settings owns no peer listener");
+  assert.equal(meshSnapshots, 0, "Closed settings reads no peer snapshot");
+  const settings = () => nodes(tree).find((node) => node.type === "ProfileSettingsSheet")!;
+  const openSettings = () => {
+    nodes(tree).find((node) => node.props.accessibilityLabel === "menu.title.profile")!.props.onPress();
+    render();
+  };
+  const closeSettings = () => {
+    settings().props.onDismiss();
+    render();
+  };
+  openSettings();
+  await flush();
+  assert.equal(settings().props.visible, true);
+  assert.equal(meshImports, 1);
+  assert.equal(meshSubscriptions, 1);
+  assert.equal(meshListeners.size, 1);
+  assert.equal(meshSnapshots, 1);
+  assert.equal(settings().props.activePeers, 3, "Opening settings immediately seeds current peer status");
+  const firstPeerCallback = meshCallbacks[0];
+  firstPeerCallback({ activePeers: 9 });
+  render();
+  assert.equal(settings().props.activePeers, 9, "Open settings receives live peer status");
+  closeSettings();
+  assert.equal(settings().props.activePeers, 0);
+  assert.equal(meshListeners.size, 0, "Closing settings removes its peer listener immediately");
+  assert.equal(meshRemovals, 1);
+  firstPeerCallback({ activePeers: 77 });
+  render();
+  await flush();
+  assert.equal(settings().props.activePeers, 0, "An already queued hidden-sheet callback is ignored");
+  assert.equal(meshImports, 1, "Closed renders do not reload the mesh module");
+
+  const lateMesh = deferred<any>();
+  meshImportPending = lateMesh;
+  openSettings();
+  await settleUI();
+  assert.equal(meshImports, 2);
+  assert.equal(meshSubscriptions, 1, "An unresolved import cannot subscribe early");
+  closeSettings();
+  lateMesh.resolve(meshMock);
+  meshImportPending = null;
+  await flush();
+  assert.equal(meshSubscriptions, 1, "An import resolving after close never subscribes");
+  assert.equal(meshSnapshots, 1, "An import resolving after close never reads a stale snapshot");
+  assert.equal(meshListeners.size, 0);
+
+  meshSnapshotPeers = 5;
+  openSettings();
+  await flush();
+  assert.equal(meshImports, 3);
+  assert.equal(meshSubscriptions, 2);
+  assert.equal(meshSnapshots, 2);
+  assert.equal(meshListeners.size, 1);
+  assert.equal(settings().props.activePeers, 5, "Reopening acquires one fresh status lease and snapshot");
+  firstPeerCallback({ activePeers: 88 });
+  render();
+  assert.equal(settings().props.activePeers, 5, "An old lease cannot overwrite reopened settings");
+  meshCallbacks.at(-1)!({ activePeers: 8 });
+  render();
+  assert.equal(settings().props.activePeers, 8);
+  closeSettings();
+  assert.equal(meshListeners.size, 0);
+  assert.equal(meshRemovals, 2);
   assert.equal(sheet().props.visible, false);
   assert.equal(
     outsideSheet(tree).some((node) => node.type === "SelectionToolbar"),
@@ -371,7 +502,118 @@ async function main() {
   );
   for (const row of outsideSheet(tree).filter((node) => node.type === "PersonRow"))
     assert.ok(!row.props.selecting, "Homepage rows have no selection checkboxes");
+  const homeRows = () => outsideSheet(tree).filter((node) => node.type === "PersonRow");
+  const retainedRows = () => outsideSheet(tree, true).filter((node) => node.type === "PersonRow");
+  const retainedKeys = () => outsideSheet(tree, true)
+    .filter((node) => node.type === "View" && ["a", "b", "c"].includes((node as any).key))
+    .map((node) => (node as any).key).sort();
+  const homeScroll = () => {
+    const scrolls = outsideSheet(tree).filter((node) => node.type === "ScrollView");
+    assert.equal(scrolls.length, 1, "One native Home scroll view owns both money directions");
+    return scrolls[0];
+  };
+  const changeTab = (side: "collect" | "pay") => {
+    nativeClock += 10;
+    nodes(tree).find((node) => node.type === "Tabs")!.props.onChange(side);
+    render();
+  };
+  const scrollEvent = (y: number, timestamp = ++nativeClock) => ({
+    nativeEvent: { contentOffset: { x: 0, y }, timestamp },
+  });
+  const expectCommand = (y: number, work: () => void, message: string) => {
+    const before = scrollCommands.length;
+    work();
+    assert.equal(scrollCommands.length, before + 1, message);
+    assert.deepEqual(scrollCommands.at(-1), { x: 0, y, animated: false }, message);
+  };
+  const beginDrag = (scroll: UINode, y: number) => scroll.props.onScrollBeginDrag(scrollEvent(y));
+  assert.deepEqual(homeRows().map((row) => row.props.person.id), ["a", "c"]);
+  assert.deepEqual(retainedRows().map((row) => row.props.person.id).sort(), ["a", "b", "c"],
+    "Off-side financial rows stay mounted once, while the exact cached-hidden style excludes their layout from visible traversal");
+  assert.deepEqual(retainedKeys(), ["a", "b", "c"], "Retained row owners use stable customer IDs");
+  const hiddenPayOwner = cachedBoundaryFor(tree, "b")!;
+  assert.ok(hiddenPayOwner, "The inactive financial row belongs to a cached hidden boundary");
+  assert.equal(cachedHidden(hiddenPayOwner), true);
+  assert.equal(hiddenPayOwner.props.pointerEvents, "none", "Cached rows cannot intercept touches");
+  assert.equal(hiddenPayOwner.props.accessibilityElementsHidden, true);
+  assert.equal(hiddenPayOwner.props.importantForAccessibility, "no-hide-descendants",
+    "Cached rows are absent from Android accessibility traversal");
+  assert.equal(homeScroll().props.contentOffset, undefined,
+    "An imperative restoration cannot depend on React diffing equal contentOffset values");
+  const homeScopeKey = (homeScroll() as UINode & { key: string }).key;
+  assert.equal(typeof homeScopeKey, "string", "The native scroll owner is keyed by account/vault scope");
+  expectCommand(0, () => changeTab("pay"), "Collect0 to Pay0 still sends a real native scroll command");
+  assert.deepEqual(homeRows().map((row) => row.props.person.id), ["b"]);
+  assert.deepEqual(retainedKeys(), ["a", "b", "c"], "A tab switch retains the same financial row keys");
+  assert.equal((homeScroll() as UINode & { key: string }).key, homeScopeKey,
+    "Changing tabs preserves the same scope-keyed native scroll view");
+  expectCommand(0, () => changeTab("collect"), "Pay0 to Collect0 also restores natively");
+  const firstCollectScroll = homeScroll();
+  firstCollectScroll.props.onScroll(scrollEvent(999));
+  firstCollectScroll.props.onMomentumScrollEnd(scrollEvent(999));
+  expectCommand(0, () => changeTab("pay"), "Automatic native scroll events cannot acquire a user-drag lease");
+  expectCommand(0, () => changeTab("collect"), "Unleased automatic events cannot corrupt the old tab's offset");
+  const firstRestoreFence = nativeClock;
+  nativeClock = firstRestoreFence + 20;
+  expectCommand(0, () => homeScroll().props.onContentSizeChange(390, 2000),
+    "A late content-size callback still aborts native momentum with a restore command");
+  expectCommand(0, () => homeScroll().props.onContentSizeChange(390, 2100),
+    "Repeated late content-size callbacks may reapply the same native target");
+  homeScroll().props.onScrollBeginDrag(scrollEvent(0, firstRestoreFence + 10));
+  homeScroll().props.onScroll(scrollEvent(77, firstRestoreFence + 11));
+  expectCommand(0, () => changeTab("pay"), "Queued genuine dragging leaves the other side unchanged");
+  expectCommand(77, () => changeTab("collect"),
+    "Native begin110/scroll111 remain valid when late content-size work runs at JS120 after the first fence100");
+  const missingRefCommands = scrollCommands.length;
+  homeScroll().props.ref.current = null;
+  changeTab("pay");
+  assert.equal(scrollCommands.length, missingRefCommands, "A missing native ref cannot issue a restore command");
+  const missingRefPageTime = nativeClock;
+  nativeClock = missingRefPageTime + 20;
+  expectCommand(0, () => homeScroll().props.onContentSizeChange(390, 2000),
+    "The first actual ref-backed restore establishes its fence after the ref becomes available");
+  homeScroll().props.onScrollBeginDrag(scrollEvent(0, missingRefPageTime + 10));
+  homeScroll().props.onScroll(scrollEvent(888, missingRefPageTime + 11));
+  expectCommand(77, () => changeTab("collect"), "A ref-less attempted restore cannot change the other side");
+  expectCommand(0, () => changeTab("pay"),
+    "A no-ref attempt must not consume the first-actual-restore fence or accept an earlier drag");
+  expectCommand(77, () => changeTab("collect"), "The valid pre-existing Collect offset survives ref restoration");
+  const draggedCollectScroll = homeScroll();
+  beginDrag(draggedCollectScroll, 0);
+  draggedCollectScroll.props.onScroll(scrollEvent(145));
+  draggedCollectScroll.props.onScrollEndDrag(scrollEvent(145));
+  const commandsBeforeRender = scrollCommands.length;
+  render();
+  assert.equal(scrollCommands.length, commandsBeforeRender,
+    "An unrelated render cannot issue a native command that rewinds an ongoing scroll");
+  expectCommand(0, () => changeTab("pay"), "The other side starts at its own offset");
+  assert.deepEqual(homeRows().map((row) => row.props.person.id), ["b"]);
+  beginDrag(homeScroll(), 0);
+  homeScroll().props.onMomentumScrollEnd(scrollEvent(60));
+  expectCommand(145, () => changeTab("collect"), "Collect restores its independent offset");
+  homeScroll().props.onScroll(scrollEvent(0));
+  expectCommand(145, () => homeScroll().props.onContentSizeChange(390, 2000),
+    "A layout clamp before fresh dragging reapplies the saved restoration target");
+  expectCommand(60, () => changeTab("pay"), "Pay restores its independent offset");
+  expectCommand(145, () => changeTab("collect"), "Rapid tab changes restore the matching side");
+  const staleTimestamp = nativeClock - 1;
+  homeScroll().props.onScrollBeginDrag(scrollEvent(0, staleTimestamp));
+  homeScroll().props.onScroll(scrollEvent(888, staleTimestamp));
+  firstCollectScroll.props.onScrollBeginDrag(scrollEvent(0));
+  firstCollectScroll.props.onScroll(scrollEvent(999));
+  expectCommand(60, () => changeTab("pay"), "Stale automatic/old-drag events cannot change Pay");
+  expectCommand(145, () => changeTab("collect"),
+    "Rapid Collect/Pay/Collect does not reactivate an earlier Collect lease");
+  beginDrag(homeScroll(), 145);
+  homeScroll().props.onScroll(scrollEvent(170));
+  const commandsBeforeContentChange = scrollCommands.length;
+  homeScroll().props.onContentSizeChange(390, 2100);
+  assert.equal(scrollCommands.length, commandsBeforeContentChange,
+    "Content changes must not rewind the user after a fresh drag begins");
+  expectCommand(60, () => changeTab("pay"), "A fresh drag leaves the other side untouched");
+  expectCommand(170, () => changeTab("collect"), "A fresh active drag updates only its own saved offset");
   const initialListReads = listRequests.length;
+  assert.deepEqual(searchIds(), [], "Closed search does not filter or sort customer rows");
   startFromContactMenu();
   assert.equal(sheet().props.visible, true);
   assert.equal(
@@ -549,11 +791,23 @@ async function main() {
 
   const previousVault = blockNextListRead();
   const previousVaultRefresh = reload();
+  const priorVaultScroll = homeScroll();
+  const priorVaultKey = (priorVaultScroll as UINode & { key: string }).key;
+  const commandsBeforeVault = scrollCommands.length;
+  nativeClock += 10;
   vault = "vault-b";
   render();
   assert.equal(sheet().props.visible, false, "A vault switch immediately hides old selection data");
   await reload();
   await flush();
+  assert.notEqual((homeScroll() as UINode & { key: string }).key, priorVaultKey,
+    "A different vault gets a fresh native scroll identity");
+  assert.ok(scrollCommands.slice(commandsBeforeVault).some((command) => command.y === 0),
+    "Vault transitions restore zero natively even while list data is being refreshed");
+  priorVaultScroll.props.onScrollBeginDrag(scrollEvent(0));
+  priorVaultScroll.props.onScroll(scrollEvent(900));
+  expectCommand(0, () => changeTab("pay"), "An old vault's drag cannot transfer its offset");
+  expectCommand(0, () => changeTab("collect"), "Both offsets reset in the new vault");
   startFromContactMenu();
   expectSummary(1, firstSummary);
   previousVault.resolve(updatedPeople);
@@ -565,6 +819,10 @@ async function main() {
 
   const previousAccount = blockNextListRead();
   const previousAccountRefresh = reload();
+  const priorAccountScroll = homeScroll();
+  const priorAccountKey = (priorAccountScroll as UINode & { key: string }).key;
+  const commandsBeforeAccount = scrollCommands.length;
+  nativeClock += 10;
   account = "account-b";
   render();
   assert.equal(
@@ -574,6 +832,14 @@ async function main() {
   );
   identityListeners.forEach((listener) => listener());
   await flush();
+  assert.notEqual((homeScroll() as UINode & { key: string }).key, priorAccountKey,
+    "A different account gets a fresh native scroll identity");
+  assert.ok(scrollCommands.slice(commandsBeforeAccount).some((command) => command.y === 0),
+    "Account transitions issue a native zero restore");
+  priorAccountScroll.props.onScrollBeginDrag(scrollEvent(0));
+  priorAccountScroll.props.onMomentumScrollEnd(scrollEvent(800));
+  expectCommand(0, () => changeTab("pay"), "An old account's momentum cannot transfer its offset");
+  expectCommand(0, () => changeTab("collect"), "Account changes reset both sides independently");
   startFromContactMenu();
   expectSummary(1, firstSummary);
   previousAccount.resolve(updatedPeople);
@@ -585,11 +851,28 @@ async function main() {
 
   sheet().props.onDismiss();
   render();
+  const beforeOrdinarySearch = homeScroll();
+  beginDrag(beforeOrdinarySearch, 0);
+  beforeOrdinarySearch.props.onScroll(scrollEvent(33));
   const trigger = outsideSheet(tree).find((node) => node.type === "SearchFieldTrigger")!;
   trigger.props.onPress();
   render();
   assert.equal(sheet().props.autoFocus, true, "Ordinary search still focuses its input");
   assert.equal(sheet().props.footer, null, "Ordinary search starts outside selection mode");
+  const coveredHomeRow = outsideSheet(tree).find(
+    (node) => node.type === "PersonRow" && node.props.person.id === "a",
+  )!;
+  coveredHomeRow.props.onLongPress(coveredHomeRow.props.person);
+  render();
+  assert.equal(nodes(tree).some((node) => node.type === "BottomSheet" && node.props.visible), false,
+    "A covered Home row cannot open its action menu underneath native search");
+  beforeOrdinarySearch.props.onScroll(scrollEvent(444));
+  sheet().props.onDismiss();
+  render();
+  homeScroll().props.onScroll(scrollEvent(555));
+  expectCommand(0, () => changeTab("pay"), "Search cannot transfer an earlier Home drag to another side");
+  expectCommand(33, () => changeTab("collect"),
+    "A closed search cannot reactivate a drag lease from the previous search generation");
   startFromContactMenu();
   searchRows()
     .find((row) => row.props.person.id === "b")!
@@ -621,9 +904,106 @@ async function main() {
   ]);
   assert.deepEqual(toasts, [{ message: "2 contacts removed", kind: "success" }]);
   assert.equal(sheet().props.visible, true, "Success is visible while search stays open");
+  openSettings();
+  await flush();
+  assert.equal(meshListeners.size, 1);
+  const peerAtUnmount = meshCallbacks.at(-1)!;
   hooks.unmount();
+  assert.equal(meshListeners.size, 0, "Home unmount removes the settings status listener");
+  assert.equal(meshRemovals, 3);
+  const lateWritesBeforePeerCallback = hooks.lateWrites;
+  peerAtUnmount({ activePeers: 99 });
+  assert.equal(hooks.lateWrites, lateWritesBeforePeerCallback, "A queued peer callback cannot write after unmount");
+  for (const os of ["android", "ios", "web"]) {
+    const fallbackHooks = uiHooks();
+    const fallbackReact = {
+      ...fallbackHooks.react,
+      useLayoutEffect: fallbackHooks.react.useEffect,
+    };
+    const FallbackHome = compileUI("../../app/index", {
+      ...mocks,
+      react: fallbackReact,
+      "react-native": { ...native, Platform: { OS: os } },
+      "../lib/db": {
+        ...mocks["../lib/db"],
+        listAllPeopleForSearch: async () => os === "android" ? [...people, {
+          ...people[0], id: "neutral", name: "Neutral", balance: 0,
+          last_entry_at: null, last_entry_type: null,
+          selection_totals: { debtCount: 0, creditCount: 0, debtMinor: 0, creditMinor: 0 },
+        }] : people,
+      },
+      "expo-router": {
+        ...mocks["expo-router"],
+        useFocusEffect: (work: () => any) => fallbackReact.useEffect(work, [work]),
+      },
+      "../lib/use-search-focus-effect": {
+        useSearchFocusEffect: (work: () => any) => fallbackReact.useEffect(work, [work]),
+      },
+    }, { __DEV__: false, performance: { now: () => nativeClock } }).default;
+    let fallbackTree!: UINode;
+    const fallbackRender = () => { fallbackTree = expand(fallbackHooks.render(FallbackHome)); };
+    const fallbackScroll = () => outsideSheet(fallbackTree).find((node) => node.type === "ScrollView")!;
+    const fallbackIds = () => outsideSheet(fallbackTree, true)
+      .filter((node) => node.type === "PersonRow").map((node) => node.props.person.id);
+    const fallbackTab = (side: "collect" | "pay") => {
+      nodes(fallbackTree).find((node) => node.type === "Tabs")!.props.onChange(side);
+      fallbackRender();
+    };
+    const nativeCommandsBeforeFallback = scrollCommands.length;
+    fallbackRender();
+    await settleUI();
+    fallbackRender();
+    await settleUI();
+    fallbackRender();
+    if (os === "android") {
+      const visibleIds = () => outsideSheet(fallbackTree).filter((node) => node.type === "PersonRow")
+        .map((node) => node.props.person.id);
+      const visibleText = () => outsideSheet(fallbackTree).filter((node) => node.type === "Text")
+        .map((node) => node.props.children);
+      assert.deepEqual(visibleIds(), ["a", "c", "neutral"]);
+      assert.equal(fallbackIds().filter((id) => id === "neutral").length, 1,
+        "Both cached financial groups share one mounted neutral customer section");
+      assert.ok(visibleText().includes("home.total.label.collect"));
+      assert.ok(visibleText().includes("130"), "Only Collect's coherent financial total is visible");
+      assert.equal(visibleText().includes("home.total.label.pay"), false);
+      fallbackTab("pay");
+      assert.deepEqual(visibleIds(), ["b", "neutral"]);
+      assert.deepEqual(fallbackIds().sort(), ["a", "b", "c", "neutral"]);
+      assert.equal(fallbackIds().filter((id) => id === "neutral").length, 1);
+      assert.ok(visibleText().includes("home.total.label.pay"));
+      assert.ok(visibleText().includes("40"), "Only Pay's coherent financial total is visible");
+      assert.equal(visibleText().includes("home.total.label.collect"), false);
+      const collectGroup: UINode = cachedBoundaryFor(fallbackTree, "a")!;
+      assert.ok(collectGroup, "Inactive Collect rows and hero belong to a cached group");
+      assert.equal(collectGroup.props.pointerEvents, "none");
+      assert.equal(collectGroup.props.accessibilityElementsHidden, true);
+      assert.equal(collectGroup.props.importantForAccessibility, "no-hide-descendants");
+      fallbackHooks.unmount();
+      continue;
+    }
+    assert.deepEqual(fallbackIds(), ["a", "c"], `${os} mounts only its active financial side`);
+    assert.deepEqual(fallbackScroll().props.contentOffset, { x: 0, y: 0 });
+    const collectKey = (fallbackScroll() as UINode & { key: string }).key;
+    fallbackScroll().props.onScroll({ nativeEvent: { contentOffset: { x: 0, y: 77 } } });
+    fallbackRender();
+    assert.deepEqual(fallbackScroll().props.contentOffset, { x: 0, y: 0 },
+      `${os} rerenders preserve the initial mount offset`);
+    fallbackTab("pay");
+    assert.deepEqual(fallbackIds(), ["b"]);
+    assert.notEqual((fallbackScroll() as UINode & { key: string }).key, collectKey,
+      `${os} keeps its direction-keyed native owner`);
+    fallbackScroll().props.onMomentumScrollEnd({ nativeEvent: { contentOffset: { x: 0, y: 22 } } });
+    fallbackTab("collect");
+    assert.deepEqual(fallbackScroll().props.contentOffset, { x: 0, y: 77 },
+      `${os} retains its existing timestamp-free per-tab restoration`);
+    fallbackTab("pay");
+    assert.deepEqual(fallbackScroll().props.contentOffset, { x: 0, y: 22 });
+    assert.equal(scrollCommands.length, nativeCommandsBeforeFallback,
+      `${os} never enters Android's imperative native-scroll lease path`);
+    fallbackHooks.unmount();
+  }
   console.log(
-    "PASS home selection: instant count and financial totals without per-tap reads, coherent background snapshots, stale vault/account reads, shared sheet, scoped select-all, search/group preservation, modal confirmation, cancel/totals, duplicate and stale guards, dismissal",
+    "PASS home selection: visible-only mesh import/listener/snapshot leases, Android cached group rows/hero/accessibility with one neutral section, native equal-offset/first-actual-fence restoration, queued drag/search leases, stale/ABA/scope rejection, clamp restore without rewinds, preserved iOS/web offsets, closed-search gating, instant financial totals, coherent snapshots and scoped selection/modal guards",
   );
 }
 void main();
