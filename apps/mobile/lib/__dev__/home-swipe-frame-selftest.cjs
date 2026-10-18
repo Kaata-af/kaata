@@ -17,6 +17,11 @@ const names = {
   shared: 'react-native-reanimated/src/isSharedValue.ts',
   frames: 'react-native-worklets/src/runLoop/uiRuntime/requestAnimationFrame.ts',
   reaction: 'react-native-reanimated/src/hook/useAnimatedReaction.ts',
+  style: 'react-native-reanimated/src/hook/useAnimatedStyle.ts',
+  styleUtils: 'react-native-reanimated/src/hook/utils.ts',
+  timing: 'react-native-reanimated/src/animation/timing.ts',
+  easing: 'react-native-reanimated/src/Easing.ts',
+  valueSetter: 'react-native-reanimated/src/valueSetter.ts',
 };
 const sources = Object.fromEntries(Object.entries(names).map(([key, name]) =>
   [key, fs.readFileSync(path.join(installed, name), 'utf8')]));
@@ -110,7 +115,7 @@ function createRuntime() {
   function drainUI() { while (uiTasks.length) uiTasks.shift()(); }
   let delivered = 0;
   const handler = core.registerEventHandler(() => delivered++, 'onScroll', 42);
-  return { context, stats, core, mappers, reaction, effects, flush, drainUI,
+  return { context, stats, core, mappers, reaction, effects, flush, drainUI, evaluate,
     emit: (count) => { for (let index = 0; index < count; index++) registrations.get(handler)(now, { index }); },
     delivered: () => delivered,
   };
@@ -182,7 +187,7 @@ function noEarlierHomeReturn(node) {
   ts.forEachChild(node, noEarlierHomeReturn);
 }
 noEarlierHomeReturn(home);
-const source = 'module.exports=(useAnimatedReaction,homeSwipeUILease,homeSwipeStroke)=>{' + call.getText(homeAst) + ';};';
+const source = 'module.exports=(useAnimatedReaction,homeSwipeUILease,homeSwipeStroke,homeSwipeOffset,cancelAnimation,withTiming,ReduceMotion)=>{' + call.getText(homeAst) + ';};';
 const transformed = babel.transformSync(source, { filename: homeFile, configFile: false, babelrc: false,
   presets: [[req.resolve('@babel/preset-typescript'), { allExtensions: true, isTSX: true }]],
   plugins: [req.resolve('react-native-worklets/plugin')],
@@ -194,7 +199,9 @@ hooked.flush(50);
 assert.equal(hooked.stats.rafPending, 5);
 const factory = { exports: {} };
 vm.runInContext('(function(module) {' + transformed + '\n})', hooked.context)(factory);
-const lease = sharedValue({ epoch: 8, from: 'collect' });
+const lease = sharedValue({ epoch: 8, from: 'collect', scope: 'one', blocked: false, reducedMotion: false });
+const offset = sharedValue(0);
+const timingCalls = [];
 const initialStroke = { epoch: 7, from: 'collect', blocked: false, activated: true, x: 13 };
 const stroke = sharedValue(initialStroke);
 let capturedPrepare, capturedReact;
@@ -205,7 +212,7 @@ factory.exports((prepare, react, dependencies) => {
   assert.ok(Object.values(prepare.__closure).includes(lease), 'Actual hook must observe the live UI lease');
   assert.ok(!Object.values(prepare.__closure).includes(stroke), 'Reaction must not feed its stroke writes back into its prepare input');
   hooked.reaction.useAnimatedReaction(prepare, react, dependencies);
-}, lease, stroke);
+}, lease, stroke, offset, () => {}, (target, config) => { timingCalls.push(config); return target; }, { System: 'system' });
 assert.equal(hooked.effects.length, 1, 'Installed reaction mounts one mapper effect');
 const cleanup = hooked.effects[0]();
 hooked.drainUI();
@@ -216,17 +223,29 @@ assert.equal(stroke.value.blocked, true, 'A stale in-progress stroke is invalida
 assert.equal(stroke.value.epoch, 7);
 assert.equal(stroke.value.x, 13, 'Invalidation preserves the rest of the stroke');
 const alreadyBlocked = stroke.value;
-lease.value = { epoch: 9, from: 'pay' };
+lease.value = { ...lease.value, epoch: 9, from: 'pay' };
 hooked.flush(1);
 assert.equal(stroke.value, alreadyBlocked, 'Already blocked stroke is not repeatedly written');
+assert.equal(timingCalls.length, 1, 'Committed same-scope direction change starts one finite entrance');
+assert.equal(timingCalls[0].duration, 170);
+assert.equal(timingCalls[0].reduceMotion, 'system');
 stroke.value = { epoch: 9, from: 'pay', blocked: false, activated: true };
 const currentStroke = stroke.value;
-lease.value = { epoch: 9, from: 'pay' };
+lease.value = { ...lease.value, epoch: 9, from: 'pay' };
 hooked.flush(1);
 assert.equal(stroke.value, currentStroke, 'Same-epoch current stroke is preserved');
-lease.value = { epoch: 10, from: 'collect' };
+lease.value = { ...lease.value, epoch: 10, from: 'collect' };
 hooked.flush(1);
 assert.equal(stroke.value.blocked, true, 'Later lease invalidation cancels a fresh active stroke');
+const entrances = timingCalls.length;
+for (const next of [{ scope: 'two', from: 'pay' }, { blocked: true, from: 'collect' },
+  { blocked: false, reducedMotion: true, from: 'pay' }]) {
+  offset.value = 12;
+  lease.value = { ...lease.value, ...next, epoch: lease.value.epoch + 1 };
+  hooked.flush(1);
+  assert.equal(offset.value, 0, 'Scope, blocking and live reduced-motion changes reset presentation');
+}
+assert.equal(timingCalls.length, entrances, 'Invalidation never animates content from another scope or overlay');
 const afterHookRequests = hooked.stats.rafRequested;
 hooked.emit(1000);
 hooked.flush(200);
@@ -242,11 +261,92 @@ assert.equal(hooked.stats.rafPending, 0);
 assert.equal(hooked.stats.finalizerPending, 1);
 assert.equal(hooked.delivered(), 1105);
 
+// Mount the installed animated-style hook with Home's actual transformed
+// updater. Native property application and shared storage remain boundaries.
+let styleExpression;
+function findStyle(node) {
+  if (ts.isVariableDeclaration(node) && node.name.getText(homeAst) === 'homeSwipeBodyStyle')
+    styleExpression = node.initializer.getText(homeAst);
+  ts.forEachChild(node, findStyle);
+}
+findStyle(home.body);
+assert.ok(styleExpression, 'Actual Home owns its animated body style');
+const styleBuilt = babel.transformSync('module.exports=(useAnimatedStyle,homeSwipeOffset)=>(' + styleExpression + ');', {
+  filename: homeFile, configFile: false, babelrc: false,
+  presets: [[req.resolve('@babel/preset-typescript'), { allExtensions: true, isTSX: true }]],
+  plugins: [req.resolve('react-native-worklets/plugin')],
+}).code;
+const styled = createRuntime();
+const appliedStyles = [];
+const styleUtils = styled.evaluate('styleUtils', (id) => assert.fail(id));
+const styleHook = styled.evaluate('style', (id) => {
+  if (id === 'react') return { useRef: (current) => ({ current }), useEffect: (effect) => styled.effects.push(effect) };
+  if (id === 'react-native-worklets') return { isWorkletFunction: (work) => typeof work.__workletHash === 'number', makeShareable: (value) => value };
+  if (id === '../animation') return { initialUpdaterRun: (updater) => updater() };
+  if (id === '../common') return { IS_JEST: false, SHOULD_BE_USE_WEB: false };
+  if (id === '../core') return styled.core;
+  if (id === '../updateProps') return { updateProps: (_, props) => appliedStyles.push(props) };
+  if (id === '../ViewDescriptorsSet') return { makeViewDescriptorsSet: () => ({ shareableViewDescriptors: sharedValue([]) }) };
+  if (id === './useSharedValue') return { useSharedValue: sharedValue };
+  if (id === './utils') return styleUtils;
+  assert.fail('Unexpected installed style dependency: ' + id);
+}).useAnimatedStyle;
+const styleFactory = { exports: {} };
+vm.runInContext('(function(module) {' + styleBuilt + '\n})', styled.context)(styleFactory);
+const translation = sharedValue(0);
+const bodyStyle = styleFactory.exports(styleHook, translation);
+assert.equal(bodyStyle.initial.value.transform[0].translateX, 0, 'First paint has no off-screen transform');
+assert.equal(styled.effects.length, 2, 'Installed style hook owns mapper and animation-liveness effects');
+const styleCleanups = styled.effects.map((effect) => effect());
+styled.drainUI(); styled.flush(1);
+assert.equal(translation.listeners.size, 1);
+translation.value = -12;
+styled.flush(1);
+assert.equal(appliedStyles.at(-1).transform[0].translateX, -12, 'Shared translation updates native styles without an RN render');
+const styleRequests = styled.stats.rafRequested;
+styled.emit(1000); styled.flush(100);
+assert.equal(styled.stats.rafRequested, styleRequests, 'Animated style adds no idle retry chain');
+styleCleanups.forEach((cleanup) => cleanup?.()); styled.drainUI();
+assert.equal(translation.listeners.size, 0, 'Installed animated-style cleanup removes its mapper');
+
+// Exercise the installed numeric timing/value-setter RAF path. Animation
+// decoration/serialization is a boundary; Home's motion policy is checked above.
+const easing = styled.evaluate('easing', (id) => {
+  assert.equal(id, './Bezier'); return { Bezier: () => assert.fail('Unused Bezier easing') };
+}).Easing;
+const timing = styled.evaluate('timing', (id) => {
+  if (id === '../Easing') return { Easing: easing };
+  assert.equal(id, './util');
+  return { defineAnimation: (_, factory) => factory(), getReduceMotionForAnimation: () => false };
+}).withTiming;
+const setter = styled.evaluate('valueSetter', (id) => assert.fail(id)).valueSetter;
+styled.context._getAnimationTimestamp = styled.context.performance.now;
+let numeric = 24;
+const animated = { _animation: null };
+Object.defineProperties(animated, {
+  _value: { get: () => numeric, set: (value) => { numeric = value; } },
+  value: { get: () => numeric, set: (value) => setter(animated, value) },
+});
+animated.value = timing(0, { duration: 170 });
+styled.flush(20);
+assert.equal(animated.value, 0, 'Actual timing reaches the target in a finite number of UI frames');
+assert.equal(styled.stats.rafPending, 0);
+animated.value = 24;
+animated.value = timing(0, { duration: 170 });
+styled.flush(1);
+const canceledAt = animated.value;
+animated.value = animated.value; // Exact cancelAnimation native setter contract.
+styled.flush(20);
+assert.equal(animated.value, canceledAt, 'Canceled animation cannot resume on a later frame');
+assert.equal(styled.stats.rafPending, 0, 'Timing and cancellation leave no recurring animation callback');
+
 console.log(JSON.stringify({ allPassed: true, hostOnly: true,
   installed: { reanimated: req('react-native-reanimated/package.json').version,
     worklets: req('react-native-worklets/package.json').version },
   sourceSha256: { ...hashes, 'app/index.tsx': sha(fs.readFileSync(homeFile)) },
   noMapper, actualStartMapper: control.stats, actualHomeReaction: hooked.stats,
+  actualAnimatedStyleAndTiming: styled.stats,
   boundaryStubs: ['React effect lifecycle', 'shared-value native storage/listeners', 'native RAF dispatch',
-    'scheduleOnUI task delivery', 'createSerializable identity', 'native event registration', 'microtask bridge'],
+    'scheduleOnUI task delivery', 'createSerializable identity', 'native event registration', 'microtask bridge',
+    'native style application/descriptors', 'numeric animation decoration/serialization'],
   limitation: 'Host algorithm/closure/lifecycle proof; not Hermes/JNI transfer, Android scheduling or performance timing.' }, null, 2));

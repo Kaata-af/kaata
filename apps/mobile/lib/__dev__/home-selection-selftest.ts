@@ -108,7 +108,9 @@ const metadata = new Map<string, string>();
 let queueSwipeCommit = false;
 const swipeCommits: (() => void)[] = [];
 let swipeHandoffs = 0;
-const swipeSharedValues: { value: any }[] = [];
+const swipeSharedValues: { value: any; writes: any[] }[] = [];
+const homeTimings: { target: number; duration: number; reduceMotion: string }[] = [];
+let reducedHomeMotion = false;
 const swipeReactions = new Set<() => void>();
 const flushSwipeReactions = () => swipeReactions.forEach((run) => run());
 const animatedReaction = (hookReact: typeof react) =>
@@ -137,7 +139,7 @@ const pan = () => {
   for (const name of ["enabled", "maxPointers", "activeOffsetX", "failOffsetY", "hitSlop"])
     chain[name] = (value: unknown) => { chain.config[name] = value; return chain; };
   chain.withRef = (ref: { current: unknown }) => { ref.current = chain; return chain; };
-  for (const name of ["onTouchesDown", "onTouchesMove", "onStart", "onEnd", "onFinalize"])
+  for (const name of ["onTouchesDown", "onTouchesMove", "onStart", "onUpdate", "onEnd", "onFinalize"])
     chain[name] = (work: unknown) => { chain.callbacks[name] = work; return chain; };
   return chain;
 };
@@ -213,15 +215,27 @@ const mocks: Record<string, any> = {
   },
   "react-native-reanimated": {
     __esModule: true,
-    default: { View: "RailView", ScrollView: "ScrollView", createAnimatedComponent: (component: unknown) => component },
+    default: { View: "HomeAnimatedBody", ScrollView: "ScrollView", createAnimatedComponent: (component: unknown) => component },
     useSharedValue: (value: unknown) => {
-      const shared = react.useRef({ value }).current;
+      const slot = react.useRef(null);
+      if (!slot.current) {
+        let current = value;
+        slot.current = { get value() { return current; }, set value(next: unknown) {
+          current = next; slot.current.writes.push(next);
+        }, writes: [] };
+      }
+      const shared = slot.current;
       if (!swipeSharedValues.includes(shared)) swipeSharedValues.push(shared);
       return shared;
     },
     useAnimatedReaction: animatedReaction(react),
     useEvent: (worklet: unknown, eventNames: string[]) => react.useRef({ workletEventHandler: { worklet, eventNames } }).current,
-    useAnimatedStyle: (read: () => unknown) => read(),
+    useAnimatedStyle: (read: () => unknown) => Object.assign(react.useRef({}).current, read()),
+    withTiming: (target: number, config: { duration: number; reduceMotion: string }) => {
+      homeTimings.push({ target, ...config });
+      return target;
+    },
+    ReduceMotion: { System: "system" },
     withSpring: (target: number) => target,
     cancelAnimation: noop,
   },
@@ -241,6 +255,7 @@ const mocks: Record<string, any> = {
   "../lib/selection-summary": selectionSummary,
   "../components/Toast": { useToast: () => toast, useToastOffset: () => 0 },
   "../lib/app-meta-context": { useAppMeta: () => ({ forceUpdate: false }) },
+  "../components/SheetBackdrop": { useSheetMotionPreference: () => reducedHomeMotion },
   "../lib/colors": { colors },
   "../lib/contacts-merge": contactQueries,
   "../lib/search": search,
@@ -609,6 +624,12 @@ async function main() {
     gesture.callbacks.onTouchesDown({ numberOfTouches: 1, allTouches: [{ absoluteX: 200, absoluteY: 300 }] }, manager);
     nativeClock += options.hold ?? 20;
     gesture.callbacks.onTouchesMove({ numberOfTouches: options.pointers ?? 1 }, manager);
+    const beforePreviewSide = nodes(tree).find((node) => node.type === "Tabs")!.props.value;
+    const beforePreviewHandoffs = swipeHandoffs;
+    gesture.callbacks.onUpdate({ absoluteX: 200 + dx, absoluteY: 300 + dy, numberOfPointers: options.pointers ?? 1 });
+    assert.equal(nodes(tree).find((node) => node.type === "Tabs")!.props.value, beforePreviewSide,
+      "Dragging previews the same content without committing a tab");
+    assert.equal(swipeHandoffs, beforePreviewHandoffs, "UI preview never crosses to RN");
     gesture.callbacks.onStart();
     nativeClock += options.duration ?? 100;
     gesture.callbacks.onTouchesMove({ numberOfTouches: options.pointers ?? 1 }, manager);
@@ -620,13 +641,35 @@ async function main() {
   };
   assert.deepEqual(swipeGesture().config, { enabled: true, maxPointers: 1,
     activeOffsetX: [-24, 24], failOffsetY: [-12, 12], hitSlop: { left: -24, right: -24 } });
-  assert.equal(swipeGesture().callbacks.onUpdate, undefined, "No per-move JS/React update handler exists");
+  assert.equal(typeof swipeGesture().callbacks.onUpdate, "function", "Preview has a UI worklet, without RN/React move traffic");
   assert.equal(swipeGesture().callbacks.onChange, undefined);
   assert.equal(swipeReactions.size, 1, "Home owns a useful UI reaction before native events arrive");
   const uiSwipeLease = swipeSharedValues.find((shared) =>
-    shared.value && "epoch" in shared.value && "from" in shared.value && !("blocked" in shared.value))!;
-  const uiSwipeStroke = swipeSharedValues.find((shared) => shared.value && "blocked" in shared.value)!;
+    shared.value && typeof shared.value === "object" && "scope" in shared.value)!;
+  const uiSwipeStroke = swipeSharedValues.find((shared) => shared.value && typeof shared.value === "object" && "activated" in shared.value)!;
+  const uiSwipeOffset = swipeSharedValues.find((shared) => typeof shared.value === "number")!;
   assert.ok(uiSwipeLease && uiSwipeStroke, "The UI lease and live stroke are separate shared values");
+  assert.equal(nodes(tree).filter((node) => node.type === "HomeAnimatedBody").length, 1,
+    "The existing body is the single animated native host, around one ScrollView");
+  assert.equal(nodes(tree).find((node) => node.type === "HomeAnimatedBody")!.props.collapsable, false);
+  const previewGesture = swipeGesture();
+  previewGesture.callbacks.onTouchesDown({ numberOfTouches: 1,
+    allTouches: [{ absoluteX: 200, absoluteY: 300 }] }, { fail: noop });
+  nativeClock += 20;
+  previewGesture.callbacks.onStart();
+  previewGesture.callbacks.onUpdate({ absoluteX: 100, absoluteY: 300 });
+  assert.equal(uiSwipeOffset.value, -12, "A valid drag previews12% of its displacement");
+  previewGesture.callbacks.onUpdate({ absoluteX: -800, absoluteY: 300 });
+  assert.equal(uiSwipeOffset.value, -24, "The preview remains bounded to24points");
+  previewGesture.callbacks.onUpdate({ absoluteX: 300, absoluteY: 300 });
+  assert.equal(uiSwipeOffset.value, 0, "The outward Collect boundary has no preview");
+  previewGesture.callbacks.onUpdate({ absoluteX: 100, absoluteY: 380 });
+  assert.equal(uiSwipeOffset.value, 0, "A diagonal has no horizontal preview");
+  previewGesture.callbacks.onUpdate({ absoluteX: NaN, absoluteY: 300 });
+  assert.equal(uiSwipeOffset.value, 0);
+  previewGesture.callbacks.onUpdate({ absoluteX: 100, absoluteY: 300 });
+  previewGesture.callbacks.onFinalize();
+  assert.equal(uiSwipeOffset.value, 0, "A canceled active gesture settles tozero without a commit");
   const canceledGesture = swipeGesture();
   canceledGesture.callbacks.onTouchesDown({ numberOfTouches: 1,
     allTouches: [{ absoluteX: 200, absoluteY: 300 }] }, { fail: noop });
@@ -673,12 +716,24 @@ async function main() {
   assert.equal(swipeGesture(), panBeforeDirectionChange,
     "Changing only the direction retains the recognizer and its UI callbacks");
   assert.equal(uiSwipeLease.value.from, "pay", "The stable recognizer receives the committed destination atomically");
+  assert.ok(uiSwipeOffset.writes.includes(24), "Committed Pay enters from the physical right");
+  assert.ok(homeTimings.some((timing) => timing.duration === 170 && timing.target === 0 && timing.reduceMotion === "system"));
   assert.equal(nodes(tree).find((node) => node.type === "Tabs")!.props.value, "pay",
     "A slowly completed swipe activated before the hold threshold still changes sides");
   assert.equal(swipeHandoffs, initialSwipeHandoffs + 1, "One successful end schedules one RN handoff");
   assert.equal(scrollCommands.length, beforeSwipeCommands + 1, "Swipe reuses the exact native offset restoration path");
   swipe(100); render();
   assert.equal(nodes(tree).find((node) => node.type === "Tabs")!.props.value, "collect");
+  assert.ok(uiSwipeOffset.writes.includes(-24), "Committed Collect enters from the physical left");
+  reducedHomeMotion = true; render();
+  const timingsBeforeReduced = homeTimings.length;
+  swipe(-100); render();
+  assert.equal(nodes(tree).find((node) => node.type === "Tabs")!.props.value, "pay",
+    "Reduced motion keeps swipe navigation available");
+  assert.equal(uiSwipeOffset.value, 0);
+  assert.equal(homeTimings.length, timingsBeforeReduced, "Live reduced motion disables preview and entry timing");
+  reducedHomeMotion = false; render();
+  changeTab("collect");
   queueSwipeCommit = true;
   swipe(-100);
   changeTab("collect");
@@ -1169,6 +1224,7 @@ async function main() {
       "react-native-reanimated": {
         ...mocks["react-native-reanimated"],
         useSharedValue: (value: unknown) => fallbackReact.useRef({ value }).current,
+        useAnimatedStyle: (read: () => unknown) => Object.assign(fallbackReact.useRef({}).current, read()),
         useAnimatedReaction: animatedReaction(fallbackReact),
         useEvent: (worklet: unknown, eventNames: string[]) => fallbackReact.useRef({ workletEventHandler: { worklet, eventNames } }).current,
       },

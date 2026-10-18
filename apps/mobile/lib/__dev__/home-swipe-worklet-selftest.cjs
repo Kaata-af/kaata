@@ -27,7 +27,7 @@ function walk(node) {
 }
 walk(ast);
 assert.ok(expression, 'Expected actual Home recognizer factory');
-const program = 'module.exports=(Gesture,Platform,homeSwipeBlocked,homeSwipeUILease,homeSwipeStroke,homeSwipePanRef,completeHomeSwipe,scheduleOnRN)=>(' + expression + ');';
+const program = 'module.exports=(Gesture,Platform,homeSwipeBlocked,homeSwipeUILease,homeSwipeStroke,homeSwipePanRef,completeHomeSwipe,scheduleOnRN,homeSwipeOffset,cancelAnimation,withTiming,ReduceMotion)=>(' + expression + ');';
 const built = babel.transformSync(program, {
   filename, configFile: false, babelrc: false,
   presets: [[req.resolve('@babel/preset-typescript'), { allExtensions: true, isTSX: true }]],
@@ -50,23 +50,38 @@ const actual = evaluateTs('panGesture.ts', (id) => {
   assert.equal(id, './gesture'); return base;
 });
 const moduleFactory = { exports: {} };
-vm.runInNewContext(built, { module: moduleFactory, exports: moduleFactory.exports, global: { Error } });
-const uiLease = { value: { epoch: 1, from: 'collect' } };
+vm.runInNewContext(built, { module: moduleFactory, exports: moduleFactory.exports, global: { Error }, performance: { now: () => 0 } });
+const uiLease = { value: { epoch: 1, from: 'collect', scope: 'one', blocked: false, reducedMotion: false } };
+const offset = { value: 0 };
+let rnCalls = 0;
 const pan = moduleFactory.exports({ Pan: () => new actual.PanGesture() }, { OS: 'android' }, false,
-  uiLease, { value: { epoch: -1, from: 'collect', startedAt: 0, x: 0, y: 0, activated: false, blocked: true } }, { current: undefined }, () => {}, () => {});
+  uiLease, { value: { epoch: -1, from: 'collect', startedAt: 0, x: 0, y: 0, activated: false, blocked: true, commitRequested: false } }, { current: undefined }, () => {}, () => rnCalls++,
+  offset, () => {}, (target) => target, { System: 'system' });
 pan.initialize();
 assert.equal(pan.config.ref.current, pan, 'The actual Pan ref exposes its handlerTag for scroll/refresh relations');
 assert.equal(pan.config.ref.current.handlerTag, 1);
-for (const name of ['onTouchesDown', 'onTouchesMove', 'onStart', 'onEnd', 'onFinalize'])
+for (const name of ['onTouchesDown', 'onTouchesMove', 'onStart', 'onUpdate', 'onEnd', 'onFinalize'])
   assert.equal(typeof pan.handlers[name].__workletHash, 'number', name + ' is a transformed UI worklet');
-assert.equal(pan.handlers.onUpdate, undefined);
 assert.equal(pan.handlers.onChange, undefined);
-assert.equal(pan.handlers.isWorklet.filter((value) => value !== undefined).length, 5);
+assert.equal(pan.handlers.isWorklet.filter((value) => value !== undefined).length, 6);
 assert.equal(pan.shouldUseReanimated, true, 'Actual installed RNGH must choose its UI-thread handler');
 assert.equal(pan.handlers.onTouchesDown.__closure.homeSwipeUILease, uiLease,
   'The DOWN worklet captures the stable atomic UI lease');
 assert.equal(Object.hasOwn(pan.handlers.onTouchesDown.__closure, 'direction'), false,
   'The DOWN worklet must not retain an obsolete direction closure');
+pan.handlers.onTouchesDown({ numberOfTouches: 1, allTouches: [{ absoluteX: 300, absoluteY: 300 }] }, { fail: () => assert.fail('Valid down') });
+pan.handlers.onStart();
+for (const [absoluteX, absoluteY, expected] of [[200, 300, -12], [0, 300, -24], [400, 300, 0], [200, 350, 0]]) {
+  pan.handlers.onUpdate({ absoluteX, absoluteY });
+  assert.equal(offset.value, expected, 'Actual UI preview is bounded, directional and rejects diagonal movement');
+}
+uiLease.value = { ...uiLease.value, reducedMotion: true };
+pan.handlers.onUpdate({ absoluteX: 200, absoluteY: 300 });
+assert.equal(offset.value, 0, 'Live reduced motion disables drag preview');
+uiLease.value = { ...uiLease.value, reducedMotion: false, epoch: 2 };
+pan.handlers.onUpdate({ absoluteX: 200, absoluteY: 300 });
+assert.equal(offset.value, 0, 'An invalidated stroke cannot move the body');
+assert.equal(rnCalls, 0, 'Repeated UI preview updates never schedule RN work');
 
 // Execute the installed native wrapper -> createHandler -> INNER Animated
 // registration/filter/ref chain. A marker-only holder on a plain child, or an
@@ -248,7 +263,7 @@ assert.ok([...registrations.values()].every((registration) => registration.tag =
 refresh.manager.detachEvents();
 assert.equal(registrations.size, 0, 'Unmount cleans every registration');
 console.log(JSON.stringify({ allPassed: true, actualSourceFactory: true, actualInstalledPan: true,
-  callbacks: 5, shouldUseReanimated: true, perMoveRNCallbacks: 0,
+  callbacks: 6, shouldUseReanimated: true, perMoveRNCallbacks: 0,
   actualNativeActionRoute: 'REANIMATED_WORKLET', actualInnerAnimatedRegistration: true,
   nativeHosts: 2, nativeEventRegistrations: 4, cleanupIndependent: true, actualHostRefPreserved: true,
   sourceSha256: crypto.createHash('sha256').update(fs.readFileSync(filename)).digest('hex') }));

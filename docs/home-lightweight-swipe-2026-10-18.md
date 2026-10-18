@@ -1,9 +1,10 @@
-# Lightweight Home swipe experiment
+# Lightweight Home swipes and slide feedback
 
-**Current status: J's code, Xiaomi interaction checks and comparison are complete.
-Scrolling timings remain close, with added tab CPU work and memory documented
-below. This is a tested feature checkpoint, not a zero-overhead claim.** Earlier
-candidates and their evidence below are retained as history.
+**Current status: swipe checkpoint J is committed as `cd2a37f`. The requested
+slide follow-up K passes all five host checks, 23 Xiaomi interaction gestures,
+and two measured runs. Settled scrolling/idle work remains close to J; the
+observed memory increase and transition CPU cost are explicit below.** Earlier
+candidates and their evidence are retained as history, not current claims.
 
 This follow-up adds horizontal swipe switching to the tap-only Home at commit
 `840cbcc0292058b609c796b1f3917d0fc0cd1b3f`. It keeps the single ScrollView,
@@ -12,10 +13,10 @@ cached direction groups, independent offsets and financial presentation from
 page rail or React state update while the finger moves. Tabs remain available.
 
 The runtime change is confined to `apps/mobile/app/index.tsx`, SHA256
-`b557ab279ddf3a74ed74c22128382046a81925d4bebe1ed8fbeab103ae45ab0d` (J).
+`c18709785cbf591eb755316ab957ac8622385e2b1ad6e09d3de6d43e7e61ef14` (K).
 No dependency, native configuration, version or ledger API changed.
 
-J's local release benchmark APK is
+The completed unanimated checkpoint J's local release benchmark APK is
 `a22d65bdd4a59c12878a14224e2696207be958f0fd20bc5a66ad84c9175faa65`.
 Its five host checks pass (selection, search/person-find, actual worklet/native
 binding, mapper/frame regression, and typecheck). The Xiaomi suite
@@ -57,6 +58,66 @@ that all added tab work is removed. Two runs per variant are descriptive only;
 the full report retains thermal, clock/scheduling and trace-health caveats.
 This checkpoint remains on the feature branch; no store version is changed.
 
+## Final slide follow-up K
+
+K's local release APK is
+`42ad4b1504d3cc3dff27e539d441ca1edb33096834641623ee4ac2ae60724e47`.
+It moves the existing body host into the stable memo gesture surface as an
+Animated View; it adds no native host, ScrollView, pager, dependency or screen
+capture layer. The context consumer still supplies fresh list props. A UI
+worklet previews 12% of horizontal displacement, capped at 24 points, and
+the newly committed content enters from its physical side over 170ms.
+Invalid/cancelled movement returns over 120ms. There is no React state or RN
+handoff per move. Fresh touches and owner/scope changes cancel old visuals;
+rejected RN completions cannot leave a displaced body. The existing live
+motion preference and Reanimated's system reduction suppress the effect.
+
+All five checks pass in `home-swipe-ab/host-tests-slide/summary.json`, including
+the actual installed mapper/style/timing paths settling and cancelling without
+accumulating frame waiters. The actual Pan proof now checks six UI callbacks,
+bounded previews and zero RN handoffs during repeated updates. These remain
+host algorithm proofs with explicit native boundaries, not device timing.
+
+The Xiaomi visual probe `home-slide-ui/probes/edb6fb4756c843359e8ae5b48c0cf9f0`
+shows the existing Collect body displaced during the held drag, fresh Pay
+content entering after release, and normal alignment after settling. Header,
+tabs, search and add controls stay fixed. The requested 40ms screenshot delay
+is not a measured phase or input latency. The full K interaction suite
+`home-swipe-ui/runs/g-f40b504dc9` passes 23 gestures with one process, including
+EN/FA, vertical/diagonal/partial drags, long presses, overlays, fling recovery
+and saved positions; English is restored. K did not repeat the separate
+pull-to-refresh compatibility check; J's refresh evidence remains distinct.
+
+Existing unchanged capture/analyze helpers recorded K1/K2 after J1/J2 on the
+same 36/224 fixture. Both J and K retain F's exact non-JS native APK payload;
+only Home differs. The final audit
+`after-766cc98c1fc14c04883307e3bc066d08.json` confirms the same fixture
+fingerprint above, with zero financial editing inputs. Results are in
+`home-swipe-ab/j-k-settled-final.json` and `.md`.
+
+| Settled measurement | Earlier J1/J2 mean | Later K1/K2 mean |
+| --- | --- | --- |
+| Scroll main/JS/RenderThread CPU, 19s | 8,650.89ms | 8,570.93ms |
+| Late-idle main/JS/RenderThread CPU, 32s | 1,639.72ms | 1,624.90ms |
+| Completed scrolling-frame p95 | 16.85ms | 17.14ms (+0.29ms) |
+| Post-cold PSS | 191,494KiB | 197,344.5KiB (+5.71MiB) |
+
+No settled metric crosses the reused descriptive review threshold. Memory
+is nevertheless higher in both K observations; its 5,850.5KiB mean increase
+falls just below J's 6,218KiB repeat span. This is not evidence of no memory
+cost. Overall observed three-role CPU rises from 17,416.41ms to 19,375.77ms
+(+11.3%) across the 133s workload, which now intentionally includes transition
+frames. Tab/overall work remains visible in JSON and is excluded from settled
+regression flags; animated tab-frame percentiles are not claimed as an
+improvement. J/K were not interleaved, and two runs do not establish
+equivalence, significance, input latency, universal FPS or energy use.
+
+The final APK is installed in Kaata Benchmark. Six newly generated device
+trace copies (680,734,830 bytes) were removed only after exact local/device
+hash checks; all local raw traces remain preserved. The cleanup receipt is
+`device-trace-cleanup-d6ce788f353047ecb4c51f2d42d8f9b2.json`. No store version
+or release was changed by this follow-up.
+
 ## Recognition and interaction boundaries
 
 - The installed RNGH 2.32 Pan recognizer attaches to the actual loaded Home
@@ -72,11 +133,11 @@ This checkpoint remains on the feature branch; no store version is changed.
 - A hold of 350 ms before horizontal activation belongs to row long-press,
   rather than tab switching. A swipe that activated earlier may continue
   slowly; a 700 ms continuous swipe is covered by host tests.
-- All five gesture callbacks are UI-thread worklets. Only a successful,
+- All six gesture callbacks are UI-thread worklets. Only a successful,
   eligible end schedules one `scheduleOnRN` handoff with an explicit target.
   Left selects physical-right Pay; right selects physical-left Collect,
-  including Persian. There is no `onUpdate`/`onChange` callback or per-move RN
-  state traffic.
+  including Persian. `onUpdate` writes only the UI shared translation; there
+  is no per-move RN state traffic.
 - The RN handoff validates a captured epoch against the live owner, account,
   vault, starting direction, search generation and overlay state. Tab taps,
   including tapping the already-selected tab, invalidate old completions.
@@ -197,8 +258,8 @@ content callback without canceling the new page's frame.
 
 `npm run selftest:home-swipe-worklet` transforms the actual Home recognizer
 factory with installed Worklets 0.10.1, then registers it on the actual
-installed RNGH Pan class. All five callbacks have `__workletHash`, no update
-or change callback exists, and the real `shouldUseReanimated` getter is true.
+installed RNGH Pan class. All six callbacks have `__workletHash`, the update
+callback stays on UI, and the real `shouldUseReanimated` getter is true.
 It also executes installed `createNativeWrapper`, `createHandler`, `useEvent`,
 `WorkletEventHandler`, `NativeEventsManager`, Animated ref forwarding and
 `PropsFilter`: the handler chooses `REANIMATED_WORKLET` before filtering, four
@@ -360,7 +421,7 @@ and three discarded patches per run remain explicit. Those facts do not
 establish identical clocks or loss-free timing. Two runs per variant cannot
 establish statistical equivalence, input latency, FPS or energy savings.
 
-## J: stable gesture surface, final comparison pending
+## J: stable gesture surface checkpoint
 
 J keeps the GestureDetector and its Animated wrapper behind a module-level
 memo surface whose only prop is the stable Pan. An outer context provider
@@ -381,5 +442,5 @@ Home-selection, person-find, installed worklet/native-binding proof,
 mapper/frame regression and typecheck all pass for J. Logs and hashes are in
 `home-swipe-ab/host-tests-context/summary.json`. The narrow fixtures verify
 fresh context props and existing behavior, while executing memo functions
-normally; the final phone run must establish native context behavior and
-whether the cleanup materially reduces the measured overhead.
+normally. The completed physical checks and measurements are recorded in
+Final J comparison above; they do not show that all added tab work is removed.

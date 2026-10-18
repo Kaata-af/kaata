@@ -31,9 +31,10 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import {
   Gesture, GestureDetector, createNativeWrapper,
 } from "react-native-gesture-handler";
-import Reanimated, { useAnimatedReaction, useEvent, useSharedValue, type EventHandlerProcessed } from "react-native-reanimated";
+import Reanimated, { cancelAnimation, ReduceMotion, useAnimatedReaction, useAnimatedStyle, useEvent, useSharedValue, withTiming, type EventHandlerProcessed } from "react-native-reanimated";
 import { scheduleOnRN } from "react-native-worklets";
 import { BottomSheet } from "../components/BottomSheet";
+import { useSheetMotionPreference } from "../components/SheetBackdrop";
 import { CustomerListOptions } from "../components/CustomerListSheet";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Button } from "../components/Button";
@@ -190,6 +191,7 @@ export default function HomeScreen() {
   // this screen (and all its children) without an app restart. Strings via
   // t() refresh on the same render.
   const isRTL = useIsRTL();
+  const reducedHomeMotion = useSheetMotionPreference();
 
   const [self, setSelf] = useState<Self | null>(null);
   const [direction, setDirection] = useState<Direction>("collect");
@@ -204,9 +206,10 @@ export default function HomeScreen() {
   const [searchAutoFocus, setSearchAutoFocus] = useState(true);
   const searchGeneration = useRef(0);
   const homeSwipeEpoch = useRef(0);
-  const homeSwipeFrom = useRef(direction);
-  homeSwipeFrom.current = direction;
-  const homeSwipeUILease = useSharedValue({ epoch: 0, from: direction });
+  const homeSwipePresentation = useRef({ from: direction, scope: "", blocked: true, reducedMotion: reducedHomeMotion });
+  const homeSwipeUILease = useSharedValue({ epoch: 0, ...homeSwipePresentation.current });
+  const homeSwipeOffset = useSharedValue(0);
+  const homeSwipeBodyStyle = useAnimatedStyle(() => ({ transform: [{ translateX: homeSwipeOffset.value }] }));
   const homeScrollRestoreFrame = useRef<number | null>(null);
   const homeScrollRestoreGeneration = useRef(0);
   const resumeHomeScrollRestore = useRef<() => void>(() => {});
@@ -221,7 +224,7 @@ export default function HomeScreen() {
     cancelHomeScrollRestore();
   }, [cancelHomeScrollRestore]);
   const invalidateHomeSwipe = useCallback(() => {
-    homeSwipeUILease.value = { epoch: ++homeSwipeEpoch.current, from: homeSwipeFrom.current };
+    homeSwipeUILease.value = { epoch: ++homeSwipeEpoch.current, ...homeSwipePresentation.current };
   }, [homeSwipeUILease]);
   const dismissSearchKeyboard = useCallback(() => {
     Keyboard.dismiss();
@@ -1082,11 +1085,15 @@ export default function HomeScreen() {
     blocked: homeSwipeBlocked,
     vaultId: activeVaultId,
     accountId: activeAccountId,
-  }), [direction, searchRequest, homeSwipeBlocked, activeVaultId, activeAccountId]);
+  }), [direction, searchRequest, homeSwipeBlocked, activeVaultId, activeAccountId, reducedHomeMotion]);
   const liveHomeSwipeLease = useRef(homeSwipeLease);
   liveHomeSwipeLease.current = homeSwipeLease;
+  homeSwipePresentation.current = {
+    from: direction, scope: JSON.stringify([activeAccountId, activeVaultId, searchRequest]),
+    blocked: homeSwipeBlocked || !selectionOwnerActive.current, reducedMotion: reducedHomeMotion,
+  };
   useLayoutEffect(() => {
-    homeSwipeUILease.value = { epoch: homeSwipeEpoch.current, from: direction };
+    homeSwipeUILease.value = { epoch: homeSwipeEpoch.current, ...homeSwipePresentation.current };
   }, [homeSwipeLease, homeSwipeUILease]);
   const completeHomeSwipe = useCallback((epoch: number, from: Direction, target: Direction) => {
     const lease = liveHomeSwipeLease.current;
@@ -1099,17 +1106,28 @@ export default function HomeScreen() {
   }, [selectDirection]);
   const homeSwipeStroke = useSharedValue({
     epoch: -1, from: "collect" as Direction, startedAt: 0, x: 0, y: 0,
-    activated: false, blocked: true,
+    activated: false, blocked: true, commitRequested: false,
   });
   // Cancel a live UI stroke as soon as its owner changes, before its end can
   // cross to RN. This supported mapper also makes native event delivery bounded
   // in Reanimated 4.5, whose event path waits for the first mapper registry.
   useAnimatedReaction(
     () => homeSwipeUILease.value,
-    (lease) => {
+    (lease, previous) => {
       const stroke = homeSwipeStroke.value;
       if (stroke.epoch !== lease.epoch && !stroke.blocked) {
         homeSwipeStroke.value = { ...stroke, blocked: true };
+      }
+      cancelAnimation(homeSwipeOffset);
+      const freshStroke = stroke.epoch === lease.epoch && !stroke.blocked;
+      if (previous && !freshStroke && !lease.blocked && !previous.blocked &&
+          !lease.reducedMotion && !previous.reducedMotion &&
+          lease.scope === previous.scope && lease.from !== previous.from) {
+        // Only the committed content enters; there is no second page or rail.
+        homeSwipeOffset.value = lease.from === "pay" ? 24 : -24;
+        homeSwipeOffset.value = withTiming(0, { duration: 170, reduceMotion: ReduceMotion.System });
+      } else {
+        homeSwipeOffset.value = 0;
       }
     },
   );
@@ -1122,6 +1140,8 @@ export default function HomeScreen() {
     .hitSlop({ left: -24, right: -24 })
     .onTouchesDown((event, manager) => {
       "worklet";
+      cancelAnimation(homeSwipeOffset);
+      homeSwipeOffset.value = 0;
       const touch = event.allTouches[0];
       if (event.numberOfTouches !== 1 || !touch ||
           !Number.isFinite(touch.absoluteX) || !Number.isFinite(touch.absoluteY)) {
@@ -1132,7 +1152,7 @@ export default function HomeScreen() {
       const lease = homeSwipeUILease.value;
       homeSwipeStroke.value = {
         epoch: lease.epoch, from: lease.from, startedAt: performance.now(),
-        x: touch.absoluteX, y: touch.absoluteY, activated: false, blocked: false,
+        x: touch.absoluteX, y: touch.absoluteY, activated: false, blocked: false, commitRequested: false,
       };
     })
     .onTouchesMove((event, manager) => {
@@ -1143,6 +1163,8 @@ export default function HomeScreen() {
       if (event.numberOfTouches !== 1 || stroke.blocked ||
           (!stroke.activated && performance.now() - stroke.startedAt >= 350)) {
         homeSwipeStroke.value = { ...stroke, blocked: true };
+        cancelAnimation(homeSwipeOffset);
+        homeSwipeOffset.value = 0;
         manager.fail();
       }
     })
@@ -1152,11 +1174,28 @@ export default function HomeScreen() {
       homeSwipeStroke.value = { ...stroke, activated: true,
         blocked: stroke.blocked || performance.now() - stroke.startedAt >= 350 };
     })
+    .onUpdate((event) => {
+      "worklet";
+      const stroke = homeSwipeStroke.value;
+      const lease = homeSwipeUILease.value;
+      const dx = event.absoluteX - stroke.x;
+      const dy = event.absoluteY - stroke.y;
+      const outward = (dx > 0 && stroke.from === "collect") || (dx < 0 && stroke.from === "pay");
+      homeSwipeOffset.value = stroke.blocked || !stroke.activated || stroke.epoch !== lease.epoch ||
+        lease.blocked || lease.reducedMotion || outward || !Number.isFinite(dx) || !Number.isFinite(dy) ||
+        Math.abs(dy) > 24 || Math.abs(dx) < Math.abs(dy) * 2 ? 0 : Math.max(-24, Math.min(24, dx * 0.12));
+    })
     .onEnd((event, success) => {
       "worklet";
       const stroke = homeSwipeStroke.value;
-      homeSwipeStroke.value = { ...stroke, blocked: true };
-      if (!success || stroke.blocked || !stroke.activated || event.numberOfPointers > 1) return;
+      const lease = homeSwipeUILease.value;
+      homeSwipeStroke.value = { ...stroke, blocked: true, commitRequested: false };
+      cancelAnimation(homeSwipeOffset);
+      if (homeSwipeOffset.value !== 0 && !lease.reducedMotion) {
+        homeSwipeOffset.value = withTiming(0, { duration: 120, reduceMotion: ReduceMotion.System });
+      } else homeSwipeOffset.value = 0;
+      if (!success || stroke.blocked || !stroke.activated || stroke.epoch !== lease.epoch ||
+          lease.blocked || event.numberOfPointers > 1) return;
       // Pan translation resets at activation on Android. Absolute coordinates
       // preserve the complete displacement from the original finger down.
       const dx = event.absoluteX - stroke.x;
@@ -1165,12 +1204,22 @@ export default function HomeScreen() {
           Math.abs(dx) < 60 || Math.abs(dy) > 24 || Math.abs(dx) < Math.abs(dy) * 2) return;
       // The physical tab order stays Collect (left), Pay (right), including FA.
       const target: Direction = dx < 0 ? "pay" : "collect";
-      if (target !== stroke.from) scheduleOnRN(completeHomeSwipe, stroke.epoch, stroke.from, target);
+      if (target !== stroke.from) {
+        homeSwipeStroke.value = { ...stroke, blocked: true, commitRequested: true };
+        scheduleOnRN(completeHomeSwipe, stroke.epoch, stroke.from, target);
+      }
     })
     .onFinalize(() => {
       "worklet";
-      homeSwipeStroke.value = { ...homeSwipeStroke.value, blocked: true };
-    }), [homeSwipeBlocked, homeSwipeUILease, homeSwipeStroke, completeHomeSwipe, homeSwipePanRef]);
+      const stroke = homeSwipeStroke.value;
+      if (!stroke.commitRequested) {
+        cancelAnimation(homeSwipeOffset);
+        if (homeSwipeOffset.value !== 0 && !homeSwipeUILease.value.reducedMotion) {
+          homeSwipeOffset.value = withTiming(0, { duration: 120, reduceMotion: ReduceMotion.System });
+        } else homeSwipeOffset.value = 0;
+      }
+      homeSwipeStroke.value = { ...stroke, blocked: true };
+    }), [homeSwipeBlocked, homeSwipeUILease, homeSwipeStroke, homeSwipeOffset, completeHomeSwipe, homeSwipePanRef]);
 
   // Stable row handlers — PersonRow is memoized, and these two props must
   // keep their identity across renders or every row re-renders on each
@@ -1593,6 +1642,7 @@ export default function HomeScreen() {
               people={activePeople}
               cachedContents={cachedHomeContents}
               swipeGesture={Platform.OS === "web" ? null : homeSwipe}
+              swipeBodyStyle={homeSwipeBodyStyle}
               swipePanRef={homeSwipePanRef}
               refreshGestureRef={homeRefreshGestureRef}
               nativeGestureEvent={homeNativeGestureEvent}
@@ -2387,6 +2437,7 @@ type HomeListProps = CustomerRowsProps &
       direction: Direction;
       cachedContents: { collect: React.ReactNode; pay: React.ReactNode } | null;
       swipeGesture: ReturnType<typeof Gesture.Pan> | null;
+      swipeBodyStyle: ReturnType<typeof useAnimatedStyle>;
       swipePanRef: React.RefObject<ReturnType<typeof Gesture.Pan> | undefined>;
       refreshGestureRef: React.RefObject<React.ComponentRef<typeof HomeNativeRefreshControl> | null>;
       nativeGestureEvent: EventHandlerProcessed<object>;
@@ -2412,18 +2463,23 @@ function ContextHomeList() {
 
 // Context refreshes the list directly; the gesture owner changes only when its
 // recognizer changes, rather than processing every direction/layout update.
-const HomeGestureSurface = memo(function HomeGestureSurface({ gesture }: {
+const HomeGestureSurface = memo(function HomeGestureSurface({ gesture, bodyStyle }: {
   gesture: ReturnType<typeof Gesture.Pan>;
+  bodyStyle: ReturnType<typeof useAnimatedStyle>;
 }) {
-  return <GestureDetector gesture={gesture}><ContextHomeList /></GestureDetector>;
+  return <GestureDetector gesture={gesture}>
+    <Reanimated.View style={[styles.body, bodyStyle]} collapsable={false}>
+      <ContextHomeList />
+    </Reanimated.View>
+  </GestureDetector>;
 });
 
 function TabPage(props: HomeListProps) {
   return props.swipeGesture ? (
     <HomeListContext.Provider value={props}>
-      <HomeGestureSurface gesture={props.swipeGesture} />
+      <HomeGestureSurface gesture={props.swipeGesture} bodyStyle={props.swipeBodyStyle} />
     </HomeListContext.Provider>
-  ) : renderHomeList(props);
+  ) : <View style={styles.body} collapsable={false}>{renderHomeList(props)}</View>;
 }
 
 function renderHomeList(props: HomeListProps) {
@@ -2436,7 +2492,6 @@ function renderHomeList(props: HomeListProps) {
     onGestureEvent: props.nativeGestureEvent,
   } : {};
   const content = (
-    <View style={styles.body} collapsable={false}>
       <HomeScrollView
         key={Platform.OS === "android" ? props.scrollScope : `${props.scrollScope}:${props.direction}`}
         ref={props.scrollRef}
@@ -2502,7 +2557,6 @@ function renderHomeList(props: HomeListProps) {
           onPersonLongPress={props.onPersonLongPress}
         />
       </HomeScrollView>
-    </View>
   );
   // The native wrappers coordinate the scroll and refresh handlers.
   // Their simultaneous Pan ref preserves the next stroke even when the native

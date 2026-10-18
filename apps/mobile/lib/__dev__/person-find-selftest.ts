@@ -72,6 +72,7 @@ let nextAnimationFrame = 0;
 const animationFrames = new Map<number, (timestamp: number) => void>();
 const sharedValueObservers = new Set<() => void>();
 let homeSwipeRnCalls = 0;
+const homeAnimationTimings: { target: number; duration: number; reduceMotion: string }[] = [];
 const mockSharedValue = (initial: unknown) => {
   let value = initial;
   return {
@@ -379,7 +380,7 @@ const makeHomePan = () => {
   for (const name of ["enabled", "maxPointers", "activeOffsetX", "failOffsetY", "hitSlop"])
     pan[name] = (value: unknown) => { pan.config[name] = value; return pan; };
   pan.withRef = (ref: { current: unknown }) => { ref.current = pan; return pan; };
-  for (const name of ["onTouchesDown", "onTouchesMove", "onStart", "onEnd", "onFinalize"])
+  for (const name of ["onTouchesDown", "onTouchesMove", "onStart", "onUpdate", "onEnd", "onFinalize"])
     pan[name] = (callback: unknown) => { pan.callbacks[name] = callback; return pan; };
   return pan;
 };
@@ -394,8 +395,20 @@ const sharedMocks: Record<string, any> = {
   },
   "react-native-reanimated": {
     __esModule: true,
-    default: { ScrollView: "ScrollView", createAnimatedComponent: (component: unknown) => component },
+    default: { View: "HomeAnimatedBody", ScrollView: "ScrollView", createAnimatedComponent: (component: unknown) => component },
     useSharedValue: (value: unknown) => react.useRef(mockSharedValue(value)).current,
+    useAnimatedStyle: (read: () => any) => {
+      const state = react.useRef({ read, style: null as any }).current;
+      state.read = read;
+      state.style ??= { get transform() { return state.read().transform; } };
+      return state.style;
+    },
+    cancelAnimation: () => {},
+    ReduceMotion: { System: "system" },
+    withTiming: (target: number, config: { duration: number; reduceMotion: string }) => {
+      homeAnimationTimings.push({ target, ...config });
+      return target;
+    },
     useAnimatedReaction: (prepare: () => unknown, reaction: (value: unknown, previous: unknown) => void) => {
       const callbacks = react.useRef({ prepare, reaction });
       callbacks.current = { prepare, reaction };
@@ -941,7 +954,7 @@ async function main() {
   }
 
   // Worklet recognition chooses the physical tabs identically in English/FA.
-  // No body translation, per-move React handler or second scroll page is added.
+  // Bounded UI translation never commits before release or adds a second page.
   for (const nextRtl of [false, true]) {
     fixture(home, "owner", nextRtl);
     await flush();
@@ -956,6 +969,13 @@ async function main() {
       pan.callbacks.onStart();
       nativeNow += afterActivation;
       pan.callbacks.onTouchesMove({ numberOfTouches: 1 }, manager);
+      const beforeSide = find("Tabs")!.props.value;
+      const beforeRn = homeSwipeRnCalls;
+      pan.callbacks.onUpdate({ absoluteX: 180 + dx, absoluteY: 300 + dy });
+      assert.equal(find("Tabs")!.props.value, beforeSide, "Preview does not replace content before release");
+      assert.equal(homeSwipeRnCalls, beforeRn, "Per-move preview stays on UI");
+      const preview = homePages()[0].props.swipeBodyStyle.transform[0].translateX;
+      assert.ok(Number.isFinite(preview) && Math.abs(preview) <= 24, "Preview has a finite24-point bound");
       pan.callbacks.onEnd({ absoluteX: 180 + dx, absoluteY: 300 + dy, translationX: 0, numberOfPointers: 1 }, success);
       pan.callbacks.onFinalize();
       await flush();
@@ -965,7 +985,7 @@ async function main() {
     assert.deepEqual(gesture().config.activeOffsetX, [-24, 24]);
     assert.deepEqual(gesture().config.failOffsetY, [-12, 12]);
     assert.deepEqual(gesture().config.hitSlop, { left: -24, right: -24 });
-    assert.equal(gesture().callbacks.onUpdate, undefined);
+    assert.equal(typeof gesture().callbacks.onUpdate, "function");
     assert.equal(gesture().callbacks.onChange, undefined);
     const stablePan = gesture();
     await runSwipe(-60, 0, 20, 700);
@@ -974,6 +994,18 @@ async function main() {
     await runSwipe(100, 0);
     assert.equal(find("Tabs")!.props.value, "collect", "A right swipe chooses physical left Collect even in FA");
     assert.equal(gesture(), stablePan, "the stable recognizer reads the current atomic direction lease");
+    reducedMotion = true;
+    dirty = true;
+    await flush();
+    const beforeReducedTiming = homeAnimationTimings.length;
+    await runSwipe(-100, 0);
+    assert.equal(find("Tabs")!.props.value, "pay", "Reduced motion preserves physical navigation in EN/FA");
+    assert.equal(homePages()[0].props.swipeBodyStyle.transform[0].translateX, 0);
+    assert.equal(homeAnimationTimings.length, beforeReducedTiming, "Reduced motion creates no preview/entry timing");
+    await runSwipe(100, 0);
+    reducedMotion = false;
+    dirty = true;
+    await flush();
     const beforeCancelledStroke = homeSwipeRnCalls;
     const manager = { fail() {} };
     stablePan.callbacks.onTouchesDown({ numberOfTouches: 1, allTouches: [{ absoluteX: 180, absoluteY: 300 }] }, manager);
