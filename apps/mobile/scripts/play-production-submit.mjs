@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Stage the verified Kaata 2.2.1/code 60 bundle on internal, then promote that
+// Stage the verified Kaata 2.2.2/code 64 bundle on internal, then promote that
 // same bundle to production in one atomic edit. Closed tracks and listing
 // metadata remain unchanged. The separate commit command always refuses an
 // existing review; it never cancels a review, falls back, or retries a write.
@@ -9,7 +9,7 @@
 // active API edits. Never run alongside another Android upload/edit.
 //
 // node scripts/play-production-submit.mjs --prepare --aab <file.aab>
-//   --sha256 <verified-sha256> --notes-file scripts/release-notes/2.2.1-play.txt
+//   --sha256 <verified-sha256> --notes-file scripts/release-notes/2.2.2-play.txt
 //   --images-receipt <play-update.json> --receipt <ignored-release-receipt.json>
 // node scripts/play-production-submit.mjs --commit --receipt <same-receipt.json>
 
@@ -20,8 +20,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const MOBILE_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const PACKAGE = "af.kaata.app";
-const VERSION = "2.2.1";
-const CODE = 60;
+const VERSION = "2.2.2";
+const CODE = 64;
 const ORIGIN = "https://androidpublisher.googleapis.com";
 const BASE = `${ORIGIN}/androidpublisher/v3/applications/${PACKAGE}`;
 const GUARD = "changesInReviewBehavior=ERROR_IF_IN_REVIEW";
@@ -331,7 +331,7 @@ export async function commitProduction(
     !receipt.internalStagingVerified
   )
     throw new Error(
-      "Receipt is not an uncommitted, prepared 2.2.1/code 60 release. Inspect before retrying.",
+      "Receipt is not an uncommitted, prepared 2.2.2/code 64 release. Inspect before retrying.",
     );
   const { call } = client(token, fetchImpl);
   const save = () => checkpoint(structuredClone(receipt));
@@ -356,7 +356,7 @@ export async function commitProduction(
   );
   // A fresh, read-only edit confirms the committed state. Only our own
   // verification edit is removed. Do not interpret old PUBLISHED lifecycle
-  // data as confirmation that code 60 is public.
+  // data as confirmation that code 64 is public.
   let verificationId = null;
   try {
     const edit = await call("POST", "/edits", {});

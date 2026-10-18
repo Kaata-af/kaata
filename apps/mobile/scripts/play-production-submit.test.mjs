@@ -18,7 +18,7 @@ after(() => {
   rmdirSync(dir);
 });
 const sha256 = createHash("sha256").update(bytes).digest("hex");
-const app = { version: "2.2.1", android: { package: "af.kaata.app", versionCode: 60 } };
+const app = { version: "2.2.2", android: { package: "af.kaata.app", versionCode: 64 } };
 const expectedImages = Object.entries({
   phoneScreenshots: 6,
   sevenInchScreenshots: 6,
@@ -31,7 +31,7 @@ const expectedImages = Object.entries({
     sha256: `${type}-hash-${index}`,
   })),
 }));
-const notes = "Kaata 2.2.1: fixed an Android crash when opening customers from search.";
+const notes = "Kaata 2.2.2: improved Android search and scrolling performance.";
 const token = "private-mock-token";
 const response = (body, status = 200) =>
   new Response(status === 204 ? null : JSON.stringify(body), { status });
@@ -43,9 +43,15 @@ function mock(options = {}) {
   const tracks = [
     {
       track: "production",
-      releases: [{ name: "2.1.1", versionCodes: ["50"], status: "completed" }],
+      releases: [{ name: "2.2.1", versionCodes: ["60"], status: "completed" }],
     },
-    { track: "internal", releases: [{ name: "2.2.0", versionCodes: ["58"], status: "completed" }] },
+    {
+      track: "internal",
+      releases: [
+        { name: "Kaata performance diagnostic 63", versionCodes: ["63"], status: "draft" },
+        { name: "2.2.1 (60) — internal staging", versionCodes: ["60"], status: "completed" },
+      ],
+    },
     { track: "alpha", releases: [{ name: "2.0.0", versionCodes: ["43"], status: "completed" }] },
   ];
   let editCounter = 0,
@@ -69,7 +75,7 @@ function mock(options = {}) {
             language: "en-US",
             title: "Kaata",
             fullDescription:
-              options.textDrift && tracks[0].releases[0].versionCodes[0] === "60"
+              options.textDrift && tracks[0].releases[0].versionCodes[0] === "64"
                 ? "changed"
                 : "existing text",
           },
@@ -86,14 +92,14 @@ function mock(options = {}) {
       return response({ images });
     }
     if (init.method === "GET" && endpoint.endsWith("/bundles"))
-      return response({ bundles: [{ versionCode: options.usedCode ? 60 : 59 }] });
+      return response({ bundles: [{ versionCode: options.usedCode ? 64 : 63 }] });
     if (init.method === "GET" && endpoint.endsWith("/apks")) return response({});
     if (init.method === "POST" && endpoint.endsWith("/bundles")) {
       assert.equal(parsed.searchParams.get("uploadType"), "media");
       assert.deepEqual(body, bytes);
       if (options.ambiguousUpload) throw new Error("private-mock-token must never appear");
       return response({
-        versionCode: options.wrongCode ? 59 : 60,
+        versionCode: options.wrongCode ? 63 : 64,
         sha256: options.wrongHash ? "wrong" : sha256,
       });
     }
@@ -101,10 +107,10 @@ function mock(options = {}) {
       const name = endpoint.split("/").at(-1);
       assert.equal(body.track, name);
       assert.equal(body.releases[0].status, "completed");
-      assert.deepEqual(body.releases[0].versionCodes, ["60"]);
+      assert.deepEqual(body.releases[0].versionCodes, ["64"]);
       tracks[tracks.findIndex((track) => track.track === name)] = structuredClone(body);
       if (options.closedTrackDrift && name === "production")
-        tracks[2].releases[0].versionCodes = ["60"];
+        tracks[2].releases[0].versionCodes = ["64"];
       return response(body);
     }
     if (init.method === "GET" && endpoint.endsWith("/tracks/internal"))
@@ -127,8 +133,8 @@ function mock(options = {}) {
       return response({
         releases: [
           {
-            releaseName: "2.2.1",
-            activeArtifacts: [{ versionCode: committed ? 60 : 59 }],
+            releaseName: "2.2.2",
+            activeArtifacts: [{ versionCode: committed ? 64 : 60 }],
             releaseLifecycleState: "RELEASE_LIFECYCLE_STATE_IN_REVIEW",
           },
         ],
@@ -153,12 +159,28 @@ const prepare = (transport, overrides = {}) =>
 const writes = (transport, ending) =>
   transport.calls.filter((call) => call.method === "POST" && call.endpoint.endsWith(ending));
 
-test("one upload stages internal, validates, then promotes production; preparation never commits", async () => {
+test("one upload replaces the internal diagnostic draft, validates, then promotes production; preparation never commits", async () => {
   const transport = mock();
   const receipt = await prepare(transport);
   assert.equal(receipt.phase, "prepared");
   assert.equal(writes(transport, "/bundles").length, 1);
   assert.equal(writes(transport, ":commit").length, 0);
+  assert.deepEqual(
+    receipt.before.tracks.find((track) => track.track === "internal").releases.map((release) => ({
+      versionCodes: release.versionCodes,
+      status: release.status,
+    })),
+    [
+      { versionCodes: ["63"], status: "draft" },
+      { versionCodes: ["60"], status: "completed" },
+    ],
+  );
+  for (const trackName of ["internal", "production"]) {
+    const releases = receipt.prepared.tracks.find((track) => track.track === trackName).releases;
+    assert.equal(releases.length, 1);
+    assert.deepEqual(releases[0].versionCodes, ["64"]);
+    assert.equal(releases[0].status, "completed");
+  }
   const puts = transport.calls.filter((call) => call.method === "PUT");
   assert.deepEqual(
     puts.map((call) => call.endpoint),
@@ -227,8 +249,8 @@ for (const [failure, phase] of [
 
 test("wrong app, changed AAB, invalid notes fail before network access", async () => {
   for (const overrides of [
-    { app: { ...app, version: "2.1.1" } },
-    { app: { ...app, android: { ...app.android, versionCode: 58 } } },
+    { app: { ...app, version: "2.2.1" } },
+    { app: { ...app, android: { ...app.android, versionCode: 63 } } },
     { sha256: "0".repeat(64) },
     { notes: "Testing only" },
     { notes: "x".repeat(501) },
@@ -241,7 +263,7 @@ test("wrong app, changed AAB, invalid notes fail before network access", async (
 
 test("checked-in notes fit Play's limit and describe the production release", async () => {
   const releaseNotes = readFileSync(
-    new URL("./release-notes/2.2.1-play.txt", import.meta.url),
+    new URL("./release-notes/2.2.2-play.txt", import.meta.url),
     "utf8",
   ).trim();
   const transport = mock();

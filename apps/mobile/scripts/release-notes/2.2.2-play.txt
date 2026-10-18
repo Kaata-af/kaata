@@ -1,0 +1,5 @@
+Kaata 2.2.2
+
+- Smoother startup and more responsive customer navigation on Android.
+- Smoother swiping between To Collect and To Pay.
+- Improved performance when syncing shared kaatas.
