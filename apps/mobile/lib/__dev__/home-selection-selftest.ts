@@ -9,12 +9,38 @@ import * as money from "../money";
 import { compileUI, deferred, flattenStyle, jsx, nodes, settleUI, uiHooks, type UINode } from "./ui-fixture";
 
 const hooks = uiHooks();
-const react = { ...hooks.react, useLayoutEffect: hooks.react.useEffect };
+const react = { ...hooks.react, useLayoutEffect: hooks.react.useEffect,
+  createContext(initial: any) {
+    const context: any = { _fixtureValue: initial };
+    context.Provider = { _fixtureContext: context };
+    return context;
+  },
+  useContext: (context: any) => context._fixtureValue,
+  memo: (component: any) => component,
+};
 let nativeClock = 1000;
+let nextHomeFrame = 0;
+const homeFrames = new Map<number, () => void>();
+const homeFrameGlobals = {
+  requestAnimationFrame: (work: () => void) => {
+    const id = ++nextHomeFrame;
+    homeFrames.set(id, work);
+    return id;
+  },
+  cancelAnimationFrame: (id: number) => homeFrames.delete(id),
+};
+const flushHomeFrame = () => {
+  const current = [...homeFrames.values()];
+  homeFrames.clear();
+  nativeClock += 16;
+  current.forEach((work) => work());
+};
+let nativeMaxY = Infinity, nativeY = 0;
 const scrollCommands: { x: number; y: number; animated: boolean }[] = [];
 const nativeScroll = {
   scrollTo: (command: { x: number; y: number; animated: boolean }) => {
     scrollCommands.push({ ...command });
+    nativeY = Math.min(nativeMaxY, Math.max(0, command.y));
   },
 };
 let vault = "vault-a",
@@ -79,18 +105,40 @@ const toast = {
 };
 const router = { push: noop, replace: noop };
 const metadata = new Map<string, string>();
+let queueSwipeCommit = false;
+const swipeCommits: (() => void)[] = [];
+let swipeHandoffs = 0;
+const swipeSharedValues: { value: any }[] = [];
+const swipeReactions = new Set<() => void>();
+const flushSwipeReactions = () => swipeReactions.forEach((run) => run());
+const animatedReaction = (hookReact: typeof react) =>
+  (prepare: () => unknown, respond: (value: any, previous: any) => void) => {
+    const latest = hookReact.useRef({ prepare, respond, previous: undefined as unknown, initialized: false });
+    latest.current.prepare = prepare;
+    latest.current.respond = respond;
+    hookReact.useEffect(() => {
+      const run = () => {
+        const state = latest.current;
+        const value = state.prepare();
+        if (state.initialized && Object.is(value, state.previous)) return;
+        const previous = state.initialized ? state.previous : null;
+        state.previous = value;
+        state.initialized = true;
+        state.respond(value, previous);
+      };
+      swipeReactions.add(run);
+      run();
+      return () => { swipeReactions.delete(run); };
+    }, []);
+  };
+let homeOwnerFocused = true;
 const pan = () => {
-  const chain: any = {};
-  for (const name of [
-    "enabled",
-    "activeOffsetX",
-    "failOffsetY",
-    "onStart",
-    "onUpdate",
-    "onEnd",
-    "onFinalize",
-  ])
-    chain[name] = () => chain;
+  const chain: any = { config: {}, callbacks: {} };
+  for (const name of ["enabled", "maxPointers", "activeOffsetX", "failOffsetY", "hitSlop"])
+    chain[name] = (value: unknown) => { chain.config[name] = value; return chain; };
+  chain.withRef = (ref: { current: unknown }) => { ref.current = chain; return chain; };
+  for (const name of ["onTouchesDown", "onTouchesMove", "onStart", "onEnd", "onFinalize"])
+    chain[name] = (work: unknown) => { chain.callbacks[name] = work; return chain; };
   return chain;
 };
 const native = {
@@ -148,7 +196,9 @@ const mocks: Record<string, any> = {
     useFocusEffect: (work: () => any) => react.useEffect(work, [work]),
   },
   "../lib/use-search-focus-effect": {
-    useSearchFocusEffect: (work: () => any) => react.useEffect(work, [work]),
+    useSearchFocusEffect: (work: () => any) => react.useEffect(
+      () => homeOwnerFocused ? work() : undefined, [work, homeOwnerFocused],
+    ),
   },
   "expo-haptics": {
     selectionAsync: asyncNoop,
@@ -156,18 +206,32 @@ const mocks: Record<string, any> = {
     ImpactFeedbackStyle: { Soft: "soft" },
   },
   "@expo/vector-icons": { Ionicons: "Icon" },
-  "react-native-gesture-handler": { Gesture: { Pan: pan }, GestureDetector: "GestureDetector" },
+  "react-native-gesture-handler": {
+    Gesture: { Pan: pan }, GestureDetector: "GestureDetector",
+    ScrollView: "ScrollView", RefreshControl: "RefreshControl",
+    createNativeWrapper: (component: unknown) => component,
+  },
   "react-native-reanimated": {
     __esModule: true,
-    default: { View: "RailView" },
-    useSharedValue: (value: unknown) => react.useRef({ value }).current,
+    default: { View: "RailView", ScrollView: "ScrollView", createAnimatedComponent: (component: unknown) => component },
+    useSharedValue: (value: unknown) => {
+      const shared = react.useRef({ value }).current;
+      if (!swipeSharedValues.includes(shared)) swipeSharedValues.push(shared);
+      return shared;
+    },
+    useAnimatedReaction: animatedReaction(react),
+    useEvent: (worklet: unknown, eventNames: string[]) => react.useRef({ workletEventHandler: { worklet, eventNames } }).current,
     useAnimatedStyle: (read: () => unknown) => read(),
     withSpring: (target: number) => target,
     cancelAnimation: noop,
   },
   "react-native-worklets": {
     scheduleOnUI: (work: () => void) => work(),
-    scheduleOnRN: (work: (...args: any[]) => void, ...args: any[]) => work(...args),
+    scheduleOnRN: (work: (...args: any[]) => void, ...args: any[]) => {
+      swipeHandoffs++;
+      if (queueSwipeCommit) swipeCommits.push(() => work(...args));
+      else work(...args);
+    },
   },
   "react-native-safe-area-context": {
     SafeAreaView: "SafeAreaView",
@@ -306,18 +370,27 @@ Object.defineProperty(mocks, "../lib/mesh", {
 const Home = compileUI("../../app/index", mocks, {
   __DEV__: false,
   performance: { now: () => nativeClock },
+  ...homeFrameGlobals,
 }).default;
 
 // Home-local list components are real; imported visual components remain opaque.
 function expand(value: any): any {
   if (Array.isArray(value)) return value.map(expand);
   if (!value?.props) return value;
+  const fixtureContext = value.type?._fixtureContext;
+  if (fixtureContext) {
+    const previous = fixtureContext._fixtureValue;
+    fixtureContext._fixtureValue = value.props.value;
+    try { return expand(value.props.children); }
+    finally { fixtureContext._fixtureValue = previous; }
+  }
   if (typeof value.type === "function") return expand(value.type(value.props));
   return { ...value, props: { ...value.props, children: expand(value.props.children) } };
 }
 let tree: UINode;
 const render = () => {
   tree = expand(hooks.render(Home));
+  flushSwipeReactions();
   for (const node of nodes(tree)) {
     if (node.type === "ScrollView" && node.props.ref) node.props.ref.current = nativeScroll;
   }
@@ -527,6 +600,135 @@ async function main() {
     assert.deepEqual(scrollCommands.at(-1), { x: 0, y, animated: false }, message);
   };
   const beginDrag = (scroll: UINode, y: number) => scroll.props.onScrollBeginDrag(scrollEvent(y));
+  const swipeGesture = () => nodes(tree).find((node) => node.type === "GestureDetector")!.props.gesture;
+  const swipe = (dx: number, dy = 0, options: { hold?: number; duration?: number; success?: boolean; pointers?: number } = {}) => {
+    const gesture = swipeGesture();
+    assert.equal(gesture.config.enabled, true);
+    let failures = 0;
+    const manager = { fail: () => failures++ };
+    gesture.callbacks.onTouchesDown({ numberOfTouches: 1, allTouches: [{ absoluteX: 200, absoluteY: 300 }] }, manager);
+    nativeClock += options.hold ?? 20;
+    gesture.callbacks.onTouchesMove({ numberOfTouches: options.pointers ?? 1 }, manager);
+    gesture.callbacks.onStart();
+    nativeClock += options.duration ?? 100;
+    gesture.callbacks.onTouchesMove({ numberOfTouches: options.pointers ?? 1 }, manager);
+    gesture.callbacks.onEnd({ absoluteX: 200 + dx, absoluteY: 300 + dy,
+      // The Android activation reset must not be used as the full displacement.
+      translationX: dx - Math.sign(dx) * 24, numberOfPointers: options.pointers ?? 1 }, options.success !== false);
+    gesture.callbacks.onFinalize();
+    return failures;
+  };
+  assert.deepEqual(swipeGesture().config, { enabled: true, maxPointers: 1,
+    activeOffsetX: [-24, 24], failOffsetY: [-12, 12], hitSlop: { left: -24, right: -24 } });
+  assert.equal(swipeGesture().callbacks.onUpdate, undefined, "No per-move JS/React update handler exists");
+  assert.equal(swipeGesture().callbacks.onChange, undefined);
+  assert.equal(swipeReactions.size, 1, "Home owns a useful UI reaction before native events arrive");
+  const uiSwipeLease = swipeSharedValues.find((shared) =>
+    shared.value && "epoch" in shared.value && "from" in shared.value && !("blocked" in shared.value))!;
+  const uiSwipeStroke = swipeSharedValues.find((shared) => shared.value && "blocked" in shared.value)!;
+  assert.ok(uiSwipeLease && uiSwipeStroke, "The UI lease and live stroke are separate shared values");
+  const canceledGesture = swipeGesture();
+  canceledGesture.callbacks.onTouchesDown({ numberOfTouches: 1,
+    allTouches: [{ absoluteX: 200, absoluteY: 300 }] }, { fail: noop });
+  const capturedEpoch = uiSwipeStroke.value.epoch;
+  assert.equal(uiSwipeStroke.value.from, "collect");
+  assert.equal(uiSwipeStroke.value.blocked, false);
+  nodes(tree).find((node) => typeof node.props.onTouchStart === "function")!.props.onTouchStart();
+  assert.ok(uiSwipeLease.value.epoch > capturedEpoch, "Immediate invalidation publishes the next UI epoch");
+  assert.equal(uiSwipeLease.value.from, "collect", "The new epoch and its physical source tab publish together");
+  flushSwipeReactions();
+  assert.equal(uiSwipeStroke.value.blocked, true, "The actual Home reaction cancels a live stale UI stroke");
+  const handoffsBeforeCanceledStroke = swipeHandoffs;
+  canceledGesture.callbacks.onStart();
+  canceledGesture.callbacks.onEnd({ absoluteX: 100, absoluteY: 300, numberOfPointers: 1 }, true);
+  canceledGesture.callbacks.onFinalize();
+  assert.equal(swipeHandoffs, handoffsBeforeCanceledStroke, "UI cancellation prevents a stale end from crossing to RN");
+  assert.equal(homeScroll().props.disallowInterruption, false,
+    "A scroll stopping its native fling cannot cancel the coordinated horizontal recognizer");
+  assert.equal(homeScroll().props.shouldActivateOnStart, false);
+  assert.equal(homeScroll().props.simultaneousHandlers.current, swipeGesture(),
+    "The official scroll wrapper points to the current Pan handler");
+  assert.equal(homeScroll().props.refreshControl.props.simultaneousHandlers.current, swipeGesture(),
+    "The official refresh wrapper participates in the same relation");
+  assert.equal(homeScroll().props.refreshControl.props.disallowInterruption, false);
+  assert.equal(homeScroll().props.waitFor, homeScroll().props.refreshControl.props.ref,
+    "The scroll handler waits for the registered refresh handler, like RNGH's official wrapper");
+  assert.equal(homeScroll().props.onGestureEvent, homeScroll().props.refreshControl.props.onGestureEvent,
+    "Both native handlers receive the same real UI event holder");
+  assert.deepEqual(homeScroll().props.onGestureEvent.workletEventHandler.eventNames,
+    ["onGestureHandlerEvent", "onGestureHandlerStateChange"]);
+  const initialSwipeHandoffs = swipeHandoffs;
+  for (const [dx, dy, options] of [
+    [-100, 0, { success: false }], [-100, 80, {}], [0, 100, {}], [-59, 0, {}],
+    [-100, 0, { hold: 350 }], [-100, 0, { pointers: 2 }], [100, 0, {}],
+  ] as const) {
+    swipe(dx, dy, options);
+    assert.equal(nodes(tree).find((node) => node.type === "Tabs")!.props.value, "collect");
+  }
+  assert.equal(swipeHandoffs, initialSwipeHandoffs, "Canceled/held/multi/diagonal/short/outward swipes never cross to JS");
+  const beforeSwipeCommands = scrollCommands.length;
+  const panBeforeDirectionChange = swipeGesture();
+  swipe(-60, 0, { duration: 700 });
+  render();
+  assert.equal(swipeGesture(), panBeforeDirectionChange,
+    "Changing only the direction retains the recognizer and its UI callbacks");
+  assert.equal(uiSwipeLease.value.from, "pay", "The stable recognizer receives the committed destination atomically");
+  assert.equal(nodes(tree).find((node) => node.type === "Tabs")!.props.value, "pay",
+    "A slowly completed swipe activated before the hold threshold still changes sides");
+  assert.equal(swipeHandoffs, initialSwipeHandoffs + 1, "One successful end schedules one RN handoff");
+  assert.equal(scrollCommands.length, beforeSwipeCommands + 1, "Swipe reuses the exact native offset restoration path");
+  swipe(100); render();
+  assert.equal(nodes(tree).find((node) => node.type === "Tabs")!.props.value, "collect");
+  queueSwipeCommit = true;
+  swipe(-100);
+  changeTab("collect");
+  swipeCommits.shift()!(); render();
+  assert.equal(nodes(tree).find((node) => node.type === "Tabs")!.props.value, "collect",
+    "Even tapping the current tab invalidates a queued swipe completion");
+  swipe(-100);
+  changeTab("pay"); changeTab("collect");
+  swipeCommits.shift()!(); render();
+  assert.equal(nodes(tree).find((node) => node.type === "Tabs")!.props.value, "collect",
+    "Collect→Pay→Collect cannot revive a queued swipe from the old Collect lifetime");
+  swipe(-100);
+  openSettings(); await flush();
+  assert.equal(swipeGesture().config.enabled, false, "A settings sheet disables Home recognition");
+  closeSettings(); await flush();
+  swipeCommits.shift()!(); render();
+  assert.equal(nodes(tree).find((node) => node.type === "Tabs")!.props.value, "collect",
+    "Opening/closing a sheet cannot revive its covered Home's completed swipe");
+  swipe(-100);
+  nodes(tree).find((node) => typeof node.props.onTouchStart === "function")!.props.onTouchStart();
+  swipeCommits.shift()!(); render();
+  assert.equal(nodes(tree).find((node) => node.type === "Tabs")!.props.value, "collect",
+    "A header interaction, including the bell's own modal, invalidates a queued body swipe");
+  swipe(-100);
+  nodes(tree).find((node) => node.type === "SearchFieldTrigger")!.props.onPress(); render();
+  assert.equal(swipeGesture().config.enabled, false, "Search disables Home's covered recognizer");
+  sheet().props.onDismiss(); render();
+  swipeCommits.shift()!(); render();
+  assert.equal(nodes(tree).find((node) => node.type === "Tabs")!.props.value, "collect",
+    "Search open/close cannot revive a queued Home swipe");
+  swipe(-100);
+  vault = "vault-swipe-b"; render(); await reload(); await flush();
+  vault = "vault-a"; render(); await reload(); await flush();
+  swipeCommits.shift()!(); render();
+  assert.equal(nodes(tree).find((node) => node.type === "Tabs")!.props.value, "collect",
+    "A vault ABA invalidates the original body gesture lease");
+  swipe(-100);
+  account = "account-swipe-b"; identityListeners.forEach((listener) => listener());
+  account = "account-a"; identityListeners.forEach((listener) => listener());
+  // Do not render between the two identity events or before delivering the old end.
+  swipeCommits.shift()!(); render(); await flush();
+  assert.equal(nodes(tree).find((node) => node.type === "Tabs")!.props.value, "collect",
+    "Identity events invalidate account ABA even when React never painted the intermediate account");
+  swipe(-100);
+  homeOwnerFocused = false; render();
+  swipeCommits.shift()!(); render();
+  assert.equal(nodes(tree).find((node) => node.type === "Tabs")!.props.value, "collect",
+    "A blurred owner rejects a queued swipe before any reload");
+  homeOwnerFocused = true; render(); await flush();
+  queueSwipeCommit = false;
   assert.deepEqual(homeRows().map((row) => row.props.person.id), ["a", "c"]);
   assert.deepEqual(retainedRows().map((row) => row.props.person.id).sort(), ["a", "b", "c"],
     "Off-side financial rows stay mounted once, while the exact cached-hidden style excludes their layout from visible traversal");
@@ -594,6 +796,46 @@ async function main() {
   homeScroll().props.onScroll(scrollEvent(0));
   expectCommand(145, () => homeScroll().props.onContentSizeChange(390, 2000),
     "A layout clamp before fresh dragging reapplies the saved restoration target");
+  assert.equal(homeFrames.size, 1, "Content-size work queues one native post-mount correction");
+  flushHomeFrame();
+  nativeMaxY = 0;
+  const preMountScroll = homeScroll();
+  preMountScroll.props.onContentSizeChange(390, 2000);
+  assert.equal(nativeY, 0, "Immediate commands can clamp against the old short native content");
+  const supersededFrame = [...homeFrames.values()][0];
+  preMountScroll.props.onContentSizeChange(390, 2100);
+  assert.equal(homeFrames.size, 1, "Repeated shadow-layout callbacks coalesce into one frame");
+  const commandsBeforeSupersededFrame = scrollCommands.length;
+  supersededFrame();
+  assert.equal(scrollCommands.length, commandsBeforeSupersededFrame,
+    "A canceled coalesced callback cannot execute against its replacement");
+  nativeMaxY = 1000;
+  changeTab("collect");
+  nodes(tree).find((node) => typeof node.props.onTouchStart === "function")!.props.onTouchStart();
+  assert.equal(homeFrames.size, 1, "Same-tab and header touches preserve the required scroll completion");
+  expectCommand(145, flushHomeFrame, "One frame after native mount restores the exact saved target");
+  assert.equal(nativeY, 145, "Post-mount correction reaches the real target instead of the old short clamp");
+  assert.equal(homeFrames.size, 0, "Restoration never starts a permanent frame loop");
+  preMountScroll.props.onContentSizeChange(390, 2100);
+  const oldPageFrame = [...homeFrames.values()][0];
+  expectCommand(60, () => changeTab("pay"), "A new tab cancels the old page's pending frame");
+  assert.equal(homeFrames.size, 0);
+  homeScroll().props.onContentSizeChange(390, 900);
+  assert.equal(homeFrames.size, 1);
+  const beforeStaleContent = scrollCommands.length;
+  preMountScroll.props.onContentSizeChange(390, 2100);
+  oldPageFrame();
+  assert.equal(homeFrames.size, 1, "Stale page content callbacks cannot cancel the new page's completion");
+  assert.equal(scrollCommands.length, beforeStaleContent, "Stale page/frame callbacks cannot issue commands");
+  expectCommand(60, flushHomeFrame, "The matching new page keeps its queued completion");
+  expectCommand(145, () => changeTab("collect"), "The post-mount check preserves independent offsets");
+  homeScroll().props.onContentSizeChange(390, 2100);
+  const canceledByDrag = [...homeFrames.values()][0];
+  beginDrag(homeScroll(), 145);
+  const beforeCanceledDragFrame = scrollCommands.length;
+  assert.equal(homeFrames.size, 0, "A fresh native drag cancels pending restoration");
+  canceledByDrag();
+  assert.equal(scrollCommands.length, beforeCanceledDragFrame, "A canceled frame cannot rewind a fresh drag");
   expectCommand(60, () => changeTab("pay"), "Pay restores its independent offset");
   expectCommand(145, () => changeTab("collect"), "Rapid tab changes restore the matching side");
   const staleTimestamp = nativeClock - 1;
@@ -910,7 +1152,7 @@ async function main() {
   const peerAtUnmount = meshCallbacks.at(-1)!;
   hooks.unmount();
   assert.equal(meshListeners.size, 0, "Home unmount removes the settings status listener");
-  assert.equal(meshRemovals, 3);
+  assert.equal(meshRemovals, meshSubscriptions, "Every settings lease is removed by close or final unmount");
   const lateWritesBeforePeerCallback = hooks.lateWrites;
   peerAtUnmount({ activePeers: 99 });
   assert.equal(hooks.lateWrites, lateWritesBeforePeerCallback, "A queued peer callback cannot write after unmount");
@@ -918,11 +1160,18 @@ async function main() {
     const fallbackHooks = uiHooks();
     const fallbackReact = {
       ...fallbackHooks.react,
+      createContext: react.createContext, useContext: react.useContext, memo: react.memo,
       useLayoutEffect: fallbackHooks.react.useEffect,
     };
     const FallbackHome = compileUI("../../app/index", {
       ...mocks,
       react: fallbackReact,
+      "react-native-reanimated": {
+        ...mocks["react-native-reanimated"],
+        useSharedValue: (value: unknown) => fallbackReact.useRef({ value }).current,
+        useAnimatedReaction: animatedReaction(fallbackReact),
+        useEvent: (worklet: unknown, eventNames: string[]) => fallbackReact.useRef({ workletEventHandler: { worklet, eventNames } }).current,
+      },
       "react-native": { ...native, Platform: { OS: os } },
       "../lib/db": {
         ...mocks["../lib/db"],
@@ -939,7 +1188,7 @@ async function main() {
       "../lib/use-search-focus-effect": {
         useSearchFocusEffect: (work: () => any) => fallbackReact.useEffect(work, [work]),
       },
-    }, { __DEV__: false, performance: { now: () => nativeClock } }).default;
+    }, { __DEV__: false, performance: { now: () => nativeClock }, ...homeFrameGlobals }).default;
     let fallbackTree!: UINode;
     const fallbackRender = () => { fallbackTree = expand(fallbackHooks.render(FallbackHome)); };
     const fallbackScroll = () => outsideSheet(fallbackTree).find((node) => node.type === "ScrollView")!;
@@ -978,7 +1227,19 @@ async function main() {
       assert.equal(collectGroup.props.pointerEvents, "none");
       assert.equal(collectGroup.props.accessibilityElementsHidden, true);
       assert.equal(collectGroup.props.importantForAccessibility, "no-hide-descendants");
+      const gesture = nodes(fallbackTree).find((node) => node.type === "GestureDetector")!.props.gesture;
+      const manager = { fail: () => assert.fail("A valid down must remain eligible") };
+      gesture.callbacks.onTouchesDown({ numberOfTouches: 1, allTouches: [{ absoluteX: 100, absoluteY: 300 }] }, manager);
+      nativeClock += 20;
+      gesture.callbacks.onStart();
+      queueSwipeCommit = true;
+      gesture.callbacks.onEnd({ absoluteX: 200, absoluteY: 300, numberOfPointers: 1 }, true);
+      assert.equal(swipeCommits.length, 1);
       fallbackHooks.unmount();
+      const writesAfterUnmount = fallbackHooks.lateWrites;
+      swipeCommits.shift()!();
+      assert.equal(fallbackHooks.lateWrites, writesAfterUnmount, "A queued swipe end cannot update an unmounted Home");
+      queueSwipeCommit = false;
       continue;
     }
     assert.deepEqual(fallbackIds(), ["a", "c"], `${os} mounts only its active financial side`);

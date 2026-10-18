@@ -45,6 +45,8 @@
     "selftest:selection-gesture": "tsx lib/__dev__/selection-gesture-selftest.ts",
     "selftest:selection-summary": "tsx lib/__dev__/selection-summary-selftest.ts",
     "selftest:home-selection": "tsx lib/__dev__/home-selection-selftest.ts",
+    "selftest:home-swipe-worklet": "node lib/__dev__/home-swipe-worklet-selftest.cjs",
+    "selftest:home-swipe-frame": "node lib/__dev__/home-swipe-frame-selftest.cjs",
     "selftest:selection-scope": "tsx lib/__dev__/selection-scope-selftest.ts",
     "selftest:tally-highlight": "tsx lib/__dev__/tally-highlight-selftest.ts",
     "selftest:bell-badge": "tsx lib/__dev__/bell-badge-selftest.ts",
