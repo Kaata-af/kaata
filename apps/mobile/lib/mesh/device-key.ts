@@ -73,21 +73,36 @@
 // barrel) and Metro HMR doesn't reliably pick up side-effect-only modules.
 // Both shims are idempotent — re-importing this file just reassigns the
 // same functions; no double-init hazard.
+import "./_crypto-polyfill";
 import { sha512 } from "@noble/hashes/sha512";
-import { etc as _ed25519etc } from "@noble/ed25519";
+import * as ed25519 from "@noble/ed25519";
 import * as _ExpoCrypto from "expo-crypto";
+const _ed25519etc = ed25519.etc;
 _ed25519etc.sha512Sync = (...m: Uint8Array[]) => sha512(_ed25519etc.concatBytes(...m));
 // Hermes has no globalThis.crypto.getRandomValues — wire expo-crypto's
 // getRandomBytes (backed by SecureRandom on Android, SecRandomCopyBytes on iOS).
 _ed25519etc.randomBytes = (len?: number) => _ExpoCrypto.getRandomBytes(len ?? 32);
 
-import * as ed25519 from "@noble/ed25519";
 import * as SecureStore from "expo-secure-store";
+import { Platform } from "react-native";
 
 import { getBackendUrl } from "../api";
 import { getSessionJWT } from "../auth";
 import { getAppMeta, setAppMeta } from "../db";
 import { getDb } from "../db-tx";
+
+// Capture platform selection once. Android pairs its smaller signing table
+// with native positive verification; other platforms retain the original
+// Noble implementation/table shared with verification. A static helper import
+// would configure curves' BASE even when that Android path is never used.
+const { deriveDeviceSigningPublicKey, signDeviceMessage }: typeof import("./device-signing") =
+  Platform.OS === "android"
+    ? // eslint-disable-next-line @typescript-eslint/no-require-imports
+      require("./device-signing")
+    : {
+        deriveDeviceSigningPublicKey: ed25519.getPublicKey,
+        signDeviceMessage: ed25519.sign,
+      };
 
 // SecureStore key for the 32-byte Ed25519 private seed (base64). Naming
 // is namespaced ("kaata_mesh_") so a future second keypair (e.g. a
@@ -203,11 +218,10 @@ function decodeSeed(b64: string): Uint8Array | null {
   }
 }
 
-// SYNC getPublicKey — relies on the sha512Sync shim above. The async
-// variant uses crypto.subtle, which is undefined in Hermes.
+// Synchronous math keeps key-pair validation in the existing lifecycle.
 function derivePubkeyB64(seed: Uint8Array): string | null {
   try {
-    return bytesToB64(ed25519.getPublicKey(seed));
+    return bytesToB64(deriveDeviceSigningPublicKey(seed));
   } catch {
     return null;
   }
@@ -594,9 +608,9 @@ export async function getDeviceSigner(opts?: { interactive?: boolean }): Promise
   }
   return {
     pubkey_b64: pub,
-    // SYNC sign — uses the sha512Sync shim. The async variant would need
-    // crypto.subtle (undefined on Hermes).
-    sign: async (message: Uint8Array) => ed25519.sign(message, priv),
+    // Complete math before resolving: signing final-HLC bytes inside the
+    // event transaction must not introduce a new native/task boundary.
+    sign: async (message: Uint8Array) => signDeviceMessage(message, priv),
   };
 }
 
