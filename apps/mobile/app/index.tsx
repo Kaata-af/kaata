@@ -1107,7 +1107,7 @@ export default function HomeScreen() {
   }, [selectDirection]);
   const homeSwipeStroke = useSharedValue({
     epoch: -1, from: "collect" as Direction, startedAt: 0, x: 0, y: 0,
-    activated: false, blocked: true, commitRequested: false,
+    activated: false, movingHorizontally: false, blocked: true, commitRequested: false,
   });
   // Cancel a live UI stroke as soon as its owner changes, before its end can
   // cross to RN. This supported mapper also makes native event delivery bounded
@@ -1153,27 +1153,38 @@ export default function HomeScreen() {
       const lease = homeSwipeUILease.value;
       homeSwipeStroke.value = {
         epoch: lease.epoch, from: lease.from, startedAt: performance.now(),
-        x: touch.absoluteX, y: touch.absoluteY, activated: false, blocked: false, commitRequested: false,
+        x: touch.absoluteX, y: touch.absoluteY, activated: false, movingHorizontally: false,
+        blocked: false, commitRequested: false,
       };
     })
     .onTouchesMove((event, manager) => {
       "worklet";
       const stroke = homeSwipeStroke.value;
-      // Only a hold BEFORE horizontal activation belongs to the row long-press.
-      // An already activated swipe may continue slowly for as long as needed.
+      // Deliberate early movement can take longer to cross the activation slop.
+      // Check the stationary hold first so a late first MOVE cannot revive it.
       if (event.numberOfTouches !== 1 || stroke.blocked ||
-          (!stroke.activated && performance.now() - stroke.startedAt >= 350)) {
+          (!stroke.activated && !stroke.movingHorizontally && performance.now() - stroke.startedAt >= 350)) {
         homeSwipeStroke.value = { ...stroke, blocked: true };
         cancelAnimation(homeSwipeOffset);
         homeSwipeOffset.value = 0;
         manager.fail();
+        return;
+      }
+      const touch = event.allTouches[0];
+      if (!stroke.movingHorizontally && touch) {
+        const dx = touch.absoluteX - stroke.x;
+        const dy = touch.absoluteY - stroke.y;
+        if (Number.isFinite(dx) && Number.isFinite(dy) &&
+            Math.abs(dx) >= 6 && Math.abs(dy) <= 12 && Math.abs(dx) >= Math.abs(dy) * 2) {
+          homeSwipeStroke.value = { ...stroke, movingHorizontally: true };
+        }
       }
     })
     .onStart(() => {
       "worklet";
       const stroke = homeSwipeStroke.value;
       homeSwipeStroke.value = { ...stroke, activated: true,
-        blocked: stroke.blocked || performance.now() - stroke.startedAt >= 350 };
+        blocked: stroke.blocked || (!stroke.movingHorizontally && performance.now() - stroke.startedAt >= 350) };
     })
     .onUpdate((event) => {
       "worklet";
@@ -1184,7 +1195,7 @@ export default function HomeScreen() {
       const outward = (dx > 0 && stroke.from === "collect") || (dx < 0 && stroke.from === "pay");
       homeSwipeOffset.value = stroke.blocked || !stroke.activated || stroke.epoch !== lease.epoch ||
         lease.blocked || lease.reducedMotion || outward || !Number.isFinite(dx) || !Number.isFinite(dy) ||
-        Math.abs(dy) > 24 || Math.abs(dx) < Math.abs(dy) * 2 ? 0 : Math.max(-24, Math.min(24, dx * 0.12));
+        Math.abs(dy) > 24 || Math.abs(dx) < Math.abs(dy) * 2 ? 0 : Math.max(-96, Math.min(96, dx * 0.65));
     })
     .onEnd((event, success) => {
       "worklet";

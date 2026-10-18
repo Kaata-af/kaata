@@ -617,14 +617,21 @@ async function main() {
   };
   const beginDrag = (scroll: UINode, y: number) => scroll.props.onScrollBeginDrag(scrollEvent(y));
   const swipeGesture = () => nodes(tree).find((node) => node.type === "GestureDetector")!.props.gesture;
-  const swipe = (dx: number, dy = 0, options: { hold?: number; duration?: number; success?: boolean; pointers?: number; velocityX?: number } = {}) => {
+  const swipe = (dx: number, dy = 0, options: { hold?: number; duration?: number; success?: boolean; pointers?: number; velocityX?: number;
+    earlyMove?: { dx: number; dy?: number; at: number } } = {}) => {
     const gesture = swipeGesture();
     assert.equal(gesture.config.enabled, true);
     let failures = 0;
     const manager = { fail: () => failures++ };
     gesture.callbacks.onTouchesDown({ numberOfTouches: 1, allTouches: [{ absoluteX: 200, absoluteY: 300 }] }, manager);
-    nativeClock += options.hold ?? 20;
-    gesture.callbacks.onTouchesMove({ numberOfTouches: options.pointers ?? 1 }, manager);
+    if (options.earlyMove) {
+      nativeClock += options.earlyMove.at;
+      gesture.callbacks.onTouchesMove({ numberOfTouches: 1,
+        allTouches: [{ absoluteX: 200 + options.earlyMove.dx, absoluteY: 300 + (options.earlyMove.dy ?? 0) }] }, manager);
+    }
+    nativeClock += (options.hold ?? 20) - (options.earlyMove?.at ?? 0);
+    const move = { numberOfTouches: options.pointers ?? 1, allTouches: [{ absoluteX: 200 + dx, absoluteY: 300 + dy }] };
+    gesture.callbacks.onTouchesMove(move, manager);
     const beforePreviewSide = nodes(tree).find((node) => node.type === "Tabs")!.props.value;
     const beforePreviewHandoffs = swipeHandoffs;
     gesture.callbacks.onUpdate({ absoluteX: 200 + dx, absoluteY: 300 + dy, numberOfPointers: options.pointers ?? 1 });
@@ -633,7 +640,7 @@ async function main() {
     assert.equal(swipeHandoffs, beforePreviewHandoffs, "UI preview never crosses to RN");
     gesture.callbacks.onStart();
     nativeClock += options.duration ?? 100;
-    gesture.callbacks.onTouchesMove({ numberOfTouches: options.pointers ?? 1 }, manager);
+    gesture.callbacks.onTouchesMove(move, manager);
     gesture.callbacks.onEnd({ absoluteX: 200 + dx, absoluteY: 300 + dy,
       // The Android activation reset must not be used as the full displacement.
       translationX: dx - Math.sign(dx) * 12, velocityX: options.velocityX ?? 0,
@@ -660,9 +667,9 @@ async function main() {
   nativeClock += 20;
   previewGesture.callbacks.onStart();
   previewGesture.callbacks.onUpdate({ absoluteX: 100, absoluteY: 300 });
-  assert.equal(uiSwipeOffset.value, -12, "A valid drag previews12% of its displacement");
+  assert.equal(uiSwipeOffset.value, -65, "A valid drag previews65% of its displacement");
   previewGesture.callbacks.onUpdate({ absoluteX: -800, absoluteY: 300 });
-  assert.equal(uiSwipeOffset.value, -24, "The preview remains bounded to24points");
+  assert.equal(uiSwipeOffset.value, -96, "The preview remains bounded to96points");
   previewGesture.callbacks.onUpdate({ absoluteX: 300, absoluteY: 300 });
   assert.equal(uiSwipeOffset.value, 0, "The outward Collect boundary has no preview");
   previewGesture.callbacks.onUpdate({ absoluteX: 100, absoluteY: 380 });
@@ -708,6 +715,10 @@ async function main() {
     [-100, 0, { success: false }], [-100, 80, {}], [0, 100, {}], [-31, 0, {}],
     [-17, 0, { velocityX: -900 }], [-18, 0, { velocityX: -449 }],
     [-18, 0, { velocityX: 900 }], [-18, 0, { velocityX: NaN }], [-18, 0, { velocityX: -Infinity }],
+    [-32, 0, { hold: 400 }],
+    [-32, 0, { hold: 400, earlyMove: { dx: -5, at: 200 } }],
+    [-32, 0, { hold: 400, earlyMove: { dx: -6, dy: 4, at: 200 } }],
+    [-32, 0, { hold: 400, earlyMove: { dx: -30, dy: 13, at: 200 } }],
     [-100, 0, { hold: 350 }], [-100, 0, { pointers: 2 }], [100, 0, {}],
   ] as const) {
     swipe(dx, dy, options);
@@ -738,6 +749,13 @@ async function main() {
   swipe(18, 0, { velocityX: 450 }); render();
   assert.equal(nodes(tree).find((node) => node.type === "Tabs")!.props.value, "collect", "An18-point matching fast flick commits Collect");
   assert.deepEqual(homeImpactHaptics.slice(initialSwipeHaptics), ["soft", "soft", "soft", "soft"]);
+  swipe(-32, 0, { hold: 400, earlyMove: { dx: -6, at: 200 } }); render();
+  assert.equal(nodes(tree).find((node) => node.type === "Tabs")!.props.value, "pay",
+    "Meaningful6-point early movement preserves a deliberate slow swipe beyond350ms");
+  swipe(32, 0, { hold: 400, earlyMove: { dx: 6, at: 200 } }); render();
+  assert.equal(nodes(tree).find((node) => node.type === "Tabs")!.props.value, "collect",
+    "The slow-movement allowance works in both physical directions");
+  assert.deepEqual(homeImpactHaptics.slice(initialSwipeHaptics), Array(6).fill("soft"));
   const hapticsBeforeTaps = homeImpactHaptics.length;
   changeTab("pay"); changeTab("pay"); changeTab("collect");
   assert.equal(homeImpactHaptics.length, hapticsBeforeTaps, "Plain tab changes and same-tab taps preserve their original no-haptic behavior");

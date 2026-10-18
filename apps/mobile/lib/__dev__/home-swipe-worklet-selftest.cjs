@@ -50,13 +50,16 @@ const actual = evaluateTs('panGesture.ts', (id) => {
   assert.equal(id, './gesture'); return base;
 });
 const moduleFactory = { exports: {} };
-vm.runInNewContext(built, { module: moduleFactory, exports: moduleFactory.exports, global: { Error }, performance: { now: () => 0 } });
+let workletNow = 0;
+vm.runInNewContext(built, { module: moduleFactory, exports: moduleFactory.exports, global: { Error }, performance: { now: () => workletNow } });
 const uiLease = { value: { epoch: 1, from: 'collect', scope: 'one', blocked: false, reducedMotion: false } };
 const offset = { value: 0 };
+const stroke = { value: { epoch: -1, from: 'collect', startedAt: 0, x: 0, y: 0,
+  activated: false, blocked: true, commitRequested: false, movingHorizontally: false } };
 let rnCalls = 0;
 const scheduledCommits = [];
 const pan = moduleFactory.exports({ Pan: () => new actual.PanGesture() }, { OS: 'android' }, false,
-  uiLease, { value: { epoch: -1, from: 'collect', startedAt: 0, x: 0, y: 0, activated: false, blocked: true, commitRequested: false } }, { current: undefined }, () => {}, (_, ...args) => { rnCalls++; scheduledCommits.push(args); },
+  uiLease, stroke, { current: undefined }, () => {}, (_, ...args) => { rnCalls++; scheduledCommits.push(args); },
   offset, () => {}, (target) => target, { System: 'system' });
 pan.initialize();
 assert.equal(pan.config.ref.current, pan, 'The actual Pan ref exposes its handlerTag for scroll/refresh relations');
@@ -74,7 +77,7 @@ assert.equal(Object.hasOwn(pan.handlers.onTouchesDown.__closure, 'direction'), f
   'The DOWN worklet must not retain an obsolete direction closure');
 pan.handlers.onTouchesDown({ numberOfTouches: 1, allTouches: [{ absoluteX: 300, absoluteY: 300 }] }, { fail: () => assert.fail('Valid down') });
 pan.handlers.onStart();
-for (const [absoluteX, absoluteY, expected] of [[200, 300, -12], [0, 300, -24], [400, 300, 0], [200, 350, 0]]) {
+for (const [absoluteX, absoluteY, expected] of [[200, 300, -65], [0, 300, -96], [400, 300, 0], [200, 350, 0]]) {
   pan.handlers.onUpdate({ absoluteX, absoluteY });
   assert.equal(offset.value, expected, 'Actual UI preview is bounded, directional and rejects diagonal movement');
 }
@@ -110,6 +113,16 @@ function finishStroke(from, dx, velocityX, expected, options = {}) {
     [epoch, from, from === 'collect' ? 'pay' : 'collect']);
 }
 for (const [from, sign] of [['collect', -1], ['pay', 1]]) {
+  uiLease.value = { ...uiLease.value, epoch: uiLease.value.epoch + 1, from, blocked: false, reducedMotion: false };
+  pan.handlers.onTouchesDown({ numberOfTouches: 1, allTouches: [{ absoluteX: 300, absoluteY: 300 }] }, { fail: () => assert.fail('Valid down') });
+  assert.equal(stroke.value.movingHorizontally, false, 'Every DOWN resets the movement-intent lease');
+  pan.handlers.onStart();
+  for (const [distance, expected] of [[100, 65], [200, 96]]) {
+    const before = rnCalls;
+    pan.handlers.onUpdate({ absoluteX: 300 + sign * distance, absoluteY: 300 });
+    assert.equal(offset.value, sign * expected, 'Both directions have the same direct follow and maximum travel');
+    assert.equal(rnCalls, before, 'Wider preview never calls RN per move');
+  }
   finishStroke(from, sign * 32, 0, true);
   finishStroke(from, sign * 18, sign * 450, true);
   for (const distance of [16, 17]) finishStroke(from, sign * distance, sign * 10_000, false);
@@ -122,6 +135,43 @@ for (const [from, sign] of [['collect', -1], ['pay', 1]]) {
   finishStroke(from, sign * 32, sign * 450, false, { stale: true });
   finishStroke(from, sign * 32, sign * 450, false, { blocked: true });
   finishStroke(from, -sign * 32, -sign * 450, false);
+}
+
+function slowStart(from, moves, expected) {
+  const sign = from === 'collect' ? -1 : 1;
+  uiLease.value = { ...uiLease.value, epoch: uiLease.value.epoch + 1, from, blocked: false, reducedMotion: false };
+  workletNow += 1_000;
+  const start = workletNow, before = rnCalls;
+  let failures = 0;
+  const manager = { fail: () => failures++ };
+  pan.handlers.onTouchesDown({ numberOfTouches: 1, allTouches: [{ absoluteX: 300, absoluteY: 300 }] }, manager);
+  for (const move of moves) {
+    workletNow = start + move.at;
+    pan.handlers.onTouchesMove({ numberOfTouches: move.pointers ?? 1,
+      allTouches: move.missing ? [] : [{ absoluteX: 300 + sign * move.dx, absoluteY: 300 + (move.dy ?? 0) }] }, manager);
+  }
+  workletNow = start + 500;
+  pan.handlers.onStart();
+  const end = { absoluteX: 300 + sign * 32, absoluteY: 300, translationX: 0,
+    velocityX: 0, numberOfPointers: 1 };
+  pan.handlers.onUpdate(end);
+  assert.equal(rnCalls, before, 'Slow movement recognition remains entirely on UI');
+  pan.handlers.onEnd(end, true);
+  pan.handlers.onFinalize();
+  assert.equal(rnCalls - before, expected ? 1 : 0, 'Only deliberate early horizontal movement survives delayed activation');
+  assert.equal(failures === 0, expected);
+}
+for (const from of ['collect', 'pay']) {
+  slowStart(from, [{ at: 200, dx: 6 }, { at: 500, dx: 13 }], true);
+  slowStart(from, [{ at: 200, dx: 6, dy: 3 }, { at: 500, dx: 13 }], true);
+  // A late first movement must be rejected before it can grant intent.
+  slowStart(from, [{ at: 350, dx: 32 }], false);
+  slowStart(from, [{ at: 200, dx: 5.9 }, { at: 350, dx: 32 }], false);
+  slowStart(from, [{ at: 200, dx: 6, dy: 6 }, { at: 500, dx: 32 }], false);
+  slowStart(from, [{ at: 200, dx: 0, dy: 6 }, { at: 500, dx: 32 }], false);
+  slowStart(from, [{ at: 200, dx: NaN }, { at: 500, dx: 32 }], false);
+  slowStart(from, [{ at: 200, dx: 6, missing: true }, { at: 500, dx: 32 }], false);
+  slowStart(from, [{ at: 200, dx: 6, pointers: 2 }, { at: 500, dx: 32 }], false);
 }
 
 // Execute the installed native wrapper -> createHandler -> INNER Animated

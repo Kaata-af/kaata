@@ -961,16 +961,23 @@ async function main() {
     fixture(home, "owner", nextRtl);
     await flush();
     const gesture = () => homePages()[0].props.swipeGesture;
-    const runSwipe = async (dx: number, dy: number, hold = 20, afterActivation = 100, success = true, velocityX = 0) => {
+    const runSwipe = async (dx: number, dy: number, hold = 20, afterActivation = 100, success = true, velocityX = 0,
+      earlyMove?: { dx: number; dy?: number; at: number }) => {
       const pan = gesture();
       let failures = 0;
       const manager = { fail: () => failures++ };
       pan.callbacks.onTouchesDown({ numberOfTouches: 1, allTouches: [{ absoluteX: 180, absoluteY: 300 }] }, manager);
-      nativeNow += hold;
-      pan.callbacks.onTouchesMove({ numberOfTouches: 1 }, manager);
+      if (earlyMove) {
+        nativeNow += earlyMove.at;
+        pan.callbacks.onTouchesMove({ numberOfTouches: 1,
+          allTouches: [{ absoluteX: 180 + earlyMove.dx, absoluteY: 300 + (earlyMove.dy ?? 0) }] }, manager);
+      }
+      nativeNow += hold - (earlyMove?.at ?? 0);
+      const move = { numberOfTouches: 1, allTouches: [{ absoluteX: 180 + dx, absoluteY: 300 + dy }] };
+      pan.callbacks.onTouchesMove(move, manager);
       pan.callbacks.onStart();
       nativeNow += afterActivation;
-      pan.callbacks.onTouchesMove({ numberOfTouches: 1 }, manager);
+      pan.callbacks.onTouchesMove(move, manager);
       const beforeSide = find("Tabs")!.props.value;
       const beforeRn = homeSwipeRnCalls;
       const beforeHaptics = homeImpactHaptics.length;
@@ -978,7 +985,7 @@ async function main() {
       assert.equal(find("Tabs")!.props.value, beforeSide, "Preview does not replace content before release");
       assert.equal(homeSwipeRnCalls, beforeRn, "Per-move preview stays on UI");
       const preview = homePages()[0].props.swipeBodyStyle.transform[0].translateX;
-      assert.ok(Number.isFinite(preview) && Math.abs(preview) <= 24, "Preview has a finite24-point bound");
+      assert.ok(Number.isFinite(preview) && Math.abs(preview) <= 96, "Preview has a finite96-point bound");
       pan.callbacks.onEnd({ absoluteX: 180 + dx, absoluteY: 300 + dy, translationX: 0, velocityX, numberOfPointers: 1 }, success);
       pan.callbacks.onFinalize();
       await flush();
@@ -1003,6 +1010,14 @@ async function main() {
     assert.equal(find("Tabs")!.props.value, "pay", "A short18-point matching left flick selects Pay in EN/FA");
     await runSwipe(18, 0, 20, 100, true, 450);
     assert.equal(find("Tabs")!.props.value, "collect", "A short18-point matching right flick selects Collect in EN/FA");
+    await runSwipe(-32, 0, 400, 100, true, 0, { dx: -6, at: 200 });
+    assert.equal(find("Tabs")!.props.value, "pay", "A slow swipe already moving by200ms can activate after350ms in EN/FA");
+    await runSwipe(32, 0, 400, 100, true, 0, { dx: 6, at: 200 });
+    assert.equal(find("Tabs")!.props.value, "collect", "Early deliberate slow movement also preserves the physical right swipe");
+    for (const earlyMove of [undefined, { dx: -5, at: 200 }, { dx: -6, dy: 4, at: 200 }, { dx: -30, dy: 13, at: 200 }]) {
+      await runSwipe(-32, 0, 400, 100, true, 0, earlyMove);
+      assert.equal(find("Tabs")!.props.value, "collect", "Late first movement, sub6-point jitter, diagonal or vertical movement cannot revive a stationary hold");
+    }
     for (const [dx, velocityX] of [[-31, 0], [-17, -900], [-18, -449], [-18, 900], [-18, NaN], [-18, -Infinity]]) {
       await runSwipe(dx, 0, 20, 100, true, velocityX);
       assert.equal(find("Tabs")!.props.value, "collect", "Insufficient travel or invalid/opposite flick velocity cannot change the side");

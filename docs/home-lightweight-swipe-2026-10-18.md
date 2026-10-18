@@ -1,9 +1,10 @@
 # Lightweight Home swipes and slide feedback
 
-**Current status: the October 19 follow-up L eases gesture recognition and
-restores the original Soft vibration on successful swipe changes. Its focused
-host and Xiaomi checks pass. The preceding slide checkpoint K is committed as `80a8ac7`;
-its measurements below remain historical K measurements, not new L timings.**
+**Current status: the October 19 follow-up M expands equal drag travel in both
+directions and distinguishes a deliberate slow start from a stationary hold.
+It retains L's original Soft vibration on successful swipe changes.
+The preceding slide checkpoint K is committed as `80a8ac7`; its measurements
+below remain historical K measurements, not new M timings.**
 Earlier candidates and their evidence are retained as history.
 
 This follow-up adds horizontal swipe switching to the tap-only Home at commit
@@ -13,8 +14,59 @@ cached direction groups, independent offsets and financial presentation from
 page rail or React state update while the finger moves. Tabs remain available.
 
 The runtime change is confined to `apps/mobile/app/index.tsx`, SHA256
-`85e523a2880a92996dfd3a2a60a1b4909ee753e3fd5576c4163d83eb671ac132` (L).
+`638b8b95e420c6b2c18badfc3e9242b0351dd500f0226bcbf4c04b432077a3aa` (M).
 No dependency, native configuration, version or ledger API changed.
+
+## Symmetric range and slow-start follow-up M (October 19)
+
+The locally built release benchmark APK is
+`062176b54ab4dd3d0b9acbeb52f26f9e15f9ad8a3d898085f0b5391b20fb8bbb`.
+The previous preview deliberately followed only 12% of finger displacement,
+capped at 24 points. M follows 65%, capped at 96 points in either direction.
+The same existing body transform supplies that travel; there is still one
+ScrollView and no React or RN call on each movement. New-content entry,
+reduced motion, release thresholds, native gesture coordination, scope
+cancellation, independent scroll offsets and Soft haptics retain L's behavior.
+
+Before activation, six points of finite horizontal movement with 2:1 horizontal
+dominance and at most 12 points of vertical displacement records movement
+intent. If that starts before the existing 350ms hold deadline, a deliberate
+slow swipe may cross the 12-point activation threshold later. The deadline
+is checked before granting intent, so a stationary hold followed by a late
+first movement cannot revive the gesture. No stationary-hold timer or row
+long-press behavior is shortened.
+
+Selection, person-find, the actual installed Pan/worklet and native-binding
+proof, and typecheck pass in `home-swipe-ab/host-tests-range/summary.json`.
+Both signs verify 100-point input produces 65-point preview and the 96-point
+maximum. A controlled clock verifies six-point movement at 200ms permits
+activation at 500ms, while late first movement, small jitter, diagonal,
+vertical, non-finite and multi-touch cases cannot grant that allowance.
+Existing commit, stale-owner and haptic assertions remain covered. These
+checks exercise source behavior; device observations are recorded separately.
+
+The Xiaomi run
+`home-swipe-range-ui/runs/18e20718ec194bf2ac86a96effbcdaba` passes continuous
+36-point swipes requested over 1,400ms in both directions. Each changes to
+the intended side and produces exactly one finished native Soft vibration.
+Separate held 100-point drags move the body by -179/+179 physical pixels
+(approximately -65/+65 points at density 440), with identical header pixels.
+The saved screenshots and `preview-pixel-check.json` corroborate equal travel.
+Their releases each commit once with one vibration. A stationary 700ms hold
+on the non-row hero followed by movement does not switch or vibrate. Named
+customer geometry changes after a vertical drag, and the process remains
+alive throughout. No financial editing inputs are sent.
+
+The earlier staged-DOWN/MOVE attempt
+`home-swipe-range-ui/runs/98c57b25bd864c678a82e74f87b76839` did not switch.
+Its separate Android input processes have unmeasured startup gaps, so it
+does not establish whether the first six-point movement arrived before the
+deadline. It remains preserved; the passing slow check uses a single
+continuous Android input process. Requested gesture duration is not measured
+input latency, and screenshots do not measure animation smoothness or physical
+haptic sensation. M does not repeat the historical CPU/memory/frame comparison
+or claim new performance numbers; the gesture still adds no second page,
+scroll container, per-move RN callback or recurring animation.
 
 ## Easier swipe and haptics follow-up L (October 19)
 
