@@ -1055,7 +1055,7 @@ export default function HomeScreen() {
     setSearchVisible(true);
   };
 
-  const selectDirection = useCallback((next: Direction) => {
+  const selectDirection = useCallback((next: Direction, haptic = false) => {
     if (
       mounted.current && selectionOwnerActive.current && !searching &&
       searchGeneration.current === searchRequest &&
@@ -1068,6 +1068,7 @@ export default function HomeScreen() {
       if (next !== homeInteraction.current.direction) {
         activeHomePage.current.dragStartedAt = null;
         activeHomePage.current.dragSearchRequest = null;
+        if (haptic) Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Soft).catch(() => undefined);
       }
       setDirection(next);
     }
@@ -1102,7 +1103,7 @@ export default function HomeScreen() {
         lease.searchRequest !== searchGeneration.current ||
         lease.vaultId !== getActiveVaultIdSyncMaybe() || lease.accountId !== getAccountIdSync() ||
         (target !== "collect" && target !== "pay") || target === from) return;
-    selectDirection(target);
+    selectDirection(target, true);
   }, [selectDirection]);
   const homeSwipeStroke = useSharedValue({
     epoch: -1, from: "collect" as Direction, startedAt: 0, x: 0, y: 0,
@@ -1135,7 +1136,7 @@ export default function HomeScreen() {
     .withRef(homeSwipePanRef)
     .enabled(Platform.OS !== "web" && !homeSwipeBlocked)
     .maxPointers(1)
-    .activeOffsetX([-24, 24])
+    .activeOffsetX([-12, 12])
     .failOffsetY([-12, 12])
     .hitSlop({ left: -24, right: -24 })
     .onTouchesDown((event, manager) => {
@@ -1200,8 +1201,12 @@ export default function HomeScreen() {
       // preserve the complete displacement from the original finger down.
       const dx = event.absoluteX - stroke.x;
       const dy = event.absoluteY - stroke.y;
+      // A light flick should work without requiring the full slow-drag travel.
+      // Its release velocity must agree with the displacement, not a reversal.
+      const flick = Math.abs(dx) >= 18 && Number.isFinite(event.velocityX) &&
+        Math.abs(event.velocityX) >= 450 && dx * event.velocityX > 0;
       if (!Number.isFinite(dx) || !Number.isFinite(dy) ||
-          Math.abs(dx) < 60 || Math.abs(dy) > 24 || Math.abs(dx) < Math.abs(dy) * 2) return;
+          (Math.abs(dx) < 32 && !flick) || Math.abs(dy) > 24 || Math.abs(dx) < Math.abs(dy) * 2) return;
       // The physical tab order stays Collect (left), Pay (right), including FA.
       const target: Direction = dx < 0 ? "pay" : "collect";
       if (target !== stroke.from) {

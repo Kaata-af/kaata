@@ -1,10 +1,10 @@
 # Lightweight Home swipes and slide feedback
 
-**Current status: swipe checkpoint J is committed as `cd2a37f`. The requested
-slide follow-up K passes all five host checks, 23 Xiaomi interaction gestures,
-and two measured runs. Settled scrolling/idle work remains close to J; the
-observed memory increase and transition CPU cost are explicit below.** Earlier
-candidates and their evidence are retained as history, not current claims.
+**Current status: the October 19 follow-up L eases gesture recognition and
+restores the original Soft vibration on successful swipe changes. Its focused
+host and Xiaomi checks pass. The preceding slide checkpoint K is committed as `80a8ac7`;
+its measurements below remain historical K measurements, not new L timings.**
+Earlier candidates and their evidence are retained as history.
 
 This follow-up adds horizontal swipe switching to the tap-only Home at commit
 `840cbcc0292058b609c796b1f3917d0fc0cd1b3f`. It keeps the single ScrollView,
@@ -13,8 +13,43 @@ cached direction groups, independent offsets and financial presentation from
 page rail or React state update while the finger moves. Tabs remain available.
 
 The runtime change is confined to `apps/mobile/app/index.tsx`, SHA256
-`c18709785cbf591eb755316ab957ac8622385e2b1ad6e09d3de6d43e7e61ef14` (K).
+`85e523a2880a92996dfd3a2a60a1b4909ee753e3fd5576c4163d83eb671ac132` (L).
 No dependency, native configuration, version or ledger API changed.
+
+## Easier swipe and haptics follow-up L (October 19)
+
+The locally built release benchmark APK is
+`3bf2543fa2c0513365642b5aa2ba7ce1fef6fccf993e4c1b8456596b8ecacdc2`.
+The previous distance-only 60-point rule could ignore quick short flicks.
+Activation is now 12 rather than 24 points; release accepts a 32-point drag
+or an 18-point flick with finite matching velocity of at least 450 points/s.
+The vertical failure threshold, direction dominance, hold protection, edge
+gutters, scope/epoch checks, one scroll container and bounded slide stay intact.
+
+The original `impactAsync(ImpactFeedbackStyle.Soft)` runs once after an
+eligible swipe requests a different side. Plain tab taps retain their original
+non-haptic behavior. Canceled, same-side, outward and stale gestures produce
+no page-change haptic; nothing calls haptics per move.
+
+Selection, person-find, the actual installed Pan worklet proof, and typecheck
+pass in `home-swipe-ab/host-tests-easier/summary.json`. Tests cover both directions,
+the exact distance/velocity boundaries, opposite and non-finite velocity,
+vertical/hold/stale rejection, and one Soft call only for an accepted swipe.
+
+The focused Xiaomi run
+`home-swipe-easier-ui/runs/e1ce33491bca4b9b9c23c96582bb5df5` passes 36-point
+gentle (requested 600ms) and quick (requested 100ms) swipes in both directions.
+Android reports exactly one finished benchmark vibration for each switch.
+A 16-point slow drag and a diagonal keep Collect with no vibration; ordinary
+tab/same-tab taps add none. Named-row movement confirms vertical scrolling.
+The process stays alive, with no financial editing inputs.
+
+An earlier injected 24-point/35ms stroke did not change the page; its actual
+release velocity and activation were not measured, so the tiny flick boundary
+is established by the actual-Pan host tests rather than claimed from the
+phone injection. That failed attempt is retained separately. Native finished
+vibration requests do not measure physical sensation. This narrow recognition
+and haptics adjustment did not repeat the earlier performance runs.
 
 The completed unanimated checkpoint J's local release benchmark APK is
 `a22d65bdd4a59c12878a14224e2696207be958f0fd20bc5a66ad84c9175faa65`.
@@ -123,10 +158,12 @@ or release was changed by this follow-up.
 - The installed RNGH 2.32 Pan recognizer attaches to the actual loaded Home
   body through its existing outer View. Header, tabs, search dock and modal
   surfaces are outside that detector. Web retains its existing tap-only path.
-- Native activation requires horizontal movement beyond 24 points; vertical
+- Native activation requires horizontal movement beyond 12 points; vertical
   movement beyond 12 points fails recognition before activation. Only one
   finger is allowed, and 24-point left/right gutters preserve edge gestures.
-- The successful end must finish at least 60 points horizontally from DOWN,
+- The successful end must finish at least 32 points horizontally from DOWN,
+  or at least 18 points with finite release velocity of at least 450 points/s
+  in the same direction as its displacement. It must also finish
   no more than 24 points vertically, with at least 2:1 horizontal dominance.
   Absolute finger coordinates preserve the complete displacement because
   Android Pan translation resets at activation. Velocity alone never commits.

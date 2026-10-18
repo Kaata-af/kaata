@@ -108,6 +108,7 @@ const metadata = new Map<string, string>();
 let queueSwipeCommit = false;
 const swipeCommits: (() => void)[] = [];
 let swipeHandoffs = 0;
+const homeImpactHaptics: string[] = [];
 const swipeSharedValues: { value: any; writes: any[] }[] = [];
 const homeTimings: { target: number; duration: number; reduceMotion: string }[] = [];
 let reducedHomeMotion = false;
@@ -204,7 +205,7 @@ const mocks: Record<string, any> = {
   },
   "expo-haptics": {
     selectionAsync: asyncNoop,
-    impactAsync: asyncNoop,
+    impactAsync: async (style: string) => { homeImpactHaptics.push(style); },
     ImpactFeedbackStyle: { Soft: "soft" },
   },
   "@expo/vector-icons": { Ionicons: "Icon" },
@@ -616,7 +617,7 @@ async function main() {
   };
   const beginDrag = (scroll: UINode, y: number) => scroll.props.onScrollBeginDrag(scrollEvent(y));
   const swipeGesture = () => nodes(tree).find((node) => node.type === "GestureDetector")!.props.gesture;
-  const swipe = (dx: number, dy = 0, options: { hold?: number; duration?: number; success?: boolean; pointers?: number } = {}) => {
+  const swipe = (dx: number, dy = 0, options: { hold?: number; duration?: number; success?: boolean; pointers?: number; velocityX?: number } = {}) => {
     const gesture = swipeGesture();
     assert.equal(gesture.config.enabled, true);
     let failures = 0;
@@ -635,12 +636,13 @@ async function main() {
     gesture.callbacks.onTouchesMove({ numberOfTouches: options.pointers ?? 1 }, manager);
     gesture.callbacks.onEnd({ absoluteX: 200 + dx, absoluteY: 300 + dy,
       // The Android activation reset must not be used as the full displacement.
-      translationX: dx - Math.sign(dx) * 24, numberOfPointers: options.pointers ?? 1 }, options.success !== false);
+      translationX: dx - Math.sign(dx) * 12, velocityX: options.velocityX ?? 0,
+      numberOfPointers: options.pointers ?? 1 }, options.success !== false);
     gesture.callbacks.onFinalize();
     return failures;
   };
   assert.deepEqual(swipeGesture().config, { enabled: true, maxPointers: 1,
-    activeOffsetX: [-24, 24], failOffsetY: [-12, 12], hitSlop: { left: -24, right: -24 } });
+    activeOffsetX: [-12, 12], failOffsetY: [-12, 12], hitSlop: { left: -24, right: -24 } });
   assert.equal(typeof swipeGesture().callbacks.onUpdate, "function", "Preview has a UI worklet, without RN/React move traffic");
   assert.equal(swipeGesture().callbacks.onChange, undefined);
   assert.equal(swipeReactions.size, 1, "Home owns a useful UI reaction before native events arrive");
@@ -701,17 +703,21 @@ async function main() {
   assert.deepEqual(homeScroll().props.onGestureEvent.workletEventHandler.eventNames,
     ["onGestureHandlerEvent", "onGestureHandlerStateChange"]);
   const initialSwipeHandoffs = swipeHandoffs;
+  const initialSwipeHaptics = homeImpactHaptics.length;
   for (const [dx, dy, options] of [
-    [-100, 0, { success: false }], [-100, 80, {}], [0, 100, {}], [-59, 0, {}],
+    [-100, 0, { success: false }], [-100, 80, {}], [0, 100, {}], [-31, 0, {}],
+    [-17, 0, { velocityX: -900 }], [-18, 0, { velocityX: -449 }],
+    [-18, 0, { velocityX: 900 }], [-18, 0, { velocityX: NaN }], [-18, 0, { velocityX: -Infinity }],
     [-100, 0, { hold: 350 }], [-100, 0, { pointers: 2 }], [100, 0, {}],
   ] as const) {
     swipe(dx, dy, options);
     assert.equal(nodes(tree).find((node) => node.type === "Tabs")!.props.value, "collect");
   }
   assert.equal(swipeHandoffs, initialSwipeHandoffs, "Canceled/held/multi/diagonal/short/outward swipes never cross to JS");
+  assert.equal(homeImpactHaptics.length, initialSwipeHaptics, "Rejected swipes never vibrate");
   const beforeSwipeCommands = scrollCommands.length;
   const panBeforeDirectionChange = swipeGesture();
-  swipe(-60, 0, { duration: 700 });
+  swipe(-32, 0, { duration: 700 });
   render();
   assert.equal(swipeGesture(), panBeforeDirectionChange,
     "Changing only the direction retains the recognizer and its UI callbacks");
@@ -721,10 +727,20 @@ async function main() {
   assert.equal(nodes(tree).find((node) => node.type === "Tabs")!.props.value, "pay",
     "A slowly completed swipe activated before the hold threshold still changes sides");
   assert.equal(swipeHandoffs, initialSwipeHandoffs + 1, "One successful end schedules one RN handoff");
+  assert.deepEqual(homeImpactHaptics.slice(initialSwipeHaptics), ["soft"], "A gentle32-point swipe restores one original Soft impact");
   assert.equal(scrollCommands.length, beforeSwipeCommands + 1, "Swipe reuses the exact native offset restoration path");
-  swipe(100); render();
+  swipe(32); render();
   assert.equal(nodes(tree).find((node) => node.type === "Tabs")!.props.value, "collect");
   assert.ok(uiSwipeOffset.writes.includes(-24), "Committed Collect enters from the physical left");
+  assert.deepEqual(homeImpactHaptics.slice(initialSwipeHaptics), ["soft", "soft"], "Each actual swipe change vibrates once");
+  swipe(-18, 0, { velocityX: -450 }); render();
+  assert.equal(nodes(tree).find((node) => node.type === "Tabs")!.props.value, "pay", "An18-point matching fast flick commits Pay");
+  swipe(18, 0, { velocityX: 450 }); render();
+  assert.equal(nodes(tree).find((node) => node.type === "Tabs")!.props.value, "collect", "An18-point matching fast flick commits Collect");
+  assert.deepEqual(homeImpactHaptics.slice(initialSwipeHaptics), ["soft", "soft", "soft", "soft"]);
+  const hapticsBeforeTaps = homeImpactHaptics.length;
+  changeTab("pay"); changeTab("pay"); changeTab("collect");
+  assert.equal(homeImpactHaptics.length, hapticsBeforeTaps, "Plain tab changes and same-tab taps preserve their original no-haptic behavior");
   reducedHomeMotion = true; render();
   const timingsBeforeReduced = homeTimings.length;
   swipe(-100); render();
@@ -734,6 +750,7 @@ async function main() {
   assert.equal(homeTimings.length, timingsBeforeReduced, "Live reduced motion disables preview and entry timing");
   reducedHomeMotion = false; render();
   changeTab("collect");
+  const hapticsBeforeQueuedStale = homeImpactHaptics.length;
   queueSwipeCommit = true;
   swipe(-100);
   changeTab("collect");
@@ -784,6 +801,7 @@ async function main() {
     "A blurred owner rejects a queued swipe before any reload");
   homeOwnerFocused = true; render(); await flush();
   queueSwipeCommit = false;
+  assert.equal(homeImpactHaptics.length, hapticsBeforeQueuedStale, "A queued swipe rejected by any lifetime/scope guard never vibrates");
   assert.deepEqual(homeRows().map((row) => row.props.person.id), ["a", "c"]);
   assert.deepEqual(retainedRows().map((row) => row.props.person.id).sort(), ["a", "b", "c"],
     "Off-side financial rows stay mounted once, while the exact cached-hidden style excludes their layout from visible traversal");

@@ -72,6 +72,7 @@ let nextAnimationFrame = 0;
 const animationFrames = new Map<number, (timestamp: number) => void>();
 const sharedValueObservers = new Set<() => void>();
 let homeSwipeRnCalls = 0;
+const homeImpactHaptics: string[] = [];
 const homeAnimationTimings: { target: number; duration: number; reduceMotion: string }[] = [];
 const mockSharedValue = (initial: unknown) => {
   let value = initial;
@@ -614,7 +615,7 @@ function screenMocks(prefix: string) {
 const home = compile("../../app/index", {
   ...screenMocks("../"),
   "expo-haptics": {
-    impactAsync: async () => {},
+    impactAsync: async (style: string) => { homeImpactHaptics.push(style); },
     selectionAsync: async () => {},
     ImpactFeedbackStyle: { Light: "light", Soft: "soft" },
   },
@@ -673,6 +674,7 @@ function fixture(
   homeReadScopes.length = 0;
   nativeNow = 1_000;
   homeSwipeRnCalls = 0;
+  homeImpactHaptics.length = 0;
   dirty = true;
 }
 async function flush() {
@@ -959,7 +961,7 @@ async function main() {
     fixture(home, "owner", nextRtl);
     await flush();
     const gesture = () => homePages()[0].props.swipeGesture;
-    const runSwipe = async (dx: number, dy: number, hold = 20, afterActivation = 100, success = true) => {
+    const runSwipe = async (dx: number, dy: number, hold = 20, afterActivation = 100, success = true, velocityX = 0) => {
       const pan = gesture();
       let failures = 0;
       const manager = { fail: () => failures++ };
@@ -971,29 +973,45 @@ async function main() {
       pan.callbacks.onTouchesMove({ numberOfTouches: 1 }, manager);
       const beforeSide = find("Tabs")!.props.value;
       const beforeRn = homeSwipeRnCalls;
+      const beforeHaptics = homeImpactHaptics.length;
       pan.callbacks.onUpdate({ absoluteX: 180 + dx, absoluteY: 300 + dy });
       assert.equal(find("Tabs")!.props.value, beforeSide, "Preview does not replace content before release");
       assert.equal(homeSwipeRnCalls, beforeRn, "Per-move preview stays on UI");
       const preview = homePages()[0].props.swipeBodyStyle.transform[0].translateX;
       assert.ok(Number.isFinite(preview) && Math.abs(preview) <= 24, "Preview has a finite24-point bound");
-      pan.callbacks.onEnd({ absoluteX: 180 + dx, absoluteY: 300 + dy, translationX: 0, numberOfPointers: 1 }, success);
+      pan.callbacks.onEnd({ absoluteX: 180 + dx, absoluteY: 300 + dy, translationX: 0, velocityX, numberOfPointers: 1 }, success);
       pan.callbacks.onFinalize();
       await flush();
+      assert.deepEqual(homeImpactHaptics.slice(beforeHaptics), find("Tabs")!.props.value === beforeSide ? [] : ["soft"],
+        "Only a successful physical tab change emits one original Soft impact");
       return failures;
     };
     assert.equal(gesture().config.enabled, true);
-    assert.deepEqual(gesture().config.activeOffsetX, [-24, 24]);
+    assert.deepEqual(gesture().config.activeOffsetX, [-12, 12]);
     assert.deepEqual(gesture().config.failOffsetY, [-12, 12]);
     assert.deepEqual(gesture().config.hitSlop, { left: -24, right: -24 });
     assert.equal(typeof gesture().callbacks.onUpdate, "function");
     assert.equal(gesture().callbacks.onChange, undefined);
     const stablePan = gesture();
-    await runSwipe(-60, 0, 20, 700);
+    await runSwipe(-32, 0, 20, 700);
     assert.equal(find("Tabs")!.props.value, "pay", "A continuous slow left swipe chooses physical right Pay even in FA");
     assert.equal(gesture(), stablePan, "a direction change retains the native recognizer and its UI callbacks");
-    await runSwipe(100, 0);
+    await runSwipe(32, 0);
     assert.equal(find("Tabs")!.props.value, "collect", "A right swipe chooses physical left Collect even in FA");
     assert.equal(gesture(), stablePan, "the stable recognizer reads the current atomic direction lease");
+    await runSwipe(-18, 0, 20, 100, true, -450);
+    assert.equal(find("Tabs")!.props.value, "pay", "A short18-point matching left flick selects Pay in EN/FA");
+    await runSwipe(18, 0, 20, 100, true, 450);
+    assert.equal(find("Tabs")!.props.value, "collect", "A short18-point matching right flick selects Collect in EN/FA");
+    for (const [dx, velocityX] of [[-31, 0], [-17, -900], [-18, -449], [-18, 900], [-18, NaN], [-18, -Infinity]]) {
+      await runSwipe(dx, 0, 20, 100, true, velocityX);
+      assert.equal(find("Tabs")!.props.value, "collect", "Insufficient travel or invalid/opposite flick velocity cannot change the side");
+    }
+    const hapticsBeforeTaps = homeImpactHaptics.length;
+    find("Tabs")!.props.onChange("pay"); await flush();
+    find("Tabs")!.props.onChange("pay"); await flush();
+    find("Tabs")!.props.onChange("collect"); await flush();
+    assert.equal(homeImpactHaptics.length, hapticsBeforeTaps, "Original plain-tab behavior has no impact on real or same-side taps");
     reducedMotion = true;
     dirty = true;
     await flush();
@@ -1007,6 +1025,7 @@ async function main() {
     dirty = true;
     await flush();
     const beforeCancelledStroke = homeSwipeRnCalls;
+    const hapticsBeforeCancelledStroke = homeImpactHaptics.length;
     const manager = { fail() {} };
     stablePan.callbacks.onTouchesDown({ numberOfTouches: 1, allTouches: [{ absoluteX: 180, absoluteY: 300 }] }, manager);
     nativeNow += 20;
@@ -1018,9 +1037,10 @@ async function main() {
     stablePan.callbacks.onFinalize();
     assert.equal(homeSwipeRnCalls, beforeCancelledStroke,
       "an invalidated live UI stroke is blocked before it can cross to RN");
+    assert.equal(homeImpactHaptics.length, hapticsBeforeCancelledStroke, "A stale UI completion cannot vibrate");
     await flush();
     assert.equal(find("Tabs")!.props.value, "collect");
-    for (const [dx, dy, hold, success] of [[-100, 90, 20, true], [0, 100, 20, true], [-59, 0, 20, true],
+    for (const [dx, dy, hold, success] of [[-100, 90, 20, true], [0, 100, 20, true], [-17, 0, 20, true],
       [-100, 0, 350, true], [-100, 0, 20, false]] as const) {
       await runSwipe(dx, dy, hold, 100, success);
       assert.equal(find("Tabs")!.props.value, "collect", "Diagonal/vertical/short/held/canceled gestures preserve the selected side");

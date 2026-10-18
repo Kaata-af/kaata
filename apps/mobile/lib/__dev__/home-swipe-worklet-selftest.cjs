@@ -54,12 +54,15 @@ vm.runInNewContext(built, { module: moduleFactory, exports: moduleFactory.export
 const uiLease = { value: { epoch: 1, from: 'collect', scope: 'one', blocked: false, reducedMotion: false } };
 const offset = { value: 0 };
 let rnCalls = 0;
+const scheduledCommits = [];
 const pan = moduleFactory.exports({ Pan: () => new actual.PanGesture() }, { OS: 'android' }, false,
-  uiLease, { value: { epoch: -1, from: 'collect', startedAt: 0, x: 0, y: 0, activated: false, blocked: true, commitRequested: false } }, { current: undefined }, () => {}, () => rnCalls++,
+  uiLease, { value: { epoch: -1, from: 'collect', startedAt: 0, x: 0, y: 0, activated: false, blocked: true, commitRequested: false } }, { current: undefined }, () => {}, (_, ...args) => { rnCalls++; scheduledCommits.push(args); },
   offset, () => {}, (target) => target, { System: 'system' });
 pan.initialize();
 assert.equal(pan.config.ref.current, pan, 'The actual Pan ref exposes its handlerTag for scroll/refresh relations');
 assert.equal(pan.config.ref.current.handlerTag, 1);
+assert.deepEqual([pan.config.activeOffsetXStart, pan.config.activeOffsetXEnd], [-12, 12]);
+assert.deepEqual([pan.config.failOffsetYStart, pan.config.failOffsetYEnd], [-12, 12]);
 for (const name of ['onTouchesDown', 'onTouchesMove', 'onStart', 'onUpdate', 'onEnd', 'onFinalize'])
   assert.equal(typeof pan.handlers[name].__workletHash, 'number', name + ' is a transformed UI worklet');
 assert.equal(pan.handlers.onChange, undefined);
@@ -82,6 +85,44 @@ uiLease.value = { ...uiLease.value, reducedMotion: false, epoch: 2 };
 pan.handlers.onUpdate({ absoluteX: 200, absoluteY: 300 });
 assert.equal(offset.value, 0, 'An invalidated stroke cannot move the body');
 assert.equal(rnCalls, 0, 'Repeated UI preview updates never schedule RN work');
+
+// Execute the actual transformed end callback, including Android's absolute
+// displacement path, rather than duplicating the threshold expression here.
+function finishStroke(from, dx, velocityX, expected, options = {}) {
+  uiLease.value = { ...uiLease.value, epoch: uiLease.value.epoch + 1, from,
+    blocked: false, reducedMotion: false };
+  const epoch = uiLease.value.epoch;
+  const manager = { fail: () => assert.fail('Valid down cannot fail') };
+  const before = rnCalls;
+  pan.handlers.onTouchesDown({ numberOfTouches: 1, allTouches: [{ absoluteX: 300, absoluteY: 300 }] }, manager);
+  pan.handlers.onStart();
+  if (options.stale) uiLease.value = { ...uiLease.value, epoch: epoch + 1 };
+  if (options.blocked) uiLease.value = { ...uiLease.value, blocked: true };
+  const end = { absoluteX: 300 + dx, absoluteY: 300 + (options.dy ?? 0),
+    translationX: 0, velocityX, numberOfPointers: 1 };
+  pan.handlers.onUpdate(end);
+  assert.equal(rnCalls, before, 'Gentle/flick preview remains entirely on UI');
+  pan.handlers.onEnd(end, true);
+  pan.handlers.onFinalize();
+  assert.equal(rnCalls - before, expected ? 1 : 0,
+    `${from}: dx=${dx}, velocity=${velocityX} commits exactly when eligible`);
+  if (expected) assert.deepEqual(scheduledCommits.at(-1),
+    [epoch, from, from === 'collect' ? 'pay' : 'collect']);
+}
+for (const [from, sign] of [['collect', -1], ['pay', 1]]) {
+  finishStroke(from, sign * 32, 0, true);
+  finishStroke(from, sign * 18, sign * 450, true);
+  for (const distance of [16, 17]) finishStroke(from, sign * distance, sign * 10_000, false);
+  finishStroke(from, sign * 31, 0, false);
+  finishStroke(from, sign * 18, -sign * 450, false);
+  for (const velocity of [NaN, Infinity, -Infinity, undefined])
+    finishStroke(from, sign * 18, velocity, false);
+  finishStroke(from, sign * 18, sign * 450, false, { dy: 10 });
+  finishStroke(from, sign * 32, sign * 450, false, { dy: 25 });
+  finishStroke(from, sign * 32, sign * 450, false, { stale: true });
+  finishStroke(from, sign * 32, sign * 450, false, { blocked: true });
+  finishStroke(from, -sign * 32, -sign * 450, false);
+}
 
 // Execute the installed native wrapper -> createHandler -> INNER Animated
 // registration/filter/ref chain. A marker-only holder on a plain child, or an
