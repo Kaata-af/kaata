@@ -30,42 +30,48 @@ export function ActivityInsights(props: {
   const ranges =
     props.view === "day" ? [7, 30, 90] : props.view === "profile" ? [168, 720] : [24, 168, 720];
   const reportedRange = rangeLabel(props.stats?.points ?? props.range, props.view);
+  const refreshing = props.fetching && !props.pending;
   return (
     <Card
       title="Activity & installs"
       sub={`Last ${reportedRange} · ${props.view === "day" ? "Kabul reporting calendar" : "Kabul time (UTC+04:30)"}`}
       action={
-        <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">
-          {props.fetching && !props.pending ? (
-            <span role="status" className="text-xs text-brand-sub">
-              Updating…
-            </span>
-          ) : null}
-          <div
-            className="inline-flex max-w-full rounded-lg border border-brand-border bg-brand-ivory p-1"
-            role="group"
-            aria-label="Activity view"
-          >
-            {(
-              [
-                ["hour", "Hourly"],
-                ["day", "Daily"],
-                ["profile", "Busy hours"],
-              ] as const
-            ).map(([view, label]) => (
-              <Choice key={view} selected={props.view === view} onClick={() => props.onView(view)}>
-                {label}
-              </Choice>
-            ))}
-          </div>
+        <div
+          className="inline-flex max-w-full rounded-lg border border-brand-border bg-brand-ivory p-1"
+          role="group"
+          aria-label="Activity view"
+        >
+          {(
+            [
+              ["hour", "Hourly"],
+              ["day", "Daily"],
+              ["profile", "Busy hours"],
+            ] as const
+          ).map(([view, label]) => (
+            <Choice key={view} selected={props.view === view} onClick={() => props.onView(view)}>
+              {label}
+            </Choice>
+          ))}
         </div>
       }
     >
       <div className="mb-4 flex min-w-0 flex-wrap items-center justify-between gap-2">
-        <p className="text-xs text-brand-sub">
-          {props.view === "profile"
-            ? "Average devices and installs at each hour of the day"
-            : "Active devices and new installs"}
+        <p className="flex min-w-0 items-center gap-2 text-xs text-brand-sub">
+          <span>
+            {props.view === "profile"
+              ? "Average devices and installs at each hour of the day"
+              : "Active devices and new installs"}
+          </span>
+          <span
+            role="status"
+            className="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center"
+          >
+            <span
+              aria-hidden="true"
+              className={`h-3 w-3 rounded-full border border-brand-border border-t-brand-muted motion-safe:animate-spin ${refreshing ? "opacity-100" : "opacity-0"}`}
+            />
+            <span className="sr-only">{refreshing ? "Updating chart" : ""}</span>
+          </span>
         </p>
         <div
           className="inline-flex max-w-full rounded-lg border border-brand-border p-1"

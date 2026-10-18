@@ -9,7 +9,7 @@ import { ActivityInsights, RecentInstalls, type ActivityView } from "./ActivityI
 export function Overview() {
   const [days, setDays] = useState(30);
   const [hours, setHours] = useState(168);
-  const [activityView, setActivityView] = useState<ActivityView>("hour");
+  const [activityView, setActivityView] = useState<ActivityView>("day");
   const stats = useStats(
     activityView === "day" ? days : hours,
     activityView === "day" ? "day" : "hour",

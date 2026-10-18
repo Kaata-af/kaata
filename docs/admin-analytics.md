@@ -44,12 +44,14 @@ used to fabricate missing check-ins.
 
 ## Clock times and busy hours
 
-Overview's **Activity & installs** card opens on **Hourly**, with 24-hour,
-7-day and 30-day ranges. Each point is one Kabul-aligned clock hour. Its tooltip
-shows the complete date and hour interval, and identifies the current hour as
-in progress. **Daily** preserves the existing 7/30/90-day chart and calendar
-cutover disclosure. Switching granularity cannot temporarily label cached daily
-points as hourly points; query keys and placeholder data include the bucket.
+Overview's **Activity & installs** card opens on **Daily**, showing the last
+30 days, with 7/30/90-day ranges and the calendar cutover disclosure. **Hourly**
+offers 24-hour, 7-day and 30-day ranges. Each point is one Kabul-aligned clock
+hour. Its tooltip shows the complete date and hour interval, and identifies
+the current hour as in progress. Background refreshes show a small spinner in
+a reserved slot beside the chart description, keeping the view and range
+controls stationary. Switching granularity cannot temporarily label cached
+daily points as hourly points; query keys and placeholder data include the bucket.
 
 **Busy hours** shows a typical day's 24 clock hours over the last 7 or 30 days.
 Each value is the mean of the recorded completed hours for that hour of day,
