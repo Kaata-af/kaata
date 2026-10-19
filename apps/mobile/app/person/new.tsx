@@ -780,6 +780,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.borderDefault,
     borderRadius: radius.md,
+    marginHorizontal: 16,
+    marginTop: 16,
     marginBottom: 16,
     overflow: "hidden",
   },
@@ -793,9 +795,10 @@ const styles = StyleSheet.create({
   permRow: {
     flexDirection: "row",
     alignItems: "center",
+    minHeight: TOUCH_MIN,
     gap: 8,
     paddingHorizontal: 16,
-    paddingVertical: 16,
+    paddingVertical: 12,
   },
   permText: { flex: 1, fontSize: 13, fontFamily: fonts.sansMedium, color: colors.textSubtle },
 });
