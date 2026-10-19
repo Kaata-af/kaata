@@ -1,0 +1,19 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+  android:width="64dp"
+  android:height="64dp"
+  android:viewportWidth="96"
+  android:viewportHeight="96">
+  <path
+    android:fillColor="#000000"
+    android:pathData="M 12 0 H 84 Q 96 0 96 12 V 84 Q 96 96 84 96 H 12 Q 0 96 0 84 V 12 Q 0 0 12 0 Z" />
+  <!-- Exact three-stroke K from assets/notification-icon.svg. -->
+  <path
+    android:fillColor="#FFFFFF"
+    android:pathData="M 12 12 L 37 12 C 38 12 38 13 38 15 C 39 37 30 49 13 59 C 12 60 12 59 12 58 Z" />
+  <path
+    android:fillColor="#FFFFFF"
+    android:pathData="M 35 48 C 47 39 48 28 53 19 C 56 14 59 12 64 12 L 83 12 C 84 12 84 13 83 14 L 69 33 C 61 43 49 47 36 49 C 34 49 34 49 35 48 Z" />
+  <path
+    android:fillColor="#FFFFFF"
+    android:pathData="M 12 82 C 12 65 23 56 37 52 C 55 46 65 53 73 64 L 84 80 C 85 82 84 83 83 83 L 64 83 C 51 83 49 76 45 61 C 44 55 41 54 39 60 C 37 66 38 75 38 82 C 38 83 37 83 36 83 L 13 83 C 12 83 12 83 12 82 Z" />
+</vector>

@@ -17,5 +17,6 @@ android {
 dependencies {
   // SDK 57 may link Expo's precompiled AAR instead of a Gradle subproject.
   implementation expoModule.getExpoDependency('expo-notifications')
+  implementation 'com.google.firebase:firebase-messaging:25.0.1'
   testImplementation 'junit:junit:4.13.2'
 }

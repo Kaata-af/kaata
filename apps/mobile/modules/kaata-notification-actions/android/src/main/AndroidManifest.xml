@@ -1,5 +1,12 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
   <application>
+    <service
+      android:name="expo.modules.kaatanotificationactions.KaataFirebaseMessagingService"
+      android:exported="false">
+      <intent-filter android:priority="0">
+        <action android:name="com.google.firebase.MESSAGING_EVENT" />
+      </intent-filter>
+    </service>
     <!-- Expo's original receiver remains registered for existing explicit
          PendingIntents and boot/package-replacement scheduling. New notification
          events select this receiver ahead of Expo's priority -1 receiver. -->

@@ -67,18 +67,14 @@ private class KaataPresentationDelegate(context: Context) : ExpoPresentationDele
     notification: Notification,
     notificationBehavior: NotificationBehaviorRecord?,
   ): android.app.Notification {
-    // Let Expo own channel selection, actions, intents, extras and behavior.
-    // Recover that completed notification and change only its small icon.
+    // Let Expo own the small Kaata symbol, channel, actions, intents and extras.
+    // Android tints small icons; the full-color corner badge belongs on the
+    // content icon so it can retain both the brand and its status color.
     val base = super.createNotification(notification, notificationBehavior)
     val status = notificationStatusIcon(notification.notificationRequest.content.body?.optString("kind"))
       ?: return base
-    val resource = when (status) {
-      NotificationStatusIcon.PENDING -> R.drawable.kaata_notification_pending
-      NotificationStatusIcon.ACCEPTED -> R.drawable.kaata_notification_accepted
-      NotificationStatusIcon.REJECTED -> R.drawable.kaata_notification_rejected
-    }
     return android.app.Notification.Builder.recoverBuilder(context, base)
-      .setSmallIcon(resource)
+      .setLargeIcon(NotificationStatusArtwork.bitmap(context, status))
       .build()
   }
 }
