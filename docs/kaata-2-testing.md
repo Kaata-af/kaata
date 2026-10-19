@@ -6,6 +6,81 @@ durable offline queue, and push delivery infrastructure. Existing private ledger
 events are not rewritten.
 Automated checks and store submissions do not replace native two-phone testing.
 
+## Live visual preview with Expo Go — 19 October 2026
+
+The user's root `bun dev` session is serving the current app to Expo Go 57.0.9
+on the Xiaomi. The person screen visibly shows the muted teal received button
+on the physical left and slate-blue gave button on the physical right, with
+the Dari labels intact. The foreground package is `host.exp.exponent`; the
+installed Kaata package and its data were not replaced or reset.
+
+Use this live session and Fast Refresh for subsequent color, copy and layout
+iterations. No new native build is needed for those changes. Native dependency,
+permission and store-release validation still require a native build. Local
+preview evidence is under ignored `build/action-colors-device/expo-go-*`.
+
+The preview also displayed a development warning from `db-backup`:
+`FileSystemFile.moveSync` rejected a destination path that does not exist.
+This visual check does not validate backup behavior; the warning remains a
+separate issue to investigate before relying on backups in Expo Go.
+
+## Colored entry actions Android preview — 19 October 2026 (66)
+
+**2.2.2 / Android 66** is installed in place on the connected Xiaomi. The
+installation returned `Success`; the installed package reports version 2.2.2 /
+code 66, and the cold launch returned `Status: ok`. This preview uses
+source `1222a005014d80b828ea70a62ac3cfaeb5621449` on
+`codex/colored-entry-actions`; its version remains 2.2.2.
+
+“I gave” now uses muted slate blue (`#405D7B`) and “I received” uses muted teal
+(`#2D615C`). These distinguish the direction of a transaction without treating
+it as a loss or gain. White labels and arrows, touch size and the fixed physical
+button positions are preserved; the shadow is softer. White text contrast is
+6.84:1 / 7.06:1 normally and 5.37:1 / 5.51:1 when pressed, respectively.
+Type checking and the tally UI, person-detail and entry-create UI suites passed.
+
+The phone screenshot confirms teal “I received” on the physical left and slate
+blue “I gave” on the physical right, with both Pashto labels fully visible.
+The original `firstInstallTime` remains `2026-09-15 12:50:18`; the new
+`lastUpdateTime` is `2026-10-19 17:07:55`. The cold launch took **1,230 ms**
+(`WaitTime: 1,232 ms`). All **8 device UI checks** passed: both action routes
+opened the correct empty entry form, pressed gestures worked, equal button
+bounds and the Pashto labels/positions/colors were verified. Both forms were
+cancelled; no financial input was saved and no tallies were created.
+
+The release build uses the production backend, fresh Hermes JavaScript and the
+existing native English/Dari/Pashto resources, fonts and Ninja mode. Only the
+Android build number changed in native config; no native dependency changes or
+prebuild regeneration were needed. This device preview is **arm64-v8a only**.
+
+- AAB: `build/action-colors-device/kaata-action-colors-66.aab`, 45,020,692 bytes;
+  SHA-256 `e67a24b6bf9e55fe94778781fae7d4884d2e404e33293da0052e04cb71cc050f`.
+  All **38 static verification checks** passed, including exact source binding,
+  both action colors, all 4,479 catalog strings, native locales, fonts,
+  original Ninja copy/icon, upload signer and 16 KiB native alignment.
+- Google-signed APK: `build/action-colors-device/kaata-action-colors-66-play.apk`,
+  55,072,028 bytes; SHA-256
+  `899663b292d0ce31c948004a73e72823fbe6ca824d4d265508c2f0f917018bba`.
+  All **30 APK verification checks** passed, including the original installed
+  Play signer, identical verified AAB payload and actual 16 KiB ZIP alignment.
+
+Google acknowledged code 66 as an **unassigned bundle only** at
+`2026-10-19T12:34:25.486Z`; it was not added to a track or distributed.
+Independent readback at `2026-10-19T12:34:41.706Z` verified every previous track,
+release, listing, image and app detail remained unchanged, including the code 65
+internal diagnostic draft and published production/internal code 64. The
+inspection edit was deleted. A lifecycle-list quota error was handled through
+an explicit guarded commit that kept Google's `ERROR_IF_IN_REVIEW` behavior,
+recent published-state proof and a fresh unchanged-edit check. All **28 offline
+signing safeguards** passed, including the actual published64/draft65 proof and
+refusal of unknown drafts, review/permission errors and ambiguous commit retries.
+
+Code 66 is reserved in `app.json`; the next store upload must use **67 or higher**.
+Do not promote either diagnostic artifact. No iOS build or store review
+submission was made. Local verification, signing and preservation receipts are
+under ignored `build/action-colors-device/`, including `phone-ui-checks.json`
+and the normal/pressed phone screenshots.
+
 ## Pashto and Ninja-mode Android device build — 19 October 2026 (65)
 
 **2.2.2 / Android 65** is installed in place on the connected Xiaomi after the
@@ -37,8 +112,10 @@ Independent readback at `2026-10-19T11:59:44.626Z` verified that all previous
 releases, other tracks, listing text, images and app details were preserved;
 the inspection edit was deleted. Published production/internal code 64 remains
 unchanged. Code 65 was not distributed to testers or production, and no iOS
-build or submission was made. Code 65 remains reserved in `app.json`; the next
-store upload must use **66 or higher**. Do not promote this diagnostic artifact.
+build or submission was made. Code 65 was reserved in `app.json` for this build;
+the next upload floor at that time was 66. The code 66 preview above now
+supersedes that floor and reserves **67 or higher** for the next store upload.
+Do not promote this diagnostic artifact.
 
 Local evidence is retained under ignored `build/pashto-ninja-device/`:
 `verification.json`, `apk-verification.json` and `play-device-receipt.json`.
