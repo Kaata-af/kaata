@@ -5,7 +5,6 @@ import { rowDir } from "../lib/direction";
 import { formatAmount } from "../lib/format";
 import { fonts, monoLineHeight, sansLineHeight } from "../lib/fonts";
 import { t } from "../lib/i18n";
-import { faDigits } from "../lib/jalali";
 import type { TallyFlowSummary as FlowSummary } from "../lib/tally-summary";
 
 /** Two lines on the other side of the balance header. No new card or graph.
@@ -33,10 +32,10 @@ export function TallyFlowSummary({
       ) : null}
       {(["gave", "received"] as const).map((direction) => {
         const flow = summary[direction];
-        // The app's own words ("I gave", "دادم") with the count in brackets: a
-        // middle dot beside Persian digits reads as a zero.
+        // Keep the translated label and parentheses, with Latin digits matching
+        // the amounts in every language.
         const label = t(direction === "gave" ? "person.flows.gave" : "person.flows.received", {
-          count: isRTL ? faDigits(String(flow.count)) : flow.count,
+          count: flow.count,
         });
         return (
           <View
