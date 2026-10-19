@@ -9,8 +9,8 @@ English, Dari and Pashto. The CTAs include **Continue in ninja mode** and
 
 Pushing `main` triggers backend/web deployment through Dokploy; the deployment
 outcome, including production migration **065**, is not verified here. Android
-**2.2.2 / code 65** is built and signed for Xiaomi device testing; installation
-awaits the phone's Play Protect check and approval. The
+**2.2.2 / code 65** is built, signed and installed in place on Xiaomi; its first
+cold launch succeeded. The
 [device-build record](../kaata-2-testing.md) separates artifact checks from phone
 testing. A new iOS build is still needed.
 
@@ -155,10 +155,12 @@ The arm64 Android device build passed all **37 AAB and 29 APK static checks**.
 All **4,479 catalog strings**, fresh native English/Dari/Pashto resources,
 the exact Ninja copy/icon and the original installed Play signer were verified.
 Code 65 is an internal draft only; existing published releases and listings
-were preserved. Installation and launch await the phone's Play Protect approval.
-Native phone layout, Pashto/Ninja visual review, line wrapping, OS permissions
-and actual notification delivery still need device checks. Browser visual smoke
-testing was unavailable because no browser surface was enabled.
+were preserved. The in-place Xiaomi update succeeded without uninstalling or
+resetting application data, retained its original installation timestamp and
+cold-launched successfully in 1,433 ms. Native phone layout, Pashto/Ninja visual
+review, line wrapping, OS permissions and actual notification delivery still
+need device checks with the user. Browser visual smoke testing was unavailable
+because no browser surface was enabled.
 
 The original [language-files.json](language-files.json),
 [language-surfaces.json](language-surfaces.json),

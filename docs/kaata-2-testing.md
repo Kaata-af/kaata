@@ -8,9 +8,9 @@ Automated checks and store submissions do not replace native two-phone testing.
 
 ## Pashto and Ninja-mode Android device build — 19 October 2026 (65)
 
-**2.2.2 / Android 65** is built and signed for the connected Xiaomi. Installation
-is awaiting the phone's Google Play Protect check and approval; successful
-installation and launch have not yet been verified.
+**2.2.2 / Android 65** is installed in place on the connected Xiaomi after the
+user approved the phone's Google Play Protect check. The streamed installation
+returned `Success`, and the first cold launch returned `Status: ok`.
 
 The build uses application source `d75194ba37287b86b2119622b89637bce72b1381`
 with only `android.versionCode` changed from 64 to 65. The version remains 2.2.2.
@@ -42,9 +42,13 @@ store upload must use **66 or higher**. Do not promote this diagnostic artifact.
 
 Local evidence is retained under ignored `build/pashto-ninja-device/`:
 `verification.json`, `apk-verification.json` and `play-device-receipt.json`.
-Install in place without uninstalling or clearing application data. Full Pashto
-and Ninja-mode visual review, RTL/line wrapping, OS permission behavior and
-actual notification delivery remain pending. A new iOS build is still needed.
+The installed package reports version **2.2.2 / code 65**. Its original
+`firstInstallTime` remains `2026-09-15 12:50:18`, with `lastUpdateTime`
+`2026-10-19 16:36:17`; no uninstall or application-data reset was performed.
+The cold launch took **1,433 ms** (`WaitTime: 1,442 ms`). This is an installation
+and launch smoke check; full Pashto and Ninja-mode visual review, RTL/line
+wrapping, OS permission behavior and actual notification delivery remain
+pending with the user. A new iOS build is still needed.
 Backend/web deployment and production migration 065 have not been verified as
 part of this device build.
 
