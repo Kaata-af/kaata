@@ -6,7 +6,7 @@ durable offline queue, and push delivery infrastructure. Existing private ledger
 events are not rewritten.
 Automated checks and store submissions do not replace native two-phone testing.
 
-## Internal testing candidate 2.2.3 — 19 October 2026 (67/40)
+## Internal testing release 2.2.3 — 19 October 2026 (67/40)
 
 The selected entry palette is **soft apricot for “I gave”** (`#F6E4D5`, ink
 `#7D4923`) and **pale sage for “I received”** (`#E4EEE6`, ink `#3E6149`).
@@ -29,13 +29,48 @@ pages stay rendered with independent scroll positions, full-width dragging,
 the original flick/drag thresholds and spring animation. Pashto and the
 selected entry buttons remain intact.
 
-The candidate uses Android code **67** and iOS build **40**. Android will be
-built locally with all production architectures; one EAS iOS production build
-is planned. The destination is **Play internal testing and the existing
-TestFlight internal group**. Production and closed testing remain unchanged.
-The final entry colors were checked in Expo Go on the Xiaomi; automated
-SQLite tests verify local backup and restore, including interrupted file
-operations. Native artifacts and internal delivery are pending.
+Both stores now have **2.2.3** available for internal testing from source
+`b43c73c69321833084672b389ca79f6ffffb0638` on
+`codex/colored-entry-actions`:
+
+- **Google Play internal: code 67, PUBLISHED.** Built locally with all four
+  production architectures; no Android cloud build was used. The upload's
+  SHA-256 matched the verified local bundle. The guarded internal-only commit
+  used `ERROR_IF_IN_REVIEW`. An independent verification edit confirmed that
+  production, closed tracks, listing text, images and app details were unchanged.
+  Final lifecycle readback at 14:06 UTC confirmed internal 67 published and
+  production **2.2.2/code 64** still published.
+- **TestFlight internal: build 40, VALID / IN_BETA_TESTING.** The existing
+  **Team (Expo)** internal group has access; its automatic access setting was
+  retained. Exactly **one** iOS cloud build was used. Apple processed the upload,
+  and independent readback at 14:06 UTC confirmed the exact build, group and
+  beta testing notes. Production **2.2.0/build 39** and its completed review
+  remained unchanged; no 2.2.3 production version or review submission was created.
+
+Android's signed AAB passed **47/47** artifact checks and the iOS IPA passed
+**35/35**. Both contain all **4,479** EN/FA/PS catalog strings, the original
+Ninja icon and warning, the final apricot/sage palette and the backup guards.
+Android checks include the original upload signer, all four ABIs and 16 KB
+alignment of every 64-bit native library. iOS checks include the existing
+signing team/profile, exact fonts, native language resources and opaque icons.
+
+The final entry colors were checked in Expo Go on the Xiaomi. Backup recovery
+was verified with temporary files and real SQLite in automated tests; an
+end-to-end backup and restored Home swipe check on the phone is still part of
+native testing, not a result claimed by this release record.
+
+Release artifacts and receipts are retained under ignored `build/release-2.2.3/`:
+
+- `kaata-2.2.3-67.aab`, SHA-256
+  `16b84527b0ac20712b4ca0517cbfa79e80f8c91333afb1f602ad893f5549b6f0`;
+  `android-build-receipt.json`, `verification/verification.json` and
+  `play-internal-receipt.json`.
+- `ios/kaata-2.2.3-40.ipa`, SHA-256
+  `50dfece45bcba1bd2c2306d38afa0f2961b0b08bf40666bbf2d904d5272647bf`;
+  `ios/ipa-verification.json` and `ios/testflight-verification.json`.
+- [EAS iOS build a9f05eaf](https://expo.dev/accounts/mateesaafi/projects/kaata/builds/a9f05eaf-88a7-47ab-9069-4536ce36b792),
+  [TestFlight upload 2ef9a1d5](https://expo.dev/accounts/mateesaafi/projects/kaata/submissions/2ef9a1d5-b1ea-449a-8168-9be24a49945a).
+  App Store Connect build ID: `af5911b3-2c3c-438f-be8f-b9cc466069e6`.
 
 Preflight passed: all **87 mobile selftest suites**, TypeScript, Android and
 iOS production Hermes exports, **23 Play internal-helper tests** and
@@ -60,8 +95,9 @@ preview evidence is under ignored `build/action-colors-device/expo-go-*`.
 
 The preview also displayed a development warning from `db-backup`:
 `FileSystemFile.moveSync` rejected a destination path that does not exist.
-This visual check does not validate backup behavior; the warning remains a
-separate issue to investigate before relying on backups in Expo Go.
+This visual check did not validate backup behavior. The directory mismatch
+and recovery fixes are included in the 2.2.3 internal release above; automated
+SQLite/file-system checks pass, while native backup testing remains outstanding.
 
 ## Colored entry actions Android preview — 19 October 2026 (66)
 
