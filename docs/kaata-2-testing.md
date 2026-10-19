@@ -6,6 +6,50 @@ durable offline queue, and push delivery infrastructure. Existing private ledger
 events are not rewritten.
 Automated checks and store submissions do not replace native two-phone testing.
 
+## Production submissions 2.2.3 — 19 October 2026 (67/40)
+
+Matee confirmed that the testing release works and explicitly approved
+production promotion. Both stores accepted the **same tested binaries** from
+source `b43c73c69321833084672b389ca79f6ffffb0638`; no new builds, binary uploads or
+signing changes were required.
+
+- **Google Play: 2.2.3/code 67 IN_REVIEW**, independently verified at
+  **14:16 UTC**. Promoted the existing internal bundle to production with a
+  completed 100% rollout, automatic publication after approval and one guarded
+  `ERROR_IF_IN_REVIEW` commit. Google's existing bundle checksum matched the
+  tested AAB. All five preservation checks passed: app details, listing text,
+  images, internal/closed tracks and the exact intended production release.
+  Internal 67 remains published; production 64 remains published during review.
+- **App Store: 2.2.3/build 40 WAITING_FOR_REVIEW**, submitted at
+  **14:13:55 UTC**, independently verified at **14:15 UTC**. Release type is
+  `AFTER_APPROVAL`. Version ID: `3fcb3517-ec11-48fd-89f8-c573400c2358`;
+  review ID: `e490bc28-897f-47b7-b403-35cff68f52b1`. All **12/12** verification
+  checks passed, including the exact TestFlight build, notes, reviewer account,
+  12 inherited screenshots and preservation of previous versions/reviews.
+  Apple's new App Info copy retains the existing localized content and ratings;
+  the previous resource is unchanged.
+
+The reviewer account passed a fresh sign-in, read-only demo snapshot and
+temporary-session sign-out check at **14:10 UTC**. No financial data or messages
+were written. Android promotion safety coverage passed **23/23** mock tests,
+including unknown commit outcomes, checksum mismatches and metadata drift;
+the runner was independently reviewed before its single live invocation.
+
+The exact submitted notes are now committed under
+`apps/mobile/scripts/release-notes/`: Android's `2.2.3-production.txt` uses
+"everyday stability" (255 characters; SHA-256
+`c020bbc0e9b336466100234da2c9340472681736e0f636616d417008766d58d3`).
+iOS's `2.2.3-ios.txt` omits the Home experiment-history line because build 39
+already shipped the original pages (368 characters; SHA-256
+`de52f9f3910bb78a1a4c914fab5aa3790a01d027e83bfe11c11453330a374143`).
+These note corrections do not alter either tested binary.
+
+Durable receipts are retained under ignored `build/release-2.2.3/`:
+`play-production-promotion-receipt.json` and
+`ios-production/production-verification.json`, with reviewer preflight and
+App Info copy evidence beside the latter. Submission acceptance is confirmed;
+store approval and public availability are still pending.
+
 ## Internal testing release 2.2.3 — 19 October 2026 (67/40)
 
 The selected entry palette is **soft apricot for “I gave”** (`#F6E4D5`, ink
