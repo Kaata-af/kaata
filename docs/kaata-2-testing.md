@@ -6,6 +6,48 @@ durable offline queue, and push delivery infrastructure. Existing private ledger
 events are not rewritten.
 Automated checks and store submissions do not replace native two-phone testing.
 
+## Pashto and Ninja-mode Android device build — 19 October 2026 (65)
+
+**2.2.2 / Android 65** is built and signed for the connected Xiaomi. Installation
+is awaiting the phone's Google Play Protect check and approval; successful
+installation and launch have not yet been verified.
+
+The build uses application source `d75194ba37287b86b2119622b89637bce72b1381`
+with only `android.versionCode` changed from 64 to 65. The version remains 2.2.2.
+The local release build uses the production backend, fresh Hermes JavaScript,
+regenerated native English/Dari/Pashto resources, the original Ninja icon and
+the Ninja-mode CTA and phone-loss warning in all three languages. This
+device-only diagnostic includes **arm64-v8a only**; it is not a store release.
+
+- AAB: `build/pashto-ninja-device/kaata-pashto-ninja-65.aab`, 45,020,857 bytes;
+  SHA-256 `232069b4c9fbf838599b7ffed6393920d3e20b69b8a574a9feb14029e11e40ac`.
+  All **37 static verification checks** passed, including all **4,479 catalog
+  strings** (1,493 per language), native locales, fonts, exact Ninja copy and
+  icon path, release flags, original upload signer and arm64 native alignment.
+- Google-signed APK: `build/pashto-ninja-device/kaata-pashto-ninja-65-play.apk`,
+  55,072,028 bytes; SHA-256
+  `5212ff582d0b192ee301cfc5f05428123405ff827831fd3272045f3a54259c92`.
+  All **29 APK verification checks** passed, including the original installed
+  Play signer, exact AAB assets/Hermes/native libraries, packaged translation
+  coverage, native locales and actual 16 KiB ZIP alignment.
+
+Google generated the update with its existing app-signing certificate after
+code 65 was saved as an **internal draft only** at `2026-10-19T11:59:29.689Z`.
+Independent readback at `2026-10-19T11:59:44.626Z` verified that all previous
+releases, other tracks, listing text, images and app details were preserved;
+the inspection edit was deleted. Published production/internal code 64 remains
+unchanged. Code 65 was not distributed to testers or production, and no iOS
+build or submission was made. Code 65 remains reserved in `app.json`; the next
+store upload must use **66 or higher**. Do not promote this diagnostic artifact.
+
+Local evidence is retained under ignored `build/pashto-ninja-device/`:
+`verification.json`, `apk-verification.json` and `play-device-receipt.json`.
+Install in place without uninstalling or clearing application data. Full Pashto
+and Ninja-mode visual review, RTL/line wrapping, OS permission behavior and
+actual notification delivery remain pending. A new iOS build is still needed.
+Backend/web deployment and production migration 065 have not been verified as
+part of this device build.
+
 ## Testing delivery — 15 October 2026 (58/38)
 
 **2.2.0 / Android 58 / iOS 38** is ready on Play internal testing and the existing

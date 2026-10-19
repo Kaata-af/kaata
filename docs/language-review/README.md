@@ -8,8 +8,11 @@ English, Dari and Pashto. The CTAs include **Continue in ninja mode** and
 **ادامه در حالت نینجا**.
 
 Pushing `main` triggers backend/web deployment through Dokploy; the deployment
-outcome is not verified here. Release still needs backend migration **065** and
-a new native build.
+outcome, including production migration **065**, is not verified here. Android
+**2.2.2 / code 65** is built and signed for Xiaomi device testing; installation
+awaits the phone's Play Protect check and approval. The
+[device-build record](../kaata-2-testing.md) separates artifact checks from phone
+testing. A new iOS build is still needed.
 
 On 19 October 2026, the user authorized implementing the drafts and replacing
 the quiet brand wording with personal. This is authorization to implement,
@@ -148,9 +151,14 @@ language-persistence/outreach/migration checks passed. The test database was
 removed without touching development data. Bundled Vazirmatn weights
 400/500/600/700 cover all 51 Arabic-script characters in the Pashto drafts.
 
-Native phone layout, line wrapping, OS permissions and actual notification
-delivery still need device checks. No native build was run. Browser visual
-smoke testing was unavailable because no browser surface was enabled.
+The arm64 Android device build passed all **37 AAB and 29 APK static checks**.
+All **4,479 catalog strings**, fresh native English/Dari/Pashto resources,
+the exact Ninja copy/icon and the original installed Play signer were verified.
+Code 65 is an internal draft only; existing published releases and listings
+were preserved. Installation and launch await the phone's Play Protect approval.
+Native phone layout, Pashto/Ninja visual review, line wrapping, OS permissions
+and actual notification delivery still need device checks. Browser visual smoke
+testing was unavailable because no browser surface was enabled.
 
 The original [language-files.json](language-files.json),
 [language-surfaces.json](language-surfaces.json),

@@ -72,14 +72,15 @@
     "mobile": "Mobile TypeScript and all 86 mobile selftest suites passed (86 passed, 0 failed). The native trust-fixture CRLF/LF portability failure is fixed: line endings are normalized with strict content and mutation checks retained. All 292 vectors and 7 wrapper tests passed. Language, Pashto, notifications and Ninja-mode behavior checks passed.",
     "web": "Production build and 52 tests passed.",
     "fonts": "Bundled Vazirmatn 400/500/600/700 character maps cover all 51 Arabic-script characters in the Pashto drafts.",
-    "ninja_mode": "The original NinjaIcon is restored. EN/FA/PS auth tests cover the Ninja-mode CTA, warning, wrapping, RTL, order, busy state and redirect behavior."
+    "ninja_mode": "The original NinjaIcon is restored. EN/FA/PS auth tests cover the Ninja-mode CTA, warning, wrapping, RTL, order, busy state and redirect behavior.",
+    "android_device_build": "Android 2.2.2/code65 arm64 device diagnostic built from d75194ba37287b86b2119622b89637bce72b1381 plus android.versionCode 64->65. All 37 AAB and 29 APK static checks passed, including all 4479 catalog strings, fresh en/fa/ps native resources, exact Ninja copy/icon and the original installed Play signer. Google code65 is an independently verified internal draft only; previous releases, other tracks, app details, listing text and images are preserved. AAB SHA256 232069b4c9fbf838599b7ffed6393920d3e20b69b8a574a9feb14029e11e40ac; APK SHA256 5212ff582d0b192ee301cfc5f05428123405ff827831fd3272045f3a54259c92. Receipts are in ignored build/pashto-ninja-device/; docs/kaata-2-testing.md records scope. Installation and launch await the Xiaomi Play Protect check and approval."
   },
   "deferred": [
-    "Native phone layout, Pashto line wrapping, actual OS permissions and notifications need device verification; native build was not run.",
+    "Android code65 installation and launch await the Xiaomi Play Protect check and approval. Full Pashto/Ninja visual review, native phone layout, line wrapping, actual OS permissions and notification delivery still need device verification; a new iOS build is pending.",
     "No browser visual smoke test was possible because no browser surface was enabled.",
     "Legal/admin prose outside the extracted outreach defaults remains a separate editorial/localization audit.",
     "Live announcements, operator template overrides, store listings/artwork and Google/Apple/OS-owned screens were not changed.",
-    "Pushing main triggers backend/web deployment through Dokploy; deployment outcome is not verified here. A new native build and backend migration 065 are still required for release."
+    "Pushing main triggers backend/web deployment through Dokploy; deployment outcome and production migration 065 are not verified here. Android code65 is device-only and not distributed; the next store upload must use code66 or higher. A new iOS build is still required."
   ],
   "entries": [
     {
