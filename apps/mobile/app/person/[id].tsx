@@ -2045,6 +2045,7 @@ export default function PersonDetailScreen() {
                       }
                       style={({ pressed }) => [
                         styles.actionBtn,
+                        styles.actionReceived,
                         pressed && styles.actionBtnPressed,
                       ]}
                     >
@@ -2070,6 +2071,7 @@ export default function PersonDetailScreen() {
                       }
                       style={({ pressed }) => [
                         styles.actionBtn,
+                        styles.actionGave,
                         pressed && styles.actionBtnPressed,
                       ]}
                     >
@@ -2677,19 +2679,20 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 13,
     borderRadius: radius.md,
-    // Everyday actions share the home's neutral black fill. Direction stays
-    // in the arrow, label and physical position (received LEFT, gave RIGHT).
-    backgroundColor: colors.actionPrimary,
+    // Muted action colors distinguish verbs without treating giving as loss.
+    // Arrows, labels and physical position still identify each action.
     ...Platform.select({
       ios: {
         shadowColor: "#000",
-        shadowOpacity: 0.16,
-        shadowRadius: 14,
-        shadowOffset: { width: 0, height: 5 },
+        shadowOpacity: 0.1,
+        shadowRadius: 8,
+        shadowOffset: { width: 0, height: 3 },
       },
-      android: { elevation: 4 },
+      android: { elevation: 2 },
     }),
   },
+  actionReceived: { backgroundColor: colors.entryActionReceived },
+  actionGave: { backgroundColor: colors.entryActionGave },
   // Subtle scale + dim on press — a tactile, considered feel for a button
   // tapped all day, instead of a flat opacity blink.
   actionBtnPressed: { opacity: 0.9, transform: [{ scale: 0.985 }] },
