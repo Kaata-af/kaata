@@ -101,7 +101,7 @@ const mocks: Record<string, any> = {
   "./Button": { Button: "Button" },
   "./Toast": { useToast: () => ({ push() {} }) },
   "../lib/colors": { colors: {} },
-  "../lib/direction": { useIsRTL: () => locale === "fa", rowDir: () => ({}), textDir: () => ({}) },
+  "../lib/direction": { useIsRTL: () => locale !== "en", rowDir: () => ({}), textDir: () => ({}) },
   "../lib/i18n": {
     getLocale: () => locale,
     getShareLangPref: async () => pref,
@@ -235,12 +235,25 @@ async function main() {
   await settle();
   assertOneModal();
   const languages = nodes(tree).filter((n) => n.props.accessibilityRole === "radio");
-  assert.equal(languages.length, 2);
-  languages[1].props.onPress();
+  assert.equal(languages.length, 3);
+  languages[2].props.onPress();
   await settle();
   await tap("tab.link.whatsapp");
   assert.equal(shares[0].text, "en:Shop:" + fresh.invite_url);
   assert.equal(dismissals, 1);
+  reset("+93700000000", "ask");
+  await settle();
+  nodes(tree)
+    .filter((n) => n.props.accessibilityRole === "radio")[1]
+    .props.onPress();
+  await settle();
+  await tap("tab.link.whatsapp");
+  assert.equal(shares[0].text, "ps:Shop:" + fresh.invite_url);
+  reset("+93700000000", "ps");
+  await settle();
+  assert.equal(nodes(tree).filter((n) => n.props.accessibilityRole === "radio").length, 0);
+  await tap("tab.link.whatsapp");
+  assert.equal(shares[0].text, "ps:Shop:" + fresh.invite_url);
   reset("+93700000000", "en");
   await settle();
   assert.equal(nodes(tree).filter((n) => n.props.accessibilityRole === "radio").length, 0);

@@ -1,3 +1,5 @@
+import type { Lang } from "./language";
+
 // Frozen bill calendar: absent/unknown values retain the pre-setting behavior.
 export type BillCalendar = "gregorian" | "jalali" | "qamari";
 
@@ -38,6 +40,21 @@ const QAMARI_MONTHS_FA = [
   "ذوالحجه",
 ];
 
+const QAMARI_MONTHS_PS = [
+  "محرم",
+  "صفر",
+  "ربیع‌الاول",
+  "ربیع‌الثاني",
+  "جمادی‌الاول",
+  "جمادی‌الثاني",
+  "رجب",
+  "شعبان",
+  "رمضان",
+  "شوال",
+  "ذوالقعده",
+  "ذوالحجه",
+];
+
 /** The bill's frozen Qamari adjustment (audit #15): whole days within ±2,
  * else none. Absent on older bills and other calendars; the snapshot is
  * untrusted JSON, so anything else counts as no adjustment. */
@@ -54,7 +71,12 @@ export function resolveQamariOffset(value: unknown): number {
  * required.
  * https://github.com/unicode-org/icu/blob/main/icu4c/source/i18n/islamcal.cpp
  */
-export function formatQamariDate(ms: number, rtl: boolean, offsetDays = 0): string | null {
+export function formatQamariDate(
+  ms: number,
+  language: Lang | boolean,
+  offsetDays = 0,
+): string | null {
+  const lang = typeof language === "boolean" ? (language ? "fa" : "en") : language;
   const dt = new Date(ms);
   if (!Number.isFinite(dt.getTime())) return "";
   // Extract the viewer's local civil date, then map that triple to a UTC day.
@@ -69,6 +91,120 @@ export function formatQamariDate(ms: number, rtl: boolean, offsetDays = 0): stri
   const monthIndex = Math.min(11, Math.ceil((days - 29 - yearStart) / 29.5));
   const day = days - yearStart - Math.ceil(29.5 * monthIndex) + 1;
   const num = (value: number) =>
-    rtl ? String(value).replace(/\d/g, (d) => "۰۱۲۳۴۵۶۷۸۹"[Number(d)]) : String(value);
-  return `${num(day)} ${(rtl ? QAMARI_MONTHS_FA : QAMARI_MONTHS_EN)[monthIndex]} ${num(y)}`;
+    lang !== "en" ? String(value).replace(/\d/g, (d) => "۰۱۲۳۴۵۶۷۸۹"[Number(d)]) : String(value);
+  return `${num(day)} ${{ en: QAMARI_MONTHS_EN, fa: QAMARI_MONTHS_FA, ps: QAMARI_MONTHS_PS }[lang][monthIndex]} ${num(y)}`;
+}
+
+const SOLAR_MONTHS: Record<Lang, readonly string[]> = {
+  en: [
+    "Hamal",
+    "Sawr",
+    "Jawza",
+    "Saratan",
+    "Asad",
+    "Sunbula",
+    "Mizan",
+    "Aqrab",
+    "Qaws",
+    "Jadi",
+    "Dalw",
+    "Hut",
+  ],
+  fa: ["حمل", "ثور", "جوزا", "سرطان", "اسد", "سنبله", "میزان", "عقرب", "قوس", "جدی", "دلو", "حوت"],
+  ps: [
+    "وری",
+    "غویی",
+    "غبرګولی",
+    "چنګاښ",
+    "زمری",
+    "وږی",
+    "تله",
+    "لړم",
+    "لیندۍ",
+    "مرغومی",
+    "سلواغه",
+    "کب",
+  ],
+};
+const GREGORIAN_MONTHS: Record<Lang, readonly string[]> = {
+  en: ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
+  fa: [
+    "جنوری",
+    "فبروری",
+    "مارچ",
+    "اپریل",
+    "می",
+    "جون",
+    "جولای",
+    "اگست",
+    "سپتمبر",
+    "اکتوبر",
+    "نومبر",
+    "دسمبر",
+  ],
+  ps: [
+    "جنوري",
+    "فبروري",
+    "مارچ",
+    "اپرېل",
+    "مې",
+    "جون",
+    "جولای",
+    "اګست",
+    "سپتمبر",
+    "اکتوبر",
+    "نومبر",
+    "دسمبر",
+  ],
+};
+
+/** Language supplies vocabulary; the bill's frozen calendar supplies arithmetic.
+ * Viewer settings never reinterpret an existing bill. */
+export function formatBillDate(
+  ms: number,
+  lang: Lang,
+  calendar: BillCalendar,
+  qamariOffset = 0,
+): string {
+  const num = (value: number | string) =>
+    lang === "en" ? String(value) : String(value).replace(/\d/g, (d) => "۰۱۲۳۴۵۶۷۸۹"[Number(d)]);
+  const dt = new Date(ms);
+  if (!Number.isFinite(dt.getTime())) return "";
+  if (calendar === "qamari") {
+    const date = formatQamariDate(ms, lang, qamariOffset);
+    if (date !== null) return date;
+  }
+  if (calendar === "jalali") {
+    try {
+      const parts = new Intl.DateTimeFormat("en-US-u-ca-persian", {
+        year: "numeric",
+        month: "numeric",
+        day: "numeric",
+      }).formatToParts(dt);
+      const value = (type: string) => parts.find((part) => part.type === type)?.value ?? "";
+      const month = Number(value("month"));
+      const year = value("year");
+      const day = value("day");
+      if (year && day && month >= 1 && month <= 12) {
+        return `${num(day)} ${SOLAR_MONTHS[lang][month - 1]} ${num(year)}`;
+      }
+    } catch {
+      // If ICU has no Persian calendar data, keep the date readable.
+    }
+  }
+  return `${num(dt.getDate())} ${GREGORIAN_MONTHS[lang][dt.getMonth()]} ${num(dt.getFullYear())}`;
+}
+
+export function formatBillAmount(value: number, lang: Lang): string {
+  try {
+    return Math.abs(value).toLocaleString(
+      { en: "en-US", fa: "fa-AF", ps: "ps-AF-u-nu-arabext" }[lang],
+      {
+        minimumFractionDigits: Number.isInteger(value) ? 0 : 2,
+        maximumFractionDigits: 2,
+      },
+    );
+  } catch {
+    return String(Math.abs(value));
+  }
 }

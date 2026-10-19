@@ -35,6 +35,7 @@ import (
 	"strings"
 
 	"github.com/matee/kaata-backend/internal/httpx"
+	"github.com/matee/kaata-backend/internal/locale"
 )
 
 // appleWebRedirectScheme is the deep link the callback bounces the token
@@ -125,6 +126,13 @@ func (h *Handler) AppleWebCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	target := appleWebRedirectScheme + "#" + frag.Encode()
+	lang := locale.FromAcceptLanguage(r.Header.Get("Accept-Language"))
+	label, dir := "Return to Kaata", "ltr"
+	if lang == "fa" {
+		label, dir = "بازگشت به کاتا", "rtl"
+	} else if lang == "ps" {
+		label, dir = "بېرته کاټه ته", "rtl"
+	}
 	// 302 + HTML fallback: Chrome Custom Tabs follows the custom-scheme
 	// redirect and hands the URL back to the app's auth session; anything
 	// that refuses gets a tappable link.
@@ -133,8 +141,8 @@ func (h *Handler) AppleWebCallback(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Location", target)
 	w.WriteHeader(http.StatusFound)
 	_, _ = w.Write([]byte(
-		`<!doctype html><meta charset="utf-8"><title>Kaata</title>` +
-			`<a href="` + htmlAttrEscape(target) + `">Return to Kaata</a>`))
+		`<!doctype html><html lang="` + lang + `" dir="` + dir + `"><meta charset="utf-8"><title>Kaata</title>` +
+			`<a href="` + htmlAttrEscape(target) + `">` + label + `</a></html>`))
 }
 
 // htmlAttrEscape covers the fragment payload's few risky characters for the

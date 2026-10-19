@@ -42,9 +42,9 @@ export function formatTimestamp(ms: number): string {
   const hours12 = hours24 % 12 === 0 ? 12 : hours24 % 12;
   const clock = `${hours12}:${String(date.getMinutes()).padStart(2, "0")}`;
   const marker = t(hours24 < 12 ? "format.am" : "format.pm");
-  const localClock = getLocale() === "fa" ? faDigits(clock) : clock;
+  const localClock = getLocale() !== "en" ? faDigits(clock) : clock;
   // In Dari a middle dot beside Persian digits reads as a zero: a comma.
-  const sep = getLocale() === "fa" ? "، " : " · ";
+  const sep = getLocale() !== "en" ? "، " : " · ";
   return `\u2068${formatDate(ms)}\u2069${sep}\u2068${localClock} ${marker}\u2069`;
 }
 

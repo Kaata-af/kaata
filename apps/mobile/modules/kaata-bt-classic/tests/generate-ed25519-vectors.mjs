@@ -219,8 +219,11 @@ for (const [name, changed] of [
   });
 }
 const output = JSON.stringify({ nobleVersion: installed, vectors }, null, 2) + "\n";
-if (process.argv.includes("--check")) assert.equal(readFileSync(fixturePath, "utf8"), output);
-else writeFileSync(fixturePath, output);
+if (process.argv.includes("--check")) {
+  // Git may check the JSON out with CRLF on Windows. Only normalize line
+  // endings; fixture contents and encoded cryptographic inputs must still match.
+  assert.equal(readFileSync(fixturePath, "utf8").replace(/\r\n/g, "\n"), output);
+} else writeFileSync(fixturePath, output);
 console.log(
   `Noble ${installed}: ${vectors.length} native subset fixtures ${process.argv.includes("--check") ? "verified" : "generated"}.`,
 );

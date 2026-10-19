@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <string name="kaata_nearby_title">Nearby sync is on</string>
+  <string name="kaata_nearby_body">Tap to open Kaata</string>
+  <string name="kaata_nearby_channel">Nearby sync</string>
+</resources>

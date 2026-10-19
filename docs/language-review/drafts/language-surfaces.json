@@ -1,0 +1,239 @@
+{
+  "schemaVersion": 1,
+  "scope": "Web/backend/public marketing surfaces outside the main mobile and web dictionaries. Read-only source inventory; no runtime changes.",
+  "runtimeFiles": [
+    {
+      "id": "web.language-provider",
+      "path": "apps/web/src/lib/i18n.tsx",
+      "line": 20,
+      "scope": "Only en/fa types, stored language, browser detection, document lang/dir and page title; 337–391. Add ps only after reviewed copy is approved."
+    },
+    {
+      "id": "web.language-switcher",
+      "path": "apps/web/src/components/SiteChrome.tsx",
+      "line": 68,
+      "scope": "Two-language toggle en/fa and visible language names; wordmark tracking also checks exact fa at 33 and 104."
+    },
+    {
+      "id": "web.rtl-css",
+      "path": "apps/web/src/globals.css",
+      "line": 55,
+      "scope": "CSS language selector matches only html[lang=\"fa\"]."
+    },
+    {
+      "id": "web.mockup-direction",
+      "path": "apps/web/src/components/PhoneMockups.tsx",
+      "line": 403,
+      "scope": "Preview mockup sets RTL for exact fa; number previews intentionally use en-US."
+    },
+    {
+      "id": "web.bill-language",
+      "path": "apps/web/src/pages/CustomerView.tsx",
+      "line": 303,
+      "scope": "ps is treated as RTL and then gets Dari LABELS.fa. Dates and numbers also choose fa-AF for all RTL."
+    },
+    {
+      "id": "web.bill-calendar",
+      "path": "apps/web/src/lib/customer-dates.ts",
+      "line": 4,
+      "scope": "Calendar defaults follow RTL boolean; month words currently English/Dari."
+    },
+    {
+      "id": "web.outreach-language",
+      "path": "apps/web/src/pages/admin/outreach-model.ts",
+      "line": 245,
+      "scope": "MessageLanguage en/fa; session and per-number selection at 256–293; auto detects fa/prs and sends English for ps; server-stored template overrides exist."
+    },
+    {
+      "id": "web.outreach-api-type",
+      "path": "apps/web/src/pages/admin/api.ts",
+      "line": 419,
+      "scope": "OutreachLang union only empty/en/fa."
+    },
+    {
+      "id": "web.analytics-language-labels",
+      "path": "apps/web/src/pages/admin/Acquisition.tsx",
+      "line": 128,
+      "scope": "Language chart has Dari, English, Unknown; unknown tags display raw locale string."
+    },
+    {
+      "id": "backend.bill-language",
+      "path": "apps/backend/internal/shared/handler.go",
+      "line": 196,
+      "scope": "Snapshot ps/fa -> RTL -> Dari shell and social preview. Unknown-link Accept-Language recognizes fa/prs/ps and shows Dari at 253–259."
+    },
+    {
+      "id": "backend.invite-language",
+      "path": "apps/backend/internal/tabs/view.go",
+      "line": 86,
+      "scope": "Accept-Language first tag fa/prs/ps -> true -> Dari HTML, no Pashto table."
+    },
+    {
+      "id": "backend.email-language",
+      "path": "apps/backend/internal/mail/templates.go",
+      "line": 69,
+      "scope": "Lang accepts exact fa after trimming/case folding; all other values -> en. Controls text, subject, HTML lang and direction."
+    },
+    {
+      "id": "backend.email-request-language",
+      "path": "apps/backend/internal/auth/email_handler.go",
+      "line": 25,
+      "scope": "Several account endpoints accept request lang and pass it to security/verification email paths; 296,321,347–353."
+    },
+    {
+      "id": "backend.email-language-storage",
+      "path": "apps/backend/internal/auth/email_codes.go",
+      "line": 117,
+      "scope": "Code language stored through mail.Lang; notice language fallback in email_account.go:640."
+    },
+    {
+      "id": "backend.push-language-registration",
+      "path": "apps/backend/internal/tabs/push.go",
+      "line": 85,
+      "scope": "Every non-fa registered push locale is rewritten to en. Push copy function uses exact fa."
+    },
+    {
+      "id": "backend.notification-detail-language",
+      "path": "apps/backend/internal/tabs/inbox.go",
+      "line": 235,
+      "scope": "Detailed actor/amount copy uses exact fa; all other values are English."
+    },
+    {
+      "id": "backend.outreach-language-validation",
+      "path": "apps/backend/internal/admin/outreach.go",
+      "line": 123,
+      "scope": "Per-number language validation only empty/en/fa; settings store templates and session language as uninterpreted strings."
+    },
+    {
+      "id": "backend.outreach-db-constraint",
+      "path": "apps/backend/internal/db/migrations/046_outreach_lang.sql",
+      "line": 4,
+      "scope": "DB CHECK allows only empty/en/fa; future ps support requires a new migration."
+    },
+    {
+      "id": "backend.locale-telemetry",
+      "path": "apps/backend/internal/checkin/service.go",
+      "line": 75,
+      "scope": "DeviceLocale and AppLocale stored as strings; AppLocale current value is updated at 296–309. No visible ps rejection here."
+    },
+    {
+      "id": "backend.visit-language-telemetry",
+      "path": "apps/backend/internal/visit/service.go",
+      "line": 35,
+      "scope": "Accept-Language recorded for visits; language telemetry is not a translation table."
+    },
+    {
+      "id": "backend.analytics-language-grouping",
+      "path": "apps/backend/internal/admin/service.go",
+      "line": 382,
+      "scope": "Language dashboard groups raw app_locale; label metadata is in web Acquisition."
+    }
+  ],
+  "unextractedStaticCopy": [
+    {
+      "id": "legal.privacy",
+      "path": "apps/web/src/pages/Privacy.tsx",
+      "line": 24,
+      "scope": "Full privacy policy English JSX prose; local comment says Dari translation tracked separately. Includes exact user-facing app navigation labels.",
+      "reason": "Separate legal/prose translation review; no full prose extracted or translated in this pack."
+    },
+    {
+      "id": "legal.terms",
+      "path": "apps/web/src/pages/Terms.tsx",
+      "line": 24,
+      "scope": "Full terms of service English JSX prose and all section titles.",
+      "reason": "Separate legal/prose translation review."
+    },
+    {
+      "id": "legal.account-deletion",
+      "path": "apps/web/src/pages/DeleteAccount.tsx",
+      "line": 58,
+      "scope": "Full English account-deletion instructions, retained-data descriptions, contact/help text.",
+      "reason": "Separate legal/prose translation review; preserve current deletion behavior and 30-day recovery facts."
+    },
+    {
+      "id": "web.seo",
+      "path": "apps/web/index.html",
+      "line": 6,
+      "scope": "Fixed English document title, description, OpenGraph and Twitter descriptions, image alt; locale metadata only en_US/fa_AF.",
+      "reason": "Separate metadata rows; do not translate Organization URLs or product identity values."
+    },
+    {
+      "id": "admin.interface",
+      "path": "apps/web/src/pages/admin",
+      "line": 1,
+      "scope": "English-only admin interface strings across AdminApp, Overview, Users, UsersDetails, Outreach, Campaigns, Acquisition, ActivityInsights, Retention, WeeklyGrowthCard, ui.tsx and model label tables.",
+      "reason": "Operator interface; full admin extraction deferred. Customer-facing outreach default messages are extracted."
+    },
+    {
+      "id": "web.admin-gate",
+      "path": "apps/web/src/pages/Admin.tsx",
+      "line": 1,
+      "scope": "English-only admin authentication/gate/status text.",
+      "reason": "Operator interface audit."
+    },
+    {
+      "id": "web.store-badges",
+      "path": "apps/web/src/components/StoreButtons.tsx",
+      "line": 1,
+      "scope": "Official App Store / Google Play badge artwork and accessibility descriptions.",
+      "reason": "Artwork itself contains English; review legal badge localization rules before replacing assets. Centralized alt keys already covered."
+    },
+    {
+      "id": "marketing.social",
+      "path": "marketing/social/post.template.html",
+      "line": 51,
+      "scope": "Dari wordmark, headline, subhead, details and download CTA; generated post-square/portrait/story HTML duplicate this template.",
+      "reason": "Marketing template extraction/translation deferred; generated copies excluded to prevent double counting."
+    },
+    {
+      "id": "marketing.flyer",
+      "path": "marketing/flyer/flyer.template.html",
+      "line": 487,
+      "scope": "Dari two-sided flyer copy, comparisons, benefit labels, install instructions, WhatsApp contact prompt and tagline through line 645.",
+      "reason": "Marketing template extraction/translation deferred; generated HTML/PDF and embedded screenshot copy excluded."
+    },
+    {
+      "id": "store.listing",
+      "path": "docs/store-listing.md",
+      "line": 127,
+      "scope": "English and Dari short/long store descriptions, language claims; screenshot captions at 58–63.",
+      "reason": "Store/editorial audit; some legacy Dari terms differ from current in-app terminology."
+    },
+    {
+      "id": "store.screenshot-artwork",
+      "path": "docs/store-assets",
+      "line": 1,
+      "scope": "Text rendered inside phone/tablet screenshot PNGs.",
+      "reason": "Visual audit required; repository text extraction cannot capture baked-in words."
+    },
+    {
+      "id": "store.release-notes",
+      "path": "apps/mobile/scripts/release-notes",
+      "line": 1,
+      "scope": "Historical Play/App Store/TestFlight release-note text files.",
+      "reason": "Release notes are historical artifacts; audit active listing/update copy separately."
+    },
+    {
+      "id": "api.error-payloads",
+      "path": "apps/backend/internal",
+      "line": 1,
+      "scope": "English httpx.Error strings and errors.New/errors formatted in handlers/services across Go packages.",
+      "reason": "Protocol/API error audit; some strings are mapped by clients. Do not translate protocol identifiers blindly."
+    },
+    {
+      "id": "external.provider-ui",
+      "path": "apps/backend/internal/auth/apple_web.go",
+      "line": 70,
+      "scope": "Apple sign-in redirect uses provider-hosted UI; Google/Apple/system/share/print/permission UI is outside repository strings.",
+      "reason": "Third-party and OS language follows their own rules; only our Return to Kaata fallback is extracted."
+    },
+    {
+      "id": "external.saved-outreach",
+      "path": "apps/backend/internal/admin/outreach.go",
+      "line": 55,
+      "scope": "Live server-stored outreach settings/templates may override repository WhatsApp message defaults.",
+      "reason": "Requires authorized live-data read or user-provided export; not accessible from repository audit alone."
+    }
+  ]
+}

@@ -1,3 +1,4 @@
+import { languageLabel } from "./outreach-model";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Fragment, useEffect, useId, useMemo, useState, type ReactNode } from "react";
 import { useToast } from "../../components/Toast";
@@ -276,11 +277,9 @@ export function Users() {
                 ? "Android"
                 : humanValue(value)
             : field === "locale"
-              ? value === "fa"
-                ? "Dari (fa)"
-                : value === "en"
-                  ? "English (en)"
-                  : humanValue(value)
+              ? value === "__unknown__"
+                ? humanValue(value)
+                : languageLabel(value)
               : field === "version" && value !== "__unknown__"
                 ? `v${value}`
                 : humanValue(value),
@@ -1137,14 +1136,9 @@ function UsersTable(props: UserResultsProps) {
                     </p>
                     <p
                       className="mt-1 max-w-36 truncate text-[11px] text-brand-muted"
-                      title={`${row.locale === "fa" ? "Dari" : row.locale === "en" ? "English" : row.locale || "Unknown language"} · ${row.source || "Unknown source"}`}
+                      title={`${languageLabel(row.locale)} · ${row.source || "Unknown source"}`}
                     >
-                      {row.locale === "fa"
-                        ? "Dari"
-                        : row.locale === "en"
-                          ? "English"
-                          : row.locale || "Unknown"}{" "}
-                      · {row.source || "Unattributed"}
+                      {languageLabel(row.locale)} · {row.source || "Unattributed"}
                     </p>
                   </td>
                   <td className="px-4 py-4 text-xs text-brand-sub">

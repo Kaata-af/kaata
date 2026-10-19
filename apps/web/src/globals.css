@@ -50,9 +50,10 @@ body {
   text-rendering: optimizeLegibility;
 }
 
-/* Persian UI renders in Vazirmatn — the same face the mobile app ships.
+/* Dari and Pashto UI render in Vazirmatn — the same face the mobile app ships.
    Inter stays in the stack for Latin glyphs (version numbers, "APK"). */
-html[lang="fa"] body {
+html[lang="fa"] body,
+html[lang="ps"] body {
   font-family:
     "Vazirmatn",
     "Inter",

@@ -1,0 +1,4317 @@
+[
+  {
+    "id": "web-extra:customer-view.owe",
+    "current": {
+      "en": "owes",
+      "fa": "قرضدار است",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "پوروړی دی"
+    },
+    "sources": [
+      {
+        "path": "apps/web/src/pages/CustomerView.tsx",
+        "line": 82,
+        "locale": "en"
+      },
+      {
+        "path": "apps/web/src/pages/CustomerView.tsx",
+        "line": 108,
+        "locale": "fa"
+      }
+    ],
+    "context": "Public bill page; language follows the shopkeeper snapshot.",
+    "notes": ""
+  },
+  {
+    "id": "web-extra:customer-view.credit",
+    "current": {
+      "en": "is owed",
+      "fa": "طلبکار است",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "طلبکار دی"
+    },
+    "sources": [
+      {
+        "path": "apps/web/src/pages/CustomerView.tsx",
+        "line": 83,
+        "locale": "en"
+      },
+      {
+        "path": "apps/web/src/pages/CustomerView.tsx",
+        "line": 109,
+        "locale": "fa"
+      }
+    ],
+    "context": "Public bill page; language follows the shopkeeper snapshot.",
+    "notes": ""
+  },
+  {
+    "id": "web-extra:customer-view.settled",
+    "current": {
+      "en": "is settled",
+      "fa": "تصفیه شده",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "حساب یې تصفیه شوی"
+    },
+    "sources": [
+      {
+        "path": "apps/web/src/pages/CustomerView.tsx",
+        "line": 84,
+        "locale": "en"
+      },
+      {
+        "path": "apps/web/src/pages/CustomerView.tsx",
+        "line": 110,
+        "locale": "fa"
+      }
+    ],
+    "context": "Public bill page; language follows the shopkeeper snapshot.",
+    "notes": ""
+  },
+  {
+    "id": "web-extra:customer-view.clearTitle",
+    "current": {
+      "en": "All settled",
+      "fa": "حساب صاف است",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "حساب تصفیه دی"
+    },
+    "sources": [
+      {
+        "path": "apps/web/src/pages/CustomerView.tsx",
+        "line": 85,
+        "locale": "en"
+      },
+      {
+        "path": "apps/web/src/pages/CustomerView.tsx",
+        "line": 111,
+        "locale": "fa"
+      }
+    ],
+    "context": "Public bill page; language follows the shopkeeper snapshot.",
+    "notes": ""
+  },
+  {
+    "id": "web-extra:customer-view.clearBody",
+    "current": {
+      "en": "nothing owed.",
+      "fa": "چیزی باقی نمانده.",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "څه پاتې نه دي."
+    },
+    "sources": [
+      {
+        "path": "apps/web/src/pages/CustomerView.tsx",
+        "line": 86,
+        "locale": "en"
+      },
+      {
+        "path": "apps/web/src/pages/CustomerView.tsx",
+        "line": 112,
+        "locale": "fa"
+      }
+    ],
+    "context": "Public bill page; language follows the shopkeeper snapshot.",
+    "notes": ""
+  },
+  {
+    "id": "web-extra:customer-view.tx",
+    "current": {
+      "en": "Transactions",
+      "fa": "معاملات",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "راکړې ورکړې"
+    },
+    "sources": [
+      {
+        "path": "apps/web/src/pages/CustomerView.tsx",
+        "line": 87,
+        "locale": "en"
+      },
+      {
+        "path": "apps/web/src/pages/CustomerView.tsx",
+        "line": 113,
+        "locale": "fa"
+      }
+    ],
+    "context": "Public bill page; language follows the shopkeeper snapshot.",
+    "notes": ""
+  },
+  {
+    "id": "web-extra:customer-view.empty",
+    "current": {
+      "en": "No transactions yet.",
+      "fa": "هنوز معامله‌ای نیست.",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "تر اوسه راکړه ورکړه نشته."
+    },
+    "sources": [
+      {
+        "path": "apps/web/src/pages/CustomerView.tsx",
+        "line": 88,
+        "locale": "en"
+      },
+      {
+        "path": "apps/web/src/pages/CustomerView.tsx",
+        "line": 114,
+        "locale": "fa"
+      }
+    ],
+    "context": "Public bill page; language follows the shopkeeper snapshot.",
+    "notes": ""
+  },
+  {
+    "id": "web-extra:customer-view.error",
+    "current": {
+      "en": "This shared ledger doesn’t exist.",
+      "fa": "این کاتای مشترک وجود ندارد.",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "دا شریکه کاټه نشته."
+    },
+    "sources": [
+      {
+        "path": "apps/web/src/pages/CustomerView.tsx",
+        "line": 89,
+        "locale": "en"
+      },
+      {
+        "path": "apps/web/src/pages/CustomerView.tsx",
+        "line": 115,
+        "locale": "fa"
+      }
+    ],
+    "context": "Public bill page; language follows the shopkeeper snapshot.",
+    "notes": ""
+  },
+  {
+    "id": "web-extra:customer-view.debt",
+    "current": {
+      "en": "I gave",
+      "fa": "دادم",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "ورکړل"
+    },
+    "sources": [
+      {
+        "path": "apps/web/src/pages/CustomerView.tsx",
+        "line": 90,
+        "locale": "en"
+      },
+      {
+        "path": "apps/web/src/pages/CustomerView.tsx",
+        "line": 116,
+        "locale": "fa"
+      }
+    ],
+    "context": "Public bill page; language follows the shopkeeper snapshot.",
+    "notes": ""
+  },
+  {
+    "id": "web-extra:customer-view.payment",
+    "current": {
+      "en": "I received",
+      "fa": "گرفتم",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "ترلاسه کړل"
+    },
+    "sources": [
+      {
+        "path": "apps/web/src/pages/CustomerView.tsx",
+        "line": 91,
+        "locale": "en"
+      },
+      {
+        "path": "apps/web/src/pages/CustomerView.tsx",
+        "line": 117,
+        "locale": "fa"
+      }
+    ],
+    "context": "Public bill page; language follows the shopkeeper snapshot.",
+    "notes": ""
+  },
+  {
+    "id": "web-extra:customer-view.home",
+    "current": {
+      "en": "Go to kaata.af",
+      "fa": "رفتن به kaata.af",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "kaata.af ته لاړ شئ"
+    },
+    "sources": [
+      {
+        "path": "apps/web/src/pages/CustomerView.tsx",
+        "line": 92,
+        "locale": "en"
+      },
+      {
+        "path": "apps/web/src/pages/CustomerView.tsx",
+        "line": 118,
+        "locale": "fa"
+      }
+    ],
+    "context": "Public bill page; language follows the shopkeeper snapshot.",
+    "notes": ""
+  },
+  {
+    "id": "web-extra:customer-view.tag",
+    "current": {
+      "en": "Powered by",
+      "fa": "Powered by",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "Powered by"
+    },
+    "sources": [
+      {
+        "path": "apps/web/src/pages/CustomerView.tsx",
+        "line": 93,
+        "locale": "en"
+      },
+      {
+        "path": "apps/web/src/pages/CustomerView.tsx",
+        "line": 93,
+        "locale": "fa"
+      }
+    ],
+    "context": "Public bill page; language follows the shopkeeper snapshot.",
+    "notes": "Brand phrase intentionally remains English."
+  },
+  {
+    "id": "web-extra:customer-view.wordmark",
+    "current": {
+      "en": "kaata.",
+      "fa": "kaata.",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "kaata."
+    },
+    "sources": [
+      {
+        "path": "apps/web/src/pages/CustomerView.tsx",
+        "line": 94,
+        "locale": "en"
+      },
+      {
+        "path": "apps/web/src/pages/CustomerView.tsx",
+        "line": 94,
+        "locale": "fa"
+      }
+    ],
+    "context": "Public bill page; language follows the shopkeeper snapshot.",
+    "notes": "Brand phrase intentionally remains English."
+  },
+  {
+    "id": "web-extra:customer-view.more",
+    "current": {
+      "en": "more",
+      "fa": "بیشتر",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "نور"
+    },
+    "sources": [
+      {
+        "path": "apps/web/src/pages/CustomerView.tsx",
+        "line": 95,
+        "locale": "en"
+      },
+      {
+        "path": "apps/web/src/pages/CustomerView.tsx",
+        "line": 124,
+        "locale": "fa"
+      }
+    ],
+    "context": "Public bill page; language follows the shopkeeper snapshot.",
+    "notes": ""
+  },
+  {
+    "id": "web-extra:customer-view.less",
+    "current": {
+      "en": "less",
+      "fa": "کمتر",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "لږ"
+    },
+    "sources": [
+      {
+        "path": "apps/web/src/pages/CustomerView.tsx",
+        "line": 96,
+        "locale": "en"
+      },
+      {
+        "path": "apps/web/src/pages/CustomerView.tsx",
+        "line": 125,
+        "locale": "fa"
+      }
+    ],
+    "context": "Public bill page; language follows the shopkeeper snapshot.",
+    "notes": ""
+  },
+  {
+    "id": "web-extra:customer-view.settledShow",
+    "current": {
+      "en": "View settled history ({n})",
+      "fa": "دیدن سابقهٔ تصفیه‌شده ({n})",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "تصفیه شوې مخینه وګورئ ({n})"
+    },
+    "sources": [
+      {
+        "path": "apps/web/src/pages/CustomerView.tsx",
+        "line": 99,
+        "locale": "en"
+      },
+      {
+        "path": "apps/web/src/pages/CustomerView.tsx",
+        "line": 126,
+        "locale": "fa"
+      }
+    ],
+    "context": "Public bill page; language follows the shopkeeper snapshot.",
+    "notes": ""
+  },
+  {
+    "id": "web-extra:customer-view.settledHide",
+    "current": {
+      "en": "Hide settled history",
+      "fa": "پنهان کردن سابقهٔ تصفیه‌شده",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "تصفیه شوې مخینه پټه کړئ"
+    },
+    "sources": [
+      {
+        "path": "apps/web/src/pages/CustomerView.tsx",
+        "line": 100,
+        "locale": "en"
+      },
+      {
+        "path": "apps/web/src/pages/CustomerView.tsx",
+        "line": 127,
+        "locale": "fa"
+      }
+    ],
+    "context": "Public bill page; language follows the shopkeeper snapshot.",
+    "notes": ""
+  },
+  {
+    "id": "web-extra:customer-view.settledOn",
+    "current": {
+      "en": "Settled · {date}",
+      "fa": "تصفیه شد · {date}",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "تصفیه شو · {date}"
+    },
+    "sources": [
+      {
+        "path": "apps/web/src/pages/CustomerView.tsx",
+        "line": 101,
+        "locale": "en"
+      },
+      {
+        "path": "apps/web/src/pages/CustomerView.tsx",
+        "line": 128,
+        "locale": "fa"
+      }
+    ],
+    "context": "Public bill page; language follows the shopkeeper snapshot.",
+    "notes": ""
+  },
+  {
+    "id": "web-extra:customer-view.billDated",
+    "current": {
+      "en": "Bill dated {date}",
+      "fa": "بل مورخ {date}",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "د {date} نېټې بل"
+    },
+    "sources": [
+      {
+        "path": "apps/web/src/pages/CustomerView.tsx",
+        "line": 105,
+        "locale": "en"
+      },
+      {
+        "path": "apps/web/src/pages/CustomerView.tsx",
+        "line": 129,
+        "locale": "fa"
+      }
+    ],
+    "context": "Public bill page; language follows the shopkeeper snapshot.",
+    "notes": ""
+  },
+  {
+    "id": "backend-extra:bill-page.owe",
+    "current": {
+      "en": "owes",
+      "fa": "قرضدار است",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "پوروړی دی"
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 259,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 253,
+        "locale": "fa"
+      }
+    ],
+    "context": "Server-rendered public bill page and print/PDF view. Same surface as CustomerView; separate implementation.",
+    "notes": ""
+  },
+  {
+    "id": "backend-extra:bill-page.credit",
+    "current": {
+      "en": "is owed",
+      "fa": "طلبکار است",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "طلبکار دی"
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 259,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 253,
+        "locale": "fa"
+      }
+    ],
+    "context": "Server-rendered public bill page and print/PDF view. Same surface as CustomerView; separate implementation.",
+    "notes": ""
+  },
+  {
+    "id": "backend-extra:bill-page.settled",
+    "current": {
+      "en": "is settled",
+      "fa": "تصفیه شده",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "حساب یې تصفیه شوی"
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 259,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 253,
+        "locale": "fa"
+      }
+    ],
+    "context": "Server-rendered public bill page and print/PDF view. Same surface as CustomerView; separate implementation.",
+    "notes": ""
+  },
+  {
+    "id": "backend-extra:bill-page.tx",
+    "current": {
+      "en": "Transactions",
+      "fa": "معاملات",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "راکړې ورکړې"
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 260,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 254,
+        "locale": "fa"
+      }
+    ],
+    "context": "Server-rendered public bill page and print/PDF view. Same surface as CustomerView; separate implementation.",
+    "notes": ""
+  },
+  {
+    "id": "backend-extra:bill-page.empty",
+    "current": {
+      "en": "No transactions yet.",
+      "fa": "معامله‌ای نیست",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "تر اوسه راکړه ورکړه نشته."
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 260,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 254,
+        "locale": "fa"
+      }
+    ],
+    "context": "Server-rendered public bill page and print/PDF view. Same surface as CustomerView; separate implementation.",
+    "notes": ""
+  },
+  {
+    "id": "backend-extra:bill-page.err",
+    "current": {
+      "en": "Couldn't load this ledger.",
+      "fa": "بارگذاری ناموفق بود",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "کاټه پورته نه شوه."
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 260,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 254,
+        "locale": "fa"
+      }
+    ],
+    "context": "Server-rendered public bill page and print/PDF view. Same surface as CustomerView; separate implementation.",
+    "notes": ""
+  },
+  {
+    "id": "backend-extra:bill-page.debt",
+    "current": {
+      "en": "I gave",
+      "fa": "دادم",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "ورکړل"
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 127,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 255,
+        "locale": "fa"
+      }
+    ],
+    "context": "Server-rendered public bill page and print/PDF view. Same surface as CustomerView; separate implementation.",
+    "notes": ""
+  },
+  {
+    "id": "backend-extra:bill-page.payment",
+    "current": {
+      "en": "I received",
+      "fa": "گرفتم",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "ترلاسه کړل"
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 128,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 255,
+        "locale": "fa"
+      }
+    ],
+    "context": "Server-rendered public bill page and print/PDF view. Same surface as CustomerView; separate implementation.",
+    "notes": ""
+  },
+  {
+    "id": "backend-extra:bill-page.tag",
+    "current": {
+      "en": "Powered by",
+      "fa": "Powered by",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "Powered by"
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 255,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 255,
+        "locale": "fa"
+      }
+    ],
+    "context": "Server-rendered public bill page and print/PDF view. Same surface as CustomerView; separate implementation.",
+    "notes": ""
+  },
+  {
+    "id": "backend-extra:bill-page.more",
+    "current": {
+      "en": "more",
+      "fa": "بیشتر",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "نور"
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 141,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 255,
+        "locale": "fa"
+      }
+    ],
+    "context": "Server-rendered public bill page and print/PDF view. Same surface as CustomerView; separate implementation.",
+    "notes": ""
+  },
+  {
+    "id": "backend-extra:bill-page.less",
+    "current": {
+      "en": "less",
+      "fa": "کمتر",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "لږ"
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 141,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 255,
+        "locale": "fa"
+      }
+    ],
+    "context": "Server-rendered public bill page and print/PDF view. Same surface as CustomerView; separate implementation.",
+    "notes": ""
+  },
+  {
+    "id": "backend-extra:bill-page.hshow",
+    "current": {
+      "en": "View settled history ({n})",
+      "fa": "دیدن سابقهٔ تصفیه‌شده ({n})",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "تصفیه شوې مخینه وګورئ ({n})"
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 262,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 256,
+        "locale": "fa"
+      }
+    ],
+    "context": "Server-rendered public bill page and print/PDF view. Same surface as CustomerView; separate implementation.",
+    "notes": ""
+  },
+  {
+    "id": "backend-extra:bill-page.hhide",
+    "current": {
+      "en": "Hide settled history",
+      "fa": "پنهان کردن سابقهٔ تصفیه‌شده",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "تصفیه شوې مخینه پټه کړئ"
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 262,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 256,
+        "locale": "fa"
+      }
+    ],
+    "context": "Server-rendered public bill page and print/PDF view. Same surface as CustomerView; separate implementation.",
+    "notes": ""
+  },
+  {
+    "id": "backend-extra:bill-page.seton",
+    "current": {
+      "en": "Settled · {d}",
+      "fa": "تصفیه شد · {d}",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "تصفیه شو · {d}"
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 263,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 257,
+        "locale": "fa"
+      }
+    ],
+    "context": "Server-rendered public bill page and print/PDF view. Same surface as CustomerView; separate implementation.",
+    "notes": ""
+  },
+  {
+    "id": "backend-extra:bill-page.bill",
+    "current": {
+      "en": "Bill dated {d}",
+      "fa": "بل مورخ {d}",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "د {d} نېټې بل"
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 263,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 257,
+        "locale": "fa"
+      }
+    ],
+    "context": "Server-rendered public bill page and print/PDF view. Same surface as CustomerView; separate implementation.",
+    "notes": ""
+  },
+  {
+    "id": "backend-extra:bill-page.dl",
+    "current": {
+      "en": "Save as PDF",
+      "fa": "ذخیرهٔ PDF",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "د PDF په بڼه خوندي کړئ"
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 176,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 257,
+        "locale": "fa"
+      }
+    ],
+    "context": "Server-rendered public bill page and print/PDF view. Same surface as CustomerView; separate implementation.",
+    "notes": ""
+  },
+  {
+    "id": "backend-extra:bill-html.all-settled",
+    "current": {
+      "en": "All settled",
+      "fa": "حساب صاف است",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "حساب تصفیه دی"
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 212,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 212,
+        "locale": "fa"
+      }
+    ],
+    "context": "Public bill shell or missing-link page.",
+    "notes": ""
+  },
+  {
+    "id": "backend-extra:bill-html.nothing-owed",
+    "current": {
+      "en": "nothing owed.",
+      "fa": "چیزی باقی نمانده.",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "څه پاتې نه دي."
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 213,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 213,
+        "locale": "fa"
+      }
+    ],
+    "context": "Public bill shell or missing-link page.",
+    "notes": ""
+  },
+  {
+    "id": "backend-extra:bill-html.not-found",
+    "current": {
+      "en": "This shared ledger doesn’t exist.",
+      "fa": "این کاتای مشترک وجود ندارد.",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "دا شریکه کاټه نشته."
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 469,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 469,
+        "locale": "fa"
+      }
+    ],
+    "context": "Public bill shell or missing-link page.",
+    "notes": ""
+  },
+  {
+    "id": "backend-extra:bill-html.go-home",
+    "current": {
+      "en": "Go to kaata.af",
+      "fa": "رفتن به kaata.af",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "kaata.af ته لاړ شئ"
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 470,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 470,
+        "locale": "fa"
+      }
+    ],
+    "context": "Public bill shell or missing-link page.",
+    "notes": ""
+  },
+  {
+    "id": "backend-extra:shared-account-invite.social-title",
+    "current": {
+      "en": "Kaata shared-account invitation",
+      "fa": "دعوت به حساب مشترک کاتا",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "د کاټه د ګډ حساب بلنه"
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/tabs/templates.go",
+        "line": 10,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/tabs/templates.go",
+        "line": 10,
+        "locale": "fa"
+      }
+    ],
+    "context": "Public shared-account invitation landing page or missing-link page.",
+    "notes": ""
+  },
+  {
+    "id": "backend-extra:shared-account-invite.social-description",
+    "current": {
+      "en": "Open this invitation in the Kaata app.",
+      "fa": "این دعوت را در برنامهٔ کاتا باز کنید.",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "دا بلنه په کاټه اپ کې پرانیزئ."
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/tabs/templates.go",
+        "line": 11,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/tabs/templates.go",
+        "line": 11,
+        "locale": "fa"
+      }
+    ],
+    "context": "Public shared-account invitation landing page or missing-link page.",
+    "notes": ""
+  },
+  {
+    "id": "backend-extra:shared-account-invite.heading",
+    "current": {
+      "en": "Share an account in Kaata",
+      "fa": "حساب مشترک در کاتا",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "په کاټه کې ګډ حساب"
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/tabs/templates.go",
+        "line": 22,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/tabs/templates.go",
+        "line": 22,
+        "locale": "fa"
+      }
+    ],
+    "context": "Public shared-account invitation landing page or missing-link page.",
+    "notes": ""
+  },
+  {
+    "id": "backend-extra:shared-account-invite.instructions",
+    "current": {
+      "en": "Open this invitation in the app and sign in to join. Your ledger stays in the app.",
+      "fa": "برای پیوستن، این دعوت را در برنامه باز کنید و وارد حساب خود شوید. معلومات حساب در وب نشان داده نمی‌شود.",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "د ګډون لپاره دا بلنه په اپ کې پرانیزئ او خپل حساب ته ننوځئ. ستاسو کاټه په اپ کې پاتې کېږي."
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/tabs/templates.go",
+        "line": 23,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/tabs/templates.go",
+        "line": 23,
+        "locale": "fa"
+      }
+    ],
+    "context": "Public shared-account invitation landing page or missing-link page.",
+    "notes": ""
+  },
+  {
+    "id": "backend-extra:shared-account-invite.open",
+    "current": {
+      "en": "Open in Kaata",
+      "fa": "باز کردن در کاتا",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "په کاټه کې پرانیزئ"
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/tabs/templates.go",
+        "line": 24,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/tabs/templates.go",
+        "line": 24,
+        "locale": "fa"
+      }
+    ],
+    "context": "Public shared-account invitation landing page or missing-link page.",
+    "notes": ""
+  },
+  {
+    "id": "backend-extra:shared-account-invite.install",
+    "current": {
+      "en": "New to Kaata? Install it, then return to this link.",
+      "fa": "برنامه را ندارید؟ پس از نصب، این لینک را دوباره باز کنید.",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "کاټه نه لرئ؟ نصب یې کړئ، بیا دې لینک ته راشئ."
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/tabs/templates.go",
+        "line": 25,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/tabs/templates.go",
+        "line": 25,
+        "locale": "fa"
+      }
+    ],
+    "context": "Public shared-account invitation landing page or missing-link page.",
+    "notes": ""
+  },
+  {
+    "id": "backend-extra:shared-account-invite.not-found",
+    "current": {
+      "en": "This tab doesn’t exist, or its link has been renewed.",
+      "fa": "این حساب مشترک وجود ندارد یا لینک آن تازه شده است.",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "دا ګډ حساب نشته، یا یې لینک نوی شوی دی."
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/tabs/templates.go",
+        "line": 50,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/tabs/templates.go",
+        "line": 50,
+        "locale": "fa"
+      }
+    ],
+    "context": "Public shared-account invitation landing page or missing-link page.",
+    "notes": ""
+  },
+  {
+    "id": "backend-extra:shared-account-invite.go-home",
+    "current": {
+      "en": "Go to kaata.af",
+      "fa": "رفتن به kaata.af",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "kaata.af ته لاړ شئ"
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/tabs/templates.go",
+        "line": 51,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/tabs/templates.go",
+        "line": 51,
+        "locale": "fa"
+      }
+    ],
+    "context": "Public shared-account invitation landing page or missing-link page.",
+    "notes": ""
+  },
+  {
+    "id": "backend-extra:email.SignupCode.subject",
+    "current": {
+      "en": "Your Kaata sign-up code",
+      "fa": "کود ثبت‌نام کاتا",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "ستاسو د کاټه د نوم‌لیکنې کوډ"
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/mail/templates.go",
+        "line": 32,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/mail/templates.go",
+        "line": 43,
+        "locale": "fa"
+      }
+    ],
+    "context": "Transactional account email (SignupCode); subject.",
+    "notes": ""
+  },
+  {
+    "id": "backend-extra:email.SignupCode.body",
+    "current": {
+      "en": "Use this code to finish creating your Kaata account:",
+      "fa": "برای تکمیل ساختن حساب کاتای خود از این کود استفاده کنید:",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "د خپل کاټه حساب جوړولو د بشپړولو لپاره دا کوډ وکاروئ:"
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/mail/templates.go",
+        "line": 32,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/mail/templates.go",
+        "line": 43,
+        "locale": "fa"
+      }
+    ],
+    "context": "Transactional account email (SignupCode); body.",
+    "notes": "Verify quoted app menu labels after approving the account terminology."
+  },
+  {
+    "id": "backend-extra:email.ResetCode.subject",
+    "current": {
+      "en": "Reset your Kaata password",
+      "fa": "بازیابی رمز کاتا",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "د کاټه پټنوم مو بیا وټاکئ"
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/mail/templates.go",
+        "line": 33,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/mail/templates.go",
+        "line": 44,
+        "locale": "fa"
+      }
+    ],
+    "context": "Transactional account email (ResetCode); subject.",
+    "notes": ""
+  },
+  {
+    "id": "backend-extra:email.ResetCode.body",
+    "current": {
+      "en": "Use this code to set a new password for your Kaata account:",
+      "fa": "برای گذاشتن رمز نو برای حساب کاتای خود از این کود استفاده کنید:",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "د خپل کاټه حساب لپاره د نوي پټنوم ټاکلو په موخه دا کوډ وکاروئ:"
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/mail/templates.go",
+        "line": 33,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/mail/templates.go",
+        "line": 44,
+        "locale": "fa"
+      }
+    ],
+    "context": "Transactional account email (ResetCode); body.",
+    "notes": "Verify quoted app menu labels after approving the account terminology."
+  },
+  {
+    "id": "backend-extra:email.SetupCode.subject",
+    "current": {
+      "en": "Your Kaata code",
+      "fa": "کود کاتای شما",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "ستاسو د کاټه کوډ"
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/mail/templates.go",
+        "line": 34,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/mail/templates.go",
+        "line": 45,
+        "locale": "fa"
+      }
+    ],
+    "context": "Transactional account email (SetupCode); subject.",
+    "notes": ""
+  },
+  {
+    "id": "backend-extra:email.SetupCode.body",
+    "current": {
+      "en": "Use this code to add a password to your Kaata account:",
+      "fa": "برای افزودن رمز به حساب کاتای خود از این کود استفاده کنید:",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "خپل کاټه حساب ته د پټنوم زیاتولو لپاره دا کوډ وکاروئ:"
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/mail/templates.go",
+        "line": 34,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/mail/templates.go",
+        "line": 45,
+        "locale": "fa"
+      }
+    ],
+    "context": "Transactional account email (SetupCode); body.",
+    "notes": "Verify quoted app menu labels after approving the account terminology."
+  },
+  {
+    "id": "backend-extra:email.AccountExists.subject",
+    "current": {
+      "en": "You already have a Kaata account",
+      "fa": "شما از قبل حساب کاتا دارید",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "تاسو له مخکې د کاټه حساب لرئ"
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/mail/templates.go",
+        "line": 35,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/mail/templates.go",
+        "line": 46,
+        "locale": "fa"
+      }
+    ],
+    "context": "Transactional account email (AccountExists); subject.",
+    "notes": ""
+  },
+  {
+    "id": "backend-extra:email.AccountExists.body",
+    "current": {
+      "en": "Someone, maybe you, tried to create a Kaata account with this email address, but you already have one. Sign in with your password, or tap \"Forgot password?\" in the app to set a new one. If this wasn't you, you can ignore this email.",
+      "fa": "کسی، شاید خود شما، کوشش کرد با این آدرس ایمیل حساب کاتا بسازد، اما شما از قبل حساب دارید. با رمز خود وارد شوید، یا در برنامه «رمز را فراموش کرده‌اید؟» را بزنید تا رمز نو بگذارید. اگر این کار شما نبوده، این ایمیل را نادیده بگیرید.",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "یو چا، ښايي تاسو، هڅه کړې چې په دې برېښنالیک د کاټه حساب جوړ کړي، خو تاسو له مخکې حساب لرئ. په خپل پټنوم ننوځئ، یا په اپ کې «پټنوم مو هېر شوی؟» ووهئ او نوی پټنوم وټاکئ. که دا کار تاسو نه وي کړی، دا برېښنالیک له پامه وغورځوئ."
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/mail/templates.go",
+        "line": 35,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/mail/templates.go",
+        "line": 46,
+        "locale": "fa"
+      }
+    ],
+    "context": "Transactional account email (AccountExists); body.",
+    "notes": "Verify quoted app menu labels after approving the account terminology."
+  },
+  {
+    "id": "backend-extra:email.ProviderOnly.subject",
+    "current": {
+      "en": "Sign in to Kaata with Google or Apple",
+      "fa": "با گوگل یا اپل به کاتا وارد شوید",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "د ګوګل یا اپل له لارې کاټه ته ننوځئ"
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/mail/templates.go",
+        "line": 36,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/mail/templates.go",
+        "line": 47,
+        "locale": "fa"
+      }
+    ],
+    "context": "Transactional account email (ProviderOnly); subject.",
+    "notes": ""
+  },
+  {
+    "id": "backend-extra:email.ProviderOnly.body",
+    "current": {
+      "en": "Your Kaata account signs in with Google or Apple and has no password yet. Use that button to sign in. After signing in, you can add a password in Account settings. If this wasn't you, you can ignore this email.",
+      "fa": "حساب کاتای شما با گوگل یا اپل وارد می‌شود و هنوز رمز ندارد. با همان دکمه وارد شوید. پس از ورود می‌توانید در تنظیمات حساب رمز بگذارید. اگر این کار شما نبوده، این ایمیل را نادیده بگیرید.",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "ستاسو د کاټه حساب د ګوګل یا اپل له لارې پرانیستل کېږي او لا پټنوم نه لري. د ننوتلو لپاره هماغه تڼۍ ووهئ. تر ننوتلو وروسته د حساب په امستنو کې پټنوم زیاتولای شئ. که دا کار تاسو نه وي کړی، دا برېښنالیک له پامه وغورځوئ."
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/mail/templates.go",
+        "line": 36,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/mail/templates.go",
+        "line": 47,
+        "locale": "fa"
+      }
+    ],
+    "context": "Transactional account email (ProviderOnly); body.",
+    "notes": "Verify quoted app menu labels after approving the account terminology."
+  },
+  {
+    "id": "backend-extra:email.PasswordChanged.subject",
+    "current": {
+      "en": "Your Kaata password was changed",
+      "fa": "رمز کاتای شما تغییر کرد",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "ستاسو د کاټه پټنوم بدل شو"
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/mail/templates.go",
+        "line": 37,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/mail/templates.go",
+        "line": 48,
+        "locale": "fa"
+      }
+    ],
+    "context": "Transactional account email (PasswordChanged); subject.",
+    "notes": ""
+  },
+  {
+    "id": "backend-extra:email.PasswordChanged.body",
+    "current": {
+      "en": "The password of your Kaata account was just set or changed. If this was you, there is nothing to do. If it wasn't, open Kaata now and tap \"Forgot password?\" to set a new one; that signs you out on every other phone.",
+      "fa": "رمز حساب کاتای شما همین حالا گذاشته یا تغییر داده شد. اگر این کار شما بوده، کاری لازم نیست. اگر نه، همین حالا کاتا را باز کنید و «رمز را فراموش کرده‌اید؟» را بزنید تا رمز نو بگذارید؛ این کار شما را از همه تلفون‌های دیگر خارج می‌کند.",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "ستاسو د کاټه حساب پټنوم همدا اوس وټاکل شو یا بدل شو. که دا کار تاسو کړی وي، بل کار ته اړتیا نشته. که مو نه وي کړی، همدا اوس کاټه پرانیزئ او «پټنوم مو هېر شوی؟» ووهئ چې نوی پټنوم وټاکئ؛ په دې سره به ستاسو حساب په نورو ټولو ټیلیفونونو کې ووځي."
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/mail/templates.go",
+        "line": 37,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/mail/templates.go",
+        "line": 48,
+        "locale": "fa"
+      }
+    ],
+    "context": "Transactional account email (PasswordChanged); body.",
+    "notes": "Verify quoted app menu labels after approving the account terminology."
+  },
+  {
+    "id": "backend-extra:email.PasswordElsewhere.subject",
+    "current": {
+      "en": "How you sign in to Kaata",
+      "fa": "چگونه به کاتا وارد شوید",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "کاټه ته څنګه ننوځئ"
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/mail/templates.go",
+        "line": 38,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/mail/templates.go",
+        "line": 49,
+        "locale": "fa"
+      }
+    ],
+    "context": "Transactional account email (PasswordElsewhere); subject.",
+    "notes": ""
+  },
+  {
+    "id": "backend-extra:email.PasswordElsewhere.body",
+    "current": {
+      "en": "Someone, maybe you, asked for a Kaata code for this address. Your Kaata account signs in with Google or Apple, and its password belongs to another email address, {address}, where reset codes go. If you don't recognize that address, sign in with Google or Apple, open Account, then Sign-in, and remove the password. Otherwise you can ignore this email.",
+      "fa": "کسی، شاید خود شما، برای این آدرس کود کاتا خواست. با گوگل یا اپل وارد حساب کاتای خود می‌شوید، اما برای ورود با رمز از آدرس ایمیل دیگری، {address}، استفاده می‌کنید. کودهای بازیابی رمز به آن آدرس فرستاده می‌شوند. اگر آن آدرس را نمی‌شناسید، با گوگل یا اپل وارد شوید، «حساب» و سپس «ورود» را باز کنید و رمز را حذف کنید. در غیر آن، می‌توانید این ایمیل را نادیده بگیرید.",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "یو چا، ښايي تاسو، د دې پتې لپاره د کاټه کوډ غوښتی دی. ستاسو د کاټه حساب د ګوګل یا اپل له لارې پرانیستل کېږي، خو د پټنوم له لارې د ننوتلو لپاره مو بله برېښنالیک پته، {address}، کارولې ده. د پټنوم د بیا ټاکلو کوډونه هغې پتې ته لېږل کېږي. که هغه پته نه پېژنئ، د ګوګل یا اپل له لارې ننوځئ، «حساب» او بیا «ننوتل» پرانیزئ او پټنوم لرې کړئ. که نه، دا برېښنالیک له پامه غورځولای شئ."
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/mail/templates.go",
+        "line": 38,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/mail/templates.go",
+        "line": 49,
+        "locale": "fa"
+      }
+    ],
+    "context": "Transactional account email (PasswordElsewhere); body.",
+    "notes": "Verify quoted app menu labels after approving the account terminology."
+  },
+  {
+    "id": "backend-extra:email.PasswordRemoved.subject",
+    "current": {
+      "en": "Your Kaata password was removed",
+      "fa": "رمز کاتای شما حذف شد",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "ستاسو د کاټه پټنوم لرې شو"
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/mail/templates.go",
+        "line": 39,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/mail/templates.go",
+        "line": 50,
+        "locale": "fa"
+      }
+    ],
+    "context": "Transactional account email (PasswordRemoved); subject.",
+    "notes": ""
+  },
+  {
+    "id": "backend-extra:email.PasswordRemoved.body",
+    "current": {
+      "en": "The password of your Kaata account was removed: it now signs in only with Google or Apple, and phones that used the password were signed out. If this was you, there is nothing to do. If it wasn't, open Kaata, sign in with Google or Apple and check Account settings.",
+      "fa": "رمز حساب کاتای شما حذف شد. اکنون تنها با گوگل یا اپل می‌توانید وارد شوید. از این حساب در تلفون‌هایی که با رمز وارد شده بودند، خارج شدید. اگر خودتان این کار را کرده‌اید، کاری لازم نیست. اگر نه، کاتا را باز کنید، با گوگل یا اپل وارد شوید و تنظیمات حساب را بررسی کنید.",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "ستاسو د کاټه حساب پټنوم لرې شو. اوس یوازې د ګوګل یا اپل له لارې ننوتلای شئ، او په هغو ټیلیفونونو کې مو حساب ووت چې په پټنوم ورننوتلي وو. که دا کار تاسو کړی وي، بل کار ته اړتیا نشته. که مو نه وي کړی، کاټه پرانیزئ، د ګوګل یا اپل له لارې ننوځئ او د حساب امستنې وګورئ."
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/mail/templates.go",
+        "line": 39,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/mail/templates.go",
+        "line": 50,
+        "locale": "fa"
+      }
+    ],
+    "context": "Transactional account email (PasswordRemoved); body.",
+    "notes": "Verify quoted app menu labels after approving the account terminology."
+  },
+  {
+    "id": "backend-extra:email.code-footer",
+    "current": {
+      "en": "It expires in 15 minutes. Never share this code with anyone. If you didn't ask for it, ignore this email.",
+      "fa": "این کود پس از 15 دقیقه باطل می‌شود. این کود را با هیچ‌کس شریک نکنید. اگر شما آن را نخواسته‌اید، این ایمیل را نادیده بگیرید.",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "دا کوډ په 15 دقیقو کې باطلېږي. دا کوډ له هېچا سره مه شریکوئ. که تاسو نه وي غوښتی، دا برېښنالیک له پامه وغورځوئ."
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/mail/templates.go",
+        "line": 54,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/mail/templates.go",
+        "line": 55,
+        "locale": "fa"
+      }
+    ],
+    "context": "Footer used in signup, reset, and setup code emails.",
+    "notes": ""
+  },
+  {
+    "id": "backend-extra:push.created-observer",
+    "current": {
+      "en": "A new tally was added to your shared account.",
+      "fa": "یک ثبت نو در حساب مشترک اضافه شد.",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "ستاسو په ګډ حساب کې نوې راکړه ورکړه زیاته شوه."
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/tabs/push.go",
+        "line": 362,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/tabs/push.go",
+        "line": 360,
+        "locale": "fa"
+      }
+    ],
+    "context": "Shared-account push notification. Observer and reviewer instructions differ.",
+    "notes": ""
+  },
+  {
+    "id": "backend-extra:push.created-reviewer",
+    "current": {
+      "en": "A new tally was added to your shared account. Accept or reject it.",
+      "fa": "یک ثبت نو در حساب مشترک دارید. آن را قبول یا رد کنید.",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "ستاسو په ګډ حساب کې نوې راکړه ورکړه زیاته شوه. ویې منئ یا یې رد کړئ."
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/tabs/push.go",
+        "line": 379,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/tabs/push.go",
+        "line": 367,
+        "locale": "fa"
+      }
+    ],
+    "context": "Shared-account push notification. Observer and reviewer instructions differ.",
+    "notes": ""
+  },
+  {
+    "id": "backend-extra:push.accepted",
+    "current": {
+      "en": "Your tally was accepted.",
+      "fa": "ثبت شما قبول شد.",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "ستاسو راکړه ورکړه ومنل شوه."
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/tabs/push.go",
+        "line": 381,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/tabs/push.go",
+        "line": 369,
+        "locale": "fa"
+      }
+    ],
+    "context": "Shared-account push notification. Observer and reviewer instructions differ.",
+    "notes": ""
+  },
+  {
+    "id": "backend-extra:push.rejected",
+    "current": {
+      "en": "Your tally was rejected and no longer counts toward the balance.",
+      "fa": "ثبت شما رد شد و دیگر در ماندهٔ حساب حساب نمی‌شود.",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "ستاسو راکړه ورکړه رد شوه او نور په پاتې حساب کې نه شمېرل کېږي."
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/tabs/push.go",
+        "line": 383,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/tabs/push.go",
+        "line": 371,
+        "locale": "fa"
+      }
+    ],
+    "context": "Shared-account push notification. Observer and reviewer instructions differ.",
+    "notes": ""
+  },
+  {
+    "id": "backend-extra:push.voided",
+    "current": {
+      "en": "A tally on your shared account was voided.",
+      "fa": "یک ثبت در حساب مشترک لغو شد.",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "ستاسو په ګډ حساب کې یوه راکړه ورکړه لغوه شوه."
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/tabs/push.go",
+        "line": 385,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/tabs/push.go",
+        "line": 373,
+        "locale": "fa"
+      }
+    ],
+    "context": "Shared-account push notification. Observer and reviewer instructions differ.",
+    "notes": ""
+  },
+  {
+    "id": "backend-extra:push.updated",
+    "current": {
+      "en": "Your shared account has an update.",
+      "fa": "حساب مشترک شما به‌روز شده است.",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "ستاسو ګډ حساب تازه شوی دی."
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/tabs/push.go",
+        "line": 387,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/tabs/push.go",
+        "line": 375,
+        "locale": "fa"
+      }
+    ],
+    "context": "Shared-account push notification. Observer and reviewer instructions differ.",
+    "notes": ""
+  },
+  {
+    "id": "backend-extra:notification-detail.actor-fallback",
+    "current": {
+      "en": "The other party",
+      "fa": "طرف مقابل",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "بل لوری"
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/tabs/inbox.go",
+        "line": 241,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/tabs/inbox.go",
+        "line": 239,
+        "locale": "fa"
+      }
+    ],
+    "context": "Detailed notification including actor and amount.",
+    "notes": "Go %s ordering follows English arguments. Persian voided template has amount first and actor second; implementation must preserve meaning when selecting a new template. No substitutions are approved yet."
+  },
+  {
+    "id": "backend-extra:notification-detail.created-observer",
+    "current": {
+      "en": "%s added a tally (%s).",
+      "fa": "%s یک ثبت %s افزود.",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "%s یوه راکړه ورکړه (%s) زیاته کړه."
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/tabs/inbox.go",
+        "line": 271,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/tabs/inbox.go",
+        "line": 257,
+        "locale": "fa"
+      }
+    ],
+    "context": "Detailed notification including actor and amount.",
+    "notes": "Go %s ordering follows English arguments. Persian voided template has amount first and actor second; implementation must preserve meaning when selecting a new template. No substitutions are approved yet."
+  },
+  {
+    "id": "backend-extra:notification-detail.created-reviewer",
+    "current": {
+      "en": "%s added a tally (%s). Accept or reject it.",
+      "fa": "%s یک ثبت %s افزود. قبول یا رد کنید.",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "%s یوه راکړه ورکړه (%s) زیاته کړه. ویې منئ یا یې رد کړئ."
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/tabs/inbox.go",
+        "line": 273,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/tabs/inbox.go",
+        "line": 259,
+        "locale": "fa"
+      }
+    ],
+    "context": "Detailed notification including actor and amount.",
+    "notes": "Go %s ordering follows English arguments. Persian voided template has amount first and actor second; implementation must preserve meaning when selecting a new template. No substitutions are approved yet."
+  },
+  {
+    "id": "backend-extra:notification-detail.accepted",
+    "current": {
+      "en": "Your tally (%s) was accepted by %s.",
+      "fa": "ثبت %s شما توسط %s قبول شد.",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "ستاسو راکړه ورکړه (%s) د %s له خوا ومنل شوه."
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/tabs/inbox.go",
+        "line": 275,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/tabs/inbox.go",
+        "line": 261,
+        "locale": "fa"
+      }
+    ],
+    "context": "Detailed notification including actor and amount.",
+    "notes": "Go %s ordering follows English arguments. Persian voided template has amount first and actor second; implementation must preserve meaning when selecting a new template. No substitutions are approved yet."
+  },
+  {
+    "id": "backend-extra:notification-detail.rejected",
+    "current": {
+      "en": "Your tally (%s) was rejected by %s. Excluded from the balance.",
+      "fa": "ثبت %s شما توسط %s رد شد؛ در مانده حساب نمی‌شود.",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "ستاسو راکړه ورکړه (%s) د %s له خوا رد شوه. په پاتې حساب کې نه شمېرل کېږي."
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/tabs/inbox.go",
+        "line": 277,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/tabs/inbox.go",
+        "line": 263,
+        "locale": "fa"
+      }
+    ],
+    "context": "Detailed notification including actor and amount.",
+    "notes": "Go %s ordering follows English arguments. Persian voided template has amount first and actor second; implementation must preserve meaning when selecting a new template. No substitutions are approved yet."
+  },
+  {
+    "id": "backend-extra:notification-detail.voided",
+    "current": {
+      "en": "%s voided a tally (%s).",
+      "fa": "ثبت %s توسط %s لغو شد.",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "%s یوه راکړه ورکړه (%s) لغوه کړه."
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/tabs/inbox.go",
+        "line": 279,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/tabs/inbox.go",
+        "line": 265,
+        "locale": "fa"
+      }
+    ],
+    "context": "Detailed notification including actor and amount.",
+    "notes": "Go %s ordering follows English arguments. Persian voided template has amount first and actor second; implementation must preserve meaning when selecting a new template. No substitutions are approved yet."
+  },
+  {
+    "id": "backend-extra:bill-social-preview.owe",
+    "current": {
+      "en": "Balance to settle: {amount}",
+      "fa": "مانده برای تصفیه: {amount}",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "د تصفیې پاتې حساب: {amount}"
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/shared/handler.go",
+        "line": 297,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/handler.go",
+        "line": 284,
+        "locale": "fa"
+      }
+    ],
+    "context": "WhatsApp and social link-preview description; dated bill snapshot, not current balance.",
+    "notes": "Normalized template from string concatenation; {amount} includes formatted number and currency; {body} is another preview string."
+  },
+  {
+    "id": "backend-extra:bill-social-preview.credit",
+    "current": {
+      "en": "In your favour: {amount}",
+      "fa": "به نفع شما: {amount}",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "ستاسو په ګټه: {amount}"
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/shared/handler.go",
+        "line": 299,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/handler.go",
+        "line": 286,
+        "locale": "fa"
+      }
+    ],
+    "context": "WhatsApp and social link-preview description; dated bill snapshot, not current balance.",
+    "notes": "Normalized template from string concatenation; {amount} includes formatted number and currency; {body} is another preview string."
+  },
+  {
+    "id": "backend-extra:bill-social-preview.settled",
+    "current": {
+      "en": "All settled — nothing owed.",
+      "fa": "حساب صاف است — چیزی باقی نمانده.",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "حساب تصفیه دی — څه پاتې نه دي."
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/shared/handler.go",
+        "line": 301,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/handler.go",
+        "line": 288,
+        "locale": "fa"
+      }
+    ],
+    "context": "WhatsApp and social link-preview description; dated bill snapshot, not current balance.",
+    "notes": "Normalized template from string concatenation; {amount} includes formatted number and currency; {body} is another preview string."
+  },
+  {
+    "id": "backend-extra:bill-social-preview.dated",
+    "current": {
+      "en": "Bill dated {date} — {body}",
+      "fa": "بل مورخ {date} — {body}",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "د {date} نېټې بل — {body}"
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/shared/handler.go",
+        "line": 304,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/handler.go",
+        "line": 291,
+        "locale": "fa"
+      }
+    ],
+    "context": "WhatsApp and social link-preview description; dated bill snapshot, not current balance.",
+    "notes": "Normalized template from string concatenation; {amount} includes formatted number and currency; {body} is another preview string."
+  },
+  {
+    "id": "web-extra:outreach.shopkeeper",
+    "current": {
+      "en": "Salaam {name}. This is the Kaata team. Thanks for installing Kaata. Here is a short guide to adding customers and sending them their balance on WhatsApp:\n{link}\nReply here if you need any help.",
+      "fa": "سلام {name}. از تیم کاتا هستیم. تشکر که کاتا را نصب کردید. این رهنمای کوتاه نشان می‌دهد چطور مشتری اضافه کنید و باقی‌مانده‌اش را در واتساپ برایش بفرستید:\n{link}\nاگر کمک لازم داشتید، همین‌جا جواب بدهید.",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "سلام {name}. موږ د کاټه ټیم یو. مننه چې کاټه مو نصب کړې ده. دا لنډ لارښود ښيي چې څنګه پېرېدونکي زیات کړئ او په واټساپ کې یې پاتې حساب ورولېږئ:\n{link}\nکه مرستې ته اړتیا لرئ، همدلته ځواب راکړئ."
+    },
+    "sources": [
+      {
+        "path": "apps/web/src/pages/admin/outreach-model.ts",
+        "line": 296,
+        "locale": "en"
+      },
+      {
+        "path": "apps/web/src/pages/admin/outreach-model.ts",
+        "line": 298,
+        "locale": "fa"
+      }
+    ],
+    "context": "Default WhatsApp outreach template for shopkeeper.",
+    "notes": "Admin can save overrides on the server; repository defaults do not reveal current deployed overrides. Keep {link} on its own line."
+  },
+  {
+    "id": "web-extra:outreach.customer",
+    "current": {
+      "en": "Salaam. Kaata is a free app for keeping shop accounts — who owes what — and sending each person their balance on WhatsApp. Short guide and install link:\n{link}",
+      "fa": "سلام. کاتا یک اپ رایگان برای نگهداری حساب دکان است — چه کسی چقدر قرضدار است — و باقی‌مانده هر کس را در واتساپ برایش می‌فرستد. رهنمای کوتاه و لینک نصب:\n{link}",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "سلام. کاټه د دوکان د حساب ساتلو لپاره وړیا اپ دی — چې څوک څومره پوروړی دی — او هر چا ته یې پاتې حساب په واټساپ کې لېږي. لنډ لارښود او د نصب لینک:\n{link}"
+    },
+    "sources": [
+      {
+        "path": "apps/web/src/pages/admin/outreach-model.ts",
+        "line": 300,
+        "locale": "en"
+      },
+      {
+        "path": "apps/web/src/pages/admin/outreach-model.ts",
+        "line": 302,
+        "locale": "fa"
+      }
+    ],
+    "context": "Default WhatsApp outreach template for customer.",
+    "notes": "Admin can save overrides on the server; repository defaults do not reveal current deployed overrides. Keep {link} on its own line."
+  },
+  {
+    "id": "backend-extra:apple-signin-return",
+    "current": {
+      "en": "Return to Kaata",
+      "fa": null,
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "بېرته کاټه ته"
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/auth/apple_web.go",
+        "line": 137,
+        "locale": "en"
+      }
+    ],
+    "context": "English-only browser fallback after Apple sign-in.",
+    "notes": ""
+  },
+  {
+    "id": "backend-extra:calendar.jalali.month-01",
+    "current": {
+      "en": "Hamal",
+      "fa": "حمل",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "وری"
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/shared/jalali.go",
+        "line": 27,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/jalali.go",
+        "line": 20,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 280,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 279,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/web/src/pages/CustomerView.tsx",
+        "line": 348,
+        "locale": "en"
+      },
+      {
+        "path": "apps/web/src/pages/CustomerView.tsx",
+        "line": 328,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/mobile/lib/jalali.ts",
+        "line": 57,
+        "locale": "en"
+      },
+      {
+        "path": "apps/mobile/lib/jalali.ts",
+        "line": 39,
+        "locale": "fa"
+      }
+    ],
+    "context": "jalali calendar month 1; bill dates, public web, social previews and mobile.",
+    "notes": "Shared vocabulary: apply together across copies after review. Pashto Solar Hijri names differ from Dari zodiac names; confirm preferred spellings. Qamari spellings need native-speaker review."
+  },
+  {
+    "id": "backend-extra:calendar.jalali.month-02",
+    "current": {
+      "en": "Sawr",
+      "fa": "ثور",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "غویی"
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/shared/jalali.go",
+        "line": 27,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/jalali.go",
+        "line": 20,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 280,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 279,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/web/src/pages/CustomerView.tsx",
+        "line": 349,
+        "locale": "en"
+      },
+      {
+        "path": "apps/web/src/pages/CustomerView.tsx",
+        "line": 329,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/mobile/lib/jalali.ts",
+        "line": 58,
+        "locale": "en"
+      },
+      {
+        "path": "apps/mobile/lib/jalali.ts",
+        "line": 40,
+        "locale": "fa"
+      }
+    ],
+    "context": "jalali calendar month 2; bill dates, public web, social previews and mobile.",
+    "notes": "Shared vocabulary: apply together across copies after review. Pashto Solar Hijri names differ from Dari zodiac names; confirm preferred spellings. Qamari spellings need native-speaker review."
+  },
+  {
+    "id": "backend-extra:calendar.jalali.month-03",
+    "current": {
+      "en": "Jawza",
+      "fa": "جوزا",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "غبرګولی"
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/shared/jalali.go",
+        "line": 27,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/jalali.go",
+        "line": 20,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 280,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 279,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/web/src/pages/CustomerView.tsx",
+        "line": 350,
+        "locale": "en"
+      },
+      {
+        "path": "apps/web/src/pages/CustomerView.tsx",
+        "line": 330,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/mobile/lib/jalali.ts",
+        "line": 59,
+        "locale": "en"
+      },
+      {
+        "path": "apps/mobile/lib/jalali.ts",
+        "line": 41,
+        "locale": "fa"
+      }
+    ],
+    "context": "jalali calendar month 3; bill dates, public web, social previews and mobile.",
+    "notes": "Shared vocabulary: apply together across copies after review. Pashto Solar Hijri names differ from Dari zodiac names; confirm preferred spellings. Qamari spellings need native-speaker review."
+  },
+  {
+    "id": "backend-extra:calendar.jalali.month-04",
+    "current": {
+      "en": "Saratan",
+      "fa": "سرطان",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "چنګاښ"
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/shared/jalali.go",
+        "line": 27,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/jalali.go",
+        "line": 20,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 280,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 279,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/web/src/pages/CustomerView.tsx",
+        "line": 351,
+        "locale": "en"
+      },
+      {
+        "path": "apps/web/src/pages/CustomerView.tsx",
+        "line": 331,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/mobile/lib/jalali.ts",
+        "line": 60,
+        "locale": "en"
+      },
+      {
+        "path": "apps/mobile/lib/jalali.ts",
+        "line": 42,
+        "locale": "fa"
+      }
+    ],
+    "context": "jalali calendar month 4; bill dates, public web, social previews and mobile.",
+    "notes": "Shared vocabulary: apply together across copies after review. Pashto Solar Hijri names differ from Dari zodiac names; confirm preferred spellings. Qamari spellings need native-speaker review."
+  },
+  {
+    "id": "backend-extra:calendar.jalali.month-05",
+    "current": {
+      "en": "Asad",
+      "fa": "اسد",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "زمری"
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/shared/jalali.go",
+        "line": 27,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/jalali.go",
+        "line": 20,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 280,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 279,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/web/src/pages/CustomerView.tsx",
+        "line": 352,
+        "locale": "en"
+      },
+      {
+        "path": "apps/web/src/pages/CustomerView.tsx",
+        "line": 332,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/mobile/lib/jalali.ts",
+        "line": 61,
+        "locale": "en"
+      },
+      {
+        "path": "apps/mobile/lib/jalali.ts",
+        "line": 43,
+        "locale": "fa"
+      }
+    ],
+    "context": "jalali calendar month 5; bill dates, public web, social previews and mobile.",
+    "notes": "Shared vocabulary: apply together across copies after review. Pashto Solar Hijri names differ from Dari zodiac names; confirm preferred spellings. Qamari spellings need native-speaker review."
+  },
+  {
+    "id": "backend-extra:calendar.jalali.month-06",
+    "current": {
+      "en": "Sunbula",
+      "fa": "سنبله",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "وږی"
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/shared/jalali.go",
+        "line": 27,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/jalali.go",
+        "line": 20,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 280,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 279,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/web/src/pages/CustomerView.tsx",
+        "line": 353,
+        "locale": "en"
+      },
+      {
+        "path": "apps/web/src/pages/CustomerView.tsx",
+        "line": 333,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/mobile/lib/jalali.ts",
+        "line": 62,
+        "locale": "en"
+      },
+      {
+        "path": "apps/mobile/lib/jalali.ts",
+        "line": 44,
+        "locale": "fa"
+      }
+    ],
+    "context": "jalali calendar month 6; bill dates, public web, social previews and mobile.",
+    "notes": "Shared vocabulary: apply together across copies after review. Pashto Solar Hijri names differ from Dari zodiac names; confirm preferred spellings. Qamari spellings need native-speaker review."
+  },
+  {
+    "id": "backend-extra:calendar.jalali.month-07",
+    "current": {
+      "en": "Mizan",
+      "fa": "میزان",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "تله"
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/shared/jalali.go",
+        "line": 28,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/jalali.go",
+        "line": 21,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 280,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 279,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/web/src/pages/CustomerView.tsx",
+        "line": 354,
+        "locale": "en"
+      },
+      {
+        "path": "apps/web/src/pages/CustomerView.tsx",
+        "line": 334,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/mobile/lib/jalali.ts",
+        "line": 63,
+        "locale": "en"
+      },
+      {
+        "path": "apps/mobile/lib/jalali.ts",
+        "line": 45,
+        "locale": "fa"
+      }
+    ],
+    "context": "jalali calendar month 7; bill dates, public web, social previews and mobile.",
+    "notes": "Shared vocabulary: apply together across copies after review. Pashto Solar Hijri names differ from Dari zodiac names; confirm preferred spellings. Qamari spellings need native-speaker review."
+  },
+  {
+    "id": "backend-extra:calendar.jalali.month-08",
+    "current": {
+      "en": "Aqrab",
+      "fa": "عقرب",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "لړم"
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/shared/jalali.go",
+        "line": 28,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/jalali.go",
+        "line": 21,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 280,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 279,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/web/src/pages/CustomerView.tsx",
+        "line": 355,
+        "locale": "en"
+      },
+      {
+        "path": "apps/web/src/pages/CustomerView.tsx",
+        "line": 335,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/mobile/lib/jalali.ts",
+        "line": 64,
+        "locale": "en"
+      },
+      {
+        "path": "apps/mobile/lib/jalali.ts",
+        "line": 46,
+        "locale": "fa"
+      }
+    ],
+    "context": "jalali calendar month 8; bill dates, public web, social previews and mobile.",
+    "notes": "Shared vocabulary: apply together across copies after review. Pashto Solar Hijri names differ from Dari zodiac names; confirm preferred spellings. Qamari spellings need native-speaker review."
+  },
+  {
+    "id": "backend-extra:calendar.jalali.month-09",
+    "current": {
+      "en": "Qaws",
+      "fa": "قوس",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "لیندۍ"
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/shared/jalali.go",
+        "line": 28,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/jalali.go",
+        "line": 21,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 280,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 279,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/web/src/pages/CustomerView.tsx",
+        "line": 356,
+        "locale": "en"
+      },
+      {
+        "path": "apps/web/src/pages/CustomerView.tsx",
+        "line": 336,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/mobile/lib/jalali.ts",
+        "line": 65,
+        "locale": "en"
+      },
+      {
+        "path": "apps/mobile/lib/jalali.ts",
+        "line": 47,
+        "locale": "fa"
+      }
+    ],
+    "context": "jalali calendar month 9; bill dates, public web, social previews and mobile.",
+    "notes": "Shared vocabulary: apply together across copies after review. Pashto Solar Hijri names differ from Dari zodiac names; confirm preferred spellings. Qamari spellings need native-speaker review."
+  },
+  {
+    "id": "backend-extra:calendar.jalali.month-10",
+    "current": {
+      "en": "Jadi",
+      "fa": "جدی",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "مرغومی"
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/shared/jalali.go",
+        "line": 28,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/jalali.go",
+        "line": 21,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 280,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 279,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/web/src/pages/CustomerView.tsx",
+        "line": 357,
+        "locale": "en"
+      },
+      {
+        "path": "apps/web/src/pages/CustomerView.tsx",
+        "line": 337,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/mobile/lib/jalali.ts",
+        "line": 66,
+        "locale": "en"
+      },
+      {
+        "path": "apps/mobile/lib/jalali.ts",
+        "line": 48,
+        "locale": "fa"
+      }
+    ],
+    "context": "jalali calendar month 10; bill dates, public web, social previews and mobile.",
+    "notes": "Shared vocabulary: apply together across copies after review. Pashto Solar Hijri names differ from Dari zodiac names; confirm preferred spellings. Qamari spellings need native-speaker review."
+  },
+  {
+    "id": "backend-extra:calendar.jalali.month-11",
+    "current": {
+      "en": "Dalw",
+      "fa": "دلو",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "سلواغه"
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/shared/jalali.go",
+        "line": 28,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/jalali.go",
+        "line": 21,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 280,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 279,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/web/src/pages/CustomerView.tsx",
+        "line": 358,
+        "locale": "en"
+      },
+      {
+        "path": "apps/web/src/pages/CustomerView.tsx",
+        "line": 338,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/mobile/lib/jalali.ts",
+        "line": 67,
+        "locale": "en"
+      },
+      {
+        "path": "apps/mobile/lib/jalali.ts",
+        "line": 49,
+        "locale": "fa"
+      }
+    ],
+    "context": "jalali calendar month 11; bill dates, public web, social previews and mobile.",
+    "notes": "Shared vocabulary: apply together across copies after review. Pashto Solar Hijri names differ from Dari zodiac names; confirm preferred spellings. Qamari spellings need native-speaker review."
+  },
+  {
+    "id": "backend-extra:calendar.jalali.month-12",
+    "current": {
+      "en": "Hut",
+      "fa": "حوت",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "کب"
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/shared/jalali.go",
+        "line": 28,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/jalali.go",
+        "line": 21,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 280,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 279,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/web/src/pages/CustomerView.tsx",
+        "line": 359,
+        "locale": "en"
+      },
+      {
+        "path": "apps/web/src/pages/CustomerView.tsx",
+        "line": 339,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/mobile/lib/jalali.ts",
+        "line": 68,
+        "locale": "en"
+      },
+      {
+        "path": "apps/mobile/lib/jalali.ts",
+        "line": 50,
+        "locale": "fa"
+      }
+    ],
+    "context": "jalali calendar month 12; bill dates, public web, social previews and mobile.",
+    "notes": "Shared vocabulary: apply together across copies after review. Pashto Solar Hijri names differ from Dari zodiac names; confirm preferred spellings. Qamari spellings need native-speaker review."
+  },
+  {
+    "id": "backend-extra:calendar.gregorian.month-01",
+    "current": {
+      "en": "Jan",
+      "fa": "جنوری",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "جنوري"
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/shared/jalali.go",
+        "line": 34,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/jalali.go",
+        "line": 39,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 281,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 282,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/web/src/pages/CustomerView.tsx",
+        "line": 362,
+        "locale": "en"
+      },
+      {
+        "path": "apps/web/src/pages/CustomerView.tsx",
+        "line": 377,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/mobile/lib/jalali.ts",
+        "line": 74,
+        "locale": "en"
+      },
+      {
+        "path": "apps/mobile/lib/jalali.ts",
+        "line": 95,
+        "locale": "fa"
+      }
+    ],
+    "context": "gregorian calendar month 1; bill dates, public web, social previews and mobile.",
+    "notes": "Shared vocabulary: apply together across copies after review. Pashto Solar Hijri names differ from Dari zodiac names; confirm preferred spellings. Qamari spellings need native-speaker review."
+  },
+  {
+    "id": "backend-extra:calendar.gregorian.month-02",
+    "current": {
+      "en": "Feb",
+      "fa": "فبروری",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "فبروري"
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/shared/jalali.go",
+        "line": 34,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/jalali.go",
+        "line": 39,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 281,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 282,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/web/src/pages/CustomerView.tsx",
+        "line": 363,
+        "locale": "en"
+      },
+      {
+        "path": "apps/web/src/pages/CustomerView.tsx",
+        "line": 378,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/mobile/lib/jalali.ts",
+        "line": 75,
+        "locale": "en"
+      },
+      {
+        "path": "apps/mobile/lib/jalali.ts",
+        "line": 96,
+        "locale": "fa"
+      }
+    ],
+    "context": "gregorian calendar month 2; bill dates, public web, social previews and mobile.",
+    "notes": "Shared vocabulary: apply together across copies after review. Pashto Solar Hijri names differ from Dari zodiac names; confirm preferred spellings. Qamari spellings need native-speaker review."
+  },
+  {
+    "id": "backend-extra:calendar.gregorian.month-03",
+    "current": {
+      "en": "Mar",
+      "fa": "مارچ",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "مارچ"
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/shared/jalali.go",
+        "line": 34,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/jalali.go",
+        "line": 39,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 281,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 282,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/web/src/pages/CustomerView.tsx",
+        "line": 364,
+        "locale": "en"
+      },
+      {
+        "path": "apps/web/src/pages/CustomerView.tsx",
+        "line": 379,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/mobile/lib/jalali.ts",
+        "line": 76,
+        "locale": "en"
+      },
+      {
+        "path": "apps/mobile/lib/jalali.ts",
+        "line": 97,
+        "locale": "fa"
+      }
+    ],
+    "context": "gregorian calendar month 3; bill dates, public web, social previews and mobile.",
+    "notes": "Shared vocabulary: apply together across copies after review. Pashto Solar Hijri names differ from Dari zodiac names; confirm preferred spellings. Qamari spellings need native-speaker review."
+  },
+  {
+    "id": "backend-extra:calendar.gregorian.month-04",
+    "current": {
+      "en": "Apr",
+      "fa": "اپریل",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "اپرېل"
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/shared/jalali.go",
+        "line": 34,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/jalali.go",
+        "line": 39,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 281,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 282,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/web/src/pages/CustomerView.tsx",
+        "line": 365,
+        "locale": "en"
+      },
+      {
+        "path": "apps/web/src/pages/CustomerView.tsx",
+        "line": 380,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/mobile/lib/jalali.ts",
+        "line": 77,
+        "locale": "en"
+      },
+      {
+        "path": "apps/mobile/lib/jalali.ts",
+        "line": 98,
+        "locale": "fa"
+      }
+    ],
+    "context": "gregorian calendar month 4; bill dates, public web, social previews and mobile.",
+    "notes": "Shared vocabulary: apply together across copies after review. Pashto Solar Hijri names differ from Dari zodiac names; confirm preferred spellings. Qamari spellings need native-speaker review."
+  },
+  {
+    "id": "backend-extra:calendar.gregorian.month-05",
+    "current": {
+      "en": "May",
+      "fa": "می",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "مې"
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/shared/jalali.go",
+        "line": 34,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/jalali.go",
+        "line": 39,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 281,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 282,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/web/src/pages/CustomerView.tsx",
+        "line": 366,
+        "locale": "en"
+      },
+      {
+        "path": "apps/web/src/pages/CustomerView.tsx",
+        "line": 381,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/mobile/lib/jalali.ts",
+        "line": 78,
+        "locale": "en"
+      },
+      {
+        "path": "apps/mobile/lib/jalali.ts",
+        "line": 99,
+        "locale": "fa"
+      }
+    ],
+    "context": "gregorian calendar month 5; bill dates, public web, social previews and mobile.",
+    "notes": "Shared vocabulary: apply together across copies after review. Pashto Solar Hijri names differ from Dari zodiac names; confirm preferred spellings. Qamari spellings need native-speaker review."
+  },
+  {
+    "id": "backend-extra:calendar.gregorian.month-06",
+    "current": {
+      "en": "Jun",
+      "fa": "جون",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "جون"
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/shared/jalali.go",
+        "line": 34,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/jalali.go",
+        "line": 39,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 281,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 282,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/web/src/pages/CustomerView.tsx",
+        "line": 367,
+        "locale": "en"
+      },
+      {
+        "path": "apps/web/src/pages/CustomerView.tsx",
+        "line": 382,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/mobile/lib/jalali.ts",
+        "line": 79,
+        "locale": "en"
+      },
+      {
+        "path": "apps/mobile/lib/jalali.ts",
+        "line": 100,
+        "locale": "fa"
+      }
+    ],
+    "context": "gregorian calendar month 6; bill dates, public web, social previews and mobile.",
+    "notes": "Shared vocabulary: apply together across copies after review. Pashto Solar Hijri names differ from Dari zodiac names; confirm preferred spellings. Qamari spellings need native-speaker review."
+  },
+  {
+    "id": "backend-extra:calendar.gregorian.month-07",
+    "current": {
+      "en": "Jul",
+      "fa": "جولای",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "جولای"
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/shared/jalali.go",
+        "line": 35,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/jalali.go",
+        "line": 40,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 281,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 282,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/web/src/pages/CustomerView.tsx",
+        "line": 368,
+        "locale": "en"
+      },
+      {
+        "path": "apps/web/src/pages/CustomerView.tsx",
+        "line": 383,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/mobile/lib/jalali.ts",
+        "line": 80,
+        "locale": "en"
+      },
+      {
+        "path": "apps/mobile/lib/jalali.ts",
+        "line": 101,
+        "locale": "fa"
+      }
+    ],
+    "context": "gregorian calendar month 7; bill dates, public web, social previews and mobile.",
+    "notes": "Shared vocabulary: apply together across copies after review. Pashto Solar Hijri names differ from Dari zodiac names; confirm preferred spellings. Qamari spellings need native-speaker review."
+  },
+  {
+    "id": "backend-extra:calendar.gregorian.month-08",
+    "current": {
+      "en": "Aug",
+      "fa": "اگست",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "اګست"
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/shared/jalali.go",
+        "line": 35,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/jalali.go",
+        "line": 40,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 281,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 282,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/web/src/pages/CustomerView.tsx",
+        "line": 369,
+        "locale": "en"
+      },
+      {
+        "path": "apps/web/src/pages/CustomerView.tsx",
+        "line": 384,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/mobile/lib/jalali.ts",
+        "line": 81,
+        "locale": "en"
+      },
+      {
+        "path": "apps/mobile/lib/jalali.ts",
+        "line": 102,
+        "locale": "fa"
+      }
+    ],
+    "context": "gregorian calendar month 8; bill dates, public web, social previews and mobile.",
+    "notes": "Shared vocabulary: apply together across copies after review. Pashto Solar Hijri names differ from Dari zodiac names; confirm preferred spellings. Qamari spellings need native-speaker review."
+  },
+  {
+    "id": "backend-extra:calendar.gregorian.month-09",
+    "current": {
+      "en": "Sep",
+      "fa": "سپتمبر",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "سپتمبر"
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/shared/jalali.go",
+        "line": 35,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/jalali.go",
+        "line": 40,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 281,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 282,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/web/src/pages/CustomerView.tsx",
+        "line": 370,
+        "locale": "en"
+      },
+      {
+        "path": "apps/web/src/pages/CustomerView.tsx",
+        "line": 385,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/mobile/lib/jalali.ts",
+        "line": 82,
+        "locale": "en"
+      },
+      {
+        "path": "apps/mobile/lib/jalali.ts",
+        "line": 103,
+        "locale": "fa"
+      }
+    ],
+    "context": "gregorian calendar month 9; bill dates, public web, social previews and mobile.",
+    "notes": "Shared vocabulary: apply together across copies after review. Pashto Solar Hijri names differ from Dari zodiac names; confirm preferred spellings. Qamari spellings need native-speaker review."
+  },
+  {
+    "id": "backend-extra:calendar.gregorian.month-10",
+    "current": {
+      "en": "Oct",
+      "fa": "اکتوبر",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "اکتوبر"
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/shared/jalali.go",
+        "line": 35,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/jalali.go",
+        "line": 40,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 281,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 282,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/web/src/pages/CustomerView.tsx",
+        "line": 371,
+        "locale": "en"
+      },
+      {
+        "path": "apps/web/src/pages/CustomerView.tsx",
+        "line": 386,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/mobile/lib/jalali.ts",
+        "line": 83,
+        "locale": "en"
+      },
+      {
+        "path": "apps/mobile/lib/jalali.ts",
+        "line": 104,
+        "locale": "fa"
+      }
+    ],
+    "context": "gregorian calendar month 10; bill dates, public web, social previews and mobile.",
+    "notes": "Shared vocabulary: apply together across copies after review. Pashto Solar Hijri names differ from Dari zodiac names; confirm preferred spellings. Qamari spellings need native-speaker review."
+  },
+  {
+    "id": "backend-extra:calendar.gregorian.month-11",
+    "current": {
+      "en": "Nov",
+      "fa": "نومبر",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "نومبر"
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/shared/jalali.go",
+        "line": 35,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/jalali.go",
+        "line": 40,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 281,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 282,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/web/src/pages/CustomerView.tsx",
+        "line": 372,
+        "locale": "en"
+      },
+      {
+        "path": "apps/web/src/pages/CustomerView.tsx",
+        "line": 387,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/mobile/lib/jalali.ts",
+        "line": 84,
+        "locale": "en"
+      },
+      {
+        "path": "apps/mobile/lib/jalali.ts",
+        "line": 105,
+        "locale": "fa"
+      }
+    ],
+    "context": "gregorian calendar month 11; bill dates, public web, social previews and mobile.",
+    "notes": "Shared vocabulary: apply together across copies after review. Pashto Solar Hijri names differ from Dari zodiac names; confirm preferred spellings. Qamari spellings need native-speaker review."
+  },
+  {
+    "id": "backend-extra:calendar.gregorian.month-12",
+    "current": {
+      "en": "Dec",
+      "fa": "دسمبر",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "دسمبر"
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/shared/jalali.go",
+        "line": 35,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/jalali.go",
+        "line": 40,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 281,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 282,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/web/src/pages/CustomerView.tsx",
+        "line": 373,
+        "locale": "en"
+      },
+      {
+        "path": "apps/web/src/pages/CustomerView.tsx",
+        "line": 388,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/mobile/lib/jalali.ts",
+        "line": 85,
+        "locale": "en"
+      },
+      {
+        "path": "apps/mobile/lib/jalali.ts",
+        "line": 106,
+        "locale": "fa"
+      }
+    ],
+    "context": "gregorian calendar month 12; bill dates, public web, social previews and mobile.",
+    "notes": "Shared vocabulary: apply together across copies after review. Pashto Solar Hijri names differ from Dari zodiac names; confirm preferred spellings. Qamari spellings need native-speaker review."
+  },
+  {
+    "id": "backend-extra:calendar.qamari.month-01",
+    "current": {
+      "en": "Muharram",
+      "fa": "محرم",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "محرم"
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/shared/jalali.go",
+        "line": 44,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/jalali.go",
+        "line": 49,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 283,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 284,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/web/src/lib/customer-dates.ts",
+        "line": 13,
+        "locale": "en"
+      },
+      {
+        "path": "apps/web/src/lib/customer-dates.ts",
+        "line": 27,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/mobile/lib/jalali.ts",
+        "line": 125,
+        "locale": "en"
+      },
+      {
+        "path": "apps/mobile/lib/jalali.ts",
+        "line": 110,
+        "locale": "fa"
+      }
+    ],
+    "context": "qamari calendar month 1; bill dates, public web, social previews and mobile.",
+    "notes": "Shared vocabulary: apply together across copies after review. Pashto Solar Hijri names differ from Dari zodiac names; confirm preferred spellings. Qamari spellings need native-speaker review."
+  },
+  {
+    "id": "backend-extra:calendar.qamari.month-02",
+    "current": {
+      "en": "Safar",
+      "fa": "صفر",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "صفر"
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/shared/jalali.go",
+        "line": 44,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/jalali.go",
+        "line": 49,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 283,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 284,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/web/src/lib/customer-dates.ts",
+        "line": 14,
+        "locale": "en"
+      },
+      {
+        "path": "apps/web/src/lib/customer-dates.ts",
+        "line": 28,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/mobile/lib/jalali.ts",
+        "line": 126,
+        "locale": "en"
+      },
+      {
+        "path": "apps/mobile/lib/jalali.ts",
+        "line": 111,
+        "locale": "fa"
+      }
+    ],
+    "context": "qamari calendar month 2; bill dates, public web, social previews and mobile.",
+    "notes": "Shared vocabulary: apply together across copies after review. Pashto Solar Hijri names differ from Dari zodiac names; confirm preferred spellings. Qamari spellings need native-speaker review."
+  },
+  {
+    "id": "backend-extra:calendar.qamari.month-03",
+    "current": {
+      "en": "Rabi al-Awwal",
+      "fa": "ربیع‌الاول",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "ربیع الاول"
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/shared/jalali.go",
+        "line": 44,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/jalali.go",
+        "line": 49,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 283,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 284,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/web/src/lib/customer-dates.ts",
+        "line": 15,
+        "locale": "en"
+      },
+      {
+        "path": "apps/web/src/lib/customer-dates.ts",
+        "line": 29,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/mobile/lib/jalali.ts",
+        "line": 127,
+        "locale": "en"
+      },
+      {
+        "path": "apps/mobile/lib/jalali.ts",
+        "line": 112,
+        "locale": "fa"
+      }
+    ],
+    "context": "qamari calendar month 3; bill dates, public web, social previews and mobile.",
+    "notes": "Shared vocabulary: apply together across copies after review. Pashto Solar Hijri names differ from Dari zodiac names; confirm preferred spellings. Qamari spellings need native-speaker review."
+  },
+  {
+    "id": "backend-extra:calendar.qamari.month-04",
+    "current": {
+      "en": "Rabi al-Thani",
+      "fa": "ربیع‌الثانی",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "ربیع الثاني"
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/shared/jalali.go",
+        "line": 44,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/jalali.go",
+        "line": 49,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 283,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 284,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/web/src/lib/customer-dates.ts",
+        "line": 16,
+        "locale": "en"
+      },
+      {
+        "path": "apps/web/src/lib/customer-dates.ts",
+        "line": 30,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/mobile/lib/jalali.ts",
+        "line": 128,
+        "locale": "en"
+      },
+      {
+        "path": "apps/mobile/lib/jalali.ts",
+        "line": 113,
+        "locale": "fa"
+      }
+    ],
+    "context": "qamari calendar month 4; bill dates, public web, social previews and mobile.",
+    "notes": "Shared vocabulary: apply together across copies after review. Pashto Solar Hijri names differ from Dari zodiac names; confirm preferred spellings. Qamari spellings need native-speaker review."
+  },
+  {
+    "id": "backend-extra:calendar.qamari.month-05",
+    "current": {
+      "en": "Jumada al-Awwal",
+      "fa": "جمادی‌الاول",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "جمادی الاول"
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/shared/jalali.go",
+        "line": 44,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/jalali.go",
+        "line": 49,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 283,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 284,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/web/src/lib/customer-dates.ts",
+        "line": 17,
+        "locale": "en"
+      },
+      {
+        "path": "apps/web/src/lib/customer-dates.ts",
+        "line": 31,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/mobile/lib/jalali.ts",
+        "line": 129,
+        "locale": "en"
+      },
+      {
+        "path": "apps/mobile/lib/jalali.ts",
+        "line": 114,
+        "locale": "fa"
+      }
+    ],
+    "context": "qamari calendar month 5; bill dates, public web, social previews and mobile.",
+    "notes": "Shared vocabulary: apply together across copies after review. Pashto Solar Hijri names differ from Dari zodiac names; confirm preferred spellings. Qamari spellings need native-speaker review."
+  },
+  {
+    "id": "backend-extra:calendar.qamari.month-06",
+    "current": {
+      "en": "Jumada al-Thani",
+      "fa": "جمادی‌الثانی",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "جمادی الثاني"
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/shared/jalali.go",
+        "line": 44,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/jalali.go",
+        "line": 49,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 283,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 284,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/web/src/lib/customer-dates.ts",
+        "line": 18,
+        "locale": "en"
+      },
+      {
+        "path": "apps/web/src/lib/customer-dates.ts",
+        "line": 32,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/mobile/lib/jalali.ts",
+        "line": 130,
+        "locale": "en"
+      },
+      {
+        "path": "apps/mobile/lib/jalali.ts",
+        "line": 115,
+        "locale": "fa"
+      }
+    ],
+    "context": "qamari calendar month 6; bill dates, public web, social previews and mobile.",
+    "notes": "Shared vocabulary: apply together across copies after review. Pashto Solar Hijri names differ from Dari zodiac names; confirm preferred spellings. Qamari spellings need native-speaker review."
+  },
+  {
+    "id": "backend-extra:calendar.qamari.month-07",
+    "current": {
+      "en": "Rajab",
+      "fa": "رجب",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "رجب"
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/shared/jalali.go",
+        "line": 45,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/jalali.go",
+        "line": 50,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 283,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 284,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/web/src/lib/customer-dates.ts",
+        "line": 19,
+        "locale": "en"
+      },
+      {
+        "path": "apps/web/src/lib/customer-dates.ts",
+        "line": 33,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/mobile/lib/jalali.ts",
+        "line": 131,
+        "locale": "en"
+      },
+      {
+        "path": "apps/mobile/lib/jalali.ts",
+        "line": 116,
+        "locale": "fa"
+      }
+    ],
+    "context": "qamari calendar month 7; bill dates, public web, social previews and mobile.",
+    "notes": "Shared vocabulary: apply together across copies after review. Pashto Solar Hijri names differ from Dari zodiac names; confirm preferred spellings. Qamari spellings need native-speaker review."
+  },
+  {
+    "id": "backend-extra:calendar.qamari.month-08",
+    "current": {
+      "en": "Sha'ban",
+      "fa": "شعبان",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "شعبان"
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/shared/jalali.go",
+        "line": 45,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/jalali.go",
+        "line": 50,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 283,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 284,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/web/src/lib/customer-dates.ts",
+        "line": 20,
+        "locale": "en"
+      },
+      {
+        "path": "apps/web/src/lib/customer-dates.ts",
+        "line": 34,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/mobile/lib/jalali.ts",
+        "line": 132,
+        "locale": "en"
+      },
+      {
+        "path": "apps/mobile/lib/jalali.ts",
+        "line": 117,
+        "locale": "fa"
+      }
+    ],
+    "context": "qamari calendar month 8; bill dates, public web, social previews and mobile.",
+    "notes": "Shared vocabulary: apply together across copies after review. Pashto Solar Hijri names differ from Dari zodiac names; confirm preferred spellings. Qamari spellings need native-speaker review."
+  },
+  {
+    "id": "backend-extra:calendar.qamari.month-09",
+    "current": {
+      "en": "Ramadan",
+      "fa": "رمضان",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "رمضان"
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/shared/jalali.go",
+        "line": 45,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/jalali.go",
+        "line": 50,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 283,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 284,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/web/src/lib/customer-dates.ts",
+        "line": 21,
+        "locale": "en"
+      },
+      {
+        "path": "apps/web/src/lib/customer-dates.ts",
+        "line": 35,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/mobile/lib/jalali.ts",
+        "line": 133,
+        "locale": "en"
+      },
+      {
+        "path": "apps/mobile/lib/jalali.ts",
+        "line": 118,
+        "locale": "fa"
+      }
+    ],
+    "context": "qamari calendar month 9; bill dates, public web, social previews and mobile.",
+    "notes": "Shared vocabulary: apply together across copies after review. Pashto Solar Hijri names differ from Dari zodiac names; confirm preferred spellings. Qamari spellings need native-speaker review."
+  },
+  {
+    "id": "backend-extra:calendar.qamari.month-10",
+    "current": {
+      "en": "Shawwal",
+      "fa": "شوال",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "شوال"
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/shared/jalali.go",
+        "line": 45,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/jalali.go",
+        "line": 50,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 283,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 284,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/web/src/lib/customer-dates.ts",
+        "line": 22,
+        "locale": "en"
+      },
+      {
+        "path": "apps/web/src/lib/customer-dates.ts",
+        "line": 36,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/mobile/lib/jalali.ts",
+        "line": 134,
+        "locale": "en"
+      },
+      {
+        "path": "apps/mobile/lib/jalali.ts",
+        "line": 119,
+        "locale": "fa"
+      }
+    ],
+    "context": "qamari calendar month 10; bill dates, public web, social previews and mobile.",
+    "notes": "Shared vocabulary: apply together across copies after review. Pashto Solar Hijri names differ from Dari zodiac names; confirm preferred spellings. Qamari spellings need native-speaker review."
+  },
+  {
+    "id": "backend-extra:calendar.qamari.month-11",
+    "current": {
+      "en": "Dhu al-Qadah",
+      "fa": "ذوالقعده",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "ذوالقعده"
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/shared/jalali.go",
+        "line": 45,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/jalali.go",
+        "line": 50,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 283,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 284,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/web/src/lib/customer-dates.ts",
+        "line": 23,
+        "locale": "en"
+      },
+      {
+        "path": "apps/web/src/lib/customer-dates.ts",
+        "line": 37,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/mobile/lib/jalali.ts",
+        "line": 135,
+        "locale": "en"
+      },
+      {
+        "path": "apps/mobile/lib/jalali.ts",
+        "line": 120,
+        "locale": "fa"
+      }
+    ],
+    "context": "qamari calendar month 11; bill dates, public web, social previews and mobile.",
+    "notes": "Shared vocabulary: apply together across copies after review. Pashto Solar Hijri names differ from Dari zodiac names; confirm preferred spellings. Qamari spellings need native-speaker review."
+  },
+  {
+    "id": "backend-extra:calendar.qamari.month-12",
+    "current": {
+      "en": "Dhu al-Hijjah",
+      "fa": "ذوالحجه",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "ذوالحجه"
+    },
+    "sources": [
+      {
+        "path": "apps/backend/internal/shared/jalali.go",
+        "line": 45,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/jalali.go",
+        "line": 50,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 283,
+        "locale": "en"
+      },
+      {
+        "path": "apps/backend/internal/shared/templates.go",
+        "line": 284,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/web/src/lib/customer-dates.ts",
+        "line": 24,
+        "locale": "en"
+      },
+      {
+        "path": "apps/web/src/lib/customer-dates.ts",
+        "line": 38,
+        "locale": "fa"
+      },
+      {
+        "path": "apps/mobile/lib/jalali.ts",
+        "line": 136,
+        "locale": "en"
+      },
+      {
+        "path": "apps/mobile/lib/jalali.ts",
+        "line": 121,
+        "locale": "fa"
+      }
+    ],
+    "context": "qamari calendar month 12; bill dates, public web, social previews and mobile.",
+    "notes": "Shared vocabulary: apply together across copies after review. Pashto Solar Hijri names differ from Dari zodiac names; confirm preferred spellings. Qamari spellings need native-speaker review."
+  },
+  {
+    "id": "web-extra:document.page-title",
+    "current": {
+      "en": "Kaata — A quiet ledger between you and the people you trust.",
+      "fa": "کاتا — یک کاتای آرام بین شما و کسانی که به آنها اعتماد دارید.",
+      "ps": null
+    },
+    "proposed": {
+      "en": null,
+      "fa": null,
+      "ps": "کاټه — ستاسو او د هغو خلکو ترمنځ یوه ارامه کاټه چې باور پرې لرئ."
+    },
+    "sources": [
+      {
+        "path": "apps/web/src/lib/i18n.tsx",
+        "line": 324,
+        "locale": "en"
+      },
+      {
+        "path": "apps/web/src/lib/i18n.tsx",
+        "line": 325,
+        "locale": "fa"
+      }
+    ],
+    "context": "Browser document title set by I18nProvider outside the central text table.",
+    "notes": "Keep product spelling consistent with the reviewed wordmark."
+  }
+]

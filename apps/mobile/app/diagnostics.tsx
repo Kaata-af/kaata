@@ -36,6 +36,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { ScreenHeader } from "../components/SettingsScreen";
 import { trackingSafe, useIsRTL } from "../lib/direction";
+import { tExtra } from "../lib/mobile-copy";
 import { t } from "../lib/i18n";
 import { useToast } from "../components/Toast";
 import { colors } from "../lib/colors";
@@ -301,8 +302,8 @@ export default function DiagnosticsScreen() {
           {t("diagnostics.section.version")}
         </Text>
         <Text style={styles.mono}>
-          app {appVersion}
-          {buildNumber ? ` · build ${buildNumber}` : ""}
+          {tExtra("diagnostics.appVersion", { appVersion })}
+          {buildNumber ? tExtra("diagnostics.build", { buildNumber }) : ""}
         </Text>
         {jsBundleVersion && jsBundleVersion !== appVersion ? (
           <Text style={styles.warn}>
@@ -418,17 +419,16 @@ export default function DiagnosticsScreen() {
 
         {__DEV__ ? (
           <>
-            <Text style={[styles.section, trackingSafe(isRTL)]}>DEV ONLY</Text>
-            <Text style={styles.copyHint}>
-              Wipes kaata.db (all ledger + onboarding state) and reloads, so you land back on
-              onboarding. Never ships — __DEV__ gated.
+            <Text style={[styles.section, trackingSafe(isRTL)]}>
+              {tExtra("diagnostics.devOnly")}
             </Text>
+            <Text style={styles.copyHint}>{tExtra("diagnostics.resetExplain")}</Text>
             <Pressable
               style={[styles.dangerBtn, resetArmed && styles.dangerBtnArmed]}
               onPress={onResetPress}
             >
               <Text style={[styles.dangerBtnText, resetArmed && styles.dangerBtnTextArmed]}>
-                {resetArmed ? "Tap again to wipe & reload" : "Reset all data"}
+                {resetArmed ? tExtra("diagnostics.resetArmed") : tExtra("diagnostics.reset")}
               </Text>
             </Pressable>
           </>

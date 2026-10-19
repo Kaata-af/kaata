@@ -52,7 +52,7 @@ func TestBillInlineDecimalCoherence(t *testing.T) {
 		t.Fatal("inline chapter coherence block not found")
 	}
 	program := function("fmtAmt") + function("moneyMinor") + `
-var rtl=true;
+var rtl=true,lang='fa';
 if(fmtAmt(12.5)!=='۱۲٫۵۰') throw new Error('fractional amount must keep two digits');
 if(fmtAmt(1234)!=='۱٬۲۳۴') throw new Error('old whole amount must remain unchanged');
 if(fmtAmt(1234.56)!=='۱٬۲۳۴٫۵۶') throw new Error('decimal thousands grouping differs');

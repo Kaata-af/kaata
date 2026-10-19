@@ -14,6 +14,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/matee/kaata-backend/internal/locale"
 )
 
 var afghanMonths = [12]string{
@@ -185,6 +187,15 @@ var kabulTZ = time.FixedZone("AFT", 4*3600+30*60)
 // boolean drove both, so "Dari language, Gregorian dates" was inexpressible.
 // Empty string when ms is unusable.
 func billDate(ms int64, rtl bool, calendar string, qamariOffset int) string {
+	lang := "en"
+	if rtl {
+		lang = "fa"
+	}
+	return billDateForLanguage(ms, lang, calendar, qamariOffset)
+}
+
+func billDateForLanguage(ms int64, lang, calendar string, qamariOffset int) string {
+	rtl := locale.RTL(lang)
 	// Zero is the missing generated_at sentinel. Legacy calendars also treated
 	// every pre-1970 timestamp as missing; preserve that rule for old bills.
 	// Qamari accepts negative timestamps so its pre-Hijri Gregorian fallback
@@ -205,6 +216,9 @@ func billDate(ms int64, rtl bool, calendar string, qamariOffset int) string {
 			if rtl {
 				month = qamariMonthsFa[hm-1]
 			}
+			if lang == "ps" {
+				month = qamariMonthsPs[hm-1]
+			}
 			return num(hd) + " " + month + " " + num(hy)
 		}
 	}
@@ -214,6 +228,9 @@ func billDate(ms int64, rtl bool, calendar string, qamariOffset int) string {
 			if rtl {
 				month = afghanMonths[jm-1]
 			}
+			if lang == "ps" {
+				month = afghanMonthsPs[jm-1]
+			}
 			return num(jd) + " " + month + " " + num(jy)
 		}
 	}
@@ -221,5 +238,14 @@ func billDate(ms int64, rtl bool, calendar string, qamariOffset int) string {
 	if rtl {
 		month = gregorianMonthsFa[int(t.Month())-1]
 	}
+	if lang == "ps" {
+		month = gregorianMonthsPs[int(t.Month())-1]
+	}
 	return num(t.Day()) + " " + month + " " + num(t.Year())
 }
+
+var afghanMonthsPs = [12]string{"وری", "غویی", "غبرګولی", "چنګاښ", "زمری", "وږی", "تله", "لړم", "لیندۍ", "مرغومی", "سلواغه", "کب"}
+
+var gregorianMonthsPs = [12]string{"جنوري", "فبروري", "مارچ", "اپرېل", "مې", "جون", "جولای", "اګست", "سپتمبر", "اکتوبر", "نومبر", "دسمبر"}
+
+var qamariMonthsPs = [12]string{"محرم", "صفر", "ربیع‌الاول", "ربیع‌الثاني", "جمادی‌الاول", "جمادی‌الثاني", "رجب", "شعبان", "رمضان", "شوال", "ذوالقعده", "ذوالحجه"}

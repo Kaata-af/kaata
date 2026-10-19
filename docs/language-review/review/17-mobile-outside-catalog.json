@@ -1,0 +1,3317 @@
+{
+  "$schema": "../review.schema.json",
+  "format_version": 1,
+  "section": "17-mobile-outside-catalog",
+  "entries": [
+    {
+      "id": "mobile-extra:currency.AFN",
+      "current": {
+        "en": "Afghan Afghani",
+        "fa": "افغانی",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "افغانۍ"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/lib/currency.ts",
+          "line": 33,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/currency.ts",
+          "line": 33,
+          "locale": "fa"
+        }
+      ],
+      "context": "Currency name in currency pickers. ISO code and currency symbol are identifiers and should remain unchanged.",
+      "notes": "",
+      "approved_locales": [
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:currency.USD",
+      "current": {
+        "en": "US Dollar",
+        "fa": "دالر امریکا",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "امریکایي ډالر"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/lib/currency.ts",
+          "line": 34,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/currency.ts",
+          "line": 34,
+          "locale": "fa"
+        }
+      ],
+      "context": "Currency name in currency pickers. ISO code and currency symbol are identifiers and should remain unchanged.",
+      "notes": "",
+      "approved_locales": [
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:currency.EUR",
+      "current": {
+        "en": "Euro",
+        "fa": "یورو",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "یورو"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/lib/currency.ts",
+          "line": 35,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/currency.ts",
+          "line": 35,
+          "locale": "fa"
+        }
+      ],
+      "context": "Currency name in currency pickers. ISO code and currency symbol are identifiers and should remain unchanged.",
+      "notes": "",
+      "approved_locales": [
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:currency.AUD",
+      "current": {
+        "en": "Australian Dollar",
+        "fa": "دالر آسترالیا",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "اسټرالیايي ډالر"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/lib/currency.ts",
+          "line": 36,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/currency.ts",
+          "line": 36,
+          "locale": "fa"
+        }
+      ],
+      "context": "Currency name in currency pickers. ISO code and currency symbol are identifiers and should remain unchanged.",
+      "notes": "",
+      "approved_locales": [
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:currency.GBP",
+      "current": {
+        "en": "British Pound",
+        "fa": "پوند انگلیس",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "برتانوي پونډ"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/lib/currency.ts",
+          "line": 37,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/currency.ts",
+          "line": 37,
+          "locale": "fa"
+        }
+      ],
+      "context": "Currency name in currency pickers. ISO code and currency symbol are identifiers and should remain unchanged.",
+      "notes": "",
+      "approved_locales": [
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:currency.PKR",
+      "current": {
+        "en": "Pakistani Rupee",
+        "fa": "روپیه پاکستان",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "پاکستانۍ روپۍ"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/lib/currency.ts",
+          "line": 38,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/currency.ts",
+          "line": 38,
+          "locale": "fa"
+        }
+      ],
+      "context": "Currency name in currency pickers. ISO code and currency symbol are identifiers and should remain unchanged.",
+      "notes": "",
+      "approved_locales": [
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:currency.IRR",
+      "current": {
+        "en": "Iranian Rial",
+        "fa": "ریال ایران",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ایراني ریال"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/lib/currency.ts",
+          "line": 39,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/currency.ts",
+          "line": 39,
+          "locale": "fa"
+        }
+      ],
+      "context": "Currency name in currency pickers. ISO code and currency symbol are identifiers and should remain unchanged.",
+      "notes": "",
+      "approved_locales": [
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:currency.AED",
+      "current": {
+        "en": "UAE Dirham",
+        "fa": "درهم امارات",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د متحده عربي اماراتو درهم"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/lib/currency.ts",
+          "line": 40,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/currency.ts",
+          "line": 40,
+          "locale": "fa"
+        }
+      ],
+      "context": "Currency name in currency pickers. ISO code and currency symbol are identifiers and should remain unchanged.",
+      "notes": "",
+      "approved_locales": [
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:currency.TRY",
+      "current": {
+        "en": "Turkish Lira",
+        "fa": "لیره ترکیه",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ترکي لیره"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/lib/currency.ts",
+          "line": 41,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/currency.ts",
+          "line": 41,
+          "locale": "fa"
+        }
+      ],
+      "context": "Currency name in currency pickers. ISO code and currency symbol are identifiers and should remain unchanged.",
+      "notes": "",
+      "approved_locales": [
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:calendar.jalali.month.1",
+      "current": {
+        "en": "Hamal",
+        "fa": "حمل",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "وری"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/lib/jalali.ts",
+          "line": 57,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/jalali.ts",
+          "line": 39,
+          "locale": "fa"
+        }
+      ],
+      "context": "jalali month 1 used by date formatting and calendar pickers.",
+      "notes": "Pashto draft uses Pashto Afghan month names; confirm desired calendar terminology.",
+      "approved_locales": [
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:calendar.jalali.month.2",
+      "current": {
+        "en": "Sawr",
+        "fa": "ثور",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "غویی"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/lib/jalali.ts",
+          "line": 58,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/jalali.ts",
+          "line": 40,
+          "locale": "fa"
+        }
+      ],
+      "context": "jalali month 2 used by date formatting and calendar pickers.",
+      "notes": "Pashto draft uses Pashto Afghan month names; confirm desired calendar terminology.",
+      "approved_locales": [
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:calendar.jalali.month.3",
+      "current": {
+        "en": "Jawza",
+        "fa": "جوزا",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "غبرګولی"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/lib/jalali.ts",
+          "line": 59,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/jalali.ts",
+          "line": 41,
+          "locale": "fa"
+        }
+      ],
+      "context": "jalali month 3 used by date formatting and calendar pickers.",
+      "notes": "Pashto draft uses Pashto Afghan month names; confirm desired calendar terminology.",
+      "approved_locales": [
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:calendar.jalali.month.4",
+      "current": {
+        "en": "Saratan",
+        "fa": "سرطان",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "چنګاښ"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/lib/jalali.ts",
+          "line": 60,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/jalali.ts",
+          "line": 42,
+          "locale": "fa"
+        }
+      ],
+      "context": "jalali month 4 used by date formatting and calendar pickers.",
+      "notes": "Pashto draft uses Pashto Afghan month names; confirm desired calendar terminology.",
+      "approved_locales": [
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:calendar.jalali.month.5",
+      "current": {
+        "en": "Asad",
+        "fa": "اسد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "زمری"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/lib/jalali.ts",
+          "line": 61,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/jalali.ts",
+          "line": 43,
+          "locale": "fa"
+        }
+      ],
+      "context": "jalali month 5 used by date formatting and calendar pickers.",
+      "notes": "Pashto draft uses Pashto Afghan month names; confirm desired calendar terminology.",
+      "approved_locales": [
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:calendar.jalali.month.6",
+      "current": {
+        "en": "Sunbula",
+        "fa": "سنبله",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "وږی"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/lib/jalali.ts",
+          "line": 62,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/jalali.ts",
+          "line": 44,
+          "locale": "fa"
+        }
+      ],
+      "context": "jalali month 6 used by date formatting and calendar pickers.",
+      "notes": "Pashto draft uses Pashto Afghan month names; confirm desired calendar terminology.",
+      "approved_locales": [
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:calendar.jalali.month.7",
+      "current": {
+        "en": "Mizan",
+        "fa": "میزان",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "تله"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/lib/jalali.ts",
+          "line": 63,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/jalali.ts",
+          "line": 45,
+          "locale": "fa"
+        }
+      ],
+      "context": "jalali month 7 used by date formatting and calendar pickers.",
+      "notes": "Pashto draft uses Pashto Afghan month names; confirm desired calendar terminology.",
+      "approved_locales": [
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:calendar.jalali.month.8",
+      "current": {
+        "en": "Aqrab",
+        "fa": "عقرب",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "لړم"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/lib/jalali.ts",
+          "line": 64,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/jalali.ts",
+          "line": 46,
+          "locale": "fa"
+        }
+      ],
+      "context": "jalali month 8 used by date formatting and calendar pickers.",
+      "notes": "Pashto draft uses Pashto Afghan month names; confirm desired calendar terminology.",
+      "approved_locales": [
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:calendar.jalali.month.9",
+      "current": {
+        "en": "Qaws",
+        "fa": "قوس",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "لیندۍ"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/lib/jalali.ts",
+          "line": 65,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/jalali.ts",
+          "line": 47,
+          "locale": "fa"
+        }
+      ],
+      "context": "jalali month 9 used by date formatting and calendar pickers.",
+      "notes": "Pashto draft uses Pashto Afghan month names; confirm desired calendar terminology.",
+      "approved_locales": [
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:calendar.jalali.month.10",
+      "current": {
+        "en": "Jadi",
+        "fa": "جدی",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "مرغومی"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/lib/jalali.ts",
+          "line": 66,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/jalali.ts",
+          "line": 48,
+          "locale": "fa"
+        }
+      ],
+      "context": "jalali month 10 used by date formatting and calendar pickers.",
+      "notes": "Pashto draft uses Pashto Afghan month names; confirm desired calendar terminology.",
+      "approved_locales": [
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:calendar.jalali.month.11",
+      "current": {
+        "en": "Dalw",
+        "fa": "دلو",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "سلواغه"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/lib/jalali.ts",
+          "line": 67,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/jalali.ts",
+          "line": 49,
+          "locale": "fa"
+        }
+      ],
+      "context": "jalali month 11 used by date formatting and calendar pickers.",
+      "notes": "Pashto draft uses Pashto Afghan month names; confirm desired calendar terminology.",
+      "approved_locales": [
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:calendar.jalali.month.12",
+      "current": {
+        "en": "Hut",
+        "fa": "حوت",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "کب"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/lib/jalali.ts",
+          "line": 68,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/jalali.ts",
+          "line": 50,
+          "locale": "fa"
+        }
+      ],
+      "context": "jalali month 12 used by date formatting and calendar pickers.",
+      "notes": "Pashto draft uses Pashto Afghan month names; confirm desired calendar terminology.",
+      "approved_locales": [
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:calendar.gregorian.month.1",
+      "current": {
+        "en": "Jan",
+        "fa": "جنوری",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "جنوري"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/lib/jalali.ts",
+          "line": 74,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/jalali.ts",
+          "line": 95,
+          "locale": "fa"
+        }
+      ],
+      "context": "gregorian month 1 used by date formatting and calendar pickers.",
+      "notes": "",
+      "approved_locales": [
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:calendar.gregorian.month.2",
+      "current": {
+        "en": "Feb",
+        "fa": "فبروری",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "فبروري"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/lib/jalali.ts",
+          "line": 75,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/jalali.ts",
+          "line": 96,
+          "locale": "fa"
+        }
+      ],
+      "context": "gregorian month 2 used by date formatting and calendar pickers.",
+      "notes": "",
+      "approved_locales": [
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:calendar.gregorian.month.3",
+      "current": {
+        "en": "Mar",
+        "fa": "مارچ",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "مارچ"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/lib/jalali.ts",
+          "line": 76,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/jalali.ts",
+          "line": 97,
+          "locale": "fa"
+        }
+      ],
+      "context": "gregorian month 3 used by date formatting and calendar pickers.",
+      "notes": "",
+      "approved_locales": [
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:calendar.gregorian.month.4",
+      "current": {
+        "en": "Apr",
+        "fa": "اپریل",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "اپرېل"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/lib/jalali.ts",
+          "line": 77,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/jalali.ts",
+          "line": 98,
+          "locale": "fa"
+        }
+      ],
+      "context": "gregorian month 4 used by date formatting and calendar pickers.",
+      "notes": "",
+      "approved_locales": [
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:calendar.gregorian.month.5",
+      "current": {
+        "en": "May",
+        "fa": "می",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "مې"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/lib/jalali.ts",
+          "line": 78,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/jalali.ts",
+          "line": 99,
+          "locale": "fa"
+        }
+      ],
+      "context": "gregorian month 5 used by date formatting and calendar pickers.",
+      "notes": "",
+      "approved_locales": [
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:calendar.gregorian.month.6",
+      "current": {
+        "en": "Jun",
+        "fa": "جون",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "جون"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/lib/jalali.ts",
+          "line": 79,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/jalali.ts",
+          "line": 100,
+          "locale": "fa"
+        }
+      ],
+      "context": "gregorian month 6 used by date formatting and calendar pickers.",
+      "notes": "",
+      "approved_locales": [
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:calendar.gregorian.month.7",
+      "current": {
+        "en": "Jul",
+        "fa": "جولای",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "جولای"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/lib/jalali.ts",
+          "line": 80,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/jalali.ts",
+          "line": 101,
+          "locale": "fa"
+        }
+      ],
+      "context": "gregorian month 7 used by date formatting and calendar pickers.",
+      "notes": "",
+      "approved_locales": [
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:calendar.gregorian.month.8",
+      "current": {
+        "en": "Aug",
+        "fa": "اگست",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "اګست"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/lib/jalali.ts",
+          "line": 81,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/jalali.ts",
+          "line": 102,
+          "locale": "fa"
+        }
+      ],
+      "context": "gregorian month 8 used by date formatting and calendar pickers.",
+      "notes": "",
+      "approved_locales": [
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:calendar.gregorian.month.9",
+      "current": {
+        "en": "Sep",
+        "fa": "سپتمبر",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "سپتمبر"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/lib/jalali.ts",
+          "line": 82,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/jalali.ts",
+          "line": 103,
+          "locale": "fa"
+        }
+      ],
+      "context": "gregorian month 9 used by date formatting and calendar pickers.",
+      "notes": "",
+      "approved_locales": [
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:calendar.gregorian.month.10",
+      "current": {
+        "en": "Oct",
+        "fa": "اکتوبر",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "اکتوبر"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/lib/jalali.ts",
+          "line": 83,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/jalali.ts",
+          "line": 104,
+          "locale": "fa"
+        }
+      ],
+      "context": "gregorian month 10 used by date formatting and calendar pickers.",
+      "notes": "",
+      "approved_locales": [
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:calendar.gregorian.month.11",
+      "current": {
+        "en": "Nov",
+        "fa": "نومبر",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "نومبر"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/lib/jalali.ts",
+          "line": 84,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/jalali.ts",
+          "line": 105,
+          "locale": "fa"
+        }
+      ],
+      "context": "gregorian month 11 used by date formatting and calendar pickers.",
+      "notes": "",
+      "approved_locales": [
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:calendar.gregorian.month.12",
+      "current": {
+        "en": "Dec",
+        "fa": "دسمبر",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "دسمبر"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/lib/jalali.ts",
+          "line": 85,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/jalali.ts",
+          "line": 106,
+          "locale": "fa"
+        }
+      ],
+      "context": "gregorian month 12 used by date formatting and calendar pickers.",
+      "notes": "",
+      "approved_locales": [
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:calendar.qamari.month.1",
+      "current": {
+        "en": "Muharram",
+        "fa": "محرم",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "محرم"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/lib/jalali.ts",
+          "line": 125,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/jalali.ts",
+          "line": 110,
+          "locale": "fa"
+        }
+      ],
+      "context": "qamari month 1 used by date formatting and calendar pickers.",
+      "notes": "",
+      "approved_locales": [
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:calendar.qamari.month.2",
+      "current": {
+        "en": "Safar",
+        "fa": "صفر",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "صفر"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/lib/jalali.ts",
+          "line": 126,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/jalali.ts",
+          "line": 111,
+          "locale": "fa"
+        }
+      ],
+      "context": "qamari month 2 used by date formatting and calendar pickers.",
+      "notes": "",
+      "approved_locales": [
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:calendar.qamari.month.3",
+      "current": {
+        "en": "Rabi al-Awwal",
+        "fa": "ربیع‌الاول",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ربیع‌الاول"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/lib/jalali.ts",
+          "line": 127,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/jalali.ts",
+          "line": 112,
+          "locale": "fa"
+        }
+      ],
+      "context": "qamari month 3 used by date formatting and calendar pickers.",
+      "notes": "",
+      "approved_locales": [
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:calendar.qamari.month.4",
+      "current": {
+        "en": "Rabi al-Thani",
+        "fa": "ربیع‌الثانی",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ربیع‌الثاني"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/lib/jalali.ts",
+          "line": 128,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/jalali.ts",
+          "line": 113,
+          "locale": "fa"
+        }
+      ],
+      "context": "qamari month 4 used by date formatting and calendar pickers.",
+      "notes": "",
+      "approved_locales": [
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:calendar.qamari.month.5",
+      "current": {
+        "en": "Jumada al-Awwal",
+        "fa": "جمادی‌الاول",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "جمادی‌الاول"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/lib/jalali.ts",
+          "line": 129,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/jalali.ts",
+          "line": 114,
+          "locale": "fa"
+        }
+      ],
+      "context": "qamari month 5 used by date formatting and calendar pickers.",
+      "notes": "",
+      "approved_locales": [
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:calendar.qamari.month.6",
+      "current": {
+        "en": "Jumada al-Thani",
+        "fa": "جمادی‌الثانی",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "جمادی‌الثاني"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/lib/jalali.ts",
+          "line": 130,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/jalali.ts",
+          "line": 115,
+          "locale": "fa"
+        }
+      ],
+      "context": "qamari month 6 used by date formatting and calendar pickers.",
+      "notes": "",
+      "approved_locales": [
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:calendar.qamari.month.7",
+      "current": {
+        "en": "Rajab",
+        "fa": "رجب",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "رجب"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/lib/jalali.ts",
+          "line": 131,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/jalali.ts",
+          "line": 116,
+          "locale": "fa"
+        }
+      ],
+      "context": "qamari month 7 used by date formatting and calendar pickers.",
+      "notes": "",
+      "approved_locales": [
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:calendar.qamari.month.8",
+      "current": {
+        "en": "Sha'ban",
+        "fa": "شعبان",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "شعبان"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/lib/jalali.ts",
+          "line": 132,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/jalali.ts",
+          "line": 117,
+          "locale": "fa"
+        }
+      ],
+      "context": "qamari month 8 used by date formatting and calendar pickers.",
+      "notes": "",
+      "approved_locales": [
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:calendar.qamari.month.9",
+      "current": {
+        "en": "Ramadan",
+        "fa": "رمضان",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "رمضان"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/lib/jalali.ts",
+          "line": 133,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/jalali.ts",
+          "line": 118,
+          "locale": "fa"
+        }
+      ],
+      "context": "qamari month 9 used by date formatting and calendar pickers.",
+      "notes": "",
+      "approved_locales": [
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:calendar.qamari.month.10",
+      "current": {
+        "en": "Shawwal",
+        "fa": "شوال",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "شوال"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/lib/jalali.ts",
+          "line": 134,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/jalali.ts",
+          "line": 119,
+          "locale": "fa"
+        }
+      ],
+      "context": "qamari month 10 used by date formatting and calendar pickers.",
+      "notes": "",
+      "approved_locales": [
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:calendar.qamari.month.11",
+      "current": {
+        "en": "Dhu al-Qadah",
+        "fa": "ذوالقعده",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ذوالقعده"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/lib/jalali.ts",
+          "line": 135,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/jalali.ts",
+          "line": 120,
+          "locale": "fa"
+        }
+      ],
+      "context": "qamari month 11 used by date formatting and calendar pickers.",
+      "notes": "",
+      "approved_locales": [
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:calendar.qamari.month.12",
+      "current": {
+        "en": "Dhu al-Hijjah",
+        "fa": "ذوالحجه",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ذوالحجه"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/lib/jalali.ts",
+          "line": 136,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/jalali.ts",
+          "line": 121,
+          "locale": "fa"
+        }
+      ],
+      "context": "qamari month 12 used by date formatting and calendar pickers.",
+      "notes": "",
+      "approved_locales": [
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:country.AF",
+      "current": {
+        "en": "Afghanistan",
+        "fa": null,
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": "افغانستان",
+        "ps": "افغانستان"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/lib/phone.ts",
+          "line": 36,
+          "locale": "en"
+        }
+      ],
+      "context": "Country name in phone-country picker and account preference. Country ISO code, flag and dial code stay unchanged.",
+      "notes": "Existing mobile country names are English in every locale; no Dari value exists.",
+      "approved_locales": [
+        "fa",
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:country.AU",
+      "current": {
+        "en": "Australia",
+        "fa": null,
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": "آسترالیا",
+        "ps": "اسټرالیا"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/lib/phone.ts",
+          "line": 37,
+          "locale": "en"
+        }
+      ],
+      "context": "Country name in phone-country picker and account preference. Country ISO code, flag and dial code stay unchanged.",
+      "notes": "Existing mobile country names are English in every locale; no Dari value exists.",
+      "approved_locales": [
+        "fa",
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:country.DE",
+      "current": {
+        "en": "Germany",
+        "fa": null,
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": "آلمان",
+        "ps": "جرمني"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/lib/phone.ts",
+          "line": 38,
+          "locale": "en"
+        }
+      ],
+      "context": "Country name in phone-country picker and account preference. Country ISO code, flag and dial code stay unchanged.",
+      "notes": "Existing mobile country names are English in every locale; no Dari value exists.",
+      "approved_locales": [
+        "fa",
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:country.IR",
+      "current": {
+        "en": "Iran",
+        "fa": null,
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": "ایران",
+        "ps": "ایران"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/lib/phone.ts",
+          "line": 39,
+          "locale": "en"
+        }
+      ],
+      "context": "Country name in phone-country picker and account preference. Country ISO code, flag and dial code stay unchanged.",
+      "notes": "Existing mobile country names are English in every locale; no Dari value exists.",
+      "approved_locales": [
+        "fa",
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:country.NL",
+      "current": {
+        "en": "Netherlands",
+        "fa": null,
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": "هالند",
+        "ps": "هالنډ"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/lib/phone.ts",
+          "line": 40,
+          "locale": "en"
+        }
+      ],
+      "context": "Country name in phone-country picker and account preference. Country ISO code, flag and dial code stay unchanged.",
+      "notes": "Existing mobile country names are English in every locale; no Dari value exists.",
+      "approved_locales": [
+        "fa",
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:country.PK",
+      "current": {
+        "en": "Pakistan",
+        "fa": null,
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": "پاکستان",
+        "ps": "پاکستان"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/lib/phone.ts",
+          "line": 41,
+          "locale": "en"
+        }
+      ],
+      "context": "Country name in phone-country picker and account preference. Country ISO code, flag and dial code stay unchanged.",
+      "notes": "Existing mobile country names are English in every locale; no Dari value exists.",
+      "approved_locales": [
+        "fa",
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:country.SE",
+      "current": {
+        "en": "Sweden",
+        "fa": null,
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": "سویدن",
+        "ps": "سویډن"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/lib/phone.ts",
+          "line": 42,
+          "locale": "en"
+        }
+      ],
+      "context": "Country name in phone-country picker and account preference. Country ISO code, flag and dial code stay unchanged.",
+      "notes": "Existing mobile country names are English in every locale; no Dari value exists.",
+      "approved_locales": [
+        "fa",
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:country.TR",
+      "current": {
+        "en": "Turkey",
+        "fa": null,
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": "ترکیه",
+        "ps": "ترکیه"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/lib/phone.ts",
+          "line": 43,
+          "locale": "en"
+        }
+      ],
+      "context": "Country name in phone-country picker and account preference. Country ISO code, flag and dial code stay unchanged.",
+      "notes": "Existing mobile country names are English in every locale; no Dari value exists.",
+      "approved_locales": [
+        "fa",
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:country.AE",
+      "current": {
+        "en": "UAE",
+        "fa": null,
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": "امارات متحده عربی",
+        "ps": "متحده عربي امارات"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/lib/phone.ts",
+          "line": 44,
+          "locale": "en"
+        }
+      ],
+      "context": "Country name in phone-country picker and account preference. Country ISO code, flag and dial code stay unchanged.",
+      "notes": "Existing mobile country names are English in every locale; no Dari value exists.",
+      "approved_locales": [
+        "fa",
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:country.GB",
+      "current": {
+        "en": "United Kingdom",
+        "fa": null,
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": "بریتانیا",
+        "ps": "بریتانیا"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/lib/phone.ts",
+          "line": 45,
+          "locale": "en"
+        }
+      ],
+      "context": "Country name in phone-country picker and account preference. Country ISO code, flag and dial code stay unchanged.",
+      "notes": "Existing mobile country names are English in every locale; no Dari value exists.",
+      "approved_locales": [
+        "fa",
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:country.US",
+      "current": {
+        "en": "United States",
+        "fa": null,
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": "ایالات متحده امریکا",
+        "ps": "د امریکا متحده ایالات"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/lib/phone.ts",
+          "line": 46,
+          "locale": "en"
+        }
+      ],
+      "context": "Country name in phone-country picker and account preference. Country ISO code, flag and dial code stay unchanged.",
+      "notes": "Existing mobile country names are English in every locale; no Dari value exists.",
+      "approved_locales": [
+        "fa",
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:boot.settingUp",
+      "current": {
+        "en": "Setting up your kaata…",
+        "fa": "در حال آماده‌سازی کاتای شما…",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ستاسو کاټه چمتو کېږي…"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/app/_layout.tsx",
+          "line": 1047,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/app/_layout.tsx",
+          "line": 1048,
+          "locale": "fa"
+        }
+      ],
+      "context": "Boot, migration, or recovery screen; may render before language preferences can load.",
+      "notes": "Currently hardcoded English and Dari are shown together. Preserve a recovery path that does not require reading the damaged/unavailable database.",
+      "approved_locales": [
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:boot.almostReady",
+      "current": {
+        "en": "Almost ready",
+        "fa": "تقریباً آماده",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "نږدې چمتو ده"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/app/_layout.tsx",
+          "line": 1125,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/app/_layout.tsx",
+          "line": 1126,
+          "locale": "fa"
+        }
+      ],
+      "context": "Boot, migration, or recovery screen; may render before language preferences can load.",
+      "notes": "Currently hardcoded English and Dari are shown together. Preserve a recovery path that does not require reading the damaged/unavailable database.",
+      "approved_locales": [
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:boot.migrationInstructions",
+      "current": {
+        "en": "Please close kaata from your recent apps, then open it again. This is a one-time step for the new language settings to take effect.",
+        "fa": "لطفاً کاتا را از برنامه‌های اخیر ببندید و دوباره باز کنید. این یک‌بار برای اعمال تنظیمات زبان جدید لازم است.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "مهرباني وکړئ کاټه د وروستیو پرانیستل شوو اپونو له لېست څخه وتړئ او بیا یې پرانیزئ. دا کار د ژبې د نویو تنظیماتو د پلي کېدو لپاره یوازې یو ځل اړین دی."
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/app/_layout.tsx",
+          "line": 1129,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/app/_layout.tsx",
+          "line": 1134,
+          "locale": "fa"
+        }
+      ],
+      "context": "Boot, migration, or recovery screen; may render before language preferences can load.",
+      "notes": "Currently hardcoded English and Dari are shown together. Preserve a recovery path that does not require reading the damaged/unavailable database.",
+      "approved_locales": [
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:boot.closeKaata",
+      "current": {
+        "en": "Close kaata",
+        "fa": "بستن کاتا",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "کاټه وتړئ"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/app/_layout.tsx",
+          "line": 1144,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/app/_layout.tsx",
+          "line": 1144,
+          "locale": "fa"
+        },
+        {
+          "path": "apps/mobile/app/_layout.tsx",
+          "line": 1212,
+          "locale": "shared"
+        }
+      ],
+      "context": "Boot, migration, or recovery screen; may render before language preferences can load.",
+      "notes": "Currently hardcoded English and Dari are shown together. Preserve a recovery path that does not require reading the damaged/unavailable database.",
+      "approved_locales": [
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:boot.openDataFailed",
+      "current": {
+        "en": "Couldn't open your Kaata data",
+        "fa": "داده‌های کاتای شما باز نشد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ستاسو د کاټه معلومات پرانیستل نه شول"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/app/_layout.tsx",
+          "line": 1179,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/app/_layout.tsx",
+          "line": 1180,
+          "locale": "fa"
+        }
+      ],
+      "context": "Boot, migration, or recovery screen; may render before language preferences can load.",
+      "notes": "Currently hardcoded English and Dari are shown together. Preserve a recovery path that does not require reading the damaged/unavailable database.",
+      "approved_locales": [
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:boot.reopenAndroid",
+      "current": {
+        "en": "Please close kaata from your recent apps and open it again.",
+        "fa": "لطفاً کاتا را از برنامه‌های اخیر ببندید و دوباره باز کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "مهرباني وکړئ کاټه د وروستیو پرانیستل شوو اپونو له لېست څخه وتړئ او بیا یې پرانیزئ."
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/app/_layout.tsx",
+          "line": 1184,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/app/_layout.tsx",
+          "line": 1134,
+          "locale": "fa"
+        }
+      ],
+      "context": "Boot, migration, or recovery screen; may render before language preferences can load.",
+      "notes": "Currently hardcoded English and Dari are shown together. Preserve a recovery path that does not require reading the damaged/unavailable database.",
+      "approved_locales": [
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:boot.reopenIos",
+      "current": {
+        "en": "Please force-quit kaata (swipe up from the bottom and flick it away) and open it again.",
+        "fa": "لطفاً کاتا را به‌طور کامل ببندید (از پایین صفحه به بالا بکشید و آن را کنار بزنید) و دوباره باز کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "مهرباني وکړئ کاټه په بشپړه توګه وتړئ (د پردې له بېخه پورته ګوته کش کړئ او کاټه له لېست څخه لرې کړئ) او بیا یې پرانیزئ."
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/app/_layout.tsx",
+          "line": 1185,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/app/_layout.tsx",
+          "line": 1191,
+          "locale": "fa"
+        }
+      ],
+      "context": "Boot, migration, or recovery screen; may render before language preferences can load.",
+      "notes": "Currently hardcoded English and Dari are shown together. Preserve a recovery path that does not require reading the damaged/unavailable database.",
+      "approved_locales": [
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:boot.contactRecurring",
+      "current": {
+        "en": "If it keeps happening, contact {SUPPORT_CONTACT}",
+        "fa": "اگر تکرار شد، با {SUPPORT_CONTACT} تماس بگیرید",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "که دا ستونزه بیا راپېښه شوه، له {SUPPORT_CONTACT} سره اړیکه ونیسئ."
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/app/_layout.tsx",
+          "line": 1195,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/app/_layout.tsx",
+          "line": 1198,
+          "locale": "fa"
+        },
+        {
+          "path": "apps/mobile/app/_layout.tsx",
+          "line": 1504,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/app/_layout.tsx",
+          "line": 1507,
+          "locale": "fa"
+        }
+      ],
+      "context": "Boot, migration, or recovery screen; may render before language preferences can load.",
+      "notes": "{SUPPORT_CONTACT} represents a source JSX expression and must remain unchanged. Same copy also occurs at lines 1504/1507.",
+      "approved_locales": [
+        "ps"
+      ],
+      "placeholders": [
+        "SUPPORT_CONTACT"
+      ],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:boot.tryAgain",
+      "current": {
+        "en": "Try again",
+        "fa": "دوباره کوشش کنید",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "بیا هڅه وکړئ"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/app/_layout.tsx",
+          "line": 1212,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/app/_layout.tsx",
+          "line": 1212,
+          "locale": "fa"
+        },
+        {
+          "path": "apps/mobile/app/_layout.tsx",
+          "line": 1487,
+          "locale": "shared"
+        },
+        {
+          "path": "apps/mobile/app/_layout.tsx",
+          "line": 1625,
+          "locale": "shared"
+        }
+      ],
+      "context": "Boot, migration, or recovery screen; may render before language preferences can load.",
+      "notes": "Currently hardcoded English and Dari are shown together. Preserve a recovery path that does not require reading the damaged/unavailable database.",
+      "approved_locales": [
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:boot.backupDamaged",
+      "current": {
+        "en": "The backup on this phone is damaged too.",
+        "fa": null,
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": "پشتیبان این تلفون هم آسیب دیده است.",
+        "ps": "د دې ټیلیفون بیک‌اپ هم خراب شوی دی."
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/app/_layout.tsx",
+          "line": 1302,
+          "locale": "en"
+        }
+      ],
+      "context": "Boot, migration, or recovery screen; may render before language preferences can load.",
+      "notes": "Currently hardcoded English and Dari are shown together. Preserve a recovery path that does not require reading the damaged/unavailable database.",
+      "approved_locales": [
+        "fa",
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:boot.backupMissing",
+      "current": {
+        "en": "No backup was found on this phone.",
+        "fa": null,
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": "در این تلفون پشتیبانی پیدا نشد.",
+        "ps": "په دې ټیلیفون کې بیک‌اپ ونه موندل شو."
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/app/_layout.tsx",
+          "line": 1304,
+          "locale": "en"
+        }
+      ],
+      "context": "Boot, migration, or recovery screen; may render before language preferences can load.",
+      "notes": "Currently hardcoded English and Dari are shown together. Preserve a recovery path that does not require reading the damaged/unavailable database.",
+      "approved_locales": [
+        "fa",
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:boot.restoreFailed",
+      "current": {
+        "en": "Restoring from the backup failed.",
+        "fa": null,
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": "بازیابی از پشتیبان ناکام شد.",
+        "ps": "له بیک‌اپ څخه بېرته راګرځول ناکام شول."
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/app/_layout.tsx",
+          "line": 1305,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/app/_layout.tsx",
+          "line": 1309,
+          "locale": "en"
+        }
+      ],
+      "context": "Boot, migration, or recovery screen; may render before language preferences can load.",
+      "notes": "Currently hardcoded English and Dari are shown together. Preserve a recovery path that does not require reading the damaged/unavailable database.",
+      "approved_locales": [
+        "fa",
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:boot.accountRecoveryFailed",
+      "current": {
+        "en": "Recovery failed. Please contact support before reinstalling.",
+        "fa": null,
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": "بازیابی ناکام شد. پیش از نصب دوباره با پشتیبانی تماس بگیرید.",
+        "ps": "بېرته راګرځول ناکام شول. مهرباني وکړئ له بیا نصبولو مخکې له ملاتړ سره اړیکه ونیسئ."
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/app/_layout.tsx",
+          "line": 1372,
+          "locale": "en"
+        }
+      ],
+      "context": "Boot, migration, or recovery screen; may render before language preferences can load.",
+      "notes": "Currently hardcoded English and Dari are shown together. Preserve a recovery path that does not require reading the damaged/unavailable database.",
+      "approved_locales": [
+        "fa",
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:boot.dataDamaged",
+      "current": {
+        "en": "Your Kaata data is damaged",
+        "fa": "داده‌های کاتای شما آسیب دیده",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ستاسو د کاټه معلومات خراب شوي دي"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/app/_layout.tsx",
+          "line": 1385,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/app/_layout.tsx",
+          "line": 1386,
+          "locale": "fa"
+        }
+      ],
+      "context": "Boot, migration, or recovery screen; may render before language preferences can load.",
+      "notes": "Currently hardcoded English and Dari are shown together. Preserve a recovery path that does not require reading the damaged/unavailable database.",
+      "approved_locales": [
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:boot.backupAvailable",
+      "current": {
+        "en": "There is a backup on this phone{backupAge}. Restoring it brings your kaata back to that point.",
+        "fa": "در این تلفون یک پشتیبان وجود دارد. با بازیابی آن، کاتای شما تا همان زمان برمی‌گردد.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "په دې ټیلیفون کې بیک‌اپ شته{backupAge}. په بېرته راګرځولو سره به ستاسو کاټه د هماغه وخت حالت ته راوګرځي."
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/app/_layout.tsx",
+          "line": 1396,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/app/_layout.tsx",
+          "line": 1401,
+          "locale": "fa"
+        }
+      ],
+      "context": "Boot, migration, or recovery screen; may render before language preferences can load.",
+      "notes": "{backupAge} represents formatBackupAge(probe.backupAt), which currently appears only in the English sentence. Dari currently omits that information; review this mismatch.",
+      "approved_locales": [
+        "ps"
+      ],
+      "placeholders": [
+        "backupAge"
+      ],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:boot.restoreLocal",
+      "current": {
+        "en": "Restore this phone's backup",
+        "fa": "بازیابی پشتیبان",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د دې ټیلیفون بیک‌اپ بېرته را وګرځوئ"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/app/_layout.tsx",
+          "line": 1417,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/app/_layout.tsx",
+          "line": 1417,
+          "locale": "fa"
+        }
+      ],
+      "context": "Boot, migration, or recovery screen; may render before language preferences can load.",
+      "notes": "Currently hardcoded English and Dari are shown together. Preserve a recovery path that does not require reading the damaged/unavailable database.",
+      "approved_locales": [
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:boot.accountRestoreAvailable",
+      "current": {
+        "en": "You're signed in, so your kaata can also be restored from your account.",
+        "fa": "شما وارد شده‌اید، پس کاتای شما از حساب‌تان هم بازیابی شده می‌تواند.",
+        "ps": null
+      },
+      "proposed": {
+        "en": "This clears the damaged data on this phone, keeps local backups, and takes you to sign in again. After signing in, you can restore from your account.",
+        "fa": "این کار داده‌های آسیب‌دیدهٔ این تلفون را پاک می‌کند، پشتیبان‌های محلی را نگه می‌دارد و شما را به صفحهٔ ورود می‌برد. پس از ورود می‌توانید از حساب خود بازیابی کنید.",
+        "ps": "دا کار په دې ټیلیفون کې خراب شوي معلومات پاکوي، ځايي بیک‌اپونه ساتي او تاسو بېرته د ننوتلو پاڼې ته بیایي. تر ننوتلو وروسته له خپل حساب څخه معلومات بېرته راګرځولی شئ."
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/app/_layout.tsx",
+          "line": 1428,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/app/_layout.tsx",
+          "line": 1432,
+          "locale": "fa"
+        }
+      ],
+      "context": "Boot, migration, or recovery screen; may render before language preferences can load.",
+      "notes": "Currently hardcoded English and Dari are shown together. Preserve a recovery path that does not require reading the damaged/unavailable database.",
+      "approved_locales": [
+        "en",
+        "fa",
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:boot.restoreAccount",
+      "current": {
+        "en": "Restore from my account",
+        "fa": "بازیابی از حساب",
+        "ps": null
+      },
+      "proposed": {
+        "en": "Sign in to restore",
+        "fa": "ورود برای بازیابی",
+        "ps": "د بېرته راګرځولو لپاره ننوځئ"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/app/_layout.tsx",
+          "line": 1453,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/app/_layout.tsx",
+          "line": 1453,
+          "locale": "fa"
+        }
+      ],
+      "context": "Boot, migration, or recovery screen; may render before language preferences can load.",
+      "notes": "Currently hardcoded English and Dari are shown together. Preserve a recovery path that does not require reading the damaged/unavailable database.",
+      "approved_locales": [
+        "en",
+        "fa",
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:boot.reinstallWarning",
+      "current": {
+        "en": "Please contact us before reinstalling — reinstalling erases the ledger on this phone.",
+        "fa": "پیش از نصب دوباره با ما تماس بگیرید — نصب دوباره کتاب این تلفون را پاک می‌کند.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "مهرباني وکړئ له بیا نصبولو مخکې له موږ سره اړیکه ونیسئ؛ بیا نصب کول د دې ټیلیفون حساب کتاب پاکوي."
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/app/_layout.tsx",
+          "line": 1471,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/app/_layout.tsx",
+          "line": 1476,
+          "locale": "fa"
+        }
+      ],
+      "context": "Boot, migration, or recovery screen; may render before language preferences can load.",
+      "notes": "Currently hardcoded English and Dari are shown together. Preserve a recovery path that does not require reading the damaged/unavailable database.",
+      "approved_locales": [
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:boot.backupAgeLessThanHour",
+      "current": {
+        "en": " from less than an hour ago",
+        "fa": null,
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": " از کمتر از یک ساعت پیش",
+        "ps": " چې له یوه ساعت څخه لږ مخکې جوړ شوی"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/app/_layout.tsx",
+          "line": 1528,
+          "locale": "en"
+        }
+      ],
+      "context": "Boot, migration, or recovery screen; may render before language preferences can load.",
+      "notes": "Currently hardcoded English and Dari are shown together. Preserve a recovery path that does not require reading the damaged/unavailable database.",
+      "approved_locales": [
+        "fa",
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:boot.backupAgeHours",
+      "current": {
+        "en": " from {hours} hour{pluralSuffix} ago",
+        "fa": null,
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": " از {hours} ساعت پیش",
+        "ps": " چې {hours} ساعته مخکې جوړ شوی"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/app/_layout.tsx",
+          "line": 1529,
+          "locale": "en"
+        }
+      ],
+      "context": "Boot, migration, or recovery screen; may render before language preferences can load.",
+      "notes": "Source builds an English singular/plural suffix. {pluralSuffix} represents an English implementation detail: future implementation should replace this with proper locale grammar, not render it in Pashto.",
+      "approved_locales": [
+        "fa",
+        "ps"
+      ],
+      "placeholders": [
+        "hours",
+        "pluralSuffix"
+      ],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:boot.backupAgeDays",
+      "current": {
+        "en": " from {days} day{pluralSuffix} ago",
+        "fa": null,
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": " از {days} روز پیش",
+        "ps": " چې {days} ورځې مخکې جوړ شوی"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/app/_layout.tsx",
+          "line": 1531,
+          "locale": "en"
+        }
+      ],
+      "context": "Boot, migration, or recovery screen; may render before language preferences can load.",
+      "notes": "Source builds an English singular/plural suffix. {pluralSuffix} represents an English implementation detail: future implementation should replace this with proper locale grammar, not render it in Pashto.",
+      "approved_locales": [
+        "fa",
+        "ps"
+      ],
+      "placeholders": [
+        "days",
+        "pluralSuffix"
+      ],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:boot.startFailed",
+      "current": {
+        "en": "Couldn't start",
+        "fa": "کاتا شروع نشد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "کاټه پیل نه شوه"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/app/_layout.tsx",
+          "line": 1578,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/app/_layout.tsx",
+          "line": 1579,
+          "locale": "fa"
+        }
+      ],
+      "context": "Boot, migration, or recovery screen; may render before language preferences can load.",
+      "notes": "Currently hardcoded English and Dari are shown together. Preserve a recovery path that does not require reading the damaged/unavailable database.",
+      "approved_locales": [
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:boot.restartAndroid",
+      "current": {
+        "en": "Tap the button to restart kaata. If that doesn't work, close it from your recent apps and open it again.",
+        "fa": "روی دکمه بزنید تا کاتا دوباره راه‌اندازی شود. اگر کار نکرد، آن را از برنامه‌های اخیر ببندید و دوباره باز کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د کاټه د بیا پیلولو لپاره پر تڼۍ ووهئ. که کار یې ونه کړ، د وروستیو پرانیستل شوو اپونو له لېست څخه یې وتړئ او بیا یې پرانیزئ."
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/app/_layout.tsx",
+          "line": 1583,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/app/_layout.tsx",
+          "line": 1589,
+          "locale": "fa"
+        }
+      ],
+      "context": "Boot, migration, or recovery screen; may render before language preferences can load.",
+      "notes": "Currently hardcoded English and Dari are shown together. Preserve a recovery path that does not require reading the damaged/unavailable database.",
+      "approved_locales": [
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:boot.reopenIosShort",
+      "current": {
+        "en": "Please force-quit kaata (swipe up from the bottom and flick it away) and open it again.",
+        "fa": "لطفاً کاتا را به‌طور کامل ببندید و دوباره باز کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "مهرباني وکړئ کاټه په بشپړه توګه وتړئ او بیا یې پرانیزئ."
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/app/_layout.tsx",
+          "line": 1185,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/app/_layout.tsx",
+          "line": 1590,
+          "locale": "fa"
+        }
+      ],
+      "context": "Boot, migration, or recovery screen; may render before language preferences can load.",
+      "notes": "Boot error screen has a shorter Dari sentence than English; review whether both should include the swipe instructions.",
+      "approved_locales": [
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:boot.diagnosticsIntro",
+      "current": {
+        "en": "If you contact support, share this:",
+        "fa": "اگر با پشتیبانی تماس می‌گیرید، این را بفرستید:",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "که له ملاتړ سره اړیکه نیسئ، دا ورسره شریک کړئ:"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/app/_layout.tsx",
+          "line": 1548,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/app/_layout.tsx",
+          "line": 1598,
+          "locale": "fa"
+        }
+      ],
+      "context": "Boot, migration, or recovery screen; may render before language preferences can load.",
+      "notes": "Currently hardcoded English and Dari are shown together. Preserve a recovery path that does not require reading the damaged/unavailable database.",
+      "approved_locales": [
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:boot.diagnosticsStage",
+      "current": {
+        "en": "stage:",
+        "fa": null,
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": "stage:",
+        "ps": "stage:"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/app/_layout.tsx",
+          "line": 1601,
+          "locale": "en"
+        }
+      ],
+      "context": "Boot, migration, or recovery screen; may render before language preferences can load.",
+      "notes": "Currently hardcoded English and Dari are shown together. Preserve a recovery path that does not require reading the damaged/unavailable database.\nBoot report field names remain raw English stage:/error: in the visible support report. Dormant translated boot-copy keys are not treated as active UI translations.",
+      "approved_locales": [
+        "fa",
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:boot.diagnosticsError",
+      "current": {
+        "en": "error:",
+        "fa": null,
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": "error:",
+        "ps": "error:"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/app/_layout.tsx",
+          "line": 1602,
+          "locale": "en"
+        }
+      ],
+      "context": "Boot, migration, or recovery screen; may render before language preferences can load.",
+      "notes": "Currently hardcoded English and Dari are shown together. Preserve a recovery path that does not require reading the damaged/unavailable database.\nBoot report field names remain raw English stage:/error: in the visible support report. Dormant translated boot-copy keys are not treated as active UI translations.",
+      "approved_locales": [
+        "fa",
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:boot.sendSupport",
+      "current": {
+        "en": "Send to {SUPPORT_CONTACT}",
+        "fa": "به {SUPPORT_CONTACT} ارسال کنید",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "{SUPPORT_CONTACT} ته یې واستوئ"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/app/_layout.tsx",
+          "line": 1610,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/app/_layout.tsx",
+          "line": 1611,
+          "locale": "fa"
+        }
+      ],
+      "context": "Boot, migration, or recovery screen; may render before language preferences can load.",
+      "notes": "{SUPPORT_CONTACT} represents a source JSX expression and must remain unchanged.",
+      "approved_locales": [
+        "ps"
+      ],
+      "placeholders": [
+        "SUPPORT_CONTACT"
+      ],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:boot.closeRestart",
+      "current": {
+        "en": "Close & restart",
+        "fa": "بستن و راه‌اندازی",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "وتړئ او بیا یې پیل کړئ"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/app/_layout.tsx",
+          "line": 1624,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/app/_layout.tsx",
+          "line": 1550,
+          "locale": "fa"
+        }
+      ],
+      "context": "Boot, migration, or recovery screen; may render before language preferences can load.",
+      "notes": "Currently hardcoded English and Dari are shown together. Preserve a recovery path that does not require reading the damaged/unavailable database.",
+      "approved_locales": [
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:permission.contacts",
+      "current": {
+        "en": "Kaata uses your contacts so you can add a customer by picking them from your phone book, and saves customers you add in Kaata back to your contacts.",
+        "fa": null,
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": "کاتا به تماس‌های شما دسترسی می‌گیرد تا بتوانید مشتری را از دفترچهٔ تلفن انتخاب کنید و مشتریانی را که در کاتا اضافه می‌کنید در تماس‌های تلفن ذخیره کند.",
+        "ps": "کاټه ستاسو اړیکو ته لاسرسی کاروي، څو له خپل ټیلیفون څخه د یوه کس په ټاکلو سره پېرودونکی ورزیات کړئ. په کاټه کې ورزیات شوي پېرودونکي هم ستاسو د ټیلیفون په اړیکو کې خوندي کوي."
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/app.json",
+          "line": 63,
+          "locale": "en"
+        }
+      ],
+      "context": "Native contacts permission explanation in Expo plugin config.",
+      "notes": "Currently only English is configured; native permission translations need build-time localization.",
+      "approved_locales": [
+        "fa",
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:permission.camera",
+      "current": {
+        "en": "Kaata uses the camera to scan pairing codes when you add another phone you own.",
+        "fa": null,
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": "کاتا برای خواندن کد اتصال هنگام اضافه کردن تلفن دیگر شما از کمره استفاده می‌کند.",
+        "ps": "کله چې خپل بل ټیلیفون ورزیاتوئ، کاټه د نښلولو کوډ د لوستلو لپاره کمره کاروي."
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/app.json",
+          "line": 77,
+          "locale": "en"
+        }
+      ],
+      "context": "Native camera permission explanation in Expo plugin config.",
+      "notes": "Currently only English is configured; native permission translations need build-time localization.",
+      "approved_locales": [
+        "fa",
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:notification.sync.channel",
+      "current": {
+        "en": "Synced updates",
+        "fa": null,
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": "تازه‌های همگام‌شده",
+        "ps": "همغږي شوي بدلونونه"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/lib/mesh/bg-notify.ts",
+          "line": 73,
+          "locale": "en"
+        }
+      ],
+      "context": "Background ledger sync notification.",
+      "notes": "Despite mesh directory name, this is an active notification producer for cloud sync.",
+      "approved_locales": [
+        "fa",
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:notification.sync.description",
+      "current": {
+        "en": "New entries synced from your account while Kaata was in the background.",
+        "fa": null,
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": "ثبت‌های تازه از حساب شما در پس‌زمینهٔ کاتا همگام شد.",
+        "ps": "کله چې کاټه په شالید کې وه، نوي ثبتونه ستاسو له حساب څخه همغږي شول."
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/lib/mesh/bg-notify.ts",
+          "line": 75,
+          "locale": "en"
+        }
+      ],
+      "context": "Background ledger sync notification.",
+      "notes": "Despite mesh directory name, this is an active notification producer for cloud sync.",
+      "approved_locales": [
+        "fa",
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:notification.sync.title",
+      "current": {
+        "en": "New entries synced",
+        "fa": null,
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": "ثبت‌های تازه همگام شد",
+        "ps": "نوي ثبتونه همغږي شول"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/lib/mesh/bg-notify.ts",
+          "line": 111,
+          "locale": "en"
+        }
+      ],
+      "context": "Background ledger sync notification.",
+      "notes": "Despite mesh directory name, this is an active notification producer for cloud sync.",
+      "approved_locales": [
+        "fa",
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:notification.sync.body",
+      "current": {
+        "en": "Tap to open Kaata",
+        "fa": null,
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": "برای باز کردن کاتا بزنید",
+        "ps": "د کاټه د پرانیستلو لپاره ووهئ"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/lib/mesh/bg-notify.ts",
+          "line": 112,
+          "locale": "en"
+        }
+      ],
+      "context": "Background ledger sync notification.",
+      "notes": "Despite mesh directory name, this is an active notification producer for cloud sync.",
+      "approved_locales": [
+        "fa",
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:notification.sync.bodyNamed",
+      "current": {
+        "en": "New entries synced — tap to open",
+        "fa": null,
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": "ثبت‌های تازه همگام شد — برای باز کردن بزنید",
+        "ps": "نوي ثبتونه همغږي شول؛ د پرانیستلو لپاره ووهئ"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/lib/mesh/bg-notify.ts",
+          "line": 117,
+          "locale": "en"
+        }
+      ],
+      "context": "Background ledger sync notification.",
+      "notes": "Despite mesh directory name, this is an active notification producer for cloud sync.",
+      "approved_locales": [
+        "fa",
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:notification.nativeFallback.title",
+      "current": {
+        "en": "Nearby sync is on",
+        "fa": null,
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": "همگام‌سازی نزدیک روشن است",
+        "ps": "نږدې همغږي چالانه ده"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/modules/kaata-bt-classic/android/src/main/java/expo/modules/kaatabtclassic/KaataForegroundService.kt",
+          "line": 109,
+          "locale": "en"
+        }
+      ],
+      "context": "Android native foreground-service fallback notification.",
+      "notes": "Fallback only; JavaScript may supply localized values through intent/preferences. Nearby mesh feature is currently parked in normal app UI.",
+      "approved_locales": [
+        "fa",
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:notification.nativeFallback.body",
+      "current": {
+        "en": "Tap to open Kaata",
+        "fa": null,
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": "برای باز کردن کاتا بزنید",
+        "ps": "د کاټه د پرانیستلو لپاره ووهئ"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/modules/kaata-bt-classic/android/src/main/java/expo/modules/kaatabtclassic/KaataForegroundService.kt",
+          "line": 110,
+          "locale": "en"
+        }
+      ],
+      "context": "Android native foreground-service fallback notification.",
+      "notes": "Fallback only; JavaScript may supply localized values through intent/preferences. Nearby mesh feature is currently parked in normal app UI.",
+      "approved_locales": [
+        "fa",
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:notification.nativeFallback.channel",
+      "current": {
+        "en": "Nearby sync",
+        "fa": null,
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": "همگام‌سازی نزدیک",
+        "ps": "نږدې همغږي"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/modules/kaata-bt-classic/android/src/main/java/expo/modules/kaatabtclassic/KaataForegroundService.kt",
+          "line": 25,
+          "locale": "en"
+        }
+      ],
+      "context": "Android native foreground-service fallback notification.",
+      "notes": "Fallback only; JavaScript may supply localized values through intent/preferences. Nearby mesh feature is currently parked in normal app UI.",
+      "approved_locales": [
+        "fa",
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:dialog.defaultConfirm",
+      "current": {
+        "en": "OK",
+        "fa": null,
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": "باشد",
+        "ps": "سمه ده"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/components/ConfirmDialog.tsx",
+          "line": 146,
+          "locale": "en"
+        }
+      ],
+      "context": "Fallback confirmation button and accessibility label.",
+      "notes": "Used only when caller omits confirmLabel; explicit screen labels are in the main catalog.",
+      "approved_locales": [
+        "fa",
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:languageName.english",
+      "current": {
+        "en": "English",
+        "fa": null,
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": "English",
+        "ps": "English"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/app/onboarding/language.tsx",
+          "line": 77,
+          "locale": "shared"
+        }
+      ],
+      "context": "Language-picker self-name.",
+      "notes": "Language self-names should remain recognizable in their own script. Current English/Dari choices are hardcoded.\nLanguage selector names remain English / دری / پښتو in every UI locale.",
+      "approved_locales": [
+        "fa",
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:languageName.dari",
+      "current": {
+        "en": null,
+        "fa": "دری",
+        "ps": null
+      },
+      "proposed": {
+        "en": "دری",
+        "fa": null,
+        "ps": "دری"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/app/onboarding/language.tsx",
+          "line": 77,
+          "locale": "shared"
+        }
+      ],
+      "context": "Language-picker self-name.",
+      "notes": "Keep Dari self-name in its own script; add پښتو as a separate new option when Pashto is enabled.\nLanguage selector names remain English / دری / پښتو in every UI locale.",
+      "approved_locales": [
+        "en",
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:pdf.poweredBy",
+      "current": {
+        "en": "Powered by kaata. — kaata.af",
+        "fa": null,
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": "با کاتا — kaata.af",
+        "ps": "د کاټه په مرسته — kaata.af"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 235,
+          "locale": "en"
+        }
+      ],
+      "context": "PDF footer branding.",
+      "notes": "Currently English in all exported PDFs; review whether brand/footer should be translated.",
+      "approved_locales": [
+        "fa",
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:diagnostics.appVersion",
+      "current": {
+        "en": "app {appVersion}",
+        "fa": null,
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": "نسخهٔ اپ {appVersion}",
+        "ps": "اپ {appVersion}"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/app/diagnostics.tsx",
+          "line": 304,
+          "locale": "en"
+        }
+      ],
+      "context": "Diagnostics screen version/build display.",
+      "notes": "Technical output labels and raw OS error names are support data and should be reviewed separately from customer-facing prose.",
+      "approved_locales": [
+        "fa",
+        "ps"
+      ],
+      "placeholders": [
+        "appVersion"
+      ],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:diagnostics.build",
+      "current": {
+        "en": " · build {buildNumber}",
+        "fa": null,
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": "، ساخت {buildNumber}",
+        "ps": " · نسخه {buildNumber}"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/app/diagnostics.tsx",
+          "line": 305,
+          "locale": "en"
+        }
+      ],
+      "context": "Diagnostics screen version/build display.",
+      "notes": "Technical output labels and raw OS error names are support data and should be reviewed separately from customer-facing prose.",
+      "approved_locales": [
+        "fa",
+        "ps"
+      ],
+      "placeholders": [
+        "buildNumber"
+      ],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:diagnostics.devOnly",
+      "current": {
+        "en": "DEV ONLY",
+        "fa": null,
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": "فقط برای توسعه",
+        "ps": "یوازې د پراختیا لپاره"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/app/diagnostics.tsx",
+          "line": 421,
+          "locale": "en"
+        }
+      ],
+      "context": "Diagnostics screen development-only reset section.",
+      "notes": "Technical output labels and raw OS error names are support data and should be reviewed separately from customer-facing prose.",
+      "approved_locales": [
+        "fa",
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:diagnostics.resetExplain",
+      "current": {
+        "en": "Wipes kaata.db (all ledger + onboarding state) and reloads, so you land back on onboarding. Never ships — __DEV__ gated.",
+        "fa": null,
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": "kaata.db (همهٔ حساب‌ها و وضعیت تنظیمات اولیه) پاک و اپ دوباره باز می‌شود. فقط در نسخهٔ توسعه نمایش داده می‌شود.",
+        "ps": "kaata.db (ټول حساب کتاب او د لومړي ځل تنظیمات) پاکوي او اپ بیا پرانیزي، څو د لومړي ځل تنظیماتو ته ستانه شئ. یوازې د پراختیا په بڼه کې ښکاري."
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/app/diagnostics.tsx",
+          "line": 423,
+          "locale": "en"
+        }
+      ],
+      "context": "Diagnostics screen development-only reset section.",
+      "notes": "Technical output labels and raw OS error names are support data and should be reviewed separately from customer-facing prose.",
+      "approved_locales": [
+        "fa",
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:diagnostics.resetArmed",
+      "current": {
+        "en": "Tap again to wipe & reload",
+        "fa": null,
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": "برای پاک کردن و باز کردن دوباره، یک بار دیگر بزنید",
+        "ps": "د پاکولو او بیا پرانیستلو لپاره بیا ووهئ"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/app/diagnostics.tsx",
+          "line": 431,
+          "locale": "en"
+        }
+      ],
+      "context": "Diagnostics screen development-only reset section.",
+      "notes": "Technical output labels and raw OS error names are support data and should be reviewed separately from customer-facing prose.",
+      "approved_locales": [
+        "fa",
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:diagnostics.reset",
+      "current": {
+        "en": "Reset all data",
+        "fa": null,
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": "پاک کردن همهٔ اطلاعات",
+        "ps": "ټول معلومات بیا له پیله تنظیم کړئ"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/app/diagnostics.tsx",
+          "line": 431,
+          "locale": "en"
+        }
+      ],
+      "context": "Diagnostics screen development-only reset section.",
+      "notes": "Technical output labels and raw OS error names are support data and should be reviewed separately from customer-facing prose.",
+      "approved_locales": [
+        "fa",
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    },
+    {
+      "id": "mobile-extra:developer.bluetoothTest",
+      "current": {
+        "en": "Bluetooth test (dev)",
+        "fa": null,
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": "آزمایش بلوتوث (توسعه)",
+        "ps": "د بلوتوث ازموینه (پراختیا)"
+      },
+      "sources": [
+        {
+          "path": "apps/mobile/components/ProfileSettingsSheet.tsx",
+          "line": 504,
+          "locale": "en"
+        }
+      ],
+      "context": "Development-only Bluetooth test entry.",
+      "notes": "Do not enable or expose this label in production as part of translation work.",
+      "approved_locales": [
+        "fa",
+        "ps"
+      ],
+      "placeholders": [],
+      "references": []
+    }
+  ]
+}

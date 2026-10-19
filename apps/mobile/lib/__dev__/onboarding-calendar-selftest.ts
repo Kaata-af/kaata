@@ -8,7 +8,7 @@ import { formatCalendarDate } from "../jalali";
 import { compileUI, deferred, nodes, settleUI, uiHooks } from "./ui-fixture";
 
 function fixture(
-  initialLocale: "en" | "fa" = "en",
+  initialLocale: "en" | "fa" | "ps" = "en",
   storedPref = "auto",
   screenName = "calendar",
   initialMeta: Record<string, string> = {},
@@ -45,7 +45,7 @@ function fixture(
     getLocale: () => locale,
     subscribeLocale: () => () => {},
     t: (key: string) => key,
-    setLocale: (value: "en" | "fa") => {
+    setLocale: (value: "en" | "fa" | "ps") => {
       locale = value;
     },
   };
@@ -92,7 +92,7 @@ function fixture(
     "../../lib/i18n": i18n,
     "../../lib/jalali": { formatCalendarDate },
     "../../lib/direction": {
-      useIsRTL: () => locale === "fa",
+      useIsRTL: () => locale !== "en",
       rowDir: () => ({}),
       textDir: () => ({}),
       trackingSafe: () => ({}),
@@ -140,7 +140,7 @@ function fixture(
       )!,
     back: () => nodes(hooks.tree).find((node) => node.props.accessibilityLabel === "common.back")!,
     next: () => nodes(hooks.tree).find((node) => node.type === "Button")!,
-    language: (value: "English" | "دری") =>
+    language: (value: "English" | "دری" | "پښتو") =>
       nodes(hooks.tree).find((node) => node.props.accessibilityLabel === value)!,
     mountNextScreen: (name: string) => {
       screenName = name;
@@ -224,10 +224,10 @@ async function main() {
   assert.match(layout, /name="onboarding\/calendar" options=\{\{ gestureEnabled: false \}\}/);
   assert.match(layout, /initialRouteName=\{pickInitialRoute\(/);
 
-  for (const locale of ["en", "fa"] as const) {
+  for (const locale of ["en", "fa", "ps"] as const) {
     const f = fixture(locale);
     assert.equal(
-      f.radio(locale === "fa" ? "jalali" : "gregorian").props.accessibilityState.checked,
+      f.radio(locale !== "en" ? "jalali" : "gregorian").props.accessibilityState.checked,
       true,
       "Auto follows the chosen language initially",
     );
@@ -325,9 +325,11 @@ async function main() {
   assert.equal(back.meta.get("onboarding_step"), "language");
   assert.deepEqual(back.routes, ["/onboarding/language"]);
   back.hooks.unmount();
-  for (const locale of ["en", "fa"] as const) {
+  for (const locale of ["en", "fa", "ps"] as const) {
     const language = fixture("en", "auto", "language");
-    language.language(locale === "en" ? "English" : "دری").props.onPress();
+    language
+      .language(locale === "en" ? "English" : locale === "ps" ? "پښتو" : "دری")
+      .props.onPress();
     await settleUI();
     assert.equal(language.locale, locale);
     assert.equal(language.meta.get("locale_pref"), locale);
@@ -347,6 +349,7 @@ async function main() {
   for (const [locale, step, account, expected] of [
     ["en", "calendar", "", "/onboarding/calendar"],
     ["fa", "", "", "/onboarding/calendar"],
+    ["ps", "", "", "/onboarding/calendar"],
     ["en", "auth", "existing", "/onboarding/restore"],
     ["fa", "kaata", "existing", "/onboarding/kaata"],
   ] as const) {

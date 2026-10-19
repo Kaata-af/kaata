@@ -10,6 +10,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/matee/kaata-backend/internal/httpx"
+	"github.com/matee/kaata-backend/internal/locale"
 )
 
 // Store listings for the page's "Get the app" button. Stable brand URLs
@@ -24,6 +25,7 @@ const (
 // No financial fields: this template is only an app invitation.
 type viewData struct {
 	Token       string
+	Lang        string
 	RTL         bool
 	Origin      string
 	PlayURL     string
@@ -41,14 +43,15 @@ var notFoundTmpl = template.Must(template.New("tabnf").Parse(notFoundHTML))
 func (h *Handler) View(w http.ResponseWriter, r *http.Request) {
 	noStore(w)
 	w.Header().Set("Vary", "Accept-Language")
-	rtl := acceptsPersian(r.Header.Get("Accept-Language"))
+	lang := locale.FromAcceptLanguage(r.Header.Get("Accept-Language"))
+	rtl := locale.RTL(lang)
 	token := chi.URLParam(r, "token")
 
 	_, err := h.svc.PartyByToken(r.Context(), token, "")
 	if errors.Is(err, ErrNotFound) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusNotFound)
-		_ = notFoundTmpl.Execute(w, viewData{Origin: h.webBaseURL, RTL: rtl})
+		_ = notFoundTmpl.Execute(w, viewData{Origin: h.webBaseURL, Lang: lang, RTL: rtl})
 		return
 	}
 	if err != nil {
@@ -56,7 +59,7 @@ func (h *Handler) View(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, http.StatusInternalServerError, "could not load tab")
 		return
 	}
-	data := viewData{Token: token, RTL: rtl, Origin: h.webBaseURL,
+	data := viewData{Token: token, Lang: lang, RTL: rtl, Origin: h.webBaseURL,
 		PlayURL: playStoreURL, AppStoreURL: appStoreURL}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := viewTmpl.Execute(w, data); err != nil {
@@ -83,12 +86,13 @@ func parseSignedMinor(s string) (int64, error) {
 	return minor, nil
 }
 
-// acceptsPersian reports whether the request's highest-priority
-// Accept-Language tag is Persian (fa), Dari (prs) or Pashto (ps). Copied from
-// internal/shared (unexported there); picks the shell's initial language,
-// matching the invitation language.
-func acceptsPersian(header string) bool {
-	first, _, _ := strings.Cut(header, ",")
-	tag := strings.ToLower(strings.TrimSpace(first))
-	return strings.HasPrefix(tag, "fa") || strings.HasPrefix(tag, "prs") || strings.HasPrefix(tag, "ps")
+// Language supports legacy callers that only set RTL. New responses always set Lang.
+func (v viewData) Language() string {
+	if v.Lang != "" {
+		return locale.Normalize(v.Lang)
+	}
+	if v.RTL {
+		return "fa"
+	}
+	return "en"
 }

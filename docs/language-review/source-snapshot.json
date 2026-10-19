@@ -1,0 +1,105 @@
+{
+  "note": "SHA-256 of UTF-8 sources with LF line endings; detects source drift while reviews are in progress.",
+  "files": [
+    {
+      "path": "apps/backend/internal/auth/apple_web.go",
+      "sha256": "81f3f06f36125ae75791db3b9e64ec3a44db5cbceb22cf5d781f98ae8de5d3f4"
+    },
+    {
+      "path": "apps/backend/internal/mail/templates.go",
+      "sha256": "403cfa5b4e1b5c8220f1542afd9210d5662226bfe22537eea7bacbe0f213e2e3"
+    },
+    {
+      "path": "apps/backend/internal/shared/handler.go",
+      "sha256": "d802ea3b224dca581c37d520d5051daf01725879f1f2ecf712fddb4e8eeab38f"
+    },
+    {
+      "path": "apps/backend/internal/shared/jalali.go",
+      "sha256": "3d772595e0f3d9b7096eb86dd8cb753fe68aae3b45b272708e4c4a84ce3d07d0"
+    },
+    {
+      "path": "apps/backend/internal/shared/templates.go",
+      "sha256": "37bba8b46ed85c83d2bb40429337016d5437d868bed7fa5b3316352c59937a6d"
+    },
+    {
+      "path": "apps/backend/internal/tabs/inbox.go",
+      "sha256": "91b2cbcf43dab914c4f03ecdea12b216a9d81f0f3fca4da205b2395f2f323c2f"
+    },
+    {
+      "path": "apps/backend/internal/tabs/push.go",
+      "sha256": "d57aece3ebefe094781484485f0cbc975b5d0909cb63da26594b73ca19928446"
+    },
+    {
+      "path": "apps/backend/internal/tabs/templates.go",
+      "sha256": "d665750d70b5cd2bad0b14358e1c43ea3f7a8ab450c42bedae49c954e46f712f"
+    },
+    {
+      "path": "apps/mobile/app.json",
+      "sha256": "ca84fdd287cd2142c2082116e71b0be1567a3ec94ce17b059233dab4981d69f3"
+    },
+    {
+      "path": "apps/mobile/app/_layout.tsx",
+      "sha256": "dd39b39da4eec7236fc530b6e7ad6aca9fc4e1f73e879a1cad9bff9db94154ea"
+    },
+    {
+      "path": "apps/mobile/app/diagnostics.tsx",
+      "sha256": "ff87387940f013a445ce3bad4713bbd5c6a996fc87296de74642a4659f98caba"
+    },
+    {
+      "path": "apps/mobile/app/onboarding/language.tsx",
+      "sha256": "81e845d0fad777f4a2048d718391e342b5b020a0d44248a116db24e5b298e8d9"
+    },
+    {
+      "path": "apps/mobile/components/ConfirmDialog.tsx",
+      "sha256": "6a30402e4e73825ca52cfcb179b2b0913ef777942802c284a11db027a1c3aed3"
+    },
+    {
+      "path": "apps/mobile/components/ProfileSettingsSheet.tsx",
+      "sha256": "27ea9be949a98e0aa432dcf07902cf9d4311a24b1b3f2e383b75847baf6dcaba"
+    },
+    {
+      "path": "apps/mobile/lib/currency.ts",
+      "sha256": "54e0029e03c0fa898a3599594e5a97071c2ba3c2cf3a088a1858068ceaf39864"
+    },
+    {
+      "path": "apps/mobile/lib/export/pdf.ts",
+      "sha256": "753a2bfbe9409e85ba2cab61537d0a4b5857cd478b33c715c2ca7b9535174f27"
+    },
+    {
+      "path": "apps/mobile/lib/i18n.ts",
+      "sha256": "6c2536faf4e7ee5bdec81e6e906f209c90b243c98e2b4ae1c49a22cd7dc2e0c3"
+    },
+    {
+      "path": "apps/mobile/lib/jalali.ts",
+      "sha256": "bbe012b3cc8426f253d103bea61c836141f7a03704ef2940f133672924520c92"
+    },
+    {
+      "path": "apps/mobile/lib/mesh/bg-notify.ts",
+      "sha256": "27f13ac186de2bb0c860982ad05e9791069493a8e48e96bd336dedf0cbf8de62"
+    },
+    {
+      "path": "apps/mobile/lib/phone.ts",
+      "sha256": "d37ab223db1f325df99950039f3986d9a8d6cda3a58e00753067e425d09fba64"
+    },
+    {
+      "path": "apps/mobile/modules/kaata-bt-classic/android/src/main/java/expo/modules/kaatabtclassic/KaataForegroundService.kt",
+      "sha256": "47978db349fc38c5d9bd68190c6f3de56c5211194ea337d0b2bd24d4c4ab3e65"
+    },
+    {
+      "path": "apps/web/src/lib/customer-dates.ts",
+      "sha256": "c28e34aa48d9dfca0034ab5a743a511edf736d26138f550c086be9a923189f83"
+    },
+    {
+      "path": "apps/web/src/lib/i18n.tsx",
+      "sha256": "6ba5fcd7f9b8968ced0e3769dc64bd95b56c3a3412d63c6764e096f5a8a6640c"
+    },
+    {
+      "path": "apps/web/src/pages/CustomerView.tsx",
+      "sha256": "739d9f68c4ae9841f41aba20d5d1b7ebf95efab0bd3498e2187df4af2338ffdd"
+    },
+    {
+      "path": "apps/web/src/pages/admin/outreach-model.ts",
+      "sha256": "a57d5c6de7882d1a6713e7715b2a4e1f4c9140ce1e24f2e3ab16d105200ea1a3"
+    }
+  ]
+}

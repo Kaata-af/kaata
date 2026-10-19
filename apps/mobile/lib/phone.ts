@@ -1,4 +1,5 @@
 import { getAppMeta } from "./db";
+import type { LocaleCode } from "./i18n";
 import { toAsciiDigits } from "./digits";
 
 // Multi-country phone normalization. Both Afghan numbers and international
@@ -23,6 +24,8 @@ import { toAsciiDigits } from "./digits";
 export type Country = {
   code: string; // ISO 3166 alpha-2
   name: string;
+  nameFa: string;
+  namePs: string;
   dialCode: string; // e.g., "+93"
   flag: string;
 };
@@ -33,18 +36,73 @@ export type Country = {
 // it came up. Order matters: AF is the default; otherwise alphabetical so
 // the picker reads naturally.
 export const COUNTRIES: Country[] = [
-  { code: "AF", name: "Afghanistan", dialCode: "+93", flag: "🇦🇫" },
-  { code: "AU", name: "Australia", dialCode: "+61", flag: "🇦🇺" },
-  { code: "DE", name: "Germany", dialCode: "+49", flag: "🇩🇪" },
-  { code: "IR", name: "Iran", dialCode: "+98", flag: "🇮🇷" },
-  { code: "NL", name: "Netherlands", dialCode: "+31", flag: "🇳🇱" },
-  { code: "PK", name: "Pakistan", dialCode: "+92", flag: "🇵🇰" },
-  { code: "SE", name: "Sweden", dialCode: "+46", flag: "🇸🇪" },
-  { code: "TR", name: "Turkey", dialCode: "+90", flag: "🇹🇷" },
-  { code: "AE", name: "UAE", dialCode: "+971", flag: "🇦🇪" },
-  { code: "GB", name: "United Kingdom", dialCode: "+44", flag: "🇬🇧" },
-  { code: "US", name: "United States", dialCode: "+1", flag: "🇺🇸" },
+  {
+    code: "AF",
+    name: "Afghanistan",
+    nameFa: "افغانستان",
+    namePs: "افغانستان",
+    dialCode: "+93",
+    flag: "🇦🇫",
+  },
+  {
+    code: "AU",
+    name: "Australia",
+    nameFa: "آسترالیا",
+    namePs: "اسټرالیا",
+    dialCode: "+61",
+    flag: "🇦🇺",
+  },
+  { code: "DE", name: "Germany", nameFa: "آلمان", namePs: "جرمني", dialCode: "+49", flag: "🇩🇪" },
+  { code: "IR", name: "Iran", nameFa: "ایران", namePs: "ایران", dialCode: "+98", flag: "🇮🇷" },
+  {
+    code: "NL",
+    name: "Netherlands",
+    nameFa: "هالند",
+    namePs: "هالنډ",
+    dialCode: "+31",
+    flag: "🇳🇱",
+  },
+  {
+    code: "PK",
+    name: "Pakistan",
+    nameFa: "پاکستان",
+    namePs: "پاکستان",
+    dialCode: "+92",
+    flag: "🇵🇰",
+  },
+  { code: "SE", name: "Sweden", nameFa: "سویدن", namePs: "سویډن", dialCode: "+46", flag: "🇸🇪" },
+  { code: "TR", name: "Turkey", nameFa: "ترکیه", namePs: "ترکیه", dialCode: "+90", flag: "🇹🇷" },
+  {
+    code: "AE",
+    name: "UAE",
+    nameFa: "امارات متحده عربی",
+    namePs: "متحده عربي امارات",
+    dialCode: "+971",
+    flag: "🇦🇪",
+  },
+  {
+    code: "GB",
+    name: "United Kingdom",
+    nameFa: "بریتانیا",
+    namePs: "بریتانیا",
+    dialCode: "+44",
+    flag: "🇬🇧",
+  },
+  {
+    code: "US",
+    name: "United States",
+    nameFa: "ایالات متحده امریکا",
+    namePs: "د امریکا متحده ایالات",
+    dialCode: "+1",
+    flag: "🇺🇸",
+  },
 ];
+
+/** Localized picker label; stored country and dial codes are unchanged. */
+export function getCountryName(code: string, locale: LocaleCode): string {
+  const country = getCountry(code);
+  return locale === "ps" ? country.namePs : locale === "fa" ? country.nameFa : country.name;
+}
 
 export const DEFAULT_COUNTRY_CODE = "AF";
 

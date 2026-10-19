@@ -1,0 +1,2698 @@
+{
+  "$schema": "../review.schema.json",
+  "format_version": 1,
+  "section": "11-invitations",
+  "entries": [
+    {
+      "id": "mobile:invite.title",
+      "key": "invite.title",
+      "current": {
+        "en": "Invite member",
+        "fa": "دعوت عضو",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "غړي ته بلنه ورکړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1579,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3477,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/invite.tsx",
+          "line": 261
+        }
+      ],
+      "context": "Vault invite — Phase 7 UX critique #8 (translated)."
+    },
+    {
+      "id": "mobile:invite.link.intro",
+      "key": "invite.link.intro",
+      "current": {
+        "en": "Create a link to share this Kaata. Send it to one person — they open it, sign in, and join.",
+        "fa": "یک لینک برای اشتراک این کاتا بسازید. آن را به یک نفر بفرستید — او لینک را باز می‌کند، وارد می‌شود و می‌پیوندد.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د دې کاټې د شریکولو لپاره لینک جوړ کړئ. یوه کس ته یې ولېږئ — هغه به یې پرانیزي، ننوځي او ګډون به وکړي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1580,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3478,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/invite.tsx",
+          "line": 314
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:invite.link.create",
+      "key": "invite.link.create",
+      "current": {
+        "en": "Create link",
+        "fa": "ساختن لینک",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "لینک جوړ کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1582,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3480,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/invite.tsx",
+          "line": 368
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:invite.link.createAnother",
+      "key": "invite.link.createAnother",
+      "current": {
+        "en": "Create another link",
+        "fa": "ساختن لینک دیگر",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "بل لینک جوړ کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1583,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3481,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/invite.tsx",
+          "line": 437
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:invite.link.viewerDisclosure",
+      "key": "invite.link.viewerDisclosure",
+      "current": {
+        "en": "Viewers can see everything in this Kaata — all balances and phone numbers — but can't make changes.",
+        "fa": "بیننده‌ها همه‌چیز این کاتا را می‌بینند — همه مانده‌ها و شماره‌ها — اما نمی‌توانند تغییری بدهند.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "کتونکي په دې کاټه کې هر څه لیدلای شي — ټول پاتې حسابونه او د ټیلیفون شمېرې — خو بدلون نه شي راوستلای."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1584,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3482,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/invite.tsx",
+          "line": 357
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:invite.link.editorDisclosure",
+      "key": "invite.link.editorDisclosure",
+      "current": {
+        "en": "Editors can add, edit and delete tallies in this Kaata. In shared accounts they can also accept or reject the other side's tallies (final) and unlink the account.",
+        "fa": "ویرایشگرها می‌توانند در این کاتا ثبت اضافه، ویرایش و حذف کنند. در حساب‌های مشترک، ثبت‌های طرف مقابل را تأیید یا رد (نهایی) و حساب مشترک را قطع هم می‌توانند.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "سمونګر په دې کاټه کې راکړې ورکړې زیاتولای، سمولای او ړنګولای شي. په ګډو حسابونو کې د بل لوري راکړې ورکړې هم منلای یا ردولای شي؛ دا پرېکړه وروستۍ ده. د حساب اړیکه هم پرېکولای شي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1586,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3484,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/invite.tsx",
+          "line": 360
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:invite.managerNote",
+      "key": "invite.managerNote",
+      "current": {
+        "en": "Owners can appoint admins to manage staff and credit limits. Invite the person first, then open Members, tap their name and choose Make admin.",
+        "fa": "مالک می‌تواند برای مدیریت کارکنان و حد قرض مدیر تعیین کند. اول شخص را دعوت کنید، بعد در «اعضا» روی نامش بزنید و «مدیر کردن» را انتخاب کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "خاوندان د کارکوونکو او د پور د حدونو د سمبالولو لپاره سمبالوونکي ټاکلای شي. لومړی کس راوبلئ، بیا «غړي» پرانیزئ، د هغه نوم ووهئ او «سمبالوونکی یې کړئ» وټاکئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1588,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3486,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/invite.tsx",
+          "line": 364
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:invite.link.clerkDisclosure",
+      "key": "invite.link.clerkDisclosure",
+      "current": {
+        "en": "Clerks can add new tallies but can never change or delete history.",
+        "fa": "ثبت‌کننده‌ها می‌توانند ثبت تازه اضافه کنند اما هرگز نمی‌توانند سابقه را تغییر دهند یا حذف کنند.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "کارکوونکي نوې راکړې ورکړې زیاتولای شي، خو پخوانۍ مخینه هېڅکله نه شي بدلولای یا ړنګولای."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1590,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3488,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/invite.tsx",
+          "line": 359
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:invite.link.ready",
+      "key": "invite.link.ready",
+      "current": {
+        "en": "Link ready",
+        "fa": "لینک آماده شد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "لینک چمتو دی"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1592,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3490,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/invite.tsx",
+          "line": 393
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:invite.link.readySub",
+      "key": "invite.link.readySub",
+      "current": {
+        "en": "Anyone with this link can join as {role}. Expires {when}.",
+        "fa": "هر کسی این لینک را داشته باشد می‌تواند به‌عنوان {role} بپیوندد. انقضا {when}.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "هر څوک چې دا لینک لري د {role} په توګه ګډون کولای شي. په {when} پای ته رسېږي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "role",
+        "when"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1593,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3491,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/invite.tsx",
+          "line": 396
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:invite.shareWhatsapp",
+      "key": "invite.shareWhatsapp",
+      "current": {
+        "en": "Share on WhatsApp",
+        "fa": "اشتراک در واتساپ",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "په واټساپ کې یې شریک کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1594,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3493,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/invite.tsx",
+          "line": 421
+        },
+        {
+          "path": "apps/mobile/app/vault/transfer.tsx",
+          "line": 415
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:invite.tooMany",
+      "key": "invite.tooMany",
+      "current": {
+        "en": "Too many open links for this Kaata. Use or revoke some first.",
+        "fa": "لینک‌های باز این کاتا زیاد است. اول چند تا را استفاده یا لغو کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د دې کاټې ډېر لینکونه لا فعال دي. لومړی ځینې وکاروئ یا باطل کړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1595,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3494,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/invite.tsx",
+          "line": 202
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:invite.section.invitee",
+      "key": "invite.section.invitee",
+      "current": {
+        "en": "Invitee",
+        "fa": "دعوت‌شده",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "بلل شوی کس"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1596,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3495,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:invite.section.role",
+      "key": "invite.section.role",
+      "current": {
+        "en": "Role",
+        "fa": "نقش",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ونډه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1597,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3496,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/invite.tsx",
+          "line": 318
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:invite.section.shareLink",
+      "key": "invite.section.shareLink",
+      "current": {
+        "en": "Share link",
+        "fa": "لینک اشتراک",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "لینک شریک کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1598,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3497,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/invite.tsx",
+          "line": 411
+        },
+        {
+          "path": "apps/mobile/app/vault/transfer.tsx",
+          "line": 405
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:invite.email.label",
+      "key": "invite.email.label",
+      "current": {
+        "en": "Email",
+        "fa": "ایمیل",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "برېښنالیک"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1599,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3498,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/transfer.tsx",
+          "line": 455
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:invite.email.placeholder",
+      "key": "invite.email.placeholder",
+      "current": {
+        "en": "name@example.com",
+        "fa": "name@example.com",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "name@example.com"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1600,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3499,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/transfer.tsx",
+          "line": 462
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:invite.email.required",
+      "key": "invite.email.required",
+      "current": {
+        "en": "Email is required",
+        "fa": "ایمیل لازم است",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "برېښنالیک اړین دی"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1601,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3500,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/transfer.tsx",
+          "line": 225
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:invite.email.invalid",
+      "key": "invite.email.invalid",
+      "current": {
+        "en": "Enter a valid email",
+        "fa": "یک ایمیل معتبر وارد کنید",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "سم برېښنالیک ولیکئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1602,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3501,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/transfer.tsx",
+          "line": 225
+        },
+        {
+          "path": "apps/mobile/app/vault/transfer.tsx",
+          "line": 237
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:invite.email.alreadyInvited",
+      "key": "invite.email.alreadyInvited",
+      "current": {
+        "en": "This email is already invited",
+        "fa": "این ایمیل قبلاً دعوت شده",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "دې برېښنالیک ته له مخکې بلنه ورکړل شوې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1603,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3502,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:invite.email.alreadyMember",
+      "key": "invite.email.alreadyMember",
+      "current": {
+        "en": "This email is already a member",
+        "fa": "این ایمیل قبلاً عضو است",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "دا برېښنالیک له مخکې غړی دی"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1604,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3503,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:invite.gmailDotHint",
+      "key": "invite.gmailDotHint",
+      "current": {
+        "en": "The invitee must accept with an account that uses this same email. Gmail addresses are matched without dots.",
+        "fa": "دعوت‌شده باید با حسابی بپذیرد که همین ایمیل را دارد. آدرس‌های جیمیل بدون نقطه مطابقت می‌شوند.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "بلل شوی کس باید په هغه حساب بلنه ومني چې همدا برېښنالیک کاروي. د Gmail پتې له ټکو پرته سره پرتله کېږي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1605,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3504,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:invite.role.editor",
+      "key": "invite.role.editor",
+      "current": {
+        "en": "Editor",
+        "fa": "ویرایشگر",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "سمونګر"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1607,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3506,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/invite.tsx",
+          "line": 326
+        },
+        {
+          "path": "apps/mobile/app/vault/invite.tsx",
+          "line": 402
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:invite.role.editor.hint",
+      "key": "invite.role.editor.hint",
+      "current": {
+        "en": "Add, edit, and delete entries",
+        "fa": "افزودن، ویرایش و حذف ثبت‌ها",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "راکړې ورکړې زیاتې، سمې او ړنګې کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1608,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3507,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/invite.tsx",
+          "line": 327
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:invite.role.viewer",
+      "key": "invite.role.viewer",
+      "current": {
+        "en": "Viewer",
+        "fa": "بیننده",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "کتونکی"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1609,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3510,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/invite.tsx",
+          "line": 342
+        },
+        {
+          "path": "apps/mobile/app/vault/invite.tsx",
+          "line": 399
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:invite.role.viewer.hint",
+      "key": "invite.role.viewer.hint",
+      "current": {
+        "en": "Read-only access",
+        "fa": "دسترسی فقط‌خواندنی",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "یوازې د لیدلو لاسرسی"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1610,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3511,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/invite.tsx",
+          "line": 343
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:invite.role.clerk",
+      "key": "invite.role.clerk",
+      "current": {
+        "en": "Clerk",
+        "fa": "ثبت‌کننده",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "کارکوونکی"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1611,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3508,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/invite.tsx",
+          "line": 334
+        },
+        {
+          "path": "apps/mobile/app/vault/invite.tsx",
+          "line": 401
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:invite.role.clerk.hint",
+      "key": "invite.role.clerk.hint",
+      "current": {
+        "en": "Add entries only — never edit or delete",
+        "fa": "فقط افزودن ثبت — بدون ویرایش و حذف",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "یوازې راکړې ورکړې زیاتول — سمول او ړنګول نشي کولای"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1612,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3509,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/invite.tsx",
+          "line": 335
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:invite.submit",
+      "key": "invite.submit",
+      "current": {
+        "en": "Create invitation",
+        "fa": "ایجاد دعوت",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "بلنه جوړه کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1613,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3512,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:invite.created",
+      "key": "invite.created",
+      "current": {
+        "en": "Invitation created",
+        "fa": "دعوت ایجاد شد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "بلنه جوړه شوه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1614,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3513,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/invite.tsx",
+          "line": 194
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:invite.failed",
+      "key": "invite.failed",
+      "current": {
+        "en": "Failed to create invitation",
+        "fa": "ایجاد دعوت ناکام شد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "بلنه جوړه نه شوه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1615,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3514,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/invite.tsx",
+          "line": 215
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:invite.ownerOnly",
+      "key": "invite.ownerOnly",
+      "current": {
+        "en": "Only the Kaata owner can invite members.",
+        "fa": "فقط مالک کاتا می‌تواند عضو دعوت کند.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "یوازې د کاټې خاوند غړو ته بلنه ورکولای شي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1616,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3515,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/invite.tsx",
+          "line": 275
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:invite.result.sent",
+      "key": "invite.result.sent",
+      "current": {
+        "en": "Invitation sent",
+        "fa": "دعوت ارسال شد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "بلنه ولېږل شوه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1617,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3516,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:invite.result.sub",
+      "key": "invite.result.sub",
+      "current": {
+        "en": "{email} · expires {when}",
+        "fa": "{email} · انقضا {when}",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "{email} · په {when} پای ته رسېږي"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "email",
+        "when"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1618,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3517,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:invite.copy",
+      "key": "invite.copy",
+      "current": {
+        "en": "Copy link",
+        "fa": "کپی لینک",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "لینک کاپي کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1619,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3518,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/invite.tsx",
+          "line": 428
+        },
+        {
+          "path": "apps/mobile/app/vault/transfer.tsx",
+          "line": 422
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:invite.copy.done",
+      "key": "invite.copy.done",
+      "current": {
+        "en": "Link copied",
+        "fa": "لینک کپی شد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "لینک کاپي شو"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1620,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3519,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/invite.tsx",
+          "line": 228
+        },
+        {
+          "path": "apps/mobile/app/vault/transfer.tsx",
+          "line": 309
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:invite.copy.fallback",
+      "key": "invite.copy.fallback",
+      "current": {
+        "en": "Link ready to share",
+        "fa": "لینک آماده اشتراک",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "لینک د شریکولو لپاره چمتو دی"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1621,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3520,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:invite.copy.unavailable",
+      "key": "invite.copy.unavailable",
+      "current": {
+        "en": "Copy unavailable",
+        "fa": "کپی ممکن نیست",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "کاپي کول نشته"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1622,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3521,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/invite.tsx",
+          "line": 230
+        },
+        {
+          "path": "apps/mobile/app/vault/transfer.tsx",
+          "line": 322
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:invite.link.notOnServer",
+      "key": "invite.link.notOnServer",
+      "current": {
+        "en": "This Kaata must finish syncing before you can share it.",
+        "fa": "این کاتا باید همگام‌سازی شود تا بتوانید آن را به اشتراک بگذارید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د دې کاټې تر شریکولو مخکې باید همغږي یې بشپړه شي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1623,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3522,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/invite.tsx",
+          "line": 213
+        },
+        {
+          "path": "apps/mobile/app/vault/invite.tsx",
+          "line": 306
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:invite.share",
+      "key": "invite.share",
+      "current": {
+        "en": "Share via…",
+        "fa": "اشتراک از طریق…",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "له دې لارې یې شریک کړئ…"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1624,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3523,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:invite.shareMessage",
+      "key": "invite.shareMessage",
+      "current": {
+        "en": "Join my Kaata: {url}",
+        "fa": "به کاتای من بپیوندید: {url}",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "زما په کاټه کې ګډون وکړئ: {url}"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "url"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1625,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3524,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/invite.tsx",
+          "line": 239
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:invite.again",
+      "key": "invite.again",
+      "current": {
+        "en": "Invite someone else",
+        "fa": "دعوت شخص دیگری",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "بل چا ته بلنه ورکړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1626,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3525,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:invite.expiresIn.soon",
+      "key": "invite.expiresIn.soon",
+      "current": {
+        "en": "soon",
+        "fa": "به زودی",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ژر"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1627,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3526,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/invite/[token].tsx",
+          "line": 636
+        },
+        {
+          "path": "apps/mobile/app/vault/invite.tsx",
+          "line": 518
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:invite.expiresIn.lessThanDay",
+      "key": "invite.expiresIn.lessThanDay",
+      "current": {
+        "en": "in less than a day",
+        "fa": "در کمتر از یک روز",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "تر یوې ورځې په کمه موده کې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1628,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3527,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:invite.expiresIn.hours",
+      "key": "invite.expiresIn.hours",
+      "current": {
+        "en": "in {hours} hours",
+        "fa": "در {hours} ساعت",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "په {hours} ساعتونو کې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "hours"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1629,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3528,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/invite/[token].tsx",
+          "line": 638
+        },
+        {
+          "path": "apps/mobile/app/vault/invite.tsx",
+          "line": 520
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:invite.expiresIn.days",
+      "key": "invite.expiresIn.days",
+      "current": {
+        "en": "in {days} days",
+        "fa": "در {days} روز",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "په {days} ورځو کې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "days"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1630,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3529,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/invite/[token].tsx",
+          "line": 639
+        },
+        {
+          "path": "apps/mobile/app/vault/invite.tsx",
+          "line": 521
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:invite.toast.noActive",
+      "key": "invite.toast.noActive",
+      "current": {
+        "en": "No active Kaata",
+        "fa": "کاتای فعال نیست",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "فعاله کاټه نشته"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1631,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3530,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/invite.tsx",
+          "line": 125
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:invite.offline.banner",
+      "key": "invite.offline.banner",
+      "current": {
+        "en": "You're offline. Creating an invite link needs internet.",
+        "fa": "آفلاین هستید. ساختن لینک دعوت به انترنت نیاز دارد.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "انټرنېټ نه لرئ. د بلنې لینک جوړول انټرنېټ غواړي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1635,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3532,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/invite.tsx",
+          "line": 305
+        }
+      ],
+      "context": "Blocker banners. Shown ONLY when something stops a link being created —\neach names the blocker and nothing else. (They used to end with \"use Add\nmember\", the in-person QR flow that is parked with the offline mesh.)"
+    },
+    {
+      "id": "mobile:invite.signInRequired",
+      "key": "invite.signInRequired",
+      "current": {
+        "en": "Sign in to create an invite link.",
+        "fa": "برای ساختن لینک دعوت، وارد شوید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د بلنې لینک جوړولو لپاره ننوځئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1636,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3533,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/invite.tsx",
+          "line": 184
+        },
+        {
+          "path": "apps/mobile/app/vault/invite.tsx",
+          "line": 200
+        },
+        {
+          "path": "apps/mobile/app/vault/invite.tsx",
+          "line": 303
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:inviteAccept.title",
+      "key": "inviteAccept.title",
+      "current": {
+        "en": "Vault invitation",
+        "fa": "دعوت به کاتا",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د کاټې بلنه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1642,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3538,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/invite/[token].tsx",
+          "line": 473
+        }
+      ],
+      "context": "Invite acceptance deep link (app/invite/[token].tsx) — the screen the\nINVITEE lands on after tapping an emailed/shared invite URL. Role\nlabels reuse vaultPair.role.*; expiry phrasing reuses\ninvite.expiresIn.* + members.expiresLabel."
+    },
+    {
+      "id": "mobile:inviteAccept.invalidLink",
+      "key": "inviteAccept.invalidLink",
+      "current": {
+        "en": "Invalid invitation link",
+        "fa": "لینک دعوت معتبر نیست",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د بلنې لینک ناسم دی"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1651,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3547,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/invite/[token].tsx",
+          "line": 131
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:inviteAccept.signin.body",
+      "key": "inviteAccept.signin.body",
+      "current": {
+        "en": "Sign in to accept this invitation, with an account that uses the email address that received it.",
+        "fa": "برای پذیرفتن این دعوت وارد شوید، با حسابی که همان ایمیلِ دریافت‌کنندهٔ دعوت را دارد.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د دې بلنې د منلو لپاره په هغه حساب ننوځئ چې د بلنې ترلاسه کوونکی برېښنالیک کاروي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1652,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3548,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/invite/[token].tsx",
+          "line": 492
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:inviteAccept.signin.cta",
+      "key": "inviteAccept.signin.cta",
+      "current": {
+        "en": "Sign in",
+        "fa": "ورود",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ننوځئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1654,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3550,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/invite/[token].tsx",
+          "line": 495
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:inviteAccept.confirm.title",
+      "key": "inviteAccept.confirm.title",
+      "current": {
+        "en": "Join {name}?",
+        "fa": "به {name} بپیوندید؟",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "په {name} کې ګډون وکړئ؟"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "name"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1655,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3551,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/invite/[token].tsx",
+          "line": 515
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:inviteAccept.confirm.body",
+      "key": "inviteAccept.confirm.body",
+      "current": {
+        "en": "{inviter} invited you to join as {role}.",
+        "fa": "{inviter} شما را دعوت کرده است تا به عنوان {role} بپیوندید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "{inviter} تاسو ته د {role} په توګه د ګډون بلنه درکړې."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "inviter",
+        "role"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1660,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3552,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/invite/[token].tsx",
+          "line": 459
+        }
+      ],
+      "context": "Single sentence with BOTH placeholders — never split for the bold\n{role}; the screen splits the template on \"{role}\" at render time so\nPersian word order survives. {inviter} falls back to\ninviteAccept.confirm.someone when the server sent no name/email."
+    },
+    {
+      "id": "mobile:inviteAccept.confirm.someone",
+      "key": "inviteAccept.confirm.someone",
+      "current": {
+        "en": "Someone",
+        "fa": "کسی",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "یو چا"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1661,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3553,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/invite/[token].tsx",
+          "line": 456
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:inviteAccept.confirm.accept",
+      "key": "inviteAccept.confirm.accept",
+      "current": {
+        "en": "Accept and join",
+        "fa": "پذیرفتن و پیوستن",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ومنئ او ګډون وکړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1662,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3554,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/invite/[token].tsx",
+          "line": 541
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:inviteAccept.confirm.decline",
+      "key": "inviteAccept.confirm.decline",
+      "current": {
+        "en": "Decline",
+        "fa": "رد کردن",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "رد یې کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1663,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3555,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/invite/[token].tsx",
+          "line": 547
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:inviteAccept.joining",
+      "key": "inviteAccept.joining",
+      "current": {
+        "en": "Joining vault…",
+        "fa": "در حال پیوستن به کاتا…",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "په کاټه کې ګډون کېږي…"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1664,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3556,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/invite/[token].tsx",
+          "line": 558
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:inviteAccept.joinedToast",
+      "key": "inviteAccept.joinedToast",
+      "current": {
+        "en": "Joined {name}",
+        "fa": "به {name} پیوستید",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "په {name} کې مو ګډون وکړ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "name"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1665,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3557,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/invite/[token].tsx",
+          "line": 352
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:inviteAccept.pending.title",
+      "key": "inviteAccept.pending.title",
+      "current": {
+        "en": "Finishing your connection",
+        "fa": "در حال تکمیل اتصال",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ستاسو نښلول بشپړېږي"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1666,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3558,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/invite/[token].tsx",
+          "line": 567
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:inviteAccept.pending.body",
+      "key": "inviteAccept.pending.body",
+      "current": {
+        "en": "Your invitation was accepted. Keep Kaata online to finish setup. We’ll retry automatically.",
+        "fa": "دعوت شما پذیرفته شد. کاتا را به اینترنت وصل نگه دارید تا راه‌اندازی تکمیل شود. دوباره خودکار تلاش می‌کنیم.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ستاسو بلنه ومنل شوه. د چمتو کولو د بشپړولو لپاره کاټه له انټرنېټ سره وصل وساتئ. بیا به په خپله هڅه وکړو."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1667,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3559,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/invite/[token].tsx",
+          "line": 570
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:inviteAccept.blocked.title",
+      "key": "inviteAccept.blocked.title",
+      "current": {
+        "en": "Setup needs help",
+        "fa": "راه‌اندازی به کمک نیاز دارد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "چمتو کول مرستې ته اړتیا لري"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1669,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3561,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/invite/[token].tsx",
+          "line": 567
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:inviteAccept.blocked.body",
+      "key": "inviteAccept.blocked.body",
+      "current": {
+        "en": "Setup could not finish. Ask the kaata owner for help.",
+        "fa": "راه‌اندازی تکمیل نشد. از صاحب کاتا کمک بخواهید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "چمتو کول بشپړ نه شول. د کاټې له خاوند څخه مرسته وغواړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1670,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3562,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/invite/[token].tsx",
+          "line": 570
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:inviteAccept.error.title",
+      "key": "inviteAccept.error.title",
+      "current": {
+        "en": "Something went wrong",
+        "fa": "مشکلی پیش آمد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ستونزه پېښه شوه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1671,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3563,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/invite/[token].tsx",
+          "line": 587
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:inviteAccept.error.notVisible",
+      "key": "inviteAccept.error.notVisible",
+      "current": {
+        "en": "This invitation isn't visible on your account. The invite is anchored to a specific email — try signing in with the account that uses the email that received it.",
+        "fa": "این دعوت در حساب شما دیده نمی‌شود. دعوت به یک ایمیل مشخص گره خورده است — با حسابی وارد شوید که همان ایمیلِ دریافت‌کنندهٔ دعوت را دارد.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "دا بلنه ستاسو په حساب کې نه ښکاري. بلنه په یوه ټاکلي برېښنالیک پورې تړلې ده — په هغه حساب د ننوتلو هڅه وکړئ چې بلنه یې ترلاسه کړې."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1672,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3564,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:inviteAccept.error.expired",
+      "key": "inviteAccept.error.expired",
+      "current": {
+        "en": "This invitation has expired. Ask the inviter for a new one.",
+        "fa": "این دعوت منقضی شده است. از دعوت‌کننده بخواهید دعوت جدید بفرستد.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د دې بلنې موده پای ته رسېدلې. له بلنه ورکوونکي نوې بلنه وغواړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1674,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3566,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/invite/[token].tsx",
+          "line": 186
+        },
+        {
+          "path": "apps/mobile/app/invite/[token].tsx",
+          "line": 191
+        },
+        {
+          "path": "apps/mobile/app/invite/[token].tsx",
+          "line": 373
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:inviteAccept.error.loadFailed",
+      "key": "inviteAccept.error.loadFailed",
+      "current": {
+        "en": "Failed to load invitation",
+        "fa": "بار کردن دعوت ناکام شد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "بلنه پورته نه شوه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1675,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3567,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/invite/[token].tsx",
+          "line": 202
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:inviteAccept.error.rateLimited",
+      "key": "inviteAccept.error.rateLimited",
+      "current": {
+        "en": "Too many attempts. Please try again later.",
+        "fa": "تلاش‌های زیاد. کمی بعد دوباره امتحان کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "هڅې ډېرې شوې. وروسته بیا هڅه وکړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1676,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3568,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/invite/[token].tsx",
+          "line": 377
+        },
+        {
+          "path": "apps/mobile/app/vault/transfer.tsx",
+          "line": 236
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:inviteAccept.error.acceptFailed",
+      "key": "inviteAccept.error.acceptFailed",
+      "current": {
+        "en": "Failed to accept invitation",
+        "fa": "پذیرفتن دعوت ناکام شد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "بلنه ونه منل شوه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1677,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3569,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/invite/[token].tsx",
+          "line": 379
+        }
+      ],
+      "context": ""
+    }
+  ]
+}

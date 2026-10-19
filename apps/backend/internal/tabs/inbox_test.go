@@ -10,7 +10,7 @@ import (
 )
 
 func TestNotificationDetails(t *testing.T) {
-	for _, locale := range []string{"en", "fa"} {
+	for _, locale := range []string{"en", "fa", "ps"} {
 		for _, kind := range []string{"entry_created", "entry_accepted", "entry_rejected", "entry_voided"} {
 			for _, currency := range []string{"AFN", "USD", "AED"} {
 				body := detailedPushBody(kind, locale, "احمد", 50025, "a_to_b", currency, "b", true)
@@ -25,7 +25,7 @@ func TestNotificationDetails(t *testing.T) {
 		}
 	}
 	// A clerk or viewer is told what happened, never asked to review (audit #7).
-	for _, locale := range []string{"en", "fa"} {
+	for _, locale := range []string{"en", "fa", "ps"} {
 		reviewer := detailedPushBody("entry_created", locale, "Ahmad", 50025, "a_to_b", "AFN", "b", true)
 		reader := detailedPushBody("entry_created", locale, "Ahmad", 50025, "a_to_b", "AFN", "b", false)
 		short := pushBodyFor("entry_created", locale, false)

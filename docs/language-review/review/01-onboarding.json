@@ -1,0 +1,2789 @@
+{
+  "$schema": "../review.schema.json",
+  "format_version": 1,
+  "section": "01-onboarding",
+  "entries": [
+    {
+      "id": "mobile:onboarding.subtitle",
+      "key": "onboarding.subtitle",
+      "current": {
+        "en": "A quiet ledger between you and the people you trust.",
+        "fa": "یک دفتر آرام میان شما و کسانی که اعتماد دارید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": "A personal ledger between you and the people you trust.",
+        "fa": "یک دفتر شخصی میان شما و کسانی که اعتماد دارید.",
+        "ps": "ستاسو او د هغو خلکو ترمنځ یوه شخصي کاټه چې باور پرې لرئ."
+      },
+      "approved_locales": [
+        "en",
+        "fa",
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 77,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2159,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": "Onboarding"
+    },
+    {
+      "id": "mobile:onboarding.name.label",
+      "key": "onboarding.name.label",
+      "current": {
+        "en": "Your name",
+        "fa": "نام شما",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ستاسې نوم"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 78,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2160,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/onboarding/profile.tsx",
+          "line": 320
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:onboarding.name.placeholder",
+      "key": "onboarding.name.placeholder",
+      "current": {
+        "en": "Sultan",
+        "fa": "سلطان",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "سلطان"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 79,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2161,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/onboarding/profile.tsx",
+          "line": 330
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:onboarding.lastName.label",
+      "key": "onboarding.lastName.label",
+      "current": {
+        "en": "Last name",
+        "fa": "تخلص",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "تخلص"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 80,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2162,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/onboarding/profile.tsx",
+          "line": 342
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:onboarding.lastName.placeholder",
+      "key": "onboarding.lastName.placeholder",
+      "current": {
+        "en": "Ahmadi",
+        "fa": "احمدی",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "احمدي"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 81,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2163,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/onboarding/profile.tsx",
+          "line": 349
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:onboarding.phone.label",
+      "key": "onboarding.phone.label",
+      "current": {
+        "en": "Phone number",
+        "fa": "شماره تلفون",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د ټیلیفون شمېره"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 82,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2164,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/onboarding/profile.tsx",
+          "line": 362
+        },
+        {
+          "path": "apps/mobile/app/onboarding/profile.tsx",
+          "line": 377
+        },
+        {
+          "path": "apps/mobile/app/onboarding/profile.tsx",
+          "line": 401
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:onboarding.phone.required",
+      "key": "onboarding.phone.required",
+      "current": {
+        "en": "Phone number is required",
+        "fa": "شماره تلفون لازم است",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د ټیلیفون شمېره اړینه ده"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 83,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2165,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/onboarding/profile.tsx",
+          "line": 185
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:onboarding.phone.hint",
+      "key": "onboarding.phone.hint",
+      "current": {
+        "en": "Helps your team find you when linking devices.",
+        "fa": "کمک می‌کند همکاران‌تان هنگام وصل کردن تلفون‌ها شما را پیدا کنند.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د وسیلو د نښلولو پر مهال ستاسې له ډلې سره مرسته کوي چې تاسې ومومي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 84,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2166,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/onboarding/profile.tsx",
+          "line": 415
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:onboarding.continue",
+      "key": "onboarding.continue",
+      "current": {
+        "en": "Continue",
+        "fa": "ادامه",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "دوام ورکړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 85,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2167,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/onboarding/calendar.tsx",
+          "line": 151
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:onboarding.nameRequired",
+      "key": "onboarding.nameRequired",
+      "current": {
+        "en": "Name required",
+        "fa": "نام لازم است",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "نوم اړین دی"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 86,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2168,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 380
+        },
+        {
+          "path": "apps/mobile/app/person/[id]/edit.tsx",
+          "line": 161
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:recovery.selfPlaceholderName",
+      "key": "recovery.selfPlaceholderName",
+      "current": {
+        "en": "You",
+        "fa": "شما",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "تاسې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 89,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2169,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/member-profiles.ts",
+          "line": 127
+        },
+        {
+          "path": "apps/mobile/lib/recovery.ts",
+          "line": 938
+        }
+      ],
+      "context": "Fallback display name for a self identity reconstructed during cloud restore\nwhen neither the Google name nor the restored owner name is available (rare)."
+    },
+    {
+      "id": "mobile:onboardingLanguage.title",
+      "key": "onboardingLanguage.title",
+      "current": {
+        "en": "Choose your language",
+        "fa": "زبان خود را انتخاب کنید",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "خپله ژبه غوره کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 93,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2172,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/onboarding/language.tsx",
+          "line": 67
+        }
+      ],
+      "context": "Onboarding step 1 — language picker. Only shown when device locale\nisn't already Persian/Dari."
+    },
+    {
+      "id": "mobile:onboardingLanguage.subtitle",
+      "key": "onboardingLanguage.subtitle",
+      "current": {
+        "en": "Choose the language you prefer. You can change it later in Account.",
+        "fa": "زبانی را که راحت‌تر هستید انتخاب کنید. بعداً در بخش حساب قابل تغییر است.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "خپله خوښه ژبه غوره کړئ. وروسته یې د حساب په برخه کې بدلولی شئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 94,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2173,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/onboarding/language.tsx",
+          "line": 68
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:onboardingMode.title",
+      "key": "onboardingMode.title",
+      "current": {
+        "en": "Get started with Kaata",
+        "fa": "با کاتا شروع کنید",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "له Kaata سره پیل وکړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 98,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2177,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/onboarding/auth.tsx",
+          "line": 647
+        }
+      ],
+      "context": "Sign-in follows language/calendar; profile and kaata creation come next."
+    },
+    {
+      "id": "mobile:onboardingMode.subtitle",
+      "key": "onboardingMode.subtitle",
+      "current": {
+        "en": "Choose how to save and access your accounts.",
+        "fa": "روش نگهداری حساب‌های‌تان را انتخاب کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "غوره کړئ چې خپل حسابونه څنګه خوندي کړئ او لاسرسی ورته ولرئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 99,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2178,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/onboarding/auth.tsx",
+          "line": 648
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:onboardingMode.account.label",
+      "key": "onboardingMode.account.label",
+      "current": {
+        "en": "With an account",
+        "fa": "با حساب",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "له کارن حساب سره"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 102,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2179,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/onboarding/auth.tsx",
+          "line": 655
+        }
+      ],
+      "context": "The two offers are explained ONCE each, above their buttons — the backup\nsentence used to be duplicated on the Google and Apple cards."
+    },
+    {
+      "id": "mobile:onboardingMode.account.body",
+      "key": "onboardingMode.account.body",
+      "current": {
+        "en": "Back up your kaatas, restore them on a new phone, and use them across your devices.",
+        "fa": "از کاتاهای‌تان نسخهٔ پشتیبان بگیرید، روی تلفون نو برگردانید و در چند تلفون استفاده کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د خپلو کاټو شاتړ واخلئ، په نوي ټیلیفون کې یې بېرته راوړئ او په خپلو بېلابېلو وسیلو کې یې وکاروئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 103,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2180,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/onboarding/auth.tsx",
+          "line": 656
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:onboardingMode.google.title",
+      "key": "onboardingMode.google.title",
+      "current": {
+        "en": "Sign in with Google",
+        "fa": "ورود با گوگل",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د Google له لارې ننوځئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 105,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2182,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/onboarding/auth.tsx",
+          "line": 683
+        },
+        {
+          "path": "apps/mobile/app/onboarding/auth.tsx",
+          "line": 707
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:onboardingMode.apple.title",
+      "key": "onboardingMode.apple.title",
+      "current": {
+        "en": "Sign in with Apple",
+        "fa": "ورود با اپل",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د Apple له لارې ننوځئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 106,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2183,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/onboarding/auth.tsx",
+          "line": 683
+        },
+        {
+          "path": "apps/mobile/app/onboarding/auth.tsx",
+          "line": 707
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:onboardingMode.offline.label",
+      "key": "onboardingMode.offline.label",
+      "current": {
+        "en": "Without an account",
+        "fa": "بدون حساب",
+        "ps": null
+      },
+      "proposed": {
+        "en": "Ninja mode",
+        "fa": "حالت نینجا",
+        "ps": "د نینجا حالت"
+      },
+      "approved_locales": [
+        "en",
+        "fa",
+        "ps"
+      ],
+      "notes": "User follow-up authorized restoring Ninja mode and its fun tone in all three languages, preserving the original NinjaIcon, and adding the phone-loss/no-account-backup warning.",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 107,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2184,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/onboarding/auth.tsx",
+          "line": 747
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:onboardingMode.offline.body",
+      "key": "onboardingMode.offline.body",
+      "current": {
+        "en": "Keep your kaata on this phone. You can sign in later.",
+        "fa": "کاتای‌تان را روی همین تلفون نگه دارید. بعداً هم می‌توانید وارد حساب شوید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": "Stay in the shadows. No account needed. Keep your kaata on this phone, and sign in later for cloud backup.",
+        "fa": "در سایه بمانید. نیازی به حساب نیست. کاتای‌تان را روی همین تلفون نگه دارید و برای پشتیبان‌گیری ابری، بعداً وارد حساب شوید.",
+        "ps": "په سیورو کې پاتې شئ. کارن حساب ته اړتیا نشته. خپله کاټه په همدې ټیلیفون کې وساتئ او د کلاوډ شاتړ لپاره وروسته ننوځئ."
+      },
+      "approved_locales": [
+        "en",
+        "fa",
+        "ps"
+      ],
+      "notes": "User follow-up authorized restoring Ninja mode and its fun tone in all three languages, preserving the original NinjaIcon, and adding the phone-loss/no-account-backup warning.",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 108,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2185,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/onboarding/auth.tsx",
+          "line": 749
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:onboardingMode.offline.title",
+      "key": "onboardingMode.offline.title",
+      "current": {
+        "en": "Continue offline",
+        "fa": "ادامه بدون اینترنت",
+        "ps": null
+      },
+      "proposed": {
+        "en": "Continue in ninja mode",
+        "fa": "ادامه در حالت نینجا",
+        "ps": "د نینجا په حالت کې دوام ورکړئ"
+      },
+      "approved_locales": [
+        "en",
+        "fa",
+        "ps"
+      ],
+      "notes": "User follow-up authorized restoring Ninja mode and its fun tone in all three languages, preserving the original NinjaIcon, and adding the phone-loss/no-account-backup warning.",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 109,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2187,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/onboarding/auth.tsx",
+          "line": 755
+        },
+        {
+          "path": "apps/mobile/app/onboarding/auth.tsx",
+          "line": 773
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:onboardingMode.signInFailed",
+      "key": "onboardingMode.signInFailed",
+      "current": {
+        "en": "Sign-in didn't work. Try again.",
+        "fa": "ورود نشد. دوباره امتحان کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ننوتل بریالي نه شول. بیا هڅه وکړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 112,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2188,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/onboarding/auth.tsx",
+          "line": 122
+        },
+        {
+          "path": "apps/mobile/app/onboarding/auth.tsx",
+          "line": 125
+        }
+      ],
+      "context": "Sign-in failures now name the leg that broke and carry a short code\n(e.g. \"server 503\", \"timeout\") the user can read out for support."
+    },
+    {
+      "id": "mobile:onboardingMode.signInFailed.network",
+      "key": "onboardingMode.signInFailed.network",
+      "current": {
+        "en": "Sign-in couldn't reach Kaata. Check your internet and try again.",
+        "fa": "ورود به کاتا نرسید. انترنت را بررسی کنید و دوباره امتحان کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د ننوتلو پر مهال له Kaata سره اړیکه ټینګه نه شوه. خپل انټرنېټ وګورئ او بیا هڅه وکړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 113,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2189,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/onboarding/auth.tsx",
+          "line": 121
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:onboardingMode.signInFailed.playServices",
+      "key": "onboardingMode.signInFailed.playServices",
+      "current": {
+        "en": "This phone needs a newer Google Play Services to sign in. Update it in the Play Store, or continue without an account.",
+        "fa": "این تلفون به نسخهٔ جدیدتر Google Play Services ضرورت دارد. آن را از Play Store به‌روز کنید یا بدون حساب ادامه دهید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "دا ټیلیفون د ننوتلو لپاره د Google Play Services نوې نسخې ته اړتیا لري. په Play Store کې یې نوې کړئ، یا پرته له کارن حسابه دوام ورکړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 115,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2191,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/onboarding/auth.tsx",
+          "line": 119
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:onboardingMode.expoGoHint",
+      "key": "onboardingMode.expoGoHint",
+      "current": {
+        "en": "Sign-in works on the real app; for now you can continue offline.",
+        "fa": "ورود در نسخه واقعی برنامه کار می‌کند؛ فعلاً می‌توانید بدون حساب ادامه دهید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": "Sign-in works on the real app; for now you can continue in ninja mode.",
+        "fa": "ورود در نسخه واقعی برنامه کار می‌کند؛ فعلاً می‌توانید در حالت نینجا ادامه دهید.",
+        "ps": "ننوتل په اصلي اپ کې کار کوي؛ اوس د نینجا په حالت کې دوام ورکولی شئ."
+      },
+      "approved_locales": [
+        "en",
+        "fa",
+        "ps"
+      ],
+      "notes": "User follow-up authorized restoring Ninja mode and its fun tone in all three languages, preserving the original NinjaIcon, and adding the phone-loss/no-account-backup warning.",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 117,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2193,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/onboarding/auth.tsx",
+          "line": 524
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:onboardingMode.back",
+      "key": "onboardingMode.back",
+      "current": {
+        "en": "Back",
+        "fa": "برگشت",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "شاته"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 118,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2195,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:onboardingMode.email.title",
+      "key": "onboardingMode.email.title",
+      "current": {
+        "en": "Continue with email",
+        "fa": "ادامه با ایمیل",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د برېښنالیک له لارې دوام ورکړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 122,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2197,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/onboarding/auth.tsx",
+          "line": 721
+        },
+        {
+          "path": "apps/mobile/app/onboarding/auth.tsx",
+          "line": 734
+        }
+      ],
+      "context": "Kaata's own accounts: email + password (docs/kaata-accounts.md §7,\ncomponents/EmailAuthFlow.tsx). Play's review instructions quote\n\"Continue with email\" word for word: change both together."
+    },
+    {
+      "id": "mobile:onboardingProfile.title",
+      "key": "onboardingProfile.title",
+      "current": {
+        "en": "Your profile",
+        "fa": "مشخصات شما",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ستاسې پېژندپاڼه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 222,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2297,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/onboarding/profile.tsx",
+          "line": 306
+        }
+      ],
+      "context": "Onboarding profile (last step before the tour)\nWas \"Almost done\" — mistimed once the kaata step landed after this\nscreen, and it described progress instead of saying what the screen IS."
+    },
+    {
+      "id": "mobile:onboardingProfile.subtitle",
+      "key": "onboardingProfile.subtitle",
+      "current": {
+        "en": "Help the people you share accounts with recognize you.",
+        "fa": "تا کسانی که با آن‌ها حساب مشترک دارید، شما را بشناسند.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "له هغو کسانو سره مرسته وکړئ چې ګډ حسابونه ورسره لرئ، څو تاسې وپېژني."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 223,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2298,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/onboarding/profile.tsx",
+          "line": 307
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:onboardingProfile.signedInHint",
+      "key": "onboardingProfile.signedInHint",
+      "current": {
+        "en": "Signed in as {email}",
+        "fa": "وارد شده به نام {email}",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د {email} په حساب ننوتلي یاست"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "email"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 224,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2299,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/onboarding/profile.tsx",
+          "line": 311
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:onboardingProfile.continue",
+      "key": "onboardingProfile.continue",
+      "current": {
+        "en": "Continue",
+        "fa": "ادامه",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "دوام ورکړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 225,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2300,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/onboarding/profile.tsx",
+          "line": 425
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:onboardingProfile.nameRequired",
+      "key": "onboardingProfile.nameRequired",
+      "current": {
+        "en": "Please enter your name",
+        "fa": "لطفاً نام خود را وارد کنید",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "خپل نوم ولیکئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 226,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2301,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/onboarding/profile.tsx",
+          "line": 173
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:onboardingProfile.shopRequired",
+      "key": "onboardingProfile.shopRequired",
+      "current": {
+        "en": "Please name your Kaata",
+        "fa": "لطفاً برای کاتای خود نام بگذارید",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "خپلې کاټې ته نوم ورکړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 227,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2302,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:onboardingProfile.joinExisting",
+      "key": "onboardingProfile.joinExisting",
+      "current": {
+        "en": "I'll join an existing kaata instead",
+        "fa": "به جای آن به کاتای موجود می‌پیوندم",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "له مخکې شته کاټې سره یوځای کېږم"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 228,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2303,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:onboardingKaata.title",
+      "key": "onboardingKaata.title",
+      "current": {
+        "en": "Name your kaata",
+        "fa": "برای کاتای‌تان نام بگذارید",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "خپلې کاټې ته نوم ورکړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 231,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2305,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/onboarding/kaata.tsx",
+          "line": 267
+        }
+      ],
+      "context": "A kaata holds everyone's accounts for a shop, household, or another purpose."
+    },
+    {
+      "id": "mobile:onboardingKaata.subtitle",
+      "key": "onboardingKaata.subtitle",
+      "current": {
+        "en": "A kaata keeps everyone's accounts in one place. Give it a name for your shop or household.",
+        "fa": "کاتا حساب همه را در یک جا نگه می‌دارد. برای دکان یا خانهٔ خود نامی انتخاب کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "کاټه د ټولو حسابونه په یوه ځای کې ساتي. د خپل دوکان یا کور لپاره نوم ورکړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 232,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2306,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/onboarding/kaata.tsx",
+          "line": 268
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:onboardingKaata.name.label",
+      "key": "onboardingKaata.name.label",
+      "current": {
+        "en": "Kaata name",
+        "fa": "نام کاتا",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د کاټې نوم"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 234,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2308,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/onboarding/kaata.tsx",
+          "line": 275
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:onboardingKaata.name.placeholder",
+      "key": "onboardingKaata.name.placeholder",
+      "current": {
+        "en": "Ahmad Grocery Store",
+        "fa": "خوراکه فروشی احمد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د احمد خوراکي توکو دوکان"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 235,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2309,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/onboarding/kaata.tsx",
+          "line": 281
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:onboardingKaata.name.required",
+      "key": "onboardingKaata.name.required",
+      "current": {
+        "en": "Please name your kaata",
+        "fa": "لطفاً برای کاتای‌تان نام بگذارید",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "خپلې کاټې ته نوم ورکړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 236,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2310,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/onboarding/kaata.tsx",
+          "line": 160
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:onboardingKaata.currency.label",
+      "key": "onboardingKaata.currency.label",
+      "current": {
+        "en": "Currency",
+        "fa": "ارز",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "اسعار"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 237,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2311,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/onboarding/kaata.tsx",
+          "line": 292
+        },
+        {
+          "path": "apps/mobile/app/onboarding/kaata.tsx",
+          "line": 296
+        },
+        {
+          "path": "apps/mobile/app/onboarding/kaata.tsx",
+          "line": 344
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:onboardingKaata.currency.hint",
+      "key": "onboardingKaata.currency.hint",
+      "current": {
+        "en": "All amounts in this kaata use this currency.",
+        "fa": "تمام مبلغ‌های این کاتا با همین ارز ثبت می‌شوند.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "په دې کاټه کې ټولې پیسې په دې اسعارو حسابېږي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 238,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2312,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/onboarding/kaata.tsx",
+          "line": 320
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:onboardingKaata.submit",
+      "key": "onboardingKaata.submit",
+      "current": {
+        "en": "Create my kaata",
+        "fa": "ساختن کاتا",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "زما کاټه جوړه کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 239,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2313,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/onboarding/kaata.tsx",
+          "line": 332
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:onboardingSuccess.title",
+      "key": "onboardingSuccess.title",
+      "current": {
+        "en": "Your kaata is ready",
+        "fa": "کاتای شما آماده است",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ستاسې کاټه چمتو ده"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 242,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2316,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/onboarding/success.tsx",
+          "line": 109
+        }
+      ],
+      "context": "Quiet confirmation after the first kaata is created, with one next step."
+    },
+    {
+      "id": "mobile:onboardingSuccess.body",
+      "key": "onboardingSuccess.body",
+      "current": {
+        "en": "Add a person, then record what you give or receive. Kaata keeps the balance for you.",
+        "fa": "یک نفر را اضافه کنید و داد و گرفت‌تان را ثبت کنید. کاتا بیلانس را برای‌تان حساب می‌کند.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "یو کس ورزیات کړئ، بیا چې څه ورکوئ یا ترلاسه کوئ، ثبت یې کړئ. Kaata مو پاتې حساب ساتي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 243,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2317,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/onboarding/success.tsx",
+          "line": 110
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:onboardingSuccess.ledgerLabel",
+      "key": "onboardingSuccess.ledgerLabel",
+      "current": {
+        "en": "Your kaata",
+        "fa": "کاتای شما",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ستاسې کاټه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 245,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2319,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/onboarding/success.tsx",
+          "line": 125
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:onboardingSuccess.cta",
+      "key": "onboardingSuccess.cta",
+      "current": {
+        "en": "Open my kaata",
+        "fa": "باز کردن کاتای من",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "زما کاټه پرانیزئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 246,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2320,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/onboarding/success.tsx",
+          "line": 136
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:guide.title",
+      "key": "guide.title",
+      "current": {
+        "en": "How kaata works",
+        "fa": "کاتا چطور کار می‌کند",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "کاټه څنګه کار کوي"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 249,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2323,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/guide.tsx",
+          "line": 25
+        }
+      ],
+      "context": "Permanent guide screen (app/guide.tsx), linked from the settings sheet."
+    },
+    {
+      "id": "mobile:guide.p1",
+      "key": "guide.p1",
+      "current": {
+        "en": "A kaata is your shop's ledger book. One kaata holds all the accounts of one shop.",
+        "fa": "کاتا دفتر حساب دکان شماست. یک کاتا تمام حساب‌های یک دکان را نگه می‌دارد.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "کاټه ستاسې د دوکان د حساب کتابچه ده. یوه کاټه د یوه دوکان ټول حسابونه ساتي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 250,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2324,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/guide.tsx",
+          "line": 31
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:guide.p2",
+      "key": "guide.p2",
+      "current": {
+        "en": "Each person you keep accounts with — customer or supplier — gets one tally inside your kaata. Add them with the button at the bottom right.",
+        "fa": "هر کسی که با او حساب دارید — مشتری یا تأمین‌کننده — یک حساب در داخل کاتای شما دارد. با دکمهٔ پایین سمت راست اضافه‌شان کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "هر کس چې حساب ورسره لرئ، که پېرودونکی وي یا توکي دررسوونکی، ستاسې په کاټه کې یو حساب لري. د ښي لوري لاندې تڼۍ په وهلو یې ورزیات کړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 251,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2325,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/guide.tsx",
+          "line": 32
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:guide.p3",
+      "key": "guide.p3",
+      "current": {
+        "en": "On a person's tally, record I gave when you hand over money or goods, and I received when they pay you back. The balance updates by itself.",
+        "fa": "در حساب هر شخص، وقتی پول یا جنس می‌دهید «دادم» و وقتی پس می‌گیرید «گرفتم» را ثبت کنید. بیلانس خودش محاسبه می‌شود.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د کس په حساب کې، چې پیسې یا توکي ورکوئ «ورکړل» ثبت کړئ، او چې پیسې بېرته درکوي «ترلاسه کړل» ثبت کړئ. پاتې حساب په خپله بدلېږي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 253,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2327,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/guide.tsx",
+          "line": 33
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:guide.p4",
+      "key": "guide.p4",
+      "current": {
+        "en": "Running more than one shop? Create another kaata and switch between them by tapping the kaata name at the top of the home screen.",
+        "fa": "بیش از یک دکان دارید؟ کاتای دیگری بسازید و با زدن روی نام کاتا در بالای صفحه اصلی بین آن‌ها جابه‌جا شوید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "له یوه ډېر دوکان چلوئ؟ بله کاټه جوړه کړئ. د کور پاڼې په سر کې د کاټې پر نوم په ټک کولو د کاټو ترمنځ اوښتی شئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 255,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2329,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/guide.tsx",
+          "line": 34
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:onboardingRestore.title",
+      "key": "onboardingRestore.title",
+      "current": {
+        "en": "Welcome back",
+        "fa": "خوش برگشتید",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "بېرته ښه راغلاست"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 260,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2333,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/onboarding/restore.tsx",
+          "line": 420
+        }
+      ],
+      "context": "Onboarding restore (inserted between auth and profile when the\nbackend has existing ledger state for the signed-in account)."
+    },
+    {
+      "id": "mobile:onboardingRestore.checking",
+      "key": "onboardingRestore.checking",
+      "current": {
+        "en": "Finding your kaatas",
+        "fa": "در حال پیدا کردن کاتاهای شما",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ستاسې کاټې لټول کېږي"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 261,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2334,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/onboarding/restore.tsx",
+          "line": 336
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:onboardingRestore.checkingHint",
+      "key": "onboardingRestore.checkingHint",
+      "current": {
+        "en": "Checking your account for saved data.",
+        "fa": "حساب‌تان برای پیدا کردن اطلاعات ذخیره‌شده بررسی می‌شود.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ستاسې په حساب کې خوندي شوي معلومات کتل کېږي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 262,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2335,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/onboarding/restore.tsx",
+          "line": 339
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:onboardingRestore.subtitleVaults",
+      "key": "onboardingRestore.subtitleVaults",
+      "current": {
+        "en": "Kaatas saved to your account: {count}",
+        "fa": "کاتاهای ذخیره‌شده در حساب شما: {count}",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ستاسې په حساب کې خوندي شوې کاټې: {count}"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "count"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 265,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2336,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/onboarding/restore.tsx",
+          "line": 421
+        }
+      ],
+      "context": "M5 multi-vault recovery: the count of non-archived vaults the account\nbelongs to. {count} is always >= 1 on this screen."
+    },
+    {
+      "id": "mobile:onboardingRestore.restore.title",
+      "key": "onboardingRestore.restore.title",
+      "current": {
+        "en": "Restore from cloud",
+        "fa": "برگرداندن از کلاد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "له کلاوډ څخه بېرته راوړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 266,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2337,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/onboarding/restore.tsx",
+          "line": 431
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:onboardingRestore.restore.bodyVaults",
+      "key": "onboardingRestore.restore.bodyVaults",
+      "current": {
+        "en": "Bring your people, transactions, and kaatas back to this phone.",
+        "fa": "افراد، ثبت‌ها و کاتاهای‌تان را روی این تلفون برگردانید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "خپل کسان، راکړې ورکړې او کاټې دې ټیلیفون ته بېرته راوړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 267,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2338,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/onboarding/restore.tsx",
+          "line": 426
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:onboardingRestore.fresh.title",
+      "key": "onboardingRestore.fresh.title",
+      "current": {
+        "en": "Start fresh",
+        "fa": "شروع تازه",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "له سره پیل وکړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 269,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2339,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/onboarding/restore.tsx",
+          "line": 437
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:onboardingRestore.fresh.body",
+      "key": "onboardingRestore.fresh.body",
+      "current": {
+        "en": "Create a new kaata instead. Your saved kaatas stay in the cloud.",
+        "fa": "یک کاتای نو بسازید. کاتاهای ذخیره‌شدهٔ شما در کلاد می‌مانند.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "نوې کاټه جوړه کړئ. ستاسې خوندي شوې کاټې په کلاوډ کې پاتې کېږي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 270,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2340,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/onboarding/restore.tsx",
+          "line": 444
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:onboardingRestore.fresh.confirmTitle",
+      "key": "onboardingRestore.fresh.confirmTitle",
+      "current": {
+        "en": "Start with a clean ledger?",
+        "fa": "با یک دفتر تمیز شروع می‌کنید؟",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "له تشې کاټې پیل کوئ؟"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 272,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2341,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/onboarding/restore.tsx",
+          "line": 449
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:onboardingRestore.fresh.confirmBody",
+      "key": "onboardingRestore.fresh.confirmBody",
+      "current": {
+        "en": "Your backed-up kaatas stay safe in the cloud, but they won't be restored to this phone now. You can sign in again later to restore them.",
+        "fa": "کاتاهای پشتیبان‌گرفته‌شدهٔ شما در ابر امن می‌مانند، اما اکنون روی این تلفن بازگردانی نمی‌شوند. می‌توانید بعداً دوباره وارد شوید تا آن‌ها را بازگردانی کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ستاسې د کاټو شاتړ په کلاوډ کې خوندي پاتې کېږي، خو اوس به دې ټیلیفون ته بېرته را نه وړل شي. وروسته د بېرته راوستلو لپاره بیا ننوتلی شئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 273,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2342,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/onboarding/restore.tsx",
+          "line": 450
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:onboardingRestore.restoring",
+      "key": "onboardingRestore.restoring",
+      "current": {
+        "en": "Restoring your kaata…",
+        "fa": "در حال بازیابی کاتای شما…",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ستاسې کاټه بېرته راوړل کېږي…"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 275,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2344,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/onboarding/restore.tsx",
+          "line": 358
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:onboardingRestore.tryAgain",
+      "key": "onboardingRestore.tryAgain",
+      "current": {
+        "en": "Try again",
+        "fa": "دوباره تلاش کنید",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "بیا هڅه وکړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 276,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2345,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/onboarding/restore.tsx",
+          "line": 390
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:onboardingRestore.startFresh",
+      "key": "onboardingRestore.startFresh",
+      "current": {
+        "en": "Start fresh",
+        "fa": "شروع تازه",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "له سره پیل وکړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 277,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2346,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/onboarding/restore.tsx",
+          "line": 403
+        },
+        {
+          "path": "apps/mobile/app/onboarding/restore.tsx",
+          "line": 451
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:onboardingRestore.errorTitle",
+      "key": "onboardingRestore.errorTitle",
+      "current": {
+        "en": "Couldn't restore",
+        "fa": "بازیابی ممکن نشد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "بېرته راوړل بریالي نه شول"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 278,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2347,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/onboarding/restore.tsx",
+          "line": 379
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:onboardingRestore.errorSessionExpired",
+      "key": "onboardingRestore.errorSessionExpired",
+      "current": {
+        "en": "Your sign-in expired. Sign in again to restore.",
+        "fa": "نشست شما منقضی شد. برای بازیابی دوباره وارد شوید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ستاسې د ننوتلو موده پای ته رسېدلې. د بېرته راوستلو لپاره بیا ننوځئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 279,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2348,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/onboarding/restore.tsx",
+          "line": 467
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:onboardingRestore.signInAgain",
+      "key": "onboardingRestore.signInAgain",
+      "current": {
+        "en": "Sign in again",
+        "fa": "دوباره وارد شوید",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "بیا ننوځئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 280,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2349,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/onboarding/restore.tsx",
+          "line": 383
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:onboardingRestore.errorTimeout",
+      "key": "onboardingRestore.errorTimeout",
+      "current": {
+        "en": "Network was too slow. Try again on a better connection.",
+        "fa": "شبکه خیلی کند بود. با اتصال بهتر دوباره تلاش کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "انټرنېټ ډېر ورو و. له ښه انټرنېټ سره بیا هڅه وکړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 281,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2350,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/onboarding/restore.tsx",
+          "line": 470
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:onboardingRestore.errorGeneric",
+      "key": "onboardingRestore.errorGeneric",
+      "current": {
+        "en": "Something went wrong. Try again.",
+        "fa": "مشکلی پیش آمد. دوباره تلاش کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ستونزه رامنځته شوه. بیا هڅه وکړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 282,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2351,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/onboarding/restore.tsx",
+          "line": 235
+        },
+        {
+          "path": "apps/mobile/app/onboarding/restore.tsx",
+          "line": 472
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:onboardingCalendar.title",
+      "key": "onboardingCalendar.title",
+      "current": {
+        "en": "Choose your calendar",
+        "fa": "تقویم خود را انتخاب کنید",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "خپل کلیز غوره کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 579,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2628,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/onboarding/calendar.tsx",
+          "line": 99
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:onboardingCalendar.subtitle",
+      "key": "onboardingCalendar.subtitle",
+      "current": {
+        "en": "Use the dates you know. You can change this later in Account.",
+        "fa": "تاریخ‌ها را به شیوه‌ای که می‌شناسید ببینید. بعداً می‌توانید آن را در حساب تغییر دهید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "هغه نېټې وکاروئ چې ورسره بلد یاست. وروسته یې د حساب په برخه کې بدلولی شئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 580,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2629,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/onboarding/calendar.tsx",
+          "line": 100
+        }
+      ],
+      "context": ""
+    }
+  ]
+}

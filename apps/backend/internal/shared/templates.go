@@ -74,7 +74,7 @@ func groupThousands(s string) string {
 // not a logo) + a skeleton, so the link opens to a styled page instantly; the
 // inline script then fetches the snapshot and fills in the transaction list.
 const viewHTML = `<!doctype html>
-<html lang="{{if .RTL}}fa{{else}}en{{end}}" dir="{{if .RTL}}rtl{{else}}ltr{{end}}">
+<html lang="{{.Language}}" dir="{{if .RTL}}rtl{{else}}ltr{{end}}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -107,7 +107,7 @@ a{color:inherit;text-decoration:none;}
 .shophead{font-size:17px;font-weight:700;letter-spacing:-.01em;color:var(--ink);text-align:center;}
 /* Bill issue date — LOAD-BEARING under the paper rule: links live forever, so
    a 2-year-old bill must read as "bill dated X", never as the current balance.
-   A quiet pill directly under the letterhead, present in BOTH the balance and
+   A date pill directly under the letterhead, present in BOTH the balance and
    settled layouts. Hidden (UA [hidden]) until the inline script fills it. */
 .billdate{width:fit-content;margin:12px auto 0;font-size:12px;font-weight:600;color:var(--sub);background:var(--bg);border:1px solid var(--line);border-radius:999px;padding:4px 12px;}
 .statement{margin-top:18px;padding-top:18px;border-top:1px solid var(--line);}
@@ -209,8 +209,8 @@ a{color:inherit;text-decoration:none;}
            ledger — check mark + "all settled", no meaningless big zero. -->
       <div class="clearwrap">
         <div class="clearic"><svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></div>
-        <div class="cleartitle">{{if .RTL}}حساب صاف است{{else}}All settled{{end}}</div>
-        <div class="clearsub"><b>{{.Person}}</b> — {{if .RTL}}چیزی باقی نمانده.{{else}}nothing owed.{{end}}</div>
+        <div class="cleartitle">{{if eq .Language "ps"}}حساب تصفیه دی{{else if .RTL}}حساب صاف است{{else}}All settled{{end}}</div>
+        <div class="clearsub"><b>{{.Person}}</b> — {{if eq .Language "ps"}}څه پاتې نه دي.{{else if .RTL}}چیزی باقی نمانده.{{else}}nothing owed.{{end}}</div>
       </div>
       {{else}}
       <div class="stmt"><span class="who">{{.Person}}</span> <span id="stmtVerb"></span></div>
@@ -241,6 +241,7 @@ a{color:inherit;text-decoration:none;}
 (function(){
   var dir = {{.Direction}};
   var rtl = {{.RTL}};
+  var lang = {{.Language}};
   var calendar = {{.Calendar}};
   var qamariOffset = {{.QamariOffset}};
   var apiBase = {{.APIBase}};
@@ -249,7 +250,7 @@ a{color:inherit;text-decoration:none;}
   document.addEventListener('touchstart', function(){}, {passive:true});
   // hshow/hhide are COUNT-FREE on purpose: the settled count lives only on
   // the statement card's trust line (repeating it here read redundant).
-  var L = rtl ? {
+  var L = lang === "ps" ? {"owe": "پوروړی دی", "credit": "طلبکار دی", "settled": "حساب یې تصفیه شوی", "tx": "راکړې ورکړې", "empty": "تر اوسه راکړه ورکړه نشته.", "err": "کاټه پورته نه شوه.", "debt": "ورکړل", "payment": "ترلاسه کړل", "tag": "Powered by", "more": "نور", "less": "لږ", "hshow": "تصفیه شوې مخینه وګورئ ({n})", "hhide": "تصفیه شوې مخینه پټه کړئ", "seton": "تصفیه شو · {d}", "bill": "د {d} نېټې بل", "dl": "د PDF په بڼه خوندي کړئ"} : rtl ? {
     owe:"قرضدار است", credit:"طلبکار است", settled:"تصفیه شده",
     tx:"معاملات", empty:"معامله‌ای نیست", err:"بارگذاری ناموفق بود",
     debt:"دادم", payment:"گرفتم", tag:"Powered by", more:"بیشتر", less:"کمتر",
@@ -276,6 +277,9 @@ a{color:inherit;text-decoration:none;}
   // One boolean used to drive both, so a Dari bill could not carry Gregorian
   // dates. Calendar conversion stays ICU's; only the vocabulary is ours —
   // the zodiac set (حمل … حوت), never the Iranian names ICU ships for fa.
+  var AFMP=["وری", "غویی", "غبرګولی", "چنګاښ", "زمری", "وږی", "تله", "لړم", "لیندۍ", "مرغومی", "سلواغه", "کب"];
+  var GMP=["جنوري", "فبروري", "مارچ", "اپرېل", "مې", "جون", "جولای", "اګست", "سپتمبر", "اکتوبر", "نومبر", "دسمبر"];
+  var QMP=["محرم", "صفر", "ربیع‌الاول", "ربیع‌الثاني", "جمادی‌الاول", "جمادی‌الثاني", "رجب", "شعبان", "رمضان", "شوال", "ذوالقعده", "ذوالحجه"];
   var AFM=['حمل','ثور','جوزا','سرطان','اسد','سنبله','میزان','عقرب','قوس','جدی','دلو','حوت'];
   var AFML=['Hamal','Sawr','Jawza','Saratan','Asad','Sunbula','Mizan','Aqrab','Qaws','Jadi','Dalw','Hut'];
   var GME=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -299,22 +303,22 @@ a{color:inherit;text-decoration:none;}
       var dt=new Date(ms);
       if(!Number.isFinite(dt.getTime())) return '';
       if(calendar==='qamari'){
-        try{var q=qamariDate(dt);return dnum(q.d)+' '+(rtl?QMF:QME)[q.m-1]+' '+dnum(q.y);}catch(qerr){/* Pre-epoch dates fall back to Gregorian. */}
+        try{var q=qamariDate(dt);return dnum(q.d)+' '+(lang==='ps'?QMP:rtl?QMF:QME)[q.m-1]+' '+dnum(q.y);}catch(qerr){/* Pre-epoch dates fall back to Gregorian. */}
       }
       if(calendar==='jalali'){
         var parts=new Intl.DateTimeFormat('en-US-u-ca-persian',{year:'numeric',month:'numeric',day:'numeric'}).formatToParts(dt);
         var y='',m=0,d='';
         for(var i=0;i<parts.length;i++){var p=parts[i];if(p.type==='year')y=p.value;else if(p.type==='month')m=+p.value;else if(p.type==='day')d=p.value;}
         if(!y||!d||m<1||m>12) throw 0;
-        return dnum(d)+' '+(rtl?AFM:AFML)[m-1]+' '+dnum(y);
+        return dnum(d)+' '+(lang==='ps'?AFMP:rtl?AFM:AFML)[m-1]+' '+dnum(y);
       }
       // Day-first in every combination, so all six read the same shape.
-      return dnum(dt.getDate())+' '+(rtl?GMF:GME)[dt.getMonth()]+' '+dnum(dt.getFullYear());
+      return dnum(dt.getDate())+' '+(lang==='ps'?GMP:rtl?GMF:GME)[dt.getMonth()]+' '+dnum(dt.getFullYear());
     }catch(e){
-      try{return new Date(ms).toLocaleDateString(rtl?'fa-AF':undefined,{year:'numeric',month:'short',day:'numeric'});}catch(e2){return '';}
+      try{return new Date(ms).toLocaleDateString(lang==='ps'?'ps-AF':rtl?'fa-AF':undefined,{year:'numeric',month:'short',day:'numeric'});}catch(e2){return '';}
     }
   }
-  function fmtAmt(n){try{return Math.abs(n).toLocaleString(rtl?'fa-AF':'en-US',{minimumFractionDigits:Number.isInteger(n)?0:2,maximumFractionDigits:2});}catch(e){return Math.abs(n);}}
+  function fmtAmt(n){try{return Math.abs(n).toLocaleString(lang==='ps'?'ps-AF-u-nu-arabext':rtl?'fa-AF':'en-US',{minimumFractionDigits:Number.isInteger(n)?0:2,maximumFractionDigits:2});}catch(e){return Math.abs(n);}}
   function moneyMinor(n){var minor=typeof n==='number'?Math.round(n*100):NaN;return Number.isSafeInteger(minor)?minor:NaN;}
   // Bill issue date at first paint (no fetch needed — server passed the ms).
   // 0 = pre-paper-rule snapshot without generated_at; leave the pill hidden.
@@ -354,7 +358,7 @@ a{color:inherit;text-decoration:none;}
       var all = (p && p.entries) || [];
       var cur = (p && p.currency) || '';
       // Settled-chapter collapse (parity with the app + SPA): entries dated
-      // at/before the boundary are ruled-off history behind one quiet row.
+      // at/before the boundary are ruled-off history behind one collapsed row.
       // COHERENCE RULE: collapse only while the current chapter's sum
       // exactly explains the balance — otherwise fall open, never hide
       // entries that account for the number in the header.
@@ -455,16 +459,16 @@ a{color:inherit;text-decoration:none;}
 </body>
 </html>`
 
-// Localized by the viewer's Accept-Language (viewData.RTL) — an unknown link
+// Localized by the viewer's Accept-Language (viewData.Lang) — an unknown link
 // has no snapshot locale to follow. The fa strings mirror the web client's
 // error state (apps/web/src/pages/CustomerView.tsx LABELS.fa). No "expired"
 // wording — bills never expire (paper rule); a dead link is just wrong/mistyped.
 const notFoundHTML = `<!doctype html>
-<html lang="{{if .RTL}}fa{{else}}en{{end}}" dir="{{if .RTL}}rtl{{else}}ltr{{end}}"><head><meta charset="utf-8">
+<html lang="{{.Language}}" dir="{{if .RTL}}rtl{{else}}ltr{{end}}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="only light">
 <title>Kaata</title>
 <style>body{margin:0;background:#FFFFFF;color:#171717;font-family:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;display:flex;min-height:100vh;align-items:center;justify-content:center;text-align:center;padding:24px;-webkit-font-smoothing:antialiased;}a{color:#616161;font-weight:600;text-decoration:none;}</style>
 </head><body><div><div style="font-size:16px;font-weight:700;letter-spacing:-.01em">kaata.</div>
-<p style="color:#616161;max-width:320px;line-height:1.55">{{if .RTL}}این کاتای مشترک وجود ندارد.{{else}}This shared ledger doesn’t exist.{{end}}</p>
-<p><a href="{{.Origin}}">{{if .RTL}}رفتن به kaata.af{{else}}Go to kaata.af{{end}}</a></p></div></body></html>`
+<p style="color:#616161;max-width:320px;line-height:1.55">{{if eq .Language "ps"}}دا شریکه کاټه نشته.{{else if .RTL}}این کاتای مشترک وجود ندارد.{{else}}This shared ledger doesn’t exist.{{end}}</p>
+<p><a href="{{.Origin}}">{{if eq .Language "ps"}}kaata.af ته لاړ شئ{{else if .RTL}}رفتن به kaata.af{{else}}Go to kaata.af{{end}}</a></p></div></body></html>`

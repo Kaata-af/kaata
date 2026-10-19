@@ -73,7 +73,7 @@ type Request struct {
 	AppVersion   string `json:"app_version"`
 	Platform     string `json:"platform"`
 	DeviceLocale string `json:"device_locale"`
-	// AppLocale is the resolved IN-APP language ('en'/'fa') — what the user
+	// AppLocale is the resolved IN-APP language ('en'/'fa'/'ps') — what the user
 	// actually runs the app in, distinct from the OS DeviceLocale. Drives the
 	// language split on the admin dashboard. Empty from older clients.
 	AppLocale string `json:"app_locale"`

@@ -1,0 +1,3769 @@
+{
+  "$schema": "../review.schema.json",
+  "format_version": 1,
+  "section": "15-statements-and-exports",
+  "entries": [
+    {
+      "id": "mobile:export.action.sharePdf",
+      "key": "export.action.sharePdf",
+      "current": {
+        "en": "Share as PDF",
+        "fa": "ارسال به شکل PDF",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د PDF په بڼه یې شریک کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1738,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3623,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/person/[id].tsx",
+          "line": 2271
+        },
+        {
+          "path": "apps/mobile/app/vault/settings.tsx",
+          "line": 954
+        }
+      ],
+      "context": "Export sheet: four flat rows (format × destination). Kept flat rather\nthan a format sheet chaining into a destination sheet — stacking two\nModals is the Android blank-sheet trap, and it would add a tap to the\ncommon (share) path."
+    },
+    {
+      "id": "mobile:export.action.shareCsv",
+      "key": "export.action.shareCsv",
+      "current": {
+        "en": "Share as CSV",
+        "fa": "ارسال به شکل CSV",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د CSV په بڼه یې شریک کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1739,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3624,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/person/[id].tsx",
+          "line": 2276
+        },
+        {
+          "path": "apps/mobile/app/vault/settings.tsx",
+          "line": 959
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:export.action.savePdf",
+      "key": "export.action.savePdf",
+      "current": {
+        "en": "Save PDF to phone",
+        "fa": "ذخیرهٔ PDF در تلفون",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "PDF په ټیلیفون کې خوندي کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1740,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3625,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/person/[id].tsx",
+          "line": 2281
+        },
+        {
+          "path": "apps/mobile/app/vault/settings.tsx",
+          "line": 964
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:export.action.saveCsv",
+      "key": "export.action.saveCsv",
+      "current": {
+        "en": "Save CSV to phone",
+        "fa": "ذخیرهٔ CSV در تلفون",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "CSV په ټیلیفون کې خوندي کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1741,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3626,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/person/[id].tsx",
+          "line": 2286
+        },
+        {
+          "path": "apps/mobile/app/vault/settings.tsx",
+          "line": 969
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:export.saved",
+      "key": "export.saved",
+      "current": {
+        "en": "Saved {name}",
+        "fa": "{name} ذخیره شد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "{name} خوندي شو"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "name"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1742,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3627,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/export/index.ts",
+          "line": 29
+        },
+        {
+          "path": "apps/mobile/lib/export/index.ts",
+          "line": 37
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:export.savedDownloads",
+      "key": "export.savedDownloads",
+      "current": {
+        "en": "Saved to Downloads as {name}",
+        "fa": "در پوشهٔ Downloads ذخیره شد: {name}",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د {name} په نوم په ډاونلوډونو کې خوندي شو"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "name"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1745,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3628,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/export/index.ts",
+          "line": 29
+        },
+        {
+          "path": "apps/mobile/lib/export/index.ts",
+          "line": 36
+        }
+      ],
+      "context": "Android lands the file in the public Downloads folder without asking, so\nthe confirmation has to say WHERE; on iOS the user just chose the place."
+    },
+    {
+      "id": "mobile:export.doc.statementTitle",
+      "key": "export.doc.statementTitle",
+      "current": {
+        "en": "Statement",
+        "fa": "صورت حساب",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د حساب پاڼه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1746,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3629,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 544
+        },
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 563
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:export.doc.summaryTitle",
+      "key": "export.doc.summaryTitle",
+      "current": {
+        "en": "Kaata report",
+        "fa": "گزارش کاتا",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د کاټې راپور"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1747,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3630,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 661
+        },
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 679
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:export.doc.generated",
+      "key": "export.doc.generated",
+      "current": {
+        "en": "Generated {date}",
+        "fa": "تهیه شده در {date}",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "په {date} جوړ شو"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "date"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1748,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3631,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 448
+        },
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 574
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:export.doc.peopleCount",
+      "key": "export.doc.peopleCount",
+      "current": {
+        "en": "{n} people",
+        "fa": "{n} نفر",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "{n} کسان"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "n"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1749,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3632,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 578
+        },
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 607
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:export.doc.entriesCount",
+      "key": "export.doc.entriesCount",
+      "current": {
+        "en": "{n} entries",
+        "fa": "{n} ثبت",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "{n} راکړې ورکړې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "n"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1750,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3633,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 452
+        },
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 579
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:export.doc.totalCollect",
+      "key": "export.doc.totalCollect",
+      "current": {
+        "en": "Total to collect",
+        "fa": "جمع وصول",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ټولې اخیستل کېدونکې پیسې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1751,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3634,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 610
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:export.doc.totalPay",
+      "key": "export.doc.totalPay",
+      "current": {
+        "en": "Total to pay",
+        "fa": "جمع پرداخت",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ټولې ورکول کېدونکې پیسې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1752,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3635,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 611
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:export.doc.net",
+      "key": "export.doc.net",
+      "current": {
+        "en": "Net",
+        "fa": "خالص",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "خالص"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1753,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3636,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 612
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:export.doc.balance",
+      "key": "export.doc.balance",
+      "current": {
+        "en": "Balance",
+        "fa": "باقی‌مانده",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "پاتې حساب"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1754,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3637,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 479
+        },
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 487
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:export.doc.empty",
+      "key": "export.doc.empty",
+      "current": {
+        "en": "No entries yet.",
+        "fa": "هنوز ثبتی نیست.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "تر اوسه راکړه ورکړه نشته."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1755,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3638,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 492
+        },
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 617
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:export.doc.customer",
+      "key": "export.doc.customer",
+      "current": {
+        "en": "Customer",
+        "fa": "نام مشتری",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "پېرودونکی"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1758,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3639,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 456
+        }
+      ],
+      "context": "PDF document furniture. Section titles read as headings, not labels, so\nthey carry no colon."
+    },
+    {
+      "id": "mobile:export.doc.preparedBy",
+      "key": "export.doc.preparedBy",
+      "current": {
+        "en": "Prepared by",
+        "fa": "تهیه‌کننده",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "چمتو کوونکی"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1759,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3640,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 585
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:export.doc.summarySection",
+      "key": "export.doc.summarySection",
+      "current": {
+        "en": "Account summary",
+        "fa": "خلاصهٔ حساب",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د حساب لنډیز"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1760,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3641,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 550
+        },
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 667
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:export.doc.transactionsSection",
+      "key": "export.doc.transactionsSection",
+      "current": {
+        "en": "Transactions",
+        "fa": "لیست ثبت‌ها",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "راکړې ورکړې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1761,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3642,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 554
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:export.doc.peopleSection",
+      "key": "export.doc.peopleSection",
+      "current": {
+        "en": "People",
+        "fa": "لیست اشخاص",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "کسان"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1762,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3643,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 671
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:export.doc.totalGave",
+      "key": "export.doc.totalGave",
+      "current": {
+        "en": "Total gave",
+        "fa": "مجموع دادم",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ټول ورکړل شوي"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1763,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3644,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 485
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:export.doc.totalReceived",
+      "key": "export.doc.totalReceived",
+      "current": {
+        "en": "Total received",
+        "fa": "مجموع گرفتم",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ټول ترلاسه شوي"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1764,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3645,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 486
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:export.doc.settledOn",
+      "key": "export.doc.settledOn",
+      "current": {
+        "en": "Settled on {date}",
+        "fa": "تصفیه شد در {date}",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "په {date} تصفیه شو"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "date"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1769,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3646,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 376
+        }
+      ],
+      "context": "The full-width rule-off row in a PDF. Deliberately NOT the UI chip\n(person.history.settledOn, \"Settled · {date}\"): in Dari that middle dot\nlands against the leading digit of the date and reads as a Persian zero,\nturning \"۱۳ سنبله\" into \"۱۳۰ سنبله\". A document spells the word out."
+    },
+    {
+      "id": "mobile:export.doc.clearedBy",
+      "key": "export.doc.clearedBy",
+      "current": {
+        "en": "Cleared by {name} on {date}",
+        "fa": "صاف‌شده توسط {name} در {date}",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د {name} له خوا په {date} تصفیه شو"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "date",
+        "name"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1774,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3647,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/export/note.ts",
+          "line": 72
+        }
+      ],
+      "context": "Its shared counterpart, a clearance marker on a mutual tab: same rule,\nnever the UI chip (tab.settle.history). lib/export/note.ts builds both\nsentences; the PDF isolates the name and the date. An empty name is normal\n(Apple can withhold it) and takes the second sentence."
+    },
+    {
+      "id": "mobile:export.doc.clearedUnnamed",
+      "key": "export.doc.clearedUnnamed",
+      "current": {
+        "en": "Cleared on {date} (name not recorded)",
+        "fa": "صاف‌شده در {date} (نام ثبت نشده)",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "په {date} تصفیه شو (نوم نه دی ثبت شوی)"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "date"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1775,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3648,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/export/note.ts",
+          "line": 72
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:export.col.date",
+      "key": "export.col.date",
+      "current": {
+        "en": "Date",
+        "fa": "تاریخ",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "نېټه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1776,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3649,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/export/csv.ts",
+          "line": 90
+        },
+        {
+          "path": "apps/mobile/lib/export/csv.ts",
+          "line": 248
+        },
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 414
+        },
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 532
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:export.col.dateShamsi",
+      "key": "export.col.dateShamsi",
+      "current": {
+        "en": "Date (Shamsi)",
+        "fa": "تاریخ شمسی",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "نېټه (شمسي)"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1777,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3650,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/export/csv.ts",
+          "line": 91
+        },
+        {
+          "path": "apps/mobile/lib/export/csv.ts",
+          "line": 249
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:export.col.dateQamari",
+      "key": "export.col.dateQamari",
+      "current": {
+        "en": "Date (Qamari)",
+        "fa": "تاریخ قمری",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "نېټه (قمري)"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1778,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3651,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/export/csv.ts",
+          "line": 112
+        },
+        {
+          "path": "apps/mobile/lib/export/csv.ts",
+          "line": 268
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:export.col.person",
+      "key": "export.col.person",
+      "current": {
+        "en": "Name",
+        "fa": "نام",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "نوم"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1779,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3652,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/export/csv.ts",
+          "line": 250
+        },
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 649
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:export.col.phone",
+      "key": "export.col.phone",
+      "current": {
+        "en": "Phone",
+        "fa": "تلفون",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ټیلیفون"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1780,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3653,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/export/csv.ts",
+          "line": 251
+        },
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 460
+        },
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 590
+        },
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 650
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:export.col.note",
+      "key": "export.col.note",
+      "current": {
+        "en": "Note",
+        "fa": "یادداشت",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "یادښت"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1781,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3654,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/export/csv.ts",
+          "line": 95
+        },
+        {
+          "path": "apps/mobile/lib/export/csv.ts",
+          "line": 255
+        },
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 416
+        },
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 536
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:export.col.gave",
+      "key": "export.col.gave",
+      "current": {
+        "en": "Gave",
+        "fa": "دادم",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ورکړل"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1782,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3655,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/export/csv.ts",
+          "line": 92
+        },
+        {
+          "path": "apps/mobile/lib/export/csv.ts",
+          "line": 252
+        },
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 401
+        },
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 509
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:export.col.received",
+      "key": "export.col.received",
+      "current": {
+        "en": "Received",
+        "fa": "گرفتم",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ترلاسه کړل"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1783,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3656,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/export/csv.ts",
+          "line": 93
+        },
+        {
+          "path": "apps/mobile/lib/export/csv.ts",
+          "line": 253
+        },
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 401
+        },
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 509
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:export.col.balance",
+      "key": "export.col.balance",
+      "current": {
+        "en": "Balance",
+        "fa": "باقی‌مانده",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "پاتې حساب"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1784,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3657,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/export/csv.ts",
+          "line": 94
+        },
+        {
+          "path": "apps/mobile/lib/export/csv.ts",
+          "line": 254
+        },
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 535
+        },
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 653
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:export.col.entries",
+      "key": "export.col.entries",
+      "current": {
+        "en": "Entries",
+        "fa": "ثبت‌ها",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "راکړې ورکړې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1785,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3658,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:export.col.num",
+      "key": "export.col.num",
+      "current": {
+        "en": "#",
+        "fa": "شماره",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "#"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1786,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3659,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 414
+        },
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 531
+        },
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 648
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:export.col.amount",
+      "key": "export.col.amount",
+      "current": {
+        "en": "Amount",
+        "fa": "مبلغ",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "مبلغ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1787,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3660,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 415
+        },
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 534
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:export.col.type",
+      "key": "export.col.type",
+      "current": {
+        "en": "Type",
+        "fa": "نوع",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ډول"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1788,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3661,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 415
+        },
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 533
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:export.col.status",
+      "key": "export.col.status",
+      "current": {
+        "en": "Status",
+        "fa": "وضعیت",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "حالت"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1789,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3662,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 652
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:export.col.lastActivity",
+      "key": "export.col.lastActivity",
+      "current": {
+        "en": "Last activity",
+        "fa": "آخرین ثبت",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "وروستی فعالیت"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1790,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3663,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 651
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:export.col.id",
+      "key": "export.col.id",
+      "current": {
+        "en": "Entry ID",
+        "fa": "نمبر ثبت",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د راکړې ورکړې پېژند"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1791,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3665,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/export/csv.ts",
+          "line": 113
+        },
+        {
+          "path": "apps/mobile/lib/export/csv.ts",
+          "line": 269
+        },
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 354
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:export.record.title",
+      "key": "export.record.title",
+      "current": {
+        "en": "Shared record with recorded acknowledgements",
+        "fa": "سابقهٔ مشترک با تأییدهای ثبت‌شده",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د ثبت شویو منلو سره ګډ ریکارډ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1792,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3666,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 544
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:export.record.explanation",
+      "key": "export.record.explanation",
+      "current": {
+        "en": "The ledger balance includes pending tallies. Rejected and cancelled tallies are shown for history and contribute zero. Missing reviewer details were not recorded. Names are account labels, not verified legal identities.",
+        "fa": "باقی‌مانده شامل ثبت‌های در انتظار است. ثبت‌های رد یا لغوشده برای حفظ سابقه نشان داده می‌شوند و در جمع حساب سهم ندارند. جزئیات خالیِ بررسی‌کننده ثبت نشده‌اند. نام‌ها نام حساب‌اند، نه هویت حقوقی تأییدشده.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د کاټې په پاتې حساب کې د منلو په تمه راکړې ورکړې هم شاملې دي. رد شوې او لغوه شوې راکړې ورکړې د مخینې لپاره ښکاري او په حساب کې صفر شمېرل کېږي. د بیاکتونکي هغه جزییات چې نشته، نه دي ثبت شوي. نومونه د حساب نومونه دي، تایید شوي قانوني هویتونه نه دي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1793,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3667,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 482
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:export.record.acknowledgedBalance",
+      "key": "export.record.acknowledgedBalance",
+      "current": {
+        "en": "Acknowledged net balance",
+        "fa": "باقی‌ماندهٔ خالص تأییدشده",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "منل شوی خالص پاتې حساب"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1795,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3669,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/export/csv.ts",
+          "line": 106
+        },
+        {
+          "path": "apps/mobile/lib/export/csv.ts",
+          "line": 262
+        },
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 477
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:export.record.pendingBalance",
+      "key": "export.record.pendingBalance",
+      "current": {
+        "en": "Pending net balance (including unsynced reviews)",
+        "fa": "باقی‌ماندهٔ خالص در انتظار (با بررسی‌های همگام‌نشده)",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د منلو په تمه خالص پاتې حساب (د لا نه همغږو شویو بیاکتنو په ګډون)"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1796,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3670,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/export/csv.ts",
+          "line": 107
+        },
+        {
+          "path": "apps/mobile/lib/export/csv.ts",
+          "line": 263
+        },
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 478
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:export.record.privateBalance",
+      "key": "export.record.privateBalance",
+      "current": {
+        "en": "Private net balance",
+        "fa": "باقی‌ماندهٔ خالص خصوصی",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "شخصي خالص پاتې حساب"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1797,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3671,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/export/csv.ts",
+          "line": 108
+        },
+        {
+          "path": "apps/mobile/lib/export/csv.ts",
+          "line": 264
+        },
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 481
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:export.record.contribution",
+      "key": "export.record.contribution",
+      "current": {
+        "en": "Balance contribution",
+        "fa": "سهم در باقی‌مانده",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "پر پاتې حساب اغېز"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1798,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3672,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/export/csv.ts",
+          "line": 105
+        },
+        {
+          "path": "apps/mobile/lib/export/csv.ts",
+          "line": 261
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:export.record.status",
+      "key": "export.record.status",
+      "current": {
+        "en": "Record status",
+        "fa": "وضعیت ثبت",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د ریکارډ حالت"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1799,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3673,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/export/evidence.ts",
+          "line": 29
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:export.record.pending",
+      "key": "export.record.pending",
+      "current": {
+        "en": "Pending",
+        "fa": "در انتظار",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "په تمه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1800,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3674,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/export/evidence.ts",
+          "line": 19
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:export.record.accepted",
+      "key": "export.record.accepted",
+      "current": {
+        "en": "Accepted",
+        "fa": "پذیرفته شده",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ومنل شوه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1801,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3675,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/export/evidence.ts",
+          "line": 16
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:export.record.rejected",
+      "key": "export.record.rejected",
+      "current": {
+        "en": "Rejected",
+        "fa": "رد شده",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "رد شوه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1802,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3676,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/export/evidence.ts",
+          "line": 18
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:export.record.cancelled",
+      "key": "export.record.cancelled",
+      "current": {
+        "en": "Cancelled",
+        "fa": "لغو شده",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "لغوه شوه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1803,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3677,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/export/evidence.ts",
+          "line": 14
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:export.record.private",
+      "key": "export.record.private",
+      "current": {
+        "en": "Private tally",
+        "fa": "ثبت خصوصی",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "شخصي راکړه ورکړه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1804,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3678,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/export/evidence.ts",
+          "line": 5
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:export.record.sync",
+      "key": "export.record.sync",
+      "current": {
+        "en": "Sync state",
+        "fa": "وضعیت همگام‌سازی",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د همغږۍ حالت"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1805,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3679,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/export/evidence.ts",
+          "line": 30
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:export.record.awaitingSync",
+      "key": "export.record.awaitingSync",
+      "current": {
+        "en": "Awaiting sync",
+        "fa": "در انتظار همگام‌سازی",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د همغږۍ په تمه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1806,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3680,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/export/evidence.ts",
+          "line": 57
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:export.record.acceptanceAwaitingSync",
+      "key": "export.record.acceptanceAwaitingSync",
+      "current": {
+        "en": "Acceptance awaiting sync",
+        "fa": "پذیرش در انتظار همگام‌سازی",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "منل د همغږۍ په تمه دي"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1807,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3681,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/export/evidence.ts",
+          "line": 8
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:export.record.rejectionAwaitingSync",
+      "key": "export.record.rejectionAwaitingSync",
+      "current": {
+        "en": "Rejection awaiting sync",
+        "fa": "رد در انتظار همگام‌سازی",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ردول د همغږۍ په تمه دي"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1808,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3682,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/export/evidence.ts",
+          "line": 9
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:export.record.cancellationAwaitingSync",
+      "key": "export.record.cancellationAwaitingSync",
+      "current": {
+        "en": "Cancellation awaiting sync",
+        "fa": "لغو در انتظار همگام‌سازی",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "لغوه کول د همغږۍ په تمه دي"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1809,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3683,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/export/evidence.ts",
+          "line": 7
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:export.record.saved",
+      "key": "export.record.saved",
+      "current": {
+        "en": "Recorded on server",
+        "fa": "در سرور ثبت شده",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "په سرور کې ثبت شوې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1810,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3684,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/export/evidence.ts",
+          "line": 57
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:export.record.tabId",
+      "key": "export.record.tabId",
+      "current": {
+        "en": "Shared account ID",
+        "fa": "نمبر حساب مشترک",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د ګډ حساب پېژند"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1811,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3686,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/export/csv.ts",
+          "line": 73
+        },
+        {
+          "path": "apps/mobile/lib/export/evidence.ts",
+          "line": 31
+        },
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 283
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:export.record.author",
+      "key": "export.record.author",
+      "current": {
+        "en": "Added by",
+        "fa": "ثبت‌کننده",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "زیاتوونکی"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1812,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3687,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/export/evidence.ts",
+          "line": 32
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:export.record.authorId",
+      "key": "export.record.authorId",
+      "current": {
+        "en": "Author account reference",
+        "fa": "نمبر حساب ثبت‌کننده",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د زیاتوونکي د حساب مرجع"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1813,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3688,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/export/evidence.ts",
+          "line": 33
+        },
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 284
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:export.record.authorRole",
+      "key": "export.record.authorRole",
+      "current": {
+        "en": "Author role at the time",
+        "fa": "نقش ثبت‌کننده در آن زمان",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د زیاتوونکي د هماغه وخت ونډه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1814,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3689,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/export/evidence.ts",
+          "line": 34
+        },
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 325
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:export.record.recordedAt",
+      "key": "export.record.recordedAt",
+      "current": {
+        "en": "Recorded at (UTC)",
+        "fa": "زمان ثبت (UTC)",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د ثبت وخت (UTC)"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1815,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3690,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/export/csv.ts",
+          "line": 75
+        },
+        {
+          "path": "apps/mobile/lib/export/evidence.ts",
+          "line": 35
+        },
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 285
+        },
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 375
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:export.record.reviewer",
+      "key": "export.record.reviewer",
+      "current": {
+        "en": "Reviewed by",
+        "fa": "بررسی‌کننده",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "بیاکتونکی"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1816,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3691,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/export/evidence.ts",
+          "line": 36
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:export.record.reviewerId",
+      "key": "export.record.reviewerId",
+      "current": {
+        "en": "Reviewer account reference",
+        "fa": "نمبر حساب بررسی‌کننده",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د بیاکتونکي د حساب مرجع"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1817,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3692,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/export/evidence.ts",
+          "line": 37
+        },
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 286
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:export.record.reviewerParty",
+      "key": "export.record.reviewerParty",
+      "current": {
+        "en": "Reviewer side",
+        "fa": "طرف بررسی‌کننده",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د بیاکتونکي لوری"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1818,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3693,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/export/evidence.ts",
+          "line": 38
+        },
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 328
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:export.record.reviewerRole",
+      "key": "export.record.reviewerRole",
+      "current": {
+        "en": "Reviewer role at the time",
+        "fa": "نقش بررسی‌کننده در آن زمان",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د بیاکتونکي د هماغه وخت ونډه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1819,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3694,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/export/evidence.ts",
+          "line": 39
+        },
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 325
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:export.record.reviewedAt",
+      "key": "export.record.reviewedAt",
+      "current": {
+        "en": "Reviewed at (UTC)",
+        "fa": "زمان بررسی (UTC)",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د بیاکتنې وخت (UTC)"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1820,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3695,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/export/evidence.ts",
+          "line": 40
+        },
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 287
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:export.record.reviewVersion",
+      "key": "export.record.reviewVersion",
+      "current": {
+        "en": "Review action version",
+        "fa": "نسخهٔ عمل بررسی",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د بیاکتنې د کړنې نسخه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1821,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3696,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/export/evidence.ts",
+          "line": 41
+        },
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 288
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:export.record.reason",
+      "key": "export.record.reason",
+      "current": {
+        "en": "Rejection reason",
+        "fa": "دلیل رد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د ردولو لامل"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1822,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3697,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/export/evidence.ts",
+          "line": 42
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:export.record.cancelledBy",
+      "key": "export.record.cancelledBy",
+      "current": {
+        "en": "Cancelled by",
+        "fa": "لغوکننده",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "لغوه کوونکی"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1823,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3698,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/export/evidence.ts",
+          "line": 43
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:export.record.cancelledById",
+      "key": "export.record.cancelledById",
+      "current": {
+        "en": "Cancelling account reference",
+        "fa": "نمبر حساب لغوکننده",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د لغوه کوونکي حساب مرجع"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1824,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3699,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/export/evidence.ts",
+          "line": 44
+        },
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 289
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:export.record.cancelledAt",
+      "key": "export.record.cancelledAt",
+      "current": {
+        "en": "Cancelled at (UTC)",
+        "fa": "زمان لغو (UTC)",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د لغوه کولو وخت (UTC)"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1825,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3700,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/export/evidence.ts",
+          "line": 45
+        },
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 290
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:export.record.cancellationId",
+      "key": "export.record.cancellationId",
+      "current": {
+        "en": "Cancellation record ID",
+        "fa": "نمبر ثبت لغو",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د لغوه کولو د ریکارډ پېژند"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1826,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3701,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/export/evidence.ts",
+          "line": 46
+        },
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 291
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:export.record.seq",
+      "key": "export.record.seq",
+      "current": {
+        "en": "Record sequence",
+        "fa": "ترتیب ثبت",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د ریکارډ لړۍ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1827,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3702,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/export/evidence.ts",
+          "line": 47
+        },
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 292
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:export.record.rev",
+      "key": "export.record.rev",
+      "current": {
+        "en": "Record revision",
+        "fa": "نسخهٔ ثبت",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د ریکارډ سمون"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1828,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3703,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/export/evidence.ts",
+          "line": 48
+        },
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 293
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:export.record.unknown",
+      "key": "export.record.unknown",
+      "current": {
+        "en": "Not recorded",
+        "fa": "ثبت نشده",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "نه دی ثبت شوی"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1829,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3704,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/EntryRow.tsx",
+          "line": 455
+        },
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 342
+        },
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 344
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:export.record.closedDeleted",
+      "key": "export.record.closedDeleted",
+      "current": {
+        "en": "Closed because an account was deleted. The shared record is read-only.",
+        "fa": "به دلیل حذف یک حساب بسته شده است. سابقهٔ مشترک فقط قابل خواندن است.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د یوه حساب د ړنګېدو له امله وتړل شو. ګډ ریکارډ یوازې د لیدلو لپاره دی."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1830,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3705,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/person/[id].tsx",
+          "line": 1942
+        },
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 412
+        },
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 483
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:export.record.archiveTitle",
+      "key": "export.record.archiveTitle",
+      "current": {
+        "en": "Earlier shared period",
+        "fa": "دورهٔ مشترک پیشین",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "پخوانۍ ګډه دوره"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1832,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3707,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 409
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:export.record.archiveExplanation",
+      "key": "export.record.archiveExplanation",
+      "current": {
+        "en": "Historical evidence only. This period is excluded from the current balance; its carried-over amount is represented by a later opening tally. The period balance below belongs to this earlier account.",
+        "fa": "فقط برای حفظ سابقه است. این دوره در باقی‌ماندهٔ فعلی جمع نمی‌شود؛ مبلغ انتقال‌یافتهٔ آن در ثبت آغازینِ دورهٔ بعد آمده است. باقی‌ماندهٔ این بخش مربوط به همان حساب پیشین است.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "یوازې د پخوانۍ مخینې ثبوت دی. دا دوره په اوسني پاتې حساب کې نه شمېرل کېږي؛ لېږدول شوی مبلغ یې په یوې وروسته پیل شوې راکړه ورکړه کې ښودل کېږي. د لاندې دورې پاتې حساب په همدې پخواني حساب پورې تړاو لري."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1833,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3708,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 411
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:export.record.scope",
+      "key": "export.record.scope",
+      "current": {
+        "en": "Balance scope",
+        "fa": "محدودهٔ باقی‌مانده",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د پاتې حساب محدوده"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1835,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3710,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/export/csv.ts",
+          "line": 98
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:export.record.current",
+      "key": "export.record.current",
+      "current": {
+        "en": "Current statement",
+        "fa": "صورت‌حساب فعلی",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "اوسنۍ حساب پاڼه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1836,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3711,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/export/csv.ts",
+          "line": 133
+        },
+        {
+          "path": "apps/mobile/lib/export/csv.ts",
+          "line": 163
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:export.record.archived",
+      "key": "export.record.archived",
+      "current": {
+        "en": "Earlier shared period — excluded from current balance",
+        "fa": "دورهٔ مشترک پیشین — بیرون از باقی‌ماندهٔ فعلی",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "پخوانۍ ګډه دوره — په اوسني پاتې حساب کې نه شمېرل کېږي"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1837,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3712,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/export/csv.ts",
+          "line": 196
+        },
+        {
+          "path": "apps/mobile/lib/export/csv.ts",
+          "line": 223
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:export.record.currency",
+      "key": "export.record.currency",
+      "current": {
+        "en": "Currency",
+        "fa": "واحد پول",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د پیسو ډول"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1838,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3713,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/export/csv.ts",
+          "line": 99
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:export.record.periodBalance",
+      "key": "export.record.periodBalance",
+      "current": {
+        "en": "Earlier period balance",
+        "fa": "باقی‌ماندهٔ دورهٔ پیشین",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د پخوانۍ دورې پاتې حساب"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1839,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3714,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/export/csv.ts",
+          "line": 104
+        },
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 416
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:export.record.recordedAmount",
+      "key": "export.record.recordedAmount",
+      "current": {
+        "en": "Recorded amount",
+        "fa": "مبلغ ثبت‌شده",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ثبت شوی مبلغ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1842,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3715,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/export/csv.ts",
+          "line": 103
+        },
+        {
+          "path": "apps/mobile/lib/export/csv.ts",
+          "line": 260
+        }
+      ],
+      "context": "CSV: a shared-shape row's amount as recorded, signed like Balance\ncontribution. Gave/Received carry only what counts (lib/export/csv.ts)."
+    },
+    {
+      "id": "mobile:export.record.role.account",
+      "key": "export.record.role.account",
+      "current": {
+        "en": "Account holder",
+        "fa": "صاحب حساب",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د حساب خاوند"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1846,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3716,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 306
+        }
+      ],
+      "context": "PDF evidence values; the CSV keeps the machine values. Roles otherwise\nreuse vaultSettings.role.*; \"account\" is the server's word for the party's\nown account acting directly rather than as a kaata member."
+    },
+    {
+      "id": "mobile:export.record.side.this",
+      "key": "export.record.side.this",
+      "current": {
+        "en": "This side",
+        "fa": "این طرف",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "دا لوری"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1849,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3717,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 315
+        }
+      ],
+      "context": "The reviewer's party relative to whoever exported the statement: the\nwire's a/b letters mean nothing on paper."
+    },
+    {
+      "id": "mobile:export.record.side.other",
+      "key": "export.record.side.other",
+      "current": {
+        "en": "Other side",
+        "fa": "طرف مقابل",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "بل لوری"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1850,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3718,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 315
+        }
+      ],
+      "context": ""
+    }
+  ]
+}

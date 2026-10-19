@@ -2907,7 +2907,7 @@ func TestOutreachMarkLang(t *testing.T) {
 	// 2. Anything else is 400 invalid lang with nothing written: not the
 	// known row, and no row for an unknown phone. "auto" is a session value.
 	before := stored(pending)
-	for _, bad := range []string{`"ps"`, `"FA"`, `"auto"`, `"fa "`, `"en-US"`} {
+	for _, bad := range []string{`"xx"`, `"FA"`, `"auto"`, `"fa "`, `"en-US"`} {
 		body := `{"phones":["+93700002001","+93700002009"],"note":"x","lang":` + bad + `}`
 		if rec := postOutreach(h.OutreachMark, body); rec.Code != 400 || outreachError(t, rec) != "invalid lang" {
 			t.Fatalf("%s: %d %s want 400 invalid lang", body, rec.Code, rec.Body.String())
@@ -3010,7 +3010,7 @@ func TestOutreachMarkLang(t *testing.T) {
 }
 
 // Migration 046: lang is NOT NULL, defaults to the empty string and takes
-// only "", "en" and "fa"; anything else is refused by
+// only "", "en", "fa" and "ps"; anything else is refused by
 // outreach_contacts_lang_chk, whatever a caller lets through.
 func TestOutreachLangCheckConstraint(t *testing.T) {
 	pool := testutil.ConnectTestDB(t)
@@ -3031,7 +3031,7 @@ func TestOutreachLangCheckConstraint(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT lang FROM outreach_contacts WHERE phone_e164 = '+93700002102'`).Scan(&lang); err != nil || lang != "" {
 		t.Fatalf("default lang = %q %v want ''", lang, err)
 	}
-	for _, ok := range []string{"en", "fa", ""} {
+	for _, ok := range []string{"en", "fa", "ps", ""} {
 		if _, err := pool.Exec(ctx, `UPDATE outreach_contacts SET lang = $1 WHERE phone_e164 = '+93700002102'`, ok); err != nil {
 			t.Fatalf("lang %q must be accepted: %v", ok, err)
 		}

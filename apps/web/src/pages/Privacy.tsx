@@ -24,7 +24,7 @@ export function Privacy() {
     <main>
       <SiteHeader />
 
-      <article className="px-6 py-16 md:py-20 max-w-2xl mx-auto">
+      <article lang="en" dir="ltr" className="px-6 py-16 md:py-20 max-w-2xl mx-auto">
         <p className="text-[11px] font-semibold tracking-wider uppercase text-neutral-500">
           Privacy
         </p>

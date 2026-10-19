@@ -1,0 +1,20 @@
+{
+  "entries": [
+    {
+      "id": "mobile:home.from.someone",
+      "en": [
+        "count"
+      ],
+      "fa": [],
+      "note": "Existing source signatures differ; inspect format code and intent before applying edits."
+    },
+    {
+      "id": "mobile-extra:boot.backupAvailable",
+      "en": [
+        "backupAge"
+      ],
+      "fa": [],
+      "note": "Existing source signatures differ; inspect format code and intent before applying edits."
+    }
+  ]
+}

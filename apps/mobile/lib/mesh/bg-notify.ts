@@ -26,6 +26,8 @@ import { isRunningInExpoGo } from "expo";
 
 import { getAppMeta } from "../db";
 import { getDb } from "../db-tx";
+import { getLocale, initLocaleFromPref } from "../i18n";
+import { tExtra } from "../mobile-copy";
 import { onLedgerApplied } from "../ledger-events";
 
 const CHANNEL_ID = "ledger-updates";
@@ -63,18 +65,18 @@ async function loadNotifications(): Promise<NotificationsModule | null> {
   return notificationsPromise;
 }
 
-let channelReady = false;
+let channelLocale: string | null = null;
 const pendingVaults = new Set<string>();
 let flushTimer: ReturnType<typeof setTimeout> | null = null;
 
 async function ensureChannel(notifications: NotificationsModule): Promise<void> {
-  if (channelReady) return;
+  if (channelLocale === getLocale()) return;
   await notifications.setNotificationChannelAsync(CHANNEL_ID, {
-    name: "Synced updates",
+    name: tExtra("notification.sync.channel"),
     importance: notifications.AndroidImportance.DEFAULT,
-    description: "New entries synced from your account while Kaata was in the background.",
+    description: tExtra("notification.sync.description"),
   });
-  channelReady = true;
+  channelLocale = getLocale();
 }
 
 async function shopName(vaultId: string): Promise<string | null> {
@@ -103,18 +105,19 @@ async function flush(): Promise<void> {
   if (!notifications) return;
 
   try {
+    await initLocaleFromPref();
     await ensureChannel(notifications);
   } catch {
     return;
   }
 
-  let title = "New entries synced";
-  let body = "Tap to open Kaata";
+  let title = tExtra("notification.sync.title");
+  let body = tExtra("notification.sync.body");
   if (vaults.length === 1) {
     const name = await shopName(vaults[0]);
     if (name) {
       title = name;
-      body = "New entries synced — tap to open";
+      body = tExtra("notification.sync.bodyNamed");
     }
   }
 
@@ -122,7 +125,7 @@ async function flush(): Promise<void> {
     // trigger is the CHANNEL-AWARE form, not null. Both deliver immediately, but
     // `null` drops the notification onto expo-notifications' auto-created
     // "Miscellaneous" fallback channel — so the user's mute/importance settings
-    // for "Synced updates" would silently not apply to it.
+    // for tExtra("notification.sync.channel") would silently not apply to it.
     //
     // The small icon and accent colour come from the expo-notifications config
     // plugin in app.json; there is no per-notification icon option.

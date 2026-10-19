@@ -1,0 +1,894 @@
+{
+  "note": "Computed translation calls; references on review entries are exact literal matches, not an exhaustive runtime call graph.",
+  "calls": [
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/app/account-password.tsx",
+      "line": 221,
+      "expression": "`auth.error.password.${problem}` as Key",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/app/account-password.tsx",
+      "line": 240,
+      "expression": "problem === \"empty\"\n                  ? \"auth.error.email.required\"\n                  : problem === \"relay\"\n                    ? \"auth.error.email.relay\"\n                    : \"auth.error.email.format\"",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/app/account-password.tsx",
+      "line": 344,
+      "expression": "label",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/app/account-password.tsx",
+      "line": 530,
+      "expression": "mode === \"change\" ? \"accountPassword.title.change\" : \"accountPassword.title.set\"",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/app/account-username.tsx",
+      "line": 123,
+      "expression": "problem === \"reserved\" ? \"auth.error.username.reserved\" : \"auth.error.username.format\"",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/app/account.tsx",
+      "line": 317,
+      "expression": "err instanceof Error && err.message === \"account_delete_auth_required\"\n            ? \"account.deleteAccount.authRequired\"\n            : err instanceof Error && err.message === \"account_delete_grace_unavailable\"\n              ? \"account.deleteAccount.graceUnavailable\"\n              : err instanceof Error && err.message === \"account_delete_late_edits\"\n                ? \"account.deleteAccount.lateEdits\"\n                : \"account.deleteAccount.backupFailed\"",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/app/account.tsx",
+      "line": 536,
+      "expression": "selectedLangLabelKey as Parameters<typeof t>[0]",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/app/account.tsx",
+      "line": 540,
+      "expression": "msgLangLabelKey as Parameters<typeof t>[0]",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/app/account.tsx",
+      "line": 552,
+      "expression": "(CALENDAR_OPTIONS.find((o) => o.value === calendarPref)?.labelKey ??\n      \"settings.calendar.option.auto\") as Parameters<typeof t>[0]",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/app/account.tsx",
+      "line": 556,
+      "expression": "(QAMARI_OFFSET_OPTIONS.find((o) => o.value === qamariOffset)?.labelKey ??\n      \"settings.qamariOffset.none\") as Parameters<typeof t>[0]",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/app/account.tsx",
+      "line": 590,
+      "expression": "retiredUntil ? \"account.retired.pendingTitle\" : \"account.retired.title\"",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/app/account.tsx",
+      "line": 599,
+      "expression": "retiredUntil ? \"account.retired.signInCancel\" : \"menu.account.signIn.choose\"",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/app/account.tsx",
+      "line": 759,
+      "expression": "me.hasPassword\n                        ? \"account.signin.password.change\"\n                        : \"account.signin.password.set\"",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/app/account.tsx",
+      "line": 890,
+      "expression": "deleting ? \"account.deleteAccount.preparing\" : \"account.deleteAccount.label\"",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/app/account.tsx",
+      "line": 934,
+      "expression": "o.labelKey as Parameters<typeof t>[0]",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/app/account.tsx",
+      "line": 948,
+      "expression": "o.labelKey as Parameters<typeof t>[0]",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/app/account.tsx",
+      "line": 962,
+      "expression": "o.labelKey as Parameters<typeof t>[0]",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/app/account.tsx",
+      "line": 974,
+      "expression": "o.labelKey as Parameters<typeof t>[0]",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/app/entry/[id]/edit.tsx",
+      "line": 137,
+      "expression": "(err as Error & { status: string }).status === \"pending\"\n              ? \"credit.pendingChange\"\n              : \"credit.refusedChange\"",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/app/entry/new.tsx",
+      "line": 276,
+      "expression": "saved.admission_status === \"refused\"\n                ? \"credit.blocked\"\n                : saved.admission_status === \"pending\"\n                  ? // Goods handed over now cannot be taken back if the\n                    // server refuses (audit #24).\n                    attempt.type === \"debt\"\n                    ? \"credit.pendingHold\"\n                    : \"credit.pending\"\n                  : \"entry.saved\"",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/app/entry/new.tsx",
+      "line": 332,
+      "expression": "errorKey",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/app/group-members.tsx",
+      "line": 191,
+      "expression": "memberCount === 1 ? \"groups.memberCountOne\" : \"groups.memberCount\"",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/app/groups.tsx",
+      "line": 164,
+      "expression": "group.member_count === 1 ? \"groups.memberCountOne\" : \"groups.memberCount\"",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/app/index.tsx",
+      "line": 1911,
+      "expression": "selecting ? \"selection.contacts\" : \"customers.search.title\"",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/app/index.tsx",
+      "line": 1913,
+      "expression": "searchPeople.length === 1 ? \"customers.search.result\" : \"customers.search.results\"",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/app/index.tsx",
+      "line": 2343,
+      "expression": "props.groupFilterCount > 1 ? \"groups.viewMany\" : \"groups.view\"",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/app/index.tsx",
+      "line": 2421,
+      "expression": "active === 1 ? \"home.from.someone\" : \"home.from.many\"",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/app/invite/[token].tsx",
+      "line": 352,
+      "expression": "result.ownership_transferred ? \"ownershipAccept.done\" : \"inviteAccept.joinedToast\"",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/app/invite/[token].tsx",
+      "line": 370,
+      "expression": "invite.kind === \"ownership_transfer\"\n              ? \"ownershipAccept.unavailable\"\n              : \"inviteAccept.error.expired\"",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/app/invite/[token].tsx",
+      "line": 472,
+      "expression": "invite?.kind === \"ownership_transfer\" ? \"ownershipAccept.title\" : \"inviteAccept.title\"",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/app/invite/[token].tsx",
+      "line": 512,
+      "expression": "invite.kind === \"ownership_transfer\"\n                  ? \"ownershipAccept.heading\"\n                  : \"inviteAccept.confirm.title\"",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/app/invite/[token].tsx",
+      "line": 538,
+      "expression": "invite.kind === \"ownership_transfer\"\n                  ? \"ownershipAccept.accept\"\n                  : \"inviteAccept.confirm.accept\"",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/app/invite/[token].tsx",
+      "line": 567,
+      "expression": "stage === \"blocked\" ? \"inviteAccept.blocked.title\" : \"inviteAccept.pending.title\"",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/app/invite/[token].tsx",
+      "line": 570,
+      "expression": "stage === \"blocked\" ? \"inviteAccept.blocked.body\" : \"inviteAccept.pending.body\"",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/app/onboarding/auth.tsx",
+      "line": 647,
+      "expression": "redirected ? \"auth.redirect.title\" : \"onboardingMode.title\"",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/app/onboarding/auth.tsx",
+      "line": 648,
+      "expression": "redirected ? \"auth.redirect.subtitle\" : \"onboardingMode.subtitle\"",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/app/onboarding/auth.tsx",
+      "line": 682,
+      "expression": "isGoogle ? \"onboardingMode.google.title\" : \"onboardingMode.apple.title\"",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/app/onboarding/auth.tsx",
+      "line": 707,
+      "expression": "isGoogle ? \"onboardingMode.google.title\" : \"onboardingMode.apple.title\"",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/app/onboarding/calendar.tsx",
+      "line": 109,
+      "expression": "`settings.calendar.option.${calendar}`",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/app/onboarding/calendar.tsx",
+      "line": 124,
+      "expression": "`settings.calendar.option.${calendar}`",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/app/person/[id].tsx",
+      "line": 815,
+      "expression": "code === \"settlement_not_zero\"\n              ? \"person.settle.notZero\"\n              : code === \"settlement_pending\"\n                ? \"tab.settle.pending\"\n                : code === \"stale_settlement\" || code === \"settlement_empty\"\n                  ? \"tab.settle.changed\"\n                  : \"tab.settle.failed\"",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/app/person/[id].tsx",
+      "line": 1016,
+      "expression": "first.status === \"accepted\" ? \"tab.feedback.accepted\" : \"tab.feedback.rejected\"",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/app/person/[id].tsx",
+      "line": 1388,
+      "expression": "item.settlement ? \"tab.settle.history\" : \"person.history.settledOn\"",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/app/person/[id].tsx",
+      "line": 1544,
+      "expression": "pingStage === \"preparing\"\n                    ? \"person.ping.preparing\"\n                    : pingStage === \"opening\"\n                      ? \"person.ping.opening\"\n                      : \"person.ping.button\"",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/app/person/[id].tsx",
+      "line": 2208,
+      "expression": "searchResultCount === 1 ? \"person.search.result\" : \"person.search.results\"",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/app/person/[id].tsx",
+      "line": 2412,
+      "expression": "tabHistory ? \"tab.settle.confirm\" : \"person.settle.confirm.body\"",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/app/person/[id].tsx",
+      "line": 2441,
+      "expression": "pending ? \"credit.pendingChange\" : \"credit.refusedChange\"",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/app/person/[id]/credit-limit.tsx",
+      "line": 189,
+      "expression": "err instanceof ClerkCloudEnrollmentRequiredError\n              ? \"credit.clerksNeedSignIn\"\n              : err instanceof CreditOnlineSaveRequiredError\n                ? \"credit.onlineSave\"\n                : \"credit.saveFailed\"",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/app/person/[id]/credit-limit.tsx",
+      "line": 205,
+      "expression": "isDefault ? \"credit.defaultTitle\" : \"credit.title\"",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/app/person/[id]/credit-limit.tsx",
+      "line": 292,
+      "expression": "choice === \"warn\"\n                        ? \"credit.warnMode\"\n                        : choice === \"clerks\"\n                          ? \"credit.hardMode\"\n                          : \"credit.editorsMode\"",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/app/person/[id]/reminders.tsx",
+      "line": 118,
+      "expression": "result === \"denied\"\n                ? \"reminders.permissionDenied\"\n                : result === \"unavailable\"\n                  ? \"reminders.permissionUnavailable\"\n                  : \"reminders.saved\"",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/app/person/[id]/reminders.tsx",
+      "line": 134,
+      "expression": "err instanceof Error && err.message === \"reminder_limit\"\n              ? \"reminders.limit\"\n              : err instanceof Error && err.message === \"reminder_notification_limit\"\n                ? \"reminders.scheduleLimit\"\n                : err instanceof Error && err.message === \"reminder_access_denied\"\n                  ? \"reminders.unavailable\"\n                  : \"entry.saveFailed\"",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/app/person/new.tsx",
+      "line": 302,
+      "expression": "code === \"storage_full\"\n              ? \"personAdd.save.storageFull\"\n              : code === \"storage_busy\"\n                ? \"personAdd.save.storageBusy\"\n                : \"personAdd.save.failed\"",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/app/person/new.tsx",
+      "line": 343,
+      "expression": "addOnly ? \"personAdd.new\" : \"personAdd.title\"",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/app/person/new.tsx",
+      "line": 415,
+      "expression": "canCreate ? \"personAdd.empty.subtitle\" : \"personFind.empty.subtitle\"",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/app/person/new.tsx",
+      "line": 465,
+      "expression": "canCreate ? (addOnly ? \"personAdd.new\" : \"personAdd.title\") : \"personFind.title\"",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/app/person/new.tsx",
+      "line": 597,
+      "expression": "section.titleKey",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/app/reminders.tsx",
+      "line": 142,
+      "expression": "dueOnly ? \"reminders.noDue\" : \"reminders.empty\"",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/app/t/[token].tsx",
+      "line": 933,
+      "expression": "section.titleKey",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/app/vault/invite.tsx",
+      "line": 397,
+      "expression": "role === \"viewer\"\n                          ? \"invite.role.viewer\"\n                          : role === \"clerk\"\n                            ? \"invite.role.clerk\"\n                            : \"invite.role.editor\"",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/app/vault/members.tsx",
+      "line": 608,
+      "expression": "error instanceof MemberCreditPermissionError &&\n                error.reason === \"member_cloud_enrollment_required\"\n                ? \"members.credit.memberNeedsSignIn\"\n                : \"members.credit.saveFailed\"",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/app/vault/new.tsx",
+      "line": 168,
+      "expression": "typed ? \"entry.signingUnavailable\" : \"vaultNew.failed\"",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/app/vault/transfer.tsx",
+      "line": 225,
+      "expression": "value ? \"invite.email.invalid\" : \"invite.email.required\"",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/app/vault/transfer.tsx",
+      "line": 320,
+      "expression": "destination === \"copy\"\n              ? \"invite.copy.unavailable\"\n              : \"ownershipTransfer.shareUnavailable\"",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/app/vault/transfer.tsx",
+      "line": 369,
+      "expression": "`ownershipTransfer.${blocker}`",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/components/CalendarDayPicker.tsx",
+      "line": 89,
+      "expression": "`person.date.weekday.${day as 0 | 1 | 2 | 3 | 4 | 5 | 6}`",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/components/CreditIntentList.tsx",
+      "line": 90,
+      "expression": "r.mutation === \"edit\"\n                      ? \"credit.intentEdit\"\n                      : r.mutation === \"delete\"\n                        ? \"credit.intentDelete\"\n                        : r.mutation === \"accept\"\n                          ? \"tab.accept\"\n                          : r.mutation === \"dispute\"\n                            ? \"tab.reject\"\n                            : \"tab.cancel\"",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/components/CreditIntentList.tsx",
+      "line": 123,
+      "expression": "refused ? \"credit.refused\" : signedIn ? \"credit.pending\" : \"credit.signInToSend\"",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/components/CreditStatusBadge.tsx",
+      "line": 110,
+      "expression": "status === \"over\" ? \"credit.statusOver\" : \"credit.statusNear\"",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/components/CreditStatusBadge.tsx",
+      "line": 148,
+      "expression": "latest.type === \"debt\" ? \"person.action.iGave\" : \"person.action.iReceived\"",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/components/CreditStatusBadge.tsx",
+      "line": 161,
+      "expression": "rows.length === 1 ? \"credit.refusalOne\" : \"credit.refusalMany\"",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/components/CreditStatusBadge.tsx",
+      "line": 187,
+      "expression": "exposure > cap ? \"credit.limitOver\" : \"credit.limitLeft\"",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/components/CustomerListSheet.tsx",
+      "line": 98,
+      "expression": "`customers.sort.${sort}`",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/components/EmailAuthFlow.tsx",
+      "line": 302,
+      "expression": "`auth.error.password.${problem}` as Key",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/components/EmailAuthFlow.tsx",
+      "line": 457,
+      "expression": "title",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/components/EmailAuthFlow.tsx",
+      "line": 512,
+      "expression": "label",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/components/EmailAuthFlow.tsx",
+      "line": 598,
+      "expression": "label",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/components/EmailAuthFlow.tsx",
+      "line": 640,
+      "expression": "text",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/components/EntryRow.tsx",
+      "line": 48,
+      "expression": "key",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/components/EntryRow.tsx",
+      "line": 141,
+      "expression": "open ? \"entry.showRelativeTime\" : \"entry.showExactTime\"",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/components/LinkAccountDialog.tsx",
+      "line": 155,
+      "expression": "action === \"copy\" ? \"entry.saveFailed\" : \"share.whatsappUnavailable\"",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/components/LinkAccountDialog.tsx",
+      "line": 176,
+      "expression": "ready ? \"tab.link.ready\" : \"tab.link.confirm.title\"",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/components/LinkAccountDialog.tsx",
+      "line": 179,
+      "expression": "ready ? \"tab.link.readyBody\" : \"tab.link.confirm.body\"",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/components/LinkAccountDialog.tsx",
+      "line": 197,
+      "expression": "lang === \"fa\"\n                              ? \"settings.language.option.fa\"\n                              : \"settings.language.option.en\"",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/components/LinkAccountDialog.tsx",
+      "line": 218,
+      "expression": "ready\n                      ? \"tab.share.whatsapp\"\n                      : hasPhone\n                        ? \"tab.link.whatsapp\"\n                        : \"tab.link.action\"",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/components/MeshController.tsx",
+      "line": 241,
+      "expression": "key as never",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/components/NotificationInbox.tsx",
+      "line": 134,
+      "expression": "!signedIn ? \"inbox.signIn\" : failed ? \"inbox.unavailable\" : \"inbox.empty\"",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/components/PasswordField.tsx",
+      "line": 24,
+      "expression": "shown ? \"auth.password.hide\" : \"auth.password.show\"",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/components/PasswordRules.tsx",
+      "line": 32,
+      "expression": "key",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/components/PersonRow.tsx",
+      "line": 154,
+      "expression": "person.balance > 0 ? \"home.tab.collect\" : \"home.tab.pay\"",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/components/ReminderEditor.tsx",
+      "line": 159,
+      "expression": "`reminders.${choice}`",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/components/ReminderEditor.tsx",
+      "line": 174,
+      "expression": "`reminders.${choice}`",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/components/ReminderEditor.tsx",
+      "line": 229,
+      "expression": "kind === \"monthly\" ? \"reminders.monthlyDate\" : \"reminders.date\"",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/components/ReminderEditor.tsx",
+      "line": 235,
+      "expression": "kind === \"monthly\" ? \"reminders.monthlyDate\" : \"reminders.date\"",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/components/ReminderEditor.tsx",
+      "line": 313,
+      "expression": "kind === \"weekly\" ? \"reminders.chooseOneDay\" : \"reminders.monthDayRange\"",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/components/SelectionToolbar.tsx",
+      "line": 46,
+      "expression": "allSelectedOverride !== undefined\n      ? allSelected\n        ? \"selection.clearResults\"\n        : \"selection.allResults\"\n      : allSelected\n        ? \"selection.clear\"\n        : \"selection.all\"",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/components/SelectionToolbar.tsx",
+      "line": 66,
+      "expression": "count === 1 && !unavailable\n        ? \"selection.summary.transaction\"\n        : \"selection.summary.transactions\"",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/components/SelectionToolbar.tsx",
+      "line": 172,
+      "expression": "remainingKey",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/components/SelectionToolbar.tsx",
+      "line": 174,
+      "expression": "remainingKey",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/components/TallyDateFilterSheet.tsx",
+      "line": 252,
+      "expression": "`person.date.${preset}`",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/components/TallyDateFilterSheet.tsx",
+      "line": 287,
+      "expression": "first == null\n                ? \"person.date.pickStart\"\n                : last == null\n                  ? \"person.date.pickEnd\"\n                  : \"person.date.rangeReady\"",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/components/TallyDateFilterSheet.tsx",
+      "line": 330,
+      "expression": "`person.date.weekday.${day as 0 | 1 | 2 | 3 | 4 | 5 | 6}`",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/components/TallyDateFilterSheet.tsx",
+      "line": 380,
+      "expression": "field === \"start\" ? \"person.date.startTime\" : \"person.date.endTime\"",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/components/TallyFlowSummary.tsx",
+      "line": 37,
+      "expression": "direction === \"gave\" ? \"person.flows.gave\" : \"person.flows.received\"",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/lib/account-rules.ts",
+      "line": 307,
+      "expression": "timed",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/lib/account-rules.ts",
+      "line": 307,
+      "expression": "plain",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/lib/account-rules.ts",
+      "line": 325,
+      "expression": "detail === \"relay\"\n            ? \"auth.error.email.relay\"\n            : detail === \"disposable\"\n              ? \"auth.error.email.disposable\"\n              : \"auth.error.email.format\"",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/lib/account-rules.ts",
+      "line": 344,
+      "expression": "PASSWORD_REASONS.has(detail)\n            ? (`auth.error.password.${detail}` as Key)\n            : \"auth.error.password.weak\"",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/lib/account-rules.ts",
+      "line": 367,
+      "expression": "detail === \"reserved\" ? \"auth.error.username.reserved\" : \"auth.error.username.format\"",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/lib/export/csv.ts",
+      "line": 109,
+      "expression": "k",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/lib/export/csv.ts",
+      "line": 265,
+      "expression": "k",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/lib/export/evidence.ts",
+      "line": 11,
+      "expression": "tab.voided\n      ? \"export.record.cancelled\"\n      : tab.status === \"accepted\"\n        ? \"export.record.accepted\"\n        : tab.status === \"disputed\"\n          ? \"export.record.rejected\"\n          : \"export.record.pending\"",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/lib/export/evidence.ts",
+      "line": 57,
+      "expression": "tab.local_pending ? \"export.record.awaitingSync\" : \"export.record.saved\"",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/lib/export/note.ts",
+      "line": 72,
+      "expression": "name ? \"export.doc.clearedBy\" : \"export.doc.clearedUnnamed\"",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/lib/export/pdf.ts",
+      "line": 315,
+      "expression": "party === mine ? \"export.record.side.this\" : \"export.record.side.other\"",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/lib/export/pdf.ts",
+      "line": 327,
+      "expression": "roleKey",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/lib/export/pdf.ts",
+      "line": 349,
+      "expression": "key",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/lib/export/pdf.ts",
+      "line": 401,
+      "expression": "gave ? \"export.col.gave\" : \"export.col.received\"",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/lib/export/pdf.ts",
+      "line": 509,
+      "expression": "gave ? \"export.col.gave\" : \"export.col.received\"",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/lib/export/pdf.ts",
+      "line": 544,
+      "expression": "shared ? \"export.record.title\" : \"export.doc.statementTitle\"",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/lib/format.ts",
+      "line": 44,
+      "expression": "hours24 < 12 ? \"format.am\" : \"format.pm\"",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/lib/reminder-format.ts",
+      "line": 16,
+      "expression": "hour < 12 ? \"format.am\" : \"format.pm\"",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/lib/reminder-format.ts",
+      "line": 48,
+      "expression": "schedule.intervalMonths === 1 ? \"reminders.onMonthlyDay\" : \"reminders.onMonthInterval\"",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/lib/tabs/notify.ts",
+      "line": 287,
+      "expression": "change.kind === \"entry_accepted\"\n                ? \"tab.notify.accepted\"\n                : change.kind === \"entry_rejected\"\n                  ? \"tab.notify.rejected\"\n                  : \"tab.notify.voided\"",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "mobile",
+      "path": "apps/mobile/lib/tabs/notify.ts",
+      "line": 317,
+      "expression": "change.kind === \"entry_created\"\n            ? \"tab.notify.detail.new\"\n            : change.kind === \"entry_accepted\"\n              ? \"tab.notify.detail.accepted\"\n              : change.kind === \"entry_rejected\"\n                ? \"tab.notify.detail.rejected\"\n                : \"tab.notify.detail.voided\"",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "web",
+      "path": "apps/web/src/components/PhoneMockups.tsx",
+      "line": 215,
+      "expression": "key === \"collect\" ? \"home.tab.collect\" : \"home.tab.pay\"",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    },
+    {
+      "surface": "web",
+      "path": "apps/web/src/pages/Invite.tsx",
+      "line": 152,
+      "expression": "info.kind === \"ownership_transfer\" ? \"invite.takeOwnership\" : \"invite.join\"",
+      "note": "Computed key: literal references alone cannot prove usage coverage."
+    }
+  ]
+}

@@ -453,6 +453,7 @@ export default function VaultInviteScreen() {
         title={t("share.askLang.title")}
         options={[
           { key: "fa", label: t("settings.language.option.fa") },
+          { key: "ps", label: t("settings.language.option.ps") },
           { key: "en", label: t("settings.language.option.en") },
         ]}
         selected=""

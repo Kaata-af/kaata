@@ -1,0 +1,100 @@
+{
+  "format_version": 1,
+  "snapshot_date": "2026-10-19",
+  "source_commit": "81d5dc587aa383096bce8081f63e2bd5aa27894e",
+  "application_changed": false,
+  "locales": {
+    "en": "English",
+    "fa": "Dari / Persian (existing app code)",
+    "ps": "Pashto (proposed only; not enabled in app)"
+  },
+  "review_rules": {
+    "proposed_null": "Keep current text when that locale is approved; Pashto must have text.",
+    "approved_locales": "Only these locale decisions may be applied later. Initially empty on every entry.",
+    "placeholders": "Preserve each named token exactly, including repetitions.",
+    "ids": "Keep IDs, current text, source locations and placeholders unchanged. Reply with IDs plus locale and corrected text, or edit proposed/approved_locales/notes.",
+    "source_locations": "One-based snapshot line numbers. Re-resolve by key before implementation."
+  },
+  "totals": {
+    "catalog": 1601,
+    "mobile": 1489,
+    "web": 112,
+    "supplemental": 227,
+    "review": 1828,
+    "approved": 0
+  },
+  "files": [
+    {
+      "file": "docs/language-review/review/01-onboarding.json",
+      "entries": 72
+    },
+    {
+      "file": "docs/language-review/review/02-sign-in-and-security.json",
+      "entries": 113
+    },
+    {
+      "file": "docs/language-review/review/03-account-and-preferences.json",
+      "entries": 117
+    },
+    {
+      "file": "docs/language-review/review/04-selection-home-and-search.json",
+      "entries": 89
+    },
+    {
+      "file": "docs/language-review/review/05-people-and-contacts.json",
+      "entries": 135
+    },
+    {
+      "file": "docs/language-review/review/06-groups-reminders-and-credit.json",
+      "entries": 118
+    },
+    {
+      "file": "docs/language-review/review/07-entries-and-activity.json",
+      "entries": 75
+    },
+    {
+      "file": "docs/language-review/review/08-menu-and-archived-kaatas.json",
+      "entries": 112
+    },
+    {
+      "file": "docs/language-review/review/09-members-and-ownership.json",
+      "entries": 98
+    },
+    {
+      "file": "docs/language-review/review/10-shared-accounts-and-notifications.json",
+      "entries": 144
+    },
+    {
+      "file": "docs/language-review/review/11-invitations.json",
+      "entries": 70
+    },
+    {
+      "file": "docs/language-review/review/12-device-pairing.json",
+      "entries": 114
+    },
+    {
+      "file": "docs/language-review/review/13-kaata-settings-and-restore.json",
+      "entries": 96
+    },
+    {
+      "file": "docs/language-review/review/14-messages-formatting-and-diagnostics.json",
+      "entries": 45
+    },
+    {
+      "file": "docs/language-review/review/15-statements-and-exports.json",
+      "entries": 91
+    },
+    {
+      "file": "docs/language-review/review/16-website.json",
+      "entries": 112
+    },
+    {
+      "file": "docs/language-review/review/17-mobile-outside-catalog.json",
+      "entries": 107
+    },
+    {
+      "file": "docs/language-review/review/18-web-and-backend-outside-catalog.json",
+      "entries": 120
+    }
+  ]
+}

@@ -255,6 +255,7 @@ const i18n = load<I18n>("../i18n", {
 });
 
 const digits = load<typeof import("../digits")>("../digits", {});
+const phoneLabels = load<typeof import("../phone")>("../phone", { "./db": {}, "./digits": digits });
 
 const rules = load<Rules>("../account-rules", { "./digits": digits, "./i18n": i18n });
 
@@ -1393,9 +1394,11 @@ test("copy: every new string in English and its own Dari; provider-neutral where
   assert.ok(keys.size > 80, `found ${keys.size} keys`);
   for (const key of keys) {
     const en = i18n.tIn("en", key as never);
-    const fa = i18n.tIn("fa", key as never);
     assert.ok(en && en !== key, `${key}: English`);
-    assert.ok(fa && fa !== en, `${key}: its own Dari`);
+    for (const locale of ["fa", "ps"] as const) {
+      const translated = i18n.tIn(locale, key as never);
+      assert.ok(translated && translated !== en && translated !== key, `${key}: its own ${locale}`);
+    }
   }
   for (const key of [
     "account.differentAccount.title",
@@ -1410,7 +1413,7 @@ test("copy: every new string in English and its own Dari; provider-neutral where
     "inviteAccept.signin.body",
     "inviteAccept.error.notVisible",
   ]) {
-    for (const locale of ["en", "fa"] as const) {
+    for (const locale of ["en", "fa", "ps"] as const) {
       assert.doesNotMatch(i18n.tIn(locale, key as never), /Google|گوگل/, `${locale} ${key}`);
     }
   }
@@ -3230,6 +3233,8 @@ let accountGuardCompletionHook: (() => void) | null = null;
 let accountSuccessBindings: import("../auth").SessionSnapshot[] = [];
 let savedNameBinding: import("../auth").SessionSnapshot | undefined;
 let accountDeleteHook: (() => Promise<void>) | null = null;
+let accountLocale: import("../i18n").LocaleCode = "en";
+let accountDefaultCountry = "AF";
 const accountNavigationListeners = new Set<(event: { preventDefault: () => void }) => void>();
 const accountBackHandlers = new Set<() => boolean>();
 const accountNavigation = {
@@ -3360,7 +3365,7 @@ const accountModule = load<{ default: () => unknown }>("../../app/account", {
     ltrIsolate: (value: string) => value,
     rowDir: () => ({}),
     textDir: () => ({}),
-    useIsRTL: () => false,
+    useIsRTL: () => accountLocale !== "en",
   },
   "../lib/event-log": {
     EventSigningUnavailableError: class extends Error {},
@@ -3368,7 +3373,7 @@ const accountModule = load<{ default: () => unknown }>("../../app/account", {
   },
   "../lib/fonts": { fonts: {} },
   "../lib/i18n": {
-    getLocale: () => "en",
+    getLocale: () => accountLocale,
     getShareLangPref: async () => "auto",
     setLocale: () => {},
     t: keyT,
@@ -3388,8 +3393,9 @@ const accountModule = load<{ default: () => unknown }>("../../app/account", {
   "../lib/format": { formatDate: (ms: number) => `date:${ms}` },
   "../lib/jalali": { formatCalendarDate: () => "date" },
   "../lib/phone": {
-    getCountry: () => ({ code: "AF", flag: "AF", dialCode: "+93", name: "Afghanistan" }),
-    getCurrentDefaultCountryCode: () => "AF",
+    getCountry: phoneLabels.getCountry,
+    getCountryName: phoneLabels.getCountryName,
+    getCurrentDefaultCountryCode: () => accountDefaultCountry,
     inferCountryFromE164: () => "AF",
     normalizePhone: (raw: string) => `+93${raw.replace(/^0/, "")}`,
     setCurrentDefaultCountryCode: () => {},
@@ -3410,8 +3416,12 @@ async function openAccount(over: {
   me?: Record<string, unknown> | null;
   session?: "provider" | "email" | null;
   nameState?: "settled" | "owed" | "invalid";
+  locale?: import("../i18n").LocaleCode;
+  country?: string;
 }): Promise<Node[]> {
   accountHooks.reset();
+  accountLocale = over.locale ?? "en";
+  accountDefaultCountry = over.country ?? "AF";
   accountMe = over.me === undefined ? null : over.me;
   accountSession = over.session ?? "email";
   accountNameStateNow = over.nameState ?? "settled";
@@ -3521,6 +3531,34 @@ const accountMeOf = (providers: string[]) => ({
   name: "Ahmad Karimi",
   setupEmail: null,
 });
+
+componentTest(
+  "account: language and message choices include Pashto with localized country names",
+  async () => {
+    for (const locale of ["en", "fa", "ps"] as const) {
+      const tree = await openAccount({ locale, country: "DE", me: accountMeOf(["email"]) });
+      const language = tree.find(
+        (node) => node.type === "OptionSheet" && node.props.title === "settings.language.label",
+      )!;
+      assert.deepEqual(
+        language.props.options.map((option: any) => option.key),
+        ["system", "en", "fa", "ps"],
+      );
+      assert.equal(language.props.isRTL, locale !== "en");
+      const message = tree.find(
+        (node) => node.type === "OptionSheet" && node.props.title === "settings.messageLang.label",
+      )!;
+      assert.deepEqual(
+        message.props.options.map((option: any) => option.key),
+        ["auto", "ask", "fa", "ps", "en"],
+      );
+      const country = tree.find(
+        (node) => node.type === "NavRow" && node.props.label === "preferences.country.label",
+      )!;
+      assert.ok(country.props.trailing.includes(phoneLabels.getCountryName("DE", locale)));
+    }
+  },
+);
 
 componentTest("account: an email session on a Google account saves a phone change", async () => {
   let tree = await openAccount({ me: accountMeOf(["google", "email"]), session: "email" });

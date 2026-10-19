@@ -45,7 +45,12 @@
     "plugins": [
       "expo-router",
       "expo-font",
-      "expo-localization",
+      [
+        "expo-localization",
+        {
+          "supportedLocales": ["en", "fa", "ps"]
+        }
+      ],
       [
         "expo-splash-screen",
         {
@@ -125,6 +130,11 @@
         "projectId": "a612156b-0f0b-47ea-ac66-b54d880d98aa"
       }
     },
-    "owner": "mateesaafi"
+    "owner": "mateesaafi",
+    "locales": {
+      "en": "./locales/en.json",
+      "fa": "./locales/fa.json",
+      "ps": "./locales/ps.json"
+    }
   }
 }

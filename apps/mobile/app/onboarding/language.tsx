@@ -8,16 +8,16 @@ import { colors } from "../../lib/colors";
 import { setAppMeta } from "../../lib/db";
 import { rowDir, textDir, useIsRTL } from "../../lib/direction";
 import { fonts } from "../../lib/fonts";
-import { setLocale, t } from "../../lib/i18n";
+import { setLocale, t, type LocaleCode } from "../../lib/i18n";
 import { radius, typography } from "../../lib/tokens";
 
 // Onboarding step 1 — only mounted by _layout's routing logic when the
-// device locale is NOT already fa/prs. Persian-locale users skip directly
+// device locale is NOT already fa/prs/ps. Dari/Pashto users skip directly
 // to /onboarding/calendar (their language is already correct; asking them to
-// pick "Persian or English" reads like a "we don't trust your device"
+// pick their language reads like a "we don't trust your device"
 // signal).
 //
-// Two cards, each tap commits immediately (no Continue button). The
+// Three cards, each tap commits immediately (no Continue button). The
 // translated copy under the cards is the only thing that updates locale —
 // the cards themselves render their language names in their own scripts
 // (English in Latin, دری in Persian) so users recognize them regardless
@@ -37,7 +37,7 @@ export default function OnboardingLanguageScreen() {
     };
   }, []);
 
-  async function pick(code: "en" | "fa") {
+  async function pick(code: LocaleCode) {
     if (picking.current) return;
     picking.current = true;
     setBusy(true);
@@ -68,13 +68,13 @@ export default function OnboardingLanguageScreen() {
           description={t("onboardingLanguage.subtitle")}
         />
         <View style={styles.choices}>
-          {(["en", "fa"] as const).map((code) => (
+          {(["en", "fa", "ps"] as const).map((code) => (
             <Pressable
               key={code}
               onPress={() => void pick(code)}
               disabled={busy}
               accessibilityRole="button"
-              accessibilityLabel={code === "en" ? "English" : "دری"}
+              accessibilityLabel={code === "en" ? "English" : code === "ps" ? "پښتو" : "دری"}
               accessibilityState={{ disabled: busy, busy }}
               style={({ pressed }) => [
                 styles.card,
@@ -83,8 +83,8 @@ export default function OnboardingLanguageScreen() {
                 busy && { opacity: 0.5 },
               ]}
             >
-              <Text style={[styles.cardLabel, code === "fa" && styles.cardLabelFa]}>
-                {code === "en" ? "English" : "دری"}
+              <Text style={[styles.cardLabel, code !== "en" && styles.cardLabelFa]}>
+                {code === "en" ? "English" : code === "ps" ? "پښتو" : "دری"}
               </Text>
               <Ionicons
                 name={isRTL ? "arrow-back" : "arrow-forward"}

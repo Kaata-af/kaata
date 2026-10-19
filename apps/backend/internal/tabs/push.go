@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	applocale "github.com/matee/kaata-backend/internal/locale"
 	"io"
 	"log"
 	"net/http"
@@ -82,9 +83,7 @@ func (h *Handler) Notifications(w http.ResponseWriter, r *http.Request) {
 		httpx.ErrorCode(w, 400, "invalid_body", "invalid notification registration")
 		return
 	}
-	if req.Locale != "fa" {
-		req.Locale = "en"
-	}
+	req.Locale = applocale.Normalize(req.Locale)
 	claims, ok := auth.ClaimsFromContext(r.Context())
 	if !ok {
 		writeServiceError(w, ErrAuthRequired)
@@ -355,6 +354,23 @@ func pushBody(kind, locale string) string { return pushBodyFor(kind, locale, tru
 // party's own account, or an owner/manager/editor of its kaata) is asked to
 // accept or reject; a clerk or viewer is told what happened (audit #7).
 func pushBodyFor(kind, locale string, canReview bool) string {
+	locale = applocale.Normalize(locale)
+	if locale == "ps" {
+		if kind == "entry_created" && !canReview {
+			return "ستاسو په ګډ حساب کې نوې راکړه ورکړه زیاته شوه."
+		}
+		switch kind {
+		case "entry_created":
+			return "ستاسو په ګډ حساب کې نوې راکړه ورکړه زیاته شوه. ویې منئ یا یې رد کړئ."
+		case "entry_accepted":
+			return "ستاسو راکړه ورکړه ومنل شوه."
+		case "entry_rejected":
+			return "ستاسو راکړه ورکړه رد شوه او نور په پاتې حساب کې نه شمېرل کېږي."
+		case "entry_voided":
+			return "ستاسو په ګډ حساب کې یوه راکړه ورکړه لغوه شوه."
+		}
+		return "ستاسو ګډ حساب تازه شوی دی."
+	}
 	if kind == "entry_created" && !canReview {
 		if locale == "fa" {
 			return "یک ثبت نو در حساب مشترک اضافه شد."

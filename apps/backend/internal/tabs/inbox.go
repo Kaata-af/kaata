@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/matee/kaata-backend/internal/auth"
 	"github.com/matee/kaata-backend/internal/httpx"
+	applocale "github.com/matee/kaata-backend/internal/locale"
 )
 
 // Re-evaluate access for EVERY read/mark-read. A previously subscribed device,
@@ -233,9 +234,12 @@ func notificationLabel(label string) string {
 }
 
 func detailedPushBody(kind, locale, actor string, minor int64, direction, currency, recipient string, canReview bool) string {
+	locale = applocale.Normalize(locale)
 	actor = notificationLabel(actor)
 	if actor == "" {
-		if locale == "fa" {
+		if locale == "ps" {
+			actor = "بل لوری"
+		} else if locale == "fa" {
 			actor = "طرف مقابل"
 		} else {
 			actor = "The other party"
@@ -250,6 +254,21 @@ func detailedPushBody(kind, locale, actor string, minor int64, direction, curren
 		sign = "+"
 	}
 	amount := "\u2066" + sign + formatMinor(minor) + " " + currency + "\u2069"
+	if locale == "ps" {
+		switch kind {
+		case "entry_created":
+			if !canReview {
+				return fmt.Sprintf("%s یوه راکړه ورکړه (%s) زیاته کړه.", actor, amount)
+			}
+			return fmt.Sprintf("%s یوه راکړه ورکړه (%s) زیاته کړه. ویې منئ یا یې رد کړئ.", actor, amount)
+		case "entry_accepted":
+			return fmt.Sprintf("ستاسو راکړه ورکړه (%s) د %s له خوا ومنل شوه.", amount, actor)
+		case "entry_rejected":
+			return fmt.Sprintf("ستاسو راکړه ورکړه (%s) د %s له خوا رد شوه. په پاتې حساب کې نه شمېرل کېږي.", amount, actor)
+		case "entry_voided":
+			return fmt.Sprintf("%s یوه راکړه ورکړه (%s) لغوه کړه.", actor, amount)
+		}
+	}
 	if locale == "fa" {
 		switch kind {
 		case "entry_created":

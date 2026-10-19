@@ -1,0 +1,1758 @@
+{
+  "$schema": "../review.schema.json",
+  "format_version": 1,
+  "section": "14-messages-formatting-and-diagnostics",
+  "entries": [
+    {
+      "id": "mobile:share.greeting",
+      "key": "share.greeting",
+      "current": {
+        "en": "Salaam {name}.",
+        "fa": "سلام {name}.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "سلام {name}."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "name"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 764,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2814,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/share.ts",
+          "line": 156
+        }
+      ],
+      "context": "WhatsApp share — full message body sent to the customer."
+    },
+    {
+      "id": "mobile:share.theyOwe.header",
+      "key": "share.theyOwe.header",
+      "current": {
+        "en": "Your kaata at {accountWith}:",
+        "fa": "کاتای شما با {accountWith}:",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "له {accountWith} سره ستاسو کاټه:"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "accountWith"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 765,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2815,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/share.ts",
+          "line": 159
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:share.theyOwe.amount",
+      "key": "share.theyOwe.amount",
+      "current": {
+        "en": "🔴 You owe: −{amount} {currency}",
+        "fa": "🔴 قرض شما: −{amount} {currency}",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "🔴 ستاسو پور: −{amount} {currency}"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "amount",
+        "currency"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 766,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2816,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/share.ts",
+          "line": 160
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:share.theyOwe.cta",
+      "key": "share.theyOwe.cta",
+      "current": {
+        "en": "Please settle when you can.",
+        "fa": "لطفاً وقتی توانستید تصفیه کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "مهرباني وکړئ چې وس مو وشو، حساب تصفیه کړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 767,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2817,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/share.ts",
+          "line": 162
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:share.youOwe.header",
+      "key": "share.youOwe.header",
+      "current": {
+        "en": "Our kaata:",
+        "fa": "کاتای ما:",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "زموږ کاټه:"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 768,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2818,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/share.ts",
+          "line": 164
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:share.youOwe.amount",
+      "key": "share.youOwe.amount",
+      "current": {
+        "en": "🟢 I owe you: +{amount} {currency}",
+        "fa": "🟢 قرضدار تان هستم: +{amount} {currency}",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "🟢 ستاسو پر ما پور: +{amount} {currency}"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "amount",
+        "currency"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 769,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2819,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/share.ts",
+          "line": 165
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:share.youOwe.cta",
+      "key": "share.youOwe.cta",
+      "current": {
+        "en": "I will settle soon.",
+        "fa": "به‌زودی تصفیه می‌کنم.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ژر به حساب تصفیه کړم."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 770,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2820,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/share.ts",
+          "line": 167
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:share.settled.line",
+      "key": "share.settled.line",
+      "current": {
+        "en": "🤝 Our kaata is fully settled.",
+        "fa": "🤝 کاتای ما کاملاً تصفیه شده.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "🤝 زموږ د کاټې حساب په بشپړه توګه تصفیه دی."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 771,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2821,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/share.ts",
+          "line": 169
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:share.settled.cta",
+      "key": "share.settled.cta",
+      "current": {
+        "en": "Thank you.",
+        "fa": "تشکر.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "مننه."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 772,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2822,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/share.ts",
+          "line": 171
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:share.footer",
+      "key": "share.footer",
+      "current": {
+        "en": "— Sent via www.kaata.af",
+        "fa": "پیام از طرف www.kaata.af",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "— د www.kaata.af له لارې لېږل شوی"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 773,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2823,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/share.ts",
+          "line": 189
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:share.fullLedger",
+      "key": "share.fullLedger",
+      "current": {
+        "en": "See the full ledger here:",
+        "fa": "کاتای مکمل را اینجا ببینید:",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "بشپړ حساب کتاب دلته وګورئ:"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 774,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2824,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/share.ts",
+          "line": 186
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:share.askLang.title",
+      "key": "share.askLang.title",
+      "current": {
+        "en": "Send in which language?",
+        "fa": "پیام به کدام زبان فرستاده شود؟",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "په کومه ژبه یې ولېږو؟"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 775,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2825,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/person/[id].tsx",
+          "line": 2381
+        },
+        {
+          "path": "apps/mobile/app/vault/invite.tsx",
+          "line": 453
+        },
+        {
+          "path": "apps/mobile/components/LinkAccountDialog.tsx",
+          "line": 185
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:brand.wordmark",
+      "key": "brand.wordmark",
+      "current": {
+        "en": "kaata.",
+        "fa": "کاتا.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "کاټه."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 778,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2828,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/_layout.tsx",
+          "line": 1041
+        },
+        {
+          "path": "apps/mobile/app/_layout.tsx",
+          "line": 1123
+        },
+        {
+          "path": "apps/mobile/app/_layout.tsx",
+          "line": 1177
+        },
+        {
+          "path": "apps/mobile/app/_layout.tsx",
+          "line": 1383
+        },
+        {
+          "path": "apps/mobile/app/_layout.tsx",
+          "line": 1576
+        },
+        {
+          "path": "apps/mobile/components/Onboarding.tsx",
+          "line": 46
+        }
+      ],
+      "context": "Brand"
+    },
+    {
+      "id": "mobile:format.justNow",
+      "key": "format.justNow",
+      "current": {
+        "en": "just now",
+        "fa": "همین حالا",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "همدا اوس"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 783,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2831,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/format.ts",
+          "line": 62
+        }
+      ],
+      "context": "Relative time formatting (used in row subtitles & entry timestamps).\n{n} is the number; in Persian the unit follows the number, then \"پیش\"\n(= \"ago\") closes the phrase."
+    },
+    {
+      "id": "mobile:format.minutesAgo",
+      "key": "format.minutesAgo",
+      "current": {
+        "en": "{n}m ago",
+        "fa": "{n} دقیقه پیش",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "{n} دقیقې مخکې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "n"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 784,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2832,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/format.ts",
+          "line": 63
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:format.hoursAgo",
+      "key": "format.hoursAgo",
+      "current": {
+        "en": "{n}h ago",
+        "fa": "{n} ساعت پیش",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "{n} ساعته مخکې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "n"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 785,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2833,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/format.ts",
+          "line": 65
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:format.yesterday",
+      "key": "format.yesterday",
+      "current": {
+        "en": "yesterday",
+        "fa": "دیروز",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "پرون"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 786,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2834,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/format.ts",
+          "line": 67
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:format.daysAgo",
+      "key": "format.daysAgo",
+      "current": {
+        "en": "{n}d ago",
+        "fa": "{n} روز پیش",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "{n} ورځې مخکې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "n"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 787,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2835,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/format.ts",
+          "line": 68
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:format.weeksAgo",
+      "key": "format.weeksAgo",
+      "current": {
+        "en": "{n}w ago",
+        "fa": "{n} هفته پیش",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "{n} اوونۍ مخکې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "n"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 788,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2836,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/format.ts",
+          "line": 70
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:format.am",
+      "key": "format.am",
+      "current": {
+        "en": "AM",
+        "fa": "ق.ظ",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "له غرمې مخکې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 789,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2837,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/format.ts",
+          "line": 44
+        },
+        {
+          "path": "apps/mobile/lib/reminder-format.ts",
+          "line": 16
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:format.pm",
+      "key": "format.pm",
+      "current": {
+        "en": "PM",
+        "fa": "ب.ظ",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "له غرمې وروسته"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 790,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2838,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/format.ts",
+          "line": 44
+        },
+        {
+          "path": "apps/mobile/lib/reminder-format.ts",
+          "line": 16
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:fgs.channelName",
+      "key": "fgs.channelName",
+      "current": {
+        "en": "Nearby sync",
+        "fa": "همگام‌سازی نزدیک",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "له نږدې ټیلیفونونو سره همغږي"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 812,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2745,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": "Foreground-service (Nearby sync) notification — sits in the shade all\nday while Shop Mode is on; must be readable in the user's language."
+    },
+    {
+      "id": "mobile:fgs.channelDescription",
+      "key": "fgs.channelDescription",
+      "current": {
+        "en": "Shown while Kaata keeps your ledger in sync with nearby phones.",
+        "fa": "هنگام همگام‌سازی دفتر شما با تلفون‌های نزدیک نشان داده می‌شود.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "هغه مهال ښکاري چې کاټه ستاسو حساب کتاب له نږدې ټیلیفونونو سره همغږی ساتي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 813,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2746,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:fgs.title",
+      "key": "fgs.title",
+      "current": {
+        "en": "Nearby sync is on",
+        "fa": "همگام‌سازی نزدیک روشن است",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "له نږدې ټیلیفونونو سره همغږي فعاله ده"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 814,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2747,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:fgs.waiting",
+      "key": "fgs.waiting",
+      "current": {
+        "en": "Tap to open Kaata",
+        "fa": "برای باز کردن کاتا ضربه بزنید",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د کاټې د پرانیستلو لپاره ووهئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 815,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2748,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:fgs.connectedOne",
+      "key": "fgs.connectedOne",
+      "current": {
+        "en": "Connected to 1 phone nearby",
+        "fa": "به ۱ تلفون نزدیک وصل است",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "له ۱ نږدې ټیلیفون سره نښتی دی"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 816,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2749,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:fgs.connectedMany",
+      "key": "fgs.connectedMany",
+      "current": {
+        "en": "Connected to {count} phones nearby",
+        "fa": "به {count} تلفون نزدیک وصل است",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "له {count} نږدې ټیلیفونونو سره نښتی دی"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "count"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 817,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2750,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:share.whatsappUnavailable",
+      "key": "share.whatsappUnavailable",
+      "current": {
+        "en": "Couldn't open WhatsApp. Is it installed on this phone?",
+        "fa": "واتساپ باز نشد. آیا روی این تلفون نصب است؟",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "واټس‌اپ پرانیستل نه شو. په دې ټیلیفون کې نصب دی؟"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 829,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2844,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/person/[id].tsx",
+          "line": 890
+        },
+        {
+          "path": "apps/mobile/app/person/[id].tsx",
+          "line": 894
+        },
+        {
+          "path": "apps/mobile/components/LinkAccountDialog.tsx",
+          "line": 140
+        },
+        {
+          "path": "apps/mobile/components/LinkAccountDialog.tsx",
+          "line": 155
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:diagnostics.title",
+      "key": "diagnostics.title",
+      "current": {
+        "en": "App health",
+        "fa": "وضعیت برنامه",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د اپ روغتیا"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1878,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3743,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/diagnostics.tsx",
+          "line": 261
+        }
+      ],
+      "context": "--- App health / diagnostics (app/diagnostics.tsx) ---\nThis screen was 100% hardcoded English until 1.0.8 — the one screen a Dari\nshopkeeper is sent to WHEN SOMETHING IS ALREADY BROKEN, i.e. the moment\nthey can least cope with a language switch. The report BODY stays English\non purpose: it is diagnostic data we read, not prose they read."
+    },
+    {
+      "id": "mobile:diagnostics.hint",
+      "key": "diagnostics.hint",
+      "current": {
+        "en": "Something not working? Tap Send to support — WhatsApp opens with this report already written, so we can see what’s happening and fix it. Or copy it and send it yourself.",
+        "fa": "مشکلی وجود دارد؟ روی «ارسال به پشتیبانی» بزنید — واتساپ با همین گزارش آماده باز می‌شود تا ببینیم چه شده و آن را درست کنیم. یا آن را کپی کنید و خودتان بفرستید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "څه کار نه کوي؟ «ملاتړ ته یې ولېږئ» ووهئ — واټساپ به له دې چمتو راپور سره پرانیستل شي، څو ستونزه ووینو او سمه یې کړو. یا یې کاپي او پخپله راولېږئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1879,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3744,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/diagnostics.tsx",
+          "line": 263
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:diagnostics.copyReport",
+      "key": "diagnostics.copyReport",
+      "current": {
+        "en": "Copy report",
+        "fa": "کپی گزارش",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "راپور کاپي کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1881,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3746,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/diagnostics.tsx",
+          "line": 275
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:diagnostics.copying",
+      "key": "diagnostics.copying",
+      "current": {
+        "en": "Copying…",
+        "fa": "در حال کپی…",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "کاپي کېږي…"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1882,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3747,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/diagnostics.tsx",
+          "line": 272
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:diagnostics.copied",
+      "key": "diagnostics.copied",
+      "current": {
+        "en": "Copied ✓",
+        "fa": "کپی شد ✓",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "کاپي شو ✓"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1883,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3748,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/diagnostics.tsx",
+          "line": 274
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:diagnostics.sendToSupport",
+      "key": "diagnostics.sendToSupport",
+      "current": {
+        "en": "Send to support",
+        "fa": "ارسال به پشتیبانی",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ملاتړ ته یې ولېږئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1884,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3749,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/diagnostics.tsx",
+          "line": 285
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:diagnostics.support.intro",
+      "key": "diagnostics.support.intro",
+      "current": {
+        "en": "Hi Kaata — something isn’t working in the app. Here is my app health report.",
+        "fa": "سلام کاتا — برنامه مشکل دارد. این گزارش وضعیت برنامهٔ من است.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "سلام کاټه — په اپ کې څه کار نه کوي. دا زما د اپ د روغتیا راپور دی."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1889,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3750,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/diagnostics.tsx",
+          "line": 190
+        }
+      ],
+      "context": "The first line of the WhatsApp message, above the report. It exists so\nthe chat opens with something a PERSON would send rather than a wall of\ndiagnostics — and so the share-sheet fallback (user picks the recipient)\nstill reads as a message rather than a paste."
+    },
+    {
+      "id": "mobile:diagnostics.toast.copied",
+      "key": "diagnostics.toast.copied",
+      "current": {
+        "en": "Copied — now send it to us on WhatsApp",
+        "fa": "کپی شد — حالا آن را در واتساپ برای ما بفرستید",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "کاپي شو — اوس یې په واټساپ کې راولېږئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1891,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3751,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/diagnostics.tsx",
+          "line": 165
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:diagnostics.toast.copyFailed",
+      "key": "diagnostics.toast.copyFailed",
+      "current": {
+        "en": "Couldn’t auto-copy — copy the text below",
+        "fa": "کپی خودکار نشد — متن پایین را کپی کنید",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "په خپله کاپي نه شو — لاندې متن کاپي کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1892,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3752,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/diagnostics.tsx",
+          "line": 173
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:diagnostics.toast.sendFailed",
+      "key": "diagnostics.toast.sendFailed",
+      "current": {
+        "en": "Couldn’t open WhatsApp — copy the report and send it to us",
+        "fa": "واتساپ باز نشد — گزارش را کپی کنید و برای ما بفرستید",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "واټساپ پرانیستل نه شو — راپور کاپي او راولېږئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1893,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3753,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/diagnostics.tsx",
+          "line": 199
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:diagnostics.fallbackHint",
+      "key": "diagnostics.fallbackHint",
+      "current": {
+        "en": "Long-press the text below → Select all → Copy, then send it to us.",
+        "fa": "روی متن پایین فشار دهید → همه را انتخاب کنید → کپی، بعد آن را برای ما بفرستید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "لاندې متن اوږد ونیسئ ← ټول وټاکئ ← کاپي کړئ، بیا یې راولېږئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1894,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3754,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/diagnostics.tsx",
+          "line": 292
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:diagnostics.section.version",
+      "key": "diagnostics.section.version",
+      "current": {
+        "en": "VERSION",
+        "fa": "نسخه",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "نسخه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1895,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3756,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/diagnostics.tsx",
+          "line": 301
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:diagnostics.staleBuild",
+      "key": "diagnostics.staleBuild",
+      "current": {
+        "en": "⚠ bundled JS {js} ≠ native {native} — running a stale build; reinstall the latest APK.",
+        "fa": "⚠ نسخهٔ جاواسکریپت {js} با نسخهٔ نصب‌شده {native} فرق دارد — بیلد کهنه است؛ آخرین نسخه را دوباره نصب کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "⚠ د اپ دننه JS {js} ≠ اصلي نسخه {native} — پخوانۍ نسخه روانه ده؛ وروستی APK بیا نصب کړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "js",
+        "native"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1896,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3757,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/diagnostics.tsx",
+          "line": 309
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:diagnostics.section.exits",
+      "key": "diagnostics.section.exits",
+      "current": {
+        "en": "WHY THE APP DIED (most recent first)",
+        "fa": "چرا برنامه بسته شد (تازه‌ترین اول)",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "اپ ولې بند شو (تر ټولو نوی لومړی)"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1898,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3759,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/diagnostics.tsx",
+          "line": 358
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:diagnostics.noExits",
+      "key": "diagnostics.noExits",
+      "current": {
+        "en": "No exit records (Android < 11, or fresh install with no prior death).",
+        "fa": "سابقه‌ای ثبت نشده (اندروید کمتر از ۱۱، یا نصب تازه).",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د بندېدو ریکارډ نشته (Android < 11، یا نوی نصب چې مخکې نه دی بند شوی)."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1899,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3760,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/diagnostics.tsx",
+          "line": 361
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:diagnostics.section.now",
+      "key": "diagnostics.section.now",
+      "current": {
+        "en": "RIGHT NOW",
+        "fa": "همین حالا",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "همدا اوس"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1900,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3761,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/diagnostics.tsx",
+          "line": 380
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:diagnostics.refresh",
+      "key": "diagnostics.refresh",
+      "current": {
+        "en": "Refresh",
+        "fa": "تازه‌سازی",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "تازه کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1901,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3762,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/diagnostics.tsx",
+          "line": 416
+        }
+      ],
+      "context": ""
+    }
+  ]
+}

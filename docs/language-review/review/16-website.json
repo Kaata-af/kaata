@@ -1,0 +1,4328 @@
+{
+  "$schema": "../review.schema.json",
+  "format_version": 1,
+  "section": "16-website",
+  "entries": [
+    {
+      "id": "web:brand.wordmark",
+      "key": "brand.wordmark",
+      "current": {
+        "en": "kaata.",
+        "fa": "کاتا.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "کاټه."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 27,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 177,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/components/SiteChrome.tsx",
+          "line": 35
+        },
+        {
+          "path": "apps/web/src/components/SiteChrome.tsx",
+          "line": 106
+        }
+      ],
+      "context": "Brand wordmark — Latin in English, Dari script in Persian. Mirrors the\nmobile app's brand.wordmark key and the door-to-door flyer."
+    },
+    {
+      "id": "web:nav.product",
+      "key": "nav.product",
+      "current": {
+        "en": "Product",
+        "fa": "امکانات",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "کاټه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 30,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 179,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/components/SiteChrome.tsx",
+          "line": 45
+        }
+      ],
+      "context": "Header / nav"
+    },
+    {
+      "id": "web:nav.how",
+      "key": "nav.how",
+      "current": {
+        "en": "How it works",
+        "fa": "طرز کار",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "څنګه کار کوي"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 31,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 180,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/components/SiteChrome.tsx",
+          "line": 51
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:nav.download",
+      "key": "nav.download",
+      "current": {
+        "en": "Download",
+        "fa": "دانلود",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ښکته کول"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 32,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 181,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/components/SiteChrome.tsx",
+          "line": 57
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:nav.getApp",
+      "key": "nav.getApp",
+      "current": {
+        "en": "Get the app",
+        "fa": "دریافت اپ",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "اپ ترلاسه کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 33,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 182,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/components/SiteChrome.tsx",
+          "line": 76
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:hero.title.line1",
+      "key": "hero.title.line1",
+      "current": {
+        "en": "Run your shop",
+        "fa": "دکان خود را",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "خپل دوکان وچلوئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 36,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 185,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/components/Hero.tsx",
+          "line": 12
+        }
+      ],
+      "context": "Hero"
+    },
+    {
+      "id": "web:hero.title.line2",
+      "key": "hero.title.line2",
+      "current": {
+        "en": "on trust.",
+        "fa": "با اعتماد بچرخانید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "په باور."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 37,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 186,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/components/Hero.tsx",
+          "line": 14
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:hero.sub",
+      "key": "hero.sub",
+      "current": {
+        "en": "A quiet ledger between you and the people you trust. Track what they owe you, what you owe them, and send a friendly reminder over WhatsApp in two taps.",
+        "fa": "یک کاتای آرام بین شما و کسانی که به آنها اعتماد دارید. ثبت کنید چه کسی از شما قرضدار است و شما از چه کسی، و با دو ضربه یادآوری دوستانه در واتساپ بفرستید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": "A personal ledger between you and the people you trust. Track what they owe you, what you owe them, and send a friendly reminder over WhatsApp in two taps.",
+        "fa": "یک کاتای شخصی بین شما و کسانی که به آنها اعتماد دارید. ثبت کنید چه کسی از شما قرضدار است و شما از چه کسی، و با دو ضربه یادآوری دوستانه در واتساپ بفرستید.",
+        "ps": "ستاسو او د هغو خلکو ترمنځ یوه شخصي کاټه چې باور پرې لرئ. حساب وساتئ چې څوک ستاسو پوروړي دي او تاسو د چا پوروړي یاست، او په دوو ټکونو د WhatsApp له لارې یوه دوستانه یادونه ولېږئ."
+      },
+      "approved_locales": [
+        "en",
+        "fa",
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 38,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 187,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/components/Hero.tsx",
+          "line": 18
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:hero.cta",
+      "key": "hero.cta",
+      "current": {
+        "en": "Download Kaata",
+        "fa": "دانلود کاتا",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "کاټه ښکته کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 40,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 189,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/components/Hero.tsx",
+          "line": 23
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:hero.how",
+      "key": "hero.how",
+      "current": {
+        "en": "See how it works ↓",
+        "fa": "ببینید چطور کار می‌کند ↓",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "وګورئ چې څنګه کار کوي ↓"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 41,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 190,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/components/Hero.tsx",
+          "line": 26
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:hero.points",
+      "key": "hero.points",
+      "current": {
+        "en": "Free forever · Works without internet · No sign-up needed",
+        "fa": "همیشه رایگان · بدون انترنت کار می‌کند · بدون ثبت‌نام",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "تل وړیا · بې انټرنېټه کار کوي · نوم لیکنې ته اړتیا نشته"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 42,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 191,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/components/Hero.tsx",
+          "line": 30
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:feature.offline.eyebrow",
+      "key": "feature.offline.eyebrow",
+      "current": {
+        "en": "Built for the bazaar",
+        "fa": "ساخته‌شده برای بازار",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د بازار لپاره جوړه شوې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 45,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 194,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/pages/Home.tsx",
+          "line": 24
+        }
+      ],
+      "context": "Feature sections"
+    },
+    {
+      "id": "web:feature.offline.title",
+      "key": "feature.offline.title",
+      "current": {
+        "en": "A quiet tally that works offline.",
+        "fa": "حساب‌وکتابی آرام که بدون انترنت کار می‌کند.",
+        "ps": null
+      },
+      "proposed": {
+        "en": "A personal tally that works offline.",
+        "fa": "حساب‌وکتابی شخصی که بدون انترنت کار می‌کند.",
+        "ps": "یوه شخصي کاټه چې بې انټرنېټه هم کار کوي."
+      },
+      "approved_locales": [
+        "en",
+        "fa",
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 46,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 195,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/pages/Home.tsx",
+          "line": 25
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:feature.offline.body",
+      "key": "feature.offline.body",
+      "current": {
+        "en": "Your kaata book lives on your phone. Add people, record what you gave and what you received — in the shop, on the road, with no signal at all. No sign-up, no setup. Open the app and start writing.",
+        "fa": "کتاب کاتای شما روی تلفون خودتان می‌ماند. افراد را اضافه کنید و آنچه دادید و گرفتید را ثبت کنید — در دکان، در راه، حتی بدون یک خط انترنت. بدون ثبت‌نام، بدون تنظیمات. اپ را باز کنید و شروع به نوشتن کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ستاسو د کاټې کتاب ستاسو په ټیلیفون کې دی. خلک ورزیات کړئ، هغه څه ولیکئ چې مو ورکړي او ترلاسه کړي دي — په دوکان کې، په لاره کې، حتی چې هېڅ شبکه هم نه وي. نوم لیکنې او تنظیم ته اړتیا نشته. اپ خلاص کړئ او لیکل پیل کړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 47,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 196,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/pages/Home.tsx",
+          "line": 26
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:feature.ping.eyebrow",
+      "key": "feature.ping.eyebrow",
+      "current": {
+        "en": "The killer feature",
+        "fa": "امکان اصلی",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ځانګړې اسانتیا"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 49,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 198,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/pages/Home.tsx",
+          "line": 36
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:feature.ping.title",
+      "key": "feature.ping.title",
+      "current": {
+        "en": "A reminder, two taps away.",
+        "fa": "یادآوری، فقط با دو ضربه.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "یوه یادونه، په دوو ټکونو."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 50,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 199,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/pages/Home.tsx",
+          "line": 37
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:feature.ping.body",
+      "key": "feature.ping.body",
+      "current": {
+        "en": "Open a person and tap the WhatsApp button at the top. Kaata opens WhatsApp with a polite, pre-filled message — their name, your shop, their balance, and a private link where they can see their full kaata without installing anything. No copy-paste, no awkward typing. A friendly nudge, sent in seconds.",
+        "fa": "صفحهٔ شخص را باز کنید و دکمهٔ واتساپ را در بالای صفحه بزنید. کاتا واتساپ را با یک پیام مودبانه و آماده باز می‌کند — نام او، دکان شما، باقی‌ماندهٔ حساب و یک لینک خصوصی که کاتای کامل خود را بدون نصب چیزی ببیند. بدون کاپی‌پیست، بدون تایپ. یک یادآوری دوستانه، در چند ثانیه.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د یوه کس حساب خلاص کړئ او په سر کې د WhatsApp تڼۍ ووهئ. کاټه WhatsApp له یوه مؤدب او چمتو پیغام سره خلاصوي — د هغه کس نوم، ستاسو دوکان، پاتې حساب او یو شخصي لینک چې پکې خپله ټوله کاټه د اپ له نصبولو پرته لیدلی شي. کاپي او پیسټ یا د پیغام لیکلو زحمت ته اړتیا نشته. یوه دوستانه یادونه په څو شېبو کې لېږل کېږي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 51,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 200,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/pages/Home.tsx",
+          "line": 38
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:feature.backup.eyebrow",
+      "key": "feature.backup.eyebrow",
+      "current": {
+        "en": "Never lose the book",
+        "fa": "کتاب هرگز گم نمی‌شود",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د حساب کتاب مو مه ورکوئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 53,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 202,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/pages/Home.tsx",
+          "line": 47
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:feature.backup.title",
+      "key": "feature.backup.title",
+      "current": {
+        "en": "Phones get lost. Your kaata comes back.",
+        "fa": "تلفون گم می‌شود. کاتای شما برمی‌گردد.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ټیلیفون ورکېږي. کاټه مو بېرته راځي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 54,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 203,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/pages/Home.tsx",
+          "line": 48
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:feature.backup.body",
+      "key": "feature.backup.body",
+      "current": {
+        "en": "A broken or stolen phone used to take the whole book with it — every name, every amount people owed you. Sign in with Google or Apple and Kaata quietly keeps a backup. On a new phone, sign in and everything returns: every person, every entry, every balance.",
+        "fa": "پیش‌تر، شکستن یا گم شدن تلفون یعنی از بین رفتن تمام کتاب — هر نام و هر مبلغی که مردم از شما قرضدار بودند. با گوگل یا اپل وارد شوید تا کاتا بی‌سروصدا نسخهٔ پشتیبان نگه دارد. روی تلفون نو وارد شوید و همه‌چیز برمی‌گردد: هر شخص، هر ثبت و هر باقی‌مانده.",
+        "ps": null
+      },
+      "proposed": {
+        "en": "A broken or stolen phone used to take the whole book with it — every name, every amount people owed you. Sign in with Google or Apple and Kaata automatically keeps a backup. On a new phone, sign in and everything returns: every person, every entry, every balance.",
+        "fa": "پیش‌تر، شکستن یا گم شدن تلفون یعنی از بین رفتن تمام کتاب — هر نام و هر مبلغی که مردم از شما قرضدار بودند. با گوگل یا اپل وارد شوید تا کاتا به‌صورت خودکار نسخهٔ پشتیبان نگه دارد. روی تلفون نو وارد شوید و همه‌چیز برمی‌گردد: هر شخص، هر ثبت و هر باقی‌مانده.",
+        "ps": "پخوا د ټیلیفون په ماتېدو یا غلا کېدو ټول حساب کتاب ورسره ورکېده — هر نوم او هره اندازه پیسې چې خلک مو پوروړي وو. له Google یا Apple سره ننوځئ او کاټه به په خپله شاتړ ساتي. په نوي ټیلیفون کې ننوځئ او هر څه بېرته راځي: هر کس، هره راکړه ورکړه او هر پاتې حساب."
+      },
+      "approved_locales": [
+        "en",
+        "fa",
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 55,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 204,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/pages/Home.tsx",
+          "line": 49
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:cta.title.line1",
+      "key": "cta.title.line1",
+      "current": {
+        "en": "Stop chasing slips",
+        "fa": "دیگر دنبال",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د کاغذ په ټوټو پسې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 59,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 208,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/pages/Home.tsx",
+          "line": 67
+        }
+      ],
+      "context": "Final CTA"
+    },
+    {
+      "id": "web:cta.title.line2",
+      "key": "cta.title.line2",
+      "current": {
+        "en": "of paper.",
+        "fa": "کاغذپاره‌ها نگردید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ګرځېدل پرېږدئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 60,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 209,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/pages/Home.tsx",
+          "line": 69
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:cta.sub",
+      "key": "cta.sub",
+      "current": {
+        "en": "Free forever. No card, no fees, no setup.",
+        "fa": "همیشه رایگان. بدون کارت، بدون فیس، بدون تنظیمات.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "تل وړیا. نه کارت غواړي، نه فیس او نه تنظیم."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 61,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 210,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/pages/Home.tsx",
+          "line": 72
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:cta.button",
+      "key": "cta.button",
+      "current": {
+        "en": "Download Kaata",
+        "fa": "دانلود کاتا",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "کاټه ښکته کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 62,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 211,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/pages/Home.tsx",
+          "line": 75
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:footer.tagline",
+      "key": "footer.tagline",
+      "current": {
+        "en": "A quiet ledger between you and the people you trust. Built in Kabul.",
+        "fa": "یک کاتای آرام بین شما و کسانی که به آنها اعتماد دارید. ساخته‌شده در کابل.",
+        "ps": null
+      },
+      "proposed": {
+        "en": "A personal ledger between you and the people you trust. Built in Kabul.",
+        "fa": "یک کاتای شخصی بین شما و کسانی که به آنها اعتماد دارید. ساخته‌شده در کابل.",
+        "ps": "ستاسو او د هغو خلکو ترمنځ یوه شخصي کاټه چې باور پرې لرئ. په کابل کې جوړه شوې."
+      },
+      "approved_locales": [
+        "en",
+        "fa",
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 65,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 214,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/components/SiteChrome.tsx",
+          "line": 110
+        }
+      ],
+      "context": "Footer"
+    },
+    {
+      "id": "web:footer.product",
+      "key": "footer.product",
+      "current": {
+        "en": "Product",
+        "fa": "محصول",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "کاټه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 66,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 215,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/components/SiteChrome.tsx",
+          "line": 158
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:footer.download",
+      "key": "footer.download",
+      "current": {
+        "en": "Download",
+        "fa": "دانلود",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ښکته کول"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 67,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 216,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/components/SiteChrome.tsx",
+          "line": 163
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:footer.how",
+      "key": "footer.how",
+      "current": {
+        "en": "How it works",
+        "fa": "طرز کار",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "څنګه کار کوي"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 68,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 217,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/components/SiteChrome.tsx",
+          "line": 168
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:footer.inside",
+      "key": "footer.inside",
+      "current": {
+        "en": "What's inside",
+        "fa": "چه چیزی داخل آن است",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "څه پکې شته"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 69,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 218,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/components/SiteChrome.tsx",
+          "line": 173
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:footer.company",
+      "key": "footer.company",
+      "current": {
+        "en": "Company",
+        "fa": "شرکت",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "شرکت"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 70,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 219,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/components/SiteChrome.tsx",
+          "line": 181
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:footer.contact",
+      "key": "footer.contact",
+      "current": {
+        "en": "Contact on WhatsApp",
+        "fa": "تماس در واتساپ",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "په WhatsApp کې اړیکه ونیسئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 71,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 220,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/components/SiteChrome.tsx",
+          "line": 191
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:footer.privacy",
+      "key": "footer.privacy",
+      "current": {
+        "en": "Privacy",
+        "fa": "حریم خصوصی",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "محرمیت"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 72,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 221,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/components/SiteChrome.tsx",
+          "line": 196
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:footer.terms",
+      "key": "footer.terms",
+      "current": {
+        "en": "Terms",
+        "fa": "شرایط استفاده",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "شرطونه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 73,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 222,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/components/SiteChrome.tsx",
+          "line": 201
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:footer.deleteAccount",
+      "key": "footer.deleteAccount",
+      "current": {
+        "en": "Delete account",
+        "fa": "حذف حساب",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "حساب ړنګ کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 74,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 223,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/components/SiteChrome.tsx",
+          "line": 206
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:footer.followFacebook",
+      "key": "footer.followFacebook",
+      "current": {
+        "en": "Follow Kaata on Facebook",
+        "fa": "کاتا را در فیسبوک دنبال کنید",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "کاټه په Facebook کې تعقیب کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 75,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 224,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/components/SiteChrome.tsx",
+          "line": 121
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:footer.followInstagram",
+      "key": "footer.followInstagram",
+      "current": {
+        "en": "Follow Kaata on Instagram",
+        "fa": "کاتا را در اینستاگرام دنبال کنید",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "کاټه په Instagram کې تعقیب کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 76,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 225,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/components/SiteChrome.tsx",
+          "line": 130
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:footer.followTiktok",
+      "key": "footer.followTiktok",
+      "current": {
+        "en": "Follow Kaata on TikTok",
+        "fa": "کاتا را در تیک‌تاک دنبال کنید",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "کاټه په TikTok کې تعقیب کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 77,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 226,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/components/SiteChrome.tsx",
+          "line": 139
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:footer.followYoutube",
+      "key": "footer.followYoutube",
+      "current": {
+        "en": "Follow Kaata on YouTube",
+        "fa": "کاتا را در یوتیوب دنبال کنید",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "کاټه په YouTube کې تعقیب کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 78,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 227,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/components/SiteChrome.tsx",
+          "line": 148
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:footer.copyright",
+      "key": "footer.copyright",
+      "current": {
+        "en": "© 2026 Kaata · Made in Kabul.",
+        "fa": "© ۲۰۲۶ کاتا · ساخت کابل.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "© 2026 کاټه · په کابل کې جوړه شوې."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 79,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 228,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/components/SiteChrome.tsx",
+          "line": 215
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:download.title",
+      "key": "download.title",
+      "current": {
+        "en": "Install Kaata",
+        "fa": "نصب کاتا",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "کاټه نصب کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 82,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 231,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/pages/Download.tsx",
+          "line": 18
+        }
+      ],
+      "context": "Download page — official store badges."
+    },
+    {
+      "id": "web:download.sub",
+      "key": "download.sub",
+      "current": {
+        "en": "Get Kaata on Google Play for Android, or on the App Store for iPhone.",
+        "fa": "کاتا را برای اندروید از Google Play و برای آیفون از App Store بگیرید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د Android لپاره کاټه له Google Play او د iPhone لپاره یې له App Store څخه ترلاسه کړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 83,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 232,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/pages/Download.tsx",
+          "line": 20
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:download.appStoreButton",
+      "key": "download.appStoreButton",
+      "current": {
+        "en": "Download on the App Store",
+        "fa": "دانلود از App Store",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "له App Store څخه یې ښکته کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 84,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 233,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/components/StoreButtons.tsx",
+          "line": 37
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:download.playStoreButton",
+      "key": "download.playStoreButton",
+      "current": {
+        "en": "Get it on Google Play",
+        "fa": "دریافت از Google Play",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "له Google Play څخه یې ترلاسه کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 85,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 234,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/components/StoreButtons.tsx",
+          "line": 55
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:download.demo.title",
+      "key": "download.demo.title",
+      "current": {
+        "en": "How to use Kaata",
+        "fa": "طرز استفاده از کاتا",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د کاټې د کارولو لار"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 86,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 235,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/components/DownloadDemo.tsx",
+          "line": 14
+        },
+        {
+          "path": "apps/web/src/components/DownloadDemo.tsx",
+          "line": 21
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:download.demo.youtube",
+      "key": "download.demo.youtube",
+      "current": {
+        "en": "Watch on YouTube",
+        "fa": "تماشا در یوتیوب",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "په YouTube کې یې وګورئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 87,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 236,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/components/DownloadDemo.tsx",
+          "line": 21
+        },
+        {
+          "path": "apps/web/src/components/DownloadDemo.tsx",
+          "line": 42
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:notFound.kicker",
+      "key": "notFound.kicker",
+      "current": {
+        "en": "404",
+        "fa": "۴۰۴",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "404"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 90,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 239,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/pages/NotFound.tsx",
+          "line": 15
+        }
+      ],
+      "context": "Not found"
+    },
+    {
+      "id": "web:notFound.title",
+      "key": "notFound.title",
+      "current": {
+        "en": "This page doesn't exist.",
+        "fa": "این صفحه وجود ندارد.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "دا پاڼه نشته."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 91,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 240,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/pages/NotFound.tsx",
+          "line": 18
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:notFound.body",
+      "key": "notFound.body",
+      "current": {
+        "en": "The link may be old or mistyped. If someone sent you an invite, ask them for a fresh link.",
+        "fa": "شاید لینک قدیمی یا غلط نوشته شده باشد. اگر کسی برایتان دعوت‌نامه فرستاده، از او لینک تازه بخواهید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ښايي لینک زوړ وي یا ناسم لیکل شوی وي. که چا بلنه درلېږلې وي، له هغه څخه نوی لینک وغواړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 92,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 241,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/pages/NotFound.tsx",
+          "line": 20
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:notFound.back",
+      "key": "notFound.back",
+      "current": {
+        "en": "Back to Kaata",
+        "fa": "برگشت به کاتا",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "بېرته کاټې ته"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 94,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 243,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/pages/NotFound.tsx",
+          "line": 26
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:invite.loading",
+      "key": "invite.loading",
+      "current": {
+        "en": "Loading invitation",
+        "fa": "در حال بارگیری دعوت‌نامه",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "بلنه پورته کېږي"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 97,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 246,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/pages/Invite.tsx",
+          "line": 60
+        }
+      ],
+      "context": "Invite landing"
+    },
+    {
+      "id": "web:invite.kicker",
+      "key": "invite.kicker",
+      "current": {
+        "en": "Invitation",
+        "fa": "دعوت‌نامه",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "بلنه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 98,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 247,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/pages/Invite.tsx",
+          "line": 100
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:invite.error.unavailable.title",
+      "key": "invite.error.unavailable.title",
+      "current": {
+        "en": "This invitation isn't available",
+        "fa": "این دعوت‌نامه در دسترس نیست",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "دا بلنه د کارولو وړ نه ده"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 99,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 248,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/pages/Invite.tsx",
+          "line": 71
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:invite.error.unavailable.body",
+      "key": "invite.error.unavailable.body",
+      "current": {
+        "en": "It may have expired, been revoked, or already been accepted. Ask the person who invited you to send a new link.",
+        "fa": "شاید منقضی شده، لغو شده یا قبلاً پذیرفته شده باشد. از کسی که شما را دعوت کرده لینک تازه بخواهید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ښايي موده یې تېره شوې وي، بېرته اخیستل شوې وي یا لا دمخه منل شوې وي. له بلونکي کس څخه نوی لینک وغواړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 100,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 249,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/pages/Invite.tsx",
+          "line": 72
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:invite.error.rateLimited.title",
+      "key": "invite.error.rateLimited.title",
+      "current": {
+        "en": "Too many tries",
+        "fa": "تلاش‌های زیاد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ډېرې هڅې شوې دي"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 102,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 251,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/pages/Invite.tsx",
+          "line": 78
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:invite.error.rateLimited.body",
+      "key": "invite.error.rateLimited.body",
+      "current": {
+        "en": "We've throttled this link for the moment. Wait {wait} and try again, or ask the inviter to send a fresh link.",
+        "fa": "این لینک فعلاً محدود شده است. {wait} صبر کنید و دوباره امتحان کنید، یا از دعوت‌کننده لینک تازه بخواهید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د اوس لپاره مو د دې لینک کارول محدود کړي دي. {wait} صبر وکړئ او بیا هڅه وکړئ، یا له بلونکي کس څخه نوی لینک وغواړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "wait"
+      ],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 103,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 252,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/pages/Invite.tsx",
+          "line": 85
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:invite.error.rateLimited.minutes",
+      "key": "invite.error.rateLimited.minutes",
+      "current": {
+        "en": "about {count} minutes",
+        "fa": "حدود {count} دقیقه",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "شاوخوا {count} دقیقې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "count"
+      ],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 105,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 254,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/pages/Invite.tsx",
+          "line": 81
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:invite.error.rateLimited.fallbackWait",
+      "key": "invite.error.rateLimited.fallbackWait",
+      "current": {
+        "en": "a few minutes",
+        "fa": "چند دقیقه",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "څو دقیقې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 106,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 255,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/pages/Invite.tsx",
+          "line": 84
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:invite.error.network.title",
+      "key": "invite.error.network.title",
+      "current": {
+        "en": "Can't reach Kaata",
+        "fa": "به کاتا دسترسی نیست",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "له کاټې سره اړیکه نه نیول کېږي"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 107,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 256,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/pages/Invite.tsx",
+          "line": 88
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:invite.error.network.body",
+      "key": "invite.error.network.body",
+      "current": {
+        "en": "Check your connection and try again. If the problem persists, ask the inviter to resend.",
+        "fa": "اتصال خود را بررسی کنید و دوباره امتحان کنید. اگر مشکل ادامه داشت، از دعوت‌کننده بخواهید دوباره بفرستد.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "خپله انټرنېټي اړیکه وګورئ او بیا هڅه وکړئ. که ستونزه دوام وکړي، له بلونکي کس څخه وغواړئ چې بلنه بیا ولېږي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 108,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 257,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/pages/Invite.tsx",
+          "line": 89
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:invite.error.server.title",
+      "key": "invite.error.server.title",
+      "current": {
+        "en": "Something went wrong",
+        "fa": "مشکلی پیش آمد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "یوه ستونزه پېښه شوه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 110,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 259,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/pages/Invite.tsx",
+          "line": 92
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:invite.error.server.body",
+      "key": "invite.error.server.body",
+      "current": {
+        "en": "Try again in a minute. If it keeps failing, ask the inviter to resend.",
+        "fa": "یک دقیقه بعد دوباره امتحان کنید. اگر ادامه داشت، از دعوت‌کننده بخواهید دوباره بفرستد.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "یوه دقیقه وروسته بیا هڅه وکړئ. که بیا هم کار ونه کړي، له بلونکي کس څخه وغواړئ چې بلنه بیا ولېږي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 111,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 260,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/pages/Invite.tsx",
+          "line": 93
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:invite.tryAgain",
+      "key": "invite.tryAgain",
+      "current": {
+        "en": "Try again",
+        "fa": "دوباره امتحان کنید",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "بیا هڅه وکړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 113,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 262,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/pages/Invite.tsx",
+          "line": 110
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:invite.backHome",
+      "key": "invite.backHome",
+      "current": {
+        "en": "Back to Kaata",
+        "fa": "برگشت به کاتا",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "بېرته کاټې ته"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 114,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 263,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/pages/Invite.tsx",
+          "line": 117
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:invite.youreInvited",
+      "key": "invite.youreInvited",
+      "current": {
+        "en": "You're invited",
+        "fa": "شما دعوت شده‌اید",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "تاسو ته بلنه درکړل شوې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 115,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 264,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/pages/Invite.tsx",
+          "line": 149
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:invite.join",
+      "key": "invite.join",
+      "current": {
+        "en": "Join {name}",
+        "fa": "به {name} بپیوندید",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "له {name} سره یوځای شئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "name"
+      ],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 116,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 265,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/pages/Invite.tsx",
+          "line": 152
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:invite.takeOwnership",
+      "key": "invite.takeOwnership",
+      "current": {
+        "en": "Take ownership of {name}",
+        "fa": "مالکیت {name} را بگیرید",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د {name} مالکیت واخلئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "name"
+      ],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 117,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 266,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/pages/Invite.tsx",
+          "line": 152
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:invite.privacyNote.ownership",
+      "key": "invite.privacyNote.ownership",
+      "current": {
+        "en": "Accept in the updated Kaata app using the email the owner invited. You will become the owner and they will stay as an Editor. Opening this page alone does not transfer ownership.",
+        "fa": "در نسخهٔ تازهٔ کاتا، با ایمیلی که مالک دعوت کرده است وارد شوید و دعوت را بپذیرید. شما مالک می‌شوید و او به عنوان ویرایشگر می‌ماند. تنها باز کردن این صفحه مالکیت را انتقال نمی‌دهد.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د کاټې په نوې نسخه کې د هغه ایمیل له لارې بلنه ومنئ چې مالک ورته بلنه لېږلې ده. تاسو به مالک شئ او پخوانی مالک به سمونګر پاتې شي. یوازې د دې پاڼې پرانیستل مالکیت نه لېږدوي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 118,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 267,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/pages/Invite.tsx",
+          "line": 177
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:invite.asRole",
+      "key": "invite.asRole",
+      "current": {
+        "en": "as {role}",
+        "fa": "به عنوان {role}",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د {role} په توګه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "role"
+      ],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 120,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 269,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/pages/Invite.tsx",
+          "line": 156
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:invite.role.owner",
+      "key": "invite.role.owner",
+      "current": {
+        "en": "owner",
+        "fa": "مالک",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "مالک"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 121,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 270,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/pages/Invite.tsx",
+          "line": 138
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:invite.role.editor",
+      "key": "invite.role.editor",
+      "current": {
+        "en": "editor",
+        "fa": "ویرایشگر",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "سمونګر"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 122,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 271,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/pages/Invite.tsx",
+          "line": 140
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:invite.role.viewer",
+      "key": "invite.role.viewer",
+      "current": {
+        "en": "viewer",
+        "fa": "بیننده",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "کتونکی"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 123,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 272,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/pages/Invite.tsx",
+          "line": 142
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:invite.invitedBy",
+      "key": "invite.invitedBy",
+      "current": {
+        "en": "Invited by",
+        "fa": "دعوت از طرف",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "بلنه درکوونکی"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 124,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 273,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/pages/Invite.tsx",
+          "line": 162
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:invite.email",
+      "key": "invite.email",
+      "current": {
+        "en": "Email",
+        "fa": "ایمیل",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ایمیل"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 125,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 274,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/pages/Invite.tsx",
+          "line": 166
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:invite.expires",
+      "key": "invite.expires",
+      "current": {
+        "en": "Expires",
+        "fa": "انقضا",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د پای وخت"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 126,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 275,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/pages/Invite.tsx",
+          "line": 168
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:invite.expires.expired",
+      "key": "invite.expires.expired",
+      "current": {
+        "en": "expired",
+        "fa": "منقضی شده",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "موده تېره شوې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 127,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 276,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/pages/Invite.tsx",
+          "line": 264
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:invite.expires.minutes",
+      "key": "invite.expires.minutes",
+      "current": {
+        "en": "in {count} min",
+        "fa": "{count} دقیقه دیگر",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "په {count} دقیقو کې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "count"
+      ],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 128,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 277,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/pages/Invite.tsx",
+          "line": 268
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:invite.expires.hours",
+      "key": "invite.expires.hours",
+      "current": {
+        "en": "in {count} h",
+        "fa": "{count} ساعت دیگر",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "په {count} ساعتونو کې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "count"
+      ],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 129,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 278,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/pages/Invite.tsx",
+          "line": 270
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:invite.expires.days",
+      "key": "invite.expires.days",
+      "current": {
+        "en": "in {count} d",
+        "fa": "{count} روز دیگر",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "په {count} ورځو کې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "count"
+      ],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 130,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 279,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/pages/Invite.tsx",
+          "line": 272
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:invite.expires.soon",
+      "key": "invite.expires.soon",
+      "current": {
+        "en": "soon",
+        "fa": "به‌زودی",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ژر"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 131,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 280,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/pages/Invite.tsx",
+          "line": 262
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:invite.openInApp",
+      "key": "invite.openInApp",
+      "current": {
+        "en": "Open in Kaata",
+        "fa": "باز کردن در کاتا",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "په کاټه کې یې خلاص کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 132,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 281,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/pages/Invite.tsx",
+          "line": 205
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:invite.downloadFallback",
+      "key": "invite.downloadFallback",
+      "current": {
+        "en": "Don't have Kaata yet? Download",
+        "fa": "هنوز کاتا ندارید؟ دانلود",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "لا کاټه نه لرئ؟ ښکته یې کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 133,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 282,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/pages/Invite.tsx",
+          "line": 211
+        },
+        {
+          "path": "apps/web/src/pages/Invite.tsx",
+          "line": 236
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:invite.afterInstall",
+      "key": "invite.afterInstall",
+      "current": {
+        "en": "After installing, return to this page and tap \"Open in Kaata\".",
+        "fa": "بعد از نصب، به همین صفحه برگردید و روی «باز کردن در کاتا» بزنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "تر نصبولو وروسته دې پاڼې ته بېرته راشئ او «په کاټه کې یې خلاص کړئ» ووهئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 134,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 283,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/pages/Invite.tsx",
+          "line": 213
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:invite.desktopHint",
+      "key": "invite.desktopHint",
+      "current": {
+        "en": "Open Kaata on your phone, then paste this code into Pending invitations:",
+        "fa": "کاتا را روی تلفون خود باز کنید و این کود را در «دعوت‌های در انتظار» وارد کنید:",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "په خپل ټیلیفون کې کاټه خلاصه کړئ، بیا دا کوډ په «ناځوابو بلنو» کې پیسټ کړئ:"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 135,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 284,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/pages/Invite.tsx",
+          "line": 222
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:invite.codeLabel",
+      "key": "invite.codeLabel",
+      "current": {
+        "en": "Invitation code",
+        "fa": "کود دعوت",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د بلنې کوډ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 136,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 286,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/pages/Invite.tsx",
+          "line": 228
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:invite.privacyNote.view",
+      "key": "invite.privacyNote.view",
+      "current": {
+        "en": "Kaata never shows your ledger to anyone outside the people you invite. Accepting this invitation lets you view this shop's entries on your device.",
+        "fa": "کاتا هرگز کاتای شما را به کسی بیرون از افراد دعوت‌شده نشان نمی‌دهد. با پذیرفتن این دعوت می‌توانید ثبت‌های این دکان را روی دستگاه خود ببینید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "کاټه ستاسو حساب کتاب یوازې هغو خلکو ته ښيي چې تاسو ورته بلنه ورکړې ده. د دې بلنې په منلو تاسو کولی شئ د دې دوکان راکړې ورکړې په خپل ټیلیفون کې وګورئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 137,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 287,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/pages/Invite.tsx",
+          "line": 179
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:invite.privacyNote.edit",
+      "key": "invite.privacyNote.edit",
+      "current": {
+        "en": "Kaata never shows your ledger to anyone outside the people you invite. Accepting this invitation lets you edit this shop's entries on your device.",
+        "fa": "کاتا هرگز کاتای شما را به کسی بیرون از افراد دعوت‌شده نشان نمی‌دهد. با پذیرفتن این دعوت می‌توانید ثبت‌های این دکان را روی دستگاه خود ویرایش کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "کاټه ستاسو حساب کتاب یوازې هغو خلکو ته ښيي چې تاسو ورته بلنه ورکړې ده. د دې بلنې په منلو تاسو کولی شئ د دې دوکان راکړې ورکړې په خپل ټیلیفون کې سمې کړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 139,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 289,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/pages/Invite.tsx",
+          "line": 180
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:share.greeting",
+      "key": "share.greeting",
+      "current": {
+        "en": "Salaam {name}.",
+        "fa": "سلام {name}.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "سلام {name}."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "name"
+      ],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 146,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 293,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/components/PhoneMockups.tsx",
+          "line": 411
+        }
+      ],
+      "context": "--- Landing-page phone mockups ---\nThese first keys are copied VERBATIM from apps/mobile/lib/i18n.ts so the\ndepicted WhatsApp message + home screen read EXACTLY like the real app.\nKEEP IN SYNC if the mobile share.* / home.* / format.* strings change."
+    },
+    {
+      "id": "web:share.theyOwe.header",
+      "key": "share.theyOwe.header",
+      "current": {
+        "en": "Your kaata at {accountWith}:",
+        "fa": "کاتای شما با {accountWith}:",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "له {accountWith} سره ستاسو کاټه:"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "accountWith"
+      ],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 147,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 294,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/components/PhoneMockups.tsx",
+          "line": 413
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:share.theyOwe.amount",
+      "key": "share.theyOwe.amount",
+      "current": {
+        "en": "🔴 You owe: −{amount} {currency}",
+        "fa": "🔴 قرض شما: −{amount} {currency}",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "🔴 ستاسو پور: −{amount} {currency}"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "amount",
+        "currency"
+      ],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 148,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 295,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/components/PhoneMockups.tsx",
+          "line": 414
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:share.theyOwe.cta",
+      "key": "share.theyOwe.cta",
+      "current": {
+        "en": "Please settle when you can.",
+        "fa": "لطفاً وقتی توانستید تصفیه کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "مهرباني وکړئ چې وس مو وشو، حساب تصفیه کړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 149,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 296,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/components/PhoneMockups.tsx",
+          "line": 416
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:share.footer",
+      "key": "share.footer",
+      "current": {
+        "en": "— Sent via www.kaata.af",
+        "fa": "پیام از طرف www.kaata.af",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "— د www.kaata.af له لارې لېږل شوی"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 150,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 297,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/components/PhoneMockups.tsx",
+          "line": 448
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:home.tab.collect",
+      "key": "home.tab.collect",
+      "current": {
+        "en": "To collect",
+        "fa": "وصول",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د اخیستلو پیسې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 151,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 298,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/components/PhoneMockups.tsx",
+          "line": 215
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:home.tab.pay",
+      "key": "home.tab.pay",
+      "current": {
+        "en": "To pay",
+        "fa": "پرداخت",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د ورکولو پیسې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 152,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 299,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/components/PhoneMockups.tsx",
+          "line": 215
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:home.total.label.collect",
+      "key": "home.total.label.collect",
+      "current": {
+        "en": "To collect",
+        "fa": "قابل وصول",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د اخیستلو پیسې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 153,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 300,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/components/PhoneMockups.tsx",
+          "line": 231
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:home.from.many",
+      "key": "home.from.many",
+      "current": {
+        "en": "from {count} people",
+        "fa": "از {count} نفر",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "له {count} کسانو څخه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "count"
+      ],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 154,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 301,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/components/PhoneMockups.tsx",
+          "line": 242
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:customers.search",
+      "key": "customers.search",
+      "current": {
+        "en": "Search customers",
+        "fa": "جستجوی مشتری‌ها",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "پېرودونکي ولټوئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 155,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 302,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/components/PhoneMockups.tsx",
+          "line": 346
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:format.yesterday",
+      "key": "format.yesterday",
+      "current": {
+        "en": "yesterday",
+        "fa": "دیروز",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "پرون"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 156,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 303,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/components/PhoneMockups.tsx",
+          "line": 386
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:format.daysAgo",
+      "key": "format.daysAgo",
+      "current": {
+        "en": "{n}d ago",
+        "fa": "{n} روز پیش",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "{n} ورځې مخکې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "n"
+      ],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 157,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 304,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/components/PhoneMockups.tsx",
+          "line": 385
+        },
+        {
+          "path": "apps/web/src/components/PhoneMockups.tsx",
+          "line": 387
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:format.weeksAgo",
+      "key": "format.weeksAgo",
+      "current": {
+        "en": "{n}w ago",
+        "fa": "{n} هفته پیش",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "{n} اوونۍ مخکې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "n"
+      ],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 158,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 305,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/components/PhoneMockups.tsx",
+          "line": 388
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:mock.self.name",
+      "key": "mock.self.name",
+      "current": {
+        "en": "Sultan",
+        "fa": "سلطان",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "سلطان"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 160,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 306,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/components/PhoneMockups.tsx",
+          "line": 155
+        }
+      ],
+      "context": "Illustrative sample data + marketing captions (web-only, not in the app)."
+    },
+    {
+      "id": "web:mock.self.shop",
+      "key": "mock.self.shop",
+      "current": {
+        "en": "Shop Sultan",
+        "fa": "دکان سلطان",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د سلطان دوکان"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 161,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 307,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/components/PhoneMockups.tsx",
+          "line": 164
+        },
+        {
+          "path": "apps/web/src/components/PhoneMockups.tsx",
+          "line": 405
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:mock.name.mahmood",
+      "key": "mock.name.mahmood",
+      "current": {
+        "en": "Mahmood",
+        "fa": "محمود",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "محمود"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 162,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 308,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/components/PhoneMockups.tsx",
+          "line": 385
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:mock.name.ahmad",
+      "key": "mock.name.ahmad",
+      "current": {
+        "en": "Ahmad",
+        "fa": "احمد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "احمد"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 163,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 309,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/components/PhoneMockups.tsx",
+          "line": 386
+        },
+        {
+          "path": "apps/web/src/components/PhoneMockups.tsx",
+          "line": 404
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:mock.name.sultan",
+      "key": "mock.name.sultan",
+      "current": {
+        "en": "Sultan",
+        "fa": "سلطان",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "سلطان"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 164,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 310,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/components/PhoneMockups.tsx",
+          "line": 387
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:mock.name.wahid",
+      "key": "mock.name.wahid",
+      "current": {
+        "en": "Wahid",
+        "fa": "وحید",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "وحید"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 165,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 311,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/components/PhoneMockups.tsx",
+          "line": 388
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:mock.offline",
+      "key": "mock.offline",
+      "current": {
+        "en": "Offline",
+        "fa": "آفلاین",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "بې انټرنېټه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 166,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 312,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/components/PhoneMockups.tsx",
+          "line": 191
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:mock.entrySaved.title",
+      "key": "mock.entrySaved.title",
+      "current": {
+        "en": "New entry saved.",
+        "fa": "ثبت جدید ذخیره شد.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "نوې راکړه ورکړه خوندي شوه."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 167,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 313,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/components/PhoneMockups.tsx",
+          "line": 508
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:mock.entrySaved.sub",
+      "key": "mock.entrySaved.sub",
+      "current": {
+        "en": "On this device. No internet needed.",
+        "fa": "روی همین دستگاه. بدون انترنت.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "په همدې وسیله کې. انټرنېټ ته اړتیا نشته."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 168,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 314,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/components/PhoneMockups.tsx",
+          "line": 508
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:mock.restored.title",
+      "key": "mock.restored.title",
+      "current": {
+        "en": "Kaata restored.",
+        "fa": "کاتا بازیابی شد.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "کاټه بېرته راستانه شوه."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 169,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 315,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/components/PhoneMockups.tsx",
+          "line": 492
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:mock.restored.sub",
+      "key": "mock.restored.sub",
+      "current": {
+        "en": "4 people · 132 entries · every balance, back on this phone.",
+        "fa": "۴ نفر · ۱۳۲ ثبت · هر باقی‌مانده، دوباره روی همین تلفون.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "4 کسان · 132 راکړې ورکړې · هر پاتې حساب بېرته په همدې ټیلیفون کې."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 170,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 316,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/components/PhoneMockups.tsx",
+          "line": 492
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:mock.whatsapp.reply",
+      "key": "mock.whatsapp.reply",
+      "current": {
+        "en": "Thanks, will pay tomorrow inshaAllah.",
+        "fa": "تشکر، فردا انشاالله پرداخت می‌کنم.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "مننه، سبا به یې ان شاء الله درکړم."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 171,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 317,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/components/PhoneMockups.tsx",
+          "line": 458
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "web:mock.whatsapp.messagePlaceholder",
+      "key": "mock.whatsapp.messagePlaceholder",
+      "current": {
+        "en": "Message",
+        "fa": "پیام",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "پیغام"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 172,
+          "locale": "en"
+        },
+        {
+          "path": "apps/web/src/lib/i18n.tsx",
+          "line": 318,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/web/src/components/PhoneMockups.tsx",
+          "line": 469
+        }
+      ],
+      "context": ""
+    }
+  ]
+}

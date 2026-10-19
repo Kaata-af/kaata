@@ -1,0 +1,4212 @@
+{
+  "$schema": "../review.schema.json",
+  "format_version": 1,
+  "section": "08-menu-and-archived-kaatas",
+  "entries": [
+    {
+      "id": "mobile:menu.title.profile",
+      "key": "menu.title.profile",
+      "current": {
+        "en": "Profile and settings",
+        "fa": "پروفایل و تنظیمات",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "پروفایل او تنظیمات"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 857,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2862,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/index.tsx",
+          "line": 1529
+        }
+      ],
+      "context": "Profile sheet (Phase 7) — every label/section header in the unified\nsettings surface. Section headers are stored in normal case; the\nSectionHeader atom applies textTransform: \"uppercase\" at render time.\nStoring them upper-cased in source (\"ALL KAATAS\") looked correct in\nEN but produced shouting parity issues against Persian where the\nscript has no case — the styled transform is a no-op for fa, so we\nkeep the source consistent across locales and let the render layer\nhandle visual case."
+    },
+    {
+      "id": "mobile:menu.title.vaultSwitcher",
+      "key": "menu.title.vaultSwitcher",
+      "current": {
+        "en": "Switch Kaata",
+        "fa": "تعویض کاتا",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "کاټه بدله کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 862,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2863,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/index.tsx",
+          "line": 1431
+        }
+      ],
+      "context": "a11y label for the top-left vault-switcher Pressable in the home\nheader. Distinct from menu.allKaatas (the section header label) so\na screen reader doesn't announce \"ALL KAATAS\" — that's chrome\nstyling, not the affordance description."
+    },
+    {
+      "id": "mobile:menu.thisKaata.settings",
+      "key": "menu.thisKaata.settings",
+      "current": {
+        "en": "Manage this Kaata",
+        "fa": "مدیریت این کاتا",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "دا کاټه اداره کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 867,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2864,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/ProfileSettingsSheet.tsx",
+          "line": 334
+        }
+      ],
+      "context": "Phase 7: only menu.thisKaata.settings is referenced (the \"Manage\nthis kaata\" entry in ProfileSettingsSheet + VaultPickerSheet). The\nrest of the menu.thisKaata.* keys belonged to the deleted hamburger\nsheet; removed to keep the translation surface honest."
+    },
+    {
+      "id": "mobile:menu.currentKaata",
+      "key": "menu.currentKaata",
+      "current": {
+        "en": "Current Kaata",
+        "fa": "کاتای فعلی",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "اوسنۍ کاټه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 868,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2865,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/ProfileSettingsSheet.tsx",
+          "line": 331
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:menu.account.settings",
+      "key": "menu.account.settings",
+      "current": {
+        "en": "Account settings",
+        "fa": "تنظیمات حساب",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د حساب تنظیمات"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 869,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2866,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/ProfileSettingsSheet.tsx",
+          "line": 280
+        },
+        {
+          "path": "apps/mobile/components/ProfileSettingsSheet.tsx",
+          "line": 312
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:menu.account.settings.hint",
+      "key": "menu.account.settings.hint",
+      "current": {
+        "en": "Name, phone, language",
+        "fa": "نام، شماره، زبان",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "نوم، شمېره، ژبه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 870,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2867,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/ProfileSettingsSheet.tsx",
+          "line": 281
+        },
+        {
+          "path": "apps/mobile/components/ProfileSettingsSheet.tsx",
+          "line": 313
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:menu.help",
+      "key": "menu.help",
+      "current": {
+        "en": "Help",
+        "fa": "راهنما",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "مرسته"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 871,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2868,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/ProfileSettingsSheet.tsx",
+          "line": 518
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:menu.guide",
+      "key": "menu.guide",
+      "current": {
+        "en": "How kaata works",
+        "fa": "کاتا چطور کار می‌کند",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "کاټه څنګه کار کوي"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 872,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2869,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/ProfileSettingsSheet.tsx",
+          "line": 521
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:menu.guide.hint",
+      "key": "menu.guide.hint",
+      "current": {
+        "en": "Kaatas, tallies, and how they fit",
+        "fa": "کاتا، حساب‌ها و طرز کارشان",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "کاټې، راکړې ورکړې او د دوی اړیکه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 873,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2870,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/ProfileSettingsSheet.tsx",
+          "line": 522
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:menu.allKaatas",
+      "key": "menu.allKaatas",
+      "current": {
+        "en": "All Kaatas",
+        "fa": "همه کاتاها",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ټولې کاټې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 874,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2871,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/ProfileSettingsSheet.tsx",
+          "line": 354
+        },
+        {
+          "path": "apps/mobile/components/VaultPickerSheet.tsx",
+          "line": 162
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:menu.allKaatas.empty",
+      "key": "menu.allKaatas.empty",
+      "current": {
+        "en": "No Kaatas yet.",
+        "fa": "هنوز کاتایی نیست.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "تراوسه کاټې نشته."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 875,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2872,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/ProfileSettingsSheet.tsx",
+          "line": 357
+        },
+        {
+          "path": "apps/mobile/components/VaultPickerSheet.tsx",
+          "line": 173
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:menu.allKaatas.empty.withArchived",
+      "key": "menu.allKaatas.empty.withArchived",
+      "current": {
+        "en": "No active Kaatas.",
+        "fa": "کاتای فعال وجود ندارد.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "فعاله کاټې نشته."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 876,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2873,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:menu.allKaatas.add",
+      "key": "menu.allKaatas.add",
+      "current": {
+        "en": "Add a Kaata",
+        "fa": "افزودن کاتا",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "کاټه ورزیاته کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 877,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2874,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/ProfileSettingsSheet.tsx",
+          "line": 382
+        },
+        {
+          "path": "apps/mobile/components/VaultPickerSheet.tsx",
+          "line": 208
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:menu.allKaatas.scan",
+      "key": "menu.allKaatas.scan",
+      "current": {
+        "en": "Scan a pairing code",
+        "fa": "اسکن کود جفت‌سازی",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د نښلولو کوډ سکین کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 878,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2875,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:menu.allKaatas.scan.hint",
+      "key": "menu.allKaatas.scan.hint",
+      "current": {
+        "en": "Join an existing Kaata from another phone",
+        "fa": "از تلفون دیگر به کاتای موجود بپیوندید",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "له بل ټیلیفون څخه له شته کاټې سره یوځای شئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 879,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2876,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:menu.allKaatas.switched",
+      "key": "menu.allKaatas.switched",
+      "current": {
+        "en": "Switched Kaata",
+        "fa": "کاتا تغییر کرد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "کاټه بدله شوه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 880,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2877,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/index.tsx",
+          "line": 1801
+        },
+        {
+          "path": "apps/mobile/app/index.tsx",
+          "line": 2110
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:menu.allKaatas.switchFailed",
+      "key": "menu.allKaatas.switchFailed",
+      "current": {
+        "en": "Could not switch Kaata",
+        "fa": "تغییر کاتا ناکام شد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "کاټه بدله نه شوه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 881,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2878,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/index.tsx",
+          "line": 1804
+        },
+        {
+          "path": "apps/mobile/app/index.tsx",
+          "line": 2113
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:menu.allKaatas.archived.show",
+      "key": "menu.allKaatas.archived.show",
+      "current": {
+        "en": "Show archived ({count})",
+        "fa": "نمایش بایگانی شده‌ها ({count})",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "آرشیف شوې وښایئ ({count})"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "count"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 882,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2879,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:menu.allKaatas.archived.hide",
+      "key": "menu.allKaatas.archived.hide",
+      "current": {
+        "en": "Hide archived ({count})",
+        "fa": "پنهان کردن بایگانی ({count})",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "آرشیف شوې پټې کړئ ({count})"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "count"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 883,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2880,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:menu.allKaatas.archived.view",
+      "key": "menu.allKaatas.archived.view",
+      "current": {
+        "en": "Archived ({count})",
+        "fa": "بایگانی شده ({count})",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "آرشیف شوې ({count})"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "count"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 888,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2881,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/ProfileSettingsSheet.tsx",
+          "line": 425
+        },
+        {
+          "path": "apps/mobile/components/VaultPickerSheet.tsx",
+          "line": 226
+        }
+      ],
+      "context": "D-VAULTPICKER-CLEANUP / D-ARCHIVED-SCREEN — compact footer-link\nlabel rendered in both VaultPickerSheet and ProfileSettingsSheet\nwhen the user has at least one archived Kaata. Routes to\n/vault/archived."
+    },
+    {
+      "id": "mobile:vaultArchived.title",
+      "key": "vaultArchived.title",
+      "current": {
+        "en": "Archived",
+        "fa": "بایگانی",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "آرشیف شوې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 890,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2882,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/archived.tsx",
+          "line": 143
+        },
+        {
+          "path": "apps/mobile/app/vault/archived.tsx",
+          "line": 158
+        }
+      ],
+      "context": "D-ARCHIVED-SCREEN — dedicated archived list page."
+    },
+    {
+      "id": "mobile:vaultArchived.empty",
+      "key": "vaultArchived.empty",
+      "current": {
+        "en": "No archived Kaatas yet.",
+        "fa": "هنوز کاتای بایگانی‌شده‌ای وجود ندارد.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "تراوسه آرشیف شوې کاټې نشته."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 891,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2883,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/archived.tsx",
+          "line": 174
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:vaultArchived.emptySubtitle",
+      "key": "vaultArchived.emptySubtitle",
+      "current": {
+        "en": "Everything is back in your active Kaatas.",
+        "fa": "همه چیز در کاتاهای فعال شما در دسترس است.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ټولې کاټې مو بېرته فعالې شوې دي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 895,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2884,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/archived.tsx",
+          "line": 175
+        }
+      ],
+      "context": "UX-fix #3: friendlier empty-state subtitle + a CTA so the user\nisn't stranded with only the back chevron after restoring the\nlast archived row."
+    },
+    {
+      "id": "mobile:vaultArchived.emptyCta",
+      "key": "vaultArchived.emptyCta",
+      "current": {
+        "en": "Back to Kaatas",
+        "fa": "بازگشت به کاتاها",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "کاټو ته ستانه شئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 896,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2885,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/archived.tsx",
+          "line": 181
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:vaultArchived.restoreButton",
+      "key": "vaultArchived.restoreButton",
+      "current": {
+        "en": "Restore",
+        "fa": "بازیابی",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "بېرته یې را وګرځوئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 897,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2886,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/archived.tsx",
+          "line": 231
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:vaultArchived.restoreFromCloud",
+      "key": "vaultArchived.restoreFromCloud",
+      "current": {
+        "en": "Restore from cloud",
+        "fa": "بازیابی از فضای ابری",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "له کلاوډ څخه بېرته را وګرځوئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 900,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2887,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/archived.tsx",
+          "line": 230
+        }
+      ],
+      "context": "UX-fix #2: server-anchored rows surface a distinct affordance so\nthe user doesn't tap \"Restore\" only to get an error toast."
+    },
+    {
+      "id": "mobile:vaultArchived.serverAnchoredHint",
+      "key": "vaultArchived.serverAnchoredHint",
+      "current": {
+        "en": "Stored on the server — restore via cloud backup",
+        "fa": "روی سرور ذخیره شده — از پشتیبان ابری بازیابی کنید",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "په سرور کې ساتل شوې ده؛ د کلاوډ بیک‌اپ له لارې یې بېرته را وګرځوئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 901,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2888,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/archived.tsx",
+          "line": 245
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:vaultArchived.restoredToast",
+      "key": "vaultArchived.restoredToast",
+      "current": {
+        "en": "Restored {name}",
+        "fa": "{name} بازیابی شد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "{name} بېرته راوګرځول شوه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "name"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 902,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2889,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/archived.tsx",
+          "line": 122
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:vaultArchived.restoreFailed",
+      "key": "vaultArchived.restoreFailed",
+      "current": {
+        "en": "Could not restore Kaata",
+        "fa": "بازیابی کاتا انجام نشد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "کاټه بېرته راوګرځول نه شوه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 903,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2890,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/archived.tsx",
+          "line": 132
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:vaultArchived.unarchiveUnsupported",
+      "key": "vaultArchived.unarchiveUnsupported",
+      "current": {
+        "en": "Restore from cloud to recover this Kaata",
+        "fa": "برای بازیابی این کاتا از فضای ابری استفاده کنید",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د دې کاټې د بېرته راګرځولو لپاره یې له کلاوډ څخه را وګرځوئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 904,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2891,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/archived.tsx",
+          "line": 130
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:vaultArchived.archivedAt",
+      "key": "vaultArchived.archivedAt",
+      "current": {
+        "en": "Archived {relative}",
+        "fa": "بایگانی شده {relative}",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "{relative} آرشیف شوې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "relative"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 905,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2892,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/archived.tsx",
+          "line": 218
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:vaultArchived.relative.justNow",
+      "key": "vaultArchived.relative.justNow",
+      "current": {
+        "en": "just now",
+        "fa": "هم‌اکنون",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "همدا اوس"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 906,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2893,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/archived.tsx",
+          "line": 274
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:vaultArchived.relative.minutesAgo",
+      "key": "vaultArchived.relative.minutesAgo",
+      "current": {
+        "en": "{n} min ago",
+        "fa": "{n} دقیقه پیش",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "{n} دقیقې مخکې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "n"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 907,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2894,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/archived.tsx",
+          "line": 276
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:vaultArchived.relative.hoursAgo",
+      "key": "vaultArchived.relative.hoursAgo",
+      "current": {
+        "en": "{n} hr ago",
+        "fa": "{n} ساعت پیش",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "{n} ساعته مخکې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "n"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 908,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2895,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/archived.tsx",
+          "line": 278
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:vaultArchived.relative.daysAgo",
+      "key": "vaultArchived.relative.daysAgo",
+      "current": {
+        "en": "{n} d ago",
+        "fa": "{n} روز پیش",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "{n} ورځې مخکې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "n"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 909,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2896,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/archived.tsx",
+          "line": 280
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:vaultArchived.relative.monthsAgo",
+      "key": "vaultArchived.relative.monthsAgo",
+      "current": {
+        "en": "{n} mo ago",
+        "fa": "{n} ماه پیش",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "{n} میاشتې مخکې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "n"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 910,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2897,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/archived.tsx",
+          "line": 282
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:vaultPicker.manage",
+      "key": "vaultPicker.manage",
+      "current": {
+        "en": "Manage current Kaata",
+        "fa": "مدیریت کاتای فعلی",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "اوسنۍ کاټه اداره کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 916,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2900,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": "Phase 7 D-TOP-LEFT-SWITCHER — vault picker triggered by tapping the\nshop name in the home header. The \"manage\" row replaces the former\nhamburger \"This Kaata > Settings\" entry and routes to vault/settings."
+    },
+    {
+      "id": "mobile:menu.sync",
+      "key": "menu.sync",
+      "current": {
+        "en": "Sync",
+        "fa": "همگام‌سازی",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "همغږي"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 917,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2901,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/ProfileSettingsSheet.tsx",
+          "line": 447
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:menu.sync.never",
+      "key": "menu.sync.never",
+      "current": {
+        "en": "Not synced yet",
+        "fa": "هنوز همگام نشده",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "تراوسه همغږې شوې نه ده"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 918,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2902,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/use-vault-summary.ts",
+          "line": 130
+        },
+        {
+          "path": "apps/mobile/lib/use-vault-summary.ts",
+          "line": 136
+        },
+        {
+          "path": "apps/mobile/lib/use-vault-summary.ts",
+          "line": 152
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:menu.sync.justNow",
+      "key": "menu.sync.justNow",
+      "current": {
+        "en": "just now",
+        "fa": "همین حالا",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "همدا اوس"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 919,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2903,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/use-vault-summary.ts",
+          "line": 174
+        },
+        {
+          "path": "apps/mobile/lib/use-vault-summary.ts",
+          "line": 175
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:menu.sync.minAgo",
+      "key": "menu.sync.minAgo",
+      "current": {
+        "en": "{n} min ago",
+        "fa": "{n} دقیقه پیش",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "{n} دقیقې مخکې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "n"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 920,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2904,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/use-vault-summary.ts",
+          "line": 178
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:menu.sync.hrAgo",
+      "key": "menu.sync.hrAgo",
+      "current": {
+        "en": "{n} hr ago",
+        "fa": "{n} ساعت پیش",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "{n} ساعته مخکې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "n"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 921,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2905,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/use-vault-summary.ts",
+          "line": 182
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:menu.sync.dayAgo",
+      "key": "menu.sync.dayAgo",
+      "current": {
+        "en": "{n} d ago",
+        "fa": "{n} روز پیش",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "{n} ورځې مخکې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "n"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 922,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2906,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/use-vault-summary.ts",
+          "line": 185
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:menu.sync.status.busy",
+      "key": "menu.sync.status.busy",
+      "current": {
+        "en": "Backing up…",
+        "fa": "در حال پشتیبان‌گیری…",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "بیک‌اپ جوړېږي…"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 923,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2907,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:menu.sync.status.never",
+      "key": "menu.sync.status.never",
+      "current": {
+        "en": "Not backed up yet — will back up when online.",
+        "fa": "هنوز پشتیبان‌گیری نشده — هنگام اتصال انجام می‌شود.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "تراوسه بیک‌اپ نه دی جوړ شوی؛ له انټرنېټ سره په نښلېدو به جوړ شي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 924,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2908,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:menu.sync.status.ok",
+      "key": "menu.sync.status.ok",
+      "current": {
+        "en": "Backed up • {when}",
+        "fa": "پشتیبان‌گیری شد • {when}",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "بیک‌اپ جوړ شوی • {when}"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "when"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 925,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2909,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:menu.sync.cloud",
+      "key": "menu.sync.cloud",
+      "current": {
+        "en": "Cloud backup",
+        "fa": "پشتیبان‌گیری ابری",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د کلاوډ بیک‌اپ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 926,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2910,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:menu.sync.cloud.hint",
+      "key": "menu.sync.cloud.hint",
+      "current": {
+        "en": "Backs up this Kaata and syncs it to your other phones over the internet.",
+        "fa": "این کاتا را پشتیبان می‌گیرد و از طریق اینترنت با تلفون‌های دیگرتان همگام می‌کند.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د دې کاټې بیک‌اپ جوړوي او د انټرنېټ له لارې یې ستاسو له نورو ټیلیفونونو سره همغږې کوي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 927,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2911,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:menu.sync.cloud.hintOff",
+      "key": "menu.sync.cloud.hintOff",
+      "current": {
+        "en": "Off — this Kaata only syncs to phones that are nearby.",
+        "fa": "خاموش — این کاتا تنها با تلفون‌های نزدیک همگام می‌شود.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "بند دی؛ دا کاټه یوازې له نږدې ټیلیفونونو سره همغږې کېږي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 929,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2913,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:menu.sync.cloud.onToast",
+      "key": "menu.sync.cloud.onToast",
+      "current": {
+        "en": "Cloud backup on.",
+        "fa": "پشتیبان‌گیری ابری روشن شد.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د کلاوډ بیک‌اپ فعال شو."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 930,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2914,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:menu.sync.cloud.offToast",
+      "key": "menu.sync.cloud.offToast",
+      "current": {
+        "en": "Cloud backup off.",
+        "fa": "پشتیبان‌گیری ابری خاموش شد.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د کلاوډ بیک‌اپ بند شو."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 931,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2915,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:menu.sync.cloud.failed",
+      "key": "menu.sync.cloud.failed",
+      "current": {
+        "en": "Couldn't change cloud backup.",
+        "fa": "تغییر پشتیبان‌گیری ابری ناکام شد.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د کلاوډ بیک‌اپ بدل نه شو."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 932,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2916,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:menu.sync.done",
+      "key": "menu.sync.done",
+      "current": {
+        "en": "Synced ({pulled} in, {pushed} out)",
+        "fa": "همگام شد ({pulled} دریافت، {pushed} ارسال)",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "همغږي شوه ({pulled} ترلاسه، {pushed} ولېږل شول)"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "pulled",
+        "pushed"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 933,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2917,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:menu.sync.failed",
+      "key": "menu.sync.failed",
+      "current": {
+        "en": "Sync failed",
+        "fa": "همگام‌سازی ناکام شد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "همغږي ناکامه شوه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 934,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2918,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:menu.sync.offline",
+      "key": "menu.sync.offline",
+      "current": {
+        "en": "You appear to be offline.",
+        "fa": "به نظر می‌رسد آنلاین نیستید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "داسې ښکاري چې له انټرنېټ سره نه یاست نښتي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 935,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2919,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/restore.tsx",
+          "line": 102
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:menu.sync.header.never",
+      "key": "menu.sync.header.never",
+      "current": {
+        "en": "—",
+        "fa": "—",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "—"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 940,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2920,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": "Compact relative-time label used as the trailing string on the SYNC\nsection header (right side, muted). Differs from menu.sync.lastSynced\n(the inline full row); here the term must be terse — section headers\nare 11px and the trailing label can't wrap."
+    },
+    {
+      "id": "mobile:menu.sync.shopMode",
+      "key": "menu.sync.shopMode",
+      "current": {
+        "en": "Sync with phones nearby",
+        "fa": "همگام‌سازی با تلفون‌های نزدیک",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "له نږدې ټیلیفونونو سره همغږي"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 972,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2943,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/ProfileSettingsSheet.tsx",
+          "line": 468
+        },
+        {
+          "path": "apps/mobile/components/ProfileSettingsSheet.tsx",
+          "line": 487
+        }
+      ],
+      "context": "Phase 6: BLE is now the PRIMARY transport. Toggle copy must match — a\nshopkeeper reading \"over WiFi\" on a cellular-only phone is exactly the\nuser we built BLE for, and the old copy would make them never turn it\non. Keep \"Nearby sync\" as the noun-form key elsewhere (notification\nchannel, toasts) for stability; the visible label is the long form."
+    },
+    {
+      "id": "mobile:menu.sync.shopMode.hint",
+      "key": "menu.sync.shopMode.hint",
+      "current": {
+        "en": "Keeps syncing over Bluetooth or Wi-Fi — even when Kaata is closed. No internet needed.",
+        "fa": "حتی وقتی کاتا بسته است از طریق بلوتوث یا وای‌فای همگام‌سازی می‌کند — به اینترنت نیاز ندارد.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د بلوتوث یا وای‌فای له لارې همغږي روانه ساتي، ان که کاټه بنده وي. انټرنېټ ته اړتیا نشته."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 973,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2944,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/ProfileSettingsSheet.tsx",
+          "line": 472
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:menu.sync.shopMode.hintWithPeers",
+      "key": "menu.sync.shopMode.hintWithPeers",
+      "current": {
+        "en": "{count} phones nearby",
+        "fa": "{count} تلفون نزدیک",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "{count} نږدې ټیلیفونونه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "count"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 975,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2946,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/ProfileSettingsSheet.tsx",
+          "line": 477
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:menu.sync.shopMode.hintOnePeer",
+      "key": "menu.sync.shopMode.hintOnePeer",
+      "current": {
+        "en": "1 phone nearby",
+        "fa": "۱ تلفون نزدیک",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "۱ نږدې ټیلیفون"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 976,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2947,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/ProfileSettingsSheet.tsx",
+          "line": 476
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:menu.sync.shopMode.hintLooking",
+      "key": "menu.sync.shopMode.hintLooking",
+      "current": {
+        "en": "Looking for nearby phones…",
+        "fa": "در حال یافتن تلفون‌های نزدیک…",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "نږدې ټیلیفونونه لټول کېږي…"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 977,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2948,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/ProfileSettingsSheet.tsx",
+          "line": 474
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:menu.sync.shopMode.failed",
+      "key": "menu.sync.shopMode.failed",
+      "current": {
+        "en": "Could not toggle Nearby sync.",
+        "fa": "تغییر همگام‌سازی نزدیک ناکام شد.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "له نږدې ټیلیفونونو سره همغږي بدله نه شوه."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 978,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2950,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/pair.tsx",
+          "line": 353
+        },
+        {
+          "path": "apps/mobile/components/MeshController.tsx",
+          "line": 538
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:menu.sync.shopMode.fgsFailed",
+      "key": "menu.sync.shopMode.fgsFailed",
+      "current": {
+        "en": "Couldn't start Nearby sync — please allow notifications and try again.",
+        "fa": "همگام‌سازی نزدیک شروع نشد — لطفاً اجازه اعلان‌ها را بدهید و دوباره امتحان کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "له نږدې ټیلیفونونو سره همغږي پیل نه شوه؛ مهرباني وکړئ د خبرتیاوو اجازه ورکړئ او بیا هڅه وکړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 979,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2951,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:menu.sync.shopMode.startedToast",
+      "key": "menu.sync.shopMode.startedToast",
+      "current": {
+        "en": "Nearby sync on.",
+        "fa": "همگام‌سازی نزدیک روشن.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "له نږدې ټیلیفونونو سره همغږي فعاله شوه."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 981,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2949,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/index.tsx",
+          "line": 1875
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:menu.sync.bgSync",
+      "key": "menu.sync.bgSync",
+      "current": {
+        "en": "Sync in the background",
+        "fa": "همگام‌سازی در پس‌زمینه",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "په شالید کې همغږي"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 984,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2953,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": "#43 P2 — background-sync sub-toggle. Nested under Nearby sync (it requires\nit). Lets a swipe-killed / closed app keep syncing to nearby phones."
+    },
+    {
+      "id": "mobile:menu.sync.bgSync.hint",
+      "key": "menu.sync.bgSync.hint",
+      "current": {
+        "en": "Keeps syncing even when Kaata is closed. Uses a little more battery.",
+        "fa": "حتی وقتی کاتا بسته است همگام‌سازی ادامه می‌یابد. کمی بیشتر باتری مصرف می‌کند.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "همغږي روانه ساتي، ان که کاټه بنده وي. لږه زیاته بیټرۍ کاروي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 985,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2954,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:menu.sync.bgSync.hintOff",
+      "key": "menu.sync.bgSync.hintOff",
+      "current": {
+        "en": "Only syncs while Kaata is open.",
+        "fa": "فقط زمانی که کاتا باز است همگام‌سازی می‌شود.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "یوازې هغه مهال همغږي کېږي چې کاټه پرانیستې وي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 986,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2956,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:menu.sync.bgSync.onToast",
+      "key": "menu.sync.bgSync.onToast",
+      "current": {
+        "en": "Background sync on.",
+        "fa": "همگام‌سازی پس‌زمینه روشن.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "په شالید کې همغږي فعاله شوه."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 987,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2957,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:menu.sync.bgSync.offToast",
+      "key": "menu.sync.bgSync.offToast",
+      "current": {
+        "en": "Background sync off.",
+        "fa": "همگام‌سازی پس‌زمینه خاموش.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "په شالید کې همغږي بنده شوه."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 988,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2958,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:menu.sync.bgSync.failed",
+      "key": "menu.sync.bgSync.failed",
+      "current": {
+        "en": "Could not toggle background sync.",
+        "fa": "تغییر همگام‌سازی پس‌زمینه ناکام شد.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "په شالید کې همغږي بدله نه شوه."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 989,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2959,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:menu.ble.permRationale.title",
+      "key": "menu.ble.permRationale.title",
+      "current": {
+        "en": "Allow Bluetooth to find nearby phones",
+        "fa": "اجازه بلوتوث برای یافتن تلفون‌های نزدیک",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د نږدې ټیلیفونونو د موندلو لپاره د بلوتوث اجازه ورکړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 993,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2960,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/MeshController.tsx",
+          "line": 516
+        }
+      ],
+      "context": "Phase 6 — BLE permission rationale shown BEFORE the OS dialogs. Stock\nAndroid's \"find/connect/relative position of nearby devices?\" copy\npanics non-technical users; this dialog frames it in shopkeeper terms."
+    },
+    {
+      "id": "mobile:menu.ble.permRationale.body",
+      "key": "menu.ble.permRationale.body",
+      "current": {
+        "en": "Kaata uses Bluetooth to find your other phone and your staff's phones in the shop. No internet needed. We never share your location.",
+        "fa": "کاتا از بلوتوث برای یافتن تلفون دیگر شما و تلفون‌های کارمندان دکان استفاده می‌کند. اینترنت لازم نیست. ما هیچ‌گاه موقعیت شما را به اشتراک نمی‌گذاریم.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "کاټه په دوکان کې ستاسو د بل ټیلیفون او د کارکوونکو د ټیلیفونونو د موندلو لپاره بلوتوث کاروي. انټرنېټ ته اړتیا نشته. موږ هېڅکله ستاسو موقعیت نه شریکوو."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 994,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2961,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/MeshController.tsx",
+          "line": 517
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:menu.ble.permRationale.continue",
+      "key": "menu.ble.permRationale.continue",
+      "current": {
+        "en": "Continue",
+        "fa": "ادامه",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "دوام ورکړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 996,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2963,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/MeshController.tsx",
+          "line": 518
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:menu.ble.permRationale.cancel",
+      "key": "menu.ble.permRationale.cancel",
+      "current": {
+        "en": "Not now",
+        "fa": "حالا نه",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "اوس نه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 997,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2964,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/MeshController.tsx",
+          "line": 519
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:menu.ble.permDenied.title",
+      "key": "menu.ble.permDenied.title",
+      "current": {
+        "en": "Bluetooth permission needed",
+        "fa": "اجازهٔ بلوتوث لازم است",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د بلوتوث اجازه اړینه ده"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 998,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2965,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/index.tsx",
+          "line": 2197
+        },
+        {
+          "path": "apps/mobile/components/MeshController.tsx",
+          "line": 562
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:menu.ble.permDenied.body",
+      "key": "menu.ble.permDenied.body",
+      "current": {
+        "en": "Nearby sync needs Bluetooth permission to find your other phones. Open settings to grant it?",
+        "fa": "همگام‌سازی نزدیک برای یافتن تلفون‌های دیگر شما به اجازهٔ بلوتوث نیاز دارد. تنظیمات را باز کنید؟",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "له نږدې ټیلیفونونو سره همغږي ستاسو د نورو ټیلیفونونو د موندلو لپاره د بلوتوث اجازې ته اړتیا لري. د اجازې ورکولو لپاره تنظیمات پرانیزو؟"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 999,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2966,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/index.tsx",
+          "line": 2198
+        },
+        {
+          "path": "apps/mobile/components/MeshController.tsx",
+          "line": 563
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:menu.ble.permDenied.openSettings",
+      "key": "menu.ble.permDenied.openSettings",
+      "current": {
+        "en": "Open settings",
+        "fa": "باز کردن تنظیمات",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "تنظیمات پرانیزئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1001,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2968,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/index.tsx",
+          "line": 2199
+        },
+        {
+          "path": "apps/mobile/components/MeshController.tsx",
+          "line": 564
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:menu.ble.permDenied.cancel",
+      "key": "menu.ble.permDenied.cancel",
+      "current": {
+        "en": "Not now",
+        "fa": "حالا نه",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "اوس نه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1002,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2969,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/index.tsx",
+          "line": 2200
+        },
+        {
+          "path": "apps/mobile/components/MeshController.tsx",
+          "line": 565
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:menu.ble.unsupported",
+      "key": "menu.ble.unsupported",
+      "current": {
+        "en": "This phone can't broadcast Bluetooth — Nearby sync won't work here.",
+        "fa": "این تلفون نمی‌تواند بلوتوث ارسال کند — همگام‌سازی نزدیک کار نخواهد کرد.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "دا ټیلیفون د بلوتوث خپرونه نه شي کولای؛ له نږدې ټیلیفونونو سره همغږي دلته کار نه کوي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1003,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2970,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:menu.ble.adapterOff",
+      "key": "menu.ble.adapterOff",
+      "current": {
+        "en": "Bluetooth is off. Turn it on to sync nearby.",
+        "fa": "بلوتوث خاموش است. برای همگام‌سازی روشن کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "بلوتوث بند دی. له نږدې ټیلیفونونو سره د همغږۍ لپاره یې فعال کړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1004,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2971,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/MeshController.tsx",
+          "line": 180
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:menu.ble.peripheralUnsupported",
+      "key": "menu.ble.peripheralUnsupported",
+      "current": {
+        "en": "Your phone can't broadcast to others, but it can still find nearby Kaata phones. Ask the other phone to start Nearby sync.",
+        "fa": "تلفون شما نمی‌تواند به دیگران ارسال کند، اما همچنان می‌تواند تلفون‌های نزدیک کاتا را پیدا کند. از تلفون دیگر بخواهید همگام‌سازی نزدیک را روشن کند.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ستاسو ټیلیفون نورو ته د بلوتوث خپرونه نه شي کولای، خو د کاټې نږدې ټیلیفونونه موندلی شي. له بل ټیلیفون څخه وغواړئ چې نږدې همغږي فعاله کړي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1008,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2972,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/MeshController.tsx",
+          "line": 174
+        }
+      ],
+      "context": "Phase 9 D-FALLBACK-UX — runtime failure toasts surfaced via\nsetMeshFailureBridge. Capability-framing copy (\"can still find Kaata\nphones\"), never uses the word \"error\"."
+    },
+    {
+      "id": "mobile:menu.ble.peerHandshakeFailed",
+      "key": "menu.ble.peerHandshakeFailed",
+      "current": {
+        "en": "Couldn't connect to a nearby phone. They may be from a different Kaata or their session expired.",
+        "fa": "اتصال به یک تلفون نزدیک ناکام شد. ممکن است از کاتای دیگر باشد یا نشست‌شان منقضی شده باشد.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "له نږدې ټیلیفون سره نښلېدل ونه شول. کېدای شي د بلې کاټې وي یا یې د ننوتلو موده پای ته رسېدلې وي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1010,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2974,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/MeshController.tsx",
+          "line": 213
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:menu.ble.peerDecryptFailed",
+      "key": "menu.ble.peerDecryptFailed",
+      "current": {
+        "en": "Lost connection to a nearby phone. Retrying.",
+        "fa": "ارتباط با تلفون نزدیک قطع شد. در حال تلاش دوباره.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "له نږدې ټیلیفون سره اړیکه پرې شوه. بیا هڅه کېږي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1012,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2976,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/MeshController.tsx",
+          "line": 226
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:menu.ble.peerOutdated",
+      "key": "menu.ble.peerOutdated",
+      "current": {
+        "en": "A nearby kaata needs an update before it can sync.",
+        "fa": "کاتای یک تلفون نزدیک به به‌روزرسانی نیاز دارد تا بتواند همگام‌سازی کند.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "یوه نږدې کاټه له همغږۍ مخکې تازه کولو ته اړتیا لري."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1015,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2977,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/MeshController.tsx",
+          "line": 166
+        }
+      ],
+      "context": "M2c membership-chain handshake: a v1 peer tried to sync with an\nanchored vault — they must update before they can participate."
+    },
+    {
+      "id": "mobile:menu.battery.title",
+      "key": "menu.battery.title",
+      "current": {
+        "en": "One last step: allow background",
+        "fa": "یک قدم آخر: اجازهٔ پس‌زمینه",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "وروستی ګام: په شالید کې د کار اجازه ورکړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1017,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2980,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/index.tsx",
+          "line": 2131
+        }
+      ],
+      "context": "Battery-optimization prompt (Phase 5.1, reworded for BLE-primary)."
+    },
+    {
+      "id": "mobile:menu.battery.description",
+      "key": "menu.battery.description",
+      "current": {
+        "en": "Nearby sync needs Android to keep Kaata's Bluetooth scan running while your phone is locked or in your pocket. Next: Settings → Battery → Unrestricted.",
+        "fa": "همگام‌سازی نزدیک نیاز دارد که اندروید اجازه دهد بلوتوث کاتا حتی وقت قفل بودن تلفون فعال بماند. بعد: تنظیمات ← باتری ← بدون محدودیت.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "له نږدې ټیلیفونونو سره د همغږۍ لپاره Android باید د کاټې د بلوتوث لټون روان وساتي، ان که ټیلیفون مو قلف وي یا په جېب کې وي. بل ګام: تنظیمات ← بیټرۍ ← بې محدودیت."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1018,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2981,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/index.tsx",
+          "line": 2132
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:menu.battery.confirm",
+      "key": "menu.battery.confirm",
+      "current": {
+        "en": "Open settings",
+        "fa": "باز کردن تنظیمات",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "تنظیمات پرانیزئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1020,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2983,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/index.tsx",
+          "line": 2133
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:menu.battery.skip",
+      "key": "menu.battery.skip",
+      "current": {
+        "en": "Skip — turn off Nearby sync",
+        "fa": "رد کردن — همگام‌سازی نزدیک خاموش",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "تېر شئ؛ له نږدې ټیلیفونونو سره همغږي بنده کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1021,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2984,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/index.tsx",
+          "line": 2134
+        },
+        {
+          "path": "apps/mobile/app/index.tsx",
+          "line": 2179
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:menu.oemAutostart.title",
+      "key": "menu.oemAutostart.title",
+      "current": {
+        "en": "Allow Kaata to auto-start",
+        "fa": "اجازهٔ خودکار-اجرا به کاتا",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "کاټې ته د خپل‌سري پیل اجازه ورکړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1024,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2985,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/index.tsx",
+          "line": 2176
+        }
+      ],
+      "context": "OEM autostart / protected-apps (MIUI/EMUI/ColorOS…). The battery whitelist\nalone doesn't stop these phones from killing background apps."
+    },
+    {
+      "id": "mobile:menu.oemAutostart.description",
+      "key": "menu.oemAutostart.description",
+      "current": {
+        "en": "Your phone's brand can still stop Kaata in the background even with battery access. On the next screen, find Kaata and turn ON auto-start (or \"don't restrict / allow background\").",
+        "fa": "برند تلفون شما می‌تواند حتی با دسترسی باتری هم کاتا را در پس‌زمینه متوقف کند. در صفحهٔ بعد، کاتا را پیدا کنید و «خودکار-اجرا» را روشن کنید (یا «بدون محدودیت / اجازهٔ پس‌زمینه»).",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ستاسو د ټیلیفون جوړوونکی ښايي د بیټرۍ له اجازې سره هم کاټه په شالید کې بنده کړي. په بل مخ کې کاټه ومومئ او خپل‌سری پیل (یا «محدود یې مه کړئ / په شالید کې اجازه ورکړئ») فعال کړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1025,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2986,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/index.tsx",
+          "line": 2177
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:menu.oemAutostart.confirm",
+      "key": "menu.oemAutostart.confirm",
+      "current": {
+        "en": "Open auto-start settings",
+        "fa": "باز کردن تنظیمات خودکار-اجرا",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د خپل‌سري پیل تنظیمات پرانیزئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1027,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2988,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/index.tsx",
+          "line": 2178
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:menu.account",
+      "key": "menu.account",
+      "current": {
+        "en": "Account",
+        "fa": "حساب",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "حساب"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1044,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2998,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/ProfileSettingsSheet.tsx",
+          "line": 237
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:menu.account.signIn",
+      "key": "menu.account.signIn",
+      "current": {
+        "en": "Sign in with Google",
+        "fa": "ورود با گوگل",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د ګوګل له لارې ننوځئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1045,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2999,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:menu.account.signIn.choose",
+      "key": "menu.account.signIn.choose",
+      "current": {
+        "en": "Sign in",
+        "fa": "ورود به حساب",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ننوځئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1046,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3000,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 600
+        },
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 872
+        },
+        {
+          "path": "apps/mobile/components/ProfileSettingsSheet.tsx",
+          "line": 304
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:menu.account.signIn.apple",
+      "key": "menu.account.signIn.apple",
+      "current": {
+        "en": "Sign in with Apple",
+        "fa": "ورود با اپل",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د اپل له لارې ننوځئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1047,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3001,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:menu.account.signIn.email",
+      "key": "menu.account.signIn.email",
+      "current": {
+        "en": "Sign in with email",
+        "fa": "ورود با ایمیل",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د برېښنالیک له لارې ننوځئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1048,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3002,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:menu.account.signIn.toast",
+      "key": "menu.account.signIn.toast",
+      "current": {
+        "en": "Signed in",
+        "fa": "ورود انجام شد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "حساب ته ننوتئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1049,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3003,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/onboarding/auth.tsx",
+          "line": 392
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:menu.account.signIn.partialToast",
+      "key": "menu.account.signIn.partialToast",
+      "current": {
+        "en": "Signed in, but {count} kaata(s) couldn't be restored. Sign in again to retry.",
+        "fa": "وارد شدید، اما {count} کاتا بازیابی نشد. برای تلاش دوباره، دوباره وارد شوید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "حساب ته ننوتئ، خو {count} کاټې بېرته راوګرځول نه شوې. د بیا هڅې لپاره بیا ننوځئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "count"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1050,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3004,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/onboarding/auth.tsx",
+          "line": 391
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:menu.account.signIn.failed",
+      "key": "menu.account.signIn.failed",
+      "current": {
+        "en": "Couldn't sign in — try again",
+        "fa": "ورود ناموفق — دوباره کوشش کنید",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ننوتل ونه شول؛ بیا هڅه وکړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1052,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3006,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:menu.account.signIn.signingIn",
+      "key": "menu.account.signIn.signingIn",
+      "current": {
+        "en": "Signing in…",
+        "fa": "در حال ورود…",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "حساب ته ننوتل کېږي…"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1055,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3009,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:menu.account.signIn.restoring",
+      "key": "menu.account.signIn.restoring",
+      "current": {
+        "en": "Restoring your kaatas…",
+        "fa": "در حال بازیابی کاتاها…",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ستاسو کاټې بېرته راګرځول کېږي…"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1056,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3010,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:menu.account.signOut",
+      "key": "menu.account.signOut",
+      "current": {
+        "en": "Sign out",
+        "fa": "خروج",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "له حسابه ووځئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1057,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3011,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/ProfileSettingsSheet.tsx",
+          "line": 287
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:menu.account.signOut.pending",
+      "key": "menu.account.signOut.pending",
+      "current": {
+        "en": "Signing out…",
+        "fa": "در حال خروج…",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "له حسابه وتل کېږي…"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1058,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3012,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/index.tsx",
+          "line": 2253
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:menu.account.signOut.toast",
+      "key": "menu.account.signOut.toast",
+      "current": {
+        "en": "Signed out",
+        "fa": "خروج انجام شد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "له حسابه ووتئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1059,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3013,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/index.tsx",
+          "line": 2236
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:menu.account.signOut.failed",
+      "key": "menu.account.signOut.failed",
+      "current": {
+        "en": "Couldn't sign out — try again",
+        "fa": "خروج ناموفق — دوباره کوشش کنید",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "له حسابه وتل ونه شول؛ بیا هڅه وکړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1060,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3014,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/index.tsx",
+          "line": 2239
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:menu.account.signOut.confirm.title",
+      "key": "menu.account.signOut.confirm.title",
+      "current": {
+        "en": "Sign out?",
+        "fa": "خارج می‌شوید؟",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "له حسابه وځئ؟"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1121,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3068,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/index.tsx",
+          "line": 2218
+        }
+      ],
+      "context": "Phase 7 UX critique #6 — sign-out is destructive (kills server sync\nuntil next sign-in), so it gets a ConfirmDialog gate per the\ndocumented contract in design-tokens.ts. The body interpolates the\ncurrent email when known so the user knows which account they're\nexiting; falls back to a generic phrasing when only the local\nsession exists."
+    },
+    {
+      "id": "mobile:menu.account.signOut.confirm.body",
+      "key": "menu.account.signOut.confirm.body",
+      "current": {
+        "en": "You'll be signed out of {email}. Your local Kaatas stay on this phone, but cloud sync and restore won't work until you sign in again.",
+        "fa": "از حساب {email} خارج می‌شوید. کاتاهای محلی روی تلفون می‌مانند، اما تا ورود دوباره همگام‌سازی و بازیابی کلاد کار نمی‌کند.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "له {email} څخه به ووځئ. ستاسو د ټیلیفون کاټې دلته پاتې کېږي، خو تر بیا ننوتلو پورې د کلاوډ همغږي او بېرته راګرځول کار نه کوي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "email"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1122,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3069,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/index.tsx",
+          "line": 2221
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:menu.account.signOut.confirm.bodyGeneric",
+      "key": "menu.account.signOut.confirm.bodyGeneric",
+      "current": {
+        "en": "Your local Kaatas stay on this phone, but cloud sync and restore won't work until you sign in again.",
+        "fa": "کاتاهای محلی روی تلفون می‌مانند، اما تا ورود دوباره همگام‌سازی و بازیابی کلاد کار نمی‌کند.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ستاسو د ټیلیفون کاټې دلته پاتې کېږي، خو تر بیا ننوتلو پورې د کلاوډ همغږي او بېرته راګرځول کار نه کوي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1124,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3071,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/index.tsx",
+          "line": 2224
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:menu.account.signOut.confirm.cta",
+      "key": "menu.account.signOut.confirm.cta",
+      "current": {
+        "en": "Sign out",
+        "fa": "خروج",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "له حسابه ووځئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1126,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3073,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/index.tsx",
+          "line": 2226
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:menu.account.switch",
+      "key": "menu.account.switch",
+      "current": {
+        "en": "Switch account",
+        "fa": "تعویض حساب",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "حساب بدل کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1127,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3074,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:menu.account.localOnlyHint",
+      "key": "menu.account.localOnlyHint",
+      "current": {
+        "en": "Sign in to enable backup + sync across phones.",
+        "fa": "برای پشتیبان‌گیری و همگام‌سازی بین تلفون‌ها وارد شوید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د بیک‌اپ او د ټیلیفونونو ترمنځ د همغږۍ د فعالولو لپاره ننوځئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1128,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3075,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/ProfileSettingsSheet.tsx",
+          "line": 297
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:menu.about",
+      "key": "menu.about",
+      "current": {
+        "en": "About",
+        "fa": "درباره",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "په اړه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1130,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3076,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": "ABOUT section"
+    }
+  ]
+}

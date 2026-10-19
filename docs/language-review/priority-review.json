@@ -1,0 +1,255 @@
+{
+  "format_version": 1,
+  "status": "Editorial follow-up after user-authorized implementation. Pashto and personal-brand decisions are applied; native-speaker refinements may still be made by stable ID.",
+  "issues": [
+    {
+      "id": "financial-gross-totals-versus-remaining-debt",
+      "entry_ids": [
+        "mobile:selection.summary.debt",
+        "mobile:selection.summary.credit",
+        "mobile:selection.summary.remaining",
+        "mobile:selection.summary.collect",
+        "mobile:selection.summary.pay",
+        "mobile:export.doc.totalGave",
+        "mobile:export.doc.totalReceived"
+      ],
+      "reason": "The English labels Total debt / Total credit are ambiguous. lib/selection-summary.ts defines debt as gross value given and credit as gross value received, including applicable opening records. They are not simply the remaining money owed in either direction. The existing Dari labels مجموع طلب / مجموع قرض also risk suggesting remaining debt. The Pashto draft follows given / received.",
+      "review_action": "Review all three languages against an example: gave 100, received 30; gross totals are 100 and 30, remaining to collect is 70. Choose explicit given / received wording for gross totals and separate wording for remaining balances."
+    },
+    {
+      "id": "financial-speaker-and-recipient-perspective",
+      "entry_ids": [
+        "mobile:person.action.iGave",
+        "mobile:person.action.iReceived",
+        "mobile:person.balance.theyOwe",
+        "mobile:person.balance.youOwe",
+        "mobile:share.theyOwe.header",
+        "mobile:share.theyOwe.amount",
+        "web:share.theyOwe.header",
+        "web:share.theyOwe.amount",
+        "web-extra:customer-view.owe",
+        "web-extra:customer-view.credit",
+        "web-extra:customer-view.debt",
+        "web-extra:customer-view.payment"
+      ],
+      "reason": "The mobile ledger is written from the shopkeeper's perspective, while the WhatsApp message addresses the recipient. Public bill labels must stay aligned with the displayed account names. 'I received' is currently drafted as ترلاسه کړل in mobile but ما واخیستل in the public bill; the latter can also suggest buying or taking.",
+      "review_action": "Read a 100-given / 30-received example as both shopkeeper and customer. Keep the debt direction and signs correct. Prefer one reviewed received verb across the app, public bill, messages and exported statements."
+    },
+    {
+      "id": "accept-confirm-acknowledge-wording",
+      "entry_ids": [
+        "mobile:tab.accept",
+        "mobile:tab.accepted",
+        "mobile:tab.status.accepted",
+        "mobile:tab.feedback.accepted",
+        "mobile:tab.notify.accepted",
+        "mobile:tab.notify.detail.new",
+        "mobile:tab.notify.detail.accepted",
+        "mobile:export.record.accepted",
+        "mobile:export.record.acceptanceAwaitingSync",
+        "mobile:inviteAccept.confirm.accept",
+        "mobile:ownershipAccept.accept",
+        "mobile-extra:dialog.defaultConfirm",
+        "backend-extra:notification-detail.created-reviewer",
+        "backend-extra:notification-detail.accepted"
+      ],
+      "reason": "Existing Dari uses تأیید, قبول and پذیرفتن for related acceptance actions and states. Shared-entry acceptance, joining an invitation, taking ownership, server confirmation and the generic OK button have different consequences. A global replacement would hide these differences. Export copy also says names are account labels rather than verified legal identities.",
+      "review_action": "Review each acceptance family together with its success message, notification and exported state. Choose consistent words within each family and clear action-specific words for invitation and ownership. Preserve the distinction between recorded acceptance and verified identity."
+    },
+    {
+      "id": "kaata-account-tally-entry-vocabulary",
+      "entry_ids": [
+        "mobile:guide.p1",
+        "mobile:guide.p2",
+        "mobile:guide.p3",
+        "mobile:onboardingKaata.subtitle",
+        "mobile:customers.noTallies",
+        "mobile:selection.tallies",
+        "mobile:tab.notify.detail.new",
+        "mobile:entry.options",
+        "mobile:inviteAccept.joining",
+        "mobile:members.sheet.remove",
+        "web-extra:customer-view.error",
+        "mobile-extra:notification.sync.description"
+      ],
+      "reason": "English uses tally both for an individual recorded entry and for a person's account. It also exposes technical vault wording in a few user-facing strings. Pashto drafts currently use راکړه ورکړه, ثبت, حساب and کاټه across these related surfaces. Account can mean either a login identity or a person's ledger.",
+      "review_action": "Approve a short glossary that separates product/ledger book, login account, person's account and single transaction. Review each ambiguous occurrence in its screen context, then apply the glossary by meaning rather than by English word."
+    },
+    {
+      "id": "role-permission-copy-versus-current-behavior",
+      "entry_ids": [
+        "mobile:members.rolesHelp",
+        "mobile:members.confirm.transfer.body",
+        "mobile:invite.link.viewerDisclosure",
+        "mobile:invite.link.editorDisclosure",
+        "mobile:invite.link.clerkDisclosure",
+        "mobile:credit.hardHelp",
+        "mobile:members.credit.enforceHint",
+        "mobile:members.credit.bypassHint",
+        "mobile:vaultSettings.role.manager",
+        "mobile:vaultSettings.role.editor",
+        "mobile:vaultSettings.role.clerk"
+      ],
+      "reason": "The source says admins manage staff, but the direct transfer confirmation says only the new owner can add or remove members and change settings. Those claims need reconciliation against the actual permission rules before they are translated consistently. Clerk, editor and admin labels also need clear differences, especially for final shared-entry acceptance and hard credit-limit overrides.",
+      "review_action": "Verify a role-by-action matrix against current behavior, correct inaccurate English/Dari claims, and review Pashto labels with the corresponding permissions. Keep ownership transfer, member removal and credit-limit override consequences explicit."
+    },
+    {
+      "id": "boot-account-recovery-behavior",
+      "entry_ids": [
+        "mobile-extra:boot.accountRestoreAvailable",
+        "mobile-extra:boot.restoreAccount",
+        "mobile-extra:boot.restoreLocal",
+        "mobile-extra:boot.backupAvailable",
+        "mobile-extra:boot.reinstallWarning",
+        "mobile:restore.confirm.body",
+        "mobile:restore.confirm.cta"
+      ],
+      "reason": "The boot account-recovery button in app/_layout.tsx first clears damaged local data, preserves local backups, rebuilds an empty database and returns to sign-in so the restore probe can run. The short Restore from my account label can suggest an immediate completed restoration. Local-backup recovery instead restores an older point in time. Reinstalling can erase the ledger on this phone.",
+      "review_action": "Review these recovery choices as separate actions and describe the next step and loss of newer local changes accurately in every language. Preserve the instruction to contact support before reinstalling. The review files authorize no recovery action or application change."
+    },
+    {
+      "id": "backup-age-plural-and-fragment-composition",
+      "entry_ids": [
+        "mobile-extra:boot.backupAvailable",
+        "mobile-extra:boot.backupAgeLessThanHour",
+        "mobile-extra:boot.backupAgeHours",
+        "mobile-extra:boot.backupAgeDays"
+      ],
+      "reason": "The supplemental {pluralSuffix} token represents the English-only s suffix in formatBackupAge. Simply substituting the same value into Pashto would produce words such as ساعتهs. The Dari current sentence omits backup age entirely. These fragments also rely on a leading space when inserted into {backupAge}.",
+      "review_action": "Review full rendered sentences for 1 hour, 2 hours, 1 day and 2 days. At implementation time replace the English suffix mechanism with proper locale grammar and preserve fragment spacing; placeholder-count validation alone cannot make these drafts directly applicable."
+    },
+    {
+      "id": "auth-password-email-fixed-meaning",
+      "entry_ids": [
+        "mobile:auth.error.emailFixed",
+        "mobile:auth.error.password.personal",
+        "mobile:auth.password.rule.personal",
+        "backend-extra:email.PasswordElsewhere.body"
+      ],
+      "reason": "Your password must use your account's email address is easy to read as an instruction to put an email address inside the password, while another source explicitly forbids using the email in a password. The likely intended meaning concerns the email identity associated with password sign-in.",
+      "review_action": "Verify the server condition that emits emailFixed, rewrite the English message to state the email-account requirement clearly, and review the Dari and Pashto against that exact condition."
+    },
+    {
+      "id": "brand-names-personal-names-and-spelling",
+      "entry_ids": [
+        "mobile:brand.wordmark",
+        "web:brand.wordmark",
+        "mobile:onboarding.name.placeholder",
+        "mobile:onboarding.lastName.placeholder",
+        "mobile:personAdd.firstName.placeholder",
+        "mobile:personAdd.lastName.placeholder",
+        "mobile:onboardingMode.google.title",
+        "mobile:onboardingMode.apple.title",
+        "backend-extra:email.ProviderOnly.subject",
+        "backend-extra:email.ProviderOnly.body",
+        "mobile:recovery.selfPlaceholderName"
+      ],
+      "reason": "Drafts use کاټه for the product, while current Dari uses کاتا. Google/Apple are kept in Latin script in some drafts and transliterated as ګوګل/اپل in others. Example personal names are translatable sample data, while real user names and the restore-time You placeholder have identity implications and must not be silently rewritten.",
+      "review_action": "Choose the product spelling, brand-script policy and example-name spellings explicitly. Preserve actual user-entered names. When Pashto is implemented, extend restore-placeholder detection as well as translating its visible string."
+    },
+    {
+      "id": "permission-labels-and-native-surfaces",
+      "entry_ids": [
+        "mobile:contacts.permission.title",
+        "mobile:contacts.permission.body",
+        "mobile:contacts.permission.button",
+        "mobile:vaultPairScan.permission.headline",
+        "mobile:vaultPairScan.permission.body",
+        "mobile:vaultPairScan.permission.allow",
+        "mobile:menu.ble.permDenied.title",
+        "mobile:menu.ble.permDenied.body",
+        "mobile-extra:permission.contacts",
+        "mobile-extra:permission.camera",
+        "mobile-extra:notification.nativeFallback.title",
+        "mobile-extra:notification.nativeFallback.channel"
+      ],
+      "reason": "Permission explanations occur in both app copy and operating-system/native configuration. The contacts explanation describes reading and writing contacts; shortening it to read-only access would change the promise. Native notification channels and fallback strings may remain visible even when a feature is parked. Settings labels must match the terms people can recognize on their phone.",
+      "review_action": "Review the contacts read/write explanation, camera purpose, Bluetooth wording and Settings navigation together. Track native/localized-resource implementation separately from dictionary edits, and verify the real operating-system prompt when implementation is authorized."
+    },
+    {
+      "id": "go-positional-arguments-and-notification-grammar",
+      "entry_ids": [
+        "backend-extra:notification-detail.created-observer",
+        "backend-extra:notification-detail.created-reviewer",
+        "backend-extra:notification-detail.accepted",
+        "backend-extra:notification-detail.rejected",
+        "backend-extra:notification-detail.voided",
+        "mobile:tab.notify.detail.new",
+        "mobile:tab.notify.detail.accepted",
+        "mobile:tab.notify.detail.rejected",
+        "mobile:tab.notify.detail.voided"
+      ],
+      "reason": "Go templates use repeated %s arguments whose count does not identify actor versus amount. The current Dari voided template puts amount before actor; Pashto puts actor first. The review validator sorts placeholder tokens and cannot detect a same-type argument reversal. Backend Pashto drafts also use masculine زیات کړ / ومنل شو / رد شو / لغوه کړ with the feminine راکړه ورکړه, unlike the mobile drafts.",
+      "review_action": "Read each notification with an actual person's name and amount. Correct Pashto agreement to forms such as زیاته کړه / ومنل شوه / رد شوه / لغوه کړه. Before implementation verify Go argument ordering, using indexed formatting or named tokens where needed."
+    },
+    {
+      "id": "website-mockups-must-match-mobile",
+      "entry_ids": [
+        "mobile:home.tab.collect",
+        "web:home.tab.collect",
+        "mobile:home.tab.pay",
+        "web:home.tab.pay",
+        "mobile:home.total.label.collect",
+        "web:home.total.label.collect",
+        "mobile:share.greeting",
+        "web:share.greeting",
+        "mobile:share.theyOwe.header",
+        "web:share.theyOwe.header",
+        "mobile:share.theyOwe.amount",
+        "web:share.theyOwe.amount",
+        "mobile:share.theyOwe.cta",
+        "web:share.theyOwe.cta"
+      ],
+      "reason": "The web source explicitly requires copied mockup strings to match the mobile app verbatim. The initial Pashto collect/pay drafts differed and have now been synchronized to د اخیستلو پیسې / د ورکولو پیسې in this review pack. Copied message, home, search and date strings also match across the current drafts.",
+      "review_action": "Review each copied key once in context, then preserve the same approved text in both mobile and web during later implementation. Keep web-only marketing captions separate from the copied app strings."
+    },
+    {
+      "id": "pending-review-versus-pending-sync-balances",
+      "entry_ids": [
+        "mobile:export.record.pendingBalance",
+        "mobile:export.record.pending",
+        "mobile:export.record.acceptanceAwaitingSync",
+        "mobile:export.record.rejectionAwaitingSync",
+        "mobile:export.record.cancellationAwaitingSync",
+        "mobile:tab.settle.pending",
+        "mobile:credit.pending"
+      ],
+      "reason": "Pending can mean waiting for another person's review, waiting for a recorded decision to sync, or waiting for the server's credit-limit check. The draft pendingBalance label says د منلو په تمه even though its source explicitly includes unsynced reviews, which can include a locally recorded acceptance or rejection.",
+      "review_action": "Read pending-state labels with examples of an unreviewed tally, an accepted tally waiting to sync and a credit-limit check waiting for the server. Use distinct words where needed so a locally accepted transaction is not described as still waiting for the person to accept it."
+    },
+    {
+      "id": "calendar-month-names-and-repeat-rules",
+      "entry_ids": [
+        "mobile-extra:calendar.jalali.month.1",
+        "mobile-extra:calendar.jalali.month.12",
+        "backend-extra:calendar.jalali.month-01",
+        "backend-extra:calendar.jalali.month-12",
+        "mobile:person.date.weekday.0",
+        "mobile:person.date.weekday.6",
+        "mobile:reminders.monthlyDate",
+        "mobile:reminders.monthlyCalendar",
+        "mobile:reminders.onMonthlyDay",
+        "mobile:reminders.onMonthInterval"
+      ],
+      "reason": "Pashto Solar Hijri month names differ from the existing Dari zodiac names. The drafts propose native Pashto month names, while abbreviated weekdays use familiar initials. Monthly reminders currently follow the Gregorian calendar regardless of the display-calendar preference, so translating month wording must not imply a different schedule.",
+      "review_action": "Review all month spellings, weekday abbreviations, calendar names and date/number conventions. Confirm that monthly reminder text keeps its Gregorian rule clear and that the same month vocabulary is used in the app, public bill, exports and backend previews."
+    },
+    {
+      "id": "technical-english-and-inventory-boundaries",
+      "entry_ids": [
+        "mobile:diagnostics.title",
+        "mobile:diagnostics.hint",
+        "mobile:diagnostics.section.exits",
+        "mobile:diagnostics.section.now",
+        "mobile-extra:diagnostics.appVersion",
+        "mobile-extra:diagnostics.build",
+        "mobile-extra:boot.diagnosticsStage",
+        "mobile-extra:boot.diagnosticsError"
+      ],
+      "reason": "Active diagnostics still displays raw technical fields and annotations such as rss, pss, nativePss, OOM / LMK kill and native/Hermes abort. lib/diagnostics-report.ts contains a large English report. The i18n source explicitly says this report body stays English for support. The hardcoded-candidate scanner is heuristic and does not extract interpolated template text exhaustively, so its inventory is not proof that every visible string was captured.",
+      "review_action": "Record the report body and diagnostic values as intentional technical English if that policy is retained. Review the surrounding user instructions separately. Keep an explicit deferred/technical inventory and perform a screen review before claiming complete language coverage; do not translate machine keys or failure identifiers by global replacement."
+    }
+  ],
+  "implementation_record": "implementation.json",
+  "note": "Original editorial prompts are retained as extraction history. Many technical implementation concerns have since been resolved and tested; consult the current implementation record before acting."
+}

@@ -400,7 +400,7 @@ export function PhoneMockupHome() {
 
 export function PhoneMockupWhatsApp() {
   const { t, lang } = useI18n();
-  const isRTL = lang === "fa";
+  const isRTL = lang !== "en";
   const name = t("mock.name.ahmad");
   const accountWith = t("mock.self.shop");
 

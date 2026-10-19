@@ -143,10 +143,10 @@ export function ConfirmDialog(props: {
                 props.onConfirm();
               }}
               accessibilityRole="button"
-              accessibilityLabel={props.confirmLabel ?? "OK"}
+              accessibilityLabel={props.confirmLabel ?? t("common.ok")}
               style={({ pressed }) => [confirmStyle, pressed && { opacity: 0.85 }]}
             >
-              <Text style={confirmTextStyle}>{props.confirmLabel ?? "OK"}</Text>
+              <Text style={confirmTextStyle}>{props.confirmLabel ?? t("common.ok")}</Text>
             </Pressable>
           </View>
         </Animated.View>

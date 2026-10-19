@@ -1,0 +1,3234 @@
+{
+  "$schema": "../review.schema.json",
+  "format_version": 1,
+  "section": "07-entries-and-activity",
+  "entries": [
+    {
+      "id": "mobile:entry.settledLocked",
+      "key": "entry.settledLocked",
+      "current": {
+        "en": "This entry is under a settled line and can't be changed. Add a correcting entry instead.",
+        "fa": "این ثبت زیر خط تصفیه است و قابل تغییر نیست. به جای آن یک ثبت اصلاحی اضافه کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "دا راکړه ورکړه د تصفیې تر کرښې لاندې ده او نه شي بدلېدای. د سمون لپاره نوې راکړه ورکړه ورزیاته کړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 376,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2427,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/entry/[id]/edit.tsx",
+          "line": 145
+        },
+        {
+          "path": "apps/mobile/app/person/[id].tsx",
+          "line": 2448
+        }
+      ],
+      "context": "Closed-period guard: mutations refused inside ruled-off chapters. Fix\nan old entry the accountant's way — a correcting entry on the open page."
+    },
+    {
+      "id": "mobile:entry.amount.label",
+      "key": "entry.amount.label",
+      "current": {
+        "en": "Amount (AFN)",
+        "fa": "مقدار (AFN)",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "مبلغ (AFN)"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 642,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2691,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": "Entry"
+    },
+    {
+      "id": "mobile:entry.note.label",
+      "key": "entry.note.label",
+      "current": {
+        "en": "Note",
+        "fa": "یادداشت",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "یادښت"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 643,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2692,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/entry/[id]/edit.tsx",
+          "line": 251
+        },
+        {
+          "path": "apps/mobile/app/entry/[id]/edit.tsx",
+          "line": 260
+        },
+        {
+          "path": "apps/mobile/app/entry/new.tsx",
+          "line": 430
+        },
+        {
+          "path": "apps/mobile/app/entry/new.tsx",
+          "line": 439
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:entry.note.placeholder",
+      "key": "entry.note.placeholder",
+      "current": {
+        "en": "Flour and tea",
+        "fa": "آرد و چای",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "اوړه او چای"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 644,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2693,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/entry/[id]/edit.tsx",
+          "line": 257
+        },
+        {
+          "path": "apps/mobile/app/entry/new.tsx",
+          "line": 436
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:entry.save",
+      "key": "entry.save",
+      "current": {
+        "en": "Save",
+        "fa": "ذخیره",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "خوندي کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 645,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2694,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/entry/new.tsx",
+          "line": 451
+        },
+        {
+          "path": "apps/mobile/app/groups.tsx",
+          "line": 203
+        },
+        {
+          "path": "apps/mobile/components/ReminderEditor.tsx",
+          "line": 322
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:entry.saveChanges",
+      "key": "entry.saveChanges",
+      "current": {
+        "en": "Save changes",
+        "fa": "ذخیره تغییرات",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "بدلونونه خوندي کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 646,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2695,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/entry/[id]/edit.tsx",
+          "line": 272
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:entry.context.to",
+      "key": "entry.context.to",
+      "current": {
+        "en": "to",
+        "fa": "به",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ته"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 647,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2696,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/entry/new.tsx",
+          "line": 387
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:entry.context.from",
+      "key": "entry.context.from",
+      "current": {
+        "en": "from",
+        "fa": "از",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "له"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 648,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2697,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/entry/new.tsx",
+          "line": 387
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:entry.edit.title",
+      "key": "entry.edit.title",
+      "current": {
+        "en": "Edit · {verb}",
+        "fa": "ویرایش · {verb}",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "سمون · {verb}"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "verb"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 649,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2698,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/entry/[id]/edit.tsx",
+          "line": 174
+        },
+        {
+          "path": "apps/mobile/app/entry/[id]/edit.tsx",
+          "line": 202
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:entry.edit.hint",
+      "key": "entry.edit.hint",
+      "current": {
+        "en": "Direction can't be changed. To turn this into \"{otherVerb}\", delete this entry and add a new one.",
+        "fa": "جهت قابل تغییر نیست. برای تبدیل به \"{otherVerb}\" این ثبت را حذف کنید و یکی نو اضافه کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "لوری نه شي بدلېدای. د «{otherVerb}» د ثبتولو لپاره دا راکړه ورکړه ړنګه کړئ او نوې ورزیاته کړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "otherVerb"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 650,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2699,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/entry/[id]/edit.tsx",
+          "line": 211
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:entry.notFound",
+      "key": "entry.notFound",
+      "current": {
+        "en": "This entry no longer exists.",
+        "fa": "این ثبت دیگر وجود ندارد.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "دا راکړه ورکړه نور نشته."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 652,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2701,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/entry/[id]/edit.tsx",
+          "line": 189
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:entry.showExactTime",
+      "key": "entry.showExactTime",
+      "current": {
+        "en": "Show exact date and time",
+        "fa": "نمایش تاریخ و ساعت دقیق",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "کره نېټه او وخت وښایئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 653,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2702,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/EntryRow.tsx",
+          "line": 141
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:entry.showRelativeTime",
+      "key": "entry.showRelativeTime",
+      "current": {
+        "en": "Show relative time",
+        "fa": "نمایش زمان گذشته",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "تېر شوی وخت وښایئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 654,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2703,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/EntryRow.tsx",
+          "line": 141
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:entry.options",
+      "key": "entry.options",
+      "current": {
+        "en": "Tally options",
+        "fa": "گزینه‌های ثبت",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د راکړې ورکړې غوراوي"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 655,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2704,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/EntryRow.tsx",
+          "line": 269
+        },
+        {
+          "path": "apps/mobile/components/OverflowMenu.tsx",
+          "line": 16
+        },
+        {
+          "path": "apps/mobile/components/OverflowMenu.tsx",
+          "line": 25
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:entry.addedBy",
+      "key": "entry.addedBy",
+      "current": {
+        "en": "Added by {name}",
+        "fa": "ثبت‌شده توسط {name}",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د {name} له خوا ورزیاته شوې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "name"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 660,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2705,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/EntryRow.tsx",
+          "line": 40
+        },
+        {
+          "path": "apps/mobile/components/EntryRow.tsx",
+          "line": 167
+        },
+        {
+          "path": "apps/mobile/components/EntryRow.tsx",
+          "line": 347
+        }
+      ],
+      "context": "Attribution on a shared kaata's tally row. The collapsed row shows only a\ntinted initial; these words appear when the row is opened, and as the\nchip's screen-reader label. `entry.editedBy` is lower-case on purpose —\nit only ever follows \"Added by X · \"."
+    },
+    {
+      "id": "mobile:entry.editedBy",
+      "key": "entry.editedBy",
+      "current": {
+        "en": "edited by {name}",
+        "fa": "ویرایش توسط {name}",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "{name} سمون ورکړی"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "name"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 661,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2706,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/EntryRow.tsx",
+          "line": 41
+        },
+        {
+          "path": "apps/mobile/components/EntryRow.tsx",
+          "line": 168
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:entry.editedByOnly",
+      "key": "entry.editedByOnly",
+      "current": {
+        "en": "Edited by {name}",
+        "fa": "ویرایش‌شده توسط {name}",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "{name} سمون ورکړی"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "name"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 662,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2707,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/EntryRow.tsx",
+          "line": 42
+        },
+        {
+          "path": "apps/mobile/components/EntryRow.tsx",
+          "line": 171
+        },
+        {
+          "path": "apps/mobile/components/EntryRow.tsx",
+          "line": 348
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:entry.by.you",
+      "key": "entry.by.you",
+      "current": {
+        "en": "you",
+        "fa": "شما",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "تاسو"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 663,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2708,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/EntryRow.tsx",
+          "line": 161
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:entry.by.self",
+      "key": "entry.by.self",
+      "current": {
+        "en": "{name} (you)",
+        "fa": "{name} (شما)",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "{name} (تاسو)"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "name"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 664,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2709,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/EntryRow.tsx",
+          "line": 160
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:entry.by.someone",
+      "key": "entry.by.someone",
+      "current": {
+        "en": "another member",
+        "fa": "یکی از اعضا",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "بل غړی"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 667,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2710,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/person/[id].tsx",
+          "line": 1390
+        },
+        {
+          "path": "apps/mobile/components/EntryRow.tsx",
+          "line": 162
+        }
+      ],
+      "context": "When the member's name hasn't reached this device yet. Better than a\ntruncated account id, which reads as a bug rather than as a person."
+    },
+    {
+      "id": "mobile:entry.invalidAmount",
+      "key": "entry.invalidAmount",
+      "current": {
+        "en": "Enter a positive amount with up to 2 decimal places",
+        "fa": "یک مقدار مثبت با حداکثر ۲ رقم اعشار وارد کنید",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "له صفر څخه لوی مبلغ ولیکئ، تر دوو اعشاري ځایونو پورې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 668,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2711,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/entry/[id]/edit.tsx",
+          "line": 121
+        },
+        {
+          "path": "apps/mobile/app/entry/new.tsx",
+          "line": 201
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:entry.noActiveVault",
+      "key": "entry.noActiveVault",
+      "current": {
+        "en": "No active Kaata. Create one to continue.",
+        "fa": "کاتای فعال وجود ندارد. برای ادامه یک کاتا بسازید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "فعاله کاټه نشته. د دوام لپاره یوه جوړه کړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 672,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2712,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/entry/new.tsx",
+          "line": 149
+        },
+        {
+          "path": "apps/mobile/app/entry/new.tsx",
+          "line": 228
+        },
+        {
+          "path": "apps/mobile/app/index.tsx",
+          "line": 1740
+        },
+        {
+          "path": "apps/mobile/app/person/new.tsx",
+          "line": 135
+        },
+        {
+          "path": "apps/mobile/app/person/new.tsx",
+          "line": 259
+        }
+      ],
+      "context": "D-DEFENSIVE-ARCHIVED-GUARD — surfaced when the active vault has been\narchived by the user (locally) or via mesh between the screen load\nand a create-flow tap."
+    },
+    {
+      "id": "mobile:entry.vaultArchived",
+      "key": "entry.vaultArchived",
+      "current": {
+        "en": "This Kaata is archived. Restore it or pick another.",
+        "fa": "این کاتا بایگانی شده است. آن را بازیابی کنید یا کاتای دیگری انتخاب کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "دا کاټه آرشیف شوې ده. بېرته یې را وګرځوئ یا بله وټاکئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 673,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2713,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/entry/new.tsx",
+          "line": 154
+        },
+        {
+          "path": "apps/mobile/app/entry/new.tsx",
+          "line": 235
+        },
+        {
+          "path": "apps/mobile/app/person/new.tsx",
+          "line": 140
+        },
+        {
+          "path": "apps/mobile/app/person/new.tsx",
+          "line": 264
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:entry.saved",
+      "key": "entry.saved",
+      "current": {
+        "en": "Entry saved",
+        "fa": "ثبت شد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "راکړه ورکړه خوندي شوه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 675,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2716,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/entry/new.tsx",
+          "line": 285
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:entry.updated",
+      "key": "entry.updated",
+      "current": {
+        "en": "Entry updated",
+        "fa": "به‌روزرسانی شد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "راکړه ورکړه تازه شوه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 676,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2717,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/entry/[id]/edit.tsx",
+          "line": 129
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:entry.deleted",
+      "key": "entry.deleted",
+      "current": {
+        "en": "Entry deleted",
+        "fa": "حذف شد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "راکړه ورکړه ړنګه شوه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 677,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2718,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/person/[id].tsx",
+          "line": 2436
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:entry.deleteFailed",
+      "key": "entry.deleteFailed",
+      "current": {
+        "en": "Couldn't delete. Try again.",
+        "fa": "حذف نشد. دوباره امتحان کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ړنګول ونه شول. بیا هڅه وکړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 678,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2719,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/index.tsx",
+          "line": 2086
+        },
+        {
+          "path": "apps/mobile/app/person/[id].tsx",
+          "line": 2452
+        },
+        {
+          "path": "apps/mobile/app/person/[id]/edit.tsx",
+          "line": 151
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:entry.saveFailed",
+      "key": "entry.saveFailed",
+      "current": {
+        "en": "Couldn't save. Try again.",
+        "fa": "ذخیره نشد. دوباره امتحان کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "خوندي کول ونه شول. بیا هڅه وکړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 679,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2720,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 456
+        },
+        {
+          "path": "apps/mobile/app/entry/[id]/edit.tsx",
+          "line": 157
+        },
+        {
+          "path": "apps/mobile/app/entry/new.tsx",
+          "line": 325
+        },
+        {
+          "path": "apps/mobile/app/entry/new.tsx",
+          "line": 327
+        },
+        {
+          "path": "apps/mobile/app/group-members.tsx",
+          "line": 142
+        },
+        {
+          "path": "apps/mobile/app/groups.tsx",
+          "line": 96
+        },
+        {
+          "path": "apps/mobile/app/groups.tsx",
+          "line": 116
+        },
+        {
+          "path": "apps/mobile/app/index.tsx",
+          "line": 1024
+        },
+        {
+          "path": "apps/mobile/app/onboarding/auth.tsx",
+          "line": 297
+        },
+        {
+          "path": "apps/mobile/app/onboarding/auth.tsx",
+          "line": 605
+        },
+        {
+          "path": "apps/mobile/app/onboarding/calendar.tsx",
+          "line": 53
+        },
+        {
+          "path": "apps/mobile/app/onboarding/calendar.tsx",
+          "line": 83
+        },
+        {
+          "path": "apps/mobile/app/onboarding/kaata.tsx",
+          "line": 203
+        },
+        {
+          "path": "apps/mobile/app/onboarding/kaata.tsx",
+          "line": 226
+        },
+        {
+          "path": "apps/mobile/app/onboarding/language.tsx",
+          "line": 52
+        },
+        {
+          "path": "apps/mobile/app/onboarding/profile.tsx",
+          "line": 241
+        },
+        {
+          "path": "apps/mobile/app/onboarding/profile.tsx",
+          "line": 268
+        },
+        {
+          "path": "apps/mobile/app/person/[id].tsx",
+          "line": 144
+        },
+        {
+          "path": "apps/mobile/app/person/[id]/edit.tsx",
+          "line": 196
+        },
+        {
+          "path": "apps/mobile/app/person/[id]/group.tsx",
+          "line": 82
+        },
+        {
+          "path": "apps/mobile/app/person/[id]/reminders.tsx",
+          "line": 141
+        },
+        {
+          "path": "apps/mobile/app/person/[id]/reminders.tsx",
+          "line": 169
+        },
+        {
+          "path": "apps/mobile/app/reminders.tsx",
+          "line": 84
+        },
+        {
+          "path": "apps/mobile/app/t/[token].tsx",
+          "line": 553
+        },
+        {
+          "path": "apps/mobile/app/t/[token].tsx",
+          "line": 587
+        },
+        {
+          "path": "apps/mobile/app/tab/dispute.tsx",
+          "line": 138
+        },
+        {
+          "path": "apps/mobile/app/tab/dispute.tsx",
+          "line": 148
+        },
+        {
+          "path": "apps/mobile/components/LinkAccountDialog.tsx",
+          "line": 155
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:entry.roleDenied",
+      "key": "entry.roleDenied",
+      "current": {
+        "en": "View only — ask the owner for editor access.",
+        "fa": "فقط مشاهده — از مالک اجازه ویرایشگر بخواهید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "یوازې یې کتلی شئ؛ له مالک څخه د سمون اجازه وغواړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 683,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2721,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 448
+        },
+        {
+          "path": "apps/mobile/app/entry/[id]/edit.tsx",
+          "line": 152
+        },
+        {
+          "path": "apps/mobile/app/entry/new.tsx",
+          "line": 309
+        },
+        {
+          "path": "apps/mobile/app/entry/new.tsx",
+          "line": 321
+        },
+        {
+          "path": "apps/mobile/app/group-members.tsx",
+          "line": 142
+        },
+        {
+          "path": "apps/mobile/app/groups.tsx",
+          "line": 91
+        },
+        {
+          "path": "apps/mobile/app/groups.tsx",
+          "line": 116
+        },
+        {
+          "path": "apps/mobile/app/person/[id].tsx",
+          "line": 140
+        },
+        {
+          "path": "apps/mobile/app/person/[id].tsx",
+          "line": 832
+        },
+        {
+          "path": "apps/mobile/app/person/[id]/edit.tsx",
+          "line": 148
+        },
+        {
+          "path": "apps/mobile/app/person/[id]/edit.tsx",
+          "line": 192
+        },
+        {
+          "path": "apps/mobile/app/person/[id]/group.tsx",
+          "line": 82
+        },
+        {
+          "path": "apps/mobile/app/person/new.tsx",
+          "line": 297
+        },
+        {
+          "path": "apps/mobile/app/t/[token].tsx",
+          "line": 547
+        },
+        {
+          "path": "apps/mobile/app/t/[token].tsx",
+          "line": 585
+        },
+        {
+          "path": "apps/mobile/app/tab/dispute.tsx",
+          "line": 141
+        },
+        {
+          "path": "apps/mobile/components/LinkAccountDialog.tsx",
+          "line": 153
+        }
+      ],
+      "context": "Surfaced when a local write is refused by the projection's role-gate\n— usually because a co-owner demoted this device to viewer/editor and\nthe demotion gossiped in via mesh/sync between screen-load and save."
+    },
+    {
+      "id": "mobile:entry.signingUnavailable",
+      "key": "entry.signingUnavailable",
+      "current": {
+        "en": "Couldn't prepare a secure save. Try again — if it keeps failing, reopen Kaata.",
+        "fa": "ذخیره امن آماده نشد. دوباره امتحان کنید — اگر ادامه داشت، کاتا را دوباره باز کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د خوندي ثبت چمتو کول ونه شول. بیا هڅه وکړئ؛ که ستونزه دوام وکړي، کاټه بیا پرانیزئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 690,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2722,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 446
+        },
+        {
+          "path": "apps/mobile/app/entry/[id]/edit.tsx",
+          "line": 155
+        },
+        {
+          "path": "apps/mobile/app/entry/new.tsx",
+          "line": 312
+        },
+        {
+          "path": "apps/mobile/app/onboarding/kaata.tsx",
+          "line": 201
+        },
+        {
+          "path": "apps/mobile/app/person/[id]/edit.tsx",
+          "line": 194
+        },
+        {
+          "path": "apps/mobile/app/person/new.tsx",
+          "line": 295
+        },
+        {
+          "path": "apps/mobile/app/vault/new.tsx",
+          "line": 168
+        },
+        {
+          "path": "apps/mobile/app/vault/removed-people.tsx",
+          "line": 99
+        }
+      ],
+      "context": "Shown when a save can't be signed (EventSigningUnavailableError, from a\nDeviceKeyUnavailableError in lib/mesh/device-key.ts): the SecureStore\nread threw (locked keychain, Keystore hiccup), the store refused a write,\nor a repair was needed while another transaction was open. A plain retry\nusually succeeds — the save path repairs the key in place — so lead\nwith that; reopening is the fallback. Actionable, unlike saveFailed."
+    },
+    {
+      "id": "mobile:projectionConflicts.toast.roleGate",
+      "key": "projectionConflicts.toast.roleGate",
+      "current": {
+        "en": "Your role changed — that change couldn't be saved.",
+        "fa": "نقش شما تغییر کرد — آن تغییر ذخیره نشد.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ستاسو واک بدل شوی دی؛ دا بدلون خوندي نه شو."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 695,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2724,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/removed-people.tsx",
+          "line": 97
+        },
+        {
+          "path": "apps/mobile/components/ProjectionConflictsListener.tsx",
+          "line": 63
+        }
+      ],
+      "context": "Projection-conflicts surface (Phase 8 D-PROJECTION-CONFLICTS-SURFACE).\nToasted by ProjectionConflictsListener at the root of the app."
+    },
+    {
+      "id": "mobile:projectionConflicts.toast.serverRejected",
+      "key": "projectionConflicts.toast.serverRejected",
+      "current": {
+        "en": "The server didn't accept your last change. Please refresh.",
+        "fa": "سرور آخرین تغییر شما را نپذیرفت. لطفاً تازه‌سازی کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "سرور ستاسو وروستی بدلون ونه مانه. مهرباني وکړئ معلومات تازه کړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 696,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2725,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/ProjectionConflictsListener.tsx",
+          "line": 65
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:entry.amount.labelTemplate",
+      "key": "entry.amount.labelTemplate",
+      "current": {
+        "en": "Amount ({code})",
+        "fa": "مقدار ({code})",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "مبلغ ({code})"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "code"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 744,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2795,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/entry/[id]/edit.tsx",
+          "line": 215
+        },
+        {
+          "path": "apps/mobile/app/entry/[id]/edit.tsx",
+          "line": 232
+        },
+        {
+          "path": "apps/mobile/app/entry/new.tsx",
+          "line": 394
+        },
+        {
+          "path": "apps/mobile/app/entry/new.tsx",
+          "line": 411
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auditLog.title",
+      "key": "auditLog.title",
+      "current": {
+        "en": "Activity",
+        "fa": "فعالیت",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "فعالیت"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1680,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3572,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/audit-log.tsx",
+          "line": 319
+        },
+        {
+          "path": "apps/mobile/app/vault/audit-log.tsx",
+          "line": 330
+        }
+      ],
+      "context": "Vault audit log — Phase 7 UX critique #8 (translated)."
+    },
+    {
+      "id": "mobile:auditLog.noViewerAccess",
+      "key": "auditLog.noViewerAccess",
+      "current": {
+        "en": "No audit access for viewers.",
+        "fa": "دسترسی گزارش فعالیت برای بینندگان نیست.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "کتونکي د فعالیتونو مخینې ته لاسرسی نه لري."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1681,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3573,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/audit-log.tsx",
+          "line": 103
+        },
+        {
+          "path": "apps/mobile/app/vault/audit-log.tsx",
+          "line": 141
+        },
+        {
+          "path": "apps/mobile/app/vault/audit-log.tsx",
+          "line": 215
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auditLog.toast.noActive",
+      "key": "auditLog.toast.noActive",
+      "current": {
+        "en": "No active Kaata",
+        "fa": "کاتای فعال نیست",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "فعاله کاټه نشته"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1682,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3574,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/audit-log.tsx",
+          "line": 114
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auditLog.toast.loadFailed",
+      "key": "auditLog.toast.loadFailed",
+      "current": {
+        "en": "Failed to load audit log",
+        "fa": "بار کردن گزارش فعالیت ناکام شد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د فعالیتونو مخینه پورته نه شوه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1683,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3575,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/audit-log.tsx",
+          "line": 250
+        },
+        {
+          "path": "apps/mobile/app/vault/audit-log.tsx",
+          "line": 351
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auditLog.notAvailable.title",
+      "key": "auditLog.notAvailable.title",
+      "current": {
+        "en": "Activity not available",
+        "fa": "گزارش فعالیت در دسترس نیست",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "فعالیت نشته"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1684,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3576,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/audit-log.tsx",
+          "line": 342
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auditLog.notAvailable.body",
+      "key": "auditLog.notAvailable.body",
+      "current": {
+        "en": "This Kaata has no server-side activity log.",
+        "fa": "این کاتا گزارش فعالیت سمت سرور ندارد.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "دا کاټه په سرور کې د فعالیتونو مخینه نه لري."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1685,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3577,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/audit-log.tsx",
+          "line": 343
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auditLog.empty.title",
+      "key": "auditLog.empty.title",
+      "current": {
+        "en": "No activity yet",
+        "fa": "هنوز فعالیتی نیست",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "تر اوسه فعالیت نشته"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1686,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3578,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/audit-log.tsx",
+          "line": 366
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auditLog.empty.body",
+      "key": "auditLog.empty.body",
+      "current": {
+        "en": "Activity in this Kaata — entries, people, settings — will appear here.",
+        "fa": "فعالیت در این کاتا — ثبت‌ها، افراد و تنظیمات — در اینجا ظاهر می‌شود.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د دې کاټې فعالیتونه — راکړې ورکړې، کسان او امستنې — به دلته ښکاري."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1687,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3579,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/audit-log.tsx",
+          "line": 367
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auditLog.endOfHistory",
+      "key": "auditLog.endOfHistory",
+      "current": {
+        "en": "End of history",
+        "fa": "پایان تاریخچه",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د مخینې پای"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1688,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3580,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/audit-log.tsx",
+          "line": 395
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auditLog.system",
+      "key": "auditLog.system",
+      "current": {
+        "en": "System",
+        "fa": "سیستم",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "سیستم"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1689,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3581,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/audit-log.tsx",
+          "line": 412
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auditLog.kind.inviteIssued",
+      "key": "auditLog.kind.inviteIssued",
+      "current": {
+        "en": "Invitation sent",
+        "fa": "دعوت ارسال شد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "بلنه ولېږل شوه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1690,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3582,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/audit-log.tsx",
+          "line": 474
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auditLog.kind.inviteAccepted",
+      "key": "auditLog.kind.inviteAccepted",
+      "current": {
+        "en": "Invitation accepted",
+        "fa": "دعوت پذیرفته شد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "بلنه ومنل شوه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1691,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3583,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/audit-log.tsx",
+          "line": 476
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auditLog.kind.roleChanged",
+      "key": "auditLog.kind.roleChanged",
+      "current": {
+        "en": "Role changed",
+        "fa": "نقش تغییر کرد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ونډه بدله شوه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1692,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3584,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/audit-log.tsx",
+          "line": 478
+        },
+        {
+          "path": "apps/mobile/app/vault/audit-log.tsx",
+          "line": 500
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auditLog.kind.memberRevoked",
+      "key": "auditLog.kind.memberRevoked",
+      "current": {
+        "en": "Member removed",
+        "fa": "عضو حذف شد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "غړی لرې شو"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1693,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3585,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/audit-log.tsx",
+          "line": 480
+        },
+        {
+          "path": "apps/mobile/app/vault/audit-log.tsx",
+          "line": 503
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auditLog.kind.memberLeft",
+      "key": "auditLog.kind.memberLeft",
+      "current": {
+        "en": "Member left",
+        "fa": "عضو خارج شد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "غړی ووت"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1694,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3586,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/audit-log.tsx",
+          "line": 482
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auditLog.kind.vaultArchived",
+      "key": "auditLog.kind.vaultArchived",
+      "current": {
+        "en": "Kaata archived",
+        "fa": "کاتا بایگانی شد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "کاټه ارشیف شوه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1695,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3587,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/audit-log.tsx",
+          "line": 484
+        },
+        {
+          "path": "apps/mobile/app/vault/audit-log.tsx",
+          "line": 517
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auditLog.kind.vaultUnarchived",
+      "key": "auditLog.kind.vaultUnarchived",
+      "current": {
+        "en": "Kaata unarchived",
+        "fa": "کاتا از بایگانی خارج شد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "کاټه له ارشیفه راوایستل شوه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1696,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3588,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/audit-log.tsx",
+          "line": 518
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auditLog.kind.transferInitiated",
+      "key": "auditLog.kind.transferInitiated",
+      "current": {
+        "en": "Ownership transfer started",
+        "fa": "انتقال مالکیت آغاز شد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د مالکیت سپارل پیل شول"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1697,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3589,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/audit-log.tsx",
+          "line": 486
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auditLog.kind.transferCompleted",
+      "key": "auditLog.kind.transferCompleted",
+      "current": {
+        "en": "Ownership transferred",
+        "fa": "مالکیت منتقل شد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "مالکیت وسپارل شو"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1698,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3590,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/audit-log.tsx",
+          "line": 488
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auditLog.kind.local.addedMember",
+      "key": "auditLog.kind.local.addedMember",
+      "current": {
+        "en": "Added member",
+        "fa": "عضو افزوده شد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "غړی زیات شو"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1701,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3591,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/audit-log.tsx",
+          "line": 494
+        }
+      ],
+      "context": "Local-CA event_type → human strings. Previously hardcoded English in\naudit-log.tsx — now routed through t() so Dari locale renders correctly."
+    },
+    {
+      "id": "mobile:auditLog.kind.local.addedMemberAs",
+      "key": "auditLog.kind.local.addedMemberAs",
+      "current": {
+        "en": "Added member as {role}",
+        "fa": "عضو افزوده شد به‌عنوان {role}",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "غړی د {role} په توګه زیات شو"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "role"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1702,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3592,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/audit-log.tsx",
+          "line": 493
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auditLog.kind.local.roleChangedTo",
+      "key": "auditLog.kind.local.roleChangedTo",
+      "current": {
+        "en": "Role changed to {role}",
+        "fa": "نقش به {role} تغییر کرد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ونډه {role} ته بدله شوه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "role"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1703,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3593,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/audit-log.tsx",
+          "line": 499
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auditLog.kind.local.currencyChanged",
+      "key": "auditLog.kind.local.currencyChanged",
+      "current": {
+        "en": "Currency changed",
+        "fa": "ارز تغییر کرد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د پیسو ډول بدل شو"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1704,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3594,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/audit-log.tsx",
+          "line": 510
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auditLog.kind.local.currencyChangedTo",
+      "key": "auditLog.kind.local.currencyChangedTo",
+      "current": {
+        "en": "Currency changed to {value}",
+        "fa": "ارز به {value} تغییر کرد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د پیسو ډول {value} ته بدل شو"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "value"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1705,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3595,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/audit-log.tsx",
+          "line": 509
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auditLog.kind.local.renamed",
+      "key": "auditLog.kind.local.renamed",
+      "current": {
+        "en": "Kaata renamed",
+        "fa": "نام کاتا تغییر کرد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د کاټې نوم بدل شو"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1706,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3596,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/audit-log.tsx",
+          "line": 514
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auditLog.kind.local.renamedTo",
+      "key": "auditLog.kind.local.renamedTo",
+      "current": {
+        "en": "Renamed to {value}",
+        "fa": "تغییر نام به {value}",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "نوم {value} ته بدل شو"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "value"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1707,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3597,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/audit-log.tsx",
+          "line": 513
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auditLog.kind.local.settingChanged",
+      "key": "auditLog.kind.local.settingChanged",
+      "current": {
+        "en": "Setting changed",
+        "fa": "تنظیم تغییر کرد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "امستنه بدله شوه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1708,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3598,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/audit-log.tsx",
+          "line": 521
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auditLog.kind.local.settingChangedKey",
+      "key": "auditLog.kind.local.settingChangedKey",
+      "current": {
+        "en": "Setting changed: {key}",
+        "fa": "تنظیم تغییر کرد: {key}",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "امستنه بدله شوه: {key}"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "key"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1709,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3599,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/audit-log.tsx",
+          "line": 520
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auditLog.kind.local.shopProfileUpdated",
+      "key": "auditLog.kind.local.shopProfileUpdated",
+      "current": {
+        "en": "Shop profile updated",
+        "fa": "مشخصات دکان به‌روز شد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د دوکان پېژندپاڼه تازه شوه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1710,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3600,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/audit-log.tsx",
+          "line": 524
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auditLog.kind.local.entryAdded",
+      "key": "auditLog.kind.local.entryAdded",
+      "current": {
+        "en": "Entry added",
+        "fa": "ثبت افزوده شد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "راکړه ورکړه زیاته شوه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1711,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3601,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/audit-log.tsx",
+          "line": 526
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auditLog.kind.local.entryEdited",
+      "key": "auditLog.kind.local.entryEdited",
+      "current": {
+        "en": "Entry edited",
+        "fa": "ثبت ویرایش شد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "راکړه ورکړه سمه شوه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1712,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3602,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/audit-log.tsx",
+          "line": 528
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auditLog.kind.local.entryDeleted",
+      "key": "auditLog.kind.local.entryDeleted",
+      "current": {
+        "en": "Entry deleted",
+        "fa": "ثبت حذف شد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "راکړه ورکړه ړنګه شوه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1713,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3603,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/audit-log.tsx",
+          "line": 530
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auditLog.kind.local.personAdded",
+      "key": "auditLog.kind.local.personAdded",
+      "current": {
+        "en": "Person added",
+        "fa": "نفر افزوده شد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "کس زیات شو"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1714,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3604,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/audit-log.tsx",
+          "line": 532
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auditLog.kind.local.personRenamed",
+      "key": "auditLog.kind.local.personRenamed",
+      "current": {
+        "en": "Person renamed",
+        "fa": "نام نفر تغییر کرد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د کس نوم بدل شو"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1715,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3605,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/audit-log.tsx",
+          "line": 534
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auditLog.kind.local.personArchived",
+      "key": "auditLog.kind.local.personArchived",
+      "current": {
+        "en": "Person archived",
+        "fa": "نفر بایگانی شد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "کس ارشیف شو"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1716,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3606,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/audit-log.tsx",
+          "line": 536
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auditLog.kind.local.personUnarchived",
+      "key": "auditLog.kind.local.personUnarchived",
+      "current": {
+        "en": "Person unarchived",
+        "fa": "نفر از بایگانی خارج شد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "کس له ارشیفه راوایستل شو"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1717,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3607,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/audit-log.tsx",
+          "line": 538
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auditLog.target",
+      "key": "auditLog.target",
+      "current": {
+        "en": "target: {id}",
+        "fa": "هدف: {id}",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "موخه: {id}"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "id"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1718,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3608,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/audit-log.tsx",
+          "line": 455
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auditLog.relative.justNow",
+      "key": "auditLog.relative.justNow",
+      "current": {
+        "en": "just now",
+        "fa": "همین حالا",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "همدا اوس"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1719,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3609,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/audit-log.tsx",
+          "line": 569
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auditLog.relative.minutesAgo",
+      "key": "auditLog.relative.minutesAgo",
+      "current": {
+        "en": "{n}m ago",
+        "fa": "{n} دقیقه پیش",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "{n} دقیقې مخکې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "n"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1720,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3610,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/audit-log.tsx",
+          "line": 571
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auditLog.relative.hoursAgo",
+      "key": "auditLog.relative.hoursAgo",
+      "current": {
+        "en": "{n}h ago",
+        "fa": "{n} ساعت پیش",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "{n} ساعته مخکې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "n"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1721,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3611,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/audit-log.tsx",
+          "line": 573
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auditLog.relative.daysAgo",
+      "key": "auditLog.relative.daysAgo",
+      "current": {
+        "en": "{n}d ago",
+        "fa": "{n} روز پیش",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "{n} ورځې مخکې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "n"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1722,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3612,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/audit-log.tsx",
+          "line": 575
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auditLog.relative.monthsAgo",
+      "key": "auditLog.relative.monthsAgo",
+      "current": {
+        "en": "{n}mo ago",
+        "fa": "{n} ماه پیش",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "{n} میاشتې مخکې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "n"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1723,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3613,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/audit-log.tsx",
+          "line": 577
+        }
+      ],
+      "context": ""
+    }
+  ]
+}

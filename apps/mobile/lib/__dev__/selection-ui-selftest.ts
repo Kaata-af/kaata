@@ -13,7 +13,10 @@ const i18n = compileUI("../i18n", {
 const direction = compileUI("../direction", {
   react: {
     useEffect: () => undefined,
-    useState: (initial: () => boolean) => [initial(), () => undefined],
+    useState: (initial: unknown) => [
+      typeof initial === "function" ? initial() : initial,
+      () => undefined,
+    ],
   },
   "./i18n": i18n,
   "./bidi": { ltrIsolate: (value: string) => value },
@@ -105,9 +108,9 @@ const assertTarget = (node: UINode) => {
   assert.ok((style.minWidth ?? style.width ?? 0) >= 44, "44pt minimum width");
 };
 
-for (const locale of ["en", "fa"] as const) {
+for (const locale of ["en", "fa", "ps"] as const) {
   i18n.setLocale(locale);
-  const rtl = locale === "fa";
+  const rtl = locale !== "en";
   let closed = 0,
     toggled = 0,
     removed = 0;
@@ -126,7 +129,12 @@ for (const locale of ["en", "fa"] as const) {
       },
       {
         key: "unavailable",
-        label: locale === "fa" ? "گزینهٔ غیرفعال" : "Unavailable action",
+        label:
+          locale === "ps"
+            ? "ناچالان انتخاب"
+            : locale === "fa"
+              ? "گزینهٔ غیرفعال"
+              : "Unavailable action",
         icon: "document-outline",
         disabled: true,
         onPress: () => assert.fail("An unavailable action ran"),
@@ -488,5 +496,5 @@ for (const locale of ["en", "fa"] as const) {
   }
 }
 console.log(
-  "PASS selection controls: English/Dari counts and direction, wrapping, 44pt targets, busy/empty/disabled actions, select-all and checkbox semantics",
+  "PASS selection controls: English/Dari/Pashto counts and direction, wrapping, 44pt targets, busy/empty/disabled actions, select-all and checkbox semantics",
 );

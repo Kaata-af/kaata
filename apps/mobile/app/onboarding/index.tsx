@@ -17,7 +17,7 @@ export default function OnboardingIndex() {
   useEffect(() => {
     let cancelled = false;
     const deviceLang = (getLocales()[0]?.languageCode ?? "en").toLowerCase();
-    const deviceIsPersian = deviceLang === "fa" || deviceLang === "prs";
+    const deviceIsPersian = deviceLang === "fa" || deviceLang === "prs" || deviceLang === "ps";
     void (async () => {
       const [self, rawStep, accountId, cancelledDeletionAccountId] = await Promise.all([
         getLocalSelf(),

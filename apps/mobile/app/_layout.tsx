@@ -21,12 +21,13 @@ import * as Network from "expo-network";
 import { router, Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { setStatusBarStyle, StatusBar } from "expo-status-bar";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import {
   ActivityIndicator,
   AppState,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -126,7 +127,15 @@ import { initCalendarFromPref } from "../lib/calendar";
 import { initCurrencyFromPref } from "../lib/currency";
 import { initDefaultCountryFromPref } from "../lib/phone";
 import { fonts, monoLineHeight, useAppFontsWithError } from "../lib/fonts";
-import { getLocale, initLocaleFromPref, isPlaceholderSelfName, t } from "../lib/i18n";
+import {
+  getLocale,
+  initLocaleFromPref,
+  isPlaceholderSelfName,
+  t,
+  tIn,
+  type LocaleCode,
+} from "../lib/i18n";
+import { bootText, formatBackupAge, type BootKey } from "../lib/boot-copy";
 import { ensureInstallId, getInstalledAtUnixMs } from "../lib/install-id";
 import { sweepAllQuarantinedVaults } from "../lib/projection/sweep";
 import { type BootError, type BootErrorStage, forceRestart, toBootError } from "../lib/boot-error";
@@ -580,7 +589,7 @@ export default function RootLayout() {
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         const { getLocales } = require("expo-localization");
         const deviceLang = (getLocales()[0]?.languageCode ?? "en").toLowerCase();
-        setDeviceIsPersian(deviceLang === "fa" || deviceLang === "prs");
+        setDeviceIsPersian(deviceLang === "fa" || deviceLang === "prs" || deviceLang === "ps");
       });
       if (aborted) return;
 
@@ -1044,8 +1053,7 @@ function BootSplash() {
       {showCopy ? (
         <>
           <View style={bootSplashStyles.spacer} />
-          <Text style={bootSplashStyles.copy}>Setting up your kaata…</Text>
-          <Text style={bootSplashStyles.copyFa}>در حال آماده‌سازی کاتای شما…</Text>
+          <Text style={bootSplashStyles.copy}>{bootText(getLocale(), "settingUp")}</Text>
         </>
       ) : null}
     </View>
@@ -1079,10 +1087,7 @@ const bootSplashStyles = StyleSheet.create({
     fontSize: 28,
     fontWeight: "700",
     color: "#FFFFFF",
-    // No letterSpacing: these boot/recovery screens render the English and
-    // Dari wordmark SIMULTANEOUSLY (the locale pref lives in a database we may
-    // not have read yet, or cannot read at all), so there is no isRTL to gate
-    // on and tracking would sever the Persian one.
+    // No letterSpacing: tracking would sever Dari and Pashto joined letters.
   },
   spacer: { height: 20 },
   copy: {
@@ -1104,13 +1109,72 @@ const bootSplashStyles = StyleSheet.create({
 // RTL-sealed Activity. The user closes kaata from recents and reopens; the
 // next Activity reads our persisted forceRTL(false) and comes up LTR.
 //
-// Bilingual copy hardcoded (not via t()) because at this stage the locale
-// pref hasn't been loaded from app_meta — we don't know which language the
-// user actually wants. Showing both makes the call to action unambiguous
-// for either audience. Centered alignment renders identically in LTR and
-// RTL containers, so the broken-flexDirection problem doesn't affect this
-// screen visually.
+// Static recovery copy and a local language picker work without app_meta.
+// Centered alignment also works inside the old RTL-sealed Activity.
+function useBootCopy() {
+  const [locale, setLocale] = useState<LocaleCode>(getLocale);
+  return {
+    locale,
+    setLocale,
+    b: (key: BootKey, vars?: Record<string, string | number>) => bootText(locale, key, vars),
+  };
+}
+
+// Recovery cannot rely on app_meta. Keep a local language choice available even
+// when the database or bundled fonts cannot load.
+function BootLanguagePicker({
+  value,
+  onChange,
+}: {
+  value: LocaleCode;
+  onChange: (locale: LocaleCode) => void;
+}) {
+  return (
+    <View
+      style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", marginTop: 12 }}
+    >
+      {(["en", "fa", "ps"] as const).map((locale) => (
+        <Pressable
+          key={locale}
+          onPress={() => onChange(locale)}
+          accessibilityRole="button"
+          accessibilityState={{ selected: locale === value }}
+          style={{ minHeight: 44, minWidth: 64, paddingHorizontal: 12, justifyContent: "center" }}
+        >
+          <Text
+            style={{
+              color: colors.textDefault,
+              textAlign: "center",
+              fontWeight: locale === value ? "700" : "400",
+              textDecorationLine: locale === value ? "underline" : "none",
+            }}
+          >
+            {{ en: "English", fa: "دری", ps: "پښتو" }[locale]}
+          </Text>
+        </Pressable>
+      ))}
+    </View>
+  );
+}
+
+function BootScreen({ children }: { children: ReactNode }) {
+  return (
+    <ScrollView
+      style={{ flex: 1, backgroundColor: colors.bgDefault }}
+      contentContainerStyle={{
+        flexGrow: 1,
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 24,
+      }}
+    >
+      {children}
+    </ScrollView>
+  );
+}
+
 function MigrationPrompt() {
+  const { locale, setLocale, b } = useBootCopy();
   // This is rendered via an early return BEFORE RootLayout's splash-hide
   // effect, so hide the held native splash here or it would cover this prompt
   // forever (index.js holds it up until we explicitly hide).
@@ -1118,22 +1182,14 @@ function MigrationPrompt() {
     SplashScreen.hideAsync().catch(() => {});
   }, []);
   return (
-    <View style={migrationStyles.container}>
+    <BootScreen>
       <View style={migrationStyles.card}>
-        <Text style={migrationStyles.wordmark}>{t("brand.wordmark")}</Text>
+        <Text style={migrationStyles.wordmark}>{tIn(locale, "brand.wordmark")}</Text>
+        <BootLanguagePicker value={locale} onChange={setLocale} />
         <View style={migrationStyles.spacer} />
-        <Text style={migrationStyles.heading}>Almost ready</Text>
-        <Text style={migrationStyles.headingFa}>تقریباً آماده</Text>
+        <Text style={migrationStyles.heading}>{b("almostReady")}</Text>
         <View style={migrationStyles.spacer} />
-        <Text style={migrationStyles.body}>
-          Please close kaata from your recent apps, then open it again. This is a one-time step for
-          the new language settings to take effect.
-        </Text>
-        <View style={migrationStyles.spacerSmall} />
-        <Text style={migrationStyles.bodyFa}>
-          لطفاً کاتا را از برنامه‌های اخیر ببندید و دوباره باز کنید. این یک‌بار برای اعمال تنظیمات
-          زبان جدید لازم است.
-        </Text>
+        <Text style={migrationStyles.body}>{b("migrationInstructions")}</Text>
         {Platform.OS === "android" ? (
           <>
             <View style={migrationStyles.spacer} />
@@ -1141,12 +1197,12 @@ function MigrationPrompt() {
               onPress={() => forceRestart()}
               style={({ pressed }) => [migrationStyles.button, pressed && { opacity: 0.85 }]}
             >
-              <Text style={migrationStyles.buttonText}>Close kaata · بستن کاتا</Text>
+              <Text style={migrationStyles.buttonText}>{b("closeKaata")}</Text>
             </Pressable>
           </>
         ) : null}
       </View>
-    </View>
+    </BootScreen>
   );
 }
 
@@ -1171,32 +1227,20 @@ function MigrationPrompt() {
 //   - Added a support contact line so a user staring at this screen has
 //     somewhere to actually share a screenshot of the issue.
 function DbInitFailedPrompt({ onRetry }: { onRetry: () => void }) {
+  const { locale, setLocale, b } = useBootCopy();
   return (
-    <View style={migrationStyles.container}>
+    <BootScreen>
       <View style={migrationStyles.card}>
-        <Text style={migrationStyles.wordmark}>{t("brand.wordmark")}</Text>
+        <Text style={migrationStyles.wordmark}>{tIn(locale, "brand.wordmark")}</Text>
+        <BootLanguagePicker value={locale} onChange={setLocale} />
         <View style={migrationStyles.spacer} />
-        <Text style={migrationStyles.heading}>Couldn&apos;t open your Kaata data</Text>
-        <Text style={migrationStyles.headingFa}>داده‌های کاتای شما باز نشد</Text>
+        <Text style={migrationStyles.heading}>{b("openDataFailed")}</Text>
         <View style={migrationStyles.spacer} />
         <Text style={migrationStyles.body}>
-          {Platform.OS === "android"
-            ? "Please close kaata from your recent apps and open it again."
-            : "Please force-quit kaata (swipe up from the bottom and flick it away) and open it again."}
-        </Text>
-        <View style={migrationStyles.spacerSmall} />
-        <Text style={migrationStyles.bodyFa}>
-          {Platform.OS === "android"
-            ? "لطفاً کاتا را از برنامه‌های اخیر ببندید و دوباره باز کنید."
-            : "لطفاً کاتا را به‌طور کامل ببندید (از پایین صفحه به بالا بکشید و آن را کنار بزنید) و دوباره باز کنید."}
+          {b(Platform.OS === "android" ? "reopenAndroid" : "reopenIos")}
         </Text>
         <View style={migrationStyles.spacer} />
-        <Text style={bootErrorStyles.support}>
-          If it keeps happening, contact {SUPPORT_CONTACT}
-        </Text>
-        <Text style={bootErrorStyles.supportFa}>
-          اگر تکرار شد، با {SUPPORT_CONTACT} تماس بگیرید
-        </Text>
+        <Text style={bootErrorStyles.support}>{b("contactRecurring", { SUPPORT_CONTACT })}</Text>
         <View style={migrationStyles.spacer} />
         {/* Android closes the app so the user reopens into a clean process.
             iOS can't: forceRestart() is a no-op there, and this screen used to
@@ -1209,11 +1253,11 @@ function DbInitFailedPrompt({ onRetry }: { onRetry: () => void }) {
           style={({ pressed }) => [migrationStyles.button, pressed && { opacity: 0.85 }]}
         >
           <Text style={migrationStyles.buttonText}>
-            {Platform.OS === "android" ? "Close kaata · بستن کاتا" : "Try again · دوباره کوشش کنید"}
+            {b(Platform.OS === "android" ? "closeKaata" : "tryAgain")}
           </Text>
         </Pressable>
       </View>
-    </View>
+    </BootScreen>
   );
 }
 
@@ -1239,6 +1283,7 @@ function DbInitFailedPrompt({ onRetry }: { onRetry: () => void }) {
 // Both are probed before either is offered — a button for a recovery that
 // cannot work is worse than no button.
 function DbCorruptPrompt({ details, onRecovered }: { details: string; onRecovered: () => void }) {
+  const { locale, setLocale, b } = useBootCopy();
   // The probe asks db-backup which generation a restore would ACTUALLY use,
   // rather than just whether a backup file exists. That distinction is the
   // difference between offering a button that works and one that fails on
@@ -1254,7 +1299,7 @@ function DbCorruptPrompt({ details, onRecovered }: { details: string; onRecovere
     signedIn: boolean;
   } | null>(null);
   const [working, setWorking] = useState<null | "local" | "account">(null);
-  const [failure, setFailure] = useState<string | null>(null);
+  const [failure, setFailure] = useState<BootKey | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -1299,14 +1344,14 @@ function DbCorruptPrompt({ details, onRecovered }: { details: string; onRecovere
       }
       setFailure(
         result === "backup_damaged"
-          ? "The backup on this phone is damaged too."
+          ? "backupDamaged"
           : result === "no_backup"
-            ? "No backup was found on this phone."
-            : "Restoring from the backup failed.",
+            ? "backupMissing"
+            : "restoreFailed",
       );
     } catch (err) {
       console.error("[db-corrupt] local restore failed", err);
-      setFailure("Restoring from the backup failed.");
+      setFailure("restoreFailed");
     } finally {
       setWorking(null);
     }
@@ -1369,7 +1414,7 @@ function DbCorruptPrompt({ details, onRecovered }: { details: string; onRecovere
       onRecovered();
     } catch (err) {
       console.error("[db-corrupt] account recovery failed", err);
-      setFailure("Recovery failed. Please contact support before reinstalling.");
+      setFailure("accountRecoveryFailed");
       setWorking(null);
     }
   }
@@ -1378,12 +1423,12 @@ function DbCorruptPrompt({ details, onRecovered }: { details: string; onRecovere
   const hasBackup = probe?.hasBackup === true;
 
   return (
-    <View style={migrationStyles.container}>
+    <BootScreen>
       <View style={migrationStyles.card}>
-        <Text style={migrationStyles.wordmark}>{t("brand.wordmark")}</Text>
+        <Text style={migrationStyles.wordmark}>{tIn(locale, "brand.wordmark")}</Text>
+        <BootLanguagePicker value={locale} onChange={setLocale} />
         <View style={migrationStyles.spacer} />
-        <Text style={migrationStyles.heading}>Your Kaata data is damaged</Text>
-        <Text style={migrationStyles.headingFa}>داده‌های کاتای شما آسیب دیده</Text>
+        <Text style={migrationStyles.heading}>{b("dataDamaged")}</Text>
         <View style={migrationStyles.spacer} />
 
         {probe === null ? (
@@ -1393,13 +1438,7 @@ function DbCorruptPrompt({ details, onRecovered }: { details: string; onRecovere
             {hasBackup && (
               <>
                 <Text style={migrationStyles.body}>
-                  There is a backup on this phone{formatBackupAge(probe.backupAt)}. Restoring it
-                  brings your kaata back to that point.
-                </Text>
-                <View style={migrationStyles.spacerSmall} />
-                <Text style={migrationStyles.bodyFa}>
-                  در این تلفون یک پشتیبان وجود دارد. با بازیابی آن، کاتای شما تا همان زمان
-                  برمی‌گردد.
+                  {b("backupAvailable", { backupAge: formatBackupAge(probe.backupAt, locale) })}
                 </Text>
                 <View style={migrationStyles.spacer} />
                 <Pressable
@@ -1413,9 +1452,7 @@ function DbCorruptPrompt({ details, onRecovered }: { details: string; onRecovere
                   {working === "local" ? (
                     <ActivityIndicator color={colors.textInverted} />
                   ) : (
-                    <Text style={migrationStyles.buttonText}>
-                      Restore this phone&apos;s backup · بازیابی پشتیبان
-                    </Text>
+                    <Text style={migrationStyles.buttonText}>{b("restoreLocal")}</Text>
                   )}
                 </Pressable>
               </>
@@ -1424,13 +1461,7 @@ function DbCorruptPrompt({ details, onRecovered }: { details: string; onRecovere
             {probe.signedIn && (
               <>
                 <View style={migrationStyles.spacer} />
-                <Text style={migrationStyles.body}>
-                  You&apos;re signed in, so your kaata can also be restored from your account.
-                </Text>
-                <View style={migrationStyles.spacerSmall} />
-                <Text style={migrationStyles.bodyFa}>
-                  شما وارد شده‌اید، پس کاتای شما از حساب‌تان هم بازیابی شده می‌تواند.
-                </Text>
+                <Text style={migrationStyles.body}>{b("accountRestoreAvailable")}</Text>
                 <View style={migrationStyles.spacer} />
                 <Pressable
                   onPress={() => void onRestoreFromAccount()}
@@ -1450,7 +1481,7 @@ function DbCorruptPrompt({ details, onRecovered }: { details: string; onRecovere
                         hasBackup ? migrationStyles.buttonSecondaryText : migrationStyles.buttonText
                       }
                     >
-                      Restore from my account · بازیابی از حساب
+                      {b("restoreAccount")}
                     </Text>
                   )}
                 </Pressable>
@@ -1467,14 +1498,7 @@ function DbCorruptPrompt({ details, onRecovered }: { details: string; onRecovere
                 and a dead end is the worst possible answer. */}
             {!hasBackup && !probe.signedIn && (
               <>
-                <Text style={migrationStyles.body}>
-                  Please contact us before reinstalling — reinstalling erases the ledger on this
-                  phone.
-                </Text>
-                <View style={migrationStyles.spacerSmall} />
-                <Text style={migrationStyles.bodyFa}>
-                  پیش از نصب دوباره با ما تماس بگیرید — نصب دوباره کتاب این تلفون را پاک می‌کند.
-                </Text>
+                <Text style={migrationStyles.body}>{b("reinstallWarning")}</Text>
                 <View style={migrationStyles.spacer} />
                 <Pressable
                   onPress={onRecovered}
@@ -1483,9 +1507,7 @@ function DbCorruptPrompt({ details, onRecovered }: { details: string; onRecovere
                     pressed && { opacity: 0.85 },
                   ]}
                 >
-                  <Text style={migrationStyles.buttonSecondaryText}>
-                    Try again · دوباره کوشش کنید
-                  </Text>
+                  <Text style={migrationStyles.buttonSecondaryText}>{b("tryAgain")}</Text>
                 </Pressable>
               </>
             )}
@@ -1495,40 +1517,19 @@ function DbCorruptPrompt({ details, onRecovered }: { details: string; onRecovere
         {failure && (
           <>
             <View style={migrationStyles.spacerSmall} />
-            <Text style={bootErrorStyles.failure}>{failure}</Text>
+            <Text style={bootErrorStyles.failure}>{b(failure)}</Text>
           </>
         )}
 
         <View style={migrationStyles.spacer} />
-        <Text style={bootErrorStyles.support}>
-          If it keeps happening, contact {SUPPORT_CONTACT}
-        </Text>
-        <Text style={bootErrorStyles.supportFa}>
-          اگر تکرار شد، با {SUPPORT_CONTACT} تماس بگیرید
-        </Text>
+        <Text style={bootErrorStyles.support}>{b("contactRecurring", { SUPPORT_CONTACT })}</Text>
         <View style={migrationStyles.spacerSmall} />
         <Text style={bootErrorStyles.detail} numberOfLines={3}>
           {details}
         </Text>
       </View>
-    </View>
+    </BootScreen>
   );
-}
-
-// Coarse age of the local backup, as a sentence fragment (" from 2 days ago")
-// or "" when the platform gave us no timestamp. English only: this is a
-// boot-time failure surface reached before the locale is loaded, and the age is
-// the one fact the user needs to judge whether restoring is worth it.
-function formatBackupAge(at: number | null): string {
-  if (at == null) return "";
-  // Epoch MILLISECONDS — the new expo-file-system File API's unit. (The legacy
-  // getInfoAsync returned seconds; don't reintroduce a ×1000.)
-  const hours = Math.floor((Date.now() - at) / 3_600_000);
-  if (!Number.isFinite(hours) || hours < 0) return "";
-  if (hours < 1) return " from less than an hour ago";
-  if (hours < 24) return ` from ${hours} hour${hours === 1 ? "" : "s"} ago`;
-  const days = Math.floor(hours / 24);
-  return ` from ${days} day${days === 1 ? "" : "s"} ago`;
 }
 
 // D-BOOT-CRASH-DEFENSE: rendered when any non-initDb boot stage throws.
@@ -1570,33 +1571,23 @@ function BootFailedPrompt({
   onRetry: () => void;
   canRetryInProcess: boolean;
 }) {
+  const { locale, setLocale, b } = useBootCopy();
   return (
-    <View style={migrationStyles.container}>
+    <BootScreen>
       <View style={migrationStyles.card}>
-        <Text style={migrationStyles.wordmark}>{t("brand.wordmark")}</Text>
+        <Text style={migrationStyles.wordmark}>{tIn(locale, "brand.wordmark")}</Text>
+        <BootLanguagePicker value={locale} onChange={setLocale} />
         <View style={migrationStyles.spacer} />
-        <Text style={migrationStyles.heading}>Couldn&apos;t start</Text>
-        <Text style={migrationStyles.headingFa}>کاتا شروع نشد</Text>
+        <Text style={migrationStyles.heading}>{b("startFailed")}</Text>
         <View style={migrationStyles.spacer} />
         <Text style={migrationStyles.body}>
-          {Platform.OS === "android"
-            ? "Tap the button to restart kaata. If that doesn't work, close it from your recent apps and open it again."
-            : "Please force-quit kaata (swipe up from the bottom and flick it away) and open it again."}
-        </Text>
-        <View style={migrationStyles.spacerSmall} />
-        <Text style={migrationStyles.bodyFa}>
-          {Platform.OS === "android"
-            ? "روی دکمه بزنید تا کاتا دوباره راه‌اندازی شود. اگر کار نکرد، آن را از برنامه‌های اخیر ببندید و دوباره باز کنید."
-            : "لطفاً کاتا را به‌طور کامل ببندید و دوباره باز کنید."}
+          {b(Platform.OS === "android" ? "restartAndroid" : "reopenIosShort")}
         </Text>
         <View style={migrationStyles.spacer} />
         {/* Diagnostic block — stage + name + first 240 chars of message.
             Surfaces enough info for support without leaking a stack.
             Bilingual intro so Persian-only users know to screenshot it. */}
-        <Text style={bootErrorStyles.diagLabel}>If you contact support, share this:</Text>
-        <Text style={bootErrorStyles.diagLabelFa}>
-          اگر با پشتیبانی تماس می‌گیرید، این را بفرستید:
-        </Text>
+        <Text style={bootErrorStyles.diagLabel}>{b("diagnosticsIntro")}</Text>
         <View style={bootErrorStyles.diagBox}>
           <Text style={bootErrorStyles.diagLine}>stage: {error.stage}</Text>
           <Text style={bootErrorStyles.diagLine}>error: {error.name}</Text>
@@ -1607,8 +1598,7 @@ function BootFailedPrompt({
           ) : null}
         </View>
         <View style={migrationStyles.spacerSmall} />
-        <Text style={bootErrorStyles.support}>Send to {SUPPORT_CONTACT}</Text>
-        <Text style={bootErrorStyles.supportFa}>به {SUPPORT_CONTACT} ارسال کنید</Text>
+        <Text style={bootErrorStyles.support}>{b("sendSupport", { SUPPORT_CONTACT })}</Text>
         <View style={migrationStyles.spacer} />
         {/* On iOS this used to read "Force quit" and do NOTHING — forceRestart
             is Android-only — so the single action on the screen was dead. Most
@@ -1620,14 +1610,12 @@ function BootFailedPrompt({
             style={({ pressed }) => [migrationStyles.button, pressed && { opacity: 0.85 }]}
           >
             <Text style={migrationStyles.buttonText}>
-              {Platform.OS === "android"
-                ? "Close & restart · بستن و راه‌اندازی"
-                : "Try again · دوباره کوشش کنید"}
+              {b(Platform.OS === "android" ? "closeRestart" : "tryAgain")}
             </Text>
           </Pressable>
         ) : null}
       </View>
-    </View>
+    </BootScreen>
   );
 }
 

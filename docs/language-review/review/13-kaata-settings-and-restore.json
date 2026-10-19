@@ -1,0 +1,3750 @@
+{
+  "$schema": "../review.schema.json",
+  "format_version": 1,
+  "section": "13-kaata-settings-and-restore",
+  "entries": [
+    {
+      "id": "mobile:restore.confirm.title",
+      "key": "restore.confirm.title",
+      "current": {
+        "en": "Restore from cloud?",
+        "fa": "بازیابی از کلاد؟",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "له کلاوډ څخه یې بېرته را وګرځوو؟"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 946,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2923,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/restore.tsx",
+          "line": 174
+        },
+        {
+          "path": "apps/mobile/app/restore.tsx",
+          "line": 195
+        }
+      ],
+      "context": "In-app \"Restore from cloud\" confirm screen (NOT onboarding/restore).\nThe onboarding flow has its own copy because the user there has no\nlocal data to lose. In-app the user MAY have local-only edits, so\nthe wording emphasises replacement."
+    },
+    {
+      "id": "mobile:restore.confirm.body",
+      "key": "restore.confirm.body",
+      "current": {
+        "en": "This will replace everything on this phone with your cloud copy. Any changes made here that aren't already synced will be lost.",
+        "fa": "همه‌چیز روی این تلفون با نسخهٔ کلاد جایگزین می‌شود. هر تغییری که هنوز همگام نشده از بین می‌رود.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "په دې ټیلیفون کې به ټول معلومات ستاسو د کلاوډ په کاپي بدل شي. دلته شوي هر هغه بدلونونه چې تراوسه همغږي شوي نه دي، له منځه ځي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 947,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2924,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/restore.tsx",
+          "line": 213
+        },
+        {
+          "path": "apps/mobile/app/restore.tsx",
+          "line": 227
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:restore.confirm.cta",
+      "key": "restore.confirm.cta",
+      "current": {
+        "en": "Replace local data",
+        "fa": "جایگزینی داده‌های محلی",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د ټیلیفون معلومات بدل کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 949,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2926,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/restore.tsx",
+          "line": 226
+        },
+        {
+          "path": "apps/mobile/app/restore.tsx",
+          "line": 231
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:restore.confirm.cancel",
+      "key": "restore.confirm.cancel",
+      "current": {
+        "en": "Cancel",
+        "fa": "لغو",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "لغوه کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 950,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2927,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/restore.tsx",
+          "line": 240
+        },
+        {
+          "path": "apps/mobile/app/restore.tsx",
+          "line": 243
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:restore.toast.noBackup",
+      "key": "restore.toast.noBackup",
+      "current": {
+        "en": "No cloud backup found for this account.",
+        "fa": "برای این حساب نسخهٔ پشتیبانی در کلاد پیدا نشد.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د دې حساب لپاره د کلاوډ بیک‌اپ ونه موندل شو."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 951,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2928,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/restore.tsx",
+          "line": 129
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:restore.toast.success",
+      "key": "restore.toast.success",
+      "current": {
+        "en": "Restored from cloud.",
+        "fa": "از کلاد بازیابی شد.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "له کلاوډ څخه بېرته راوګرځول شوه."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 952,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2929,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:restore.toast.successVaults",
+      "key": "restore.toast.successVaults",
+      "current": {
+        "en": "Restored {count} ledger(s) from cloud.",
+        "fa": "{count} دفتر از کلاد بازیابی شد.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "{count} کاټې له کلاوډ څخه بېرته راوګرځول شوې."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "count"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 954,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2930,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/restore.tsx",
+          "line": 116
+        }
+      ],
+      "context": "M5 multi-vault recovery — {count} ledgers brought back."
+    },
+    {
+      "id": "mobile:restore.toast.sessionExpired",
+      "key": "restore.toast.sessionExpired",
+      "current": {
+        "en": "Signed out. Sign in again to restore.",
+        "fa": "خارج شدید. برای بازیابی دوباره وارد شوید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "له حسابه وتلي یاست. د بېرته راګرځولو لپاره بیا ننوځئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 955,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2931,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/restore.tsx",
+          "line": 147
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:restore.toast.timeout",
+      "key": "restore.toast.timeout",
+      "current": {
+        "en": "Restore timed out. Check your connection.",
+        "fa": "بازیابی به وقفه خورد. اتصال خود را بررسی کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د بېرته راګرځولو وخت پای ته ورسېد. خپله اړیکه وګورئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 956,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2932,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/restore.tsx",
+          "line": 151
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:restore.toast.generic",
+      "key": "restore.toast.generic",
+      "current": {
+        "en": "Restore failed.",
+        "fa": "بازیابی ناکام شد.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "بېرته راګرځول ناکام شول."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 957,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2933,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/restore.tsx",
+          "line": 133
+        },
+        {
+          "path": "apps/mobile/app/restore.tsx",
+          "line": 155
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:restoreProgress.preparing",
+      "key": "restoreProgress.preparing",
+      "current": {
+        "en": "Preparing…",
+        "fa": "در حال آماده‌سازی…",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "چمتو کېږي…"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 960,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2935,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/onboarding/auth.tsx",
+          "line": 821
+        },
+        {
+          "path": "apps/mobile/app/onboarding/restore.tsx",
+          "line": 364
+        },
+        {
+          "path": "apps/mobile/app/restore.tsx",
+          "line": 183
+        },
+        {
+          "path": "apps/mobile/components/RestoreProgress.tsx",
+          "line": 93
+        }
+      ],
+      "context": "Progress-bar status lines shown while recoverAllVaults runs (the shared\nRestoreProgress component on the in-app, onboarding, and sign-in surfaces)."
+    },
+    {
+      "id": "mobile:restoreProgress.finding",
+      "key": "restoreProgress.finding",
+      "current": {
+        "en": "Finding your kaatas…",
+        "fa": "در حال یافتن کاتاهای شما…",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ستاسو کاټې لټول کېږي…"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 961,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2936,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/RestoreProgress.tsx",
+          "line": 95
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:restoreProgress.vault",
+      "key": "restoreProgress.vault",
+      "current": {
+        "en": "Restoring kaata {current} of {total}…",
+        "fa": "در حال بازیابی کاتای {current} از {total}…",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "له {total} څخه {current} کاټه بېرته راګرځول کېږي…"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "current",
+        "total"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 963,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2937,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/RestoreProgress.tsx",
+          "line": 98
+        }
+      ],
+      "context": "Multi-vault accounts: which kaata of how many is restoring right now."
+    },
+    {
+      "id": "mobile:restoreProgress.vaultOne",
+      "key": "restoreProgress.vaultOne",
+      "current": {
+        "en": "Restoring your kaata…",
+        "fa": "در حال بازیابی کاتای شما…",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ستاسو کاټه بېرته راګرځول کېږي…"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 965,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2938,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/RestoreProgress.tsx",
+          "line": 99
+        }
+      ],
+      "context": "Single-vault accounts read better without the \"1 of 1\"."
+    },
+    {
+      "id": "mobile:restoreProgress.finishing",
+      "key": "restoreProgress.finishing",
+      "current": {
+        "en": "Finishing up…",
+        "fa": "در حال نهایی‌سازی…",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "بشپړېږي…"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 966,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2939,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/RestoreProgress.tsx",
+          "line": 102
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:vaultNew.title",
+      "key": "vaultNew.title",
+      "current": {
+        "en": "What's your shop called?",
+        "fa": "نام دکان شما چیست؟",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ستاسو د دوکان نوم څه دی؟"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1184,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3117,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/new.tsx",
+          "line": 420
+        }
+      ],
+      "context": "Vault create (Phase 5.2 — Add a Kaata)\nCopy fix: real users typed a CUSTOMER's name here (treating a \"Kaata\"\nas a single person's tab), so the admin dashboard's shop_name —\nsourced from the active vault's name — filled with tally/person names\ninstead of shops. The screen now asks plainly for the SHOP name: a\nquestion title + a concrete \"Shop name\" field label + an example\nplaceholder. The product still calls the container a \"Kaata\"\neverywhere else; only this naming step is shop-framed."
+    },
+    {
+      "id": "mobile:vaultNew.titleForced",
+      "key": "vaultNew.titleForced",
+      "current": {
+        "en": "Name your shop to continue",
+        "fa": "برای ادامه، نام دکان را بنویسید",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د دوام لپاره د خپل دوکان نوم ولیکئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1189,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3118,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/new.tsx",
+          "line": 420
+        }
+      ],
+      "context": "UX-fix #1: forced post-archive-last entry-point title. The back\nchevron is hidden in this mode (no parent to pop to); the title\nshifts to a directive framing so the screen reads as \"you must\ncomplete this\"."
+    },
+    {
+      "id": "mobile:vaultNew.name.label",
+      "key": "vaultNew.name.label",
+      "current": {
+        "en": "Shop name",
+        "fa": "نام دکان",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د دوکان نوم"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1190,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3119,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/new.tsx",
+          "line": 442
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:vaultNew.name.placeholder",
+      "key": "vaultNew.name.placeholder",
+      "current": {
+        "en": "Ahmad Grocery Store",
+        "fa": "خوراکه فروشی احمد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د احمد خوراکي توکو دوکان"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1191,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3120,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/new.tsx",
+          "line": 448
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:vaultNew.name.required",
+      "key": "vaultNew.name.required",
+      "current": {
+        "en": "Name is required",
+        "fa": "نام لازم است",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "نوم اړین دی"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1192,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3121,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/new.tsx",
+          "line": 138
+        },
+        {
+          "path": "apps/mobile/app/vault/new.tsx",
+          "line": 455
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:vaultNew.currency.label",
+      "key": "vaultNew.currency.label",
+      "current": {
+        "en": "Currency",
+        "fa": "ارز",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "پیسه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1193,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3122,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/new.tsx",
+          "line": 472
+        },
+        {
+          "path": "apps/mobile/app/vault/new.tsx",
+          "line": 478
+        },
+        {
+          "path": "apps/mobile/app/vault/new.tsx",
+          "line": 528
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:vaultNew.currency.hint",
+      "key": "vaultNew.currency.hint",
+      "current": {
+        "en": "Default for all amounts in this Kaata. Can be changed later in settings.",
+        "fa": "پیش‌فرض برای تمام مبالغ این کاتا. بعداً در تنظیمات قابل تغییر است.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "په دې کاټه کې د ټولو مبلغونو لپاره ټاکل شوې پیسه. وروسته یې په تنظیماتو کې بدلولی شئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1194,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3123,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/new.tsx",
+          "line": 492
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:vaultNew.localOnlyHint",
+      "key": "vaultNew.localOnlyHint",
+      "current": {
+        "en": "You are not signed in. This Kaata will live only on this phone until you sign in.",
+        "fa": "وارد نشده‌اید. این کاتا فقط روی همین تلفون می‌ماند تا وقتی وارد شوید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "حساب ته نه یاست ننوتلي. تر ننوتلو پورې به دا کاټه یوازې په دې ټیلیفون کې وي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1196,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3124,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/new.tsx",
+          "line": 507
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:vaultNew.submit",
+      "key": "vaultNew.submit",
+      "current": {
+        "en": "Create Kaata",
+        "fa": "ایجاد کاتا",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "کاټه جوړه کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1198,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3125,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/new.tsx",
+          "line": 515
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:vaultNew.created",
+      "key": "vaultNew.created",
+      "current": {
+        "en": "Created {name}",
+        "fa": "{name} ایجاد شد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "{name} جوړه شوه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "name"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1199,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3126,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/new.tsx",
+          "line": 367
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:vaultNew.failed",
+      "key": "vaultNew.failed",
+      "current": {
+        "en": "Failed to create kaata",
+        "fa": "ایجاد کاتا ناکام شد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "کاټه جوړه نه شوه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1200,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3127,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/new.tsx",
+          "line": 168
+        },
+        {
+          "path": "apps/mobile/app/vault/new.tsx",
+          "line": 390
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:vaultSettings.title",
+      "key": "vaultSettings.title",
+      "current": {
+        "en": "Kaata settings",
+        "fa": "تنظیمات کاتا",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د کاټې تنظیمات"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1367,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3292,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/settings.tsx",
+          "line": 620
+        },
+        {
+          "path": "apps/mobile/app/vault/settings.tsx",
+          "line": 634
+        }
+      ],
+      "context": "Vault settings — Phase 7 UX critique #8 (translated)."
+    },
+    {
+      "id": "mobile:vaultSettings.role.owner",
+      "key": "vaultSettings.role.owner",
+      "current": {
+        "en": "Owner",
+        "fa": "مالک",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "مالک"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1368,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3293,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/invite/[token].tsx",
+          "line": 620
+        },
+        {
+          "path": "apps/mobile/app/vault/members.tsx",
+          "line": 1252
+        },
+        {
+          "path": "apps/mobile/app/vault/settings.tsx",
+          "line": 980
+        },
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 301
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:vaultSettings.role.manager",
+      "key": "vaultSettings.role.manager",
+      "current": {
+        "en": "Admin",
+        "fa": "مدیر",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "مدیر"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1369,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3294,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/invite/[token].tsx",
+          "line": 622
+        },
+        {
+          "path": "apps/mobile/app/vault/members.tsx",
+          "line": 1253
+        },
+        {
+          "path": "apps/mobile/app/vault/settings.tsx",
+          "line": 981
+        },
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 302
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:vaultSettings.role.editor",
+      "key": "vaultSettings.role.editor",
+      "current": {
+        "en": "Editor",
+        "fa": "ویرایشگر",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "سمونګر"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1370,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3295,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/invite/[token].tsx",
+          "line": 628
+        },
+        {
+          "path": "apps/mobile/app/vault/members.tsx",
+          "line": 1254
+        },
+        {
+          "path": "apps/mobile/app/vault/settings.tsx",
+          "line": 982
+        },
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 303
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:vaultSettings.role.clerk",
+      "key": "vaultSettings.role.clerk",
+      "current": {
+        "en": "Clerk",
+        "fa": "ثبت‌کننده",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "کارکوونکی"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1371,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3296,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/invite/[token].tsx",
+          "line": 624
+        },
+        {
+          "path": "apps/mobile/app/vault/members.tsx",
+          "line": 1255
+        },
+        {
+          "path": "apps/mobile/app/vault/settings.tsx",
+          "line": 983
+        },
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 304
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:vaultSettings.role.viewer",
+      "key": "vaultSettings.role.viewer",
+      "current": {
+        "en": "Viewer",
+        "fa": "بیننده",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "کتونکی"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1372,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3297,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/invite/[token].tsx",
+          "line": 626
+        },
+        {
+          "path": "apps/mobile/app/vault/members.tsx",
+          "line": 1256
+        },
+        {
+          "path": "apps/mobile/app/vault/settings.tsx",
+          "line": 984
+        },
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 305
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:vaultSettings.section.details",
+      "key": "vaultSettings.section.details",
+      "current": {
+        "en": "Details",
+        "fa": "مشخصات",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "معلومات"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1373,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3298,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/settings.tsx",
+          "line": 668
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:vaultSettings.section.members",
+      "key": "vaultSettings.section.members",
+      "current": {
+        "en": "Members",
+        "fa": "اعضا",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "غړي"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1374,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3299,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/settings.tsx",
+          "line": 725
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:vaultSettings.section.activity",
+      "key": "vaultSettings.section.activity",
+      "current": {
+        "en": "Activity",
+        "fa": "فعالیت",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "فعالیتونه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1375,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3300,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/settings.tsx",
+          "line": 760
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:vaultSettings.section.danger",
+      "key": "vaultSettings.section.danger",
+      "current": {
+        "en": "Danger zone",
+        "fa": "ناحیه خطرناک",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "حساس کارونه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1376,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3301,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/settings.tsx",
+          "line": 823
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:vaultSettings.section.membership",
+      "key": "vaultSettings.section.membership",
+      "current": {
+        "en": "Membership",
+        "fa": "عضویت",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "غړیتوب"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1377,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3302,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/settings.tsx",
+          "line": 866
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:vaultSettings.name.label",
+      "key": "vaultSettings.name.label",
+      "current": {
+        "en": "Kaata name",
+        "fa": "نام کاتا",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د کاټې نوم"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1378,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3303,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/settings.tsx",
+          "line": 671
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:vaultSettings.name.required",
+      "key": "vaultSettings.name.required",
+      "current": {
+        "en": "Name is required",
+        "fa": "نام لازم است",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "نوم اړین دی"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1379,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3304,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/settings.tsx",
+          "line": 271
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:vaultSettings.name.save",
+      "key": "vaultSettings.name.save",
+      "current": {
+        "en": "Save",
+        "fa": "ذخیره",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "خوندي کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1383,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3305,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/settings.tsx",
+          "line": 692
+        }
+      ],
+      "context": "Own key rather than reusing entry.save/personEdit.save — shared keys\nacross unrelated screens is how a later reword on one surface silently\nrewrites another (the personAdd.title lesson)."
+    },
+    {
+      "id": "mobile:vaultSettings.currency.label",
+      "key": "vaultSettings.currency.label",
+      "current": {
+        "en": "Currency",
+        "fa": "ارز",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "پیسه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1384,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3306,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/settings.tsx",
+          "line": 707
+        },
+        {
+          "path": "apps/mobile/app/vault/settings.tsx",
+          "line": 930
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:vaultSettings.viewOnly",
+      "key": "vaultSettings.viewOnly",
+      "current": {
+        "en": "View only — owner permission required.",
+        "fa": "فقط مشاهده — اجازه مالک لازم است.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "یوازې یې کتلی شئ؛ د مالک اجازه اړینه ده."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1385,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3307,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/settings.tsx",
+          "line": 698
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:vaultSettings.toast.noActive",
+      "key": "vaultSettings.toast.noActive",
+      "current": {
+        "en": "No active Kaata",
+        "fa": "کاتای فعال نیست",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "فعاله کاټه نشته"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1386,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3308,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/settings.tsx",
+          "line": 204
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:vaultSettings.toast.notFound",
+      "key": "vaultSettings.toast.notFound",
+      "current": {
+        "en": "Kaata not found",
+        "fa": "کاتا پیدا نشد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "کاټه ونه موندل شوه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1387,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3309,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/settings.tsx",
+          "line": 214
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:vaultSettings.toast.loadFailed",
+      "key": "vaultSettings.toast.loadFailed",
+      "current": {
+        "en": "Failed to load Kaata",
+        "fa": "بار کردن کاتا ناکام شد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "کاټه راوړل نه شوه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1388,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3310,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/settings.tsx",
+          "line": 250
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:vaultSettings.toast.saved",
+      "key": "vaultSettings.toast.saved",
+      "current": {
+        "en": "Kaata renamed",
+        "fa": "نام کاتا تغییر کرد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د کاټې نوم بدل شو"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1389,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3311,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/settings.tsx",
+          "line": 297
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:vaultSettings.toast.saveFailed",
+      "key": "vaultSettings.toast.saveFailed",
+      "current": {
+        "en": "Couldn't save name. Try again.",
+        "fa": "نام ذخیره نشد. دوباره امتحان کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "نوم خوندي نه شو. بیا هڅه وکړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1390,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3312,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/settings.tsx",
+          "line": 300
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:vaultSettings.toast.currencyUpdated",
+      "key": "vaultSettings.toast.currencyUpdated",
+      "current": {
+        "en": "Currency updated",
+        "fa": "ارز به‌روز شد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "پیسه بدله شوه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1391,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3313,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/settings.tsx",
+          "line": 335
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:vaultSettings.toast.currencyFailed",
+      "key": "vaultSettings.toast.currencyFailed",
+      "current": {
+        "en": "Failed to update currency",
+        "fa": "به‌روزرسانی ارز ناکام شد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "پیسه بدله نه شوه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1392,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3314,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/settings.tsx",
+          "line": 346
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:vaultSettings.toast.archived",
+      "key": "vaultSettings.toast.archived",
+      "current": {
+        "en": "Kaata archived",
+        "fa": "کاتا بایگانی شد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "کاټه آرشیف شوه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1393,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3315,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:vaultSettings.toast.archiveFailed",
+      "key": "vaultSettings.toast.archiveFailed",
+      "current": {
+        "en": "Failed to archive",
+        "fa": "بایگانی ناکام شد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "آرشیف کول ناکام شول"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1394,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3316,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/settings.tsx",
+          "line": 440
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:vaultSettings.archive.success",
+      "key": "vaultSettings.archive.success",
+      "current": {
+        "en": "Kaata archived",
+        "fa": "کاتا بایگانی شد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "کاټه آرشیف شوه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1395,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3317,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/settings.tsx",
+          "line": 386
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:vaultSettings.archive.successSwitched",
+      "key": "vaultSettings.archive.successSwitched",
+      "current": {
+        "en": "Archived {old}. Switched to {name}.",
+        "fa": "{old} بایگانی شد. به {name} تغییر یافت.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "{old} آرشیف شوه. {name} ته واوښتئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "name",
+        "old"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1400,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3318,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/settings.tsx",
+          "line": 407
+        }
+      ],
+      "context": "UX-fix: include the OLD vault name so the user reads the toast as a\ndirect consequence (\"Archived X. Switched to Y.\") instead of an\nincidental notification (\"Switched to Y.\"). Both names are\ninterpolated."
+    },
+    {
+      "id": "mobile:vaultSettings.archive.successNeedNew",
+      "key": "vaultSettings.archive.successNeedNew",
+      "current": {
+        "en": "Kaata archived. Create a new Kaata to continue.",
+        "fa": "کاتا بایگانی شد. برای ادامه یک کاتای جدید بسازید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "کاټه آرشیف شوه. د دوام لپاره نوې کاټه جوړه کړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1401,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3319,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/settings.tsx",
+          "line": 433
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:vaultSettings.archive.successNeedRestore",
+      "key": "vaultSettings.archive.successNeedRestore",
+      "current": {
+        "en": "Kaata archived. Restore one to continue.",
+        "fa": "کاتا بایگانی شد. برای ادامه یکی را بازیابی کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "کاټه آرشیف شوه. د دوام لپاره یوه کاټه بېرته را وګرځوئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1406,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3320,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/settings.tsx",
+          "line": 429
+        }
+      ],
+      "context": "UX-fix #1 (Phase 7 finalize): when the just-archived vault was the\nlast active one BUT archived vaults exist, the user is routed to\n/vault/archived first — restoring is a faster recovery than\nre-creating, and the user just intentionally archived this vault."
+    },
+    {
+      "id": "mobile:vaultSettings.toast.left",
+      "key": "vaultSettings.toast.left",
+      "current": {
+        "en": "Left Kaata",
+        "fa": "از کاتا خارج شدید",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "له کاټې ووتئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1407,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3321,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/settings.tsx",
+          "line": 553
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:vaultSettings.toast.leaveFailed",
+      "key": "vaultSettings.toast.leaveFailed",
+      "current": {
+        "en": "Failed to leave",
+        "fa": "خروج ناکام شد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "وتل ناکام شول"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1408,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3322,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/settings.tsx",
+          "line": 547
+        },
+        {
+          "path": "apps/mobile/app/vault/settings.tsx",
+          "line": 583
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:vaultSettings.row.members",
+      "key": "vaultSettings.row.members",
+      "current": {
+        "en": "Members",
+        "fa": "اعضا",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "غړي"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1409,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3323,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/settings.tsx",
+          "line": 728
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:vaultSettings.row.members.hint.one",
+      "key": "vaultSettings.row.members.hint.one",
+      "current": {
+        "en": "1 person",
+        "fa": "۱ نفر",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "۱ کس"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1410,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3324,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/settings.tsx",
+          "line": 731
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:vaultSettings.row.members.hint.many",
+      "key": "vaultSettings.row.members.hint.many",
+      "current": {
+        "en": "{count} people",
+        "fa": "{count} نفر",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "{count} کسان"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "count"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1411,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3325,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/settings.tsx",
+          "line": 732
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:vaultSettings.row.invite",
+      "key": "vaultSettings.row.invite",
+      "current": {
+        "en": "Invite member",
+        "fa": "دعوت عضو",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "غړي ته بلنه ورکړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1412,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3326,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:vaultSettings.row.invite.hint",
+      "key": "vaultSettings.row.invite.hint",
+      "current": {
+        "en": "Email-anchored invitation",
+        "fa": "دعوت با ایمیل",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د برېښنالیک له پتې سره تړلې بلنه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1413,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3327,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:vaultSettings.row.addPhone",
+      "key": "vaultSettings.row.addPhone",
+      "current": {
+        "en": "Add a phone",
+        "fa": "افزودن تلفون",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ټیلیفون ورزیات کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1414,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3328,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:vaultSettings.row.addPhone.hint",
+      "key": "vaultSettings.row.addPhone.hint",
+      "current": {
+        "en": "Pair another phone you own",
+        "fa": "جفت‌سازی تلفون دیگر شما",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "خپل بل ټیلیفون ونښلوئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1415,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3329,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:vaultSettings.row.audit",
+      "key": "vaultSettings.row.audit",
+      "current": {
+        "en": "View audit log",
+        "fa": "مشاهده گزارش فعالیت",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د فعالیتونو تاریخچه وګورئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1416,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3330,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/settings.tsx",
+          "line": 764
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:vaultSettings.row.audit.hint.owner",
+      "key": "vaultSettings.row.audit.hint.owner",
+      "current": {
+        "en": "All Kaata activity",
+        "fa": "همه فعالیت‌های کاتا",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د کاټې ټول فعالیتونه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1417,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3331,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/settings.tsx",
+          "line": 767
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:vaultSettings.row.audit.hint.editor",
+      "key": "vaultSettings.row.audit.hint.editor",
+      "current": {
+        "en": "Your actions",
+        "fa": "اقدامات شما",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ستاسو کړنې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1418,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3332,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/settings.tsx",
+          "line": 768
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:vaultSettings.row.audit.viewerEmpty",
+      "key": "vaultSettings.row.audit.viewerEmpty",
+      "current": {
+        "en": "Audit log is not available for viewers.",
+        "fa": "گزارش فعالیت برای بینندگان فعال نیست.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د فعالیتونو تاریخچه د کتونکو لپاره نه ده چمتو."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1419,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3333,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/settings.tsx",
+          "line": 775
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:vaultSettings.row.transfer",
+      "key": "vaultSettings.row.transfer",
+      "current": {
+        "en": "Transfer ownership",
+        "fa": "انتقال مالکیت",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "مالکیت ولېږدوئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1420,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3334,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/members.tsx",
+          "line": 952
+        },
+        {
+          "path": "apps/mobile/app/vault/settings.tsx",
+          "line": 829
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:vaultSettings.row.leave",
+      "key": "vaultSettings.row.leave",
+      "current": {
+        "en": "Leave Kaata",
+        "fa": "خروج از کاتا",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "له کاټې ووځئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1421,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3335,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/settings.tsx",
+          "line": 869
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:vaultSettings.row.archive",
+      "key": "vaultSettings.row.archive",
+      "current": {
+        "en": "Archive Kaata",
+        "fa": "بایگانی کاتا",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "کاټه ارشیف کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1422,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3336,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/settings.tsx",
+          "line": 844
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:vaultSettings.row.unarchive",
+      "key": "vaultSettings.row.unarchive",
+      "current": {
+        "en": "Unarchive Kaata",
+        "fa": "خروج کاتا از بایگانی",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "کاټه له ارشیفه راوباسئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1423,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3337,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/settings.tsx",
+          "line": 855
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:vaultSettings.toast.unarchived",
+      "key": "vaultSettings.toast.unarchived",
+      "current": {
+        "en": "Kaata unarchived",
+        "fa": "کاتا از بایگانی خارج شد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "کاټه له ارشیفه راوایستل شوه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1424,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3338,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/settings.tsx",
+          "line": 469
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:vaultSettings.toast.unarchiveFailed",
+      "key": "vaultSettings.toast.unarchiveFailed",
+      "current": {
+        "en": "Couldn't unarchive. Try again.",
+        "fa": "خروج از بایگانی ناکام شد. دوباره امتحان کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "له ارشیفه راوایستل نه شوه. بیا هڅه وکړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1425,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3339,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/settings.tsx",
+          "line": 460
+        },
+        {
+          "path": "apps/mobile/app/vault/settings.tsx",
+          "line": 472
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:vaultSettings.confirm.archive.title",
+      "key": "vaultSettings.confirm.archive.title",
+      "current": {
+        "en": "Archive this Kaata?",
+        "fa": "این کاتا بایگانی شود؟",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "دا کاټه ارشیف کړئ؟"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1426,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3340,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/settings.tsx",
+          "line": 884
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:vaultSettings.confirm.archive.body",
+      "key": "vaultSettings.confirm.archive.body",
+      "current": {
+        "en": "This Kaata will be hidden for everyone with access. Multi-owner Kaatas need all owners to archive before purge. This cannot be undone after the 30-day grace window.",
+        "fa": "این کاتا برای همه افراد مجاز پنهان می‌شود. کاتاهای چندمالکی باید همه مالکان بایگانی کنند تا پاکسازی شود. پس از ۳۰ روز قابل برگشت نیست.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "دا کاټه به له ټولو هغو کسانو پټه شي چې لاسرسی ورته لري. د څو خاوندانو کاټه باید تر بشپړ ړنګېدو مخکې د ټولو خاوندانو له خوا ارشیف شي. د 30 ورځو د مهلت تر تېرېدو وروسته دا کار بېرته نه شي ګرځېدای."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1427,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3341,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/settings.tsx",
+          "line": 885
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:vaultSettings.confirm.archive.cta",
+      "key": "vaultSettings.confirm.archive.cta",
+      "current": {
+        "en": "Archive",
+        "fa": "بایگانی",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ارشیف کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1429,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3343,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/settings.tsx",
+          "line": 886
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:vaultSettings.confirm.leave.title",
+      "key": "vaultSettings.confirm.leave.title",
+      "current": {
+        "en": "Leave this Kaata?",
+        "fa": "از این کاتا خارج شوید؟",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "له دې کاټې ووځئ؟"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1430,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3344,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/settings.tsx",
+          "line": 893
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:vaultSettings.confirm.leave.body.owner",
+      "key": "vaultSettings.confirm.leave.body.owner",
+      "current": {
+        "en": "You're an owner. If you're the only one, you'll be asked to transfer ownership or archive this Kaata.",
+        "fa": "شما مالک هستید. اگر تنها مالک باشید، از شما خواسته می‌شود مالکیت را منتقل کنید یا این کاتا را بایگانی کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "تاسو خاوند یاست. که یوازینی خاوند یاست، درڅخه به وغوښتل شي چې مالکیت بل چا ته وسپارئ یا دا کاټه ارشیف کړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1431,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3345,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/settings.tsx",
+          "line": 896
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:vaultSettings.confirm.leave.body.member",
+      "key": "vaultSettings.confirm.leave.body.member",
+      "current": {
+        "en": "You will lose access to this Kaata's ledger. The owner can re-invite you later.",
+        "fa": "دسترسی شما به دفتر این کاتا قطع می‌شود. مالک می‌تواند بعداً شما را دوباره دعوت کند.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "دې کاټې ته به ستاسو لاسرسی پای ته ورسېږي. خاوند وروسته بیا بلنه درکولای شي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1433,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3347,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/settings.tsx",
+          "line": 897
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:vaultSettings.confirm.leave.cta",
+      "key": "vaultSettings.confirm.leave.cta",
+      "current": {
+        "en": "Leave",
+        "fa": "خروج",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ووځئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1435,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3349,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/settings.tsx",
+          "line": 899
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:vaultSettings.leave.lastOwner.title",
+      "key": "vaultSettings.leave.lastOwner.title",
+      "current": {
+        "en": "You're the only owner",
+        "fa": "شما تنها مالک هستید",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "تاسو یوازینی خاوند یاست"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1436,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3350,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/settings.tsx",
+          "line": 912
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:vaultSettings.leave.lastOwner.body",
+      "key": "vaultSettings.leave.lastOwner.body",
+      "current": {
+        "en": "If you leave, this Kaata will have no admin. You won't be able to invite people, change settings, or archive it later. Archive it instead, or pass ownership to a member first.",
+        "fa": "اگر خارج شوید، این کاتا هیچ مدیری نخواهد داشت. نمی‌توانید کسی را دعوت کنید، تنظیمات را تغییر دهید یا بعداً بایگانی کنید. به‌جای آن بایگانی کنید، یا اول مالکیت را به یک عضو منتقل کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "که ووځئ، دا کاټه به سمبالوونکی ونه لري. وروسته به نه شئ کولای څوک راوبلئ، امستنې بدلې کړئ یا یې ارشیف کړئ. پر ځای یې ارشیف کړئ، یا لومړی مالکیت یوه غړي ته وسپارئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1437,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3351,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/settings.tsx",
+          "line": 913
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:vaultSettings.leave.lastOwner.archive",
+      "key": "vaultSettings.leave.lastOwner.archive",
+      "current": {
+        "en": "Archive instead",
+        "fa": "بایگانی شود",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "پر ځای یې ارشیف کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1439,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3353,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/settings.tsx",
+          "line": 919
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:vaultSettings.leave.lastOwner.transfer",
+      "key": "vaultSettings.leave.lastOwner.transfer",
+      "current": {
+        "en": "Transfer ownership",
+        "fa": "انتقال مالکیت",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "مالکیت وسپارئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1440,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3354,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/settings.tsx",
+          "line": 921
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:vaultSettings.leave.lastOwner.cancel",
+      "key": "vaultSettings.leave.lastOwner.cancel",
+      "current": {
+        "en": "Cancel",
+        "fa": "لغو",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "لغوه کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1441,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3355,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/settings.tsx",
+          "line": 920
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:vaultSettings.confirm.transfer.title",
+      "key": "vaultSettings.confirm.transfer.title",
+      "current": {
+        "en": "Transfer ownership?",
+        "fa": "مالکیت منتقل شود؟",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "مالکیت وسپارئ؟"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1442,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3356,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:vaultSettings.confirm.transfer.body",
+      "key": "vaultSettings.confirm.transfer.body",
+      "current": {
+        "en": "Pick another member to become the new owner. You'll be demoted to editor unless you also choose to leave.",
+        "fa": "عضو دیگری را به عنوان مالک جدید انتخاب کنید. شما به ویرایشگر تبدیل می‌شوید مگر این‌که خروج را نیز انتخاب کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "بل غړی د نوي خاوند په توګه وټاکئ. ستاسو ونډه به سمونګر ته بدله شي، مګر که د وتلو پرېکړه هم وکړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1443,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3357,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:vaultSettings.confirm.transfer.cta",
+      "key": "vaultSettings.confirm.transfer.cta",
+      "current": {
+        "en": "Choose member",
+        "fa": "انتخاب عضو",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "غړی وټاکئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1445,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3359,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:vaultSettings.section.export",
+      "key": "vaultSettings.section.export",
+      "current": {
+        "en": "Export",
+        "fa": "گزارش",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "صادرول"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1727,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3616,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/settings.tsx",
+          "line": 781
+        }
+      ],
+      "context": "Export — the rows/sheets that trigger it, plus the strings rendered INTO\nthe CSV/PDF documents themselves (via tIn with an explicit locale)."
+    },
+    {
+      "id": "mobile:vaultSettings.row.export",
+      "key": "vaultSettings.row.export",
+      "current": {
+        "en": "Export kaata",
+        "fa": "گزارش کاتا",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "کاټه صادره کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1728,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3617,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/settings.tsx",
+          "line": 784
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:vaultSettings.row.export.hint",
+      "key": "vaultSettings.row.export.hint",
+      "current": {
+        "en": "PDF · CSV",
+        "fa": "PDF · CSV",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "PDF · CSV"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1729,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3618,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/settings.tsx",
+          "line": 785
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:vaultSettings.export.sheetTitle",
+      "key": "vaultSettings.export.sheetTitle",
+      "current": {
+        "en": "Export kaata",
+        "fa": "گزارش کاتا",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "کاټه صادره کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1730,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3619,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/settings.tsx",
+          "line": 950
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:vaultSettings.toast.exportFailed",
+      "key": "vaultSettings.toast.exportFailed",
+      "current": {
+        "en": "Export failed. Try again.",
+        "fa": "گزارش ساخته نشد. دوباره تلاش کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "صادره نه شوه. بیا هڅه وکړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1731,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3620,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/settings.tsx",
+          "line": 186
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:vaultSettings.section.people",
+      "key": "vaultSettings.section.people",
+      "current": {
+        "en": "People",
+        "fa": "اشخاص",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "کسان"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1855,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3721,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/settings.tsx",
+          "line": 802
+        }
+      ],
+      "context": "Removed people — the surface that makes the remove dialog's \"entries\nare kept\" promise real. Section/row in vault settings (rendered only\nwhen count >= 1) + the restore screen."
+    },
+    {
+      "id": "mobile:vaultSettings.row.removedPeople",
+      "key": "vaultSettings.row.removedPeople",
+      "current": {
+        "en": "Removed people",
+        "fa": "اشخاص حذف‌شده",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "لرې شوي کسان"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1856,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3722,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/settings.tsx",
+          "line": 805
+        }
+      ],
+      "context": ""
+    }
+  ]
+}

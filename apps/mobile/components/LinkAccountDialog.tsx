@@ -184,7 +184,7 @@ export function LinkAccountDialog(props: {
                 <View style={styles.language}>
                   <Text style={[styles.hint, textDir(rtl)]}>{t("share.askLang.title")}</Text>
                   <View style={[styles.languageOptions, rowDir(rtl)]}>
-                    {(["fa", "en"] as const).map((lang) => (
+                    {(["fa", "ps", "en"] as const).map((lang) => (
                       <Pressable
                         key={lang}
                         disabled={busy}
@@ -194,11 +194,7 @@ export function LinkAccountDialog(props: {
                         style={[styles.languageOption, language === lang && styles.selected]}
                       >
                         <Text style={styles.optionText}>
-                          {t(
-                            lang === "fa"
-                              ? "settings.language.option.fa"
-                              : "settings.language.option.en",
-                          )}
+                          {t(`settings.language.option.${lang}`)}
                         </Text>
                       </Pressable>
                     ))}

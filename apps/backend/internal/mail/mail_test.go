@@ -59,7 +59,7 @@ func TestDriverSelectionIsExplicit(t *testing.T) {
 }
 
 func TestTemplatesKeepTheCodeOutOfTheSubject(t *testing.T) {
-	for _, lang := range []string{"en", "fa"} {
+	for _, lang := range []string{"en", "fa", "ps"} {
 		for _, kind := range []Kind{KindSignupCode, KindResetCode, KindSetupCode} {
 			m := Render(kind, lang, "a@shop.af", "482913")
 			if strings.Contains(m.Subject, "482913") || !strings.Contains(m.Text, "482913") || !strings.Contains(m.HTML, "482913") {
@@ -68,7 +68,7 @@ func TestTemplatesKeepTheCodeOutOfTheSubject(t *testing.T) {
 			if strings.Index(m.Text, "482913") == 0 {
 				t.Fatalf("%s %s: the body must open with a sentence, not the code", lang, kind)
 			}
-			if lang == "fa" && !strings.Contains(m.Text, "⁦482913⁩") {
+			if lang != "en" && !strings.Contains(m.Text, "⁦482913⁩") {
 				t.Fatalf("fa %s: the code must be LTR-isolated", kind)
 			}
 		}

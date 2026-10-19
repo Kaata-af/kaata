@@ -129,7 +129,7 @@ type Stats struct {
 	RetD7Retained  int64 `json:"ret_d7_retained"`
 	RetD30Eligible int64 `json:"ret_d30_eligible"`
 	RetD30Retained int64 `json:"ret_d30_retained"`
-	// Segmentation: installs by in-app language ('fa'/'en'/'unknown').
+	// Segmentation: installs by in-app language ('fa'/'en'/'ps'/'unknown').
 	Languages []LocaleCount `json:"languages"`
 	// Bucketed activity series — installs + active devices per time bucket. The
 	// bucket width is the caller's granularity choice (hour/day/week/month).

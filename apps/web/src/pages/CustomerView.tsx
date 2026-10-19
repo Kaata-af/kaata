@@ -2,9 +2,11 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { BACKEND_URL } from "../env";
 import { useI18n } from "../lib/i18n";
+import { isRtlLanguage, languageForLocale, type Lang } from "../lib/language";
 import { brand, ledger } from "../theme";
 import {
-  formatQamariDate,
+  formatBillDate as fmtDate,
+  formatBillAmount as fmtAmount,
   resolveBillCalendar,
   resolveQamariOffset,
   type BillCalendar,
@@ -128,6 +130,27 @@ const LABELS = {
     settledOn: "تصفیه شد · {date}",
     billDated: "بل مورخ {date}",
   },
+  ps: {
+    owe: "پوروړی دی",
+    credit: "طلبکار دی",
+    settled: "حساب یې تصفیه شوی",
+    clearTitle: "حساب تصفیه دی",
+    clearBody: "څه پاتې نه دي.",
+    tx: "راکړې ورکړې",
+    empty: "تر اوسه راکړه ورکړه نشته.",
+    error: "دا شریکه کاټه نشته.",
+    debt: "ورکړل",
+    payment: "ترلاسه کړل",
+    home: "kaata.af ته لاړ شئ",
+    tag: "Powered by",
+    wordmark: "kaata.",
+    more: "نور",
+    less: "لږ",
+    settledShow: "تصفیه شوې مخینه وګورئ ({n})",
+    settledHide: "تصفیه شوې مخینه پټه کړئ",
+    settledOn: "تصفیه شو · {date}",
+    billDated: "د {date} نېټې بل",
+  },
 } as const;
 
 // Match the mobile app's typography: Vazirmatn for text (one face for Latin +
@@ -183,16 +206,16 @@ function ArrowDown() {
 function Row({
   e,
   currency,
-  rtl,
+  lang,
   calendar,
   qamariOffset,
   L,
 }: {
   e: SharedEntry;
   currency: string;
-  rtl: boolean;
-  /** Calendar frozen into the bill; threaded alongside rtl because the two
-   *  are independent axes (calendar = which months, rtl = which script). */
+  lang: Lang;
+  /** Calendar frozen into the bill; threaded alongside language because the two
+   *  are independent axes (calendar = which months, language = vocabulary and script). */
   calendar: BillCalendar;
   qamariOffset: number;
   L: ReturnType<typeof pickLabels>;
@@ -254,7 +277,7 @@ function Row({
               className="text-[15px] font-bold tabular-nums"
               style={{ color: C.ink, fontFamily: MONO }}
             >
-              {fmtAmount(e.amount, rtl)}
+              {fmtAmount(e.amount, lang)}
             </span>
             <span className="text-[11px] font-medium" style={{ color: C.mut }}>
               {currency}
@@ -262,7 +285,7 @@ function Row({
           </p>
           {/* Date only — the arrow carries direction. */}
           <p className="shrink-0 whitespace-nowrap text-[12px]" style={{ color: C.mut }}>
-            {fmtDate(e.date, rtl, calendar, qamariOffset)}
+            {fmtDate(e.date, lang, calendar, qamariOffset)}
           </p>
         </div>
         {e.note ? (
@@ -300,142 +323,8 @@ function Row({
   );
 }
 
-function isRTL(locale: string) {
-  return locale.startsWith("fa") || locale.startsWith("ps");
-}
-
 function pickLabels(locale: string) {
-  return isRTL(locale) ? LABELS.fa : LABELS.en;
-}
-
-function fmtAmount(n: number, rtl: boolean): string {
-  try {
-    return Math.abs(n).toLocaleString(rtl ? "fa-AF" : "en-US", {
-      minimumFractionDigits: Number.isInteger(n) ? 0 : 2,
-      maximumFractionDigits: 2,
-    });
-  } catch {
-    return String(Math.abs(n));
-  }
-}
-
-// Afghan (Dari) Solar Hijri month names — the zodiac set (حمل … حوت), NOT
-// the Iranian set (فروردین …) that browsers ship for the fa locale and
-// (incorrectly for Afghanistan) fall back to for fa-AF. Same calendar, same
-// arithmetic — only the names differ, so we let ICU do the Persian-calendar
-// conversion and substitute the vocabulary Afghans actually use.
-const AFGHAN_MONTHS = [
-  "حمل",
-  "ثور",
-  "جوزا",
-  "سرطان",
-  "اسد",
-  "سنبله",
-  "میزان",
-  "عقرب",
-  "قوس",
-  "جدی",
-  "دلو",
-  "حوت",
-];
-const FA_DIGITS = "۰۱۲۳۴۵۶۷۸۹";
-const faDigits = (v: number | string) => String(v).replace(/\d/g, (d) => FA_DIGITS[Number(d)]);
-
-// Latin transliteration + Gregorian month tables, mirroring the app's
-// lib/jalali.ts and the Go billDate. Needed because calendar and script are
-// now independent: a bill can be Solar Hijri in English, or Gregorian in Dari.
-const AFGHAN_MONTHS_LATIN = [
-  "Hamal",
-  "Sawr",
-  "Jawza",
-  "Saratan",
-  "Asad",
-  "Sunbula",
-  "Mizan",
-  "Aqrab",
-  "Qaws",
-  "Jadi",
-  "Dalw",
-  "Hut",
-];
-const GREGORIAN_MONTHS_EN = [
-  "Jan",
-  "Feb",
-  "Mar",
-  "Apr",
-  "May",
-  "Jun",
-  "Jul",
-  "Aug",
-  "Sep",
-  "Oct",
-  "Nov",
-  "Dec",
-];
-// Afghan Dari forms (اگست, جنوری) — not the Iranian اوت/ژانویه.
-const GREGORIAN_MONTHS_FA = [
-  "جنوری",
-  "فبروری",
-  "مارچ",
-  "اپریل",
-  "می",
-  "جون",
-  "جولای",
-  "اگست",
-  "سپتمبر",
-  "اکتوبر",
-  "نومبر",
-  "دسمبر",
-];
-
-/**
- * `calendar` picks the months, `rtl` picks the SCRIPT. Both come from the
- * snapshot: the shopkeeper's calendar is frozen into the bill at issue time
- * (paper rule), so this never resolves against the viewer's preferences.
- * Day-first in all six combinations.
- */
-function fmtDate(ms: number, rtl: boolean, calendar: BillCalendar, qamariOffset = 0): string {
-  const num = (v: string | number): string => (rtl ? faDigits(v) : String(v));
-  if (calendar === "qamari") {
-    const qamari = formatQamariDate(ms, rtl, qamariOffset);
-    if (qamari !== null) return qamari;
-  }
-  try {
-    if (calendar !== "jalali") {
-      const dt = new Date(ms);
-      const m = dt.getMonth();
-      if (Number.isNaN(m)) return "";
-      return `${num(dt.getDate())} ${(rtl ? GREGORIAN_MONTHS_FA : GREGORIAN_MONTHS_EN)[m]} ${num(dt.getFullYear())}`;
-    }
-    // ASCII-digit parts from ICU's Persian-calendar conversion; the month
-    // NUMBER indexes the Afghan name. e.g. "۵ اسد ۱۴۰۵".
-    const parts = new Intl.DateTimeFormat("en-US-u-ca-persian", {
-      year: "numeric",
-      month: "numeric",
-      day: "numeric",
-    }).formatToParts(new Date(ms));
-    let y = "";
-    let m = 0;
-    let d = "";
-    for (const p of parts) {
-      if (p.type === "year") y = p.value;
-      else if (p.type === "month") m = Number(p.value);
-      else if (p.type === "day") d = p.value;
-    }
-    if (!y || !d || m < 1 || m > 12) throw new Error("persian calendar parts unavailable");
-    return `${num(d)} ${(rtl ? AFGHAN_MONTHS : AFGHAN_MONTHS_LATIN)[m - 1]} ${num(y)}`;
-  } catch {
-    // Last resort: the old (Iranian-named) rendering beats no date at all.
-    try {
-      return new Date(ms).toLocaleDateString(rtl ? "fa-AF" : undefined, {
-        year: "numeric",
-        month: "short",
-        day: "numeric",
-      });
-    } catch {
-      return "";
-    }
-  }
+  return LABELS[languageForLocale(locale) ?? "en"];
 }
 
 export function CustomerView() {
@@ -488,7 +377,8 @@ export function CustomerView() {
 }
 
 function Ledger({ data: d }: { data: SharedLedger }) {
-  const rtl = isRTL(d.locale);
+  const lang = languageForLocale(d.locale) ?? "en";
+  const rtl = isRtlLanguage(lang);
   // Explicit snapshot value wins; absent (a bill cut before the calendar
   // setting shipped) falls back to the old language-derived rule.
   const calendar = resolveBillCalendar(d.calendar, rtl);
@@ -551,7 +441,7 @@ function Ledger({ data: d }: { data: SharedLedger }) {
   }
 
   return (
-    <section dir={rtl ? "rtl" : "ltr"} lang={rtl ? "fa" : "en"} style={{ fontFamily: APP_SANS }}>
+    <section dir={rtl ? "rtl" : "ltr"} lang={lang} style={{ fontFamily: APP_SANS }}>
       {/* Statement card — the shop name is the centered header; the counterparty
           + balance read as a plain "<person> owes <amount>" statement below it. */}
       <div className="rounded-2xl border bg-white px-6 py-[26px]" style={{ borderColor: C.line }}>
@@ -575,7 +465,7 @@ function Ledger({ data: d }: { data: SharedLedger }) {
               className="rounded-full border px-3 py-1 text-[12px] font-semibold"
               style={{ borderColor: C.line, background: C.bg, color: C.sub }}
             >
-              {L.billDated.replace("{date}", fmtDate(d.generated_at, rtl, calendar, qamariOffset))}
+              {L.billDated.replace("{date}", fmtDate(d.generated_at, lang, calendar, qamariOffset))}
             </span>
           </div>
         ) : null}
@@ -627,7 +517,7 @@ function Ledger({ data: d }: { data: SharedLedger }) {
               className="mt-2 flex items-baseline gap-[7px] text-[38px] font-semibold leading-none tracking-[-0.02em] tabular-nums"
               style={{ color: accent, fontFamily: MONO }}
             >
-              {fmtAmount(d.balance, rtl)}
+              {fmtAmount(d.balance, lang)}
               <span
                 className="text-[16px] font-medium"
                 style={{ color: C.mut, fontFamily: APP_SANS }}
@@ -652,7 +542,7 @@ function Ledger({ data: d }: { data: SharedLedger }) {
             className="text-[11px] font-medium tabular-nums"
             style={{ color: C.mut, fontFamily: MONO }}
           >
-            {fmtAmount(shownEntries.length, rtl)}
+            {fmtAmount(shownEntries.length, lang)}
           </p>
         ) : null}
       </div>
@@ -678,7 +568,7 @@ function Ledger({ data: d }: { data: SharedLedger }) {
               >
                 <div className="h-px flex-1" style={{ background: C.mut, opacity: 0.4 }} />
                 <span className="text-[11px] font-medium" style={{ color: C.sub }}>
-                  {L.settledOn.replace("{date}", fmtDate(item.ms, rtl, calendar, qamariOffset))}
+                  {L.settledOn.replace("{date}", fmtDate(item.ms, lang, calendar, qamariOffset))}
                 </span>
                 <div className="h-px flex-1" style={{ background: C.mut, opacity: 0.4 }} />
               </div>
@@ -687,7 +577,7 @@ function Ledger({ data: d }: { data: SharedLedger }) {
                 key={i}
                 e={item.e}
                 currency={d.currency}
-                rtl={rtl}
+                lang={lang}
                 calendar={calendar}
                 qamariOffset={qamariOffset}
                 L={L}
@@ -708,7 +598,7 @@ function Ledger({ data: d }: { data: SharedLedger }) {
             }
             style={{ borderColor: C.hair, color: C.sub }}
           >
-            {showSettled ? L.settledHide : L.settledShow.replace("{n}", fmtAmount(chapters, rtl))}
+            {showSettled ? L.settledHide : L.settledShow.replace("{n}", fmtAmount(chapters, lang))}
           </button>
         ) : null}
       </div>

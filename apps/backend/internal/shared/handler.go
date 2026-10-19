@@ -11,6 +11,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/matee/kaata-backend/internal/httpx"
+	"github.com/matee/kaata-backend/internal/locale"
 )
 
 // maxPayload caps a shared snapshot. A per-person ledger with up to ~100
@@ -173,7 +174,8 @@ func (h *Handler) View(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Header().Set("Vary", "Accept-Language")
 		w.WriteHeader(http.StatusNotFound)
-		_ = notFoundTmpl.Execute(w, viewData{Origin: h.webBaseURL, RTL: acceptsPersian(r.Header.Get("Accept-Language"))})
+		lang := locale.FromAcceptLanguage(r.Header.Get("Accept-Language"))
+		_ = notFoundTmpl.Execute(w, viewData{Origin: h.webBaseURL, Lang: lang, RTL: locale.RTL(lang)})
 		return
 	}
 	if err != nil {
@@ -193,7 +195,8 @@ func (h *Handler) View(w http.ResponseWriter, r *http.Request) {
 	} else if p.Balance < 0 {
 		dir = "credit"
 	}
-	rtl := strings.HasPrefix(p.Locale, "fa") || strings.HasPrefix(p.Locale, "ps")
+	lang := locale.Normalize(p.Locale)
+	rtl := locale.RTL(lang)
 	calendar := resolveCalendar(p.Calendar, rtl)
 	qamariOffset := resolveQamariOffset(p.QamariOffset)
 
@@ -211,6 +214,7 @@ func (h *Handler) View(w http.ResponseWriter, r *http.Request) {
 		Currency:     p.Currency,
 		AbsBalance:   absBal,
 		Direction:    dir,
+		Lang:         lang,
 		RTL:          rtl,
 		Calendar:     calendar,
 		QamariOffset: qamariOffset,
@@ -218,7 +222,7 @@ func (h *Handler) View(w http.ResponseWriter, r *http.Request) {
 		ShareURL:     h.shareBaseURL + "/v/" + token,
 		APIBase:      h.apiBaseURL,
 		OGTitle:      ogTitle(p),
-		OGDesc:       ogDesc(absBal, p.Currency, dir, rtl, billDate(p.GeneratedAt, rtl, calendar, qamariOffset)),
+		OGDesc:       ogDescForLanguage(absBal, p.Currency, dir, lang, billDateForLanguage(p.GeneratedAt, lang, calendar, qamariOffset)),
 		// Bills are permanent (paper rule), so the issue date is load-bearing:
 		// a two-year-old link must read as "bill dated X", never as the
 		// current balance. Formatted by the inline script's fmtDate (Afghan
@@ -239,6 +243,7 @@ type viewData struct {
 	Currency      string
 	AbsBalance    string
 	Direction     string // owe | credit | settled
+	Lang          string
 	RTL           bool
 	Calendar      string // resolved frozen calendar (see sharePayload.Calendar)
 	QamariOffset  int    // frozen Qamari adjustment in days (resolveQamariOffset)
@@ -248,15 +253,6 @@ type viewData struct {
 	OGTitle       string
 	OGDesc        string
 	GeneratedAtMs int64 // bill issue date (epoch ms); 0 hides the date line
-}
-
-// acceptsPersian reports whether the request's highest-priority Accept-Language
-// tag is Persian (fa), Dari (prs) or Pashto (ps). Only used to pick the 404
-// page's language — the valid-token path reads the snapshot's locale instead.
-func acceptsPersian(header string) bool {
-	first, _, _ := strings.Cut(header, ",")
-	tag := strings.ToLower(strings.TrimSpace(first))
-	return strings.HasPrefix(tag, "fa") || strings.HasPrefix(tag, "prs") || strings.HasPrefix(tag, "ps")
 }
 
 func ogTitle(p sharePayload) string {
@@ -276,8 +272,31 @@ func ogTitle(p sharePayload) string {
 // never assert the amount as a current balance. dateStr comes from billDate();
 // "" (pre-date snapshots) falls back to the undated phrasing.
 func ogDesc(absBal, currency, dir string, rtl bool, dateStr string) string {
+	lang := "en"
+	if rtl {
+		lang = "fa"
+	}
+	return ogDescForLanguage(absBal, currency, dir, lang, dateStr)
+}
+
+func ogDescForLanguage(absBal, currency, dir, lang, dateStr string) string {
+	rtl := locale.RTL(lang)
 	amt := absBal + " " + currency
 	var body string
+	if lang == "ps" {
+		switch dir {
+		case "owe":
+			body = "د تصفیې پاتې حساب: " + amt
+		case "credit":
+			body = "ستاسو په ګټه: " + amt
+		default:
+			body = "حساب تصفیه دی — څه پاتې نه دي."
+		}
+		if dateStr != "" {
+			return "د " + dateStr + " نېټې بل — " + body
+		}
+		return body
+	}
 	if rtl {
 		switch dir {
 		case "owe":
@@ -311,3 +330,14 @@ func ogDesc(absBal, currency, dir string, rtl bool, dateStr string) string {
 // snapshot and renders the entry list on the client.
 var viewTmpl = template.Must(template.New("view").Parse(viewHTML))
 var notFoundTmpl = template.Must(template.New("nf").Parse(notFoundHTML))
+
+// Language supports legacy callers that only set RTL. New responses always set Lang.
+func (v viewData) Language() string {
+	if v.Lang != "" {
+		return locale.Normalize(v.Lang)
+	}
+	if v.RTL {
+		return "fa"
+	}
+	return "en"
+}

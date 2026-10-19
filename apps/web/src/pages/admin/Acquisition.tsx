@@ -1,3 +1,4 @@
+import { languageForLocale } from "../../lib/language";
 // Acquisition — where installs come from: the web→app funnel and the language
 // split. Everything derives from /v1/admin/stats (honest deduped web numbers;
 // raw + excluded counts footnoted). Per-source campaign performance lives in
@@ -127,6 +128,7 @@ function FunnelCard(props: { stats: Stats }) {
 
 const LANG_META: Record<string, { label: string; color: string }> = {
   fa: { label: "Dari", color: C.green },
+  ps: { label: "Pashto", color: C.teal },
   en: { label: "English", color: C.blue },
   unknown: { label: "Unknown", color: C.gray },
 };
@@ -146,12 +148,20 @@ function LanguageCard(props: { stats: Stats }) {
               CSS color at runtime but types only the named palette. */}
           <CategoryBar
             values={langs.map((l) => l.count)}
-            colors={langs.map((l) => (LANG_META[l.locale] ?? LANG_META.unknown).color) as Color[]}
+            colors={
+              langs.map(
+                (l) =>
+                  (LANG_META[languageForLocale(l.locale) ?? l.locale] ?? LANG_META.unknown).color,
+              ) as Color[]
+            }
             showLabels={false}
           />
           <div className="mt-3 flex min-w-0 flex-wrap gap-x-5 gap-y-2 text-sm">
             {langs.map((l) => {
-              const meta = LANG_META[l.locale] ?? { label: l.locale, color: C.gray };
+              const meta = LANG_META[languageForLocale(l.locale) ?? l.locale] ?? {
+                label: l.locale,
+                color: C.gray,
+              };
               return (
                 <span
                   key={l.locale}

@@ -41,6 +41,7 @@ export default function GroupMembersScreen() {
   const router = useRouter(),
     navigation = useNavigation(),
     isRTL = useIsRTL();
+  const locale = getLocale();
   const params = useLocalSearchParams<{ vaultId?: string; groupId: string }>();
   const [vaultId] = useState(() => params.vaultId ?? getActiveVaultIdSyncMaybe());
   const [viewAccount] = useState(() => getAccountIdSync());
@@ -98,7 +99,6 @@ export default function GroupMembersScreen() {
   const memberCount = (people ?? []).filter((person) => member(person.id)).length;
 
   const rows = useMemo(() => {
-    const locale = getLocale();
     const all = people ?? [];
     const searched = query.trim()
       ? (() => {
@@ -115,7 +115,7 @@ export default function GroupMembersScreen() {
     );
     // stored() reads state.groupsByPerson and params.groupId.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [people, query, canManage, state.groupsByPerson, params.groupId]);
+  }, [people, query, canManage, state.groupsByPerson, params.groupId, locale]);
 
   async function save(leave: () => void = () => router.back()) {
     if (!vaultId || !group || !canManage || writing.current) return;

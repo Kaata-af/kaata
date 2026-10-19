@@ -1,0 +1,161 @@
+{
+  "$schema": "../review.schema.json",
+  "format_version": 1,
+  "section": "19-implementation-additions",
+  "entries": [
+    {
+      "id": "mobile:settings.language.option.ps",
+      "key": "settings.language.option.ps",
+      "current": {
+        "en": "پښتو",
+        "fa": "پښتو",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "پښتو"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "Added during the authorized Pashto implementation; not part of the original 1,828-row snapshot.\nLanguage selector names remain English / دری / پښتو in every UI locale.",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 692,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2753,
+          "locale": "fa"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 5588,
+          "locale": "ps"
+        }
+      ],
+      "references": [],
+      "context": "Supplemental implementation key; stable ID for later corrections."
+    },
+    {
+      "id": "mobile:common.ok",
+      "key": "common.ok",
+      "current": {
+        "en": "OK",
+        "fa": "باشد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "سمه ده"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "Added during the authorized Pashto implementation; not part of the original 1,828-row snapshot.",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 813,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2831,
+          "locale": "fa"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 4329,
+          "locale": "ps"
+        }
+      ],
+      "references": [],
+      "context": "Supplemental implementation key; stable ID for later corrections."
+    },
+    {
+      "id": "mobile:menu.dev.bluetoothTest",
+      "key": "menu.dev.bluetoothTest",
+      "current": {
+        "en": "Bluetooth test (dev)",
+        "fa": "آزمایش بلوتوث (توسعه)",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د بلوتوث ازموینه (پراختیا)"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "Added during the authorized Pashto implementation; not part of the original 1,828-row snapshot.",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 814,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2832,
+          "locale": "fa"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 4330,
+          "locale": "ps"
+        }
+      ],
+      "references": [],
+      "context": "Supplemental implementation key; stable ID for later corrections."
+    },
+    {
+      "id": "mobile:onboardingMode.offline.warning",
+      "key": "onboardingMode.offline.warning",
+      "current": {
+        "en": "No account backup in ninja mode. If you lose this phone, you could lose all your data. Sign in later to back it up.",
+        "fa": "در حالت نینجا از اطلاعات‌تان در حساب نسخهٔ پشتیبان گرفته نمی‌شود. اگر این تلفون را گم کنید، ممکن است همهٔ اطلاعات‌تان را از دست بدهید. برای پشتیبان‌گیری، بعداً وارد حساب شوید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": "No account backup in ninja mode. If you lose this phone, you could lose all your data. Sign in later to back it up.",
+        "fa": "در حالت نینجا از اطلاعات‌تان در حساب نسخهٔ پشتیبان گرفته نمی‌شود. اگر این تلفون را گم کنید، ممکن است همهٔ اطلاعات‌تان را از دست بدهید. برای پشتیبان‌گیری، بعداً وارد حساب شوید.",
+        "ps": "د نینجا په حالت کې د کارن حساب شاتړ نشته. که دا ټیلیفون ورک کړئ، ښايي خپل ټول معلومات له لاسه ورکړئ. د شاتړ لپاره وروسته ننوتلی شئ."
+      },
+      "approved_locales": [
+        "en",
+        "fa",
+        "ps"
+      ],
+      "notes": "Added with the user-authorized Ninja-mode phone-loss warning on 2026-10-19; not part of the original 1,828-row snapshot.\nUser follow-up authorized restoring Ninja mode and its fun tone in all three languages, preserving the original NinjaIcon, and adding the phone-loss/no-account-backup warning.",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 96,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2180,
+          "locale": "fa"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3934,
+          "locale": "ps"
+        }
+      ],
+      "references": [],
+      "context": "Warning shown directly below the Ninja-mode button: no account backup; losing the phone could lose all local data."
+    }
+  ]
+}

@@ -18,6 +18,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { GoogleGIcon } from "../../components/GoogleGIcon";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { EmailAuthFlow } from "../../components/EmailAuthFlow";
+import { NinjaIcon } from "../../components/NinjaIcon";
 import { OnboardingHeader, OnboardingIntro, onboardingStyles } from "../../components/Onboarding";
 import { recoverAllVaults, type RecoveryProgress } from "../../lib/recovery";
 import { RestoreProgress, restoreProgressLabel } from "../../components/RestoreProgress";
@@ -58,7 +59,7 @@ import { useOnboardingKeyboardScroll } from "../../lib/use-onboarding-keyboard-s
 // Error UX:
 //   - User-cancelled Google sheet → silent (stay on screen, no error)
 //   - Expo Go (no native module) → inline hint under the Google card
-//     telling them to continue offline for now
+//     telling them to continue in ninja mode for now
 //   - Any other Google error or backend rejection → inline error under
 //     the Google card. NEVER a toast — toasts are dismissable and easily
 //     missed when the user is figuring out a new screen.
@@ -736,7 +737,7 @@ export function AuthScreen({
 
       {failureNotice}
 
-      {/* Hard break between the two offers — the offline choice is not a
+      {/* Hard break between the two offers — ninja mode is not a
           third sign-in provider, and stacking it flush under the provider
           cards made it read like one. */}
       {!redirected ? (
@@ -766,13 +767,19 @@ export function AuthScreen({
               {busy === "offline" ? (
                 <ActivityIndicator color={colors.textEmphasis} />
               ) : (
-                <Ionicons name="phone-portrait-outline" size={20} color={colors.textEmphasis} />
+                <NinjaIcon size={30} />
               )}
             </View>
             <Text style={[styles.cardTitle, textDir(isRTL)]}>
               {t("onboardingMode.offline.title")}
             </Text>
           </Pressable>
+          <View style={[styles.ninjaWarning, rowDir(isRTL)]}>
+            <Ionicons name="warning-outline" size={18} color={colors.textDefault} />
+            <Text style={[styles.ninjaWarningText, textDir(isRTL)]}>
+              {t("onboardingMode.offline.warning")}
+            </Text>
+          </View>
         </>
       ) : null}
     </>
@@ -954,6 +961,24 @@ const styles = StyleSheet.create({
     lineHeight: sansLineHeight(14, 20),
   },
   cardTitlePrimary: { color: colors.textInverted },
+  ninjaWarning: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+    marginTop: 12,
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.borderDefault,
+    backgroundColor: colors.bgMuted,
+  },
+  ninjaWarningText: {
+    flex: 1,
+    fontSize: 13,
+    fontFamily: fonts.sansRegular,
+    color: colors.textDefault,
+    lineHeight: sansLineHeight(13, 19),
+  },
   errorText: {
     fontSize: 12,
     fontFamily: fonts.sansMedium,

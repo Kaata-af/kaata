@@ -35,7 +35,7 @@ export function CalendarDayPicker(props: {
   useEffect(() => setMonth(localDayStart(props.value)), [props.value, props.calendar]);
   const days = useMemo(() => calendarMonthDays(month, props.calendar), [month, props.calendar]);
   // Saturday first in Persian or a non-Gregorian calendar, as in the filter.
-  const weekStart = locale === "fa" || props.calendar !== "gregorian" ? 6 : 1;
+  const weekStart = locale !== "en" || props.calendar !== "gregorian" ? 6 : 1;
   const padding = days.length ? (new Date(days[0]).getDay() - weekStart + 7) % 7 : 0;
   const grid: (number | null)[] = [...Array.from({ length: padding }, () => null), ...days];
   while (grid.length % 7) grid.push(null);
@@ -113,7 +113,7 @@ export function CalendarDayPicker(props: {
                 onPress={() => props.onChange(day)}
               >
                 <Text style={[styles.dayText, selected && { color: colors.textInverted }]}>
-                  {locale === "fa" ? faDigits(number) : number}
+                  {locale !== "en" ? faDigits(number) : number}
                 </Text>
               </Pressable>
             );

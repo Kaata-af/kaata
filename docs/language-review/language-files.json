@@ -1,0 +1,4469 @@
+{
+  "note": "Tracked application files with language-related references; includes comments and technical code. Tests, generated native projects and development-only files excluded.",
+  "files": [
+    {
+      "path": "apps/backend/internal/admin/outreach.go",
+      "matches": [
+        {
+          "line": 55,
+          "text": "// message language (outreach_contacts.lang, migration 046): \"\" follows the"
+        },
+        {
+          "line": 57,
+          "text": "// interprets. Mark writes lang as a preference: it bumps the version like"
+        },
+        {
+          "line": 124,
+          "text": "// (outreach_contacts.lang, migration 046): \"\" follows the session-wide"
+        },
+        {
+          "line": 167,
+          "text": "Locale          string          `json:\"locale\"`"
+        },
+        {
+          "line": 232,
+          "text": "Lang             string          `json:\"lang\"` // per-number message language: \"\" follows pref.message_lang | \"en\" | \"fa\"; \"\" without a row"
+        },
+        {
+          "line": 248,
+          "text": "Locale      string              `json:\"locale\"`     // shopkeeper locale, else the first listing owner's install locale, else \"\""
+        },
+        {
+          "line": 319,
+          "text": "// already normalized and deduplicated, status and lang already checked, note"
+        },
+        {
+          "line": 508,
+          "text": "platform, appVersion, locale, source, attribution string"
+        },
+        {
+          "line": 643,
+          "text": "// the per-number lang (batch 3)."
+        },
+        {
+          "line": 663,
+          "text": "c.contact_count, c.note, c.lang, c.updated_at,"
+        },
+        {
+          "line": 933,
+          "text": "&in.platform, &in.appVersion, &in.locale, &in.source, &in.attribution,"
+        },
+        {
+          "line": 1032,
+          "text": "name, shop, locale string"
+        },
+        {
+          "line": 1052,
+          "text": "sk.Locale = in.locale"
+        },
+        {
+          "line": 1085,
+          "text": "b.locale = sk.Locale"
+        },
+        {
+          "line": 1216,
+          "text": "// byte-wise (Go string order: \"Zebra\" before \"apple\", no locale collation) —"
+        },
+        {
+          "line": 1273,
+          "text": "// the locale fallback below; an excluded account's own phone is no"
+        },
+        {
+          "line": 1321,
+          "text": "// locale fallback both read it."
+        },
+        {
+          "line": 1482,
+          "text": "c.Name, c.ShopName, c.Locale = b.name, b.shop, b.locale"
+        },
+        {
+          "line": 1497,
+          "text": "c.Locale = in.locale"
+        },
+        {
+          "line": 1645,
+          "text": "// lang (batch 3) is written like the note but is a preference, not an"
+        },
+        {
+          "line": 1671,
+          "text": "lang               = COALESCE($8::text, lang),"
+        },
+        {
+          "line": 1725,
+          "text": "// A lang (batch 3) rides with whatever else the mark carries and follows the"
+        },
+        {
+          "line": 1726,
+          "text": "// row: a row these rules skip keeps its lang as well, while a lang-only mark"
+        },
+        {
+          "line": 1955,
+          "text": "Lang        *string  `json:\"lang\"`"
+        },
+        {
+          "line": 1967,
+          "text": "// phone after dedupe. A lang (batch 3) must be \"\", \"en\" or \"fa\", else 400"
+        },
+        {
+          "line": 1968,
+          "text": "// invalid lang with nothing written; null is absent. The response is"
+        },
+        {
+          "line": 2013,
+          "text": "httpx.Error(w, http.StatusBadRequest, \"invalid lang\")"
+        }
+      ]
+    },
+    {
+      "path": "apps/backend/internal/admin/outreach_test.go",
+      "matches": [
+        {
+          "line": 2597,
+          "text": "// Name ties compare byte-wise, not by locale — \"Zebra\" before \"apple\" —"
+        },
+        {
+          "line": 2612,
+          "text": "// nor the customer locale the same fallback reads. With every install"
+        },
+        {
+          "line": 2621,
+          "text": "for id, locale := range map[string]string{older: \"fa\", newer: \"en\"} {"
+        },
+        {
+          "line": 2622,
+          "text": "if _, err := pool.Exec(ctx, `UPDATE installs SET app_locale = $2 WHERE install_id = $1::uuid`, id, locale); err != nil {"
+        },
+        {
+          "line": 2642,
+          "text": "t.Fatalf(\"%s: book owner_phone %q, listing owner_phone %q, locale %q; want %q, %q\","
+        },
+        {
+          "line": 2837,
+          "text": "// A mark's lang is a preference, not an outreach event: it is stored and"
+        },
+        {
+          "line": 2841,
+          "text": "// batch-2 rules: a row a mark skips keeps its lang, while a lang-only mark"
+        },
+        {
+          "line": 2885,
+          "text": "// 1. A lang-only mark on a chat opened without an outcome: stored, the"
+        },
+        {
+          "line": 2892,
+          "text": "out, raw := post(`{\"phones\":[\"+93700002001\"],\"lang\":\"fa\"}`)"
+        },
+        {
+          "line": 2895,
+          "text": "t.Fatalf(\"lang-only mark wrong: %+v\", out)"
+        },
+        {
+          "line": 2897,
+          "text": "if n := touches(pending); n != 1 || !strings.Contains(raw, `\"lang\":\"fa\"`) {"
+        },
+        {
+          "line": 2898,
+          "text": "t.Fatalf(\"a lang writes no touch (%d) and is on the wire: %s\", n, raw)"
+        },
+        {
+          "line": 2900,
+          "text": "if out, _ = post(`{\"phones\":[\"+93700002001\"],\"lang\":\"en\"}`); out.Updated[0].Lang != \"en\" || out.Updated[0].Version != 3 {"
+        },
+        {
+          "line": 2903,
+          "text": "if out, _ = post(`{\"phones\":[\"+93700002001\"],\"lang\":\"\"}`); out.Updated[0].Lang != \"\" || out.Updated[0].Version != 4 || touches(pending) != 1 {"
+        },
+        {
+          "line": 2904,
+          "text": "t.Fatalf(\"an empty lang must clear it: %+v\", out.Updated[0])"
+        },
+        {
+          "line": 2907,
+          "text": "// 2. Anything else is 400 invalid lang with nothing written: not the"
+        },
+        {
+          "line": 2911,
+          "text": "body := `{\"phones\":[\"+93700002001\",\"+93700002009\"],\"note\":\"x\",\"lang\":` + bad + `}`"
+        },
+        {
+          "line": 2912,
+          "text": "if rec := postOutreach(h.OutreachMark, body); rec.Code != 400 || outreachError(t, rec) != \"invalid lang\" {"
+        },
+        {
+          "line": 2913,
+          "text": "t.Fatalf(\"%s: %d %s want 400 invalid lang\", body, rec.Code, rec.Body.String())"
+        },
+        {
+          "line": 2916,
+          "text": "if rec := postOutreach(h.OutreachMark, `{\"phones\":[\"+93700002001\"],\"lang\":1}`); rec.Code != 400 || outreachError(t, rec) != \"invalid body\" {"
+        },
+        {
+          "line": 2917,
+          "text": "t.Fatalf(\"a non-string lang: %d %s\", rec.Code, rec.Body.String())"
+        },
+        {
+          "line": 2922,
+          "text": "t.Fatalf(\"a refused lang must write nothing: %+v %v\", states, err)"
+        },
+        {
+          "line": 2925,
+          "text": "// 3. A lang rides with a note (one touch, the note's); a null lang is absent."
+        },
+        {
+          "line": 2926,
+          "text": "out, _ = post(`{\"phones\":[\"+93700002001\"],\"note\":\"prefers Dari\",\"lang\":\"fa\"}`)"
+        },
+        {
+          "line": 2928,
+          "text": "t.Fatalf(\"lang with a note: %+v\", u)"
+        },
+        {
+          "line": 2930,
+          "text": "if out, _ = post(`{\"phones\":[\"+93700002001\"],\"note\":\"still Dari\",\"lang\":null}`); out.Updated[0].Lang != \"fa\" {"
+        },
+        {
+          "line": 2931,
+          "text": "t.Fatalf(\"a null lang is absent: %+v\", out.Updated[0])"
+        },
+        {
+          "line": 2934,
+          "text": "// 4. A lang-only mark on a do-not-contact row applies and lifts nothing."
+        },
+        {
+          "line": 2936,
+          "text": "out, _ = post(`{\"phones\":[\"+93700002002\"],\"lang\":\"en\"}`)"
+        },
+        {
+          "line": 2939,
+          "text": "t.Fatalf(\"lang-only on a stopped row: %+v\", out)"
+        },
+        {
+          "line": 2941,
+          "text": "// A bulk relabel skips the stopped row, lang included; the fresh row takes both."
+        },
+        {
+          "line": 2942,
+          "text": "out, _ = post(`{\"phones\":[\"+93700002002\",\"+93700002004\"],\"status\":\"interested\",\"lang\":\"fa\"}`)"
+        },
+        {
+          "line": 2945,
+          "text": "t.Fatalf(\"a skipped relabel must skip its lang: %+v\", out)"
+        },
+        {
+          "line": 2947,
+          "text": "// The row's own status menu still lifts the stop, lang and all."
+        },
+        {
+          "line": 2948,
+          "text": "out, _ = post(`{\"phones\":[\"+93700002002\"],\"status\":\"new\",\"lift_stop\":true,\"lang\":\"fa\"}`)"
+        },
+        {
+          "line": 2950,
+          "text": "t.Fatalf(\"lang with a lifted stop: %+v\", out)"
+        },
+        {
+          "line": 2953,
+          "text": "// 5. A contacted mark that skips a row does not apply its lang there; a"
+        },
+        {
+          "line": 2959,
+          "text": "out, _ = post(`{\"phones\":[\"+93700002003\",\"+93700002005\"],\"contacted\":true,\"lang\":\"en\"}`)"
+        },
+        {
+          "line": 2961,
+          "text": "t.Fatalf(\"a skipped send must not apply its lang: %+v\", out)"
+        },
+        {
+          "line": 2964,
+          "text": "t.Fatalf(\"a first send applies its lang: %+v\", u)"
+        },
+        {
+          "line": 2966,
+          "text": "// The batch-2 refusals stand with a lang in the body."
+        },
+        {
+          "line": 2968,
+          "text": "`{\"phones\":[\"+93700002004\"],\"status\":\"new\",\"contacted\":true,\"lang\":\"fa\"}`,"
+        },
+        {
+          "line": 2969,
+          "text": "`{\"phones\":[\"+93700002004\"],\"status\":\"new\",\"replied\":true,\"lang\":\"fa\"}`,"
+        },
+        {
+          "line": 2970,
+          "text": "`{\"phones\":[\"+93700002004\",\"+93700002002\"],\"status\":\"new\",\"lift_stop\":true,\"lang\":\"fa\"}`,"
+        },
+        {
+          "line": 2977,
+          "text": "// 6. The outcome response carries lang, and an outcome leaves it alone."
+        },
+        {
+          "line": 2983,
+          "text": "!strings.Contains(rec.Body.String(), `\"lang\":\"fa\"`) {"
+        },
+        {
+          "line": 2987,
+          "text": "// 7. GET carries every row's lang; a number with no row reads \"\"."
+        },
+        {
+          "line": 2994,
+          "text": "t.Fatalf(\"GET %s: lang = %q want %q\", ph, c.Outreach.Lang, want)"
+        },
+        {
+          "line": 2997,
+          "text": "if raw, err := json.Marshal(findOutreach(t, res, noRow).Outreach); err != nil || !strings.Contains(string(raw), `\"lang\":\"\"`) {"
+        },
+        {
+          "line": 3012,
+          "text": "// Migration 046: lang is NOT NULL, defaults to the empty string and takes"
+        },
+        {
+          "line": 3025,
+          "text": "_, err := pool.Exec(ctx, `INSERT INTO outreach_contacts (phone_e164, lang) VALUES ('+93700002101', 'xx')`)"
+        },
+        {
+          "line": 3026,
+          "text": "refused(\"insert lang 'xx'\", \"23514\", \"outreach_contacts_lang_chk\", err)"
+        },
+        {
+          "line": 3030,
+          "text": "var lang string"
+        },
+        {
+          "line": 3031,
+          "text": "if err := pool.QueryRow(ctx, `SELECT lang FROM outreach_contacts WHERE phone_e164 = '+93700002102'`).Scan(&lang); err != nil || lang != \"\" {"
+        },
+        {
+          "line": 3032,
+          "text": "t.Fatalf(\"default lang = %q %v want ''\", lang, err)"
+        },
+        {
+          "line": 3035,
+          "text": "if _, err := pool.Exec(ctx, `UPDATE outreach_contacts SET lang = $1 WHERE phone_e164 = '+93700002102'`, ok); err != nil {"
+        },
+        {
+          "line": 3036,
+          "text": "t.Fatalf(\"lang %q must be accepted: %v\", ok, err)"
+        },
+        {
+          "line": 3039,
+          "text": "_, err = pool.Exec(ctx, `UPDATE outreach_contacts SET lang = 'auto' WHERE phone_e164 = '+93700002102'`)"
+        },
+        {
+          "line": 3040,
+          "text": "refused(\"update lang 'auto'\", \"23514\", \"outreach_contacts_lang_chk\", err)"
+        },
+        {
+          "line": 3041,
+          "text": "_, err = pool.Exec(ctx, `UPDATE outreach_contacts SET lang = NULL WHERE phone_e164 = '+93700002102'`)"
+        },
+        {
+          "line": 3042,
+          "text": "refused(\"update lang NULL\", \"23502\", \"\", err)"
+        }
+      ]
+    },
+    {
+      "path": "apps/backend/internal/admin/service.go",
+      "matches": [
+        {
+          "line": 62,
+          "text": "Locale string `json:\"locale\"`"
+        },
+        {
+          "line": 385,
+          "text": "SELECT COALESCE(NULLIF(app_locale, ''), 'unknown') AS locale, COUNT(*)"
+        }
+      ]
+    },
+    {
+      "path": "apps/backend/internal/admin/users.go",
+      "matches": [
+        {
+          "line": 46,
+          "text": "Locale      string `json:\"locale\"`"
+        },
+        {
+          "line": 111,
+          "text": "Locale         string `json:\"locale\"`"
+        },
+        {
+          "line": 200,
+          "text": "SELECT a.id::text, COALESCE(a.name, ''), a.email, COALESCE(a.locale, ''),"
+        },
+        {
+          "line": 400,
+          "text": "// Latest install per account → platform / version / source / locale fallback,"
+        },
+        {
+          "line": 420,
+          "text": "var acct, platform, ver, source, locale, selfName, selfPhone, shopName string"
+        },
+        {
+          "line": 421,
+          "text": "if err := lrows.Scan(&acct, &platform, &ver, &source, &locale, &selfName, &selfPhone, &shopName); err != nil {"
+        },
+        {
+          "line": 430,
+          "text": "u.Locale = locale"
+        }
+      ]
+    },
+    {
+      "path": "apps/backend/internal/auth/email_account.go",
+      "matches": [
+        {
+          "line": 131,
+          "text": "func ownerNotice(o addressOwner, lang, typed string) (mail.Message, bool) {"
+        },
+        {
+          "line": 134,
+          "text": "return mail.Render(mail.KindAccountExists, lang, typed, \"\"), true"
+        },
+        {
+          "line": 141,
+          "text": "return mail.RenderElsewhere(lang, o.email, mail.MaskAddress(o.loginEmail)), true"
+        },
+        {
+          "line": 143,
+          "text": "return mail.Render(mail.KindProviderOnly, lang, o.email, \"\"), true"
+        },
+        {
+          "line": 151,
+          "text": "func (s *Service) enqueueNotice(ctx context.Context, tx pgx.Tx, kind mail.Kind, lang, to string) error {"
+        },
+        {
+          "line": 158,
+          "text": "err := s.outbox.Enqueue(ctx, tx, mail.Render(kind, lang, to, \"\"), noticeTTL)"
+        },
+        {
+          "line": 170,
+          "text": "func (s *Service) EmailSignUpStart(ctx context.Context, rawEmail, lang, client string) error {"
+        },
+        {
+          "line": 191,
+          "text": "if m, ok := ownerNotice(owner, lang, email); ok {"
+        },
+        {
+          "line": 195,
+          "text": "err = s.issueCode(ctx, tx, purposeSignup, email, key, nil, mail.KindSignupCode, lang)"
+        },
+        {
+          "line": 479,
+          "text": "func (s *Service) EmailResetStart(ctx context.Context, rawEmail, lang, client string) error {"
+        },
+        {
+          "line": 503,
+          "text": "err = s.issueCode(ctx, tx, purposeReset, owner.loginEmail, key, &accountID, mail.KindResetCode, lang)"
+        },
+        {
+          "line": 505,
+          "text": "if m, ok := ownerNotice(owner, lang, \"\"); ok {"
+        },
+        {
+          "line": 546,
+          "text": "func (s *Service) EmailResetVerify(ctx context.Context, installID, rawEmail, rawCode, newPassword, lang string,"
+        },
+        {
+          "line": 625,
+          "text": "if err := s.enqueueNotice(ctx, tx, mail.KindPasswordChanged, noticeLang(lang, hit.lang), pa.loginEmail); err != nil {"
+        },
+        {
+          "line": 710,
+          "text": "func (s *Service) PasswordSetupStart(ctx context.Context, accountID, rawEmail, lang string) error {"
+        },
+        {
+          "line": 761,
+          "text": "if err := s.issueCode(ctx, tx, purposeSetup, email, key, &accountID, mail.KindSetupCode, lang); err != nil {"
+        },
+        {
+          "line": 773,
+          "text": "func (s *Service) PasswordSetupVerify(ctx context.Context, accountID, installID, rawCode, newPassword, lang string) (string, error) {"
+        },
+        {
+          "line": 874,
+          "text": "if err := s.enqueueNotice(ctx, tx, mail.KindPasswordChanged, noticeLang(lang, hit.lang), hit.email); err != nil {"
+        },
+        {
+          "line": 894,
+          "text": "func (s *Service) ChangePassword(ctx context.Context, sess *SessionClaims, current, next, lang string) (string, error) {"
+        },
+        {
+          "line": 966,
+          "text": "if err := s.enqueueNotice(ctx, tx, mail.KindPasswordChanged, lang, pa.loginEmail); err != nil {"
+        },
+        {
+          "line": 1002,
+          "text": "func (s *Service) RemovePassword(ctx context.Context, accountID, sessionProvider, lang string) error {"
+        },
+        {
+          "line": 1043,
+          "text": "if err := s.enqueueNotice(ctx, tx, mail.KindPasswordRemoved, lang, loginEmail); err != nil {"
+        }
+      ]
+    },
+    {
+      "path": "apps/backend/internal/auth/email_codes.go",
+      "matches": [
+        {
+          "line": 105,
+          "text": "lang      string // the language its mail went out in"
+        },
+        {
+          "line": 110,
+          "text": "accountID *string, kind mail.Kind, lang string) error {"
+        },
+        {
+          "line": 117,
+          "text": "INSERT INTO email_codes (id, purpose, email, email_key, account_id, code_hash, expires_at, lang)"
+        },
+        {
+          "line": 119,
+          "text": "`, id, purpose, email, emailKey, accountID, s.codeHash(id, code), codeTTL.Seconds(), mail.Lang(lang)); err != nil {"
+        },
+        {
+          "line": 122,
+          "text": "return s.outbox.Enqueue(ctx, tx, mail.Render(kind, lang, email, code), codeTTL)"
+        },
+        {
+          "line": 133,
+          "text": "SELECT id::text, email, email_key, account_id::text, code_hash, lang"
+        },
+        {
+          "line": 143,
+          "text": "if err := rows.Scan(&r.id, &r.email, &r.emailKey, &r.accountID, &r.hash, &r.lang); err != nil {"
+        }
+      ]
+    },
+    {
+      "path": "apps/backend/internal/auth/email_handler.go",
+      "matches": [
+        {
+          "line": 25,
+          "text": "Lang  string `json:\"lang\"`"
+        },
+        {
+          "line": 33,
+          "text": "Lang             string `json:\"lang\"`"
+        },
+        {
+          "line": 51,
+          "text": "Lang             string `json:\"lang\"`"
+        },
+        {
+          "line": 296,
+          "text": "Lang        string `json:\"lang\"`"
+        },
+        {
+          "line": 321,
+          "text": "Lang            string `json:\"lang\"`"
+        },
+        {
+          "line": 347,
+          "text": "// sessions only. Optional ?lang= for the notice."
+        },
+        {
+          "line": 353,
+          "text": "if err := h.svc.RemovePassword(r.Context(), claims.AccountID, claims.Provider, r.URL.Query().Get(\"lang\")); err != nil {"
+        }
+      ]
+    },
+    {
+      "path": "apps/backend/internal/auth/email_hardening_test.go",
+      "matches": [
+        {
+          "line": 624,
+          "text": "`{\"code\":\"`+wrong+`\",\"new_password\":\"`+goodPassword+`\",\"lang\":\"en\"}`, google, h.PasswordSetupVerify)"
+        },
+        {
+          "line": 629,
+          "text": "rec = call(http.MethodDelete, \"/v1/account/password?lang=fa\", \"\", email, h.RemovePassword)"
+        },
+        {
+          "line": 633,
+          "text": "rec = call(http.MethodPost, \"/v1/account/password/setup/start\", `{\"email\":\"thief@evil.af\",\"lang\":\"en\"}`, google,"
+        },
+        {
+          "line": 1032,
+          "text": "`{\"current_password\":\"`+goodPassword+`\",\"new_password\":\"`+otherPassword+`\",\"lang\":\"en\"}`, sessionOf(t, res)); code != http.StatusOK {"
+        },
+        {
+          "line": 1045,
+          "text": "body := fmt.Sprintf(`{\"install_id\":%q,\"email\":\"cache.change@shop.af\",\"code\":%q,\"new_password\":%q,\"lang\":\"en\"}`,"
+        }
+      ]
+    },
+    {
+      "path": "apps/backend/internal/mail/mail_test.go",
+      "matches": [
+        {
+          "line": 62,
+          "text": "for _, lang := range []string{\"en\", \"fa\"} {"
+        },
+        {
+          "line": 64,
+          "text": "m := Render(kind, lang, \"a@shop.af\", \"482913\")"
+        },
+        {
+          "line": 66,
+          "text": "t.Fatalf(\"%s %s: the code must be in the body only\", lang, kind)"
+        },
+        {
+          "line": 69,
+          "text": "t.Fatalf(\"%s %s: the body must open with a sentence, not the code\", lang, kind)"
+        },
+        {
+          "line": 71,
+          "text": "if lang == \"fa\" && !strings.Contains(m.Text, \"⁦482913⁩\") {"
+        },
+        {
+          "line": 76,
+          "text": "m := Render(kind, lang, \"a@shop.af\", \"\")"
+        },
+        {
+          "line": 77,
+          "text": "if m.Subject == \"\" || m.Text == \"\" || strings.ContainsAny(m.Text, \"0123456789\") && lang == \"en\" {"
+        },
+        {
+          "line": 78,
+          "text": "t.Fatalf(\"%s %s: notice %+v\", lang, kind, m)"
+        }
+      ]
+    },
+    {
+      "path": "apps/backend/internal/mail/outbox_test.go",
+      "matches": [
+        {
+          "line": 199,
+          "text": "for _, lang := range []string{\"en\", \"fa\"} {"
+        },
+        {
+          "line": 200,
+          "text": "m := RenderElsewhere(lang, \"owner@gmail.com\", \"t***@evil.af\")"
+        },
+        {
+          "line": 202,
+          "text": "t.Fatalf(\"%s: %+v\", lang, m)"
+        },
+        {
+          "line": 205,
+          "text": "t.Fatalf(\"%s: the address must be an LTR span in HTML\", lang)"
+        },
+        {
+          "line": 207,
+          "text": "if lang == \"fa\" && !strings.Contains(m.Text, \"⁦t***@evil.af⁩\") {"
+        },
+        {
+          "line": 210,
+          "text": "if lang == \"en\" && !strings.Contains(m.Text, \"t***@evil.af\") {"
+        },
+        {
+          "line": 213,
+          "text": "removed := Render(KindPasswordRemoved, lang, \"owner@gmail.com\", \"\")"
+        },
+        {
+          "line": 215,
+          "text": "t.Fatalf(\"%s: the removal notice is empty\", lang)"
+        }
+      ]
+    },
+    {
+      "path": "apps/backend/internal/mail/templates.go",
+      "matches": [
+        {
+          "line": 63,
+          "text": "// Lang returns the template language for a request's lang: \"fa\" or \"en\"."
+        },
+        {
+          "line": 64,
+          "text": "func Lang(lang string) string {"
+        },
+        {
+          "line": 65,
+          "text": "if strings.EqualFold(strings.TrimSpace(lang), \"fa\") {"
+        },
+        {
+          "line": 81,
+          "text": "// Render builds one message. lang \"fa\" selects Dari, anything else English."
+        },
+        {
+          "line": 84,
+          "text": "func Render(kind Kind, lang, to, code string) Message {"
+        },
+        {
+          "line": 85,
+          "text": "return render(kind, lang, to, code, \"\")"
+        },
+        {
+          "line": 90,
+          "text": "func RenderElsewhere(lang, to, maskedAddress string) Message {"
+        },
+        {
+          "line": 91,
+          "text": "return render(KindPasswordElsewhere, lang, to, \"\", maskedAddress)"
+        },
+        {
+          "line": 94,
+          "text": "func render(kind Kind, lang, to, code, address string) Message {"
+        },
+        {
+          "line": 95,
+          "text": "fa := Lang(lang) == \"fa\""
+        },
+        {
+          "line": 131,
+          "text": "h.WriteString(`<!doctype html><html lang=\"` + htmlLang + `\" dir=\"` + dir + `\"><body style=\"margin:0;padding:24px;background:#F7F7F7;font-family:Arial,Helvetica,sans-serif;font-size:16px;line-height:1.5;color:#292929\"><div style=\"max-width:520px;margin:0 auto;padding:24px;background:#FFFFFF;border:1px solid #E2E2E2;border-radius:16px\">`)"
+        }
+      ]
+    },
+    {
+      "path": "apps/backend/internal/shared/handler.go",
+      "matches": [
+        {
+          "line": 50,
+          "text": "Locale   string  `json:\"locale\"`"
+        },
+        {
+          "line": 174,
+          "text": "w.Header().Set(\"Vary\", \"Accept-Language\")"
+        },
+        {
+          "line": 176,
+          "text": "_ = notFoundTmpl.Execute(w, viewData{Origin: h.webBaseURL, RTL: acceptsPersian(r.Header.Get(\"Accept-Language\"))})"
+        },
+        {
+          "line": 200,
+          "text": "// Format the balance once, in the snapshot's locale, so the instant"
+        },
+        {
+          "line": 253,
+          "text": "// acceptsPersian reports whether the request's highest-priority Accept-Language"
+        },
+        {
+          "line": 255,
+          "text": "// page's language — the valid-token path reads the snapshot's locale instead."
+        },
+        {
+          "line": 272,
+          "text": "// absBal is the already-locale-formatted balance string (Persian digits for fa)."
+        }
+      ]
+    },
+    {
+      "path": "apps/backend/internal/shared/jalali.go",
+      "matches": [
+        {
+          "line": 32,
+          "text": "// not the Iranian ones — matching GREGORIAN_MONTHS_FA in lib/jalali.ts."
+        }
+      ]
+    },
+    {
+      "path": "apps/backend/internal/shared/templates.go",
+      "matches": [
+        {
+          "line": 77,
+          "text": "<html lang=\"{{if .RTL}}fa{{else}}en{{end}}\" dir=\"{{if .RTL}}rtl{{else}}ltr{{end}}\">"
+        },
+        {
+          "line": 458,
+          "text": "// Localized by the viewer's Accept-Language (viewData.RTL) — an unknown link"
+        },
+        {
+          "line": 459,
+          "text": "// has no snapshot locale to follow. The fa strings mirror the web client's"
+        },
+        {
+          "line": 463,
+          "text": "<html lang=\"{{if .RTL}}fa{{else}}en{{end}}\" dir=\"{{if .RTL}}rtl{{else}}ltr{{end}}\"><head><meta charset=\"utf-8\">"
+        }
+      ]
+    },
+    {
+      "path": "apps/backend/internal/tabs/actor_identity_test.go",
+      "matches": [
+        {
+          "line": 126,
+          "text": "r := f.do(t, \"POST\", path, \"Bearer \"+jwt, map[string]any{\"install_id\": uuid.NewString(), \"token\": token, \"locale\": \"en\"})"
+        }
+      ]
+    },
+    {
+      "path": "apps/backend/internal/tabs/handler_test.go",
+      "matches": [
+        {
+          "line": 477,
+          "text": "`<html lang=\"en\" dir=\"ltr\">`,"
+        },
+        {
+          "line": 493,
+          "text": "req.Header.Set(\"Accept-Language\", \"fa-AF,fa;q=0.9\")"
+        },
+        {
+          "line": 501,
+          "text": "for _, want := range []string{`<html lang=\"fa\" dir=\"rtl\">`, \"باز کردن در کاتا\"} {"
+        },
+        {
+          "line": 506,
+          "text": "if resp.Header.Get(\"Vary\") != \"Accept-Language\" {"
+        }
+      ]
+    },
+    {
+      "path": "apps/backend/internal/tabs/inbox.go",
+      "matches": [
+        {
+          "line": 60,
+          "text": "page, err := h.svc.listInbox(r.Context(), claims.AccountID, r.URL.Query().Get(\"locale\"), before)"
+        },
+        {
+          "line": 68,
+          "text": "func (s *Service) listInbox(ctx context.Context, accountID, locale string, before int64) (InboxPage, error) {"
+        },
+        {
+          "line": 106,
+          "text": "item.Body = detailedPushBody(item.Kind, locale, actor, amount, direction, currency, item.Role, canReview)"
+        },
+        {
+          "line": 235,
+          "text": "func detailedPushBody(kind, locale, actor string, minor int64, direction, currency, recipient string, canReview bool) string {"
+        },
+        {
+          "line": 238,
+          "text": "if locale == \"fa\" {"
+        },
+        {
+          "line": 246,
+          "text": "return actor + \": \" + pushBodyFor(kind, locale, canReview)"
+        },
+        {
+          "line": 253,
+          "text": "if locale == \"fa\" {"
+        },
+        {
+          "line": 281,
+          "text": "return actor + \": \" + pushBodyFor(kind, locale, canReview)"
+        }
+      ]
+    },
+    {
+      "path": "apps/backend/internal/tabs/inbox_reads_test.go",
+      "matches": [
+        {
+          "line": 13,
+          "text": "r := f.do(t, \"GET\", \"/v1/tabs/inbox?locale=en\", \"Bearer \"+jwt, nil)"
+        }
+      ]
+    },
+    {
+      "path": "apps/backend/internal/tabs/inbox_test.go",
+      "matches": [
+        {
+          "line": 13,
+          "text": "for _, locale := range []string{\"en\", \"fa\"} {"
+        },
+        {
+          "line": 16,
+          "text": "body := detailedPushBody(kind, locale, \"احمد\", 50025, \"a_to_b\", currency, \"b\", true)"
+        },
+        {
+          "line": 20,
+          "text": "opposite := detailedPushBody(kind, locale, \"Matee\", 50025, \"a_to_b\", currency, \"a\", true)"
+        },
+        {
+          "line": 28,
+          "text": "for _, locale := range []string{\"en\", \"fa\"} {"
+        },
+        {
+          "line": 29,
+          "text": "reviewer := detailedPushBody(\"entry_created\", locale, \"Ahmad\", 50025, \"a_to_b\", \"AFN\", \"b\", true)"
+        },
+        {
+          "line": 30,
+          "text": "reader := detailedPushBody(\"entry_created\", locale, \"Ahmad\", 50025, \"a_to_b\", \"AFN\", \"b\", false)"
+        },
+        {
+          "line": 31,
+          "text": "short := pushBodyFor(\"entry_created\", locale, false)"
+        },
+        {
+          "line": 34,
+          "text": "t.Fatalf(\"%s: a reader is asked to review: %q\", locale, body)"
+        },
+        {
+          "line": 38,
+          "text": "t.Fatalf(\"%s: reviewers lost the review prompt\", locale)"
+        },
+        {
+          "line": 62,
+          "text": "r := f.do(t, \"GET\", \"/v1/tabs/inbox?locale=en\"+query, \"Bearer \"+jwt, nil)"
+        }
+      ]
+    },
+    {
+      "path": "apps/backend/internal/tabs/push.go",
+      "matches": [
+        {
+          "line": 76,
+          "text": "Locale    string `json:\"locale\"`"
+        },
+        {
+          "line": 119,
+          "text": "(tab_id,role,install_id,token,locale,account_id,capability_hash)"
+        },
+        {
+          "line": 122,
+          "text": "locale=EXCLUDED.locale,account_id=EXCLUDED.account_id,capability_hash=EXCLUDED.capability_hash,renewed_at=NOW()`,"
+        },
+        {
+          "line": 234,
+          "text": "var subID, tabID, role, token, locale, kind, entryID string"
+        },
+        {
+          "line": 239,
+          "text": "err = tx.QueryRow(ctx, `SELECT o.id,o.rev,o.subscription_id::text,s.tab_id::text,s.role,s.token,s.locale,"
+        },
+        {
+          "line": 257,
+          "text": "&id, &rev, &subID, &tabID, &role, &token, &locale, &receipt, &attempts, &kind, &entryID, &canReview, &valid)"
+        },
+        {
+          "line": 270,
+          "text": "body := pushBodyFor(kind, locale, canReview)"
+        },
+        {
+          "line": 281,
+          "text": "body = detailedPushBody(kind, locale, actor, minor, direction, currency, role, canReview)"
+        },
+        {
+          "line": 302,
+          "text": "payload[\"categoryId\"] = \"tab-review-\" + locale"
+        },
+        {
+          "line": 352,
+          "text": "func pushBody(kind, locale string) string { return pushBodyFor(kind, locale, true) }"
+        },
+        {
+          "line": 357,
+          "text": "func pushBodyFor(kind, locale string, canReview bool) string {"
+        },
+        {
+          "line": 359,
+          "text": "if locale == \"fa\" {"
+        },
+        {
+          "line": 364,
+          "text": "if locale == \"fa\" {"
+        }
+      ]
+    },
+    {
+      "path": "apps/backend/internal/tabs/push_test.go",
+      "matches": [
+        {
+          "line": 62,
+          "text": "\"install_id\": uuid.NewString(), \"token\": []string{\"ExpoPushToken[synthetic_test_A_123456]\", \"ExpoPushToken[synthetic_test_B_123456]\"}[i], \"locale\": \"fa\","
+        },
+        {
+          "line": 217,
+          "text": "\"install_id\": uuid.NewString(), \"token\": \"ExpoPushToken[synthetic_test_123456]\", \"locale\": \"fa\","
+        },
+        {
+          "line": 272,
+          "text": "for _, locale := range []string{\"en\", \"fa\"} {"
+        },
+        {
+          "line": 275,
+          "text": "body := pushBody(kind, locale)"
+        },
+        {
+          "line": 277,
+          "text": "t.Fatalf(\"outcome %s/%s is not distinct\", locale, kind)"
+        },
+        {
+          "line": 371,
+          "text": "\"install_id\": uuid.NewString(), \"token\": \"ExpoPushToken[synthetic_test_B_123456]\", \"locale\": \"en\","
+        }
+      ]
+    },
+    {
+      "path": "apps/backend/internal/tabs/templates.go",
+      "matches": [
+        {
+          "line": 7,
+          "text": "<html lang=\"{{if .RTL}}fa{{else}}en{{end}}\" dir=\"{{if .RTL}}rtl{{else}}ltr{{end}}\">"
+        },
+        {
+          "line": 38,
+          "text": "// Localized by the viewer's Accept-Language (viewData.RTL) — an unknown link"
+        },
+        {
+          "line": 43,
+          "text": "<html lang=\"{{if .RTL}}fa{{else}}en{{end}}\" dir=\"{{if .RTL}}rtl{{else}}ltr{{end}}\"><head><meta charset=\"utf-8\">"
+        }
+      ]
+    },
+    {
+      "path": "apps/backend/internal/tabs/view.go",
+      "matches": [
+        {
+          "line": 43,
+          "text": "w.Header().Set(\"Vary\", \"Accept-Language\")"
+        },
+        {
+          "line": 44,
+          "text": "rtl := acceptsPersian(r.Header.Get(\"Accept-Language\"))"
+        },
+        {
+          "line": 87,
+          "text": "// Accept-Language tag is Persian (fa), Dari (prs) or Pashto (ps). Copied from"
+        }
+      ]
+    },
+    {
+      "path": "apps/backend/internal/visit/handler.go",
+      "matches": [
+        {
+          "line": 31,
+          "text": "// IP + Accept-Language directly from the request. Source comes from the"
+        },
+        {
+          "line": 66,
+          "text": "AcceptLanguage: truncateUTF8(r.Header.Get(\"Accept-Language\"), 200),"
+        },
+        {
+          "line": 90,
+          "text": "AcceptLanguage: truncateUTF8(r.Header.Get(\"Accept-Language\"), 200),"
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/app/_layout.tsx",
+      "matches": [
+        {
+          "line": 233,
+          "text": "// fresh install on a Persian-locale device), we cannot relayout the"
+        },
+        {
+          "line": 281,
+          "text": "// Device-locale-driven flag: if the device is already Persian/Dari, we"
+        },
+        {
+          "line": 283,
+          "text": "// them feels like the app doesn't trust their device locale)."
+        },
+        {
+          "line": 351,
+          "text": "// expo-sqlite words it), which is broad enough that a font, locale"
+        },
+        {
+          "line": 577,
+          "text": "// 7. Device locale probe (skip-language decision). Lazy-require to"
+        },
+        {
+          "line": 582,
+          "text": "const deviceLang = (getLocales()[0]?.languageCode ?? \"en\").toLowerCase();"
+        },
+        {
+          "line": 1083,
+          "text": "// Dari wordmark SIMULTANEOUSLY (the locale pref lives in a database we may"
+        },
+        {
+          "line": 1107,
+          "text": "// Bilingual copy hardcoded (not via t()) because at this stage the locale"
+        },
+        {
+          "line": 1163,
+          "text": "// as MigrationPrompt: locale pref hasn't loaded because initDb failed)."
+        },
+        {
+          "line": 1520,
+          "text": "// boot-time failure surface reached before the locale is loaded, and the age is"
+        },
+        {
+          "line": 1615,
+          "text": "of what fails up there is transient (a flaky locale probe, a"
+        },
+        {
+          "line": 1848,
+          "text": "// Real device (OS) locale, e.g. \"fa-AF\"/\"en-US\" — was hardcoded"
+        },
+        {
+          "line": 1853,
+          "text": "return require(\"expo-localization\").getLocales()[0]?.languageTag ?? \"unknown\";"
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/app/account-password.tsx",
+      "matches": [
+        {
+          "line": 65,
+          "text": "import { ltrIsolate, rowDir, textDir, useIsRTL } from \"../lib/direction\";"
+        },
+        {
+          "line": 90,
+          "text": "const isRTL = useIsRTL();"
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/app/account-username.tsx",
+      "matches": [
+        {
+          "line": 35,
+          "text": "import { textDir, useIsRTL } from \"../lib/direction\";"
+        },
+        {
+          "line": 47,
+          "text": "const isRTL = useIsRTL();"
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/app/account.tsx",
+      "matches": [
+        {
+          "line": 59,
+          "text": "import { ltrIsolate, rowDir, textDir, useIsRTL } from \"../lib/direction\";"
+        },
+        {
+          "line": 67,
+          "text": "type LocalePref,"
+        },
+        {
+          "line": 68,
+          "text": "type ShareLangPref,"
+        },
+        {
+          "line": 92,
+          "text": "const LANGUAGE_OPTIONS: ReadonlyArray<{ value: LocalePref; labelKey: string }> = ["
+        },
+        {
+          "line": 101,
+          "text": "const MESSAGE_LANGUAGE_OPTIONS: ReadonlyArray<{ value: ShareLangPref; labelKey: string }> = ["
+        },
+        {
+          "line": 137,
+          "text": "const isRTL = useIsRTL();"
+        },
+        {
+          "line": 156,
+          "text": "const [localePref, setLocalePref] = useState<LocalePref>(\"system\");"
+        },
+        {
+          "line": 158,
+          "text": "const [shareLangPref, setShareLangPref] = useState<ShareLangPref>(\"auto\");"
+        },
+        {
+          "line": 273,
+          "text": "const storedPref = await getAppMeta(\"locale_pref\");"
+        },
+        {
+          "line": 464,
+          "text": "async function pickLanguage(value: LocalePref) {"
+        },
+        {
+          "line": 469,
+          "text": "await setAppMeta(\"locale_pref\", value);"
+        },
+        {
+          "line": 498,
+          "text": "async function pickMessageLang(value: ShareLangPref) {"
+        },
+        {
+          "line": 502,
+          "text": "await setAppMeta(\"share_lang_pref\", value);"
+        },
+        {
+          "line": 937,
+          "text": "onSelect={(k) => pickLanguage(k as LocalePref)}"
+        },
+        {
+          "line": 977,
+          "text": "onSelect={(k) => pickMessageLang(k as ShareLangPref)}"
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/app/diagnostics.tsx",
+      "matches": [
+        {
+          "line": 38,
+          "text": "import { trackingSafe, useIsRTL } from \"../lib/direction\";"
+        },
+        {
+          "line": 90,
+          "text": "const isRTL = useIsRTL();"
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/app/entry/[id]/edit.tsx",
+      "matches": [
+        {
+          "line": 13,
+          "text": "import { textDir, useIsRTL } from \"../../../lib/direction\";"
+        },
+        {
+          "line": 31,
+          "text": "const isRTL = useIsRTL();"
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/app/entry/new.tsx",
+      "matches": [
+        {
+          "line": 19,
+          "text": "import { textDir, trackingSafe, useIsRTL } from \"../../lib/direction\";"
+        },
+        {
+          "line": 53,
+          "text": "const isRTL = useIsRTL();"
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/app/group-members.tsx",
+      "matches": [
+        {
+          "line": 26,
+          "text": "import { rowDir, textDir, useIsRTL } from \"../lib/direction\";"
+        },
+        {
+          "line": 43,
+          "text": "isRTL = useIsRTL();"
+        },
+        {
+          "line": 101,
+          "text": "const locale = getLocale();"
+        },
+        {
+          "line": 114,
+          "text": "Number(stored(b.id)) - Number(stored(a.id)) || compareCustomerNames(a.name, b.name, locale),"
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/app/groups.tsx",
+      "matches": [
+        {
+          "line": 27,
+          "text": "import { rowDir, textDir, useIsRTL } from \"../lib/direction\";"
+        },
+        {
+          "line": 37,
+          "text": "isRTL = useIsRTL();"
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/app/guide.tsx",
+      "matches": [
+        {
+          "line": 6,
+          "text": "import { textDir, useIsRTL } from \"../lib/direction\";"
+        },
+        {
+          "line": 20,
+          "text": "const isRTL = useIsRTL();"
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/app/index.tsx",
+      "matches": [
+        {
+          "line": 105,
+          "text": "import { bidiIsolate, rowDir, textDir, trackingSafe, useIsRTL } from \"../lib/direction\";"
+        },
+        {
+          "line": 143,
+          "text": "// Tab labels are computed at render time so locale changes (after a hot reload"
+        },
+        {
+          "line": 190,
+          "text": "// Subscribes to locale changes — flipping language in Settings re-renders"
+        },
+        {
+          "line": 193,
+          "text": "const isRTL = useIsRTL();"
+        },
+        {
+          "line": 239,
+          "text": "const locale = getLocale();"
+        },
+        {
+          "line": 719,
+          "text": "const collect = selectCustomers(visibleAllPeople, \"collect\", DEFAULT_CUSTOMER_LIST, groupByPerson, locale);"
+        },
+        {
+          "line": 720,
+          "text": "const pay = selectCustomers(visibleAllPeople, \"pay\", DEFAULT_CUSTOMER_LIST, groupByPerson, locale);"
+        },
+        {
+          "line": 722,
+          "text": "}, [visibleAllPeople, groupByPerson, locale]);"
+        },
+        {
+          "line": 726,
+          "text": "selectNeverTalliedCustomers(visibleAllPeople, DEFAULT_CUSTOMER_LIST, groupByPerson, locale),"
+        },
+        {
+          "line": 727,
+          "text": "[visibleAllPeople, groupByPerson, locale],"
+        },
+        {
+          "line": 735,
+          "text": "locale,"
+        },
+        {
+          "line": 739,
+          "text": "[searching, searchMatches, listPreference, groupByPerson, locale],"
+        },
+        {
+          "line": 895,
+          "text": "return names.length ? names.join(locale === \"fa\" ? \"، \" : \", \") : null;"
+        },
+        {
+          "line": 896,
+          "text": "}, [effectiveGroup, customerGroups, locale]);"
+        },
+        {
+          "line": 1242,
+          "text": "// toast push / locale flip (see PersonRow's memo rationale)."
+        },
+        {
+          "line": 1318,
+          "text": "openPerson, openHomePersonActions, canAmend, locale]);"
+        },
+        {
+          "line": 2315,
+          "text": "const isRTL = useIsRTL();"
+        },
+        {
+          "line": 2328,
+          "text": "const isRTL = useIsRTL();"
+        },
+        {
+          "line": 2354,
+          "text": "const isRTL = useIsRTL();"
+        },
+        {
+          "line": 2386,
+          "text": "const isRTL = useIsRTL();"
+        },
+        {
+          "line": 2680,
+          "text": "// Persian script, so gating tracking on the app's locale would still"
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/app/invite/[token].tsx",
+      "matches": [
+        {
+          "line": 47,
+          "text": "import { textDir, useIsRTL } from \"../../lib/direction\";"
+        },
+        {
+          "line": 95,
+          "text": "const isRTL = useIsRTL();"
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/app/notifications.tsx",
+      "matches": [
+        {
+          "line": 7,
+          "text": "import { rowDir, useIsRTL } from \"../lib/direction\";"
+        },
+        {
+          "line": 12,
+          "text": "const rtl = useIsRTL();"
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/app/onboarding/auth.tsx",
+      "matches": [
+        {
+          "line": 47,
+          "text": "import { ltrIsolate, rowDir, textDir, useIsRTL } from \"../../lib/direction\";"
+        },
+        {
+          "line": 174,
+          "text": "const isRTL = useIsRTL();"
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/app/onboarding/calendar.tsx",
+      "matches": [
+        {
+          "line": 20,
+          "text": "import { rowDir, textDir, useIsRTL } from \"../../lib/direction\";"
+        },
+        {
+          "line": 30,
+          "text": "const rtl = useIsRTL();"
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/app/onboarding/index.tsx",
+      "matches": [
+        {
+          "line": 19,
+          "text": "const deviceLang = (getLocales()[0]?.languageCode ?? \"en\").toLowerCase();"
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/app/onboarding/kaata.tsx",
+      "matches": [
+        {
+          "line": 29,
+          "text": "import { bidiIsolate, rowDir, textDir, useIsRTL } from \"../../lib/direction\";"
+        },
+        {
+          "line": 59,
+          "text": "const isRTL = useIsRTL();"
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/app/onboarding/language.tsx",
+      "matches": [
+        {
+          "line": 9,
+          "text": "import { rowDir, textDir, useIsRTL } from \"../../lib/direction\";"
+        },
+        {
+          "line": 15,
+          "text": "// device locale is NOT already fa/prs. Persian-locale users skip directly"
+        },
+        {
+          "line": 21,
+          "text": "// translated copy under the cards is the only thing that updates locale —"
+        },
+        {
+          "line": 24,
+          "text": "// of current locale."
+        },
+        {
+          "line": 28,
+          "text": "const isRTL = useIsRTL();"
+        },
+        {
+          "line": 46,
+          "text": "await setAppMeta(\"locale_pref\", code);"
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/app/onboarding/profile.tsx",
+      "matches": [
+        {
+          "line": 33,
+          "text": "import { ltrIsolate, textDir, useIsRTL } from \"../../lib/direction\";"
+        },
+        {
+          "line": 69,
+          "text": "const isRTL = useIsRTL();"
+        },
+        {
+          "line": 358,
+          "text": "render LTR via Unicode bidi regardless of locale); the label and"
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/app/onboarding/restore.tsx",
+      "matches": [
+        {
+          "line": 46,
+          "text": "import { rowDir, textDir, useIsRTL } from \"../../lib/direction\";"
+        },
+        {
+          "line": 81,
+          "text": "const isRTL = useIsRTL();"
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/app/onboarding/success.tsx",
+      "matches": [
+        {
+          "line": 14,
+          "text": "import { rowDir, textDir, useIsRTL } from \"../../lib/direction\";"
+        },
+        {
+          "line": 30,
+          "text": "const isRTL = useIsRTL();"
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/app/pair/[token].tsx",
+      "matches": [
+        {
+          "line": 23,
+          "text": "import { textDir, useIsRTL } from \"../../lib/direction\";"
+        },
+        {
+          "line": 30,
+          "text": "const isRTL = useIsRTL();"
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/app/person/[id].tsx",
+      "matches": [
+        {
+          "line": 81,
+          "text": "useIsRTL,"
+        },
+        {
+          "line": 86,
+          "text": "import { getLocale, getShareLangPref, resolveShareLang, t, type LocaleCode } from \"../../lib/i18n\";"
+        },
+        {
+          "line": 266,
+          "text": "// Subscribes to locale changes — flipping language in Settings re-renders"
+        },
+        {
+          "line": 268,
+          "text": "const isRTL = useIsRTL();"
+        },
+        {
+          "line": 269,
+          "text": "const locale = getLocale();"
+        },
+        {
+          "line": 369,
+          "text": "// Message-language picker for the ping, shown when share_lang_pref = 'ask'."
+        },
+        {
+          "line": 529,
+          "text": "const dateRangeLabel = formatDateRangeLabel(dateRange, locale, calendar);"
+        },
+        {
+          "line": 843,
+          "text": "// from share_lang_pref, or picked in the ask-sheet)."
+        },
+        {
+          "line": 844,
+          "text": "const sendPing = async (lang?: LocaleCode) => {"
+        },
+        {
+          "line": 845,
+          "text": "if (!person || pingBusyRef.current || (lang == null && askLangVisible)) return;"
+        },
+        {
+          "line": 851,
+          "text": "if (lang == null) {"
+        },
+        {
+          "line": 859,
+          "text": "lang = resolveShareLang(pref);"
+        },
+        {
+          "line": 869,
+          "text": "lang,"
+        },
+        {
+          "line": 2377,
+          "text": "{/* Per-send message-language picker (share_lang_pref = 'ask'). Dari"
+        },
+        {
+          "line": 2399,
+          "text": "void sendPing(k as LocaleCode);"
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/app/person/[id]/credit-limit.tsx",
+      "matches": [
+        {
+          "line": 39,
+          "text": "import { rowDir, textDir, useIsRTL } from \"../../../lib/direction\";"
+        },
+        {
+          "line": 59,
+          "text": "const isRTL = useIsRTL();"
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/app/person/[id]/edit.tsx",
+      "matches": [
+        {
+          "line": 24,
+          "text": "import { ltrIsolate, rowDir, textDir, useIsRTL } from \"../../../lib/direction\";"
+        },
+        {
+          "line": 42,
+          "text": "const isRTL = useIsRTL();"
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/app/person/[id]/group.tsx",
+      "matches": [
+        {
+          "line": 12,
+          "text": "import { rowDir, textDir, useIsRTL } from \"../../../lib/direction\";"
+        },
+        {
+          "line": 23,
+          "text": "isRTL = useIsRTL(),"
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/app/person/[id]/reminders.tsx",
+      "matches": [
+        {
+          "line": 23,
+          "text": "import { textDir, useIsRTL } from \"../../../lib/direction\";"
+        },
+        {
+          "line": 36,
+          "text": "rtl = useIsRTL(),"
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/app/person/new.tsx",
+      "matches": [
+        {
+          "line": 35,
+          "text": "useIsRTL,"
+        },
+        {
+          "line": 73,
+          "text": "// Subscribes to locale changes — flipping language in Settings live-updates"
+        },
+        {
+          "line": 75,
+          "text": "const isRTL = useIsRTL();"
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/app/reminders.tsx",
+      "matches": [
+        {
+          "line": 18,
+          "text": "import { rowDir, textDir, useIsRTL } from \"../lib/direction\";"
+        },
+        {
+          "line": 27,
+          "text": "rtl = useIsRTL(),"
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/app/restore.tsx",
+      "matches": [
+        {
+          "line": 51,
+          "text": "import { textDir, useIsRTL } from \"../lib/direction\";"
+        },
+        {
+          "line": 62,
+          "text": "const isRTL = useIsRTL();"
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/app/t/[token].tsx",
+      "matches": [
+        {
+          "line": 80,
+          "text": "useIsRTL,"
+        },
+        {
+          "line": 176,
+          "text": "const isRTL = useIsRTL();"
+        },
+        {
+          "line": 1377,
+          "text": "* needs boot-time state (fonts, the restore gate, the device locale) that this"
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/app/tab/dispute.tsx",
+      "matches": [
+        {
+          "line": 21,
+          "text": "import { textDir, useIsRTL } from \"../../lib/direction\";"
+        },
+        {
+          "line": 50,
+          "text": "const isRTL = useIsRTL();"
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/app/update-prompt.tsx",
+      "matches": [
+        {
+          "line": 8,
+          "text": "import { textDir, trackingSafe, useIsRTL } from \"../lib/direction\";"
+        },
+        {
+          "line": 15,
+          "text": "const isRTL = useIsRTL();"
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/app/vault/archived.tsx",
+      "matches": [
+        {
+          "line": 33,
+          "text": "import { rowDir, textDir, useIsRTL } from \"../../lib/direction\";"
+        },
+        {
+          "line": 54,
+          "text": "const isRTL = useIsRTL();"
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/app/vault/audit-log.tsx",
+      "matches": [
+        {
+          "line": 41,
+          "text": "import { rowDir, textDir, useIsRTL } from \"../../lib/direction\";"
+        },
+        {
+          "line": 65,
+          "text": "const isRTL = useIsRTL();"
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/app/vault/invite.tsx",
+      "matches": [
+        {
+          "line": 51,
+          "text": "import { rowDir, textDir, useIsRTL } from \"../../lib/direction\";"
+        },
+        {
+          "line": 53,
+          "text": "import { getShareLangPref, resolveShareLang, t, tIn, type LocaleCode } from \"../../lib/i18n\";"
+        },
+        {
+          "line": 71,
+          "text": "const isRTL = useIsRTL();"
+        },
+        {
+          "line": 86,
+          "text": "// Message-language picker for the invite share, when share_lang_pref = 'ask'."
+        },
+        {
+          "line": 234,
+          "text": "async function shareInvite(lang: LocaleCode) {"
+        },
+        {
+          "line": 239,
+          "text": "message: tIn(lang, \"invite.shareMessage\", { url: result.invite_url }),"
+        },
+        {
+          "line": 450,
+          "text": "{/* Per-send message-language picker (share_lang_pref = 'ask'). */}"
+        },
+        {
+          "line": 464,
+          "text": "setTimeout(() => void shareInvite(k as LocaleCode), SHEET_EXIT_MS + 80);"
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/app/vault/members.tsx",
+      "matches": [
+        {
+          "line": 57,
+          "text": "import { rowDir, textDir, trackingSafe, useIsRTL } from \"../../lib/direction\";"
+        },
+        {
+          "line": 116,
+          "text": "const isRTL = useIsRTL();"
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/app/vault/new.tsx",
+      "matches": [
+        {
+          "line": 48,
+          "text": "import { bidiIsolate, rowDir, textDir, useIsRTL } from \"../../lib/direction\";"
+        },
+        {
+          "line": 61,
+          "text": "const isRTL = useIsRTL();"
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/app/vault/pair-scan.tsx",
+      "matches": [
+        {
+          "line": 33,
+          "text": "import { textDir, useIsRTL } from \"../../lib/direction\";"
+        },
+        {
+          "line": 82,
+          "text": "const isRTL = useIsRTL();"
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/app/vault/pair.tsx",
+      "matches": [
+        {
+          "line": 24,
+          "text": "import { textDir, useIsRTL } from \"../../lib/direction\";"
+        },
+        {
+          "line": 50,
+          "text": "const isRTL = useIsRTL();"
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/app/vault/removed-people.tsx",
+      "matches": [
+        {
+          "line": 36,
+          "text": "import { rowDir, textDir, useIsRTL } from \"../../lib/direction\";"
+        },
+        {
+          "line": 45,
+          "text": "const isRTL = useIsRTL();"
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/app/vault/settings.tsx",
+      "matches": [
+        {
+          "line": 82,
+          "text": "import { bidiIsolate, rowDir, textDir, useIsRTL } from \"../../lib/direction\";"
+        },
+        {
+          "line": 103,
+          "text": "const isRTL = useIsRTL();"
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/app/vault/transfer.tsx",
+      "matches": [
+        {
+          "line": 44,
+          "text": "import { rowDir, textDir, useIsRTL } from \"../../lib/direction\";"
+        },
+        {
+          "line": 65,
+          "text": "const isRTL = useIsRTL();"
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/components/BottomSheet.tsx",
+      "matches": [
+        {
+          "line": 11,
+          "text": "import { rowDir, textDir, useIsRTL } from \"../lib/direction\";"
+        },
+        {
+          "line": 39,
+          "text": "const isRTL = useIsRTL();"
+        },
+        {
+          "line": 152,
+          "text": "// whose names are Persian script, so gating tracking on the app's locale"
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/components/CalendarDayPicker.tsx",
+      "matches": [
+        {
+          "line": 33,
+          "text": "const locale = getLocale();"
+        },
+        {
+          "line": 38,
+          "text": "const weekStart = locale === \"fa\" || props.calendar !== \"gregorian\" ? 6 : 1;"
+        },
+        {
+          "line": 42,
+          "text": "const label = (ms: number) => formatCalendarDate(ms, locale, props.calendar);"
+        },
+        {
+          "line": 116,
+          "text": "{locale === \"fa\" ? faDigits(number) : number}"
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/components/Chip.tsx",
+      "matches": [
+        {
+          "line": 3,
+          "text": "import { useIsRTL } from \"../lib/direction\";"
+        },
+        {
+          "line": 17,
+          "text": "const isRTL = useIsRTL();"
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/components/ConfirmDialog.tsx",
+      "matches": [
+        {
+          "line": 6,
+          "text": "import { rowDir, textDir, trackingSafe, useIsRTL } from \"../lib/direction\";"
+        },
+        {
+          "line": 43,
+          "text": "const isRTL = useIsRTL();"
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/components/CountryPickerSheet.tsx",
+      "matches": [
+        {
+          "line": 20,
+          "text": "import { ltrIsolate, rowDir, textDir, trackingSafe, useIsRTL } from \"../lib/direction\";"
+        },
+        {
+          "line": 42,
+          "text": "const isRTL = useIsRTL();"
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/components/CreditIntentList.tsx",
+      "matches": [
+        {
+          "line": 8,
+          "text": "import { textDir, useIsRTL } from \"../lib/direction\";"
+        },
+        {
+          "line": 31,
+          "text": "const isRTL = useIsRTL();"
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/components/CreditStatusBadge.tsx",
+      "matches": [
+        {
+          "line": 6,
+          "text": "import { bidiIsolate, useIsRTL } from \"../lib/direction\";"
+        },
+        {
+          "line": 142,
+          "text": "const isRTL = useIsRTL();"
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/components/CustomerReminderRow.tsx",
+      "matches": [
+        {
+          "line": 5,
+          "text": "import { rowDir, textDir, useIsRTL } from \"../lib/direction\";"
+        },
+        {
+          "line": 30,
+          "text": "const rtl = useIsRTL(),"
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/components/EmailAuthFlow.tsx",
+      "matches": [
+        {
+          "line": 363,
+          "text": "{ email, code: digits, password: newPassword, lang: getLocale() },"
+        },
+        {
+          "line": 397,
+          "text": "{ email, code: digits, newPassword, lang: getLocale() },"
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/components/EntryRow.tsx",
+      "matches": [
+        {
+          "line": 11,
+          "text": "import { rowDir, textDir, trackingSafe, useIsRTL } from \"../lib/direction\";"
+        },
+        {
+          "line": 92,
+          "text": "const isRTL = useIsRTL();"
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/components/FormField.tsx",
+      "matches": [
+        {
+          "line": 4,
+          "text": "import { textDir, useIsRTL } from \"../lib/direction\";"
+        },
+        {
+          "line": 42,
+          "text": "const isRTL = useIsRTL();"
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/components/LinkAccountDialog.tsx",
+      "matches": [
+        {
+          "line": 9,
+          "text": "import { rowDir, textDir, useIsRTL } from \"../lib/direction\";"
+        },
+        {
+          "line": 15,
+          "text": "tIn,"
+        },
+        {
+          "line": 16,
+          "text": "type LocaleCode,"
+        },
+        {
+          "line": 39,
+          "text": "const rtl = useIsRTL();"
+        },
+        {
+          "line": 45,
+          "text": "const [language, setLanguage] = useState<LocaleCode>(getLocale);"
+        },
+        {
+          "line": 130,
+          "text": "const text = tIn(language, \"tab.invite.message\", {"
+        },
+        {
+          "line": 187,
+          "text": "{([\"fa\", \"en\"] as const).map((lang) => ("
+        },
+        {
+          "line": 189,
+          "text": "key={lang}"
+        },
+        {
+          "line": 192,
+          "text": "accessibilityState={{ checked: language === lang, disabled: busy }}"
+        },
+        {
+          "line": 193,
+          "text": "onPress={() => setLanguage(lang)}"
+        },
+        {
+          "line": 194,
+          "text": "style={[styles.languageOption, language === lang && styles.selected]}"
+        },
+        {
+          "line": 198,
+          "text": "lang === \"fa\""
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/components/NotificationInbox.tsx",
+      "matches": [
+        {
+          "line": 19,
+          "text": "import { rowDir, textDir, useIsRTL } from \"../lib/direction\";"
+        },
+        {
+          "line": 33,
+          "text": "const rtl = useIsRTL();"
+        },
+        {
+          "line": 81,
+          "text": "const rtl = useIsRTL();"
+        },
+        {
+          "line": 190,
+          "text": "const rtl = useIsRTL();"
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/components/Onboarding.tsx",
+      "matches": [
+        {
+          "line": 5,
+          "text": "import { rowDir, textDir, useIsRTL } from \"../lib/direction\";"
+        },
+        {
+          "line": 20,
+          "text": "const isRTL = useIsRTL();"
+        },
+        {
+          "line": 62,
+          "text": "const isRTL = useIsRTL();"
+        },
+        {
+          "line": 94,
+          "text": "const isRTL = useIsRTL();"
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/components/PersonRow.tsx",
+      "matches": [
+        {
+          "line": 8,
+          "text": "import { rowDir, textDir, useIsRTL } from \"../lib/direction\";"
+        },
+        {
+          "line": 36,
+          "text": "const isRTL = useIsRTL();"
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/components/ProfileSettingsSheet.tsx",
+      "matches": [
+        {
+          "line": 32,
+          "text": "import { rowDir, textDir, useIsRTL } from \"../lib/direction\";"
+        },
+        {
+          "line": 134,
+          "text": "const isRTL = useIsRTL();"
+        },
+        {
+          "line": 551,
+          "text": "// on a Persian-locale device (UX critique #3). i18n keys carry both"
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/components/ReminderCoordinator.tsx",
+      "matches": [
+        {
+          "line": 28,
+          "text": "const locale = subscribeLocale(refresh);"
+        },
+        {
+          "line": 43,
+          "text": "locale();"
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/components/ReminderEditor.tsx",
+      "matches": [
+        {
+          "line": 9,
+          "text": "import { rowDir, textDir, useIsRTL } from \"../lib/direction\";"
+        },
+        {
+          "line": 37,
+          "text": "const rtl = useIsRTL();"
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/components/RestoreProgress.tsx",
+      "matches": [
+        {
+          "line": 169,
+          "text": "// In an RTL locale the fill should grow from the trailing (right) edge to"
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/components/SelectionToolbar.tsx",
+      "matches": [
+        {
+          "line": 6,
+          "text": "import { rowDir, textDir, useIsRTL } from \"../lib/direction\";"
+        },
+        {
+          "line": 44,
+          "text": "const isRTL = useIsRTL();"
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/components/SharedAccountBadge.tsx",
+      "matches": [
+        {
+          "line": 24,
+          "text": "/** Adjacent displayed name; alignment follows its script, not the UI locale. */"
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/components/TallyDateFilterSheet.tsx",
+      "matches": [
+        {
+          "line": 77,
+          "text": "const locale = getLocale();"
+        },
+        {
+          "line": 108,
+          "text": "const weekStart = locale === \"fa\" || props.calendar !== \"gregorian\" ? 6 : 1;"
+        },
+        {
+          "line": 129,
+          "text": "const dateLabel = (ms: number) => formatCalendarDate(ms, locale, props.calendar);"
+        },
+        {
+          "line": 362,
+          "text": "{locale === \"fa\" ? faDigits(number) : number}"
+        },
+        {
+          "line": 383,
+          "text": "locale,"
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/components/Toast.tsx",
+      "matches": [
+        {
+          "line": 16,
+          "text": "import { rowDir, textDir, trackingSafe, useIsRTL } from \"../lib/direction\";"
+        },
+        {
+          "line": 313,
+          "text": "const isRTL = useIsRTL();"
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/components/UpdateBanner.tsx",
+      "matches": [
+        {
+          "line": 6,
+          "text": "import { rowDir, textDir, useIsRTL } from \"../lib/direction\";"
+        },
+        {
+          "line": 27,
+          "text": "const isRTL = useIsRTL();"
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/components/VaultPickerSheet.tsx",
+      "matches": [
+        {
+          "line": 21,
+          "text": "import { rowDir, textDir, trackingSafe, useIsRTL } from \"../lib/direction\";"
+        },
+        {
+          "line": 83,
+          "text": "const isRTL = useIsRTL();"
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/lib/api.ts",
+      "matches": [
+        {
+          "line": 25,
+          "text": "// app in (distinct from device_locale, the OS locale). Powers the language"
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/lib/auth.ts",
+      "matches": [
+        {
+          "line": 1328,
+          "text": "lang: string,"
+        },
+        {
+          "line": 1332,
+          "text": "const { res, retried } = await postAuthTracked(`${baseUrl}${path}`, { email: address, lang });"
+        },
+        {
+          "line": 1352,
+          "text": "export function emailSignUpStart(email: string, lang: string): Promise<EmailCodeSent> {"
+        },
+        {
+          "line": 1353,
+          "text": "return emailCodeStart(\"/v1/auth/email/signup/start\", \"signup\", email, lang);"
+        },
+        {
+          "line": 1357,
+          "text": "export function emailResetStart(email: string, lang: string): Promise<EmailCodeSent> {"
+        },
+        {
+          "line": 1358,
+          "text": "return emailCodeStart(\"/v1/auth/email/reset/start\", \"reset\", email, lang);"
+        },
+        {
+          "line": 1373,
+          "text": "args: { email: string; code: string; password: string; lang: string },"
+        },
+        {
+          "line": 1380,
+          "text": "{ email, code: args.code, password: args.password, lang: args.lang },"
+        },
+        {
+          "line": 1388,
+          "text": "args: { email: string; code: string; newPassword: string; lang: string },"
+        },
+        {
+          "line": 1395,
+          "text": "// lang: the security notice (\"your password was reset\") speaks the app's language."
+        },
+        {
+          "line": 1396,
+          "text": "{ email, code: args.code, new_password: args.newPassword, lang: args.lang },"
+        },
+        {
+          "line": 1887,
+          "text": "lang: string,"
+        },
+        {
+          "line": 1893,
+          "text": "address ? { email: address, lang } : { lang },"
+        },
+        {
+          "line": 1909,
+          "text": "lang: string,"
+        },
+        {
+          "line": 1914,
+          "text": "lang,"
+        },
+        {
+          "line": 1930,
+          "text": "lang: string,"
+        },
+        {
+          "line": 1936,
+          "text": "lang,"
+        },
+        {
+          "line": 1962,
+          "text": "export async function removePassword(lang: string): Promise<void> {"
+        },
+        {
+          "line": 1963,
+          "text": "// lang: the \"password sign-in removed\" notice speaks the app's language."
+        },
+        {
+          "line": 1964,
+          "text": "await accountRequest(\"DELETE\", `/v1/account/password?lang=${encodeURIComponent(lang)}`);"
+        },
+        {
+          "line": 2854,
+          "text": "const DEVICE_PREF_KEYS = [\"locale_pref\", \"calendar_pref\"] as const;"
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/lib/calendar.ts",
+      "matches": [
+        {
+          "line": 4,
+          "text": "// LANGUAGE: `formatSettlementDate(ms, locale)` and the bill renderers all"
+        },
+        {
+          "line": 5,
+          "text": "// keyed off \"is the locale fa?\", so there was no way to express \"Dari"
+        },
+        {
+          "line": 51,
+          "text": "/** app_meta key. Named beside `locale_pref` / `default_currency`. */"
+        },
+        {
+          "line": 77,
+          "text": "* locale on every call rather than caching, so a language switch moves an"
+        },
+        {
+          "line": 163,
+          "text": "* counter rather than the derived value. That is deliberate: useIsRTL stores a"
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/lib/customer-list.ts",
+      "matches": [
+        {
+          "line": 125,
+          "text": "export function compareCustomerNames(a: string, b: string, locale: \"en\" | \"fa\"): number {"
+        },
+        {
+          "line": 137,
+          "text": "order = left[i].localeCompare(right[i], locale, { sensitivity: \"base\" });"
+        },
+        {
+          "line": 141,
+          "text": "return left.length - right.length || a.localeCompare(b, locale, { sensitivity: \"base\" });"
+        },
+        {
+          "line": 150,
+          "text": "locale: \"en\" | \"fa\","
+        },
+        {
+          "line": 157,
+          "text": "locale,"
+        },
+        {
+          "line": 168,
+          "text": "locale: \"en\" | \"fa\","
+        },
+        {
+          "line": 175,
+          "text": "locale,"
+        },
+        {
+          "line": 187,
+          "text": "locale: \"en\" | \"fa\","
+        },
+        {
+          "line": 195,
+          "text": "locale,"
+        },
+        {
+          "line": 213,
+          "text": "locale: \"en\" | \"fa\","
+        },
+        {
+          "line": 218,
+          "text": "compareCustomerNames(a.name, b.name, locale) || a.id.localeCompare(b.id);"
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/lib/diagnostics-report.ts",
+      "matches": [
+        {
+          "line": 253,
+          "text": "const pref = (await getAppMeta(\"locale_pref\")) ?? \"system\";"
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/lib/digits.ts",
+      "matches": [
+        {
+          "line": 5,
+          "text": "// ASCII-only, and without this step digits typed by Persian-locale users"
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/lib/direction.ts",
+      "matches": [
+        {
+          "line": 18,
+          "text": "// the active locale in lib/i18n.ts. Components consume it via useIsRTL(),"
+        },
+        {
+          "line": 19,
+          "text": "// which subscribes to locale changes and re-renders on flip. setLocale() in"
+        },
+        {
+          "line": 44,
+          "text": "// value mirrors what useIsRTL() returns inside React."
+        },
+        {
+          "line": 49,
+          "text": "// Hook: returns true when the active locale wants RTL layout. Subscribes to"
+        },
+        {
+          "line": 50,
+          "text": "// locale changes so the consuming component re-renders the moment Settings"
+        },
+        {
+          "line": 54,
+          "text": "export function useIsRTL(): boolean {"
+        },
+        {
+          "line": 59,
+          "text": "// Recompute on every locale change. We don't trust the notify-time"
+        },
+        {
+          "line": 69,
+          "text": "// Inline style helpers — call from JSX with the result of useIsRTL() to opt"
+        },
+        {
+          "line": 111,
+          "text": "* Do NOT apply this to text that is always Latin regardless of locale —"
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/lib/export/csv.ts",
+      "matches": [
+        {
+          "line": 6,
+          "text": "// line) render via tIn in the export's locale."
+        },
+        {
+          "line": 20,
+          "text": "import { tIn } from \"../i18n\";"
+        },
+        {
+          "line": 82,
+          "text": "const { locale, calendar, currencyCode: code } = st;"
+        },
+        {
+          "line": 90,
+          "text": "tIn(locale, \"export.col.date\"),"
+        },
+        {
+          "line": 91,
+          "text": "tIn(locale, \"export.col.dateShamsi\"),"
+        },
+        {
+          "line": 92,
+          "text": "`${tIn(locale, \"export.col.gave\")} (${code})`,"
+        },
+        {
+          "line": 93,
+          "text": "`${tIn(locale, \"export.col.received\")} (${code})`,"
+        },
+        {
+          "line": 94,
+          "text": "`${tIn(locale, \"export.col.balance\")} (${code})`,"
+        },
+        {
+          "line": 95,
+          "text": "tIn(locale, \"export.col.note\"),"
+        },
+        {
+          "line": 98,
+          "text": "tIn(locale, \"export.record.scope\"),"
+        },
+        {
+          "line": 99,
+          "text": "tIn(locale, \"export.record.currency\"),"
+        },
+        {
+          "line": 103,
+          "text": "tIn(locale, \"export.record.recordedAmount\"),"
+        },
+        {
+          "line": 104,
+          "text": "tIn(locale, \"export.record.periodBalance\"),"
+        },
+        {
+          "line": 105,
+          "text": "tIn(locale, \"export.record.contribution\"),"
+        },
+        {
+          "line": 106,
+          "text": "tIn(locale, \"export.record.acknowledgedBalance\"),"
+        },
+        {
+          "line": 107,
+          "text": "tIn(locale, \"export.record.pendingBalance\"),"
+        },
+        {
+          "line": 108,
+          "text": "tIn(locale, \"export.record.privateBalance\"),"
+        },
+        {
+          "line": 109,
+          "text": "...EVIDENCE_KEYS.map((k) => tIn(locale, k)),"
+        },
+        {
+          "line": 112,
+          "text": "...(qamari ? [tIn(locale, \"export.col.dateQamari\")] : []),"
+        },
+        {
+          "line": 113,
+          "text": "tIn(locale, \"export.col.id\"),"
+        },
+        {
+          "line": 118,
+          "text": "const date = formatSettlementDate(row.ms, locale, calendar);"
+        },
+        {
+          "line": 128,
+          "text": "? clearanceNote(row.shared.settlement.actor_name, date, locale)"
+        },
+        {
+          "line": 129,
+          "text": ": tIn(locale, \"person.history.settledOn\", { date }),"
+        },
+        {
+          "line": 133,
+          "text": "tIn(locale, \"export.record.current\"),"
+        },
+        {
+          "line": 160,
+          "text": "guardText(noteFor(e.note, e.tab?.kind, locale)),"
+        },
+        {
+          "line": 163,
+          "text": "tIn(locale, \"export.record.current\"),"
+        },
+        {
+          "line": 171,
+          "text": "...evidenceCells(e.tab, locale).map(guardText),"
+        },
+        {
+          "line": 192,
+          "text": "formatSettlementDate(row.ms, locale, calendar),"
+        },
+        {
+          "line": 193,
+          "text": "locale,"
+        },
+        {
+          "line": 196,
+          "text": "tIn(locale, \"export.record.archived\"),"
+        },
+        {
+          "line": 222,
+          "text": "guardText(noteFor(entry.note, entry.tab?.kind, locale)),"
+        },
+        {
+          "line": 223,
+          "text": "tIn(locale, \"export.record.archived\"),"
+        },
+        {
+          "line": 231,
+          "text": "...evidenceCells(entry.tab, locale).map(guardText),"
+        },
+        {
+          "line": 242,
+          "text": "const { locale, currencyCode: code } = report;"
+        },
+        {
+          "line": 248,
+          "text": "tIn(locale, \"export.col.date\"),"
+        },
+        {
+          "line": 249,
+          "text": "tIn(locale, \"export.col.dateShamsi\"),"
+        },
+        {
+          "line": 250,
+          "text": "tIn(locale, \"export.col.person\"),"
+        },
+        {
+          "line": 251,
+          "text": "tIn(locale, \"export.col.phone\"),"
+        },
+        {
+          "line": 252,
+          "text": "`${tIn(locale, \"export.col.gave\")} (${code})`,"
+        },
+        {
+          "line": 253,
+          "text": "`${tIn(locale, \"export.col.received\")} (${code})`,"
+        },
+        {
+          "line": 254,
+          "text": "`${tIn(locale, \"export.col.balance\")} (${code})`,"
+        },
+        {
+          "line": 255,
+          "text": "tIn(locale, \"export.col.note\"),"
+        },
+        {
+          "line": 260,
+          "text": "`${tIn(locale, \"export.record.recordedAmount\")} (${code})`,"
+        },
+        {
+          "line": 261,
+          "text": "tIn(locale, \"export.record.contribution\"),"
+        },
+        {
+          "line": 262,
+          "text": "tIn(locale, \"export.record.acknowledgedBalance\"),"
+        },
+        {
+          "line": 263,
+          "text": "tIn(locale, \"export.record.pendingBalance\"),"
+        },
+        {
+          "line": 264,
+          "text": "tIn(locale, \"export.record.privateBalance\"),"
+        },
+        {
+          "line": 265,
+          "text": "...EVIDENCE_KEYS.map((k) => tIn(locale, k)),"
+        },
+        {
+          "line": 268,
+          "text": "...(qamari ? [tIn(locale, \"export.col.dateQamari\")] : []),"
+        },
+        {
+          "line": 269,
+          "text": "tIn(locale, \"export.col.id\"),"
+        },
+        {
+          "line": 286,
+          "text": "guardText(noteFor(row.note, row.kind, locale)),"
+        },
+        {
+          "line": 294,
+          "text": "...evidenceCells(row.tab, locale).map(guardText),"
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/lib/export/data.ts",
+      "matches": [
+        {
+          "line": 29,
+          "text": "import type { LocaleCode } from \"../i18n\";"
+        },
+        {
+          "line": 60,
+          "text": "locale: LocaleCode;"
+        },
+        {
+          "line": 135,
+          "text": "locale: LocaleCode;"
+        },
+        {
+          "line": 143,
+          "text": "locale: LocaleCode,"
+        },
+        {
+          "line": 151,
+          "text": "buildPersonStatementSnapshot(personId, locale, currencyCode, currencySymbol, generatedAtMs),"
+        },
+        {
+          "line": 157,
+          "text": "locale: LocaleCode,"
+        },
+        {
+          "line": 240,
+          "text": "locale,"
+        },
+        {
+          "line": 242,
+          "text": "// locale, which callers override because an export can be in the MESSAGE"
+        },
+        {
+          "line": 256,
+          "text": "locale: LocaleCode,"
+        },
+        {
+          "line": 311,
+          "text": "locale,"
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/lib/export/evidence.ts",
+      "matches": [
+        {
+          "line": 1,
+          "text": "import { tIn, type LocaleCode } from \"../i18n\";"
+        },
+        {
+          "line": 4,
+          "text": "export function recordStatus(tab: TabEntryMeta | undefined, locale: LocaleCode): string {"
+        },
+        {
+          "line": 5,
+          "text": "if (!tab) return tIn(locale, \"export.record.private\");"
+        },
+        {
+          "line": 7,
+          "text": "if (tab.voided) return tIn(locale, \"export.record.cancellationAwaitingSync\");"
+        },
+        {
+          "line": 8,
+          "text": "if (tab.status === \"accepted\") return tIn(locale, \"export.record.acceptanceAwaitingSync\");"
+        },
+        {
+          "line": 9,
+          "text": "if (tab.status === \"disputed\") return tIn(locale, \"export.record.rejectionAwaitingSync\");"
+        },
+        {
+          "line": 11,
+          "text": "return tIn("
+        },
+        {
+          "line": 12,
+          "text": "locale,"
+        },
+        {
+          "line": 51,
+          "text": "export function evidenceCells(tab: TabEntryMeta | undefined, locale: LocaleCode): string[] {"
+        },
+        {
+          "line": 52,
+          "text": "if (!tab) return [recordStatus(tab, locale), ...EVIDENCE_KEYS.slice(1).map(() => \"\")];"
+        },
+        {
+          "line": 56,
+          "text": "recordStatus(tab, locale),"
+        },
+        {
+          "line": 57,
+          "text": "tIn(locale, tab.local_pending ? \"export.record.awaitingSync\" : \"export.record.saved\"),"
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/lib/export/note.ts",
+      "matches": [
+        {
+          "line": 21,
+          "text": "// tIn, so for them this edge costs nothing."
+        },
+        {
+          "line": 23,
+          "text": "import { tIn, type LocaleCode } from \"../i18n\";"
+        },
+        {
+          "line": 37,
+          "text": "locale: LocaleCode,"
+        },
+        {
+          "line": 40,
+          "text": "if (kind === \"opening\") return tIn(locale, \"tab.opening.note\");"
+        },
+        {
+          "line": 68,
+          "text": "locale: LocaleCode,"
+        },
+        {
+          "line": 72,
+          "text": "return tIn(locale, name ? \"export.doc.clearedBy\" : \"export.doc.clearedUnnamed\")"
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/lib/export/pdf.ts",
+      "matches": [
+        {
+          "line": 43,
+          "text": "import { tIn, type LocaleCode } from \"../i18n\";"
+        },
+        {
+          "line": 100,
+          "text": "/** Counts that sit inside PROSE take the locale's digits, so \"۲۵ ثبت\" does"
+        },
+        {
+          "line": 103,
+          "text": "function countIn(locale: \"en\" | \"fa\", n: number): string {"
+        },
+        {
+          "line": 104,
+          "text": "return locale === \"fa\" ? faDigits(n) : String(n);"
+        },
+        {
+          "line": 126,
+          "text": "locale: \"en\" | \"fa\";"
+        },
+        {
+          "line": 131,
+          "text": "const rtl = opts.locale === \"fa\";"
+        },
+        {
+          "line": 133,
+          "text": "<html dir=\"${rtl ? \"rtl\" : \"ltr\"}\" lang=\"${opts.locale}\">"
+        },
+        {
+          "line": 312,
+          "text": "function reviewerSide(party: string, tab: TabEntryMeta, locale: LocaleCode): string | null {"
+        },
+        {
+          "line": 315,
+          "text": "return tIn(locale, party === mine ? \"export.record.side.this\" : \"export.record.side.other\");"
+        },
+        {
+          "line": 322,
+          "text": "locale: LocaleCode,"
+        },
+        {
+          "line": 327,
+          "text": "shown = roleKey ? tIn(locale, roleKey) : null;"
+        },
+        {
+          "line": 329,
+          "text": "shown = reviewerSide(value, tab, locale);"
+        },
+        {
+          "line": 336,
+          "text": "function recordDetailHtml(entry: Entry, locale: \"en\" | \"fa\"): string {"
+        },
+        {
+          "line": 339,
+          "text": "const values = evidenceCells(tab, locale);"
+        },
+        {
+          "line": 342,
+          "text": "if (!values[3]) values[3] = tIn(locale, \"export.record.unknown\");"
+        },
+        {
+          "line": 344,
+          "text": "values[7] = tIn(locale, \"export.record.unknown\");"
+        },
+        {
+          "line": 349,
+          "text": "`<div><span class=\"evidenceLabel\" dir=\"auto\">${esc(tIn(locale, key))}: </span>${evidenceValueHtml(key, values[i], tab, locale)}</div>`,"
+        },
+        {
+          "line": 354,
+          "text": "`<div><span class=\"evidenceLabel\" dir=\"auto\">${esc(tIn(locale, \"export.col.id\"))}: </span>${code(entry.id)}</div>`,"
+        },
+        {
+          "line": 361,
+          "text": "st: Pick<PersonStatement, \"locale\" | \"calendar\">,"
+        },
+        {
+          "line": 363,
+          "text": "const { locale, calendar } = st;"
+        },
+        {
+          "line": 364,
+          "text": "const date = formatSettlementDate(row.ms, locale, calendar);"
+        },
+        {
+          "line": 371,
+          "text": "? clearanceNote(row.shared.settlement.actor_name, date, locale, {"
+        },
+        {
+          "line": 375,
+          "text": "`<span class=\"settledMeta\" dir=\"auto\">${esc(tIn(locale, \"export.record.recordedAt\"))}: ${num(esc(evidenceTime(row.ms)))}</span>`"
+        },
+        {
+          "line": 376,
+          "text": ": esc(tIn(locale, \"export.doc.settledOn\", { date }));"
+        },
+        {
+          "line": 388,
+          "text": "const { locale, calendar } = st;"
+        },
+        {
+          "line": 400,
+          "text": "<td class=\"muted\" dir=\"auto\">${esc(formatSettlementDate(entry.created_at, locale, calendar))}</td>"
+        },
+        {
+          "line": 401,
+          "text": "<td class=\"c\"><span class=\"type ${cls}\" dir=\"auto\">${esc(tIn(locale, gave ? \"export.col.gave\" : \"export.col.received\"))}</span><span class=\"recordStatus\" dir=\"auto\">${esc(recordStatus(entry.tab, locale))}</span></td>"
+        },
+        {
+          "line": 404,
+          "text": "<td class=\"note\" dir=\"auto\">${esc(noteFor(entry.note, entry.tab?.kind, locale) ?? \"\")}</td>"
+        },
+        {
+          "line": 405,
+          "text": "</tr>${recordDetailHtml(entry, locale)}`;"
+        },
+        {
+          "line": 409,
+          "text": "<h2 class=\"sectionTitle\" dir=\"auto\">${esc(tIn(locale, \"export.record.archiveTitle\"))} — ${esc(formatSettlementDate(period.link.linked_at, locale, calendar))}</h2>"
+        },
+        {
+          "line": 411,
+          "text": "<p class=\"recordNotes\" dir=\"auto\">${esc(tIn(locale, \"export.record.archiveExplanation\"))}</p>"
+        },
+        {
+          "line": 412,
+          "text": "${period.link.closed_reason === \"account_deleted\" ? `<p class=\"recordNotes\" dir=\"auto\">${esc(tIn(locale, \"export.record.closedDeleted\"))}</p>` : \"\"}"
+        },
+        {
+          "line": 414,
+          "text": "<th class=\"n\">${esc(tIn(locale, \"export.col.num\"))}</th><th>${esc(tIn(locale, \"export.col.date\"))}</th>"
+        },
+        {
+          "line": 415,
+          "text": "<th class=\"c\">${esc(tIn(locale, \"export.col.type\"))}</th><th class=\"n\">${esc(tIn(locale, \"export.col.amount\"))}</th>"
+        },
+        {
+          "line": 416,
+          "text": "<th class=\"n\">${esc(tIn(locale, \"export.record.periodBalance\"))}</th><th>${esc(tIn(locale, \"export.col.note\"))}</th>"
+        },
+        {
+          "line": 424,
+          "text": "const { locale, calendar, currencySymbol: sym } = st;"
+        },
+        {
+          "line": 448,
+          "text": "tIn(locale, \"export.doc.generated\", {"
+        },
+        {
+          "line": 449,
+          "text": "date: formatSettlementDate(st.generatedAtMs, locale, calendar),"
+        },
+        {
+          "line": 452,
+          "text": "esc(tIn(locale, \"export.doc.entriesCount\", { n: countIn(locale, entries.length) })),"
+        },
+        {
+          "line": 456,
+          "text": "`<div class=\"partyRow\"><span class=\"partyLabel\" dir=\"auto\">${esc(tIn(locale, \"export.doc.customer\"))}</span><span class=\"partyValue\" dir=\"auto\">${esc(st.person.name)}</span></div>`,"
+        },
+        {
+          "line": 460,
+          "text": "`<div class=\"partyRow\"><span class=\"partyLabel\" dir=\"auto\">${esc(tIn(locale, \"export.col.phone\"))}</span><span class=\"partyValue sm\">${num(esc(st.person.phone))}</span></div>`,"
+        },
+        {
+          "line": 468,
+          "text": "? tIn(locale, \"home.tab.collect\")"
+        },
+        {
+          "line": 470,
+          "text": "? tIn(locale, \"home.tab.pay\")"
+        },
+        {
+          "line": 471,
+          "text": ": tIn(locale, \"person.balance.settled\");"
+        },
+        {
+          "line": 477,
+          "text": "${card({ tone: \"flat\", label: tIn(locale, \"export.record.acknowledgedBalance\"), value: `${fmtSigned(totals.acknowledged)} ${sym}` })}"
+        },
+        {
+          "line": 478,
+          "text": "${card({ tone: \"flat\", label: tIn(locale, \"export.record.pendingBalance\"), value: `${fmtSigned(totals.pending)} ${sym}` })}"
+        },
+        {
+          "line": 479,
+          "text": "${card({ tone: \"flat\", label: tIn(locale, \"export.doc.balance\"), value: `${fmtSigned(st.balance)} ${sym}`, color: balanceColor, note: balanceNote })}"
+        },
+        {
+          "line": 481,
+          "text": "${entries.some((r) => !r.entry.tab) ? `<p class=\"recordNotes\" dir=\"auto\">${esc(tIn(locale, \"export.record.privateBalance\"))}: ${num(fmtSigned(totals.private))} ${esc(sym)}</p>` : \"\"}"
+        },
+        {
+          "line": 482,
+          "text": "<p class=\"recordNotes\" dir=\"auto\">${esc(tIn(locale, \"export.record.explanation\"))}</p>"
+        },
+        {
+          "line": 483,
+          "text": "${entries.some((r) => r.entry.tab?.closed_reason === \"account_deleted\") ? `<p class=\"recordNotes\" dir=\"auto\">${esc(tIn(locale, \"export.record.closedDeleted\"))}</p>` : \"\"}`"
+        },
+        {
+          "line": 485,
+          "text": "${card({ tone: \"pay\", label: tIn(locale, \"export.doc.totalGave\"), value: `${formatAmount(totalGave)} ${sym}`, color: colors.payStrong })}"
+        },
+        {
+          "line": 486,
+          "text": "${card({ tone: \"collect\", label: tIn(locale, \"export.doc.totalReceived\"), value: `${formatAmount(totalReceived)} ${sym}`, color: colors.collectStrong })}"
+        },
+        {
+          "line": 487,
+          "text": "${card({ tone: \"flat\", label: tIn(locale, \"export.doc.balance\"), value: `${fmtSigned(st.balance)} ${sym}`, color: balanceColor, note: balanceNote })}"
+        },
+        {
+          "line": 492,
+          "text": "tableHtml = `<p class=\"empty\" dir=\"auto\">${esc(tIn(locale, \"export.doc.empty\"))}</p>`;"
+        },
+        {
+          "line": 509,
+          "text": "const typeLabel = tIn(locale, gave ? \"export.col.gave\" : \"export.col.received\");"
+        },
+        {
+          "line": 513,
+          "text": "`<td class=\"muted\" dir=\"auto\">${esc(formatSettlementDate(e.created_at, locale, calendar))}</td>` +"
+        },
+        {
+          "line": 514,
+          "text": "`<td class=\"c\"><span class=\"type ${cls}\" dir=\"auto\">${esc(typeLabel)}</span>${shared ? `<span class=\"recordStatus\" dir=\"auto\">${esc(recordStatus(e.tab, locale))}</span>` : \"\"}</td>` +"
+        },
+        {
+          "line": 523,
+          "text": "`<td class=\"note\" dir=\"auto\">${esc(noteFor(e.note, e.tab?.kind, locale) ?? \"\")}</td>` +"
+        },
+        {
+          "line": 525,
+          "text": "(e.tab ? recordDetailHtml(e, locale) : \"\")"
+        },
+        {
+          "line": 531,
+          "text": "<th class=\"n\">${esc(tIn(locale, \"export.col.num\"))}</th>"
+        },
+        {
+          "line": 532,
+          "text": "<th>${esc(tIn(locale, \"export.col.date\"))}</th>"
+        },
+        {
+          "line": 533,
+          "text": "<th class=\"c\">${esc(tIn(locale, \"export.col.type\"))}</th>"
+        },
+        {
+          "line": 534,
+          "text": "<th class=\"n\">${esc(tIn(locale, \"export.col.amount\"))}</th>"
+        },
+        {
+          "line": 535,
+          "text": "<th class=\"n\">${esc(tIn(locale, \"export.col.balance\"))}</th>"
+        },
+        {
+          "line": 536,
+          "text": "<th>${esc(tIn(locale, \"export.col.note\"))}</th>"
+        },
+        {
+          "line": 544,
+          "text": "docTitle: tIn(locale, shared ? \"export.record.title\" : \"export.doc.statementTitle\"),"
+        },
+        {
+          "line": 550,
+          "text": "<h2 class=\"sectionTitle\" dir=\"auto\">${esc(tIn(locale, \"export.doc.summarySection\"))} — ${esc(st.currencyCode)}</h2>"
+        },
+        {
+          "line": 554,
+          "text": "<h2 class=\"sectionTitle\" dir=\"auto\">${esc(tIn(locale, \"export.doc.transactionsSection\"))}</h2>"
+        },
+        {
+          "line": 561,
+          "text": "locale,"
+        },
+        {
+          "line": 563,
+          "text": "title: `${tIn(locale, \"export.doc.statementTitle\")} — ${st.person.name}`,"
+        },
+        {
+          "line": 570,
+          "text": "const { locale, calendar, currencySymbol: sym } = report;"
+        },
+        {
+          "line": 574,
+          "text": "tIn(locale, \"export.doc.generated\", {"
+        },
+        {
+          "line": 575,
+          "text": "date: formatSettlementDate(report.generatedAtMs, locale, calendar),"
+        },
+        {
+          "line": 578,
+          "text": "esc(tIn(locale, \"export.doc.peopleCount\", { n: countIn(locale, report.people.length) })),"
+        },
+        {
+          "line": 579,
+          "text": "esc(tIn(locale, \"export.doc.entriesCount\", { n: countIn(locale, report.journal.length) })),"
+        },
+        {
+          "line": 585,
+          "text": "`<div class=\"partyRow\"><span class=\"partyLabel\" dir=\"auto\">${esc(tIn(locale, \"export.doc.preparedBy\"))}</span><span class=\"partyValue\" dir=\"auto\">${esc(report.self.name)}</span></div>`,"
+        },
+        {
+          "line": 590,
+          "text": "`<div class=\"partyRow\"><span class=\"partyLabel\" dir=\"auto\">${esc(tIn(locale, \"export.col.phone\"))}</span><span class=\"partyValue sm\">${num(esc(report.self.phone))}</span></div>`,"
+        },
+        {
+          "line": 607,
+          "text": "tIn(locale, \"export.doc.peopleCount\", { n: countIn(locale, n) });"
+        },
+        {
+          "line": 610,
+          "text": "${card({ tone: \"collect\", label: tIn(locale, \"export.doc.totalCollect\"), value: `${formatAmount(report.totals.collect)} ${sym}`, color: colors.collectStrong, note: peopleNote(collectCount) })}"
+        },
+        {
+          "line": 611,
+          "text": "${card({ tone: \"pay\", label: tIn(locale, \"export.doc.totalPay\"), value: `${formatAmount(report.totals.pay)} ${sym}`, color: colors.payStrong, note: peopleNote(payCount) })}"
+        },
+        {
+          "line": 612,
+          "text": "${card({ tone: \"flat\", label: tIn(locale, \"export.doc.net\"), value: `${fmtSigned(report.totals.net)} ${sym}`, color: netColor, note: `${peopleNote(settledCount)} ${tIn(locale, \"person.balance.settled\")}` })}"
+        },
+        {
+          "line": 617,
+          "text": "tableHtml = `<p class=\"empty\" dir=\"auto\">${esc(tIn(locale, \"export.doc.empty\"))}</p>`;"
+        },
+        {
+          "line": 626,
+          "text": "? tIn(locale, \"home.tab.collect\")"
+        },
+        {
+          "line": 628,
+          "text": "? tIn(locale, \"home.tab.pay\")"
+        },
+        {
+          "line": 629,
+          "text": ": tIn(locale, \"person.balance.settled\");"
+        },
+        {
+          "line": 639,
+          "text": "`<td class=\"muted\" dir=\"auto\">${esc(formatSettlementDate(p.lastEntryAt, locale, calendar))}</td>` +"
+        },
+        {
+          "line": 648,
+          "text": "<th class=\"n\">${esc(tIn(locale, \"export.col.num\"))}</th>"
+        },
+        {
+          "line": 649,
+          "text": "<th>${esc(tIn(locale, \"export.col.person\"))}</th>"
+        },
+        {
+          "line": 650,
+          "text": "<th>${esc(tIn(locale, \"export.col.phone\"))}</th>"
+        },
+        {
+          "line": 651,
+          "text": "<th>${esc(tIn(locale, \"export.col.lastActivity\"))}</th>"
+        },
+        {
+          "line": 652,
+          "text": "<th class=\"c\">${esc(tIn(locale, \"export.col.status\"))}</th>"
+        },
+        {
+          "line": 653,
+          "text": "<th class=\"n\">${esc(tIn(locale, \"export.col.balance\"))}</th>"
+        },
+        {
+          "line": 661,
+          "text": "docTitle: tIn(locale, \"export.doc.summaryTitle\"),"
+        },
+        {
+          "line": 667,
+          "text": "<h2 class=\"sectionTitle\" dir=\"auto\">${esc(tIn(locale, \"export.doc.summarySection\"))} — ${esc(report.currencyCode)}</h2>"
+        },
+        {
+          "line": 671,
+          "text": "<h2 class=\"sectionTitle\" dir=\"auto\">${esc(tIn(locale, \"export.doc.peopleSection\"))}</h2>"
+        },
+        {
+          "line": 677,
+          "text": "locale,"
+        },
+        {
+          "line": 679,
+          "text": "title: `${tIn(locale, \"export.doc.summaryTitle\")} — ${report.vaultName}`,"
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/lib/fonts.ts",
+      "matches": [
+        {
+          "line": 29,
+          "text": "//   in-app locale pref synchronously (it lives in app_meta, loaded async)."
+        },
+        {
+          "line": 30,
+          "text": "//   Picking the sans family from device locale at module load means an"
+        },
+        {
+          "line": 31,
+          "text": "//   English-locale device running the app in Dari renders Persian text in"
+        },
+        {
+          "line": 36,
+          "text": "//   We tried locale-aware sans resolution at module load; it failed for"
+        },
+        {
+          "line": 39,
+          "text": "//   families per locale, or (b) just commit to one family that handles"
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/lib/i18n.ts",
+      "matches": [
+        {
+          "line": 10,
+          "text": "// locale is fa/prs, every `fonts.sansBold` etc. reference resolves to"
+        },
+        {
+          "line": 15,
+          "text": "//   persisted in app_meta under \"locale_pref\" (values: 'system' | 'en' | 'fa')."
+        },
+        {
+          "line": 17,
+          "text": "//   so the very first frame uses the chosen locale. `setLocale()` updates"
+        },
+        {
+          "line": 18,
+          "text": "//   the active locale at runtime for subsequent re-renders."
+        },
+        {
+          "line": 21,
+          "text": "//   load based on device locale — it can't read app_meta synchronously. So"
+        },
+        {
+          "line": 22,
+          "text": "//   for users who override their device locale via this toggle, Persian"
+        },
+        {
+          "line": 25,
+          "text": "//   Persian device locale) but worth knowing."
+        },
+        {
+          "line": 91,
+          "text": "// Onboarding step 1 — language picker. Only shown when device locale"
+        },
+        {
+          "line": 794,
+          "text": "// readable by Persian-locale users, who are exactly who gets stuck here."
+        },
+        {
+          "line": 1700,
+          "text": "// audit-log.tsx — now routed through t() so Dari locale renders correctly."
+        },
+        {
+          "line": 1726,
+          "text": "// the CSV/PDF documents themselves (via tIn with an explicit locale)."
+        },
+        {
+          "line": 2861,
+          "text": "// for this locale."
+        },
+        {
+          "line": 3912,
+          "text": "export type LocaleCode = keyof typeof TABLES;"
+        },
+        {
+          "line": 3914,
+          "text": "// Active locale, computed once at module load. The current launch's strings"
+        },
+        {
+          "line": 3917,
+          "text": "function pickLocale(): LocaleCode {"
+        },
+        {
+          "line": 3919,
+          "text": "const lang = (first?.languageCode ?? \"en\").toLowerCase();"
+        },
+        {
+          "line": 3921,
+          "text": "if (lang === \"fa\" || lang === \"prs\") return \"fa\";"
+        },
+        {
+          "line": 3925,
+          "text": "let currentLocale: LocaleCode = pickLocale();"
+        },
+        {
+          "line": 3927,
+          "text": "// Subscribers for live locale updates. lib/direction.ts uses this to flip"
+        },
+        {
+          "line": 3929,
+          "text": "// any component using useIsRTL() (or useLocale()) re-renders without an"
+        },
+        {
+          "line": 3942,
+          "text": "console.warn(\"[i18n] locale listener threw\", err);"
+        },
+        {
+          "line": 3954,
+          "text": "export function getLocale(): LocaleCode {"
+        },
+        {
+          "line": 3958,
+          "text": "export function isPersianScript(): boolean {"
+        },
+        {
+          "line": 3962,
+          "text": "export type LocalePref = \"system\" | LocaleCode;"
+        },
+        {
+          "line": 3967,
+          "text": "// pickLocale() chose at module load (the device locale)."
+        },
+        {
+          "line": 3975,
+          "text": "const pref = (await getAppMeta(\"locale_pref\")) as LocalePref | null;"
+        },
+        {
+          "line": 3982,
+          "text": "// 'system' or null → leave at device locale."
+        },
+        {
+          "line": 3984,
+          "text": "// app_meta unreadable — fall back to device locale silently."
+        },
+        {
+          "line": 3988,
+          "text": "// Imperatively change the active locale. Strings update on the next render"
+        },
+        {
+          "line": 3993,
+          "text": "// how lib/direction.ts's useIsRTL() re-renders consumers when language"
+        },
+        {
+          "line": 3995,
+          "text": "export function setLocale(pref: LocalePref): void {"
+        },
+        {
+          "line": 3996,
+          "text": "const next: LocaleCode = pref === \"system\" ? pickLocale() : pref;"
+        },
+        {
+          "line": 4006,
+          "text": "// app_meta under \"share_lang_pref\":"
+        },
+        {
+          "line": 4010,
+          "text": "export type ShareLangPref = \"auto\" | \"ask\" | LocaleCode;"
+        },
+        {
+          "line": 4012,
+          "text": "export async function getShareLangPref(): Promise<ShareLangPref> {"
+        },
+        {
+          "line": 4014,
+          "text": "const v = await getAppMeta(\"share_lang_pref\");"
+        },
+        {
+          "line": 4021,
+          "text": "// Resolve a non-'ask' preference to a concrete locale. 'ask' never reaches"
+        },
+        {
+          "line": 4023,
+          "text": "export function resolveShareLang(pref: Exclude<ShareLangPref, \"ask\">): LocaleCode {"
+        },
+        {
+          "line": 4027,
+          "text": "// Look up a string for the active locale. Falls back to English if the key"
+        },
+        {
+          "line": 4031,
+          "text": "return tIn(currentLocale, key, vars);"
+        },
+        {
+          "line": 4034,
+          "text": "// Same lookup for an explicit locale, independent of the app UI language."
+        },
+        {
+          "line": 4037,
+          "text": "// call — that notifies subscribers and re-renders every useIsRTL consumer."
+        },
+        {
+          "line": 4038,
+          "text": "export function tIn(locale: LocaleCode, key: Key, vars?: Record<string, string | number>): string {"
+        },
+        {
+          "line": 4039,
+          "text": "const localized = TABLES[locale][key];"
+        },
+        {
+          "line": 4049,
+          "text": "* literals — the mint uses the active UI locale, but the user may switch"
+        },
+        {
+          "line": 4056,
+          "text": "trimmed === tIn(\"en\", \"recovery.selfPlaceholderName\") ||"
+        },
+        {
+          "line": 4057,
+          "text": "trimmed === tIn(\"fa\", \"recovery.selfPlaceholderName\")"
+        },
+        {
+          "line": 4061,
+          "text": "// Re-evaluate the locale after the user (eventually) toggles a manual"
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/lib/jalali.ts",
+      "matches": [
+        {
+          "line": 73,
+          "text": "export const GREGORIAN_MONTHS_EN = ["
+        },
+        {
+          "line": 94,
+          "text": "export const GREGORIAN_MONTHS_FA = ["
+        },
+        {
+          "line": 109,
+          "text": "export const QAMARI_MONTHS_FA = ["
+        },
+        {
+          "line": 124,
+          "text": "export const QAMARI_MONTHS_EN = ["
+        },
+        {
+          "line": 307,
+          "text": "* THE absolute-date formatter. Calendar chooses the month set, locale chooses"
+        },
+        {
+          "line": 317,
+          "text": "locale: \"en\" | \"fa\","
+        },
+        {
+          "line": 321,
+          "text": "const fa = locale === \"fa\";"
+        },
+        {
+          "line": 327,
+          "text": "return `${num(hd)} ${(fa ? QAMARI_MONTHS_FA : QAMARI_MONTHS_EN)[hm - 1]} ${num(hy)}`;"
+        },
+        {
+          "line": 349,
+          "text": "return `${num(d.getDate())} ${(fa ? GREGORIAN_MONTHS_FA : GREGORIAN_MONTHS_EN)[m]} ${num(d.getFullYear())}`;"
+        },
+        {
+          "line": 354,
+          "text": "* the separate name is kept because those callers thread an EXPLICIT locale"
+        },
+        {
+          "line": 357,
+          "text": "* Note this used to derive the calendar from the locale — fa implied Jalali."
+        },
+        {
+          "line": 360,
+          "text": "export function formatSettlementDate(ms: number, locale: \"en\" | \"fa\", calendar: Calendar): string {"
+        },
+        {
+          "line": 361,
+          "text": "return formatCalendarDate(ms, locale, calendar);"
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/lib/phone.ts",
+      "matches": [
+        {
+          "line": 73,
+          "text": "// Called from _layout.tsx during init alongside locale + currency."
+        },
+        {
+          "line": 130,
+          "text": "// rejecting perfectly valid numbers typed by Persian-locale users."
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/lib/share.ts",
+      "matches": [
+        {
+          "line": 7,
+          "text": "import { tIn, type LocaleCode } from \"./i18n\";"
+        },
+        {
+          "line": 24,
+          "text": "lang: LocaleCode;"
+        },
+        {
+          "line": 37,
+          "text": "locale: args.lang,"
+        },
+        {
+          "line": 48,
+          "text": "// calendar from `locale` — the pre-setting behaviour."
+        },
+        {
+          "line": 71,
+          "text": "note: e.note ?? (e.tab?.kind === \"opening\" ? tIn(args.lang, \"tab.opening.note\") : null),"
+        },
+        {
+          "line": 123,
+          "text": "// Message body uses the caller-chosen `lang` (from share_lang_pref — may"
+        },
+        {
+          "line": 146,
+          "text": "lang: LocaleCode,"
+        },
+        {
+          "line": 156,
+          "text": "const lines: string[] = [tIn(lang, \"share.greeting\", { name: person.name }), \"\"];"
+        },
+        {
+          "line": 159,
+          "text": "lines.push(tIn(lang, \"share.theyOwe.header\", { accountWith }));"
+        },
+        {
+          "line": 160,
+          "text": "lines.push(tIn(lang, \"share.theyOwe.amount\", { amount, currency }));"
+        },
+        {
+          "line": 162,
+          "text": "lines.push(tIn(lang, \"share.theyOwe.cta\"));"
+        },
+        {
+          "line": 164,
+          "text": "lines.push(tIn(lang, \"share.youOwe.header\"));"
+        },
+        {
+          "line": 165,
+          "text": "lines.push(tIn(lang, \"share.youOwe.amount\", { amount, currency }));"
+        },
+        {
+          "line": 167,
+          "text": "lines.push(tIn(lang, \"share.youOwe.cta\"));"
+        },
+        {
+          "line": 169,
+          "text": "lines.push(tIn(lang, \"share.settled.line\"));"
+        },
+        {
+          "line": 171,
+          "text": "lines.push(tIn(lang, \"share.settled.cta\"));"
+        },
+        {
+          "line": 180,
+          "text": "const link = await uploadSharedLedger({ person, balance, entries, self, lang, settled, signal });"
+        },
+        {
+          "line": 186,
+          "text": "lines.push(tIn(lang, \"share.fullLedger\"));"
+        },
+        {
+          "line": 189,
+          "text": "lines.push(tIn(lang, \"share.footer\"));"
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/lib/tabs/api.ts",
+      "matches": [
+        {
+          "line": 297,
+          "text": "body: { install_id: string; token: string; locale: string },"
+        },
+        {
+          "line": 320,
+          "text": "export async function fetchInbox(locale: string, before = \"\"): Promise<InboxPage> {"
+        },
+        {
+          "line": 323,
+          "text": "`/v1/tabs/inbox?locale=${encodeURIComponent(locale)}&before=${encodeURIComponent(before)}`,"
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/lib/tabs/notify.ts",
+      "matches": [
+        {
+          "line": 9,
+          "text": "import { getLocale, t, tIn } from \"../i18n\";"
+        },
+        {
+          "line": 45,
+          "text": "// Stable locale-specific IDs let a message use its registration's locale,"
+        },
+        {
+          "line": 47,
+          "text": "for (const locale of [\"en\", \"fa\"] as const) {"
+        },
+        {
+          "line": 48,
+          "text": "await n.setNotificationCategoryAsync(\"tab-review-\" + locale, ["
+        },
+        {
+          "line": 51,
+          "text": "buttonTitle: \"✓ \" + tIn(locale, \"tab.accept\"),"
+        },
+        {
+          "line": 56,
+          "text": "buttonTitle: \"× \" + tIn(locale, \"tab.reject\"),"
+        },
+        {
+          "line": 228,
+          "text": "locale: getLocale(),"
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/lib/tabs/use-inbox.ts",
+      "matches": [
+        {
+          "line": 21,
+          "text": "const cacheKey = (account: string, locale: string) =>"
+        },
+        {
+          "line": 22,
+          "text": "\"notification_inbox:\" + account + \":\" + locale;"
+        },
+        {
+          "line": 100,
+          "text": "* The first page is cached per ACCOUNT + locale, never across sign-ins. */"
+        },
+        {
+          "line": 117,
+          "text": "const locale = getLocale();"
+        },
+        {
+          "line": 148,
+          "text": "const fetched = await fetchInbox(locale, before);"
+        },
+        {
+          "line": 168,
+          "text": "if (!before) await withCache(() => setAppMeta(cacheKey(who, locale), JSON.stringify(next)));"
+        },
+        {
+          "line": 182,
+          "text": "[locale, commit],"
+        },
+        {
+          "line": 197,
+          "text": "const cached = await withCache(() => getAppMeta(cacheKey(account, locale)));"
+        },
+        {
+          "line": 247,
+          "text": "}, [account, locale, reload, commit]),"
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/lib/tally-date-filter.ts",
+      "matches": [
+        {
+          "line": 127,
+          "text": "export function formatFilterClock(ms: number, locale: \"en\" | \"fa\"): string {"
+        },
+        {
+          "line": 131,
+          "text": "return locale === \"fa\" ? faDigits(clock) : clock;"
+        },
+        {
+          "line": 139,
+          "text": "locale: \"en\" | \"fa\","
+        },
+        {
+          "line": 144,
+          "text": "const startDate = formatSettlementDate(range.start, locale, calendar);"
+        },
+        {
+          "line": 145,
+          "text": "const lastDate = formatSettlementDate(last, locale, calendar);"
+        },
+        {
+          "line": 148,
+          "text": "const sep = locale === \"fa\" ? \"، \" : \" · \";"
+        },
+        {
+          "line": 149,
+          "text": "const startClock = formatFilterClock(range.start, locale);"
+        },
+        {
+          "line": 150,
+          "text": "const lastClock = formatFilterClock(last, locale);"
+        }
+      ]
+    },
+    {
+      "path": "apps/mobile/lib/tally-search.ts",
+      "matches": [
+        {
+          "line": 36,
+          "text": "export type TallySearchOptions = { locale: \"en\" | \"fa\"; calendar: Calendar };"
+        }
+      ]
+    },
+    {
+      "path": "apps/web/index.html",
+      "matches": [
+        {
+          "line": 2,
+          "text": "<html lang=\"en\">"
+        },
+        {
+          "line": 38,
+          "text": "<meta property=\"og:locale\" content=\"en_US\" />"
+        },
+        {
+          "line": 39,
+          "text": "<meta property=\"og:locale:alternate\" content=\"fa_AF\" />"
+        }
+      ]
+    },
+    {
+      "path": "apps/web/src/components/DownloadDemo.tsx",
+      "matches": [
+        {
+          "line": 2,
+          "text": "import { useI18n } from \"../lib/i18n\";"
+        },
+        {
+          "line": 6,
+          "text": "const { t } = useI18n();"
+        }
+      ]
+    },
+    {
+      "path": "apps/web/src/components/Hero.tsx",
+      "matches": [
+        {
+          "line": 2,
+          "text": "import { useI18n } from \"../lib/i18n\";"
+        },
+        {
+          "line": 7,
+          "text": "const { t } = useI18n();"
+        }
+      ]
+    },
+    {
+      "path": "apps/web/src/components/PhoneMockups.tsx",
+      "matches": [
+        {
+          "line": 2,
+          "text": "import { useI18n } from \"../lib/i18n\";"
+        },
+        {
+          "line": 9,
+          "text": "// through useI18n() so the screens flip to Dari with the page."
+        },
+        {
+          "line": 153,
+          "text": "const { t, isRTL } = useI18n();"
+        },
+        {
+          "line": 182,
+          "text": "const { t, isRTL } = useI18n();"
+        },
+        {
+          "line": 198,
+          "text": "const { t } = useI18n();"
+        },
+        {
+          "line": 223,
+          "text": "const { t, isRTL } = useI18n();"
+        },
+        {
+          "line": 251,
+          "text": "const { isRTL } = useI18n();"
+        },
+        {
+          "line": 293,
+          "text": "const { isRTL } = useI18n();"
+        },
+        {
+          "line": 325,
+          "text": "const { t, isRTL } = useI18n();"
+        },
+        {
+          "line": 383,
+          "text": "const { t } = useI18n();"
+        },
+        {
+          "line": 402,
+          "text": "const { t, lang } = useI18n();"
+        },
+        {
+          "line": 403,
+          "text": "const isRTL = lang === \"fa\";"
+        },
+        {
+          "line": 484,
+          "text": "const { t } = useI18n();"
+        },
+        {
+          "line": 499,
+          "text": "const { t } = useI18n();"
+        }
+      ]
+    },
+    {
+      "path": "apps/web/src/components/SiteChrome.tsx",
+      "matches": [
+        {
+          "line": 4,
+          "text": "import { useI18n } from \"../lib/i18n\";"
+        },
+        {
+          "line": 14,
+          "text": "const { t, lang, setLang } = useI18n();"
+        },
+        {
+          "line": 33,
+          "text": "className={`text-base font-bold text-brand-primary ${lang === \"fa\" ? \"\" : \"tracking-tight\"}`}"
+        },
+        {
+          "line": 68,
+          "text": "onClick={() => setLang(lang === \"fa\" ? \"en\" : \"fa\")}"
+        },
+        {
+          "line": 69,
+          "text": "lang={lang === \"fa\" ? \"en\" : \"fa\"}"
+        },
+        {
+          "line": 72,
+          "text": "{lang === \"fa\" ? \"English\" : \"دری\"}"
+        },
+        {
+          "line": 96,
+          "text": "const { t, lang } = useI18n();"
+        },
+        {
+          "line": 104,
+          "text": "className={`text-lg font-bold text-brand-primary ${lang === \"fa\" ? \"\" : \"tracking-tight\"}`}"
+        }
+      ]
+    },
+    {
+      "path": "apps/web/src/components/StoreButtons.tsx",
+      "matches": [
+        {
+          "line": 15,
+          "text": "import { useI18n } from \"../lib/i18n\";"
+        },
+        {
+          "line": 26,
+          "text": "const { t } = useI18n();"
+        },
+        {
+          "line": 44,
+          "text": "const { t } = useI18n();"
+        }
+      ]
+    },
+    {
+      "path": "apps/web/src/globals.css",
+      "matches": [
+        {
+          "line": 55,
+          "text": "html[lang=\"fa\"] body {"
+        }
+      ]
+    },
+    {
+      "path": "apps/web/src/lib/analytics.ts",
+      "matches": [
+        {
+          "line": 109,
+          "text": "// IP + Accept-Language from the request itself; body just carries source +"
+        }
+      ]
+    },
+    {
+      "path": "apps/web/src/lib/customer-dates.ts",
+      "matches": [
+        {
+          "line": 12,
+          "text": "const QAMARI_MONTHS_EN = ["
+        },
+        {
+          "line": 26,
+          "text": "const QAMARI_MONTHS_FA = ["
+        },
+        {
+          "line": 73,
+          "text": "return `${num(day)} ${(rtl ? QAMARI_MONTHS_FA : QAMARI_MONTHS_EN)[monthIndex]} ${num(y)}`;"
+        }
+      ]
+    },
+    {
+      "path": "apps/web/src/lib/i18n.tsx",
+      "matches": [
+        {
+          "line": 17,
+          "text": "// (fa/prs → fa) → en. The choice persists; the <html> element's lang/dir"
+        },
+        {
+          "line": 348,
+          "text": "lang: Lang;"
+        },
+        {
+          "line": 349,
+          "text": "setLang: (lang: Lang) => void;"
+        },
+        {
+          "line": 357,
+          "text": "const [lang, setLangState] = useState<Lang>(detectInitialLang);"
+        },
+        {
+          "line": 362,
+          "text": "document.documentElement.lang = lang;"
+        },
+        {
+          "line": 363,
+          "text": "document.documentElement.dir = lang === \"fa\" ? \"rtl\" : \"ltr\";"
+        },
+        {
+          "line": 364,
+          "text": "document.title = PAGE_TITLES[lang];"
+        },
+        {
+          "line": 365,
+          "text": "}, [lang]);"
+        },
+        {
+          "line": 378,
+          "text": "lang,"
+        },
+        {
+          "line": 380,
+          "text": "isRTL: lang === \"fa\","
+        },
+        {
+          "line": 382,
+          "text": "let s = TABLES[lang][key] ?? en[key] ?? key;"
+        },
+        {
+          "line": 391,
+          "text": "[lang, setLang],"
+        },
+        {
+          "line": 397,
+          "text": "export function useI18n(): I18nValue {"
+        },
+        {
+          "line": 399,
+          "text": "if (!ctx) throw new Error(\"useI18n must be used inside <I18nProvider>\");"
+        }
+      ]
+    },
+    {
+      "path": "apps/web/src/pages/CustomerView.tsx",
+      "matches": [
+        {
+          "line": 4,
+          "text": "import { useI18n } from \"../lib/i18n\";"
+        },
+        {
+          "line": 38,
+          "text": "locale: string;"
+        },
+        {
+          "line": 41,
+          "text": "*  derived from `locale`, which is what they were rendered with originally."
+        },
+        {
+          "line": 78,
+          "text": "// Content language follows the SHOPKEEPER's locale (carried in the snapshot),"
+        },
+        {
+          "line": 303,
+          "text": "function isRTL(locale: string) {"
+        },
+        {
+          "line": 304,
+          "text": "return locale.startsWith(\"fa\") || locale.startsWith(\"ps\");"
+        },
+        {
+          "line": 307,
+          "text": "function pickLabels(locale: string) {"
+        },
+        {
+          "line": 308,
+          "text": "return isRTL(locale) ? LABELS.fa : LABELS.en;"
+        },
+        {
+          "line": 323,
+          "text": "// the Iranian set (فروردین …) that browsers ship for the fa locale and"
+        },
+        {
+          "line": 361,
+          "text": "const GREGORIAN_MONTHS_EN = ["
+        },
+        {
+          "line": 376,
+          "text": "const GREGORIAN_MONTHS_FA = ["
+        },
+        {
+          "line": 408,
+          "text": "return `${num(dt.getDate())} ${(rtl ? GREGORIAN_MONTHS_FA : GREGORIAN_MONTHS_EN)[m]} ${num(dt.getFullYear())}`;"
+        },
+        {
+          "line": 491,
+          "text": "const rtl = isRTL(d.locale);"
+        },
+        {
+          "line": 496,
+          "text": "const L = pickLabels(d.locale);"
+        },
+        {
+          "line": 554,
+          "text": "<section dir={rtl ? \"rtl\" : \"ltr\"} lang={rtl ? \"fa\" : \"en\"} style={{ fontFamily: APP_SANS }}>"
+        },
+        {
+          "line": 775,
+          "text": "// locale, so fall back to the site language (browser-derived, toggleable)."
+        },
+        {
+          "line": 776,
+          "text": "const { lang } = useI18n();"
+        },
+        {
+          "line": 777,
+          "text": "const L = pickLabels(lang);"
+        }
+      ]
+    },
+    {
+      "path": "apps/web/src/pages/Download.tsx",
+      "matches": [
+        {
+          "line": 4,
+          "text": "import { useI18n } from \"../lib/i18n\";"
+        },
+        {
+          "line": 8,
+          "text": "const { t } = useI18n();"
+        }
+      ]
+    },
+    {
+      "path": "apps/web/src/pages/Home.tsx",
+      "matches": [
+        {
+          "line": 10,
+          "text": "import { useI18n } from \"../lib/i18n\";"
+        },
+        {
+          "line": 15,
+          "text": "const { t } = useI18n();"
+        },
+        {
+          "line": 62,
+          "text": "const { t } = useI18n();"
+        }
+      ]
+    },
+    {
+      "path": "apps/web/src/pages/Invite.tsx",
+      "matches": [
+        {
+          "line": 5,
+          "text": "import { useI18n } from \"../lib/i18n\";"
+        },
+        {
+          "line": 56,
+          "text": "const { t } = useI18n();"
+        },
+        {
+          "line": 70,
+          "text": "const { t } = useI18n();"
+        },
+        {
+          "line": 124,
+          "text": "const { t } = useI18n();"
+        },
+        {
+          "line": 198,
+          "text": "const { t } = useI18n();"
+        },
+        {
+          "line": 219,
+          "text": "const { t } = useI18n();"
+        },
+        {
+          "line": 258,
+          "text": "type Translate = ReturnType<typeof useI18n>[\"t\"];"
+        }
+      ]
+    },
+    {
+      "path": "apps/web/src/pages/NotFound.tsx",
+      "matches": [
+        {
+          "line": 3,
+          "text": "import { useI18n } from \"../lib/i18n\";"
+        },
+        {
+          "line": 8,
+          "text": "const { t } = useI18n();"
+        }
+      ]
+    },
+    {
+      "path": "apps/web/src/pages/admin/Acquisition.tsx",
+      "matches": [
+        {
+          "line": 149,
+          "text": "colors={langs.map((l) => (LANG_META[l.locale] ?? LANG_META.unknown).color) as Color[]}"
+        },
+        {
+          "line": 154,
+          "text": "const meta = LANG_META[l.locale] ?? { label: l.locale, color: C.gray };"
+        },
+        {
+          "line": 157,
+          "text": "key={l.locale}"
+        }
+      ]
+    },
+    {
+      "path": "apps/web/src/pages/admin/Outreach.tsx",
+      "matches": [
+        {
+          "line": 33,
+          "text": "// details (a mark with `lang`, which bumps the version like any write) that"
+        },
+        {
+          "line": 795,
+          "text": "// session's, else (Auto) its locale — all read from the server's answer."
+        },
+        {
+          "line": 1031,
+          "text": "// so no bulk action can send it. Nor a lang: a message language is set one"
+        },
+        {
+          "line": 1033,
+          "text": "function bulk(body: Omit<OutreachMarkBody, \"phones\" | \"lift_stop\" | \"lang\">, label: string) {"
+        },
+        {
+          "line": 1069,
+          "text": "// for: a backend from before migration 046 ignores `lang` and answers"
+        },
+        {
+          "line": 1072,
+          "text": "onLanguage: (contact: OutreachContact, lang: OutreachLang) =>"
+        },
+        {
+          "line": 1074,
+          "text": "{ phones: [contact.phone], lang },"
+        },
+        {
+          "line": 1077,
+          "text": "if (updated.find((state) => state.phone === contact.phone)?.lang === lang)"
+        },
+        {
+          "line": 1079,
+          "text": "lang"
+        },
+        {
+          "line": 1080,
+          "text": "? `${contact.phone}: messages in ${LANGUAGE_NAMES[lang]}`"
+        },
+        {
+          "line": 2612,
+          "text": "onLanguage: (contact: OutreachContact, lang: OutreachLang) => void;"
+        },
+        {
+          "line": 3242,
+          "text": "{languageLabel(contact.locale)}"
+        },
+        {
+          "line": 3360,
+          "text": "aria-describedby={openedIn ? `${props.id}-lang-opened` : undefined}"
+        },
+        {
+          "line": 3362,
+          "text": "value={o.lang}"
+        },
+        {
+          "line": 3365,
+          "text": "const lang = event.target.value;"
+        },
+        {
+          "line": 3366,
+          "text": "if (isOutreachLang(lang) && lang !== o.lang) props.onLanguage(contact, lang);"
+        },
+        {
+          "line": 3370,
+          "text": "{`Use session choice (${sessionChoiceLabel(sessionLanguage(props.settings), contact.locale)})`}"
+        },
+        {
+          "line": 3378,
+          "text": "id={`${props.id}-lang-opened`}"
+        },
+        {
+          "line": 3475,
+          "text": "<DetailItem label=\"Language\" value={languageLabel(s.locale)} />"
+        },
+        {
+          "line": 3778,
+          "text": "// the session's (the drafts never hold pref.message_lang), else its locale."
+        }
+      ]
+    },
+    {
+      "path": "apps/web/src/pages/admin/Users.tsx",
+      "matches": [
+        {
+          "line": 261,
+          "text": "field: \"platform\" | \"locale\" | \"source\" | \"version\","
+        },
+        {
+          "line": 278,
+          "text": ": field === \"locale\""
+        },
+        {
+          "line": 435,
+          "text": "options={facetOptions(\"locale\", filters.language)}"
+        },
+        {
+          "line": 1140,
+          "text": "title={`${row.locale === \"fa\" ? \"Dari\" : row.locale === \"en\" ? \"English\" : row.locale || \"Unknown language\"} · ${row.source || \"Unknown source\"}`}"
+        },
+        {
+          "line": 1142,
+          "text": "{row.locale === \"fa\""
+        },
+        {
+          "line": 1144,
+          "text": ": row.locale === \"en\""
+        },
+        {
+          "line": 1146,
+          "text": ": row.locale || \"Unknown\"}{\" \"}"
+        },
+        {
+          "line": 1251,
+          "text": "<Detail label=\"Language\" value={row.locale} />"
+        }
+      ]
+    },
+    {
+      "path": "apps/web/src/pages/admin/api.ts",
+      "matches": [
+        {
+          "line": 51,
+          "text": "export type LocaleCount = { locale: string; count: number };"
+        },
+        {
+          "line": 122,
+          "text": "locale: string;"
+        },
+        {
+          "line": 163,
+          "text": "locale: string;"
+        },
+        {
+          "line": 354,
+          "text": "locale: string;"
+        },
+        {
+          "line": 446,
+          "text": "lang: OutreachLang;"
+        },
+        {
+          "line": 453,
+          "text": "locale: string;"
+        },
+        {
+          "line": 547,
+          "text": "// lang too. Only a row's own language menu sends it."
+        },
+        {
+          "line": 548,
+          "text": "lang?: OutreachLang;"
+        }
+      ]
+    },
+    {
+      "path": "apps/web/src/pages/admin/outreach-model.ts",
+      "matches": [
+        {
+          "line": 254,
+          "text": "// unset or unknown) and a per-number choice, `outreach.lang`, that wins over"
+        },
+        {
+          "line": 255,
+          "text": "// it. \"Auto\" is the locale rule below."
+        },
+        {
+          "line": 270,
+          "text": "// Auto: Dari for a fa or prs locale — the shop's app language (the"
+        },
+        {
+          "line": 272,
+          "text": "export function localeLanguage(locale: string): MessageLanguage {"
+        },
+        {
+          "line": 273,
+          "text": "const lower = (locale || \"\").toLowerCase();"
+        },
+        {
+          "line": 277,
+          "text": "// choice, else (Auto) the locale rule."
+        },
+        {
+          "line": 282,
+          "text": "const own = contact.outreach.lang;"
+        },
+        {
+          "line": 285,
+          "text": "return session === \"auto\" ? localeLanguage(contact.locale) : session;"
+        },
+        {
+          "line": 288,
+          "text": "// or on Auto what the locale rule picks for this number (\"Auto: Dari\")."
+        },
+        {
+          "line": 289,
+          "text": "export function sessionChoiceLabel(session: SessionLanguage, locale: string): string {"
+        },
+        {
+          "line": 291,
+          "text": "? `Auto: ${LANGUAGE_NAMES[localeLanguage(locale)]}`"
+        },
+        {
+          "line": 414,
+          "text": "// `templateKey` (template.<audience>.<lang>) is what an opened or sent"
+        },
+        {
+          "line": 473,
+          "text": "export function languageLabel(locale: string): string {"
+        },
+        {
+          "line": 474,
+          "text": "if (!locale || locale === \"__unknown__\") return \"Unknown\";"
+        },
+        {
+          "line": 475,
+          "text": "const lower = locale.toLowerCase();"
+        },
+        {
+          "line": 478,
+          "text": "return locale;"
+        },
+        {
+          "line": 901,
+          "text": "if (field === \"language\") return contact.locale || \"__unknown__\";"
+        },
+        {
+          "line": 1131,
+          "text": "[\"locale\", (c) => c.locale],"
+        },
+        {
+          "line": 1148,
+          "text": "[\"lang\", (c) => c.outreach.lang],"
+        },
+        {
+          "line": 1320,
+          "text": "// replied_at; the note is clamped to 2000 runes and its touch to 200; a lang"
+        },
+        {
+          "line": 1367,
+          "text": "if (body.lang !== undefined) outreach.lang = body.lang;"
+        },
+        {
+          "line": 1549,
+          "text": "// otherwise — never offered twice. A missing or unknown lang (a backend"
+        },
+        {
+          "line": 1579,
+          "text": "lang: isOutreachLang(s.lang) ? s.lang : \"\","
+        },
+        {
+          "line": 1588,
+          "text": "// books, and every lang \"\" (withStateDefaults). Arrays are never null."
+        }
+      ]
+    },
+    {
+      "path": "apps/web/src/pages/admin/ui.tsx",
+      "matches": [
+        {
+          "line": 23,
+          "text": "gray: \"#e5e5e5\", // unknown locale, subtle segments"
+        }
+      ]
+    },
+    {
+      "path": "apps/web/src/pages/admin/users-model.ts",
+      "matches": [
+        {
+          "line": 13,
+          "text": "locale: string;"
+        },
+        {
+          "line": 154,
+          "text": "locale: u.locale,"
+        },
+        {
+          "line": 182,
+          "text": "locale: d.locale,"
+        },
+        {
+          "line": 283,
+          "text": "if (filters.language && filters.language !== (row.locale || \"__unknown__\")) return false;"
+        }
+      ]
+    }
+  ]
+}

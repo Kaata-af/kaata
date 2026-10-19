@@ -1,3 +1,4 @@
+import type { LocaleCode } from "./i18n";
 import type { Direction, PersonWithBalance } from "./types";
 
 // "Last tally · newest first" was dropped: it only differed from "Recent
@@ -122,7 +123,7 @@ function asciiDigits(value: string): string {
 }
 
 /** Number-aware name order: "Ahmad 2" before "Ahmad 10", "دکان ۲" before "دکان ۱۰". */
-export function compareCustomerNames(a: string, b: string, locale: "en" | "fa"): number {
+export function compareCustomerNames(a: string, b: string, locale: LocaleCode): number {
   const chunks = (value: string) => asciiDigits(value).match(/\d+|\D+/g) ?? [];
   const left = chunks(a);
   const right = chunks(b);
@@ -147,7 +148,7 @@ export function selectCustomers<T extends PersonWithBalance>(
   direction: Direction,
   preference: CustomerListPreference,
   groupByPerson: Readonly<Record<string, string | readonly string[] | null>>,
-  locale: "en" | "fa",
+  locale: LocaleCode,
 ): T[] {
   return selectCustomerRows(
     people,
@@ -165,7 +166,7 @@ export function selectNeverTalliedCustomers<T extends PersonWithBalance>(
   people: readonly T[],
   preference: CustomerListPreference,
   groupByPerson: Readonly<Record<string, string | readonly string[] | null>>,
-  locale: "en" | "fa",
+  locale: LocaleCode,
 ): T[] {
   return selectCustomerRows(
     people,
@@ -184,7 +185,7 @@ export function selectSearchCustomers<T extends PersonWithBalance>(
   people: readonly T[],
   preference: CustomerListPreference,
   groupByPerson: Readonly<Record<string, string | readonly string[] | null>>,
-  locale: "en" | "fa",
+  locale: LocaleCode,
   relevanceById?: ReadonlyMap<string, number>,
 ): T[] {
   return selectCustomerRows(
@@ -210,7 +211,7 @@ function selectCustomerRows<T extends PersonWithBalance>(
   matches: (person: T) => boolean,
   preference: CustomerListPreference,
   groupByPerson: Readonly<Record<string, string | readonly string[] | null>>,
-  locale: "en" | "fa",
+  locale: LocaleCode,
   activityAt: (person: T) => number,
   relevanceById?: ReadonlyMap<string, number>,
 ): T[] {

@@ -892,7 +892,7 @@ export default function HomeScreen() {
     const names = selectedCustomerGroupIds(effectiveGroup)
       .map((id) => customerGroups.find((group) => group.id === id)?.name)
       .filter((name): name is string => !!name);
-    return names.length ? names.join(locale === "fa" ? "، " : ", ") : null;
+    return names.length ? names.join(locale !== "en" ? "، " : ", ") : null;
   }, [effectiveGroup, customerGroups, locale]);
   const groupFilterCount =
     effectiveGroup === "all" || effectiveGroup === "ungrouped"

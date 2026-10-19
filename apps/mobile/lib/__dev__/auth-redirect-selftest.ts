@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import ts from "typescript";
+import { compileUI, flattenStyle } from "./ui-fixture";
 
 let slots: any[] = [],
   cursor = 0,
@@ -123,8 +124,11 @@ const mocks: Record<string, any> = {
   "../../lib/currency": { applyVaultCurrency: async () => {} },
   "../../lib/direction": {
     ltrIsolate: (value: string) => value,
-    rowDir: () => ({}),
-    textDir: () => ({}),
+    rowDir: (isRTL: boolean) => ({ flexDirection: isRTL ? "row-reverse" : "row" }),
+    textDir: (isRTL: boolean) => ({
+      textAlign: isRTL ? "right" : "left",
+      writingDirection: isRTL ? "rtl" : "ltr",
+    }),
     trackingSafe: () => ({}),
     useIsRTL: () => rtl,
   },
@@ -304,7 +308,105 @@ async function signIn() {
     .find((n) => n.props.accessibilityLabel === "onboardingMode.google.title")
     .props.onPress();
 }
+async function ninjaMode() {
+  // Render the real translated catalog so the warning and CTA cannot silently
+  // fall back to an English key on the two RTL onboarding paths.
+  const catalog = compileUI("../i18n", {
+    "expo-localization": { getLocales: () => [{ languageCode: "en" }] },
+    "./db": { getAppMeta: async () => null },
+  });
+  const originalTranslate = mocks["../../lib/i18n"].t;
+  try {
+    for (const [locale, title, lossWarning] of [
+      ["en", "Continue in ninja mode", /lose this phone.*lose all your data/],
+      ["fa", "ادامه در حالت نینجا", /این تلفون.*همهٔ اطلاعات/],
+      ["ps", "د نینجا په حالت کې دوام ورکړئ", /ټیلیفون.*ټول معلومات/],
+    ] as const) {
+      reset();
+      rtl = locale !== "en";
+      mocks["../../lib/i18n"].t = (key: string) => catalog.tIn(locale, key);
+      const tree = render(false);
+      const visible = nodes(tree);
+      const action = visible.find((node) => node.props.accessibilityLabel === title)!;
+      assert.ok(action, `${locale}: ninja CTA is translated`);
+      assert.ok(nodes(action).some((node) => node.type === "Ninja" && node.props.size === 30));
+      assert.ok(!nodes(action).some((node) => node.props.name === "phone-portrait-outline"));
+      assert.equal(action.props.accessibilityRole, "button");
+      assert.equal(action.props.disabled, false);
+      const warningText = catalog.tIn(locale, "onboardingMode.offline.warning");
+      const warning = visible.find((node) => node.props.children === warningText)!;
+      assert.ok(warning, `${locale}: phone loss warning is visible before continuing`);
+      assert.match(warningText, lossWarning);
+      assert.ok(visible.indexOf(warning) > visible.indexOf(action), "warning is below the CTA");
+      assert.equal(warning.props.numberOfLines, undefined, "the full warning can wrap");
+      assert.equal(flattenStyle(warning.props.style).fontSize, 13);
+      assert.equal(flattenStyle(warning.props.style).writingDirection, rtl ? "rtl" : "ltr");
+      assert.ok(visible.some((node) => node.props.name === "warning-outline"));
+      for (const key of [
+        "onboardingMode.offline.label",
+        "onboardingMode.offline.body",
+        "onboardingMode.offline.title",
+        "onboardingMode.expoGoHint",
+      ]) {
+        assert.notEqual(catalog.tIn(locale, key), key, `${locale}: ${key} is present`);
+        assert.doesNotMatch(
+          catalog.tIn(locale, key),
+          /continue offline|continue without internet|بدون اینترنت|پرته له انټرنېټه/i,
+        );
+      }
+      const redirected = nodes(render(true));
+      assert.ok(!redirected.some((node) => node.type === "Ninja"));
+      assert.ok(!redirected.some((node) => node.props.children === warningText));
+      assert.ok(!redirected.some((node) => node.props.accessibilityLabel === title));
+
+      // Existing stored enum and identity clearing stay compatible. A fast
+      // second tap, or a provider tap during the write, cannot start another path.
+      reset();
+      rtl = locale !== "en";
+      meta.set("onboarding_pending_name", "Old provider");
+      meta.set("onboarding_pending_email", "old@example.com");
+      meta.set("onboarding_pending_phone", "+93700000000");
+      const ready = nodes(render(false));
+      const start = ready.find((node) => node.props.accessibilityLabel === title)!;
+      const continuing = start.props.onPress();
+      const busyTree = nodes(render(false));
+      const busyAction = busyTree.find((node) => node.props.accessibilityLabel === title)!;
+      assert.equal(busyAction.props.accessibilityState.busy, true);
+      assert.ok(nodes(busyAction).some((node) => node.type === "Spinner"));
+      assert.ok(
+        busyTree.filter((node) => node.type === "Pressable").every((node) => node.props.disabled),
+      );
+      assert.ok(busyTree.some((node) => node.props.children === warningText));
+      await start.props.onPress();
+      await ready
+        .find(
+          (node) =>
+            node.props.accessibilityLabel === catalog.tIn(locale, "onboardingMode.google.title"),
+        )!
+        .props.onPress();
+      await continuing;
+      assert.equal(authCalls, 0, "ninja continuation blocks competing provider calls");
+      assert.equal(meta.get("onboarding_auth_method"), "offline");
+      for (const key of [
+        "onboarding_pending_name",
+        "onboarding_pending_email",
+        "onboarding_pending_phone",
+      ]) {
+        assert.equal(meta.get(key), "");
+      }
+      assert.equal(meta.get("onboarding_step"), "profile");
+      assert.deepEqual(routes, ["/onboarding/profile"], "a double tap only continues once");
+    }
+  } finally {
+    mocks["../../lib/i18n"].t = originalTranslate;
+    reset();
+  }
+  console.log(
+    "PASS: original ninja icon, translated CTA/loss warning below it, RTL, busy guard and sign-in-only exclusion in EN/FA/PS",
+  );
+}
 async function main() {
+  await ninjaMode();
   settingsSignIn();
   // Apply actions to the installed SDK's actual stack router, including the
   // native GO_BACK action fired by an iOS edge swipe. The selector must remain

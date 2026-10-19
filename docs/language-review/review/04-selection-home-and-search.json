@@ -1,0 +1,3750 @@
+{
+  "$schema": "../review.schema.json",
+  "format_version": 1,
+  "section": "04-selection-home-and-search",
+  "entries": [
+    {
+      "id": "mobile:selection.start",
+      "key": "selection.start",
+      "current": {
+        "en": "Select",
+        "fa": "انتخاب",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "غوره کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 29,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2112,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/index.tsx",
+          "line": 2043
+        },
+        {
+          "path": "apps/mobile/app/person/[id].tsx",
+          "line": 1309
+        },
+        {
+          "path": "apps/mobile/app/person/[id].tsx",
+          "line": 1567
+        },
+        {
+          "path": "apps/mobile/components/EntryRow.tsx",
+          "line": 267
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:selection.contacts",
+      "key": "selection.contacts",
+      "current": {
+        "en": "Select contacts",
+        "fa": "انتخاب مخاطبین",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "اړیکې غوره کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 30,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2113,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/index.tsx",
+          "line": 1911
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:selection.tallies",
+      "key": "selection.tallies",
+      "current": {
+        "en": "Select tallies",
+        "fa": "انتخاب ثبت‌ها",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "راکړې ورکړې غوره کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 31,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2114,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:selection.count",
+      "key": "selection.count",
+      "current": {
+        "en": "{count} selected",
+        "fa": "{count} انتخاب شده",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "{count} غوره شوي"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "count"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 32,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2115,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/SelectionToolbar.tsx",
+          "line": 129
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:selection.all",
+      "key": "selection.all",
+      "current": {
+        "en": "Select all",
+        "fa": "انتخاب همه",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ټول غوره کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 33,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2116,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/SelectionToolbar.tsx",
+          "line": 53
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:selection.clear",
+      "key": "selection.clear",
+      "current": {
+        "en": "Deselect all",
+        "fa": "لغو انتخاب همه",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د ټولو ټاکنه لرې کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 34,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2117,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/SelectionToolbar.tsx",
+          "line": 52
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:selection.allResults",
+      "key": "selection.allResults",
+      "current": {
+        "en": "Select all results",
+        "fa": "انتخاب همه نتایج",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ټولې پایلې غوره کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 35,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2118,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/SelectionToolbar.tsx",
+          "line": 50
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:selection.clearResults",
+      "key": "selection.clearResults",
+      "current": {
+        "en": "Deselect results",
+        "fa": "لغو انتخاب نتایج",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د پایلو ټاکنه لرې کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 36,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2119,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/SelectionToolbar.tsx",
+          "line": 49
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:selection.close",
+      "key": "selection.close",
+      "current": {
+        "en": "Done",
+        "fa": "تمام",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "بشپړ شو"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 37,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2120,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/SelectionToolbar.tsx",
+          "line": 114
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:selection.hint",
+      "key": "selection.hint",
+      "current": {
+        "en": "Double tap to select or deselect this item.",
+        "fa": "برای انتخاب یا لغو انتخاب این مورد، دو بار ضربه بزنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د دې توکي د غوره کولو یا د ټاکنې لرې کولو لپاره دوه ځله پرې ټک وکړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 38,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2121,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/EntryRow.tsx",
+          "line": 265
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:selection.removeContactsTitle",
+      "key": "selection.removeContactsTitle",
+      "current": {
+        "en": "Remove {count} contacts?",
+        "fa": "{count} مخاطب برداشته شود؟",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "{count} اړیکې لرې شي؟"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "count"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 39,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2122,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/index.tsx",
+          "line": 1982
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:selection.removeContactsDescription",
+      "key": "selection.removeContactsDescription",
+      "current": {
+        "en": "These contacts will be hidden in this kaata. You can restore them from Removed people.",
+        "fa": "این مخاطبین در این کاتا پنهان می‌شوند. می‌توانید آن‌ها را از بخش اشخاص حذف‌شده برگردانید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "دا اړیکې به په دې کاټه کې پټې شي. د «لرې شوي کسان» له برخې یې بېرته راوستلی شئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 40,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2123,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/index.tsx",
+          "line": 1983
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:selection.contactsRemoved",
+      "key": "selection.contactsRemoved",
+      "current": {
+        "en": "{count} contacts removed",
+        "fa": "{count} مخاطب برداشته شد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "{count} اړیکې لرې شوې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "count"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 42,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2125,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/index.tsx",
+          "line": 858
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:selection.deleteTalliesTitle",
+      "key": "selection.deleteTalliesTitle",
+      "current": {
+        "en": "Delete {count} tallies?",
+        "fa": "{count} ثبت حذف شود؟",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "{count} راکړې ورکړې ړنګې شي؟"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "count"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 43,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2126,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/person/[id].tsx",
+          "line": 2238
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:selection.deleteTalliesDescription",
+      "key": "selection.deleteTalliesDescription",
+      "current": {
+        "en": "These tallies will be deleted and the balances will update. This cannot be undone.",
+        "fa": "این ثبت‌ها حذف می‌شوند و بیلانس‌ها تغییر می‌کنند. این کار قابل برگشت نیست.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "دا راکړې ورکړې به ړنګې او پاتې حسابونه به نوي شي. دا کار بېرته نه شي راګرځېدای."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 44,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2127,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/person/[id].tsx",
+          "line": 2239
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:selection.talliesDeleted",
+      "key": "selection.talliesDeleted",
+      "current": {
+        "en": "{count} tallies deleted",
+        "fa": "{count} ثبت حذف شد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "{count} راکړې ورکړې ړنګې شوې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "count"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 46,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2129,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/person/[id].tsx",
+          "line": 1179
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:selection.partialFailure",
+      "key": "selection.partialFailure",
+      "current": {
+        "en": "{count} items could not be updated. Try again.",
+        "fa": "{count} مورد به‌روز نشد. دوباره کوشش کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "{count} توکي نوي نه شول. بیا هڅه وکړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "count"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 47,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2130,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/index.tsx",
+          "line": 860
+        },
+        {
+          "path": "apps/mobile/app/person/[id].tsx",
+          "line": 1184
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:selection.remove",
+      "key": "selection.remove",
+      "current": {
+        "en": "Remove",
+        "fa": "برداشتن",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "لرې کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 48,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2131,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/index.tsx",
+          "line": 1353
+        },
+        {
+          "path": "apps/mobile/app/index.tsx",
+          "line": 1984
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:selection.delete",
+      "key": "selection.delete",
+      "current": {
+        "en": "Delete",
+        "fa": "حذف",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ړنګ کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 49,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2132,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/person/[id].tsx",
+          "line": 1485
+        },
+        {
+          "path": "apps/mobile/app/person/[id].tsx",
+          "line": 2242
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:selection.empty",
+      "key": "selection.empty",
+      "current": {
+        "en": "Tap items to select them",
+        "fa": "برای انتخاب موارد، روی آن‌ها ضربه بزنید",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د توکو د غوره کولو لپاره پرې ټک وکړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 50,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2133,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/SelectionToolbar.tsx",
+          "line": 148
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:selection.summary.transactions",
+      "key": "selection.summary.transactions",
+      "current": {
+        "en": "{count} transactions",
+        "fa": "{count} معامله",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "{count} راکړې ورکړې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "count"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 51,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2134,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/SelectionToolbar.tsx",
+          "line": 69
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:selection.summary.transaction",
+      "key": "selection.summary.transaction",
+      "current": {
+        "en": "{count} transaction",
+        "fa": "{count} معامله",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "{count} راکړه ورکړه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "count"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 52,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2135,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/SelectionToolbar.tsx",
+          "line": 68
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:selection.summary.transactionsLabel",
+      "key": "selection.summary.transactionsLabel",
+      "current": {
+        "en": "Transactions",
+        "fa": "معاملات",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "راکړې ورکړې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 53,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2136,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/SelectionToolbar.tsx",
+          "line": 90
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:selection.summary.debt",
+      "key": "selection.summary.debt",
+      "current": {
+        "en": "Total debt",
+        "fa": "مجموع طلب",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ټول ورکړل شوي"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 54,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2137,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/SelectionToolbar.tsx",
+          "line": 154
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:selection.summary.credit",
+      "key": "selection.summary.credit",
+      "current": {
+        "en": "Total credit",
+        "fa": "مجموع قرض",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ټول ترلاسه شوي"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 55,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2138,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/SelectionToolbar.tsx",
+          "line": 161
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:selection.summary.remaining",
+      "key": "selection.summary.remaining",
+      "current": {
+        "en": "Remaining balance",
+        "fa": "باقی‌مانده حساب",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "پاتې حساب"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 56,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2139,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/SelectionToolbar.tsx",
+          "line": 60
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:selection.summary.collect",
+      "key": "selection.summary.collect",
+      "current": {
+        "en": "Remaining to collect",
+        "fa": "طلب باقی‌مانده",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د اخیستلو پاتې پیسې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 57,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2140,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/SelectionToolbar.tsx",
+          "line": 62
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:selection.summary.pay",
+      "key": "selection.summary.pay",
+      "current": {
+        "en": "Remaining to pay",
+        "fa": "قرض باقی‌مانده",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د ورکولو پاتې پیسې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 58,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2141,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/SelectionToolbar.tsx",
+          "line": 63
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:selection.summary.unavailable",
+      "key": "selection.summary.unavailable",
+      "current": {
+        "en": "Some selected account data isn't available on this phone.",
+        "fa": "اطلاعات بعضی حساب‌های انتخاب‌شده در این تیلفون موجود نیست.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د ځینو غوره شویو حسابونو معلومات په دې ټیلیفون کې نشته."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 59,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2142,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/SelectionToolbar.tsx",
+          "line": 57
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:home.tab.collect",
+      "key": "home.tab.collect",
+      "current": {
+        "en": "To collect",
+        "fa": "وصول",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د اخیستلو پیسې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 330,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2390,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/index.tsx",
+          "line": 147
+        },
+        {
+          "path": "apps/mobile/components/PersonRow.tsx",
+          "line": 154
+        },
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 468
+        },
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 626
+        }
+      ],
+      "context": "(Phase 5 mesh \"Shop Mode\" copy lives under the menu.sync.shopMode.*\nnamespace — the hamburger menu is the only surface. The earlier\nsettings.shopMode.* block was a pre-redesign draft and has been removed.)\nHome"
+    },
+    {
+      "id": "mobile:home.tab.pay",
+      "key": "home.tab.pay",
+      "current": {
+        "en": "To pay",
+        "fa": "پرداخت",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د ورکولو پیسې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 331,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2391,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/index.tsx",
+          "line": 148
+        },
+        {
+          "path": "apps/mobile/components/PersonRow.tsx",
+          "line": 154
+        },
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 470
+        },
+        {
+          "path": "apps/mobile/lib/export/pdf.ts",
+          "line": 628
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:home.total.label.collect",
+      "key": "home.total.label.collect",
+      "current": {
+        "en": "To collect",
+        "fa": "قابل وصول",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د اخیستلو پیسې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 332,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2392,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/index.tsx",
+          "line": 2390
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:home.total.label.pay",
+      "key": "home.total.label.pay",
+      "current": {
+        "en": "To pay",
+        "fa": "قابل پرداخت",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ورکونکې پیسې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 333,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2393,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/index.tsx",
+          "line": 2390
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:home.empty.collect.title",
+      "key": "home.empty.collect.title",
+      "current": {
+        "en": "Nothing to collect yet",
+        "fa": "هنوز چیزی برای وصول نیست",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "لا اخیستونکې پیسې نشته"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 334,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2394,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/index.tsx",
+          "line": 2427
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:home.empty.collect.subtitle",
+      "key": "home.empty.collect.subtitle",
+      "current": {
+        "en": "Tap the button at the bottom right to add a tally for someone you keep accounts with — one per customer.",
+        "fa": "با دکمهٔ پایین سمت راست برای کسی که با او حساب دارید یک حساب بسازید — برای هر مشتری یکی.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د ښي لوري لاندې تڼۍ ووهئ او د هغه کس حساب ورزیات کړئ چې حساب ورسره لرئ؛ د هر پېرودونکي لپاره یو حساب."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 335,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2395,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/index.tsx",
+          "line": 2428
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:home.empty.pay.title",
+      "key": "home.empty.pay.title",
+      "current": {
+        "en": "You owe no one yet",
+        "fa": "هنوز از کسی قرضدار نیستید",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "لا د چا پوروړي نه یاست"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 337,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2397,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/index.tsx",
+          "line": 2427
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:home.empty.pay.subtitle",
+      "key": "home.empty.pay.subtitle",
+      "current": {
+        "en": "When you take goods or borrow money, log it from that person's page and they'll appear here.",
+        "fa": "وقتی جنس می‌گیرید یا پول قرض می‌کنید، از صفحه آن شخص ثبت کنید — همین‌جا ظاهر می‌شود.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "چې توکي یا پیسې په پور اخلئ، د هماغه کس له پاڼې یې ثبت کړئ او دلته به ښکاره شي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 338,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2398,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/index.tsx",
+          "line": 2428
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:home.from.someone",
+      "key": "home.from.someone",
+      "current": {
+        "en": "from {count} person",
+        "fa": "از یک نفر",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "له {count} کس څخه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "count"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 340,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2400,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/index.tsx",
+          "line": 2421
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:home.from.many",
+      "key": "home.from.many",
+      "current": {
+        "en": "from {count} people",
+        "fa": "از {count} نفر",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "له {count} کسانو څخه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "count"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 341,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2401,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/index.tsx",
+          "line": 2421
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:common.more",
+      "key": "common.more",
+      "current": {
+        "en": "more",
+        "fa": "بیشتر",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "نور"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 344,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2404,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/EntryRow.tsx",
+          "line": 431
+        },
+        {
+          "path": "apps/mobile/components/NotificationInbox.tsx",
+          "line": 154
+        }
+      ],
+      "context": "Person detail"
+    },
+    {
+      "id": "mobile:common.less",
+      "key": "common.less",
+      "current": {
+        "en": "less",
+        "fa": "کمتر",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "لږ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 345,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2405,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/EntryRow.tsx",
+          "line": 399
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:readonly.badge",
+      "key": "readonly.badge",
+      "current": {
+        "en": "View only",
+        "fa": "فقط دیدن",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "یوازې کتل"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 347,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2407,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/index.tsx",
+          "line": 1498
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:customers.listOptions",
+      "key": "customers.listOptions",
+      "current": {
+        "en": "Sort & filter",
+        "fa": "ترتیب و گروه",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ترتیب او چاڼ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 413,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2464,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/CustomerListSheet.tsx",
+          "line": 273
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:customers.search",
+      "key": "customers.search",
+      "current": {
+        "en": "Search customers",
+        "fa": "جستجوی مشتری‌ها",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "پېرودونکي ولټوئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 414,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2465,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/index.tsx",
+          "line": 1709
+        },
+        {
+          "path": "apps/mobile/app/index.tsx",
+          "line": 1918
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:search.openHint",
+      "key": "search.openHint",
+      "current": {
+        "en": "Opens search and filters with matching results.",
+        "fa": "جستجو، فیلترها و نتیجه‌های مطابق را باز می‌کند.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "لټون او چاڼ له اړوندو پایلو سره پرانیزي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 415,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2466,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/SearchFieldTrigger.tsx",
+          "line": 21
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:search.filters",
+      "key": "search.filters",
+      "current": {
+        "en": "Filters",
+        "fa": "فیلترها",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "چاڼونه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 416,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2467,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/SearchSheet.tsx",
+          "line": 346
+        },
+        {
+          "path": "apps/mobile/components/SearchSheet.tsx",
+          "line": 380
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:search.showResults",
+      "key": "search.showResults",
+      "current": {
+        "en": "Show results",
+        "fa": "نمایش نتیجه‌ها",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "پایلې وښایئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 417,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2468,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/SearchSheet.tsx",
+          "line": 397
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:search.clearQuery",
+      "key": "search.clearQuery",
+      "current": {
+        "en": "Clear search",
+        "fa": "پاک‌کردن جستجو",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "لټون پاک کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 418,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2469,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/SearchSheet.tsx",
+          "line": 331
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:search.clearAll",
+      "key": "search.clearAll",
+      "current": {
+        "en": "Clear all",
+        "fa": "پاک‌کردن همه",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ټول پاک کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 419,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2470,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/SearchSheet.tsx",
+          "line": 273
+        },
+        {
+          "path": "apps/mobile/components/SearchSheet.tsx",
+          "line": 281
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:customers.search.clear",
+      "key": "customers.search.clear",
+      "current": {
+        "en": "Clear customer search",
+        "fa": "پاک‌کردن جستجوی مشتری‌ها",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د پېرودونکو لټون پاک کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 420,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2471,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:customers.search.title",
+      "key": "customers.search.title",
+      "current": {
+        "en": "Search results",
+        "fa": "نتیجه‌های جستجو",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د لټون پایلې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 421,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2472,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/index.tsx",
+          "line": 1911
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:customers.search.result",
+      "key": "customers.search.result",
+      "current": {
+        "en": "1 matching customer",
+        "fa": "۱ مشتری مطابق جستجو",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "1 پېرودونکی وموندل شو"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 422,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2473,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/index.tsx",
+          "line": 1914
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:customers.search.results",
+      "key": "customers.search.results",
+      "current": {
+        "en": "{count} matching customers",
+        "fa": "{count} مشتری مطابق جستجو",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "{count} پېرودونکي وموندل شول"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "count"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 423,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2474,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/index.tsx",
+          "line": 1914
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:customers.noResults",
+      "key": "customers.noResults",
+      "current": {
+        "en": "No matching customers",
+        "fa": "مشتری مطابق جستجو پیدا نشد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "اړوند پېرودونکي ونه موندل شول"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 424,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2475,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/group-members.tsx",
+          "line": 211
+        },
+        {
+          "path": "apps/mobile/app/index.tsx",
+          "line": 2370
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:customers.noTallies",
+      "key": "customers.noTallies",
+      "current": {
+        "en": "No tallies yet",
+        "fa": "هنوز ثبتی نیست",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "لا حسابونه نشته"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 425,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2476,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/index.tsx",
+          "line": 2320
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:customers.sort",
+      "key": "customers.sort",
+      "current": {
+        "en": "Sort customers",
+        "fa": "ترتیب مشتری‌ها",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "پېرودونکي ترتیب کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 426,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2477,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/CustomerListSheet.tsx",
+          "line": 92
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:customers.sort.outstanding_name",
+      "key": "customers.sort.outstanding_name",
+      "current": {
+        "en": "Balances first · A–Z",
+        "fa": "مانده‌دارها اول · الف تا ی",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "لومړی ناتصفیه شوي حسابونه · د الفبا په ترتیب"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 427,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2478,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:customers.sort.recent",
+      "key": "customers.sort.recent",
+      "current": {
+        "en": "Recent activity",
+        "fa": "فعالیت تازه",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "وروستي فعالیتونه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 428,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2479,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:customers.sort.name_asc",
+      "key": "customers.sort.name_asc",
+      "current": {
+        "en": "Name · A–Z",
+        "fa": "نام · الف تا ی",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "نوم · د الفبا په ترتیب"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 429,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2480,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:customers.sort.name_desc",
+      "key": "customers.sort.name_desc",
+      "current": {
+        "en": "Name · Z–A",
+        "fa": "نام · ی تا الف",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "نوم · د الفبا په سرچپه ترتیب"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 430,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2481,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:customers.sort.amount_desc",
+      "key": "customers.sort.amount_desc",
+      "current": {
+        "en": "Amount · largest first",
+        "fa": "مبلغ · بزرگ‌تر اول",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "پیسې · لومړی ډېرې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 431,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2482,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:customers.sort.amount_asc",
+      "key": "customers.sort.amount_asc",
+      "current": {
+        "en": "Amount · smallest first",
+        "fa": "مبلغ · کوچک‌تر اول",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "پیسې · لومړی لږې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 432,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2483,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:customers.sort.date_asc",
+      "key": "customers.sort.date_asc",
+      "current": {
+        "en": "Last tally · oldest first",
+        "fa": "آخرین ثبت · قدیمی‌تر اول",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "وروستۍ راکړه ورکړه · لومړی زړې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 433,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2484,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:customers.filtered",
+      "key": "customers.filtered",
+      "current": {
+        "en": "{direction}: {shown} of {total} customers · {amount} of the total above",
+        "fa": "{direction}: {shown} از {total} مشتری · {amount} از جمع بالا",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "{direction}: له {total} پېرودونکو څخه {shown} · د پورته ټولو پیسو له ډلې {amount}"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "amount",
+        "direction",
+        "shown",
+        "total"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 434,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2485,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:customers.noGroupResults",
+      "key": "customers.noGroupResults",
+      "current": {
+        "en": "No customers from the selected groups on this side.",
+        "fa": "در این بخش مشتری‌ای از گروه‌های انتخاب‌شده نیست.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "په دې خوا کې د غوره شویو ډلو پېرودونکي نشته."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 466,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2517,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:home.fab.blockedArchived",
+      "key": "home.fab.blockedArchived",
+      "current": {
+        "en": "This Kaata is archived. Restore it or pick another.",
+        "fa": "این کاتا بایگانی شده است. آن را بازیابی کنید یا کاتای دیگری انتخاب کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "دا کاټه آرشیف شوې ده. بېرته یې را وګرځوئ یا بله وټاکئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 674,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2714,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/index.tsx",
+          "line": 1736
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:home.exit.hint",
+      "key": "home.exit.hint",
+      "current": {
+        "en": "Press back again to exit.",
+        "fa": "برای خروج دوباره برگشت را بزنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د وتلو لپاره د بېرته تګ تڼۍ بیا ووهئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 743,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2794,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/index.tsx",
+          "line": 695
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:home.loadFailed",
+      "key": "home.loadFailed",
+      "current": {
+        "en": "Couldn't load your Kaata data. Your entries are safe — try again.",
+        "fa": "داده‌های کاتای شما بارگیری نشد. ثبت‌های شما محفوظ است — دوباره امتحان کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ستاسو د کاټې معلومات راوړل نه شول. ستاسو راکړې ورکړې خوندي دي؛ بیا هڅه وکړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 819,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2752,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/group-members.tsx",
+          "line": 182
+        },
+        {
+          "path": "apps/mobile/app/groups.tsx",
+          "line": 141
+        },
+        {
+          "path": "apps/mobile/app/index.tsx",
+          "line": 1644
+        },
+        {
+          "path": "apps/mobile/app/person/[id].tsx",
+          "line": 1358
+        },
+        {
+          "path": "apps/mobile/app/person/[id]/edit.tsx",
+          "line": 223
+        },
+        {
+          "path": "apps/mobile/app/person/[id]/group.tsx",
+          "line": 110
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:home.noKaata.title",
+      "key": "home.noKaata.title",
+      "current": {
+        "en": "No kaatas yet",
+        "fa": "هنوز کاتایی نیست",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "تراوسه کاټې نشته"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 820,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2753,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/index.tsx",
+          "line": 1600
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:home.noKaata.subtitle",
+      "key": "home.noKaata.subtitle",
+      "current": {
+        "en": "Set up your shop's kaata to start your ledger.",
+        "fa": "کاتای دکان خود را بسازید تا دفتر حساب‌تان شروع شود.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د حساب کتاب د پیل لپاره د خپل دوکان کاټه جوړه کړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 821,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2754,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/index.tsx",
+          "line": 1601
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:home.noKaata.create",
+      "key": "home.noKaata.create",
+      "current": {
+        "en": "Create a kaata",
+        "fa": "ساختن کاتا",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "کاټه جوړه کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 822,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2755,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/index.tsx",
+          "line": 1605
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:home.noKaata.join",
+      "key": "home.noKaata.join",
+      "current": {
+        "en": "Join an existing kaata",
+        "fa": "پیوستن به یک کاتای موجود",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "له شته کاټې سره یوځای شئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 823,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2756,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:home.noKaata.archived",
+      "key": "home.noKaata.archived",
+      "current": {
+        "en": "View archived kaatas ({count})",
+        "fa": "کاتاهای بایگانی‌شده ({count})",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "آرشیف شوې کاټې وګورئ ({count})"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "count"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 824,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2757,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/index.tsx",
+          "line": 1630
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:common.cancel",
+      "key": "common.cancel",
+      "current": {
+        "en": "Cancel",
+        "fa": "لغو",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "لغوه کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 826,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2841,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 992
+        },
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 1002
+        },
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 1012
+        },
+        {
+          "path": "apps/mobile/app/entry/[id]/edit.tsx",
+          "line": 205
+        },
+        {
+          "path": "apps/mobile/app/entry/new.tsx",
+          "line": 378
+        },
+        {
+          "path": "apps/mobile/app/groups.tsx",
+          "line": 212
+        },
+        {
+          "path": "apps/mobile/app/invite/[token].tsx",
+          "line": 477
+        },
+        {
+          "path": "apps/mobile/app/onboarding/auth.tsx",
+          "line": 883
+        },
+        {
+          "path": "apps/mobile/app/onboarding/restore.tsx",
+          "line": 452
+        },
+        {
+          "path": "apps/mobile/app/person/[id]/edit.tsx",
+          "line": 237
+        },
+        {
+          "path": "apps/mobile/app/person/[id]/reminders.tsx",
+          "line": 269
+        },
+        {
+          "path": "apps/mobile/app/person/new.tsx",
+          "line": 468
+        },
+        {
+          "path": "apps/mobile/app/reminders.tsx",
+          "line": 173
+        },
+        {
+          "path": "apps/mobile/app/t/[token].tsx",
+          "line": 688
+        },
+        {
+          "path": "apps/mobile/app/t/[token].tsx",
+          "line": 990
+        },
+        {
+          "path": "apps/mobile/app/t/[token].tsx",
+          "line": 1235
+        },
+        {
+          "path": "apps/mobile/app/tab/dispute.tsx",
+          "line": 193
+        },
+        {
+          "path": "apps/mobile/app/vault/pair-scan.tsx",
+          "line": 489
+        },
+        {
+          "path": "apps/mobile/app/vault/pair.tsx",
+          "line": 450
+        },
+        {
+          "path": "apps/mobile/app/vault/pair.tsx",
+          "line": 521
+        },
+        {
+          "path": "apps/mobile/components/ConfirmDialog.tsx",
+          "line": 106
+        },
+        {
+          "path": "apps/mobile/components/ConfirmDialog.tsx",
+          "line": 112
+        },
+        {
+          "path": "apps/mobile/components/LinkAccountDialog.tsx",
+          "line": 244
+        },
+        {
+          "path": "apps/mobile/components/ReminderEditor.tsx",
+          "line": 332
+        },
+        {
+          "path": "apps/mobile/components/TallyDateFilterSheet.tsx",
+          "line": 469
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:common.back",
+      "key": "common.back",
+      "current": {
+        "en": "Back",
+        "fa": "برگشت",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "شاته"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 827,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2842,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account-password.tsx",
+          "line": 534
+        },
+        {
+          "path": "apps/mobile/app/account-username.tsx",
+          "line": 217
+        },
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 571
+        },
+        {
+          "path": "apps/mobile/app/guide.tsx",
+          "line": 28
+        },
+        {
+          "path": "apps/mobile/app/notifications.tsx",
+          "line": 18
+        },
+        {
+          "path": "apps/mobile/app/person/[id].tsx",
+          "line": 1342
+        },
+        {
+          "path": "apps/mobile/app/person/[id].tsx",
+          "line": 1527
+        },
+        {
+          "path": "apps/mobile/app/restore.tsx",
+          "line": 177
+        },
+        {
+          "path": "apps/mobile/app/restore.tsx",
+          "line": 198
+        },
+        {
+          "path": "apps/mobile/app/vault/archived.tsx",
+          "line": 146
+        },
+        {
+          "path": "apps/mobile/app/vault/archived.tsx",
+          "line": 161
+        },
+        {
+          "path": "apps/mobile/app/vault/audit-log.tsx",
+          "line": 333
+        },
+        {
+          "path": "apps/mobile/app/vault/invite.tsx",
+          "line": 264
+        },
+        {
+          "path": "apps/mobile/app/vault/members.tsx",
+          "line": 866
+        },
+        {
+          "path": "apps/mobile/app/vault/new.tsx",
+          "line": 429
+        },
+        {
+          "path": "apps/mobile/app/vault/pair-scan.tsx",
+          "line": 380
+        },
+        {
+          "path": "apps/mobile/app/vault/pair.tsx",
+          "line": 395
+        },
+        {
+          "path": "apps/mobile/app/vault/pair.tsx",
+          "line": 466
+        },
+        {
+          "path": "apps/mobile/app/vault/removed-people.tsx",
+          "line": 115
+        },
+        {
+          "path": "apps/mobile/app/vault/removed-people.tsx",
+          "line": 130
+        },
+        {
+          "path": "apps/mobile/app/vault/settings.tsx",
+          "line": 637
+        },
+        {
+          "path": "apps/mobile/components/Onboarding.tsx",
+          "line": 21
+        },
+        {
+          "path": "apps/mobile/components/SettingsScreen.tsx",
+          "line": 87
+        },
+        {
+          "path": "apps/mobile/components/TallyDateFilterSheet.tsx",
+          "line": 265
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:common.refreshFailed",
+      "key": "common.refreshFailed",
+      "current": {
+        "en": "Couldn't refresh — check your connection.",
+        "fa": "تازه‌سازی نشد — اتصال خود را بررسی کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "معلومات تازه نه شول؛ خپله اړیکه وګورئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 828,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2843,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/members.tsx",
+          "line": 529
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:common.retry",
+      "key": "common.retry",
+      "current": {
+        "en": "Retry",
+        "fa": "تلاش دوباره",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "بیا هڅه وکړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 830,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2845,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account-password.tsx",
+          "line": 385
+        },
+        {
+          "path": "apps/mobile/app/account-username.tsx",
+          "line": 136
+        },
+        {
+          "path": "apps/mobile/app/invite/[token].tsx",
+          "line": 573
+        },
+        {
+          "path": "apps/mobile/app/invite/[token].tsx",
+          "line": 593
+        },
+        {
+          "path": "apps/mobile/app/t/[token].tsx",
+          "line": 697
+        },
+        {
+          "path": "apps/mobile/app/vault/audit-log.tsx",
+          "line": 356
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:common.done",
+      "key": "common.done",
+      "current": {
+        "en": "Done",
+        "fa": "تمام",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "وشول"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 831,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3285,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/group-members.tsx",
+          "line": 267
+        },
+        {
+          "path": "apps/mobile/app/person/[id]/group.tsx",
+          "line": 164
+        },
+        {
+          "path": "apps/mobile/app/person/[id]/group.tsx",
+          "line": 169
+        },
+        {
+          "path": "apps/mobile/app/vault/pair-scan.tsx",
+          "line": 477
+        },
+        {
+          "path": "apps/mobile/app/vault/pair.tsx",
+          "line": 483
+        },
+        {
+          "path": "apps/mobile/components/ReminderEditor.tsx",
+          "line": 273
+        },
+        {
+          "path": "apps/mobile/components/ReminderEditor.tsx",
+          "line": 305
+        },
+        {
+          "path": "apps/mobile/components/TallyDateFilterSheet.tsx",
+          "line": 412
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:common.close",
+      "key": "common.close",
+      "current": {
+        "en": "Close",
+        "fa": "بستن",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "وتړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 832,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3286,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/SearchSheet.tsx",
+          "line": 291
+        },
+        {
+          "path": "apps/mobile/components/SheetBackdrop.tsx",
+          "line": 125
+        },
+        {
+          "path": "apps/mobile/components/SheetHandle.tsx",
+          "line": 16
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:common.hideKeyboard",
+      "key": "common.hideKeyboard",
+      "current": {
+        "en": "Hide keyboard",
+        "fa": "پنهان‌کردن صفحه‌کلید",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "کیبورډ پټ کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 833,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3287,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/person/[id].tsx",
+          "line": 2168
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:common.loading",
+      "key": "common.loading",
+      "current": {
+        "en": "Loading…",
+        "fa": "بارگیری…",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "راوړل کېږي…"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 834,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3288,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/pair.tsx",
+          "line": 381
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:common.tryAgain",
+      "key": "common.tryAgain",
+      "current": {
+        "en": "Try again",
+        "fa": "دوباره کوشش",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "بیا هڅه وکړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 835,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3289,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/index.tsx",
+          "line": 1651
+        },
+        {
+          "path": "apps/mobile/app/vault/pair-scan.tsx",
+          "line": 455
+        },
+        {
+          "path": "apps/mobile/app/vault/pair-scan.tsx",
+          "line": 487
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:common.removed",
+      "key": "common.removed",
+      "current": {
+        "en": "{name} removed",
+        "fa": "{name} حذف شد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "{name} لرې شو"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "name"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 836,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2846,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/index.tsx",
+          "line": 2083
+        },
+        {
+          "path": "apps/mobile/app/person/[id]/edit.tsx",
+          "line": 142
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:common.remove",
+      "key": "common.remove",
+      "current": {
+        "en": "Remove",
+        "fa": "حذف",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "لرې کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 837,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2847,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/index.tsx",
+          "line": 2058
+        },
+        {
+          "path": "apps/mobile/app/index.tsx",
+          "line": 2070
+        },
+        {
+          "path": "apps/mobile/app/person/[id]/edit.tsx",
+          "line": 372
+        },
+        {
+          "path": "apps/mobile/components/PersonRow.tsx",
+          "line": 87
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:common.remove.title",
+      "key": "common.remove.title",
+      "current": {
+        "en": "Remove {name}?",
+        "fa": "{name} حذف شود؟",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "{name} لرې کړو؟"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "name"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 838,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2848,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/index.tsx",
+          "line": 2068
+        },
+        {
+          "path": "apps/mobile/app/person/[id]/edit.tsx",
+          "line": 361
+        },
+        {
+          "path": "apps/mobile/app/person/[id]/edit.tsx",
+          "line": 368
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:common.remove.description",
+      "key": "common.remove.description",
+      "current": {
+        "en": "They'll disappear from your list. Their entries are kept — restore them anytime from your kaata's settings.",
+        "fa": "از لیست شما حذف می‌شود. ثبت‌های آن‌ها نگه داشته می‌شود — هر وقت خواستید از تنظیمات کاتا بازگردانید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ستاسو له لېست څخه به پټ شي. راکړې ورکړې یې ساتل کېږي؛ هر وخت یې د خپلې کاټې له تنظیماتو څخه بېرته راګرځولی شئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 839,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2849,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/index.tsx",
+          "line": 2069
+        },
+        {
+          "path": "apps/mobile/app/person/[id]/edit.tsx",
+          "line": 371
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:common.notNow",
+      "key": "common.notNow",
+      "current": {
+        "en": "Not now",
+        "fa": "حالا نه",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "اوس نه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 843,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2852,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/invite/[token].tsx",
+          "line": 498
+        },
+        {
+          "path": "apps/mobile/app/person/[id].tsx",
+          "line": 1827
+        }
+      ],
+      "context": "Shared by the invite/[token] + pair/[token] deep-link screens (their\nsign-in gates and error states use identical copy)."
+    },
+    {
+      "id": "mobile:common.backToKaata",
+      "key": "common.backToKaata",
+      "current": {
+        "en": "Back to Kaata",
+        "fa": "بازگشت به کاتا",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "کاټې ته ستانه شئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 846,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2855,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/invite/[token].tsx",
+          "line": 576
+        },
+        {
+          "path": "apps/mobile/app/invite/[token].tsx",
+          "line": 603
+        },
+        {
+          "path": "apps/mobile/app/pair/[token].tsx",
+          "line": 49
+        },
+        {
+          "path": "apps/mobile/app/pair/[token].tsx",
+          "line": 60
+        },
+        {
+          "path": "apps/mobile/app/t/[token].tsx",
+          "line": 707
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:common.signInToContinue",
+      "key": "common.signInToContinue",
+      "current": {
+        "en": "Sign in to continue",
+        "fa": "برای ادامه وارد شوید",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د دوام لپاره ننوځئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 847,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2856,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/invite/[token].tsx",
+          "line": 491
+        }
+      ],
+      "context": ""
+    }
+  ]
+}

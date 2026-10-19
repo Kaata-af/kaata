@@ -1,0 +1,3801 @@
+{
+  "$schema": "../review.schema.json",
+  "format_version": 1,
+  "section": "09-members-and-ownership",
+  "entries": [
+    {
+      "id": "mobile:members.singular",
+      "key": "members.singular",
+      "current": {
+        "en": "{count} member",
+        "fa": "{count} عضو",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "{count} غړی"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "count"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 911,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2898,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/ProfileSettingsSheet.tsx",
+          "line": 554
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:members.plural",
+      "key": "members.plural",
+      "current": {
+        "en": "{count} members",
+        "fa": "{count} عضو",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "{count} غړي"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "count"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 912,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2899,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/ProfileSettingsSheet.tsx",
+          "line": 554
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:ownershipTransfer.title",
+      "key": "ownershipTransfer.title",
+      "current": {
+        "en": "Transfer ownership",
+        "fa": "انتقال مالکیت",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "مالکیت وسپارئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1447,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3361,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/transfer.tsx",
+          "line": 339
+        },
+        {
+          "path": "apps/mobile/app/vault/transfer.tsx",
+          "line": 350
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:ownershipTransfer.intro",
+      "key": "ownershipTransfer.intro",
+      "current": {
+        "en": "Invite someone to take over this Kaata. You stay the owner until they accept, then keep access as an Editor. Update all phones that use this Kaata before transferring.",
+        "fa": "کسی را دعوت کنید تا مالک این کاتا شود. تا زمان پذیرش، شما مالک می‌مانید و پس از آن به عنوان ویرایشگر دسترسی خواهید داشت. پیش از انتقال، کاتا را در تمام تلفون‌هایی که از این کاتا استفاده می‌کنند به‌روز کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "یو څوک راوبلئ چې د دې کاټې مالکیت واخلي. تر هغه چې بلنه ومني، تاسو خاوند پاتې کېږئ؛ بیا به د سمونګر په توګه لاسرسی لرئ. تر سپارلو مخکې ټول هغه ټیلیفونونه تازه کړئ چې دا کاټه کاروي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1448,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3362,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/transfer.tsx",
+          "line": 364
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:ownershipTransfer.ownerOnly",
+      "key": "ownershipTransfer.ownerOnly",
+      "current": {
+        "en": "Only the owner can transfer this Kaata.",
+        "fa": "فقط مالک می‌تواند مالکیت این کاتا را منتقل کند.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "یوازې خاوند د دې کاټې مالکیت سپارلای شي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1450,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3364,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/transfer.tsx",
+          "line": 239
+        },
+        {
+          "path": "apps/mobile/app/vault/transfer.tsx",
+          "line": 366
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:ownershipTransfer.signedOut",
+      "key": "ownershipTransfer.signedOut",
+      "current": {
+        "en": "Sign in to create an ownership invitation.",
+        "fa": "برای ایجاد دعوت مالکیت، وارد حساب خود شوید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د مالکیت د بلنې جوړولو لپاره ننوځئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1451,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3365,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/transfer.tsx",
+          "line": 235
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:ownershipTransfer.offline",
+      "key": "ownershipTransfer.offline",
+      "current": {
+        "en": "Connect to the internet to manage this ownership invitation.",
+        "fa": "برای مدیریت دعوت مالکیت به انترنت وصل شوید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د مالکیت د دې بلنې د سمبالولو لپاره له انټرنېټ سره وصل شئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1452,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3366,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:ownershipTransfer.unavailable",
+      "key": "ownershipTransfer.unavailable",
+      "current": {
+        "en": "This Kaata must be active, fully synced and owned by your signed-in account before you can transfer it.",
+        "fa": "برای انتقال، این کاتا باید فعال، کاملاً همگام‌شده و متعلق به حسابی باشد که با آن وارد شده‌اید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "تر سپارلو مخکې باید دا کاټه فعاله وي، بشپړه همغږې شوې وي او مالکیت یې ستاسو په ننوتلي حساب پورې تړلی وي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1453,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3367,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/transfer.tsx",
+          "line": 242
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:ownershipTransfer.loadFailed",
+      "key": "ownershipTransfer.loadFailed",
+      "current": {
+        "en": "Couldn't check ownership invitations. Try again before creating a link.",
+        "fa": "بررسی دعوت مالکیت ممکن نشد. پیش از ساختن لینک دوباره تلاش کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د مالکیت بلنې ونه کتل شوې. د لینک تر جوړولو مخکې بیا هڅه وکړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1455,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3369,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/transfer.tsx",
+          "line": 187
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:ownershipTransfer.refresh",
+      "key": "ownershipTransfer.refresh",
+      "current": {
+        "en": "Check status",
+        "fa": "بررسی وضعیت",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "حالت وګورئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1457,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3370,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/transfer.tsx",
+          "line": 372
+        },
+        {
+          "path": "apps/mobile/app/vault/transfer.tsx",
+          "line": 435
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:ownershipTransfer.recipient",
+      "key": "ownershipTransfer.recipient",
+      "current": {
+        "en": "New owner",
+        "fa": "مالک جدید",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "نوی خاوند"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1458,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3371,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/transfer.tsx",
+          "line": 452
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:ownershipTransfer.emailHint",
+      "key": "ownershipTransfer.emailHint",
+      "current": {
+        "en": "They must sign in with this email to accept. Forwarding the link to someone else won't give them ownership.",
+        "fa": "برای پذیرش باید با همین ایمیل وارد شود. فرستادن لینک به شخص دیگر به او مالکیت نمی‌دهد.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د منلو لپاره باید په همدې برېښنالیک ننوځي. بل چا ته د لینک لېږل هغه ته مالکیت نه ورکوي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1459,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3372,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/transfer.tsx",
+          "line": 474
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:ownershipTransfer.create",
+      "key": "ownershipTransfer.create",
+      "current": {
+        "en": "Create ownership link",
+        "fa": "ساختن لینک مالکیت",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د مالکیت لینک جوړ کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1461,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3374,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/transfer.tsx",
+          "line": 477
+        },
+        {
+          "path": "apps/mobile/app/vault/transfer.tsx",
+          "line": 508
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:ownershipTransfer.confirmTitle",
+      "key": "ownershipTransfer.confirmTitle",
+      "current": {
+        "en": "Invite a new owner?",
+        "fa": "مالک جدید دعوت شود؟",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "نوي خاوند ته بلنه ورکړئ؟"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1462,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3375,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/transfer.tsx",
+          "line": 506
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:ownershipTransfer.confirmBody",
+      "key": "ownershipTransfer.confirmBody",
+      "current": {
+        "en": "{email} will be able to accept ownership of this entire Kaata, including its members and shared ledgers. Until they accept, you remain the owner. After they accept, you'll stay as an Editor and only the new owner can transfer ownership back to you.",
+        "fa": "{email} می‌تواند مالکیت تمام این کاتا، همراه با اعضا و حساب‌های مشترک آن را بپذیرد. تا زمان پذیرش، شما مالک می‌مانید. پس از پذیرش به عنوان ویرایشگر می‌مانید و فقط مالک جدید می‌تواند مالکیت را دوباره به شما برگرداند.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "{email} به وکولای شي د دې ټولې کاټې، د غړو او ګډو حسابونو په ګډون، مالکیت ومني. تر منلو پورې تاسو خاوند پاتې کېږئ. تر منلو وروسته به د سمونګر په توګه پاتې شئ او یوازې نوی خاوند به وکولای شي مالکیت بېرته تاسو ته وسپاري."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "email"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1463,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3376,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/transfer.tsx",
+          "line": 507
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:ownershipTransfer.created",
+      "key": "ownershipTransfer.created",
+      "current": {
+        "en": "Ownership invitation created",
+        "fa": "دعوت مالکیت ایجاد شد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د مالکیت بلنه جوړه شوه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1465,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3378,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/transfer.tsx",
+          "line": 265
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:ownershipTransfer.pending",
+      "key": "ownershipTransfer.pending",
+      "current": {
+        "en": "Waiting for acceptance",
+        "fa": "در انتظار پذیرش",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د منلو په تمه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1466,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3379,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/transfer.tsx",
+          "line": 383
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:ownershipTransfer.expires",
+      "key": "ownershipTransfer.expires",
+      "current": {
+        "en": "Expires {when}",
+        "fa": "انقضا: {when}",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "په {when} پای ته رسېږي"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "when"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1467,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3380,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/transfer.tsx",
+          "line": 391
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:ownershipTransfer.pendingHint",
+      "key": "ownershipTransfer.pendingHint",
+      "current": {
+        "en": "You are still the owner. The recipient becomes the owner only after signing in and accepting this invitation.",
+        "fa": "شما هنوز مالک هستید. گیرنده فقط پس از ورود به حساب و پذیرش این دعوت مالک می‌شود.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "تاسو لا هم خاوند یاست. بلل شوی کس یوازې له ننوتلو او د دې بلنې تر منلو وروسته خاوند کېږي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1468,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3381,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/transfer.tsx",
+          "line": 399
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:ownershipTransfer.linkNotStored",
+      "key": "ownershipTransfer.linkNotStored",
+      "current": {
+        "en": "For privacy, the link is only available on the screen where it was created. To get a new link, cancel this invitation and create another.",
+        "fa": "برای حفظ حریم خصوصی، لینک فقط در صفحه‌ای که ساخته شده در دسترس است. برای لینک جدید، این دعوت را لغو و دعوت دیگری ایجاد کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د محرمیت لپاره، لینک یوازې په هغه پاڼه کې ښکاري چې پکې جوړ شوی. د نوي لینک د اخیستلو لپاره دا بلنه لغوه او بله جوړه کړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1470,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3383,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/transfer.tsx",
+          "line": 430
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:ownershipTransfer.shareEmail",
+      "key": "ownershipTransfer.shareEmail",
+      "current": {
+        "en": "Send by email",
+        "fa": "ارسال با ایمیل",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "په برېښنالیک یې ولېږئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1472,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3385,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/transfer.tsx",
+          "line": 408
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:ownershipTransfer.shareMessage",
+      "key": "ownershipTransfer.shareMessage",
+      "current": {
+        "en": "I'm inviting you to become the owner of {name} in Kaata. Sign in with your invited email and review the transfer here: {url}",
+        "fa": "شما را دعوت می‌کنم تا مالک {name} در کاتا شوید. با ایمیل دعوت‌شده وارد شوید و انتقال را این‌جا بررسی کنید: {url}",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "بلنه درکوم چې په کاټه کې د {name} خاوند شئ. په هغه برېښنالیک ننوځئ چې بلنه ورته شوې او د مالکیت سپارل دلته وګورئ: {url}"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "name",
+        "url"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1473,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3386,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/transfer.tsx",
+          "line": 306
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:ownershipTransfer.emailSubject",
+      "key": "ownershipTransfer.emailSubject",
+      "current": {
+        "en": "Ownership invitation for {name}",
+        "fa": "دعوت مالکیت برای {name}",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د {name} د مالکیت بلنه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "name"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1475,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3388,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/transfer.tsx",
+          "line": 312
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:ownershipTransfer.shareUnavailable",
+      "key": "ownershipTransfer.shareUnavailable",
+      "current": {
+        "en": "Couldn't open the messaging app. You can copy the link instead.",
+        "fa": "باز کردن برنامهٔ پیام‌رسان ممکن نشد. می‌توانید لینک را کپی کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د پیغامونو اپ پرانیستل نه شو. لینک کاپي کولای شئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1476,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3389,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/transfer.tsx",
+          "line": 323
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:ownershipTransfer.cancel",
+      "key": "ownershipTransfer.cancel",
+      "current": {
+        "en": "Cancel invitation",
+        "fa": "لغو دعوت",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "بلنه لغوه کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1478,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3391,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/transfer.tsx",
+          "line": 442
+        },
+        {
+          "path": "apps/mobile/app/vault/transfer.tsx",
+          "line": 516
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:ownershipTransfer.cancelTitle",
+      "key": "ownershipTransfer.cancelTitle",
+      "current": {
+        "en": "Cancel ownership invitation?",
+        "fa": "دعوت مالکیت لغو شود؟",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د مالکیت بلنه لغوه کړئ؟"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1479,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3392,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/transfer.tsx",
+          "line": 514
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:ownershipTransfer.cancelBody",
+      "key": "ownershipTransfer.cancelBody",
+      "current": {
+        "en": "The link will stop working. You will remain the owner and can invite someone else.",
+        "fa": "لینک دیگر کار نخواهد کرد. شما مالک می‌مانید و می‌توانید شخص دیگری را دعوت کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "لینک به نور کار ونه کړي. تاسو به خاوند پاتې شئ او بل چا ته به بلنه ورکولای شئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1480,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3393,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/transfer.tsx",
+          "line": 515
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:ownershipTransfer.cancelled",
+      "key": "ownershipTransfer.cancelled",
+      "current": {
+        "en": "Ownership invitation cancelled",
+        "fa": "دعوت مالکیت لغو شد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د مالکیت بلنه لغوه شوه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1482,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3395,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/transfer.tsx",
+          "line": 288
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:ownershipTransfer.alreadyPending",
+      "key": "ownershipTransfer.alreadyPending",
+      "current": {
+        "en": "An ownership invitation is already pending. Check its status or cancel it before creating another.",
+        "fa": "یک دعوت مالکیت در انتظار است. پیش از ساختن دعوت دیگر، وضعیت آن را بررسی یا آن را لغو کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د مالکیت یوه بلنه له مخکې د منلو په تمه ده. تر بلې جوړولو مخکې یې حالت وګورئ یا یې لغوه کړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1483,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3396,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/transfer.tsx",
+          "line": 240
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:ownershipTransfer.selfTransfer",
+      "key": "ownershipTransfer.selfTransfer",
+      "current": {
+        "en": "Choose another person. You already own this Kaata.",
+        "fa": "شخص دیگری را انتخاب کنید. شما از قبل مالک این کاتا هستید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "بل کس وټاکئ. تاسو له مخکې د دې کاټې خاوند یاست."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1485,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3398,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/transfer.tsx",
+          "line": 238
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:ownershipTransfer.failed",
+      "key": "ownershipTransfer.failed",
+      "current": {
+        "en": "Couldn't update the ownership invitation. Check your connection and try again.",
+        "fa": "تغییر دعوت مالکیت ممکن نشد. اتصال انترنت را بررسی و دوباره تلاش کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د مالکیت بلنه تازه نه شوه. خپله اړیکه وګورئ او بیا هڅه وکړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1486,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3399,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/transfer.tsx",
+          "line": 243
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:ownershipTransfer.existingMember",
+      "key": "ownershipTransfer.existingMember",
+      "current": {
+        "en": "Choose an existing member",
+        "fa": "انتخاب یک عضو فعلی",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "یو اوسنی غړی وټاکئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1488,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3401,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/transfer.tsx",
+          "line": 491
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:ownershipTransfer.existingMemberHint",
+      "key": "ownershipTransfer.existingMemberHint",
+      "current": {
+        "en": "Transfer directly to someone already in this Kaata",
+        "fa": "انتقال مستقیم به کسی که در این کاتا عضو است",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "مالکیت نېغ هغه چا ته وسپارئ چې له مخکې په دې کاټه کې دی"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1489,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3402,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/transfer.tsx",
+          "line": 492
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:members.title",
+      "key": "members.title",
+      "current": {
+        "en": "Members",
+        "fa": "اعضا",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "غړي"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1492,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3405,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/members.tsx",
+          "line": 852
+        },
+        {
+          "path": "apps/mobile/app/vault/members.tsx",
+          "line": 863
+        }
+      ],
+      "context": "Vault members — Phase 7 UX critique #8 (translated)."
+    },
+    {
+      "id": "mobile:members.section.members",
+      "key": "members.section.members",
+      "current": {
+        "en": "Members ({count})",
+        "fa": "اعضا ({count})",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "غړي ({count})"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "count"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1493,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3406,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/members.tsx",
+          "line": 884
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:members.section.pending",
+      "key": "members.section.pending",
+      "current": {
+        "en": "Pending invites ({count})",
+        "fa": "دعوت‌های در انتظار ({count})",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د منلو په تمه بلنې ({count})"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "count"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1494,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3407,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/members.tsx",
+          "line": 965
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:members.empty",
+      "key": "members.empty",
+      "current": {
+        "en": "No members yet.",
+        "fa": "هنوز عضوی نیست.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "تر اوسه غړي نشته."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1495,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3408,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/members.tsx",
+          "line": 888
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:members.nameUnavailable",
+      "key": "members.nameUnavailable",
+      "current": {
+        "en": "Name unavailable",
+        "fa": "نام در دسترس نیست",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "نوم نشته"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1496,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3409,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/member-profiles.ts",
+          "line": 128
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:members.youSuffix",
+      "key": "members.youSuffix",
+      "current": {
+        "en": " (You)",
+        "fa": " (شما)",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": " (تاسو)"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1497,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3410,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/member-profiles.ts",
+          "line": 127
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:members.transferBanner",
+      "key": "members.transferBanner",
+      "current": {
+        "en": "Tap a member to transfer ownership to them.",
+        "fa": "برای انتقال مالکیت روی یک عضو ضربه بزنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د مالکیت د سپارلو لپاره د یوه غړي نوم ووهئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1498,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3411,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/members.tsx",
+          "line": 879
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:members.row.addMember",
+      "key": "members.row.addMember",
+      "current": {
+        "en": "Add member",
+        "fa": "افزودن عضو",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "غړی زیات کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1500,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3413,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": "D-OFFLINE-ADD-MEMBER + D-UI-UNIFICATION — primary/secondary add-member rows"
+    },
+    {
+      "id": "mobile:members.row.addMember.hint",
+      "key": "members.row.addMember.hint",
+      "current": {
+        "en": "Show QR for in-person setup — works offline",
+        "fa": "نمایش کیو-آر برای راه‌اندازی حضوری — بدون اینترنت کار می‌کند",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د مخامخ نښلولو لپاره QR وښایئ — بې انټرنېټه هم کار کوي"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1501,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3414,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:members.row.sendInvite",
+      "key": "members.row.sendInvite",
+      "current": {
+        "en": "Send invite link",
+        "fa": "ارسال لینک دعوت",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د بلنې لینک ولېږئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1502,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3415,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/members.tsx",
+          "line": 942
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:members.row.sendInvite.hint",
+      "key": "members.row.sendInvite.hint",
+      "current": {
+        "en": "Email a join link — requires internet",
+        "fa": "ارسال لینک پیوستن از طریق ایمیل — به اینترنت نیاز دارد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د ګډون لینک په برېښنالیک ولېږئ — انټرنېټ غواړي"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1503,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3416,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/members.tsx",
+          "line": 943
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:members.expiresIn.soon",
+      "key": "members.expiresIn.soon",
+      "current": {
+        "en": "soon",
+        "fa": "به زودی",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ژر"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1504,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3417,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/members.tsx",
+          "line": 1244
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:members.expiresIn.hours",
+      "key": "members.expiresIn.hours",
+      "current": {
+        "en": "in {hours}h",
+        "fa": "در {hours} ساعت",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "په {hours} ساعتونو کې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "hours"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1505,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3418,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/members.tsx",
+          "line": 1246
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:members.expiresIn.days",
+      "key": "members.expiresIn.days",
+      "current": {
+        "en": "in {days}d",
+        "fa": "در {days} روز",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "په {days} ورځو کې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "days"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1506,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3419,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/members.tsx",
+          "line": 1248
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:members.expiresLabel",
+      "key": "members.expiresLabel",
+      "current": {
+        "en": "Expires {when}",
+        "fa": "انقضا {when}",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "په {when} پای ته رسېږي"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "when"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1507,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3420,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/invite/[token].tsx",
+          "line": 533
+        },
+        {
+          "path": "apps/mobile/app/vault/members.tsx",
+          "line": 972
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:members.toast.noActive",
+      "key": "members.toast.noActive",
+      "current": {
+        "en": "No active Kaata",
+        "fa": "کاتای فعال نیست",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "فعاله کاټه نشته"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1508,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3421,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/members.tsx",
+          "line": 181
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:members.toast.loadFailed",
+      "key": "members.toast.loadFailed",
+      "current": {
+        "en": "Failed to load members",
+        "fa": "بار کردن اعضا ناکام شد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "غړي پورته نه شول"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1509,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3422,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/members.tsx",
+          "line": 461
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:members.toast.roleUpdated",
+      "key": "members.toast.roleUpdated",
+      "current": {
+        "en": "Role updated",
+        "fa": "نقش به‌روز شد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ونډه تازه شوه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1510,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3423,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/members.tsx",
+          "line": 673
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:members.toast.cannotChangeSelf",
+      "key": "members.toast.cannotChangeSelf",
+      "current": {
+        "en": "You can't change your own role.",
+        "fa": "شما نمی‌توانید نقش خود را تغییر دهید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "خپله ونډه نه شئ بدلولای."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1511,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3424,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/members.tsx",
+          "line": 645
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:members.toast.roleFailed",
+      "key": "members.toast.roleFailed",
+      "current": {
+        "en": "Failed to change role",
+        "fa": "تغییر نقش ناکام شد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ونډه بدله نه شوه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1512,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3425,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/members.tsx",
+          "line": 678
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:members.toast.removed",
+      "key": "members.toast.removed",
+      "current": {
+        "en": "Member removed",
+        "fa": "عضو حذف شد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "غړی لرې شو"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1513,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3426,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/members.tsx",
+          "line": 706
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:members.toast.removeFailed",
+      "key": "members.toast.removeFailed",
+      "current": {
+        "en": "Failed to remove member",
+        "fa": "حذف عضو ناکام شد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "غړی لرې نه شو"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1514,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3427,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/members.tsx",
+          "line": 710
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:members.toast.transferred",
+      "key": "members.toast.transferred",
+      "current": {
+        "en": "Ownership transferred to {name}",
+        "fa": "مالکیت به {name} منتقل شد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "مالکیت {name} ته وسپارل شو"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "name"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1518,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3428,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/members.tsx",
+          "line": 804
+        }
+      ],
+      "context": "UX critique #2: name the recipient in the success toast — it's both\na confirmation-of-correctness signal and feels far less terse than\nthe plain \"Ownership transferred\" the older copy used."
+    },
+    {
+      "id": "mobile:members.toast.transferFailed",
+      "key": "members.toast.transferFailed",
+      "current": {
+        "en": "Failed to transfer",
+        "fa": "انتقال ناکام شد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "مالکیت ونه سپارل شو"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1519,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3429,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/members.tsx",
+          "line": 777
+        },
+        {
+          "path": "apps/mobile/app/vault/members.tsx",
+          "line": 798
+        },
+        {
+          "path": "apps/mobile/app/vault/members.tsx",
+          "line": 820
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:members.toast.transferSyncRequired",
+      "key": "members.toast.transferSyncRequired",
+      "current": {
+        "en": "This phone needs to finish syncing before transferring ownership. Connect to the internet, let this Kaata sync, then try again.",
+        "fa": "این تیلفون باید پیش از انتقال مالکیت همگام‌سازی را تکمیل کند. به انترنت وصل شوید، بگذارید این کاتا همگام شود و سپس دوباره تلاش کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د مالکیت تر سپارلو مخکې باید د دې ټیلیفون همغږي بشپړه شي. له انټرنېټ سره وصل شئ، پرېږدئ دا کاټه همغږې شي، بیا هڅه وکړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1520,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3430,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/members.tsx",
+          "line": 797
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:members.toast.transferNotMember",
+      "key": "members.toast.transferNotMember",
+      "current": {
+        "en": "{name} is no longer a member of this Kaata. The list has been refreshed.",
+        "fa": "{name} دیگر عضو این کاتا نیست. لیست تازه‌سازی شد.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "{name} نور د دې کاټې غړی نه دی. لېست تازه شو."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "name"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1525,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3432,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/members.tsx",
+          "line": 795
+        }
+      ],
+      "context": "UX critique #6: specific error toasts for the three diagnosable\nfailure modes the router can surface. Each one names the situation\nso the user understands what to do next."
+    },
+    {
+      "id": "mobile:members.toast.transferPartialRecovered",
+      "key": "members.toast.transferPartialRecovered",
+      "current": {
+        "en": "Transfer didn't complete. Nothing changed — please try again.",
+        "fa": "انتقال کامل نشد. هیچ تغییری اعمال نشد — لطفاً دوباره تلاش کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "مالکیت بشپړ ونه سپارل شو. څه نه دي بدل شوي — بیا هڅه وکړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1527,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3433,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:members.toast.transferPartialUnrecovered",
+      "key": "members.toast.transferPartialUnrecovered",
+      "current": {
+        "en": "Transfer partially landed: there are two owners. Open the menu on one of them to fix this.",
+        "fa": "انتقال نیمه‌انجام شد: اکنون دو مالک وجود دارد. روی یکی از آن‌ها ضربه بزنید تا اصلاح شود.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "مالکیت نیمګړی سپارل شوی: اوس دوه خاوندان شته. د سمولو لپاره د یوه خاوند غورنۍ پرانیزئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1529,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3435,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:members.sheet.title",
+      "key": "members.sheet.title",
+      "current": {
+        "en": "Manage {name}",
+        "fa": "مدیریت {name}",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "{name} سمبال کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "name"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1531,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3437,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/members.tsx",
+          "line": 990
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:members.sheet.makeEditor",
+      "key": "members.sheet.makeEditor",
+      "current": {
+        "en": "Make editor",
+        "fa": "ویرایشگر کردن",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "سمونګر یې کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1532,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3438,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/members.tsx",
+          "line": 1200
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:members.sheet.makeViewer",
+      "key": "members.sheet.makeViewer",
+      "current": {
+        "en": "Make viewer",
+        "fa": "بیننده کردن",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "کتونکی یې کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1533,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3439,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/members.tsx",
+          "line": 1214
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:members.sheet.makeManager",
+      "key": "members.sheet.makeManager",
+      "current": {
+        "en": "Make admin",
+        "fa": "مدیر کردن",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "سمبالوونکی یې کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1535,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3440,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/members.tsx",
+          "line": 1193
+        }
+      ],
+      "context": "Roles v2 Phase B — granting UI."
+    },
+    {
+      "id": "mobile:members.rolesHelp",
+      "key": "members.rolesHelp",
+      "current": {
+        "en": "Admins manage staff and credit limits. Only owners appoint admins, transfer ownership or archive this Kaata.",
+        "fa": "مدیرها کارکنان و حد قرض را مدیریت می‌کنند. تنها مالک می‌تواند مدیر تعیین کند، مالکیت را انتقال دهد یا این کاتا را بایگانی کند.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "سمبالوونکي کارکوونکي او د پور حدونه سمبالوي. یوازې خاوندان سمبالوونکي ټاکلای، مالکیت سپارلای او دا کاټه ارشیف کولای شي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1536,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3441,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/members.tsx",
+          "line": 873
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:members.credit.action",
+      "key": "members.credit.action",
+      "current": {
+        "en": "Credit limit permissions",
+        "fa": "اجازه‌های حد قرض",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د پور د حد واکونه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1538,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3443,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/members.tsx",
+          "line": 1181
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:members.credit.title",
+      "key": "members.credit.title",
+      "current": {
+        "en": "Credit permissions · {name}",
+        "fa": "اجازهٔ قرض · {name}",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د پور واکونه · {name}"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "name"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1539,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3444,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/members.tsx",
+          "line": 1052
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:members.credit.inherit",
+      "key": "members.credit.inherit",
+      "current": {
+        "en": "Inherit role",
+        "fa": "مطابق نقش",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د ونډې له مخې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1540,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3445,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/members.tsx",
+          "line": 1056
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:members.credit.inheritHint",
+      "key": "members.credit.inheritHint",
+      "current": {
+        "en": "Use the customer's restriction for this member's role.",
+        "fa": "محدودیت مشتری را مطابق نقش این عضو اعمال کن.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د دې غړي د ونډې لپاره د پېرودونکي ټاکلی محدودیت وکاروئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1541,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3446,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/members.tsx",
+          "line": 1057
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:members.credit.enforce",
+      "key": "members.credit.enforce",
+      "current": {
+        "en": "Must obey hard limits",
+        "fa": "باید حدهای محدود را رعایت کند",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "کلک حدونه باید مراعات کړي"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1542,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3447,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/members.tsx",
+          "line": 1061
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:members.credit.enforceHint",
+      "key": "members.credit.enforceHint",
+      "current": {
+        "en": "Apply every hard limit, even when this member's role is exempt. Warn-only limits stay warnings.",
+        "fa": "هر حد محدود را اعمال کن، حتی اگر نقش این عضو معاف باشد. حدهای فقط هشدار همچنان هشدار می‌مانند.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ټول کلک حدونه پرې پلي کړئ، ان که د دې غړي ونډه ترې مستثنا وي. یوازې د خبرتیا حدونه به هماغسې خبرتیاوې پاتې شي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1543,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3448,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/members.tsx",
+          "line": 1062
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:members.credit.bypass",
+      "key": "members.credit.bypass",
+      "current": {
+        "en": "May exceed limits",
+        "fa": "می‌تواند از حد بگذرد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "له حدونو اوښتلای شي"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1545,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3450,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/members.tsx",
+          "line": 1066
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:members.credit.bypassHint",
+      "key": "members.credit.bypassHint",
+      "current": {
+        "en": "Let this member exceed hard limits. Credit warnings still appear.",
+        "fa": "به این عضو اجازهٔ گذشتن از حدهای محدود را بده. هشدارهای قرض همچنان نشان داده می‌شوند.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "دې غړي ته له کلکو حدونو د اوښتلو اجازه ورکړئ. د پور خبرتیاوې به لا هم ښکاري."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1546,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3451,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/members.tsx",
+          "line": 1067
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:members.credit.onlineRequired",
+      "key": "members.credit.onlineRequired",
+      "current": {
+        "en": "Sign in and connect to change member permissions.",
+        "fa": "برای تغییر اجازهٔ اعضا وارد حساب شوید و به اینترنت وصل شوید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د غړي د واکونو د بدلولو لپاره ننوځئ او له انټرنېټ سره وصل شئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1547,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3453,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/members.tsx",
+          "line": 556
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:members.credit.loadFailed",
+      "key": "members.credit.loadFailed",
+      "current": {
+        "en": "Could not load current permissions. Check your connection and try again.",
+        "fa": "اجازه‌های فعلی بارگیری نشد. اتصال را بررسی کنید و دوباره کوشش کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "اوسني واکونه پورته نه شول. خپله اړیکه وګورئ او بیا هڅه وکړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1548,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3454,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/members.tsx",
+          "line": 570
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:members.credit.saveFailed",
+      "key": "members.credit.saveFailed",
+      "current": {
+        "en": "Could not save the permission. Check your connection and try again.",
+        "fa": "اجازه ذخیره نشد. اتصال را بررسی کنید و دوباره کوشش کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "واک خوندي نه شو. خپله اړیکه وګورئ او بیا هڅه وکړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1550,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3456,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/members.tsx",
+          "line": 612
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:members.credit.memberNeedsSignIn",
+      "key": "members.credit.memberNeedsSignIn",
+      "current": {
+        "en": "Ask this member to sign in and sync, then change their credit permission.",
+        "fa": "از این عضو بخواهید وارد حساب شود و همگام کند، سپس اجازهٔ قرض او را تغییر دهید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "له دې غړي وغواړئ چې ننوځي او همغږي وکړي، بیا یې د پور واک بدل کړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1552,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3457,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/members.tsx",
+          "line": 611
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:members.credit.saved",
+      "key": "members.credit.saved",
+      "current": {
+        "en": "Credit permission saved",
+        "fa": "اجازهٔ قرض ذخیره شد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د پور واک خوندي شو"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1554,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3459,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/members.tsx",
+          "line": 602
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:members.credit.working",
+      "key": "members.credit.working",
+      "current": {
+        "en": "Checking credit permissions…",
+        "fa": "در حال بررسی اجازه‌های قرض…",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د پور واکونه کتل کېږي…"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1555,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3460,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/members.tsx",
+          "line": 875
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:members.appleHiddenEmail",
+      "key": "members.appleHiddenEmail",
+      "current": {
+        "en": "Apple account · email hidden",
+        "fa": "حساب اپل · ایمیل پنهان",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د اپل حساب · برېښنالیک پټ دی"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1556,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3461,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/members.tsx",
+          "line": 1155
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:members.sheet.makeClerk",
+      "key": "members.sheet.makeClerk",
+      "current": {
+        "en": "Make clerk",
+        "fa": "ثبت‌کننده کردن",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "کارکوونکی یې کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1557,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3462,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/members.tsx",
+          "line": 1207
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:members.sheet.transfer",
+      "key": "members.sheet.transfer",
+      "current": {
+        "en": "Transfer ownership",
+        "fa": "انتقال مالکیت",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "مالکیت وسپارئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1558,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3463,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/members.tsx",
+          "line": 1221
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:members.sheet.remove",
+      "key": "members.sheet.remove",
+      "current": {
+        "en": "Remove from vault",
+        "fa": "حذف از کاتا",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "له کاټې یې لرې کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1559,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3464,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/members.tsx",
+          "line": 1227
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:members.confirm.remove.title",
+      "key": "members.confirm.remove.title",
+      "current": {
+        "en": "Remove this member?",
+        "fa": "این عضو حذف شود؟",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "دا غړی لرې کړئ؟"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1560,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3465,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/members.tsx",
+          "line": 1004
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:members.confirm.remove.body",
+      "key": "members.confirm.remove.body",
+      "current": {
+        "en": "They will lose access to this vault immediately. Their past contributions stay in the ledger and audit log.",
+        "fa": "دسترسی او به این کاتا فوراً قطع می‌شود. سهم‌های گذشته در دفتر و گزارش فعالیت می‌ماند.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "دې کاټې ته به یې لاسرسی سمدستي پای ته ورسېږي. پخواني کارونه یې په کاټه او د فعالیتونو په مخینه کې پاتې کېږي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1561,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3466,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/members.tsx",
+          "line": 1005
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:members.confirm.remove.cta",
+      "key": "members.confirm.remove.cta",
+      "current": {
+        "en": "Remove",
+        "fa": "حذف",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "لرې کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1563,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3468,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/members.tsx",
+          "line": 1006
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:members.confirm.transfer.title",
+      "key": "members.confirm.transfer.title",
+      "current": {
+        "en": "Make {name} the owner?",
+        "fa": "{name} مالک شود؟",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "{name} خاوند کړئ؟"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "name"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1569,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3469,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/members.tsx",
+          "line": 1015
+        }
+      ],
+      "context": "UX critique #1: confirm dialog spells out the irreversible\nconsequences (\"only they can transfer back\", \"they control members\nand settings\") and the CTA is a named action (\"Make {name} owner\")\nrather than a generic verb. Title also names the recipient so the\nuser can catch the wrong-pick mistake before tapping confirm."
+    },
+    {
+      "id": "mobile:members.confirm.transfer.body",
+      "key": "members.confirm.transfer.body",
+      "current": {
+        "en": "You'll be demoted to editor. Only {name} will be able to add or remove members, change settings, or transfer ownership back to you. They'll see this the next time their phone syncs.",
+        "fa": "شما به ویرایشگر تبدیل می‌شوید. فقط {name} می‌تواند اعضا را اضافه یا حذف کند، تنظیمات را تغییر دهد یا مالکیت را به شما بازگرداند. ایشان در همگام‌سازی بعدی این تغییر را خواهد دید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ستاسو ونډه به سمونګر ته بدله شي. یوازې {name} به وکولای شي غړي زیات یا لرې کړي، امستنې بدلې کړي یا مالکیت بېرته تاسو ته وسپاري. دا بدلون به د هغوی د ټیلیفون په راتلونکې همغږۍ کې ښکاره شي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "name"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1570,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3470,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/members.tsx",
+          "line": 1025
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:members.confirm.transfer.fallback",
+      "key": "members.confirm.transfer.fallback",
+      "current": {
+        "en": "this member",
+        "fa": "این عضو",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "دا غړی"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1572,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3472,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/members.tsx",
+          "line": 771
+        },
+        {
+          "path": "apps/mobile/app/vault/members.tsx",
+          "line": 994
+        },
+        {
+          "path": "apps/mobile/app/vault/members.tsx",
+          "line": 1019
+        },
+        {
+          "path": "apps/mobile/app/vault/members.tsx",
+          "line": 1029
+        },
+        {
+          "path": "apps/mobile/app/vault/members.tsx",
+          "line": 1042
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:members.confirm.transfer.cta",
+      "key": "members.confirm.transfer.cta",
+      "current": {
+        "en": "Make {name} owner",
+        "fa": "{name} مالک شود",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "{name} خاوند کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "name"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1573,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3473,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/members.tsx",
+          "line": 1038
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:members.confirm.transfer.cta.fallback",
+      "key": "members.confirm.transfer.cta.fallback",
+      "current": {
+        "en": "Make owner",
+        "fa": "مالک شود",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "خاوند یې کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1576,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3474,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/members.tsx",
+          "line": 1044
+        }
+      ],
+      "context": "Fallback CTA used only when the dialog is mid-dismiss and the target\nref was just cleared. UI never normally renders this string."
+    },
+    {
+      "id": "mobile:ownershipAccept.title",
+      "key": "ownershipAccept.title",
+      "current": {
+        "en": "Ownership invitation",
+        "fa": "دعوت برای مالکیت",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د مالکیت بلنه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1643,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3539,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/invite/[token].tsx",
+          "line": 473
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:ownershipAccept.heading",
+      "key": "ownershipAccept.heading",
+      "current": {
+        "en": "Become the owner of {name}",
+        "fa": "مالک {name} شوید",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د {name} خاوند شئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "name"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1644,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3540,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/invite/[token].tsx",
+          "line": 514
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:ownershipAccept.body",
+      "key": "ownershipAccept.body",
+      "current": {
+        "en": "{inviter} is offering you ownership of this Kaata. You will manage its members, settings and archiving. They will stay as an Editor. Sign in with the email they invited.",
+        "fa": "{inviter} می‌خواهد مالکیت این کاتا را به شما بدهد. شما اعضا، تنظیمات و بایگانی آن را مدیریت خواهید کرد و او به عنوان ویرایشگر می‌ماند. با ایمیلی وارد شوید که برای آن دعوت شده‌اید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "{inviter} تاسو ته د دې کاټې مالکیت درسپاري. غړي، امستنې او ارشیف کول به یې تاسو سمبالوئ. هغه به د سمونګر په توګه پاتې شي. په هغه برېښنالیک ننوځئ چې بلنه یې ورته کړې."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "inviter"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1645,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3541,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/invite/[token].tsx",
+          "line": 522
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:ownershipAccept.accept",
+      "key": "ownershipAccept.accept",
+      "current": {
+        "en": "Accept ownership",
+        "fa": "پذیرفتن مالکیت",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "مالکیت ومنئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1647,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3543,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/invite/[token].tsx",
+          "line": 540
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:ownershipAccept.done",
+      "key": "ownershipAccept.done",
+      "current": {
+        "en": "Ownership invitation accepted for {name}",
+        "fa": "دعوت مالکیت {name} پذیرفته شد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د {name} د مالکیت بلنه ومنل شوه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "name"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1648,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3544,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/invite/[token].tsx",
+          "line": 352
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:ownershipAccept.unavailable",
+      "key": "ownershipAccept.unavailable",
+      "current": {
+        "en": "This ownership invitation is expired, cancelled or unavailable for your account. Sign in with the email the owner invited, or ask them for a new link.",
+        "fa": "این دعوت مالکیت منقضی یا لغو شده است، یا برای حساب شما نیست. با ایمیلی وارد شوید که مالک دعوت کرده است، یا از او لینک تازه بخواهید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د مالکیت دا بلنه پای ته رسېدلې، لغوه شوې یا ستاسو حساب ته نشته. په هغه برېښنالیک ننوځئ چې خاوند بلنه ورته کړې، یا د نوي لینک غوښتنه ترې وکړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1649,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3545,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/invite/[token].tsx",
+          "line": 372
+        }
+      ],
+      "context": ""
+    }
+  ]
+}

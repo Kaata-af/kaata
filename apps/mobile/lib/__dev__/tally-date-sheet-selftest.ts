@@ -15,7 +15,7 @@ import {
 const now = new Date(2026, 7, 5, 12).getTime();
 const keyedJSX = (type: any, props: any, key?: string | number) => ({ ...jsx(type, props), key });
 for (const calendar of ["gregorian", "jalali", "qamari"] as Calendar[])
-  for (const locale of ["en", "fa"] as const)
+  for (const locale of ["en", "fa", "ps"] as const)
     for (const platform of ["ios", "android"] as const) {
       const hooks = uiHooks();
       let visible = true,
@@ -106,7 +106,7 @@ for (const calendar of ["gregorian", "jalali", "qamari"] as Calendar[])
             contextKey,
             range,
             calendar: activeCalendar,
-            isRTL: locale === "fa",
+            isRTL: locale !== "en",
             onChange: (value: TallyDateRange | null) => {
               changes.push(value);
               range = value;
@@ -202,7 +202,7 @@ for (const calendar of ["gregorian", "jalali", "qamari"] as Calendar[])
       );
       assert.equal(
         weekdays[0]?.props.children,
-        locale === "fa" || calendar !== "gregorian"
+        locale !== "en" || calendar !== "gregorian"
           ? "person.date.weekday.6"
           : "person.date.weekday.1",
         "Shamsi and Qamari weeks start on Saturday in either language",
@@ -244,8 +244,8 @@ for (const calendar of ["gregorian", "jalali", "qamari"] as Calendar[])
       render();
       press("person.date.custom");
       assert.equal(applyButton().props.disabled, false, "reopening retains the selected days");
-      assert.equal(clockValue("start"), locale === "fa" ? "۰۰:۰۰" : "00:00");
-      assert.equal(clockValue("end"), locale === "fa" ? "۲۳:۵۹" : "23:59");
+      assert.equal(clockValue("start"), locale !== "en" ? "۰۰:۰۰" : "00:00");
+      assert.equal(clockValue("end"), locale !== "en" ? "۲۳:۵۹" : "23:59");
       // The native time picker's unrelated date and seconds never replace grid days.
       pickClock("start", 10, 31);
       pickClock("end", 10, 30);
@@ -276,14 +276,14 @@ for (const calendar of ["gregorian", "jalali", "qamari"] as Calendar[])
       visible = true;
       render();
       press("person.date.custom");
-      assert.equal(clockValue("start"), locale === "fa" ? "۱۰:۳۱" : "10:31");
-      assert.equal(clockValue("end"), locale === "fa" ? "۱۰:۳۱" : "10:31");
+      assert.equal(clockValue("start"), locale !== "en" ? "۱۰:۳۱" : "10:31");
+      assert.equal(clockValue("end"), locale !== "en" ? "۱۰:۳۱" : "10:31");
       // Moving across months changes dates only, keeping the draft clocks.
       press("person.date.nextMonth");
       press(formatCalendarDate(first, locale, calendar));
       press("person.date.previousMonth");
       press(formatCalendarDate(last, locale, calendar));
-      assert.equal(clockValue("start"), locale === "fa" ? "۱۰:۳۱" : "10:31");
+      assert.equal(clockValue("start"), locale !== "en" ? "۱۰:۳۱" : "10:31");
       pickClock("start", 7, 5);
       press("common.cancel");
       assert.equal(changes.length, 4, "cancel does not apply draft days or clocks");
@@ -292,7 +292,7 @@ for (const calendar of ["gregorian", "jalali", "qamari"] as Calendar[])
       press("person.date.custom");
       assert.equal(
         clockValue("start"),
-        locale === "fa" ? "۱۰:۳۱" : "10:31",
+        locale !== "en" ? "۱۰:۳۱" : "10:31",
         "cancelled time is discarded",
       );
 
@@ -311,7 +311,7 @@ for (const calendar of ["gregorian", "jalali", "qamari"] as Calendar[])
       render();
       assert.equal(
         clockValue("start"),
-        locale === "fa" ? "۱۰:۳۱" : "10:31",
+        locale !== "en" ? "۱۰:۳۱" : "10:31",
         "late picker after reopen cannot change new draft",
       );
 
@@ -323,7 +323,7 @@ for (const calendar of ["gregorian", "jalali", "qamari"] as Calendar[])
       render();
       assert.equal(
         clockValue("end"),
-        locale === "fa" ? "۱۰:۳۱" : "10:31",
+        locale !== "en" ? "۱۰:۳۱" : "10:31",
         "calendar change invalidates old picker callback",
       );
 
@@ -342,8 +342,8 @@ for (const calendar of ["gregorian", "jalali", "qamari"] as Calendar[])
         );
         firstWheel.onValueChange({}, new Date(2000, 0, 15, 4, 5));
         render();
-        assert.equal(clockValue("start"), locale === "fa" ? "۱۰:۳۱" : "10:31");
-        assert.equal(clockValue("end"), locale === "fa" ? "۱۰:۳۱" : "10:31");
+        assert.equal(clockValue("start"), locale !== "en" ? "۱۰:۳۱" : "10:31");
+        assert.equal(clockValue("end"), locale !== "en" ? "۱۰:۳۱" : "10:31");
         secondWheel.onValueChange({}, new Date(2000, 0, 15, 10, 31));
         render();
       } else {
@@ -357,7 +357,7 @@ for (const calendar of ["gregorian", "jalali", "qamari"] as Calendar[])
         render();
         assert.equal(
           clockValue("start"),
-          locale === "fa" ? "۱۰:۳۱" : "10:31",
+          locale !== "en" ? "۱۰:۳۱" : "10:31",
           "error invalidates picker selection",
         );
         const beforeRetry = requests.length;
@@ -432,7 +432,7 @@ for (const calendar of ["gregorian", "jalali", "qamari"] as Calendar[])
         assert.ok(style.minHeight >= 44, "preset cards retain comfortable touch targets");
         assert.equal(style.maxWidth, "100%", "long labels fit the editor width");
         assert.equal(style.borderRadius, 12, "choices follow the shared rounded card design");
-        assert.equal(style.flexDirection, locale === "fa" ? "row-reverse" : "row");
+        assert.equal(style.flexDirection, locale !== "en" ? "row-reverse" : "row");
       }
       press("person.date.custom");
       const beforeBackClock = clockValue("start");
@@ -478,7 +478,7 @@ for (const calendar of ["gregorian", "jalali", "qamari"] as Calendar[])
 // The reminder editor's one-off date grid (audit #25): the same month helpers,
 // one day, nothing before the minimum, in the app's calendar and digits.
 for (const calendar of ["gregorian", "jalali", "qamari"] as Calendar[])
-  for (const locale of ["en", "fa"] as const) {
+  for (const locale of ["en", "fa", "ps"] as const) {
     const hooks = uiHooks();
     const picks: number[] = [];
     let value = now;
@@ -517,7 +517,7 @@ for (const calendar of ["gregorian", "jalali", "qamari"] as Calendar[])
         CalendarDayPicker({
           value,
           calendar,
-          isRTL: locale === "fa",
+          isRTL: locale !== "en",
           minimum: now,
           onChange: (day: number) => {
             picks.push(day);
@@ -540,7 +540,7 @@ for (const calendar of ["gregorian", "jalali", "qamari"] as Calendar[])
       `${calendar}/${locale}: one button per day of the app's month`,
     );
     const firstDigit = nodes(dayButtons()[0]).find((n: any) => n.type === "Text")!.props.children;
-    assert.equal(String(firstDigit), locale === "fa" ? faDigits(1) : "1", "the calendar's day 1");
+    assert.equal(String(firstDigit), locale !== "en" ? faDigits(1) : "1", "the calendar's day 1");
     const today = dateFilter.localDayStart(now);
     dayButtons().forEach((n: any, i: number) =>
       assert.equal(!!n.props.disabled, month[i] < today, "nothing before the minimum"),
@@ -565,5 +565,5 @@ for (const calendar of ["gregorian", "jalali", "qamari"] as Calendar[])
     hooks.unmount();
   }
 console.log(
-  "PASS: real date/time sheet, presets, inclusive boundaries, validation/reopen, request-keyed iOS wheels, retryable Android errors and stale native callbacks in EN/FA across all three calendars",
+  "PASS: real date/time sheet, presets, inclusive boundaries, validation/reopen, request-keyed iOS wheels, retryable Android errors and stale native callbacks in EN/FA/PS across all three calendars",
 );

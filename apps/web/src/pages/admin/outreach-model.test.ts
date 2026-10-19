@@ -1159,15 +1159,15 @@ test("message language: the person's choice, then the session's (Dari by default
   assert.equal(SESSION_LANGUAGE_KEY, "pref.message_lang");
   assert.deepEqual(
     SESSION_LANGUAGE_OPTIONS.map(([value]) => value),
-    ["fa", "en", "auto"],
+    ["fa", "ps", "en", "auto"],
   );
-  assert.deepEqual(LANGUAGE_NAMES, { fa: "Dari", en: "English" });
+  assert.deepEqual(LANGUAGE_NAMES, { fa: "Dari", en: "English", ps: "Pashto" });
   // The session choice: Dari unless the server holds en or auto.
   assert.equal(sessionLanguage({}), "fa");
   assert.equal(sessionLanguage({ "pref.message_lang": "fa" }), "fa");
   assert.equal(sessionLanguage({ "pref.message_lang": "en" }), "en");
   assert.equal(sessionLanguage(AUTO), "auto");
-  for (const junk of ["", "ps", "EN", " en", "Auto", "prs"])
+  for (const junk of ["", "de", "EN", " en", "Auto", "prs"])
     assert.equal(sessionLanguage({ "pref.message_lang": junk }), "fa", junk);
   // Zahra's app runs in English, Ahmad's in Dari.
   const zahra = fixtures[2];
@@ -1180,7 +1180,7 @@ test("message language: the person's choice, then the session's (Dari by default
   assert.equal(messageLanguage(zahra, session("auto")), "en");
   assert.equal(messageLanguage(ahmad, session("auto")), "fa");
   // A person's choice wins over every session choice; "" follows the session.
-  for (const value of [undefined, "fa", "en", "auto"]) {
+  for (const value of [undefined, "fa", "en", "ps", "auto"]) {
     assert.equal(messageLanguage(speaking(zahra, "fa"), session(value)), "fa", String(value));
     assert.equal(messageLanguage(speaking(ahmad, "en"), session(value)), "en", String(value));
     assert.equal(
@@ -1203,8 +1203,8 @@ test("message language: the person's choice, then the session's (Dari by default
   assert.equal(sessionChoiceLabel("auto", "prs-AF"), "Auto: Dari");
   assert.equal(sessionChoiceLabel("auto", ""), "Auto: English");
   // Only the three stored values are a per-number language.
-  for (const value of ["", "en", "fa"]) assert.equal(isOutreachLang(value), true, value);
-  for (const value of ["ps", "auto", "EN", undefined, null, 1])
+  for (const value of ["", "en", "fa", "ps"]) assert.equal(isOutreachLang(value), true, value);
+  for (const value of ["de", "auto", "EN", undefined, null, 1])
     assert.equal(isOutreachLang(value), false, String(value));
 });
 
@@ -1848,7 +1848,7 @@ test("withStateDefaults fills a pre-045 state and never leaves a field undefined
   // lang (migration 046): only "", "en" and "fa" are kept; anything else is "".
   assert.equal(withStateDefaults({ lang: "fa" }).lang, "fa");
   assert.equal(withStateDefaults({ lang: "en" }).lang, "en");
-  for (const junk of ["ps", "auto", "EN", 1, null])
+  for (const junk of ["de", "auto", "EN", 1, null])
     assert.equal(withStateDefaults({ lang: junk }).lang, "", String(junk));
   // Nothing at all, or the wrong types, read as a New row with no history.
   assert.deepEqual(withStateDefaults(undefined), state());
@@ -2271,7 +2271,7 @@ test("an open chat keeps the language it was opened in: the newest opened touch 
   for (const detail of [
     "",
     "nothing sent",
-    "template.customer.ps",
+    "template.customer.de",
     "template.supplier.fa",
     "Template.customer.fa",
     "template.customer.fa ",
@@ -2298,7 +2298,12 @@ test("an open chat keeps the language it was opened in: the newest opened touch 
   // templateLanguage reads exactly the keys openedTemplateKey accepts.
   assert.equal(templateLanguage("template.shopkeeper.en"), "en");
   assert.equal(templateLanguage("template.customer.fa"), "fa");
-  for (const key of ["", "fa", "template.customer.ps", "template.customer.fa.x"])
+  assert.equal(templateLanguage("template.customer.ps"), "ps");
+  assert.equal(
+    openedTemplateKey(pendingWith([opened("template.customer.ps")])),
+    "template.customer.ps",
+  );
+  for (const key of ["", "fa", "template.customer.de", "template.customer.fa.x"])
     assert.equal(templateLanguage(key), undefined, key);
 });
 
@@ -2361,4 +2366,30 @@ test("books keep the server's order: Numbers as received, and every other sort b
   ];
   assert.deepEqual(order(owners, "owner"), ["b2", "b1", "b3"]);
   assert.deepEqual(vaultIds(owners), ["b1", "b2", "b3"], "input untouched");
+});
+
+test("Pashto outreach respects locale, saved choices, templates and pending-chat language", () => {
+  for (const locale of ["ps", "ps-AF", "PS_af"]) assert.equal(localeLanguage(locale), "ps");
+  const pashto = { ...fixtures[0], locale: "ps-AF" };
+  assert.equal(sessionLanguage({ "pref.message_lang": "ps" }), "ps");
+  assert.equal(messageLanguage(pashto, AUTO), "ps");
+  assert.equal(messageLanguage(pashto, {}), "fa", "existing default remains Dari");
+  assert.equal(messageLanguage(speaking(pashto, "ps"), { "pref.message_lang": "en" }), "ps");
+  assert.equal(sessionChoiceLabel("auto", "ps-AF"), "Auto: Pashto");
+  assert.equal(withStateDefaults({ lang: "ps" }).lang, "ps");
+  const built = buildMessage(pashto, AUTO);
+  assert.equal(built.language, "ps");
+  assert.equal(built.templateKey, "template.shopkeeper.ps");
+  assert.ok(built.text.includes("کاټه"));
+  assert.ok(built.text.split("\n").includes(built.link));
+  assert.ok(!built.text.includes("{name}"));
+  const custom = buildMessage(pashto, {
+    ...AUTO,
+    "template.shopkeeper.ps": "سلام {name}.\n{link}",
+  });
+  assert.equal(custom.text, `سلام ${pashto.name}.\n${custom.link}`);
+  assert.equal(
+    buildMessage({ ...pashto, kind: "customer" }, AUTO).templateKey,
+    "template.customer.ps",
+  );
 });

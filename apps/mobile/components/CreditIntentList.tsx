@@ -124,7 +124,7 @@ export function CreditIntentList({
                   refused ? "credit.refused" : signedIn ? "credit.pending" : "credit.signInToSend",
                 )}
                 {/* A middle dot beside Persian digits reads as a zero. */}
-                {getLocale() === "fa" ? "، " : " · "}
+                {getLocale() !== "en" ? "، " : " · "}
                 {formatRelative(r.created_at)}
               </Text>
             </View>

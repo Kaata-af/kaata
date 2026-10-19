@@ -105,7 +105,7 @@ export function TallyDateFilterSheet(props: DateFilterProps & { inline?: boolean
   const days = useMemo(() => calendarMonthDays(month, props.calendar), [month, props.calendar]);
   // Afghan weeks start on Saturday: in Dari, and for the Shamsi and Qamari
   // calendars in English too (audit #31). Gregorian English keeps Monday.
-  const weekStart = locale === "fa" || props.calendar !== "gregorian" ? 6 : 1;
+  const weekStart = locale !== "en" || props.calendar !== "gregorian" ? 6 : 1;
   const todayStart = localDayStart(Date.now());
   // Which choice the applied filter is, so the sheet can mark it.
   const activeChoice = useMemo(() => {
@@ -359,7 +359,7 @@ export function TallyDateFilterSheet(props: DateFilterProps & { inline?: boolean
                     }}
                   >
                     <Text style={[styles.dayText, selected && { color: colors.textInverted }]}>
-                      {locale === "fa" ? faDigits(number) : number}
+                      {locale !== "en" ? faDigits(number) : number}
                     </Text>
                   </Pressable>
                 );

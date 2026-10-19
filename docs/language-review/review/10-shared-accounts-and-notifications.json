@@ -1,0 +1,5732 @@
+{
+  "$schema": "../review.schema.json",
+  "format_version": 1,
+  "section": "10-shared-accounts-and-notifications",
+  "entries": [
+    {
+      "id": "mobile:inbox.title",
+      "key": "inbox.title",
+      "current": {
+        "en": "Notifications",
+        "fa": "اعلان‌ها",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "خبرتیاوې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 60,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2143,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/notifications.tsx",
+          "line": 37
+        },
+        {
+          "path": "apps/mobile/components/NotificationInbox.tsx",
+          "line": 95
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:inbox.bell",
+      "key": "inbox.bell",
+      "current": {
+        "en": "Notifications, {count} unread",
+        "fa": "اعلان‌ها، {count} ناخوانده",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "خبرتیاوې، {count} نالوستې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "count"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 61,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2144,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/NotificationInbox.tsx",
+          "line": 340
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:inbox.unread",
+      "key": "inbox.unread",
+      "current": {
+        "en": "Unread",
+        "fa": "ناخوانده",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "نالوستې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 62,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2145,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/NotificationInbox.tsx",
+          "line": 43
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:inbox.markAll",
+      "key": "inbox.markAll",
+      "current": {
+        "en": "Mark all read",
+        "fa": "همه خوانده شد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ټولې د لوستل شویو په نښه کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 63,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2146,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/NotificationInbox.tsx",
+          "line": 109
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:inbox.seeAll",
+      "key": "inbox.seeAll",
+      "current": {
+        "en": "See all notifications",
+        "fa": "دیدن همهٔ اعلان‌ها",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ټولې خبرتیاوې وګورئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 64,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2147,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/NotificationInbox.tsx",
+          "line": 436
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:inbox.empty",
+      "key": "inbox.empty",
+      "current": {
+        "en": "You're all caught up. Shared-account updates will appear here.",
+        "fa": "اعلان تازه‌ای ندارید. تغییرات حساب مشترک اینجا می‌آید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ټولې خبرتیاوې مو لوستې دي. د ګډو حسابونو بدلونونه به دلته ښکاره شي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 65,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2148,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/NotificationInbox.tsx",
+          "line": 134
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:inbox.unavailable",
+      "key": "inbox.unavailable",
+      "current": {
+        "en": "Connect to load your notifications.",
+        "fa": "برای دیدن اعلان‌ها به اینترنت وصل شوید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د خبرتیاوو د راوړلو لپاره له انټرنېټ سره وصل شئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 66,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2149,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/NotificationInbox.tsx",
+          "line": 134
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:inbox.signIn",
+      "key": "inbox.signIn",
+      "current": {
+        "en": "Sign in to see your shared-account notifications.",
+        "fa": "برای دیدن اعلان‌های حساب مشترک وارد شوید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د ګډو حسابونو د خبرتیاوو د لیدلو لپاره ننوځئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 67,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2150,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/NotificationInbox.tsx",
+          "line": 134
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:inbox.failed",
+      "key": "inbox.failed",
+      "current": {
+        "en": "Couldn't refresh notifications.",
+        "fa": "اعلان‌ها به‌روز نشد.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "خبرتیاوې نوې نه شوې."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 68,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2151,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/NotificationInbox.tsx",
+          "line": 105
+        },
+        {
+          "path": "apps/mobile/components/NotificationInbox.tsx",
+          "line": 121
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:inbox.retry",
+      "key": "inbox.retry",
+      "current": {
+        "en": "Tap to retry.",
+        "fa": "برای تلاش دوباره بزنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د بیا هڅې لپاره ټک وکړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 69,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2152,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/person/[id]/reminders.tsx",
+          "line": 207
+        },
+        {
+          "path": "apps/mobile/app/reminders.tsx",
+          "line": 136
+        },
+        {
+          "path": "apps/mobile/components/NotificationInbox.tsx",
+          "line": 121
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:inbox.openFailed",
+      "key": "inbox.openFailed",
+      "current": {
+        "en": "Couldn't open this account. Check your connection and access.",
+        "fa": "حساب باز نشد. اتصال و دسترسی خود را بررسی کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "دا حساب پرانیستل نه شو. خپل انټرنېټ او د لاسرسي اجازه وګورئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 70,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2153,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/NotificationInbox.tsx",
+          "line": 332
+        },
+        {
+          "path": "apps/mobile/components/NotificationInbox.tsx",
+          "line": 460
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.notify.detail.new",
+      "key": "tab.notify.detail.new",
+      "current": {
+        "en": "{name} added a tally ({amount}). Accept or reject it.",
+        "fa": "{name} یک ثبت {amount} افزود. قبول یا رد کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "{name} یوه راکړه ورکړه ({amount}) زیاته کړه. ویې منئ یا یې رد کړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "amount",
+        "name"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 71,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2154,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/tabs/notify.ts",
+          "line": 319
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.notify.detail.accepted",
+      "key": "tab.notify.detail.accepted",
+      "current": {
+        "en": "Your tally ({amount}) was accepted by {name}.",
+        "fa": "ثبت {amount} شما توسط {name} قبول شد.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ستاسې راکړه ورکړه ({amount}) د {name} له خوا ومنل شوه."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "amount",
+        "name"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 72,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2155,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/tabs/notify.ts",
+          "line": 321
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.notify.detail.rejected",
+      "key": "tab.notify.detail.rejected",
+      "current": {
+        "en": "Your tally ({amount}) was rejected by {name}. Excluded from the balance.",
+        "fa": "ثبت {amount} شما توسط {name} رد شد؛ در مانده حساب نمی‌شود.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ستاسې راکړه ورکړه ({amount}) د {name} له خوا رد شوه. په پاتې حساب کې نه شمېرل کېږي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "amount",
+        "name"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 73,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2156,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/tabs/notify.ts",
+          "line": 323
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.notify.detail.voided",
+      "key": "tab.notify.detail.voided",
+      "current": {
+        "en": "{name} voided a tally ({amount}).",
+        "fa": "ثبت {amount} توسط {name} لغو شد.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "{name} یوه راکړه ورکړه ({amount}) باطله کړه."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "amount",
+        "name"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 75,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2157,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/tabs/notify.ts",
+          "line": 324
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.savedSignIn",
+      "key": "tab.savedSignIn",
+      "current": {
+        "en": "Saved on this phone. Sign in to send it to {name}.",
+        "fa": "در این تلفون ذخیره شد. برای فرستادن به {name} وارد حساب شوید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "په دې ټیلیفون کې خوندي شول. {name} ته د لېږلو لپاره ننوځئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "name"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 513,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2561,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/entry/new.tsx",
+          "line": 271
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.link.title",
+      "key": "tab.link.title",
+      "current": {
+        "en": "Link with their kaata",
+        "fa": "پیوند با کاتای او",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د هغوی له کاټې سره یې ونښلوئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1909,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3766,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/person/[id].tsx",
+          "line": 1582
+        }
+      ],
+      "context": "Mutual tab (Kaata 2.0, docs/mutual-tab-design.md §4.4). The user-facing\nnoun is \"shared account\" — a shopkeeper thinks \"Ahmad's account\", never\n\"a tab\" (D3). \"Link\" is the verb for creating one and the noun for the\ninvite URL; both senses are deliberate, because the URL IS the other\nparty's access (D11). Status words are calm on purpose: a tally counts\nthe moment it lands (D6), so nothing here nags for an acknowledgement."
+    },
+    {
+      "id": "mobile:tab.link.action",
+      "key": "tab.link.action",
+      "current": {
+        "en": "Create shared account",
+        "fa": "ساختن حساب مشترک",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ګډ حساب جوړ کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1910,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3767,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/LinkAccountDialog.tsx",
+          "line": 223
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.link.confirm.title",
+      "key": "tab.link.confirm.title",
+      "current": {
+        "en": "Share this account?",
+        "fa": "این حساب مشترک شود؟",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "دا حساب شریک کړئ؟"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1911,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3768,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/LinkAccountDialog.tsx",
+          "line": 176
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.link.confirm.body",
+      "key": "tab.link.confirm.body",
+      "current": {
+        "en": "{name} will see every tally on this account and can add, accept or reject tallies. Rejected tallies stay visible but do not count toward the balance. The current balance is carried over as one visible opening tally.",
+        "fa": "{name} همهٔ ثبت‌های این حساب را می‌بیند و می‌تواند ثبت اضافه کند، قبول کند یا رد کند. ثبت‌های ردشده در ماندهٔ حساب حساب نمی‌شوند. باقی‌ماندهٔ فعلی به شکل یک ثبت آغازین قابل دید منتقل می‌شود.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "{name} به د دې حساب هره راکړه ورکړه ویني او راکړې ورکړې زیاتولای، منلای یا ردولای شي. رد شوې راکړې ورکړې ښکاري، خو په پاتې حساب کې نه شمېرل کېږي. اوسنی پاتې حساب د یوې ښکاره پیلنۍ راکړې ورکړې په توګه لېږدول کېږي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "name"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1912,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3769,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/LinkAccountDialog.tsx",
+          "line": 179
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.link.confirm.ok",
+      "key": "tab.link.confirm.ok",
+      "current": {
+        "en": "Link",
+        "fa": "پیوند",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ونښلوئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1914,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3771,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.link.whatsapp",
+      "key": "tab.link.whatsapp",
+      "current": {
+        "en": "Link and open WhatsApp",
+        "fa": "پیوند و باز کردن واتساپ",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ونښلوئ او واټساپ پرانیزئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1915,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3772,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/LinkAccountDialog.tsx",
+          "line": 222
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.link.ready",
+      "key": "tab.link.ready",
+      "current": {
+        "en": "Invitation ready",
+        "fa": "دعوت‌نامه آماده است",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "بلنه چمتو ده"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1916,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3773,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/LinkAccountDialog.tsx",
+          "line": 176
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.link.readyBody",
+      "key": "tab.link.readyBody",
+      "current": {
+        "en": "Send this invitation to {name} so they can join from their Kaata app.",
+        "fa": "این دعوت‌نامه را به {name} بفرستید تا از برنامهٔ کاتای خود بپیوندد.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "دا بلنه {name} ته ولېږئ، څو د خپل کاټه اپ له لارې ګډون وکړي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "name"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1917,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3774,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/LinkAccountDialog.tsx",
+          "line": 179
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.link.inviteUnavailable",
+      "key": "tab.link.inviteUnavailable",
+      "current": {
+        "en": "This account is already linked. Only the side that created it can share its invitation.",
+        "fa": "این حساب قبلاً پیوند شده است. فقط طرفی که آن را ایجاد کرده می‌تواند دعوت‌نامه را بفرستد.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "دا حساب له مخکې نښلول شوی. یوازې هغه لوری یې بلنه شریکولای شي چې جوړ کړی یې دی."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1918,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3775,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/LinkAccountDialog.tsx",
+          "line": 119
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.link.failed",
+      "key": "tab.link.failed",
+      "current": {
+        "en": "Couldn't link. Check your connection and try again.",
+        "fa": "پیوند برقرار نشد. انترنت را بررسی کنید و دوباره امتحان کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ونښلول نه شو. خپله اړیکه وګورئ او بیا هڅه وکړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1920,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3777,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/person/[id].tsx",
+          "line": 1241
+        },
+        {
+          "path": "apps/mobile/app/person/[id].tsx",
+          "line": 2321
+        },
+        {
+          "path": "apps/mobile/app/t/[token].tsx",
+          "line": 342
+        },
+        {
+          "path": "apps/mobile/components/LinkAccountDialog.tsx",
+          "line": 156
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.link.sent",
+      "key": "tab.link.sent",
+      "current": {
+        "en": "Link sent",
+        "fa": "لینک فرستاده شد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "لینک ولېږل شو"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1921,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3778,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.opening.note",
+      "key": "tab.opening.note",
+      "current": {
+        "en": "Balance before linking",
+        "fa": "باقی‌مانده پیش از پیوند",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "تر نښلولو مخکې پاتې حساب"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1923,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3779,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/EntryRow.tsx",
+          "line": 224
+        },
+        {
+          "path": "apps/mobile/lib/export/note.ts",
+          "line": 40
+        },
+        {
+          "path": "apps/mobile/lib/share.ts",
+          "line": 71
+        }
+      ],
+      "context": "Note on the D7 opening entry; the other party reads it in THEIR list."
+    },
+    {
+      "id": "mobile:tab.share.whatsapp",
+      "key": "tab.share.whatsapp",
+      "current": {
+        "en": "Send link on WhatsApp",
+        "fa": "فرستادن لینک در واتساپ",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "لینک په واټساپ کې ولېږئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1924,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3780,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/LinkAccountDialog.tsx",
+          "line": 220
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.share.copy",
+      "key": "tab.share.copy",
+      "current": {
+        "en": "Copy link",
+        "fa": "کپی لینک",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "لینک کاپي کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1925,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3781,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/LinkAccountDialog.tsx",
+          "line": 233
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.copied",
+      "key": "tab.copied",
+      "current": {
+        "en": "Link copied",
+        "fa": "لینک کپی شد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "لینک کاپي شو"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1926,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3782,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/LinkAccountDialog.tsx",
+          "line": 127
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.share.again",
+      "key": "tab.share.again",
+      "current": {
+        "en": "Send link again",
+        "fa": "فرستادن دوبارهٔ لینک",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "لینک بیا ولېږئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1927,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3783,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/person/[id].tsx",
+          "line": 2336
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.regenerate",
+      "key": "tab.regenerate",
+      "current": {
+        "en": "New link (old one stops working)",
+        "fa": "لینک نو (لینک قبلی از کار می‌افتد)",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "نوی لینک (پخوانی نور کار نه کوي)"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1928,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3784,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/person/[id].tsx",
+          "line": 2345
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.regenerate.title",
+      "key": "tab.regenerate.title",
+      "current": {
+        "en": "Make a new link?",
+        "fa": "لینک نو ساخته شود؟",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "نوی لینک جوړ کړئ؟"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1929,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3785,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/person/[id].tsx",
+          "line": 2361
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.regenerate.body",
+      "key": "tab.regenerate.body",
+      "current": {
+        "en": "The link you sent before stops working for everyone who has it. Send the new one to {name}.",
+        "fa": "لینکی که پیشتر فرستادید برای همه از کار می‌افتد. لینک نو را به {name} بفرستید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "هغه لینک چې مخکې مو لېږلی، د ټولو کسانو لپاره به کار پرېږدي. نوی لینک {name} ته ولېږئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "name"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1930,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3786,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/person/[id].tsx",
+          "line": 2362
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.regenerate.ok",
+      "key": "tab.regenerate.ok",
+      "current": {
+        "en": "New link",
+        "fa": "لینک نو",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "نوی لینک"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1932,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3788,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/person/[id].tsx",
+          "line": 2363
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.unlink",
+      "key": "tab.unlink",
+      "current": {
+        "en": "Unlink",
+        "fa": "قطع پیوند",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "اړیکه پرې کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1933,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3789,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/person/[id].tsx",
+          "line": 2352
+        },
+        {
+          "path": "apps/mobile/app/person/[id].tsx",
+          "line": 2371
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.unlink.title",
+      "key": "tab.unlink.title",
+      "current": {
+        "en": "Unlink {name}?",
+        "fa": "پیوند با {name} قطع شود؟",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "له {name} سره اړیکه پرې کړئ؟"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "name"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1934,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3790,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/person/[id].tsx",
+          "line": 2369
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.unlink.body",
+      "key": "tab.unlink.body",
+      "current": {
+        "en": "The shared account closes for both of you. Its tallies stay here and still count, but neither side can add to them any more. New tallies go back to your own book.",
+        "fa": "حساب مشترک برای هر دوی شما بسته می‌شود. ثبت‌های آن همین‌جا می‌مانند و در حساب شمار می‌شوند، اما پس از این هیچ‌کدام‌تان چیزی به آن اضافه کرده نمی‌توانید. ثبت‌های نو دوباره به کتاب خودتان می‌روند.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ګډ حساب ستاسو دواړو لپاره تړل کېږي. راکړې ورکړې یې دلته پاتې کېږي او لا هم شمېرل کېږي، خو هېڅ لوری نورې راکړې ورکړې پکې نه شي زیاتولای. نوې راکړې ورکړې بېرته یوازې ستاسو په خپله کاټه کې ثبتېږي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1940,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3791,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/person/[id].tsx",
+          "line": 2370
+        }
+      ],
+      "context": "What closing actually does (docs/mutual-tab-design.md §4.3): the shared\nperiod FREEZES — its tallies and the balance they add up to stay on this\ncontact, nobody can add to or review them any more, and new tallies are\nordinary entries in your own book again. Says \"for both of you\" because\nclose is a server-side act: the other party's link goes read-only too."
+    },
+    {
+      "id": "mobile:tab.unlinked",
+      "key": "tab.unlinked",
+      "current": {
+        "en": "Unlinked",
+        "fa": "پیوند قطع شد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "اړیکه پرې شوه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1942,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3793,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/person/[id].tsx",
+          "line": 1255
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.chip.linked",
+      "key": "tab.chip.linked",
+      "current": {
+        "en": "Linked · {name}",
+        "fa": "پیوند شده · {name}",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "نښلول شوی · {name}"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "name"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1943,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3794,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.chip.waiting",
+      "key": "tab.chip.waiting",
+      "current": {
+        "en": "Link sent · waiting",
+        "fa": "لینک فرستاده شد · در انتظار",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "لینک ولېږل شو · په تمه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1944,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3795,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/person/[id].tsx",
+          "line": 1749
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.beforeLinking",
+      "key": "tab.beforeLinking",
+      "current": {
+        "en": "Before linking · {count}",
+        "fa": "پیش از پیوند · {count}",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "تر نښلولو مخکې · {count}"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "count"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1946,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3796,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/person/[id].tsx",
+          "line": 1965
+        }
+      ],
+      "context": "Fold row over the pre-link local rows (D8: visible, excluded from the balance)."
+    },
+    {
+      "id": "mobile:tab.notSent",
+      "key": "tab.notSent",
+      "current": {
+        "en": "Not sent · {count}",
+        "fa": "فرستاده نشد · {count}",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "نه دي لېږل شوې · {count}"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "count"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1947,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3797,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/person/[id].tsx",
+          "line": 1907
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.notSent.body",
+      "key": "tab.notSent.body",
+      "current": {
+        "en": "These tallies could not be added to the shared account. They are kept on this phone for you to review and are not included in the balance.",
+        "fa": "این ثبت‌ها به حساب مشترک افزوده نشدند. برای بررسی شما در این تلفون نگه‌داری شده‌اند و در ماندهٔ حساب شامل نیستند.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "دا راکړې ورکړې ګډ حساب ته زیاتې نه شوې. د بیاکتنې لپاره په دې ټیلیفون کې ساتل شوې او په پاتې حساب کې نه شمېرل کېږي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1948,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3798,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/person/[id].tsx",
+          "line": 1920
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.status.new",
+      "key": "tab.status.new",
+      "current": {
+        "en": "New",
+        "fa": "نو",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "نوې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1951,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3800,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": "Row pills (≤ 20 px, monochrome). Accepted rows show nothing."
+    },
+    {
+      "id": "mobile:tab.status.accepted",
+      "key": "tab.status.accepted",
+      "current": {
+        "en": "Accepted",
+        "fa": "پذیرفته شده",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ومنل شوه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1955,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3803,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/EntryRow.tsx",
+          "line": 188
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.feedback.accepted",
+      "key": "tab.feedback.accepted",
+      "current": {
+        "en": "Tally ({amount}) accepted.",
+        "fa": "ثبت ({amount}) پذیرفته شد.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "راکړه ورکړه ({amount}) ومنل شوه."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "amount"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1956,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3804,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/person/[id].tsx",
+          "line": 1016
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.feedback.rejected",
+      "key": "tab.feedback.rejected",
+      "current": {
+        "en": "Tally ({amount}) rejected. Excluded from the balance.",
+        "fa": "ثبت ({amount}) رد شد و در بیلانس حساب نمی‌شود.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "راکړه ورکړه ({amount}) رد شوه. په پاتې حساب کې نه شمېرل کېږي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "amount"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1957,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3805,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/person/[id].tsx",
+          "line": 1016
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.feedback.manyAccepted",
+      "key": "tab.feedback.manyAccepted",
+      "current": {
+        "en": "{count} tallies accepted.",
+        "fa": "{count} ثبت پذیرفته شد.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "{count} راکړې ورکړې ومنل شوې."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "count"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1958,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3806,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/person/[id].tsx",
+          "line": 1027
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.feedback.manyRejected",
+      "key": "tab.feedback.manyRejected",
+      "current": {
+        "en": "{count} tallies rejected. Excluded from the balance.",
+        "fa": "{count} ثبت رد شد و در بیلانس حساب نمی‌شود.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "{count} راکړې ورکړې رد شوې. په پاتې حساب کې نه شمېرل کېږي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "count"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1959,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3807,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/person/[id].tsx",
+          "line": 1029
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.feedback.mixed",
+      "key": "tab.feedback.mixed",
+      "current": {
+        "en": "{accepted} accepted, {rejected} rejected. Rejected tallies don't count.",
+        "fa": "{accepted} پذیرفته شد، {rejected} رد شد. ثبت‌های ردشده حساب نمی‌شوند.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "{accepted} ومنل شوې، {rejected} رد شوې. رد شوې راکړې ورکړې نه شمېرل کېږي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "accepted",
+        "rejected"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1960,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3808,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/person/[id].tsx",
+          "line": 1030
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.status.pending",
+      "key": "tab.status.pending",
+      "current": {
+        "en": "Pending",
+        "fa": "در انتظار",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "په تمه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1961,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3809,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/EntryRow.tsx",
+          "line": 189
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.status.disputed",
+      "key": "tab.status.disputed",
+      "current": {
+        "en": "Rejected",
+        "fa": "رد شده",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "رد شوه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1962,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3810,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/EntryRow.tsx",
+          "line": 186
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.status.voided",
+      "key": "tab.status.voided",
+      "current": {
+        "en": "Voided",
+        "fa": "باطل",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "لغوه شوه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1963,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3811,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.status.sending",
+      "key": "tab.status.sending",
+      "current": {
+        "en": "Sending…",
+        "fa": "در حال ارسال…",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "لېږل کېږي…"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1964,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3812,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/EntryRow.tsx",
+          "line": 184
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.addedBy",
+      "key": "tab.addedBy",
+      "current": {
+        "en": "Added by {name}",
+        "fa": "ثبت‌شده توسط {name}",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د {name} له خوا زیاته شوې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "name"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1967,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3813,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/tab/dispute.tsx",
+          "line": 201
+        },
+        {
+          "path": "apps/mobile/components/EntryRow.tsx",
+          "line": 43
+        },
+        {
+          "path": "apps/mobile/components/EntryRow.tsx",
+          "line": 206
+        }
+      ],
+      "context": "Opened-row words. A tab counterparty is not a kaata member, so these\nreplace entry.addedBy rather than feeding the attribution chip."
+    },
+    {
+      "id": "mobile:tab.addedByYou",
+      "key": "tab.addedByYou",
+      "current": {
+        "en": "Added by you",
+        "fa": "ثبت‌شده توسط شما",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ستاسو له خوا زیاته شوې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1968,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3814,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.disputedReason",
+      "key": "tab.disputedReason",
+      "current": {
+        "en": "Rejected: {reason}",
+        "fa": "رد شده: {reason}",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "رد شوه: {reason}"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "reason"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1969,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3815,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/EntryRow.tsx",
+          "line": 216
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.void",
+      "key": "tab.void",
+      "current": {
+        "en": "Void",
+        "fa": "باطل کردن",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "لغوه یې کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1970,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3816,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.cancel",
+      "key": "tab.cancel",
+      "current": {
+        "en": "Cancel tally",
+        "fa": "لغو ثبت",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "راکړه ورکړه لغوه کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1971,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3817,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/CreditIntentList.tsx",
+          "line": 99
+        },
+        {
+          "path": "apps/mobile/components/EntryRow.tsx",
+          "line": 478
+        },
+        {
+          "path": "apps/mobile/components/EntryRow.tsx",
+          "line": 479
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.void.title",
+      "key": "tab.void.title",
+      "current": {
+        "en": "Void this tally?",
+        "fa": "این ثبت باطل شود؟",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "دا راکړه ورکړه لغوه کړئ؟"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1972,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3818,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.void.body",
+      "key": "tab.void.body",
+      "current": {
+        "en": "It stays visible, struck through, and no longer counts. Add a new tally if the amount was wrong.",
+        "fa": "ثبت با خط خورده دیده می‌شود و دیگر حساب نمی‌شود. اگر مقدار غلط بود، یک ثبت نو اضافه کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ښکاره پاتې کېږي، کرښه پرې راکاږل کېږي او نور نه شمېرل کېږي. که مبلغ ناسم و، نوې راکړه ورکړه زیاته کړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1973,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3819,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.voided",
+      "key": "tab.voided",
+      "current": {
+        "en": "Tally voided",
+        "fa": "ثبت باطل شد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "راکړه ورکړه لغوه شوه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1975,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3821,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/person/[id].tsx",
+          "line": 1293
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.accept",
+      "key": "tab.accept",
+      "current": {
+        "en": "Accept",
+        "fa": "تأیید",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ومنئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1976,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3822,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/CreditIntentList.tsx",
+          "line": 96
+        },
+        {
+          "path": "apps/mobile/components/EntryRow.tsx",
+          "line": 502
+        },
+        {
+          "path": "apps/mobile/components/EntryRow.tsx",
+          "line": 503
+        },
+        {
+          "path": "apps/mobile/lib/tabs/notify.ts",
+          "line": 51
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.accepted",
+      "key": "tab.accepted",
+      "current": {
+        "en": "Accepted",
+        "fa": "تأیید شد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ومنل شوه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1977,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3823,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.rejectedHint",
+      "key": "tab.rejectedHint",
+      "current": {
+        "en": "Not included in the balance.",
+        "fa": "در ماندهٔ حساب حساب نمی‌شود.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "په پاتې حساب کې نه شمېرل کېږي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1978,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3824,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/EntryRow.tsx",
+          "line": 460
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.reviewFinal",
+      "key": "tab.reviewFinal",
+      "current": {
+        "en": "This tally has already been reviewed. Send a new tally to try again.",
+        "fa": "این ثبت قبلاً پذیرفته یا رد شده است. برای تلاش دوباره، یک ثبت جدید بفرستید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "دا راکړه ورکړه له مخکې بیاکتل شوې. د بیا هڅې لپاره نوې راکړه ورکړه ولېږئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1979,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3825,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/person/[id].tsx",
+          "line": 141
+        },
+        {
+          "path": "apps/mobile/app/tab/dispute.tsx",
+          "line": 143
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.reject",
+      "key": "tab.reject",
+      "current": {
+        "en": "Reject",
+        "fa": "رد کردن",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "رد کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1980,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3826,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/CreditIntentList.tsx",
+          "line": 98
+        },
+        {
+          "path": "apps/mobile/components/EntryRow.tsx",
+          "line": 490
+        },
+        {
+          "path": "apps/mobile/components/EntryRow.tsx",
+          "line": 491
+        },
+        {
+          "path": "apps/mobile/lib/tabs/notify.ts",
+          "line": 56
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.dispute",
+      "key": "tab.dispute",
+      "current": {
+        "en": "Add a reason…",
+        "fa": "افزودن دلیل…",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "لامل ولیکئ…"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1981,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3827,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/tab/dispute.tsx",
+          "line": 163
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.dispute.title",
+      "key": "tab.dispute.title",
+      "current": {
+        "en": "Rejection · {amount}",
+        "fa": "دلیل رد · {amount}",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ردول · {amount}"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "amount"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1982,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3828,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/tab/dispute.tsx",
+          "line": 160
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.dispute.reasonLabel",
+      "key": "tab.dispute.reasonLabel",
+      "current": {
+        "en": "What is wrong?",
+        "fa": "مشکل چیست؟",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "څه ناسم دي؟"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1983,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3829,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/tab/dispute.tsx",
+          "line": 205
+        },
+        {
+          "path": "apps/mobile/app/tab/dispute.tsx",
+          "line": 219
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.dispute.reasonPlaceholder",
+      "key": "tab.dispute.reasonPlaceholder",
+      "current": {
+        "en": "e.g. I paid 300, not 500",
+        "fa": "مثلاً 300 دادم، نه 500",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "لکه: ما 300 ورکړي، 500 نه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1984,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3830,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/tab/dispute.tsx",
+          "line": 215
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.dispute.reasonRequired",
+      "key": "tab.dispute.reasonRequired",
+      "current": {
+        "en": "Write a reason so {name} understands.",
+        "fa": "دلیلی بنویسید تا {name} بفهمد.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "لامل ولیکئ، څو {name} پرې پوه شي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "name"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1985,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3831,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/tab/dispute.tsx",
+          "line": 115
+        },
+        {
+          "path": "apps/mobile/app/tab/dispute.tsx",
+          "line": 137
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.dispute.reasonTooLong",
+      "key": "tab.dispute.reasonTooLong",
+      "current": {
+        "en": "Keep it under 300 characters.",
+        "fa": "کمتر از 300 حرف بنویسید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "تر 300 تورو یې لنډ وساتئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1986,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3832,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/tab/dispute.tsx",
+          "line": 119
+        },
+        {
+          "path": "apps/mobile/app/tab/dispute.tsx",
+          "line": 135
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.dispute.send",
+      "key": "tab.dispute.send",
+      "current": {
+        "en": "Reject tally",
+        "fa": "فرستادن دلیل",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "راکړه ورکړه رد کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1987,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3833,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/tab/dispute.tsx",
+          "line": 231
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.dispute.notFound",
+      "key": "tab.dispute.notFound",
+      "current": {
+        "en": "This tally is no longer on the shared account.",
+        "fa": "این ثبت دیگر در حساب مشترک نیست.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "دا راکړه ورکړه نور په ګډ حساب کې نشته."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1988,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3834,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/tab/dispute.tsx",
+          "line": 179
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.disputed",
+      "key": "tab.disputed",
+      "current": {
+        "en": "Rejected — removed from the balance",
+        "fa": "رد شد — از ماندهٔ حساب حذف شد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "رد شوه — له پاتې حسابه وایستل شوه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1989,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3835,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/tab/dispute.tsx",
+          "line": 129
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.closed",
+      "key": "tab.closed",
+      "current": {
+        "en": "This shared account was closed.",
+        "fa": "این حساب مشترک بسته شده است.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "دا ګډ حساب تړل شوی."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1990,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3836,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/entry/new.tsx",
+          "line": 319
+        },
+        {
+          "path": "apps/mobile/app/person/[id].tsx",
+          "line": 142
+        },
+        {
+          "path": "apps/mobile/app/tab/dispute.tsx",
+          "line": 145
+        },
+        {
+          "path": "apps/mobile/app/tab/dispute.tsx",
+          "line": 179
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.closedNote",
+      "key": "tab.closedNote",
+      "current": {
+        "en": "Shared account closed on {date}. New tallies here are private.",
+        "fa": "حساب مشترک در {date} بسته شد. ثبت‌های تازه اینجا شخصی هستند.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ګډ حساب په {date} وتړل شو. دلته نوې راکړې ورکړې شخصي دي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "date"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1991,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3837,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/person/[id].tsx",
+          "line": 1705
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.settle.confirm",
+      "key": "tab.settle.confirm",
+      "current": {
+        "en": "The reviewed balance with {name} is zero. Move these tallies into shared history for both of you and start a fresh page? The records stay saved, and you can keep using this shared account.",
+        "fa": "بیلانس بررسی‌شده با {name} صفر است. این ثبت‌ها به سابقهٔ مشترک هر دوی شما منتقل و صفحهٔ تازه باز شود؟ ثبت‌ها محفوظ می‌مانند و می‌توانید از همین حساب مشترک استفاده کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "له {name} سره بیاکتل شوی پاتې حساب صفر دی. دا راکړې ورکړې ستاسو دواړو ګډې مخینې ته ولېږدوئ او نوې پاڼه پیل کړئ؟ ریکارډونه خوندي پاتې کېږي او دا ګډ حساب همداسې کارولای شئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "name"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1992,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3838,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/person/[id].tsx",
+          "line": 2412
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.settle.pending",
+      "key": "tab.settle.pending",
+      "current": {
+        "en": "Review and sync all pending tallies before clearing this account.",
+        "fa": "پیش از صاف‌کردن حساب، همهٔ ثبت‌های در انتظار را بررسی و همگام کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د دې حساب تر تصفیې مخکې ټولې په تمه راکړې ورکړې بیا وګورئ او همغږې یې کړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1994,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3840,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/person/[id].tsx",
+          "line": 819
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.settle.changed",
+      "key": "tab.settle.changed",
+      "current": {
+        "en": "The shared history changed. Review it, then try clearing again.",
+        "fa": "سابقهٔ مشترک تغییر کرده است. آن را بررسی کنید و دوباره کوشش کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ګډه مخینه بدله شوه. بیا یې وګورئ او د تصفیې هڅه بیا وکړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1995,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3841,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/person/[id].tsx",
+          "line": 821
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.settle.failed",
+      "key": "tab.settle.failed",
+      "current": {
+        "en": "Could not clear this shared account. Connect to the internet and try again.",
+        "fa": "حساب مشترک صاف نشد. به اینترنت وصل شوید و دوباره کوشش کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "دا ګډ حساب تصفیه نه شو. له انټرنېټ سره وصل شئ او بیا هڅه وکړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1996,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3842,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/person/[id].tsx",
+          "line": 822
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.settle.history",
+      "key": "tab.settle.history",
+      "current": {
+        "en": "Cleared by {name} · {date}",
+        "fa": "صاف‌شده توسط {name} · {date}",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د {name} له خوا تصفیه شو · {date}"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "date",
+        "name"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1998,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3843,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/person/[id].tsx",
+          "line": 1388
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.reviewedBy",
+      "key": "tab.reviewedBy",
+      "current": {
+        "en": "Reviewed by {name}",
+        "fa": "بررسی‌کننده: {name}",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د {name} له خوا بیاکتل شوې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "name"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1999,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3844,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/EntryRow.tsx",
+          "line": 44
+        },
+        {
+          "path": "apps/mobile/components/EntryRow.tsx",
+          "line": 455
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.cancelledBy",
+      "key": "tab.cancelledBy",
+      "current": {
+        "en": "Cancelled by {name}",
+        "fa": "لغوکننده: {name}",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د {name} له خوا لغوه شوې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "name"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2000,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3845,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/EntryRow.tsx",
+          "line": 45
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.needsConnection",
+      "key": "tab.needsConnection",
+      "current": {
+        "en": "Go online to add to a shared account.",
+        "fa": "برای ثبت در حساب مشترک آنلاین شوید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ګډ حساب ته د راکړې ورکړې د زیاتولو لپاره له انټرنېټ سره وصل شئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2001,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3846,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/entry/new.tsx",
+          "line": 316
+        },
+        {
+          "path": "apps/mobile/app/person/[id].tsx",
+          "line": 143
+        },
+        {
+          "path": "apps/mobile/app/person/[id].tsx",
+          "line": 1240
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.editLocked",
+      "key": "tab.editLocked",
+      "current": {
+        "en": "Tallies on a shared account can't be edited — void it and add a new one.",
+        "fa": "ثبت‌های حساب مشترک ویرایش نمی‌شوند — آن را باطل کنید و یکی نو اضافه کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د ګډ حساب راکړې ورکړې سمېدای نه شي — لغوه یې کړئ او نوې زیاته کړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2002,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3847,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/entry/[id]/edit.tsx",
+          "line": 92
+        },
+        {
+          "path": "apps/mobile/app/entry/[id]/edit.tsx",
+          "line": 150
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.currencyLocked",
+      "key": "tab.currencyLocked",
+      "current": {
+        "en": "Unlink shared accounts before changing the currency.",
+        "fa": "پیش از تغییر ارز، پیوند حساب‌های مشترک را قطع کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د پیسو د ډول تر بدلولو مخکې د ګډو حسابونو اړیکې پرې کړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2003,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3848,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/t/[token].tsx",
+          "line": 583
+        },
+        {
+          "path": "apps/mobile/app/vault/settings.tsx",
+          "line": 341
+        },
+        {
+          "path": "apps/mobile/app/vault/settings.tsx",
+          "line": 710
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.duplicateHint",
+      "key": "tab.duplicateHint",
+      "current": {
+        "en": "Already recorded by {name} — check it isn't counted twice.",
+        "fa": "پیشتر توسط {name} ثبت شده — بررسی کنید دو بار حساب نشود.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د {name} له خوا له مخکې ثبت شوې — وګورئ چې دوه ځله ونه شمېرل شي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "name"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2005,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3849,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/entry/new.tsx",
+          "line": 296
+        }
+      ],
+      "context": "D17 settlement double-log warning, toasted after the save lands."
+    },
+    {
+      "id": "mobile:tab.them",
+      "key": "tab.them",
+      "current": {
+        "en": "the other side",
+        "fa": "او",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "بل لوری"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2009,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3850,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/entry/new.tsx",
+          "line": 266
+        },
+        {
+          "path": "apps/mobile/app/entry/new.tsx",
+          "line": 271
+        },
+        {
+          "path": "apps/mobile/app/t/[token].tsx",
+          "line": 355
+        },
+        {
+          "path": "apps/mobile/app/tab/dispute.tsx",
+          "line": 107
+        },
+        {
+          "path": "apps/mobile/lib/tabs/notify.ts",
+          "line": 325
+        }
+      ],
+      "context": "Fallback for {name} when the other party has not joined (no label yet).\nA NOUN PHRASE, not a pronoun: every template that takes it reads \"Added\nby {name}\" / \"so {name} understands\", and \"they\" turns both ungrammatical."
+    },
+    {
+      "id": "mobile:tab.row.pending",
+      "key": "tab.row.pending",
+      "current": {
+        "en": "{count} to review",
+        "fa": "{count} برای بررسی",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "{count} د بیاکتنې لپاره"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "count"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2010,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3851,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/PersonRow.tsx",
+          "line": 63
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.row.notDownloaded",
+      "key": "tab.row.notDownloaded",
+      "current": {
+        "en": "Shared account not downloaded yet",
+        "fa": "حساب مشترک هنوز دانلود نشده",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ګډ حساب لا نه دی ډاونلوډ شوی"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2011,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3852,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/PersonRow.tsx",
+          "line": 61
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.notDownloaded",
+      "key": "tab.notDownloaded",
+      "current": {
+        "en": "This shared account hasn't downloaded to this phone yet. Its balance appears once it does; check your connection if this stays.",
+        "fa": "این حساب مشترک هنوز روی این تلفن دانلود نشده است. بیلانس آن پس از دانلود نمایش داده می‌شود؛ اگر همین‌طور ماند، اتصال انترنت را بررسی کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "دا ګډ حساب لا دې ټیلیفون ته نه دی ډاونلوډ شوی. کله چې ډاونلوډ شي، پاتې حساب به یې ښکاره شي؛ که دا حالت دوام وکړي، خپله اړیکه وګورئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2012,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3853,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/person/[id].tsx",
+          "line": 1777
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.invite.message",
+      "key": "tab.invite.message",
+      "current": {
+        "en": "{name} shares a Kaata account with you. Open the link to see the balance and add or confirm tallies:\n{url}",
+        "fa": "{name} یک حساب کاتا را با شما شریک کرده است. لینک را باز کنید تا باقی‌مانده را ببینید و ثبت اضافه یا تأیید کنید:\n{url}",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "{name} تاسو سره د کاټې حساب شریکوي. د پاتې حساب د لیدلو او د راکړو ورکړو د زیاتولو یا منلو لپاره لینک پرانیزئ:\n{url}"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "name",
+        "url"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2017,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3855,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/LinkAccountDialog.tsx",
+          "line": 130
+        }
+      ],
+      "context": "Outgoing WhatsApp invite. The URL sits on its own line, exactly like\nshare.fullLedger's link: nothing (not even an invisible bidi mark) may\ntouch it, or some clients stop recognising it as a link."
+    },
+    {
+      "id": "mobile:tab.join.title",
+      "key": "tab.join.title",
+      "current": {
+        "en": "Shared account",
+        "fa": "حساب مشترک",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ګډ حساب"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2025,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3857,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/person/[id].tsx",
+          "line": 1582
+        },
+        {
+          "path": "apps/mobile/app/t/[token].tsx",
+          "line": 674
+        },
+        {
+          "path": "apps/mobile/components/SharedAccountBadge.tsx",
+          "line": 45
+        }
+      ],
+      "context": "Joining someone else's shared account (app/t/[token].tsx, D10/D11). The\nvisitor here may never have signed in and may not even have a kaata yet,\nso the copy explains the invitation before it asks for anything. Currency\ncodes are Latin tokens inside Dari prose and are bidi-isolated at the call\nsite, never here."
+    },
+    {
+      "id": "mobile:tab.join.from",
+      "key": "tab.join.from",
+      "current": {
+        "en": "{name} shares an account with you",
+        "fa": "{name} یک حساب مشترک با شما دارد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "{name} تاسو سره حساب شریکوي"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "name"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2026,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3858,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/t/[token].tsx",
+          "line": 1006
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.join.balanceLabel",
+      "key": "tab.join.balanceLabel",
+      "current": {
+        "en": "Balance",
+        "fa": "باقی‌مانده",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "پاتې حساب"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2027,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3859,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/t/[token].tsx",
+          "line": 1011
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.join.entries",
+      "key": "tab.join.entries",
+      "current": {
+        "en": "{count} tallies",
+        "fa": "{count} ثبت",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "{count} راکړې ورکړې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "count"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2028,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3860,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/t/[token].tsx",
+          "line": 1037
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.join.join",
+      "key": "tab.join.join",
+      "current": {
+        "en": "Join",
+        "fa": "پیوستن",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ګډون وکړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2029,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3861,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/t/[token].tsx",
+          "line": 1082
+        },
+        {
+          "path": "apps/mobile/app/t/[token].tsx",
+          "line": 1216
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.join.pickKaata",
+      "key": "tab.join.pickKaata",
+      "current": {
+        "en": "Which kaata is this for?",
+        "fa": "این حساب برای کدام کاتا است؟",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "دا د کومې کاټې لپاره دی؟"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2030,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3862,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/t/[token].tsx",
+          "line": 1097
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.join.pickContact",
+      "key": "tab.join.pickContact",
+      "current": {
+        "en": "Who is {name} in your kaata?",
+        "fa": "{name} در کاتای شما کیست؟",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "{name} ستاسو په کاټه کې څوک دی؟"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "name"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2031,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3863,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/t/[token].tsx",
+          "line": 1128
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.join.newContact",
+      "key": "tab.join.newContact",
+      "current": {
+        "en": "New contact",
+        "fa": "مخاطب نو",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "نوې اړیکه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2032,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3864,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/t/[token].tsx",
+          "line": 1269
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.join.noCurrencyKaata",
+      "key": "tab.join.noCurrencyKaata",
+      "current": {
+        "en": "You need a kaata in {currency} for this account.",
+        "fa": "برای این حساب به یک کاتا به {currency} ضرورت دارید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د دې حساب لپاره په {currency} کاټې ته اړتیا لرئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "currency"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2037,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3865,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/t/[token].tsx",
+          "line": 788
+        }
+      ],
+      "context": "D9: the tab's currency is fixed at creation and a kaata cannot change its\ncurrency while it holds an OPEN tab. When no kaata matches, the screen\noffers to switch one (lib/tabs/join-plan.ts planCurrency) or to create a\nnew kaata preset to the tab's currency — never a dead end."
+    },
+    {
+      "id": "mobile:tab.join.createKaata",
+      "key": "tab.join.createKaata",
+      "current": {
+        "en": "Create a {currency} kaata",
+        "fa": "ساختن کاتا به {currency}",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "په {currency} کاټه جوړه کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "currency"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2038,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3866,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/t/[token].tsx",
+          "line": 811
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.join.done",
+      "key": "tab.join.done",
+      "current": {
+        "en": "Linked with {name}",
+        "fa": "با {name} پیوند شد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "له {name} سره ونښلول شو"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "name"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2039,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3867,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/t/[token].tsx",
+          "line": 477
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.join.closed",
+      "key": "tab.join.closed",
+      "current": {
+        "en": "This shared account was closed.",
+        "fa": "این حساب مشترک بسته شده است.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "دا ګډ حساب تړل شوی."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2040,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3868,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/t/[token].tsx",
+          "line": 325
+        },
+        {
+          "path": "apps/mobile/app/t/[token].tsx",
+          "line": 545
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.join.notFound",
+      "key": "tab.join.notFound",
+      "current": {
+        "en": "This link is not valid any more.",
+        "fa": "این لینک دیگر معتبر نیست.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "دا لینک نور اعتبار نه لري."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2043,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3869,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/t/[token].tsx",
+          "line": 277
+        },
+        {
+          "path": "apps/mobile/app/t/[token].tsx",
+          "line": 340
+        }
+      ],
+      "context": "Collapses unknown / regenerated / revoked — the server answers all three\nwith the same 404 by design (uniform 404)."
+    },
+    {
+      "id": "mobile:tab.join.currencyMismatch",
+      "key": "tab.join.currencyMismatch",
+      "current": {
+        "en": "Your kaata is in {kaata}; this account is in {tab}.",
+        "fa": "کاتای شما به {kaata} است؛ این حساب به {tab} است.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ستاسو کاټه په {kaata} ده؛ دا حساب په {tab} دی."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "kaata",
+        "tab"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2044,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3870,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/t/[token].tsx",
+          "line": 533
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.join.sameKaata",
+      "key": "tab.join.sameKaata",
+      "current": {
+        "en": "You can't share an account with your own kaata.",
+        "fa": "حساب مشترک با کاتای خودتان ساخته نمی‌شود.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "له خپلې کاټې سره حساب نه شئ شریکولای."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2045,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3871,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/t/[token].tsx",
+          "line": 539
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.join.sameAccount",
+      "key": "tab.join.sameAccount",
+      "current": {
+        "en": "You are already on the other side of this shared account (it is your kaata, or you are a member of it). Join with a different account.",
+        "fa": "شما همین حالا در طرف دیگرِ این حساب مشترک هستید (کاتای خودتان است یا عضو آن هستید). با یک حساب دیگر وارد شوید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "تاسو له مخکې د دې ګډ حساب په بل لوري کې یاست (دا ستاسو کاټه ده، یا یې غړی یاست). په بل حساب ګډون وکړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2046,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3872,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/t/[token].tsx",
+          "line": 541
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.join.alreadyLinked",
+      "key": "tab.join.alreadyLinked",
+      "current": {
+        "en": "This contact already has a shared account.",
+        "fa": "این مخاطب از قبل یک حساب مشترک دارد.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "دا کس له مخکې ګډ حساب لري."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2048,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3874,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/t/[token].tsx",
+          "line": 543
+        },
+        {
+          "path": "apps/mobile/app/t/[token].tsx",
+          "line": 958
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.join.currencyNotSynced",
+      "key": "tab.join.currencyNotSynced",
+      "current": {
+        "en": "Your kaata's currency change hasn't reached the server yet. Check your connection and try again.",
+        "fa": "تغییر ارز کاتای شما هنوز به سرور نرسیده است. اتصال انترنت را بررسی کنید و دوباره تلاش کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ستاسو د کاټې د پیسو د ډول بدلون لا سرور ته نه دی رسېدلی. خپله اړیکه وګورئ او بیا هڅه وکړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2051,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3875,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/t/[token].tsx",
+          "line": 530
+        }
+      ],
+      "context": "TabCurrencyMismatchError.serverStale: the kaata already matches locally,\nonly the server's copy of its currency is behind (event not pushed yet)."
+    },
+    {
+      "id": "mobile:tab.join.currencyIntro",
+      "key": "tab.join.currencyIntro",
+      "current": {
+        "en": "Your kaata is in {kaata}. This shared account is in {tab}.",
+        "fa": "کاتای شما به {kaata} است. این حساب مشترک به {tab} است.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ستاسو کاټه په {kaata} ده. دا ګډ حساب په {tab} دی."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "kaata",
+        "tab"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2054,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3877,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/t/[token].tsx",
+          "line": 787
+        }
+      ],
+      "context": "Currency plan (both codes are bidi-isolated by the caller)."
+    },
+    {
+      "id": "mobile:tab.join.switchCurrency",
+      "key": "tab.join.switchCurrency",
+      "current": {
+        "en": "Use {name} in {currency}",
+        "fa": "تغییر {name} به {currency}",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "{name} په {currency} وکاروئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "currency",
+        "name"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2055,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3878,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/t/[token].tsx",
+          "line": 794
+        },
+        {
+          "path": "apps/mobile/app/t/[token].tsx",
+          "line": 1356
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.join.switchEmptyHint",
+      "key": "tab.join.switchEmptyHint",
+      "current": {
+        "en": "No tallies yet, so nothing changes.",
+        "fa": "هنوز ثبتی ندارد، پس چیزی تغییر نمی‌کند.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "تر اوسه راکړه ورکړه نشته، نو څه نه بدلېږي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2056,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3879,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/t/[token].tsx",
+          "line": 799
+        },
+        {
+          "path": "apps/mobile/app/t/[token].tsx",
+          "line": 831
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.join.switchRelabelHint",
+      "key": "tab.join.switchRelabelHint",
+      "current": {
+        "en": "Existing amounts will be shown in {currency}, not converted.",
+        "fa": "مبالغ موجود به {currency} نشان داده می‌شوند و تبدیل نمی‌شوند.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "اوسني مبلغونه به په {currency} وښودل شي، د اسعارو بدلون پرې نه محاسبه کېږي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "currency"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2057,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3880,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/t/[token].tsx",
+          "line": 830
+        },
+        {
+          "path": "apps/mobile/app/t/[token].tsx",
+          "line": 1352
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.join.lockedByTab",
+      "key": "tab.join.lockedByTab",
+      "current": {
+        "en": "Locked to {currency} by a shared account",
+        "fa": "به خاطر یک حساب مشترک به {currency} قفل است",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د ګډ حساب له امله په {currency} تړل شوی"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "currency"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2058,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3881,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/t/[token].tsx",
+          "line": 833
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.join.lockedByRole",
+      "key": "tab.join.lockedByRole",
+      "current": {
+        "en": "Only an owner or admin can change this kaata's currency",
+        "fa": "فقط مالک یا مدیر می‌تواند ارز این کاتا را تغییر دهد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "یوازې خاوند یا سمبالوونکی د دې کاټې د پیسو ډول بدلولای شي"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2059,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3882,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/t/[token].tsx",
+          "line": 834
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.join.createSeparate",
+      "key": "tab.join.createSeparate",
+      "current": {
+        "en": "Create a separate {currency} kaata",
+        "fa": "ساختن یک کاتای جداگانه به {currency}",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "په {currency} جلا کاټه جوړه کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "currency"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2060,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3883,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/t/[token].tsx",
+          "line": 802
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.join.orPick",
+      "key": "tab.join.orPick",
+      "current": {
+        "en": "Or switch a kaata to {currency}",
+        "fa": "یا یک کاتا را به {currency} تغییر دهید",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "یا د یوې کاټې د پیسو ډول {currency} ته بدل کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "currency"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2064,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3884,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/t/[token].tsx",
+          "line": 822
+        }
+      ],
+      "context": "Heading over the secondary switch rows. It names the VERB: a row under\n\"choose another kaata\" read as a picker, and one tap relabelled every\ntally of a full book. Rows with tallies confirm first (switchConfirmTitle)."
+    },
+    {
+      "id": "mobile:tab.join.switchConfirmTitle",
+      "key": "tab.join.switchConfirmTitle",
+      "current": {
+        "en": "Switch {name} to {currency}?",
+        "fa": "{name} به {currency} تغییر کند؟",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د {name} د پیسو ډول {currency} ته بدل کړئ؟"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "currency",
+        "name"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2065,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3885,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/t/[token].tsx",
+          "line": 1345
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.join.currencyPreset",
+      "key": "tab.join.currencyPreset",
+      "current": {
+        "en": "This shared account uses {currency}. The kaata is created in that currency.",
+        "fa": "این حساب مشترک از {currency} استفاده می‌کند. کاتا به همین ارز ساخته می‌شود.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "دا ګډ حساب {currency} کاروي. کاټه په همدې پیسو جوړېږي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "currency"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2068,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3886,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/onboarding/kaata.tsx",
+          "line": 319
+        },
+        {
+          "path": "apps/mobile/app/vault/new.tsx",
+          "line": 491
+        }
+      ],
+      "context": "Hint under the currency row of vault/new + onboarding/kaata when a pending\ninvitation preset it."
+    },
+    {
+      "id": "mobile:tab.join.suggestTitle",
+      "key": "tab.join.suggestTitle",
+      "current": {
+        "en": "Matches the number this invitation came from",
+        "fa": "با شماره‌ای که این دعوت از آن آمده مطابقت دارد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "له هغې شمېرې سره سمون خوري چې دا بلنه ترې راغلې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2071,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3888,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/t/[token].tsx",
+          "line": 754
+        }
+      ],
+      "context": "Contact suggestion (suggestJoinContact): who the invitation's number is."
+    },
+    {
+      "id": "mobile:tab.join.suggestFromPhone",
+      "key": "tab.join.suggestFromPhone",
+      "current": {
+        "en": "From your phone contacts",
+        "fa": "از مخاطبین تلفن شما",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ستاسو د ټیلیفون له اړیکو څخه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2072,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3889,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/t/[token].tsx",
+          "line": 756
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.join.suggestFromInvite",
+      "key": "tab.join.suggestFromInvite",
+      "current": {
+        "en": "From the invitation",
+        "fa": "از دعوت‌نامه",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "له بلنې څخه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2073,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3890,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/t/[token].tsx",
+          "line": 757
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.join.suggestWillCreate",
+      "key": "tab.join.suggestWillCreate",
+      "current": {
+        "en": "Added to your kaata and phone contacts",
+        "fa": "به کاتا و مخاطبین تلفن شما اضافه می‌شود",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ستاسو کاټې او د ټیلیفون اړیکو ته زیاتېږي"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2077,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3891,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/t/[token].tsx",
+          "line": 743
+        }
+      ],
+      "context": "suggestWillCreate only when the person is NOT in the phone book yet AND\ncontacts access is granted (createPerson's phone-book write is silent\notherwise); suggestWillAdd everywhere else a person is created."
+    },
+    {
+      "id": "mobile:tab.join.suggestWillAdd",
+      "key": "tab.join.suggestWillAdd",
+      "current": {
+        "en": "Added to your kaata",
+        "fa": "به کاتای شما اضافه می‌شود",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ستاسو کاټې ته زیاتېږي"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2078,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3892,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/t/[token].tsx",
+          "line": 744
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.join.linkTo",
+      "key": "tab.join.linkTo",
+      "current": {
+        "en": "Will be linked to",
+        "fa": "پیوند می‌خورد با",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "له دې سره به ونښلول شي"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2079,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3893,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/t/[token].tsx",
+          "line": 1048
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.join.chooseElse",
+      "key": "tab.join.chooseElse",
+      "current": {
+        "en": "Choose someone else",
+        "fa": "انتخاب کس دیگری",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "بل کس وټاکئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2080,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3894,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/t/[token].tsx",
+          "line": 1078
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.join.joinAs",
+      "key": "tab.join.joinAs",
+      "current": {
+        "en": "Link with {name}",
+        "fa": "پیوند با {name}",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "له {name} سره یې ونښلوئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "name"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2083,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3895,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/t/[token].tsx",
+          "line": 763
+        },
+        {
+          "path": "apps/mobile/app/t/[token].tsx",
+          "line": 1065
+        }
+      ],
+      "context": "The object is the CONTACT the account links to, never an identity: \"Join\nas Matee\" read as joining under the other party's name."
+    },
+    {
+      "id": "mobile:tab.join.searchContacts",
+      "key": "tab.join.searchContacts",
+      "current": {
+        "en": "Search contacts",
+        "fa": "جستجوی مخاطبین",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "اړیکې ولټوئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2084,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3896,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/t/[token].tsx",
+          "line": 1252
+        },
+        {
+          "path": "apps/mobile/app/t/[token].tsx",
+          "line": 1254
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.join.inKaata",
+      "key": "tab.join.inKaata",
+      "current": {
+        "en": "In your kaata",
+        "fa": "در کاتای شما",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ستاسو په کاټه کې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2085,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3897,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/t/[token].tsx",
+          "line": 932
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.join.switched",
+      "key": "tab.join.switched",
+      "current": {
+        "en": "{name} now uses {currency}",
+        "fa": "{name} حالا از {currency} استفاده می‌کند",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "{name} اوس {currency} کاروي"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "currency",
+        "name"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2086,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3898,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/t/[token].tsx",
+          "line": 576
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.notify.channel",
+      "key": "tab.notify.channel",
+      "current": {
+        "en": "Shared accounts",
+        "fa": "حساب‌های مشترک",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ګډ حسابونه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2090,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3899,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/tabs/notify.ts",
+          "line": 41
+        }
+      ],
+      "context": "Local notifications (lib/tabs/notify.ts, D14). The channel strings are read\nby the OS settings list, so they name the feature the way the app does."
+    },
+    {
+      "id": "mobile:tab.notify.channelDescription",
+      "key": "tab.notify.channelDescription",
+      "current": {
+        "en": "Tallies the other party added or reviewed while Kaata was in the background.",
+        "fa": "ثبت‌هایی که طرف مقابل هنگام بسته بودن کاتا اضافه یا بررسی کرده است.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "هغه راکړې ورکړې چې بل لوري زیاتې یا بیاکتلې، کله چې کاټه په شالید کې وه."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2091,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3900,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/tabs/notify.ts",
+          "line": 42
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.notify.fallbackTitle",
+      "key": "tab.notify.fallbackTitle",
+      "current": {
+        "en": "Shared account",
+        "fa": "حساب مشترک",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ګډ حساب"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2093,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3902,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/tabs/notify.ts",
+          "line": 331
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.notify.newEntries",
+      "key": "tab.notify.newEntries",
+      "current": {
+        "en": "{count} new tallies to review",
+        "fa": "{count} ثبت نو برای بررسی",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "{count} نوې راکړې ورکړې د بیاکتنې لپاره"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "count"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2094,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3903,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/tabs/notify.ts",
+          "line": 286
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.notify.reviewed",
+      "key": "tab.notify.reviewed",
+      "current": {
+        "en": "Your tallies were reviewed",
+        "fa": "ثبت‌های شما بررسی شد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ستاسو راکړې ورکړې بیاکتل شوې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2095,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3904,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.notify.accepted",
+      "key": "tab.notify.accepted",
+      "current": {
+        "en": "Your tally was accepted.",
+        "fa": "ثبت شما قبول شد.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ستاسو راکړه ورکړه ومنل شوه."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2096,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3905,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/tabs/notify.ts",
+          "line": 289
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.notify.rejected",
+      "key": "tab.notify.rejected",
+      "current": {
+        "en": "Your tally was rejected and no longer counts toward the balance.",
+        "fa": "ثبت شما رد شد و دیگر در ماندهٔ حساب حساب نمی‌شود.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ستاسو راکړه ورکړه رد شوه او نور په پاتې حساب کې نه شمېرل کېږي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2097,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3906,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/tabs/notify.ts",
+          "line": 291
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.notify.voided",
+      "key": "tab.notify.voided",
+      "current": {
+        "en": "A tally on your shared account was voided.",
+        "fa": "یک ثبت در حساب مشترک لغو شد.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ستاسو په ګډ حساب کې یوه راکړه ورکړه لغوه شوه."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2098,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3907,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/tabs/notify.ts",
+          "line": 292
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:tab.notify.actionFailed",
+      "key": "tab.notify.actionFailed",
+      "current": {
+        "en": "Couldn’t send your response. Open Kaata to review this tally.",
+        "fa": "پاسخ شما فرستاده نشد. برای بررسی، کاتا را باز کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ستاسو ځواب ونه لېږل شو. د دې راکړې ورکړې د بیاکتنې لپاره کاټه پرانیزئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2099,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3908,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/tabs/notify.ts",
+          "line": 109
+        }
+      ],
+      "context": ""
+    }
+  ]
+}

@@ -36,7 +36,7 @@ import { getLocale, subscribeLocale } from "./i18n";
 export type Direction = "ltr" | "rtl";
 
 function deriveDir(): Direction {
-  return getLocale() === "fa" ? "rtl" : "ltr";
+  return getLocale() !== "en" ? "rtl" : "ltr";
 }
 
 // Returns the current direction synchronously. Useful for non-React callers
@@ -52,18 +52,17 @@ export function getDirection(): Direction {
 // component that subscribes via this hook also gets fresh translated strings
 // for free on the same re-render.
 export function useIsRTL(): boolean {
-  // Initialize from the current derived direction; useState's lazy form
-  // means deriveDir() runs only once on mount.
-  const [isRTL, setIsRTL] = useState<boolean>(() => deriveDir() === "rtl");
+  // Repaint on every locale change, including fa → ps where RTL is unchanged.
+  const [, repaint] = useState(0);
   useEffect(() => {
     // Recompute on every locale change. We don't trust the notify-time
     // computation — we just re-derive from getLocale() — so subscribers
     // can't drift out of sync with the i18n module.
     return subscribeLocale(() => {
-      setIsRTL(deriveDir() === "rtl");
+      repaint((revision) => revision + 1);
     });
   }, []);
-  return isRTL;
+  return deriveDir() === "rtl";
 }
 
 // Inline style helpers — call from JSX with the result of useIsRTL() to opt

@@ -40,6 +40,7 @@ import * as Print from "expo-print";
 import { Vazirmatn_400Regular, Vazirmatn_700Bold } from "@expo-google-fonts/vazirmatn";
 import { colors } from "../colors";
 import { formatAmount } from "../format";
+import { tExtraIn } from "../mobile-copy";
 import { tIn, type LocaleCode } from "../i18n";
 import { clearanceNote, noteFor } from "./note";
 import { faDigits, formatSettlementDate } from "../jalali";
@@ -100,8 +101,8 @@ function fmtSigned(n: number): string {
 /** Counts that sit inside PROSE take the locale's digits, so "۲۵ ثبت" does
  * not read as a Persian sentence with a Latin number dropped into it. Money
  * and row indices stay Latin, matching the app and the reference document. */
-function countIn(locale: "en" | "fa", n: number): string {
-  return locale === "fa" ? faDigits(n) : String(n);
+function countIn(locale: LocaleCode, n: number): string {
+  return locale !== "en" ? faDigits(n) : String(n);
 }
 
 /** A number cell that survives RTL: LTR-isolated, tabular, never wrapped. */
@@ -123,12 +124,12 @@ function code(text: string): string {
 }
 
 function htmlShell(opts: {
-  locale: "en" | "fa";
+  locale: LocaleCode;
   fontCss: string;
   title: string;
   body: string;
 }): string {
-  const rtl = opts.locale === "fa";
+  const rtl = opts.locale !== "en";
   return `<!DOCTYPE html>
 <html dir="${rtl ? "rtl" : "ltr"}" lang="${opts.locale}">
 <head>
@@ -232,7 +233,7 @@ footer{margin-top:26px;padding:14px 36px 26px;text-align:center;font-size:9px;co
 </head>
 <body>
 ${opts.body}
-<footer dir="ltr">Powered by kaata. — kaata.af</footer>
+<footer dir="auto">${esc(tExtraIn(opts.locale, "pdf.poweredBy"))}</footer>
 </body>
 </html>`;
 }
@@ -333,7 +334,7 @@ function evidenceValueHtml(
   return shown === null ? code(value) : `<span dir="auto">${esc(shown)}</span>`;
 }
 
-function recordDetailHtml(entry: Entry, locale: "en" | "fa"): string {
+function recordDetailHtml(entry: Entry, locale: LocaleCode): string {
   if (!entry.tab) return "";
   const tab = entry.tab;
   const values = evidenceCells(tab, locale);

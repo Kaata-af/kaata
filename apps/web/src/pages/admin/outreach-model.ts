@@ -44,6 +44,7 @@ import type {
   OutreachStatus,
   OutreachTouch,
 } from "./api";
+import { languageForLocale } from "../../lib/language.ts";
 import { reportingDay } from "./dates.ts";
 
 export const OUTREACH_STATUSES: OutreachStatus[] = [
@@ -242,8 +243,12 @@ export function balanceSummary(customer: OutreachCustomer | null | undefined): B
 // ---- messages: audience, language, templates, wa.me ----
 
 export type Audience = "shopkeeper" | "customer";
-export type MessageLanguage = "en" | "fa";
-export const LANGUAGE_NAMES: Record<MessageLanguage, string> = { fa: "Dari", en: "English" };
+export type MessageLanguage = "en" | "fa" | "ps";
+export const LANGUAGE_NAMES: Record<MessageLanguage, string> = {
+  fa: "Dari",
+  en: "English",
+  ps: "Pashto",
+};
 
 export function audienceFor(contact: OutreachContact): Audience {
   return contact.kind === "customer" ? "customer" : "shopkeeper";
@@ -257,21 +262,21 @@ export type SessionLanguage = MessageLanguage | "auto";
 export const SESSION_LANGUAGE_KEY = "pref.message_lang";
 export const SESSION_LANGUAGE_OPTIONS: [SessionLanguage, string][] = [
   ["fa", "Dari"],
+  ["ps", "Pashto"],
   ["en", "English"],
   ["auto", "Auto (each shop's app language)"],
 ];
 export function sessionLanguage(settings: Record<string, string>): SessionLanguage {
   const value = settings[SESSION_LANGUAGE_KEY];
-  return value === "en" || value === "auto" ? value : "fa";
+  return value === "en" || value === "ps" || value === "auto" ? value : "fa";
 }
 export function isOutreachLang(value: unknown): value is OutreachLang {
-  return value === "" || value === "en" || value === "fa";
+  return value === "" || value === "en" || value === "fa" || value === "ps";
 }
-// Auto: Dari for a fa or prs locale — the shop's app language (the
-// shopkeeper's own install, else the first listing owner's) — else English.
+// Auto follows the shop's app language: Pashto for ps, Dari for fa/prs,
+// otherwise English (own install, else the first listing owner's).
 export function localeLanguage(locale: string): MessageLanguage {
-  const lower = (locale || "").toLowerCase();
-  return lower.startsWith("fa") || lower.startsWith("prs") ? "fa" : "en";
+  return languageForLocale(locale) ?? "en";
 }
 // One contact's language: the per-number choice when set, else the session
 // choice, else (Auto) the locale rule.
@@ -280,7 +285,7 @@ export function messageLanguage(
   settings: Record<string, string>,
 ): MessageLanguage {
   const own = contact.outreach.lang;
-  if (own === "fa" || own === "en") return own;
+  if (own === "fa" || own === "en" || own === "ps") return own;
   const session = sessionLanguage(settings);
   return session === "auto" ? localeLanguage(contact.locale) : session;
 }
@@ -293,6 +298,10 @@ export function sessionChoiceLabel(session: SessionLanguage, locale: string): st
 }
 
 export const DEFAULT_TEMPLATES: Record<string, string> = {
+  "template.shopkeeper.ps":
+    "سلام {name}. موږ د کاټه ټیم یو. مننه چې کاټه مو نصب کړې ده. دا لنډ لارښود ښيي چې څنګه پېرېدونکي زیات کړئ او په واټساپ کې یې پاتې حساب ورولېږئ:\n{link}\nکه مرستې ته اړتیا لرئ، همدلته ځواب راکړئ.",
+  "template.customer.ps":
+    "سلام. کاټه د دوکان د حساب ساتلو لپاره وړیا اپ دی — چې څوک څومره پوروړی دی — او هر چا ته یې پاتې حساب په واټساپ کې لېږي. لنډ لارښود او د نصب لینک:\n{link}",
   "template.shopkeeper.en":
     "Salaam {name}. This is the Kaata team. Thanks for installing Kaata. Here is a short guide to adding customers and sending them their balance on WhatsApp:\n{link}\nReply here if you need any help.",
   "template.shopkeeper.fa":
@@ -439,7 +448,7 @@ export function buildMessage(
 // (touches arrive newest first) names that template, and `sent` records the
 // same key. A detail that is not a template key reads as undefined; the
 // caller then falls back to the current resolution (buildMessage).
-const TEMPLATE_KEY = /^template\.(shopkeeper|customer)\.(en|fa)$/;
+const TEMPLATE_KEY = /^template\.(shopkeeper|customer)\.(en|fa|ps)$/;
 export function openedTemplateKey(contact: OutreachContact): string | undefined {
   if (!isPending(contact)) return undefined;
   const opened = contact.outreach.touches.find((touch) => touch.kind === "opened");
@@ -473,8 +482,10 @@ export function kindLabel(kind: OutreachContact["kind"]): string {
 export function languageLabel(locale: string): string {
   if (!locale || locale === "__unknown__") return "Unknown";
   const lower = locale.toLowerCase();
-  if (lower === "fa") return "Dari (fa)";
-  if (lower === "en") return "English (en)";
+  const language = languageForLocale(lower);
+  if (language === "fa") return `Dari (${locale})`;
+  if (language === "ps") return `Pashto (${locale})`;
+  if (language === "en") return `English (${locale})`;
   return locale;
 }
 export function platformLabel(platform: string): string {

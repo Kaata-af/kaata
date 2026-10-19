@@ -1,0 +1,4494 @@
+{
+  "$schema": "../review.schema.json",
+  "format_version": 1,
+  "section": "03-account-and-preferences",
+  "entries": [
+    {
+      "id": "mobile:account.differentAccount.title",
+      "key": "account.differentAccount.title",
+      "current": {
+        "en": "Different account on this phone",
+        "fa": "حساب دیگری در این تلفون",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "په دې ټیلیفون کې بل کارن حساب شته"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 296,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2361,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/onboarding/auth.tsx",
+          "line": 859
+        }
+      ],
+      "context": "First-time guided tour was deprecated — keys removed. See\ndocs/tour-redesign.md for the postmortem + the recommended\napproach for a future attempt.\nProfile menu — only keys referenced by ProfileSettingsSheet remain.\nThe signedInAs/notSignedIn/account/accountHint keys belonged to the\nkilled /account screen (Phase 7 D-ACCOUNT-PAGE-ROLE) and were dropped.\nThe preferences row was folded into /vault/settings (Manage this Kaata).\n\"Different account on this phone?\" (docs/kaata-accounts.md §7): the server\nasks for every provider, Google, Apple and email alike, so the words name\nnone. {oldEmail} and {newEmail} arrive LTR-isolated."
+    },
+    {
+      "id": "mobile:account.differentAccount.body",
+      "key": "account.differentAccount.body",
+      "current": {
+        "en": "This phone is linked to {oldEmail}. You're signing in to {newEmail}. What do you want to do?",
+        "fa": "این تلفون به {oldEmail} وصل است. شما با {newEmail} وارد می‌شوید. می‌خواهید چه کار کنید؟",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "دا ټیلیفون له {oldEmail} سره تړلی دی. تاسې {newEmail} ته ننوځئ. څه کول غواړئ؟"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "newEmail",
+        "oldEmail"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 297,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2362,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/onboarding/auth.tsx",
+          "line": 862
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:account.differentAccount.keep",
+      "key": "account.differentAccount.keep",
+      "current": {
+        "en": "Switch, keep my data",
+        "fa": "تعویض، نگه داشتن داده‌ها",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "حساب بدل کړئ، زما معلومات وساتئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 299,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2364,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/onboarding/auth.tsx",
+          "line": 870
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:account.differentAccount.wipe",
+      "key": "account.differentAccount.wipe",
+      "current": {
+        "en": "Switch, start fresh",
+        "fa": "تعویض، شروع از نو",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "حساب بدل کړئ، له سره پیل وکړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 300,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2365,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/onboarding/auth.tsx",
+          "line": 871
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:account.differentAccount.cancel",
+      "key": "account.differentAccount.cancel",
+      "current": {
+        "en": "Cancel",
+        "fa": "لغو",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "لغوه کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 301,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2366,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/onboarding/auth.tsx",
+          "line": 873
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:preferences.title",
+      "key": "preferences.title",
+      "current": {
+        "en": "Preferences",
+        "fa": "تنظیمات",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "غوراوي"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 306,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2369,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": "Preferences screen — section-by-section copy. Phase 7 D-PREFERENCES-PAGE\nexpanded the surface to include placeholders for Appearance + Notifications\n(both disabled pending Phase 8+ work)."
+    },
+    {
+      "id": "mobile:preferences.currency.section",
+      "key": "preferences.currency.section",
+      "current": {
+        "en": "Currency",
+        "fa": "ارز",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "اسعار"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 307,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2370,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:preferences.currency.defaultHint",
+      "key": "preferences.currency.defaultHint",
+      "current": {
+        "en": "Used for new Kaatas. Each Kaata can override.",
+        "fa": "برای کاتاهای جدید استفاده می‌شود. هر کاتا می‌تواند جداگانه تغییر کند.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د نویو کاټو لپاره کارېږي. هره کاټه یې په جلا توګه بدلولی شي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 308,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2371,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:preferences.region.section",
+      "key": "preferences.region.section",
+      "current": {
+        "en": "Region",
+        "fa": "منطقه",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "سیمه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 309,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2373,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:preferences.country.label",
+      "key": "preferences.country.label",
+      "current": {
+        "en": "Default country",
+        "fa": "کشور پیش‌فرض",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "له مخکې ټاکل شوی هېواد"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 310,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2374,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 854
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:preferences.country.hint",
+      "key": "preferences.country.hint",
+      "current": {
+        "en": "The country picker on new contacts starts here. Doesn't change any existing phone numbers.",
+        "fa": "انتخاب‌گر کشور در افزودن مخاطب جدید از اینجا شروع می‌شود. شماره‌های موجود تغییر نمی‌کند.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د نویو اړیکو د هېواد ټاکنه له دې ځایه پیلېږي. شته ټیلیفون شمېرې نه بدلوي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 311,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2375,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 855
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:preferences.country.changed",
+      "key": "preferences.country.changed",
+      "current": {
+        "en": "Default country updated.",
+        "fa": "کشور پیش‌فرض به‌روز شد.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "له مخکې ټاکل شوی هېواد بدل شو."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 313,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2377,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 512
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:preferences.appearance.section",
+      "key": "preferences.appearance.section",
+      "current": {
+        "en": "Appearance",
+        "fa": "ظاهر",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "بڼه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 314,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2378,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:preferences.appearance.theme",
+      "key": "preferences.appearance.theme",
+      "current": {
+        "en": "Theme",
+        "fa": "تم",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "رنګیزه بڼه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 315,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2379,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:preferences.appearance.themeHint",
+      "key": "preferences.appearance.themeHint",
+      "current": {
+        "en": "Light, dark, or follow the system.",
+        "fa": "روشن، تاریک یا مطابق سیستم.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "روښانه، تیاره، یا د سیستم له مخې."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 316,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2380,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:preferences.notifications.section",
+      "key": "preferences.notifications.section",
+      "current": {
+        "en": "Notifications",
+        "fa": "اعلان‌ها",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "خبرتیاوې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 317,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2381,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:preferences.notifications.reminders",
+      "key": "preferences.notifications.reminders",
+      "current": {
+        "en": "Reminders",
+        "fa": "یادآوری‌ها",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "یادونې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 318,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2382,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:preferences.notifications.remindersHint",
+      "key": "preferences.notifications.remindersHint",
+      "current": {
+        "en": "Get pinged about unpaid balances.",
+        "fa": "برای حساب‌های تصفیه‌نشده اطلاع بگیرید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د ناتادیه شویو پیسو په اړه خبرتیا ترلاسه کړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 319,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2383,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:preferences.comingSoon",
+      "key": "preferences.comingSoon",
+      "current": {
+        "en": "Coming soon",
+        "fa": "به‌زودی",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ژر راځي"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 320,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2384,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:preferences.diagnostics.section",
+      "key": "preferences.diagnostics.section",
+      "current": {
+        "en": "Diagnostics",
+        "fa": "عیب‌یابی",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د ستونزو موندنه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 321,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2385,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:preferences.diagnostics.row",
+      "key": "preferences.diagnostics.row",
+      "current": {
+        "en": "App health",
+        "fa": "وضعیت برنامه",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د اپ حالت"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 322,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2386,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:preferences.diagnostics.rowHint",
+      "key": "preferences.diagnostics.rowHint",
+      "current": {
+        "en": "Memory + crash info. Screenshot if asked.",
+        "fa": "اطلاعات حافظه و خرابی. در صورت درخواست اسکرین‌شات بگیرید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د حافظې او ناڅاپي بندېدو معلومات. که درڅخه وغوښتل شي، د پردې انځور واخلئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 323,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2387,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:settings.saved",
+      "key": "settings.saved",
+      "current": {
+        "en": "Saved",
+        "fa": "ذخیره شد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "خوندي شول"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 702,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2760,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 438
+        },
+        {
+          "path": "apps/mobile/app/person/[id]/edit.tsx",
+          "line": 185
+        }
+      ],
+      "context": "Settings — \"settings.saved\" is still used by person/edit's auto-save\ntoast. Other settings.* keys (title/name.label/shop.*/save) belonged\nto the killed v0 Settings screen and were dropped (Phase 7)."
+    },
+    {
+      "id": "mobile:settings.language.label",
+      "key": "settings.language.label",
+      "current": {
+        "en": "Language",
+        "fa": "زبان",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ژبه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 703,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2761,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 818
+        },
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 931
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:settings.language.option.system",
+      "key": "settings.language.option.system",
+      "current": {
+        "en": "System default",
+        "fa": "پیش‌فرض سیستم",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د ټیلیفون ټاکل شوې ژبه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 704,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2762,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 93
+        },
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 535
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:settings.language.option.en",
+      "key": "settings.language.option.en",
+      "current": {
+        "en": "English",
+        "fa": "English",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "English"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "Language selector names remain English / دری / پښتو in every UI locale.",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 705,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2763,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 94
+        },
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 105
+        },
+        {
+          "path": "apps/mobile/app/person/[id].tsx",
+          "line": 2384
+        },
+        {
+          "path": "apps/mobile/app/vault/invite.tsx",
+          "line": 456
+        },
+        {
+          "path": "apps/mobile/components/LinkAccountDialog.tsx",
+          "line": 200
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:settings.language.option.fa",
+      "key": "settings.language.option.fa",
+      "current": {
+        "en": "دری",
+        "fa": "دری",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "دری"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "Language selector names remain English / دری / پښتو in every UI locale.",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 706,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2764,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 95
+        },
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 104
+        },
+        {
+          "path": "apps/mobile/app/person/[id].tsx",
+          "line": 2383
+        },
+        {
+          "path": "apps/mobile/app/vault/invite.tsx",
+          "line": 455
+        },
+        {
+          "path": "apps/mobile/components/LinkAccountDialog.tsx",
+          "line": 199
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:settings.language.changed",
+      "key": "settings.language.changed",
+      "current": {
+        "en": "Language updated.",
+        "fa": "زبان تغییر کرد.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ژبه بدله شوه."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 707,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2765,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 470
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:settings.calendar.label",
+      "key": "settings.calendar.label",
+      "current": {
+        "en": "Calendar",
+        "fa": "تقویم",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "کلیز"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 715,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2769,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 828
+        },
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 943
+        }
+      ],
+      "context": "Calendar system. Independent of language: the app supports Dari with\nGregorian dates and English with Solar Hijri dates, because the calendar\nis a bookkeeping convention and the language is a reading preference.\n\"Automatic\" resolves to Solar Hijri when the app language is Dari — the\nbehaviour that shipped before this setting existed, so it is the default\nand nobody's dates move on upgrade."
+    },
+    {
+      "id": "mobile:settings.calendar.option.auto",
+      "key": "settings.calendar.option.auto",
+      "current": {
+        "en": "Automatic",
+        "fa": "خودکار",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "په خپله"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 716,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2770,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 124
+        },
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 554
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:settings.calendar.option.gregorian",
+      "key": "settings.calendar.option.gregorian",
+      "current": {
+        "en": "Gregorian",
+        "fa": "میلادی",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "میلادي"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 717,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2771,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 125
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:settings.calendar.option.jalali",
+      "key": "settings.calendar.option.jalali",
+      "current": {
+        "en": "Solar Hijri",
+        "fa": "هجری شمسی",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "هجري لمریز"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 718,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2772,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 126
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:settings.calendar.option.qamari",
+      "key": "settings.calendar.option.qamari",
+      "current": {
+        "en": "Lunar Hijri (Qamari)",
+        "fa": "هجری قمری",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "هجري قمري"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 719,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2773,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 127
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:settings.calendar.hint.qamari",
+      "key": "settings.calendar.hint.qamari",
+      "current": {
+        "en": "Calculated calendar. If your moon sighting differs, adjust it in Account.",
+        "fa": "تقویم محاسبه‌شده؛ اگر با دیدن ماه در محل شما فرق کند، در حساب تنظیمش کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "دا کلیز د محاسبې له مخې دی. که ستاسو د سپوږمۍ له لیدلو سره توپیر ولري، په حساب کې یې سم کړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 720,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2774,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 949
+        },
+        {
+          "path": "apps/mobile/app/onboarding/calendar.tsx",
+          "line": 111
+        },
+        {
+          "path": "apps/mobile/app/onboarding/calendar.tsx",
+          "line": 131
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:settings.qamariOffset.label",
+      "key": "settings.qamariOffset.label",
+      "current": {
+        "en": "Adjust Qamari date",
+        "fa": "تنظیم تاریخ قمری",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "قمري نېټه سمه کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 722,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2776,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 837
+        },
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 958
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:settings.qamariOffset.hint",
+      "key": "settings.qamariOffset.hint",
+      "current": {
+        "en": "For when the date is a day off from your moon sighting",
+        "fa": "وقتی تاریخ با دیدن ماه در محل شما یک روز فرق دارد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "کله چې نېټه ستاسو د سپوږمۍ له لیدلو سره یوه ورځ توپیر ولري"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 723,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2777,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 838
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:settings.qamariOffset.none",
+      "key": "settings.qamariOffset.none",
+      "current": {
+        "en": "No change",
+        "fa": "بدون تغییر",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "بدلون نشته"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 724,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2778,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 118
+        },
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 558
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:settings.qamariOffset.later1",
+      "key": "settings.qamariOffset.later1",
+      "current": {
+        "en": "1 day later",
+        "fa": "یک روز بعد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "۱ ورځ وروسته"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 725,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2779,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 119
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:settings.qamariOffset.later2",
+      "key": "settings.qamariOffset.later2",
+      "current": {
+        "en": "2 days later",
+        "fa": "دو روز بعد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "۲ ورځې وروسته"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 726,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2780,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 120
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:settings.qamariOffset.earlier1",
+      "key": "settings.qamariOffset.earlier1",
+      "current": {
+        "en": "1 day earlier",
+        "fa": "یک روز قبل",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "۱ ورځ مخکې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 727,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2781,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 117
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:settings.qamariOffset.earlier2",
+      "key": "settings.qamariOffset.earlier2",
+      "current": {
+        "en": "2 days earlier",
+        "fa": "دو روز قبل",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "۲ ورځې مخکې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 728,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2782,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 116
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:settings.qamariOffset.changed",
+      "key": "settings.qamariOffset.changed",
+      "current": {
+        "en": "Qamari dates adjusted",
+        "fa": "تاریخ‌های قمری تنظیم شد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "قمري نېټې سمې شوې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 729,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2783,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 495
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:settings.calendar.hint.auto",
+      "key": "settings.calendar.hint.auto",
+      "current": {
+        "en": "Follows your language",
+        "fa": "از زبان شما پیروی می‌کند",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ستاسو د ژبې له مخې ټاکل کېږي"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 732,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2784,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": "Subtitles carry a live example, which is the only thing that actually\ntells a shopkeeper what they are picking."
+    },
+    {
+      "id": "mobile:settings.calendar.changed",
+      "key": "settings.calendar.changed",
+      "current": {
+        "en": "Calendar updated.",
+        "fa": "تقویم تغییر کرد.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "کلیز بدل شو."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 733,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2785,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 483
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:settings.messageLang.label",
+      "key": "settings.messageLang.label",
+      "current": {
+        "en": "Message language",
+        "fa": "زبان پیام",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د پیغام ژبه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 734,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2786,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 846
+        },
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 971
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:settings.messageLang.hint",
+      "key": "settings.messageLang.hint",
+      "current": {
+        "en": "For WhatsApp messages and the shared ledger link.",
+        "fa": "برای پیام‌های واتساپ و لینک کاتا.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د واټس‌اپ پیغامونو او د شریک حساب کتاب د لینک لپاره."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 735,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2787,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 847
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:settings.messageLang.option.auto",
+      "key": "settings.messageLang.option.auto",
+      "current": {
+        "en": "App language",
+        "fa": "زبان برنامه",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د اپ ژبه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 736,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2788,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 102
+        },
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 539
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:settings.messageLang.option.ask",
+      "key": "settings.messageLang.option.ask",
+      "current": {
+        "en": "Ask every time",
+        "fa": "هر بار پرسیده شود",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "هر ځل پوښتنه وکړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 737,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2789,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 103
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:settings.messageLang.changed",
+      "key": "settings.messageLang.changed",
+      "current": {
+        "en": "Message language updated.",
+        "fa": "زبان پیام تغییر کرد.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د پیغام ژبه بدله شوه."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 738,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2790,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 503
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:settings.currency.label",
+      "key": "settings.currency.label",
+      "current": {
+        "en": "Default currency",
+        "fa": "ارز پیش‌فرض",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ټاکل شوې پیسه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 739,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2791,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:settings.currency.hint",
+      "key": "settings.currency.hint",
+      "current": {
+        "en": "This relabels how amounts are shown. It does not convert existing entries.",
+        "fa": "این فقط برچسب است. اعداد تغییر نمیکند.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "دا یوازې د مبلغونو د ښودلو د پیسې نوم بدلوي. پخوانۍ راکړې ورکړې بلې پیسې ته نه اړوي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 740,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2792,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:settings.currency.changed",
+      "key": "settings.currency.changed",
+      "current": {
+        "en": "Currency updated.",
+        "fa": "ارز تغییر کرد.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "پیسه بدله شوه."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 742,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2793,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:country.title",
+      "key": "country.title",
+      "current": {
+        "en": "Choose country",
+        "fa": "انتخاب کشور",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "هېواد وټاکئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 747,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2798,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/CountryPickerSheet.tsx",
+          "line": 86
+        }
+      ],
+      "context": "Country picker"
+    },
+    {
+      "id": "mobile:country.search",
+      "key": "country.search",
+      "current": {
+        "en": "Search by name or code",
+        "fa": "جستجو بر اساس نام یا کد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "په نوم یا کوډ یې ولټوئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 748,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2799,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/CountryPickerSheet.tsx",
+          "line": 100
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:country.noMatch",
+      "key": "country.noMatch",
+      "current": {
+        "en": "No match.",
+        "fa": "موردی پیدا نشد.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "پایله ونه موندل شوه."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 749,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2800,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/CountryPickerSheet.tsx",
+          "line": 114
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:updatePrompt.title",
+      "key": "updatePrompt.title",
+      "current": {
+        "en": "Update required",
+        "fa": "به‌روزرسانی لازم است",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "تازه کول اړین دي"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 795,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2729,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/update-prompt.tsx",
+          "line": 23
+        }
+      ],
+      "context": "Common\nUpdate prompt + banner — the force-update recovery path must be\nreadable by Persian-locale users, who are exactly who gets stuck here."
+    },
+    {
+      "id": "mobile:updatePrompt.body",
+      "key": "updatePrompt.body",
+      "current": {
+        "en": "Your version of Kaata is too old to continue. Install the latest update to keep using the app.",
+        "fa": "نسخهٔ کاتای شما برای ادامه خیلی قدیمی است. برای استفاده از برنامه، آخرین به‌روزرسانی را نصب کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ستاسو د کاټې نسخه د دوام لپاره ډېره پخوانۍ ده. د اپ د کارولو لپاره تر ټولو نوې نسخه نصب کړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 796,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2730,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/update-prompt.tsx",
+          "line": 25
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:updatePrompt.install",
+      "key": "updatePrompt.install",
+      "current": {
+        "en": "Install v{version}",
+        "fa": "نصب نسخه {version}",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "v{version} نصب کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "version"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 798,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2732,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/update-prompt.tsx",
+          "line": 40
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:updatePrompt.installGeneric",
+      "key": "updatePrompt.installGeneric",
+      "current": {
+        "en": "Install update",
+        "fa": "نصب به‌روزرسانی",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "نوې نسخه نصب کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 799,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2733,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/update-prompt.tsx",
+          "line": 41
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:updatePrompt.openFailed",
+      "key": "updatePrompt.openFailed",
+      "current": {
+        "en": "Couldn't open the download link. Visit kaata.af/download instead.",
+        "fa": "لینک دانلود باز نشد. به kaata.af/download مراجعه کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د ښکته کولو لینک پرانیستل نه شو. kaata.af/download ته ورشئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 800,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2734,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/update-prompt.tsx",
+          "line": 33
+        },
+        {
+          "path": "apps/mobile/components/UpdateBanner.tsx",
+          "line": 52
+        },
+        {
+          "path": "apps/mobile/components/UpdateBanner.tsx",
+          "line": 99
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:updateBanner.title",
+      "key": "updateBanner.title",
+      "current": {
+        "en": "Update available · v{version}",
+        "fa": "به‌روزرسانی موجود است · نسخه {version}",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "نوې نسخه شته · v{version}"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "version"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 801,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2735,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/UpdateBanner.tsx",
+          "line": 38
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:updateBanner.cta",
+      "key": "updateBanner.cta",
+      "current": {
+        "en": "Update",
+        "fa": "به‌روزرسانی",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "تازه کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 802,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2736,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/UpdateBanner.tsx",
+          "line": 60
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:updateBanner.learnMore",
+      "key": "updateBanner.learnMore",
+      "current": {
+        "en": "Learn more",
+        "fa": "بیشتر بدانید",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "نور معلومات"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 803,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2737,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/UpdateBanner.tsx",
+          "line": 107
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:updateBanner.dismiss",
+      "key": "updateBanner.dismiss",
+      "current": {
+        "en": "Dismiss",
+        "fa": "بستن",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "بند کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 804,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2738,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/UpdateBanner.tsx",
+          "line": 73
+        },
+        {
+          "path": "apps/mobile/components/UpdateBanner.tsx",
+          "line": 119
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:backupNag.title",
+      "key": "backupNag.title",
+      "current": {
+        "en": "Back up your shop",
+        "fa": "از دکان خود پشتیبان بگیرید",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د خپل دوکان بیک‌اپ جوړ کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 805,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2739,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/BackupNagBanner.tsx",
+          "line": 83
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:backupNag.body",
+      "key": "backupNag.body",
+      "current": {
+        "en": "Sign in so your staff's records survive a lost phone.",
+        "fa": "وارد شوید تا سوابق کارمندان‌تان با گم‌شدن گوشی از بین نرود.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "خپل حساب ته ننوځئ، څو د ټیلیفون د ورکېدو په صورت کې ستاسو د کارکوونکو ثبتونه خوندي پاتې شي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 806,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2740,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/BackupNagBanner.tsx",
+          "line": 84
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:backupNag.cta",
+      "key": "backupNag.cta",
+      "current": {
+        "en": "Sign in to back up",
+        "fa": "برای پشتیبان‌گیری وارد شوید",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د بیک‌اپ لپاره ننوځئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 807,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2741,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/BackupNagBanner.tsx",
+          "line": 78
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:backupNag.dismiss",
+      "key": "backupNag.dismiss",
+      "current": {
+        "en": "Dismiss",
+        "fa": "بستن",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "بند کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 808,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2742,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/BackupNagBanner.tsx",
+          "line": 93
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:account.title",
+      "key": "account.title",
+      "current": {
+        "en": "Account",
+        "fa": "حساب",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "حساب"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1062,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3016,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 522
+        },
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 566
+        }
+      ],
+      "context": "Account screen (personal: name / phone / language / country / archived)."
+    },
+    {
+      "id": "mobile:account.profile.section",
+      "key": "account.profile.section",
+      "current": {
+        "en": "Your details",
+        "fa": "مشخصات شما",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ستاسو معلومات"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1063,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3017,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 620
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:account.preferences.section",
+      "key": "account.preferences.section",
+      "current": {
+        "en": "Preferences",
+        "fa": "ترجیحات",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "غوره توبونه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1064,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3018,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 815
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:account.kaatas.section",
+      "key": "account.kaatas.section",
+      "current": {
+        "en": "Kaatas",
+        "fa": "کاتاها",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "کاټې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1065,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3019,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:account.archived.row",
+      "key": "account.archived.row",
+      "current": {
+        "en": "Archived kaatas",
+        "fa": "کاتاهای بایگانی‌شده",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "آرشیف شوې کاټې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1066,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3020,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:account.save",
+      "key": "account.save",
+      "current": {
+        "en": "Save changes",
+        "fa": "ذخیره تغییرات",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "بدلونونه خوندي کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1067,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3021,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 718
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:account.signin.section",
+      "key": "account.signin.section",
+      "current": {
+        "en": "Sign-in",
+        "fa": "ورود",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ننوتل"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1069,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3023,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 729
+        }
+      ],
+      "context": "Account → Sign-in (docs/kaata-accounts.md §7): how this account signs in."
+    },
+    {
+      "id": "mobile:account.signin.email",
+      "key": "account.signin.email",
+      "current": {
+        "en": "Email",
+        "fa": "ایمیل",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "برېښنالیک"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1070,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3024,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 735
+        },
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 745
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:account.signin.loginEmail",
+      "key": "account.signin.loginEmail",
+      "current": {
+        "en": "Password sign-in: {email}",
+        "fa": "ورود با رمز: {email}",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "په پټنوم ننوتل: {email}"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "email"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1071,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3025,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 752
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:account.signin.password.set",
+      "key": "account.signin.password.set",
+      "current": {
+        "en": "Set a password",
+        "fa": "گذاشتن رمز",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "پټنوم وټاکئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1072,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3026,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account-username.tsx",
+          "line": 147
+        },
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 762
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:account.signin.password.setHint",
+      "key": "account.signin.password.setHint",
+      "current": {
+        "en": "Also sign in with your email and a password",
+        "fa": "با ایمیل و رمز هم وارد شوید",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "په خپل برېښنالیک او پټنوم هم ننوځئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1073,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3027,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 764
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:account.signin.password.change",
+      "key": "account.signin.password.change",
+      "current": {
+        "en": "Change password",
+        "fa": "تغییر رمز",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "پټنوم بدل کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1074,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3028,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 761
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:account.signin.password.remove",
+      "key": "account.signin.password.remove",
+      "current": {
+        "en": "Remove password",
+        "fa": "حذف رمز",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "پټنوم لرې کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1075,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3029,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 788
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:account.signin.password.removeHint",
+      "key": "account.signin.password.removeHint",
+      "current": {
+        "en": "Sign in with Google or Apple only",
+        "fa": "تنها با گوگل یا اپل وارد شوید",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "یوازې د ګوګل یا اپل له لارې ننوځئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1076,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3030,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 789
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:account.signin.username",
+      "key": "account.signin.username",
+      "current": {
+        "en": "Username",
+        "fa": "نام کاربری",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "کارن‌نوم"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1077,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3031,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 772
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:account.signin.username.none",
+      "key": "account.signin.username.none",
+      "current": {
+        "en": "Not set",
+        "fa": "گذاشته نشده",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "نه دی ټاکل شوی"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1078,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3032,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 775
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:account.signin.username.hint",
+      "key": "account.signin.username.hint",
+      "current": {
+        "en": "Use it instead of your email to sign in",
+        "fa": "به جای ایمیل برای ورود به کار ببرید",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د ننوتلو پر مهال یې د برېښنالیک پر ځای وکاروئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1079,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3033,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 773
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:account.signin.loading",
+      "key": "account.signin.loading",
+      "current": {
+        "en": "Loading sign-in details…",
+        "fa": "در حال بارگیری جزئیات ورود…",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د ننوتلو معلومات راوړل کېږي…"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1080,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3034,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 807
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:account.signin.failed",
+      "key": "account.signin.failed",
+      "current": {
+        "en": "Couldn't load sign-in details. Tap to try again.",
+        "fa": "جزئیات ورود بار نشد. برای تلاش دوباره بزنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د ننوتلو معلومات راوړل نه شول. د بیا هڅې لپاره ووهئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1081,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3035,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 800
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:account.signin.network",
+      "key": "account.signin.network",
+      "current": {
+        "en": "Couldn't reach Kaata. Check your connection and try again.",
+        "fa": "به کاتا وصل نشد. اتصال را بررسی کنید و دوباره امتحان کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "له کاټې سره اړیکه ټینګه نه شوه. خپله اړیکه وګورئ او بیا هڅه وکړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1082,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3036,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/account-rules.ts",
+          "line": 410
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:account.signin.error",
+      "key": "account.signin.error",
+      "current": {
+        "en": "That didn't work. Try again.",
+        "fa": "نشد. دوباره امتحان کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "دا کار ونه شو. بیا هڅه وکړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1083,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3037,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/account-rules.ts",
+          "line": 413
+        },
+        {
+          "path": "apps/mobile/lib/account-rules.ts",
+          "line": 414
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:account.appHealth.section",
+      "key": "account.appHealth.section",
+      "current": {
+        "en": "App health",
+        "fa": "وضعیت برنامه",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د اپ حالت"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1131,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3077,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 911
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:account.appHealth.details",
+      "key": "account.appHealth.details",
+      "current": {
+        "en": "Detailed diagnostics",
+        "fa": "عیب‌یابی مفصل",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "بشپړ تشخیصي معلومات"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1132,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3078,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 914
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:account.appHealth.detailsHint",
+      "key": "account.appHealth.detailsHint",
+      "current": {
+        "en": "Memory & crash info",
+        "fa": "اطلاعات حافظه و خرابی",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د حافظې او ناڅاپي بندېدو معلومات"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1133,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3079,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 915
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:account.privacy.section",
+      "key": "account.privacy.section",
+      "current": {
+        "en": "Privacy & data",
+        "fa": "حریم خصوصی و داده‌ها",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "محرمیت او معلومات"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1134,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3080,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 877
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:account.privacy.label",
+      "key": "account.privacy.label",
+      "current": {
+        "en": "Privacy policy",
+        "fa": "سیاست حریم خصوصی",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د محرمیت تګلاره"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1135,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3081,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 880
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:account.deleteAccount.label",
+      "key": "account.deleteAccount.label",
+      "current": {
+        "en": "Delete account",
+        "fa": "حذف حساب",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "حساب ړنګ کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1136,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3082,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 891
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:account.deleteAccount.hint",
+      "key": "account.deleteAccount.hint",
+      "current": {
+        "en": "30 days to recover by signing back in",
+        "fa": "برای بازیابی، تا ۳۰ روز دوباره وارد شوید",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "په بیا ننوتلو سره د بېرته راګرځولو لپاره ۳۰ ورځې وخت لرئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1137,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3083,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 893
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:account.deleteAccount.confirm.title",
+      "key": "account.deleteAccount.confirm.title",
+      "current": {
+        "en": "Delete your account?",
+        "fa": "حساب‌تان حذف شود؟",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "خپل حساب ړنګوئ؟"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1138,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3084,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 989
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:account.deleteAccount.confirm.body",
+      "key": "account.deleteAccount.confirm.body",
+      "current": {
+        "en": "We will back up your saved tallies, sign you out and clear this phone. Your account and cloud data will be kept for 30 days, then permanently deleted. Sign back in within 30 days to cancel and restore saved cloud data you still have access to. Private reminders and Not sent drafts are only on this phone and will be lost, so note down any you need. Export statements of shared accounts you can no longer reach from the customer's page first. Previously purged data cannot return. Other participants keep shared tally history. Deletion does not settle a balance.",
+        "fa": "نخست از ثبت‌های ذخیره‌شدهٔ شما نسخهٔ ابری می‌گیریم، سپس شما خارج می‌شوید و معلومات این تلفون پاک می‌شود. حساب و معلومات ابری شما ۳۰ روز نگه داشته می‌شود و پس از آن برای همیشه حذف می‌گردد. برای لغو حذف و بازیابی معلومات ابری که هنوز به آن دسترسی دارید، ظرف ۳۰ روز دوباره وارد شوید. یادآوری‌های شخصی و پیش‌نویس‌های «ارسال نشده» فقط در همین تلفون هستند و از بین می‌روند؛ هر کدام را که لازم دارید یادداشت کنید. از صفحهٔ مشتری، صورت‌حساب حساب‌های مشترکی را که دیگر به آن‌ها دسترسی ندارید پیش از حذف خروجی بگیرید. معلوماتی که قبلاً برای همیشه پاک شده برنمی‌گردد. طرف‌های دیگر سابقهٔ حساب مشترک را نگه می‌دارند. حذف حساب هیچ بیلانسی را تصفیه نمی‌کند.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "موږ به ستاسو د خوندي شوو راکړو ورکړو بیک‌اپ جوړ کړو، له حسابه به مو وباسو او د دې ټیلیفون معلومات به پاک کړو. ستاسو حساب او د کلاوډ معلومات به ۳۰ ورځې وساتل شي، بیا به د تل لپاره ړنګ شي. په ۳۰ ورځو کې بیا ننوځئ، څو ړنګول لغوه کړئ او هغه خوندي شوي کلاوډ معلومات بېرته را وګرځوئ چې لا هم لاسرسی ورته لرئ. شخصي یادونې او «نه دي لېږل شوې» مسودې یوازې په دې ټیلیفون کې دي او له منځه ځي؛ نو اړینې یې درسره ولیکئ. لومړی د پېرودونکي له مخ څخه د هغو شریکو حسابونو حسابپاڼې وباسئ چې نور ورته لاسرسی نه لرئ. پخوا د تل لپاره پاک شوي معلومات نه شي راګرځېدلی. نور ګډونوال د شریکو راکړو ورکړو تاریخچه ساتي. ړنګول پاتې حساب نه تصفیه کوي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1139,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3085,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 990
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:account.deleteAccount.confirm.cta",
+      "key": "account.deleteAccount.confirm.cta",
+      "current": {
+        "en": "Delete account",
+        "fa": "حذف حساب",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "حساب ړنګ کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1141,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3087,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 991
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:account.deleteAccount.preparing",
+      "key": "account.deleteAccount.preparing",
+      "current": {
+        "en": "Saving a recovery copy…",
+        "fa": "در حال ذخیرهٔ نسخهٔ بازیابی…",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د بېرته راګرځولو کاپي خوندي کېږي…"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1142,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3088,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 891
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:account.deleteAccount.backupFailed",
+      "key": "account.deleteAccount.backupFailed",
+      "current": {
+        "en": "Deletion did not finish. Keep this phone's data, check your connection and finish syncing before trying again.",
+        "fa": "حذف تکمیل نشد. معلومات این تلفون را نگه دارید، اتصال انترنت را بررسی کنید و پیش از تلاش دوباره، همگام‌سازی را تکمیل کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ړنګول بشپړ نه شول. د دې ټیلیفون معلومات وساتئ، خپله اړیکه وګورئ او له بیا هڅې مخکې همغږي بشپړه کړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1143,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3089,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 324
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:account.deleteAccount.graceUnavailable",
+      "key": "account.deleteAccount.graceUnavailable",
+      "current": {
+        "en": "Recovery protection is not available yet. Your account and this phone's data have been kept. Try again later.",
+        "fa": "امکان بازیابی هنوز آماده نیست. حساب و معلومات این تلفون نگه داشته شده‌اند. بعداً دوباره تلاش کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د بېرته راګرځولو ساتنه تراوسه چمتو نه ده. ستاسو حساب او د دې ټیلیفون معلومات ساتل شوي دي. وروسته بیا هڅه وکړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1145,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3091,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 321
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:account.deleteAccount.recovered",
+      "key": "account.deleteAccount.recovered",
+      "current": {
+        "en": "Deletion cancelled. Your cloud kaatas can be restored.",
+        "fa": "حذف لغو شد. کاتاهای ابری شما قابل بازیابی است.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ړنګول لغوه شول. ستاسو د کلاوډ کاټې بېرته راګرځېدلی شي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1147,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3093,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:account.deleteAccount.lateEdits",
+      "key": "account.deleteAccount.lateEdits",
+      "current": {
+        "en": "New changes are safely kept on this phone. Sign in again with the same account to cancel deletion and back them up.",
+        "fa": "تغییرهای تازه در این تلفون محفوظ است. با همان حساب دوباره وارد شوید تا حذف لغو شود و این تغییرها در ابر ذخیره گردد.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "نوي بدلونونه په دې ټیلیفون کې خوندي ساتل شوي دي. په همدې حساب بیا ننوځئ، څو ړنګول لغوه کړئ او بیک‌اپ یې جوړ کړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1148,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3094,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 323
+        },
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 869
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:account.deleteAccount.restoring",
+      "key": "account.deleteAccount.restoring",
+      "current": {
+        "en": "Deletion cancelled. Restoring your kaatas…",
+        "fa": "حذف لغو شد. کاتاهای شما در حال بازیابی است…",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ړنګول لغوه شول. ستاسو کاټې بېرته راګرځول کېږي…"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1150,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3096,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/onboarding/restore.tsx",
+          "line": 357
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:account.deleteAccount.failed",
+      "key": "account.deleteAccount.failed",
+      "current": {
+        "en": "Couldn't delete your account. Check your connection and try again.",
+        "fa": "حذف حساب ناموفق بود. اتصال‌تان را بررسی کنید و دوباره تلاش کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ستاسو حساب ړنګ نه شو. خپله اړیکه وګورئ او بیا هڅه وکړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1151,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3097,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:account.deleteAccount.authRequired",
+      "key": "account.deleteAccount.authRequired",
+      "current": {
+        "en": "Sign in again before deleting your account. Your local ledger has not been removed.",
+        "fa": "پیش از حذف حساب دوباره وارد شوید. دفتر این تلفن حذف نشده است.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د خپل حساب له ړنګولو مخکې بیا ننوځئ. ستاسو د ټیلیفون حساب کتاب نه دی لرې شوی."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1153,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3099,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 319
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:account.retired.title",
+      "key": "account.retired.title",
+      "current": {
+        "en": "This phone's account was deleted",
+        "fa": "حساب این تلفون حذف شده است",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د دې ټیلیفون حساب ړنګ شوی دی"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1161,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3101,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 590
+        }
+      ],
+      "context": "Retired installation (HTTP 410, InstallRetiredError in lib/auth.ts): an\naccount this phone was signed in to has been deleted, so the server refuses\nthis install for sign-in and check-in. Shown by both sign-in error paths\nand as a notice on Account; only the destructive confirmation erases.\nDon't overstate it: the ledger keeps working offline and store updates\nstill arrive. Only signing in and backing up need the reset."
+    },
+    {
+      "id": "mobile:account.retired.body",
+      "key": "account.retired.body",
+      "current": {
+        "en": "The account this phone last signed in to was deleted. Your kaatas still work on this phone. If it was deleted less than 30 days ago, sign in with the same account to cancel the deletion and get everything back. Otherwise, to sign in or back up again, export anything you need first, then reset this phone, which erases everything Kaata keeps on it.",
+        "fa": "حسابی که این تلفون آخرین بار با آن وارد شده بود، حذف شده است. کاتاهای شما در این تلفون هنوز کار می‌کنند. اگر کمتر از ۳۰ روز از حذف آن گذشته است، با همان حساب دوباره وارد شوید تا حذف لغو شود و همه چیز برگردد. در غیر آن، برای ورود یا پشتیبان‌گیری دوباره، نخست از معلومات مورد نیازتان خروجی بگیرید، سپس این تلفون را از نو تنظیم کنید. این کار همه چیزهایی را که کاتا روی این تلفون نگه می‌دارد پاک می‌کند.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "هغه حساب ړنګ شوی دی چې دا ټیلیفون وروستی ځل ورته ننوتلی و. ستاسو کاټې لا هم په دې ټیلیفون کې کار کوي. که حساب له ۳۰ ورځو څخه لږ مخکې ړنګ شوی وي، په هماغه حساب ننوځئ، څو ړنګول لغوه کړئ او هر څه بېرته ترلاسه کړئ. که نه، د بیا ننوتلو یا بیک‌اپ جوړولو لپاره لومړی خپل اړین معلومات وباسئ، بیا دا ټیلیفون د کاټې له پلوه له سره تنظیم کړئ. دا کار ټول هغه معلومات پاکوي چې کاټه یې په دې ټیلیفون کې ساتي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1162,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3102,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 595
+        },
+        {
+          "path": "apps/mobile/app/onboarding/auth.tsx",
+          "line": 110
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:account.retired.pendingTitle",
+      "key": "account.retired.pendingTitle",
+      "current": {
+        "en": "Account deletion pending",
+        "fa": "حذف حساب در انتظار است",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د حساب ړنګول تر کار لاندې دي"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1165,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3104,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 590
+        }
+      ],
+      "context": "While the account is inside its 30-day grace window (the server says so)."
+    },
+    {
+      "id": "mobile:account.retired.pendingBody",
+      "key": "account.retired.pendingBody",
+      "current": {
+        "en": "This phone's account will be deleted for good on {date}. Sign in with the same account before then to cancel the deletion and get everything back. Your kaatas still work on this phone meanwhile.",
+        "fa": "حساب این تلفون در {date} برای همیشه حذف می‌شود. پیش از آن با همان حساب دوباره وارد شوید تا حذف لغو شود و همه چیز برگردد. تا آن وقت کاتاهای شما در این تلفون کار می‌کنند.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د دې ټیلیفون حساب به په {date} د تل لپاره ړنګ شي. تر هغې مخکې په همدې حساب ننوځئ، څو ړنګول لغوه کړئ او هر څه بېرته ترلاسه کړئ. تر هغه وخته ستاسو کاټې لا هم په دې ټیلیفون کې کار کوي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "date"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1166,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3105,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 594
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:account.retired.signInCancel",
+      "key": "account.retired.signInCancel",
+      "current": {
+        "en": "Sign in to cancel deletion",
+        "fa": "ورود و لغو حذف",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د ړنګولو د لغوه کولو لپاره ننوځئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1168,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3107,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 600
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:account.retired.reset",
+      "key": "account.retired.reset",
+      "current": {
+        "en": "Reset this phone",
+        "fa": "از نو تنظیم کردن این تلفون",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د دې ټیلیفون کاټه له سره تنظیم کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1169,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3108,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 608
+        },
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 614
+        },
+        {
+          "path": "apps/mobile/app/onboarding/auth.tsx",
+          "line": 626
+        },
+        {
+          "path": "apps/mobile/app/onboarding/auth.tsx",
+          "line": 637
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:account.retired.confirm.title",
+      "key": "account.retired.confirm.title",
+      "current": {
+        "en": "Reset this phone?",
+        "fa": "این تلفون از نو تنظیم شود؟",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د دې ټیلیفون کاټه له سره تنظیموئ؟"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1170,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3109,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 1009
+        },
+        {
+          "path": "apps/mobile/app/onboarding/auth.tsx",
+          "line": 880
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:account.retired.confirm.body",
+      "key": "account.retired.confirm.body",
+      "current": {
+        "en": "This erases everything Kaata keeps on this phone, including every kaata, person and tally. Export anything you need first. This cannot be undone.",
+        "fa": "این کار همه چیزهایی را که کاتا روی این تلفون نگه می‌دارد، از جمله همهٔ کاتاها، افراد و ثبت‌ها، پاک می‌کند. نخست از معلومات مورد نیازتان خروجی بگیرید. این کار قابل بازگشت نیست.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "دا ټول هغه معلومات پاکوي چې کاټه یې په دې ټیلیفون کې ساتي، د هرې کاټې، هر کس او هرې راکړې ورکړې په ګډون. لومړی خپل اړین معلومات وباسئ. دا کار بېرته نه شي ګرځېدای."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1171,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3110,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 1010
+        },
+        {
+          "path": "apps/mobile/app/onboarding/auth.tsx",
+          "line": 881
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:account.retired.confirm.cta",
+      "key": "account.retired.confirm.cta",
+      "current": {
+        "en": "Erase and reset",
+        "fa": "پاک کردن و از نو تنظیم",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "پاک او له سره تنظیم کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1173,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3112,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 1011
+        },
+        {
+          "path": "apps/mobile/app/onboarding/auth.tsx",
+          "line": 882
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:account.retired.failed",
+      "key": "account.retired.failed",
+      "current": {
+        "en": "Couldn't reset this phone. Try again.",
+        "fa": "از نو تنظیم کردن این تلفون ناکام شد. دوباره کوشش کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د دې ټیلیفون کاټه له سره تنظیم نه شوه. بیا هڅه وکړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1174,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3113,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 347
+        },
+        {
+          "path": "apps/mobile/app/onboarding/auth.tsx",
+          "line": 584
+        }
+      ],
+      "context": ""
+    }
+  ]
+}

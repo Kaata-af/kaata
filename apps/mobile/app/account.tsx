@@ -82,6 +82,7 @@ import { formatDate } from "../lib/format";
 import { formatCalendarDate } from "../lib/jalali";
 import {
   getCountry,
+  getCountryName,
   getCurrentDefaultCountryCode,
   inferCountryFromE164,
   normalizePhone,
@@ -93,6 +94,7 @@ const LANGUAGE_OPTIONS: ReadonlyArray<{ value: LocalePref; labelKey: string }> =
   { value: "system", labelKey: "settings.language.option.system" },
   { value: "en", labelKey: "settings.language.option.en" },
   { value: "fa", labelKey: "settings.language.option.fa" },
+  { value: "ps", labelKey: "settings.language.option.ps" },
 ];
 
 // Message language — the language of outgoing WhatsApp messages (ledger ping,
@@ -102,6 +104,7 @@ const MESSAGE_LANGUAGE_OPTIONS: ReadonlyArray<{ value: ShareLangPref; labelKey: 
   { value: "auto", labelKey: "settings.messageLang.option.auto" },
   { value: "ask", labelKey: "settings.messageLang.option.ask" },
   { value: "fa", labelKey: "settings.language.option.fa" },
+  { value: "ps", labelKey: "settings.language.option.ps" },
   { value: "en", labelKey: "settings.language.option.en" },
 ];
 
@@ -271,7 +274,9 @@ export default function AccountScreen() {
         }
       }
       const storedPref = await getAppMeta("locale_pref");
-      setLocalePref(storedPref === "en" || storedPref === "fa" ? storedPref : "system");
+      setLocalePref(
+        storedPref === "en" || storedPref === "fa" || storedPref === "ps" ? storedPref : "system",
+      );
       setShareLangPref(await getShareLangPref());
       // parseCalendarPref, not a raw cast — the row is untrusted (an older
       // build, a restore, a manual edit) and an unknown value must land on
@@ -546,7 +551,7 @@ export default function AccountScreen() {
   // sheet can't show two different days across its rows.
   const nowMs = Date.now();
   const resolveCalendar = (p: CalendarPref): Calendar =>
-    p === "auto" ? (getLocale() === "fa" ? "jalali" : "gregorian") : p;
+    p === "auto" ? (getLocale() !== "en" ? "jalali" : "gregorian") : p;
   const calendarExample = (p: CalendarPref): string =>
     formatCalendarDate(nowMs, getLocale(), resolveCalendar(p));
   const calendarValue = t(
@@ -558,7 +563,7 @@ export default function AccountScreen() {
       "settings.qamariOffset.none") as Parameters<typeof t>[0],
   );
   // A digit follows, so Dari takes the comma: a middle dot there reads as a zero.
-  const exampleSeparator = getLocale() === "fa" ? "، " : " · ";
+  const exampleSeparator = getLocale() !== "en" ? "، " : " · ";
 
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
@@ -853,7 +858,7 @@ export default function AccountScreen() {
             icon="flag-outline"
             label={t("preferences.country.label")}
             hint={t("preferences.country.hint")}
-            trailing={`${prefC.flag}  ${prefC.name}`}
+            trailing={`${prefC.flag}  ${getCountryName(prefC.code, getLocale())}`}
             onPress={() => setPrefCountryVisible(true)}
             isRTL={isRTL}
             isLast

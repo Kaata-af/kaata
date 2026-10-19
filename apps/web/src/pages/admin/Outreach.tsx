@@ -3370,6 +3370,7 @@ function ContactDetails(props: RowProps & { contact: OutreachContact; id: string
                   {`Use session choice (${sessionChoiceLabel(sessionLanguage(props.settings), contact.locale)})`}
                 </option>
                 <option value="fa">Dari</option>
+                <option value="ps">Pashto</option>
                 <option value="en">English</option>
               </select>
             </label>
@@ -3383,7 +3384,7 @@ function ContactDetails(props: RowProps & { contact: OutreachContact; id: string
               </p>
             ) : null}
             <p className="mt-1 text-[11px] leading-4 text-neutral-400">
-              Dari or English here wins over the session choice in the Queue card.
+              Dari, Pashto or English here wins over the session choice in the Queue card.
             </p>
           </div>
           <div className="min-w-0">
@@ -3764,7 +3765,7 @@ function DetailItem(props: { label: string; value: string; mono?: boolean }) {
   );
 }
 
-// Four templates + two link slugs. Drafts live here until Save; the preview
+// Six templates + two link slugs. Drafts live here until Save; the preview
 // merges unsaved drafts so the operator sees what the next send would say.
 function TemplatesCard(props: {
   settings: Record<string, string>;
@@ -3823,7 +3824,7 @@ function TemplatesCard(props: {
                   https://kaata.af/download?s={effectiveSlug}
                 </p>
               </div>
-              {(["en", "fa"] as const).map((language) => {
+              {(["en", "fa", "ps"] as const).map((language) => {
                 const key = templateKey(audience, language);
                 const value = drafts[key] ?? templateFor(props.settings, audience, language);
                 const dirty = drafts[key] !== undefined;
@@ -3831,7 +3832,7 @@ function TemplatesCard(props: {
                 return (
                   <div key={key} className="min-w-0">
                     <label className="text-xs font-medium text-brand-sub" htmlFor={key}>
-                      {label} · {language === "fa" ? "Dari" : "English"}
+                      {label} · {LANGUAGE_NAMES[language]}
                       {customised ? (
                         <span className="ml-2 font-normal text-brand-muted">customised</span>
                       ) : (

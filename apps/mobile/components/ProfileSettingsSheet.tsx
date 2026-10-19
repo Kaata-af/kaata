@@ -501,7 +501,7 @@ export function ProfileSettingsSheet(props: {
                   {__DEV__ ? (
                     <NavRow
                       icon="bluetooth-outline"
-                      label="Bluetooth test (dev)"
+                      label={t("menu.dev.bluetoothTest")}
                       onPress={() => router.push("/dev/btc-test")}
                       isRTL={isRTL}
                       isLast

@@ -26,7 +26,7 @@
 // lib/jalali.ts for the calendar month tables in both scripts.
 //
 // THE DEFAULT IS 'auto', WHICH IS NOT A COP-OUT. It resolves to jalali when
-// the app language is Persian and gregorian otherwise — exactly the behaviour
+// the app language is Dari/Pashto and gregorian otherwise — exactly the behaviour
 // that shipped before this module existed. Every install therefore upgrades to
 // byte-identical output and nobody's dates move until they choose. It also
 // keeps working the way a user expects when they later switch language.
@@ -78,7 +78,7 @@ export function getCalendarPref(): CalendarPref {
  * 'auto' user's dates on the same render as their strings.
  */
 export function getEffectiveCalendar(): Calendar {
-  if (currentPref === "auto") return getLocale() === "fa" ? "jalali" : "gregorian";
+  if (currentPref === "auto") return getLocale() !== "en" ? "jalali" : "gregorian";
   return currentPref;
 }
 
@@ -160,13 +160,9 @@ export function setQamariOffset(days: number): void {
  * OR the language changes.
  *
  * Subscribes to BOTH because both feed the output, and it holds a monotonic
- * counter rather than the derived value. That is deliberate: useIsRTL stores a
- * derived BOOLEAN, so a change that doesn't move the boolean repaints nothing
- * (lib/direction.ts:56 — an 'system'→'en' switch on an English device is a
- * no-op there). The same bug here would be worse, because language changes the
- * SCRIPT even when the calendar is unchanged: a gregorian user switching
- * en→fa must repaint "5 Aug 2026" to "۵ اگست ۲۰۲۶", and a derived-calendar
- * state would see "gregorian" both times and skip it.
+ * counter rather than the derived value. That is deliberate: language changes the month names even when the calendar stays unchanged:
+ * a Gregorian user switching fa→ps must repaint Dari words to Pashto.
+ * A derived-calendar state would see "gregorian" both times and skip it.
  */
 export function useCalendar(): Calendar {
   const [, bump] = useState(0);

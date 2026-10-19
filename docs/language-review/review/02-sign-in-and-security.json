@@ -1,0 +1,4419 @@
+{
+  "$schema": "../review.schema.json",
+  "format_version": 1,
+  "section": "02-sign-in-and-security",
+  "entries": [
+    {
+      "id": "mobile:auth.email.signIn.title",
+      "key": "auth.email.signIn.title",
+      "current": {
+        "en": "Sign in with email",
+        "fa": "ورود با ایمیل",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د برېښنالیک له لارې ننوځئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 123,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2198,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/EmailAuthFlow.tsx",
+          "line": 650
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auth.email.signIn.subtitle",
+      "key": "auth.email.signIn.subtitle",
+      "current": {
+        "en": "Use the email or username and the password of your Kaata account.",
+        "fa": "ایمیل یا نام کاربری و رمز حساب کاتای خود را بنویسید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د خپل Kaata حساب برېښنالیک یا کارن نوم او پټنوم وکاروئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 124,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2199,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/EmailAuthFlow.tsx",
+          "line": 650
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auth.email.identifier",
+      "key": "auth.email.identifier",
+      "current": {
+        "en": "Email or username",
+        "fa": "ایمیل یا نام کاربری",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "برېښنالیک یا کارن نوم"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 125,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2200,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/EmailAuthFlow.tsx",
+          "line": 655
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auth.email.password",
+      "key": "auth.email.password",
+      "current": {
+        "en": "Password",
+        "fa": "رمز",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "پټنوم"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 126,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2201,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/EmailAuthFlow.tsx",
+          "line": 678
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auth.email.signIn.submit",
+      "key": "auth.email.signIn.submit",
+      "current": {
+        "en": "Sign in",
+        "fa": "ورود",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ننوځئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 127,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2202,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/EmailAuthFlow.tsx",
+          "line": 693
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auth.email.forgot",
+      "key": "auth.email.forgot",
+      "current": {
+        "en": "Forgot password?",
+        "fa": "رمز را فراموش کرده‌اید؟",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "پټنوم مو هېر شوی؟"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 128,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2203,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/EmailAuthFlow.tsx",
+          "line": 694
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auth.email.toSignUp",
+      "key": "auth.email.toSignUp",
+      "current": {
+        "en": "Create an account",
+        "fa": "ساختن حساب",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "کارن حساب جوړ کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 129,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2204,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/EmailAuthFlow.tsx",
+          "line": 695
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auth.email.toSignIn",
+      "key": "auth.email.toSignIn",
+      "current": {
+        "en": "Already have an account? Sign in",
+        "fa": "حساب دارید؟ وارد شوید",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "له مخکې کارن حساب لرئ؟ ننوځئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 130,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2205,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/EmailAuthFlow.tsx",
+          "line": 706
+        },
+        {
+          "path": "apps/mobile/components/EmailAuthFlow.tsx",
+          "line": 723
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auth.email.signUp.title",
+      "key": "auth.email.signUp.title",
+      "current": {
+        "en": "Create a Kaata account",
+        "fa": "ساختن حساب کاتا",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د Kaata کارن حساب جوړ کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 131,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2206,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/EmailAuthFlow.tsx",
+          "line": 703
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auth.email.signUp.subtitle",
+      "key": "auth.email.signUp.subtitle",
+      "current": {
+        "en": "We'll email you a 6-digit code to confirm the address.",
+        "fa": "یک کود 6 رقمی به ایمیل شما می‌فرستیم تا آدرس تأیید شود.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د پتې د تایید لپاره به یو 6 رقمي کوډ ستاسې برېښنالیک ته ولېږو."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 132,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2207,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/EmailAuthFlow.tsx",
+          "line": 703
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auth.email.email",
+      "key": "auth.email.email",
+      "current": {
+        "en": "Email",
+        "fa": "ایمیل",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "برېښنالیک"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 133,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2208,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account-password.tsx",
+          "line": 443
+        },
+        {
+          "path": "apps/mobile/components/EmailAuthFlow.tsx",
+          "line": 613
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auth.email.newPassword",
+      "key": "auth.email.newPassword",
+      "current": {
+        "en": "Kaata password",
+        "fa": "رمز کاتا",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د Kaata پټنوم"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 134,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2209,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account-password.tsx",
+          "line": 504
+        },
+        {
+          "path": "apps/mobile/components/EmailAuthFlow.tsx",
+          "line": 710
+        },
+        {
+          "path": "apps/mobile/components/EmailAuthFlow.tsx",
+          "line": 728
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auth.email.newPassword.helper",
+      "key": "auth.email.newPassword.helper",
+      "current": {
+        "en": "Make a new password for Kaata, not your Gmail password",
+        "fa": "برای کاتا یک رمز نو بسازید، نه رمز جیمیل خود را",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د Kaata لپاره نوی پټنوم جوړ کړئ، د خپل Gmail پټنوم مه کاروئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 135,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2210,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account-password.tsx",
+          "line": 502
+        },
+        {
+          "path": "apps/mobile/components/EmailAuthFlow.tsx",
+          "line": 709
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auth.email.sendCode",
+      "key": "auth.email.sendCode",
+      "current": {
+        "en": "Send code",
+        "fa": "فرستادن کود",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "کوډ ولېږئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 136,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2211,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account-password.tsx",
+          "line": 464
+        },
+        {
+          "path": "apps/mobile/components/EmailAuthFlow.tsx",
+          "line": 712
+        },
+        {
+          "path": "apps/mobile/components/EmailAuthFlow.tsx",
+          "line": 744
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auth.email.gmail",
+      "key": "auth.email.gmail",
+      "current": {
+        "en": "Continue with Google: no password needed",
+        "fa": "ادامه با گوگل: به رمز نیاز نیست",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د Google له لارې دوام ورکړئ: پټنوم ته اړتیا نشته"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 137,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2212,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/EmailAuthFlow.tsx",
+          "line": 489
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auth.email.providerHint",
+      "key": "auth.email.providerHint",
+      "current": {
+        "en": "Joined with Google or Apple? Use that button.",
+        "fa": "با گوگل یا اپل حساب ساخته‌اید؟ از همان دکمه استفاده کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د Google یا Apple له لارې مو حساب جوړ کړی؟ هماغه تڼۍ وکاروئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 138,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2213,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/EmailAuthFlow.tsx",
+          "line": 582
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auth.email.code.title",
+      "key": "auth.email.code.title",
+      "current": {
+        "en": "Check your email",
+        "fa": "ایمیل خود را ببینید",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "خپل برېښنالیک وګورئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 139,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2214,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/EmailAuthFlow.tsx",
+          "line": 720
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auth.email.code.sent",
+      "key": "auth.email.code.sent",
+      "current": {
+        "en": "We sent a 6-digit code to {email}. If this address already has a Kaata account, the email says how to sign in instead.",
+        "fa": "یک کود 6 رقمی به {email} فرستادیم. اگر این آدرس از قبل حساب کاتا داشته باشد، در ایمیل نوشته شده که چطور وارد شوید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "{email} ته مو یو 6 رقمي کوډ ولېږه. که په دې پته له مخکې د Kaata حساب وي، په برېښنالیک کې د ننوتلو لارښوونه شته."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "email"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 140,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2215,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/EmailAuthFlow.tsx",
+          "line": 720
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auth.email.code.label",
+      "key": "auth.email.code.label",
+      "current": {
+        "en": "6-digit code",
+        "fa": "کود 6 رقمی",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "6 رقمي کوډ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 142,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2217,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account-password.tsx",
+          "line": 482
+        },
+        {
+          "path": "apps/mobile/components/EmailAuthFlow.tsx",
+          "line": 537
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auth.email.code.spam",
+      "key": "auth.email.code.spam",
+      "current": {
+        "en": "Nothing after a minute? Check your Spam folder.",
+        "fa": "پس از یک دقیقه نرسید؟ پوشهٔ Spam (هرزنامه) را ببینید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "له یوې دقیقې وروسته هم څه نه دي راغلي؟ د سپم پوښۍ وګورئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 143,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2218,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account-password.tsx",
+          "line": 513
+        },
+        {
+          "path": "apps/mobile/components/EmailAuthFlow.tsx",
+          "line": 560
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auth.email.code.resend",
+      "key": "auth.email.code.resend",
+      "current": {
+        "en": "Send a new code",
+        "fa": "فرستادن کود نو",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "نوی کوډ ولېږئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 144,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2219,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account-password.tsx",
+          "line": 519
+        },
+        {
+          "path": "apps/mobile/components/EmailAuthFlow.tsx",
+          "line": 566
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auth.email.code.resendIn",
+      "key": "auth.email.code.resendIn",
+      "current": {
+        "en": "Send a new code in {time}",
+        "fa": "فرستادن کود نو پس از {time}",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "له {time} وروسته نوی کوډ ولېږئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "time"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 145,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2220,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account-password.tsx",
+          "line": 516
+        },
+        {
+          "path": "apps/mobile/components/EmailAuthFlow.tsx",
+          "line": 563
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auth.email.code.resent",
+      "key": "auth.email.code.resent",
+      "current": {
+        "en": "A new code is on its way.",
+        "fa": "کود نو در راه است.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "نوی کوډ درلېږل کېږي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 146,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2221,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account-password.tsx",
+          "line": 267
+        },
+        {
+          "path": "apps/mobile/components/EmailAuthFlow.tsx",
+          "line": 412
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auth.email.code.changeEmail",
+      "key": "auth.email.code.changeEmail",
+      "current": {
+        "en": "Change email",
+        "fa": "تغییر ایمیل",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "برېښنالیک بدل کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 147,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2222,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account-password.tsx",
+          "line": 522
+        },
+        {
+          "path": "apps/mobile/components/EmailAuthFlow.tsx",
+          "line": 568
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auth.email.code.passwordAgain",
+      "key": "auth.email.code.passwordAgain",
+      "current": {
+        "en": "Type the Kaata password you chose again.",
+        "fa": "رمز کاتا را که انتخاب کردید، دوباره بنویسید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د Kaata هغه پټنوم بیا ولیکئ چې غوره کړی مو و."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 148,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2223,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/EmailAuthFlow.tsx",
+          "line": 727
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auth.email.code.submit",
+      "key": "auth.email.code.submit",
+      "current": {
+        "en": "Create account",
+        "fa": "ساختن حساب",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "کارن حساب جوړ کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 149,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2224,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/EmailAuthFlow.tsx",
+          "line": 732
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auth.email.forgot.title",
+      "key": "auth.email.forgot.title",
+      "current": {
+        "en": "Reset your password",
+        "fa": "بازیابی رمز",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "خپل پټنوم بیا وټاکئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 150,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2225,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/EmailAuthFlow.tsx",
+          "line": 741
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auth.email.forgot.subtitle",
+      "key": "auth.email.forgot.subtitle",
+      "current": {
+        "en": "Enter the email you sign in with. If it has a Kaata password, we'll send a code to reset it.",
+        "fa": "ایمیلی را بنویسید که با آن وارد می‌شوید. اگر رمز کاتا داشته باشد، یک کود برای گذاشتن رمز نو می‌فرستیم.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "هغه برېښنالیک ولیکئ چې پرې ننوځئ. که د Kaata پټنوم ولري، د بیا ټاکلو لپاره به کوډ ورولېږو."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 151,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2226,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/EmailAuthFlow.tsx",
+          "line": 741
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auth.email.backToSignIn",
+      "key": "auth.email.backToSignIn",
+      "current": {
+        "en": "Back to sign in",
+        "fa": "برگشت به ورود",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د ننوتلو پاڼې ته ورشئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 153,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2228,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/EmailAuthFlow.tsx",
+          "line": 745
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auth.email.reset.title",
+      "key": "auth.email.reset.title",
+      "current": {
+        "en": "Choose a new password",
+        "fa": "رمز نو بگذارید",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "نوی پټنوم غوره کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 154,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2229,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/EmailAuthFlow.tsx",
+          "line": 752
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auth.email.reset.sent",
+      "key": "auth.email.reset.sent",
+      "current": {
+        "en": "If {email} has a Kaata password, we sent it a 6-digit code. Enter the code and a new password.",
+        "fa": "اگر {email} رمز کاتا داشته باشد، یک کود 6 رقمی به آن فرستادیم. کود و یک رمز نو را بنویسید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "که {email} د Kaata پټنوم ولري، یو 6 رقمي کوډ مو ورلېږلی دی. کوډ او نوی پټنوم ولیکئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "email"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 155,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2230,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/EmailAuthFlow.tsx",
+          "line": 752
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auth.email.reset.newPassword",
+      "key": "auth.email.reset.newPassword",
+      "current": {
+        "en": "New password",
+        "fa": "رمز نو",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "نوی پټنوم"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 157,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2232,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account-password.tsx",
+          "line": 412
+        },
+        {
+          "path": "apps/mobile/components/EmailAuthFlow.tsx",
+          "line": 754
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auth.email.reset.submit",
+      "key": "auth.email.reset.submit",
+      "current": {
+        "en": "Save and sign in",
+        "fa": "ذخیره و ورود",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "خوندي کړئ او ننوځئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 158,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2233,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/EmailAuthFlow.tsx",
+          "line": 756
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auth.email.required",
+      "key": "auth.email.required",
+      "current": {
+        "en": "Enter your email address.",
+        "fa": "ایمیل خود را بنویسید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د خپل برېښنالیک پته ولیکئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 159,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2234,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/EmailAuthFlow.tsx",
+          "line": 295
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auth.email.identifierRequired",
+      "key": "auth.email.identifierRequired",
+      "current": {
+        "en": "Enter your email or username.",
+        "fa": "ایمیل یا نام کاربری خود را بنویسید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "خپل برېښنالیک یا کارن نوم ولیکئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 160,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2235,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/EmailAuthFlow.tsx",
+          "line": 320
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auth.email.passwordRequired",
+      "key": "auth.email.passwordRequired",
+      "current": {
+        "en": "Enter your password.",
+        "fa": "رمز خود را بنویسید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "خپل پټنوم ولیکئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 161,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2236,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account-password.tsx",
+          "line": 299
+        },
+        {
+          "path": "apps/mobile/components/EmailAuthFlow.tsx",
+          "line": 322
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auth.email.codeRequired",
+      "key": "auth.email.codeRequired",
+      "current": {
+        "en": "Enter the 6-digit code from the email.",
+        "fa": "کود 6 رقمی ایمیل را بنویسید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "په برېښنالیک کې راغلی 6 رقمي کوډ ولیکئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 162,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2237,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account-password.tsx",
+          "line": 281
+        },
+        {
+          "path": "apps/mobile/components/EmailAuthFlow.tsx",
+          "line": 306
+        },
+        {
+          "path": "apps/mobile/lib/account-rules.ts",
+          "line": 351
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auth.password.show",
+      "key": "auth.password.show",
+      "current": {
+        "en": "Show password",
+        "fa": "نشان دادن رمز",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "پټنوم وښایئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 163,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2238,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/PasswordField.tsx",
+          "line": 24
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auth.password.hide",
+      "key": "auth.password.hide",
+      "current": {
+        "en": "Hide password",
+        "fa": "پنهان کردن رمز",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "پټنوم پټ کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 164,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2239,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/PasswordField.tsx",
+          "line": 24
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auth.password.rule.length",
+      "key": "auth.password.rule.length",
+      "current": {
+        "en": "8 or more characters",
+        "fa": "دست‌کم 8 حرف، عدد یا نشانه",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "8 یا ډېر توري"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 165,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2240,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/PasswordRules.tsx",
+          "line": 18
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auth.password.rule.digits",
+      "key": "auth.password.rule.digits",
+      "current": {
+        "en": "Not only numbers, unless 12 or more",
+        "fa": "اگر رمز تنها عدد است، دست‌کم 12 رقم باشد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "یوازې شمېرې مه کاروئ، مګر که 12 یا ډېرې وي"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 166,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2241,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/PasswordRules.tsx",
+          "line": 19
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auth.password.rule.runs",
+      "key": "auth.password.rule.runs",
+      "current": {
+        "en": "No easy runs like 123456 or aaaaaa",
+        "fa": "بدون ترتیب‌های ساده مانند 123456 یا aaaaaa",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د 123456 یا aaaaaa په څېر اسانه لړۍ مه کاروئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 167,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2242,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/PasswordRules.tsx",
+          "line": 20
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auth.password.rule.personal",
+      "key": "auth.password.rule.personal",
+      "current": {
+        "en": "Not a common password, and not your email",
+        "fa": "رمز معمول یا ایمیل شما نباشد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "عام پټنوم یا خپل برېښنالیک مه کاروئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 168,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2243,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/PasswordRules.tsx",
+          "line": 21
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auth.error.email.format",
+      "key": "auth.error.email.format",
+      "current": {
+        "en": "Enter a valid email address, like name@example.com.",
+        "fa": "یک آدرس ایمیل درست بنویسید، مانند ⁦name@example.com⁩.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د برېښنالیک سمه پته ولیکئ، لکه name@example.com."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 170,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2244,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account-password.tsx",
+          "line": 245
+        },
+        {
+          "path": "apps/mobile/components/EmailAuthFlow.tsx",
+          "line": 297
+        },
+        {
+          "path": "apps/mobile/lib/account-rules.ts",
+          "line": 330
+        }
+      ],
+      "context": "Every refusal of docs/kaata-accounts.md §6, as lib/account-rules.ts words it."
+    },
+    {
+      "id": "mobile:auth.error.email.relay",
+      "key": "auth.error.email.relay",
+      "current": {
+        "en": "Apple's hidden relay address can't be used here. Enter your own email address.",
+        "fa": "آدرس پنهان اپل این‌جا کار نمی‌کند. آدرس ایمیل خود را بنویسید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د Apple پټه منځګړې پته دلته نه شي کارېدلی. د خپل برېښنالیک پته ولیکئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 171,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2245,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account-password.tsx",
+          "line": 244
+        },
+        {
+          "path": "apps/mobile/components/EmailAuthFlow.tsx",
+          "line": 296
+        },
+        {
+          "path": "apps/mobile/lib/account-rules.ts",
+          "line": 327
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auth.error.email.disposable",
+      "key": "auth.error.email.disposable",
+      "current": {
+        "en": "Temporary email addresses can't be used. Enter an address you'll keep.",
+        "fa": "آدرس‌های ایمیل موقت پذیرفته نمی‌شوند. آدرسی را بنویسید که نگه می‌دارید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "لنډمهاله برېښنالیک پتې نه شي کارېدلی. داسې پته ولیکئ چې تل یې کاروئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 173,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2246,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/account-rules.ts",
+          "line": 329
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auth.error.email.required",
+      "key": "auth.error.email.required",
+      "current": {
+        "en": "Enter an email address to sign in with.",
+        "fa": "یک آدرس ایمیل برای ورود بنویسید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د ننوتلو لپاره د برېښنالیک پته ولیکئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 175,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2248,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account-password.tsx",
+          "line": 242
+        },
+        {
+          "path": "apps/mobile/lib/account-rules.ts",
+          "line": 334
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auth.error.email.inUse",
+      "key": "auth.error.email.inUse",
+      "current": {
+        "en": "Another Kaata account uses this email. Enter a different address.",
+        "fa": "یک حساب دیگر کاتا این ایمیل را دارد. آدرس دیگری بنویسید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د Kaata بل حساب دا برېښنالیک کاروي. بله پته ولیکئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 176,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2249,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/account-rules.ts",
+          "line": 336
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auth.error.password.too_short",
+      "key": "auth.error.password.too_short",
+      "current": {
+        "en": "Use at least 8 characters.",
+        "fa": "دست‌کم 8 حرف، عدد یا نشانه بنویسید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "لږ تر لږه 8 توري وکاروئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 177,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2250,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:auth.error.password.too_long",
+      "key": "auth.error.password.too_long",
+      "current": {
+        "en": "Use 128 characters or fewer.",
+        "fa": "رمز نباید بیشتر از 128 حرف، عدد یا نشانه داشته باشد.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "128 یا لږ توري وکاروئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 178,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2251,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:auth.error.password.whitespace",
+      "key": "auth.error.password.whitespace",
+      "current": {
+        "en": "Remove the space at the start or end of the password.",
+        "fa": "فاصلهٔ اول یا آخر رمز را بردارید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د پټنوم له پیل یا پای څخه تشه لرې کړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 179,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2252,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:auth.error.password.common",
+      "key": "auth.error.password.common",
+      "current": {
+        "en": "That password is too common. Choose one that's harder to guess.",
+        "fa": "این رمز بسیار معمول است. رمزی بگذارید که حدس زدنش سخت‌تر باشد.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "دا پټنوم ډېر عام دی. داسې پټنوم غوره کړئ چې اټکل یې سخت وي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 180,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2253,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:auth.error.password.personal",
+      "key": "auth.error.password.personal",
+      "current": {
+        "en": "Don't put your email, username or phone number in the password.",
+        "fa": "ایمیل، نام کاربری یا شمارهٔ تلفون خود را در رمز نگذارید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "خپل برېښنالیک، کارن نوم یا د ټیلیفون شمېره په پټنوم کې مه لیکئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 181,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2254,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:auth.error.password.pattern",
+      "key": "auth.error.password.pattern",
+      "current": {
+        "en": "Avoid easy patterns like 123456, aaaaaa or only numbers.",
+        "fa": "از ترتیب‌های ساده مانند 123456، aaaaaa یا تنها عدد استفاده نکنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د 123456، aaaaaa یا یوازې شمیرو په څېر اسانه بڼې مه کاروئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 182,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2255,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:auth.error.password.weak",
+      "key": "auth.error.password.weak",
+      "current": {
+        "en": "Choose a stronger password.",
+        "fa": "رمز قوی‌تری بگذارید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "پیاوړی پټنوم غوره کړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 183,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2257,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/account-rules.ts",
+          "line": 347
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auth.error.code.invalid",
+      "key": "auth.error.code.invalid",
+      "current": {
+        "en": "That code isn't right or has expired. Use the newest email, or send a new code.",
+        "fa": "این کود درست نیست یا وقتش گذشته است. از تازه‌ترین ایمیل استفاده کنید یا کود نو بفرستید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "دا کوډ سم نه دی یا یې وخت تېر شوی. تر ټولو نوی برېښنالیک وکاروئ یا نوی کوډ ولېږئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 184,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2258,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/account-rules.ts",
+          "line": 353
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auth.error.accountExists",
+      "key": "auth.error.accountExists",
+      "current": {
+        "en": "There's already a Kaata account for this email. Sign in instead.",
+        "fa": "برای این ایمیل از قبل حساب کاتا هست. به جایش وارد شوید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "په دې برېښنالیک له مخکې د Kaata حساب شته. خپل حساب ته ننوځئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 186,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2260,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/account-rules.ts",
+          "line": 355
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auth.error.invalidCredentials",
+      "key": "auth.error.invalidCredentials",
+      "current": {
+        "en": "That email, username or password isn't right.",
+        "fa": "ایمیل، نام کاربری یا رمز درست نیست.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "برېښنالیک، کارن نوم یا پټنوم سم نه دی."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 187,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2261,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/account-rules.ts",
+          "line": 357
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auth.error.wrongPassword",
+      "key": "auth.error.wrongPassword",
+      "current": {
+        "en": "Your current password isn't right.",
+        "fa": "رمز فعلی شما درست نیست.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ستاسې اوسنی پټنوم سم نه دی."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 188,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2262,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/account-rules.ts",
+          "line": 359
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auth.error.noPassword",
+      "key": "auth.error.noPassword",
+      "current": {
+        "en": "This account doesn't have a Kaata password yet.",
+        "fa": "این حساب هنوز رمز کاتا ندارد.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "دا حساب لا د Kaata پټنوم نه لري."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 189,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2263,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/account-rules.ts",
+          "line": 361
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auth.error.passwordExists",
+      "key": "auth.error.passwordExists",
+      "current": {
+        "en": "This account already has a Kaata password.",
+        "fa": "این حساب از قبل رمز کاتا دارد.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "دا حساب له مخکې د Kaata پټنوم لري."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 190,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2264,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/account-rules.ts",
+          "line": 363
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auth.error.username.format",
+      "key": "auth.error.username.format",
+      "current": {
+        "en": "Use 3 to 30 lowercase letters, numbers, _ or ., starting with a letter.",
+        "fa": "3 تا 30 حرف، عدد یا نشانه؛ فقط حرف‌های کوچک انگلیسی، عدد، _ و .؛ با یک حرف شروع شود.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "له 3 تر 30 کوچني لاتین توري، شمېرې، _ یا . وکاروئ او په توري یې پیل کړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 191,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2265,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account-username.tsx",
+          "line": 123
+        },
+        {
+          "path": "apps/mobile/lib/account-rules.ts",
+          "line": 367
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auth.error.username.reserved",
+      "key": "auth.error.username.reserved",
+      "current": {
+        "en": "That username isn't available. Choose another.",
+        "fa": "این نام کاربری در دسترس نیست. نام دیگری انتخاب کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "دا کارن نوم نه شي کارېدلی. بل غوره کړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 193,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2267,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account-username.tsx",
+          "line": 123
+        },
+        {
+          "path": "apps/mobile/lib/account-rules.ts",
+          "line": 367
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auth.error.username.taken",
+      "key": "auth.error.username.taken",
+      "current": {
+        "en": "That username is taken. Choose another.",
+        "fa": "این نام کاربری گرفته شده است. نام دیگری انتخاب کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "دا کارن نوم بل چا اخیستی. بل غوره کړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 194,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2268,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/account-rules.ts",
+          "line": 370
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auth.error.name.invalid",
+      "key": "auth.error.name.invalid",
+      "current": {
+        "en": "Your name must be 2 to 60 characters.",
+        "fa": "نام شما باید 2 تا 60 حرف، عدد یا نشانه داشته باشد.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ستاسې نوم باید له 2 تر 60 توري ولري."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 195,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2269,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 287
+        },
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 389
+        },
+        {
+          "path": "apps/mobile/app/onboarding/profile.tsx",
+          "line": 198
+        },
+        {
+          "path": "apps/mobile/lib/account-rules.ts",
+          "line": 372
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auth.error.name.provider",
+      "key": "auth.error.name.provider",
+      "current": {
+        "en": "Your name comes from Google or Apple.",
+        "fa": "نام شما از گوگل یا اپل می‌آید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ستاسې نوم له Google یا Apple څخه اخیستل شوی."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 196,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2270,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/account-rules.ts",
+          "line": 374
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auth.error.tooManyAttempts",
+      "key": "auth.error.tooManyAttempts",
+      "current": {
+        "en": "Too many tries. Wait a few minutes, then try again.",
+        "fa": "تلاش‌ها زیاد شد. چند دقیقه صبر کنید و دوباره امتحان کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "هڅې ډېرې شوې. څو دقیقې تم شئ، بیا هڅه وکړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 197,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2271,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/account-rules.ts",
+          "line": 378
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auth.error.tooManyAttempts.wait",
+      "key": "auth.error.tooManyAttempts.wait",
+      "current": {
+        "en": "Too many tries. Try again in {time}.",
+        "fa": "تلاش‌ها زیاد شد. پس از {time} دوباره امتحان کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "هڅې ډېرې شوې. له {time} وروسته بیا هڅه وکړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "time"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 198,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2272,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/account-rules.ts",
+          "line": 378
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auth.error.tooManyEmails",
+      "key": "auth.error.tooManyEmails",
+      "current": {
+        "en": "Too many requests for this email. Wait a while, then try again.",
+        "fa": "درخواست‌ها برای این ایمیل زیاد شد. کمی صبر کنید و دوباره امتحان کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د دې برېښنالیک لپاره غوښتنې ډېرې شوې. لږ تم شئ، بیا هڅه وکړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 199,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2273,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/account-rules.ts",
+          "line": 381
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auth.error.tooManyEmails.wait",
+      "key": "auth.error.tooManyEmails.wait",
+      "current": {
+        "en": "Too many requests for this email. Try again in {time}.",
+        "fa": "درخواست‌ها برای این ایمیل زیاد شد. پس از {time} دوباره امتحان کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د دې برېښنالیک لپاره غوښتنې ډېرې شوې. له {time} وروسته بیا هڅه وکړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "time"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 200,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2275,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/account-rules.ts",
+          "line": 381
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auth.error.rateLimited",
+      "key": "auth.error.rateLimited",
+      "current": {
+        "en": "Too many tries. Wait a few minutes, then try again.",
+        "fa": "تلاش‌ها زیاد شد. چند دقیقه صبر کنید و دوباره امتحان کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "هڅې ډېرې شوې. څو دقیقې تم شئ، بیا هڅه وکړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 201,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2277,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/account-rules.ts",
+          "line": 383
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auth.error.rateLimited.wait",
+      "key": "auth.error.rateLimited.wait",
+      "current": {
+        "en": "Too many tries. Try again in {time}.",
+        "fa": "تلاش‌ها زیاد شد. پس از {time} دوباره امتحان کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "هڅې ډېرې شوې. له {time} وروسته بیا هڅه وکړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "time"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 202,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2278,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/account-rules.ts",
+          "line": 383
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auth.error.emailUnavailable",
+      "key": "auth.error.emailUnavailable",
+      "current": {
+        "en": "Email codes can't be sent right now. Use Google or Apple, or try again later.",
+        "fa": "فعلاً کود ایمیل فرستاده نمی‌شود. با گوگل یا اپل وارد شوید یا بعداً دوباره امتحان کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "اوس د برېښنالیک کوډونه نه شي لېږل کېدای. Google یا Apple وکاروئ، یا وروسته بیا هڅه وکړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 203,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2279,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/account-rules.ts",
+          "line": 385
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auth.error.busy",
+      "key": "auth.error.busy",
+      "current": {
+        "en": "Kaata is busy. Try again in a moment.",
+        "fa": "کاتا مصروف است. کمی بعد دوباره امتحان کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "Kaata بوخت دی. لږ وروسته بیا هڅه وکړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 205,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2281,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/account-rules.ts",
+          "line": 387
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auth.error.accountDisabled",
+      "key": "auth.error.accountDisabled",
+      "current": {
+        "en": "This account has been disabled.",
+        "fa": "این حساب غیرفعال شده است.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "دا حساب غیرفعال شوی دی."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 206,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2282,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/account-rules.ts",
+          "line": 389
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auth.error.accountDeletionExpired",
+      "key": "auth.error.accountDeletionExpired",
+      "current": {
+        "en": "The 30-day recovery period has ended. This account is being permanently deleted.",
+        "fa": "مهلت ۳۰ روزهٔ بازگردانی پایان یافته است. این حساب برای همیشه حذف می‌شود.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د بېرته راوستلو 30 ورځنۍ موده پای ته رسېدلې. دا حساب د تل لپاره ړنګېږي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 207,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2283,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/onboarding/auth.tsx",
+          "line": 99
+        },
+        {
+          "path": "apps/mobile/lib/account-rules.ts",
+          "line": 391
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auth.error.sessionExpired",
+      "key": "auth.error.sessionExpired",
+      "current": {
+        "en": "You've been signed out. Sign in again, then try once more.",
+        "fa": "از حساب بیرون شده‌اید. دوباره وارد شوید و باز امتحان کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "له حسابه وتلي یاست. بیا ننوځئ او بیا هڅه وکړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 209,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2285,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/account-rules.ts",
+          "line": 393
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auth.error.emailFixed",
+      "key": "auth.error.emailFixed",
+      "current": {
+        "en": "Your password must use your account's email address.",
+        "fa": "برای گذاشتن رمز، از آدرس ایمیل همین حساب استفاده کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ستاسې پټنوم باید ستاسې د حساب له برېښنالیک پتې سره تړلی وي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 210,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2287,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/account-rules.ts",
+          "line": 338
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auth.error.providerSessionRequired",
+      "key": "auth.error.providerSessionRequired",
+      "current": {
+        "en": "Sign in with Google or Apple to remove the password.",
+        "fa": "برای حذف رمز، با گوگل یا اپل وارد شوید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د پټنوم د لرې کولو لپاره د Google یا Apple له لارې ننوځئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 211,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2288,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/account-rules.ts",
+          "line": 340
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auth.error.tokenExpired",
+      "key": "auth.error.tokenExpired",
+      "current": {
+        "en": "Sign-in took too long. Please sign in again.",
+        "fa": "ورود زیاد طول کشید. لطفاً دوباره وارد شوید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ننوتلو ډېر وخت واخیست. بیا ننوځئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 212,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2289,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/onboarding/auth.tsx",
+          "line": 115
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auth.wait.seconds",
+      "key": "auth.wait.seconds",
+      "current": {
+        "en": "{n} seconds",
+        "fa": "{n} ثانیه",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "{n} ثانیې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "n"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 213,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2290,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/account-rules.ts",
+          "line": 259
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auth.wait.minute",
+      "key": "auth.wait.minute",
+      "current": {
+        "en": "1 minute",
+        "fa": "1 دقیقه",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "1 دقیقه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 214,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2291,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/account-rules.ts",
+          "line": 262
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auth.wait.minutes",
+      "key": "auth.wait.minutes",
+      "current": {
+        "en": "{n} minutes",
+        "fa": "{n} دقیقه",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "{n} دقیقې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "n"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 215,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2292,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/account-rules.ts",
+          "line": 262
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auth.wait.hour",
+      "key": "auth.wait.hour",
+      "current": {
+        "en": "1 hour",
+        "fa": "1 ساعت",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "1 ساعت"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 216,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2293,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/account-rules.ts",
+          "line": 265
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auth.wait.hours",
+      "key": "auth.wait.hours",
+      "current": {
+        "en": "{n} hours",
+        "fa": "{n} ساعت",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "{n} ساعته"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "n"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 217,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2294,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/account-rules.ts",
+          "line": 265
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auth.error.recoveryUnavailable",
+      "key": "auth.error.recoveryUnavailable",
+      "current": {
+        "en": "You're signed in, but your kaatas couldn't be restored. Check your connection and try again.",
+        "fa": "وارد شدید، اما کاتاهای شما بازیابی نشدند. اتصال انترنت را بررسی کنید و دوباره امتحان کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "حساب ته ننوتلي یاست، خو ستاسو کاټې بېرته راوګرځول نه شوې. خپله اړیکه وګورئ او بیا هڅه وکړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1053,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3007,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/onboarding/auth.tsx",
+          "line": 104
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:accountPassword.title.set",
+      "key": "accountPassword.title.set",
+      "current": {
+        "en": "Set a password",
+        "fa": "گذاشتن رمز",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "پټنوم وټاکئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1084,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3038,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account-password.tsx",
+          "line": 530
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:accountPassword.title.change",
+      "key": "accountPassword.title.change",
+      "current": {
+        "en": "Change password",
+        "fa": "تغییر رمز",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "پټنوم بدل کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1085,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3039,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account-password.tsx",
+          "line": 530
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:accountPassword.set.body",
+      "key": "accountPassword.set.body",
+      "current": {
+        "en": "Add a Kaata password to sign in with your email on any phone. First we'll send a code to the address.",
+        "fa": "یک رمز کاتا بگذارید تا با ایمیل خود در هر تلفونی وارد شوید. اول یک کود به این آدرس می‌فرستیم.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د کاټې پټنوم ورزیات کړئ، څو په هر ټیلیفون کې د خپل برېښنالیک له لارې ننوځئ. لومړی به هغه پتې ته یو کوډ ولېږو."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1086,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3040,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account-password.tsx",
+          "line": 426
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:accountPassword.set.relayNote",
+      "key": "accountPassword.set.relayNote",
+      "current": {
+        "en": "Your Apple account hides its email address, so enter one you can open.",
+        "fa": "حساب اپل شما آدرس ایمیل خود را پنهان می‌کند، پس آدرسی را بنویسید که می‌توانید باز کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ستاسو د اپل حساب خپله برېښنالیک پته پټوي؛ نو داسې پته ولیکئ چې لاسرسی ورته لرئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1088,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3042,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account-password.tsx",
+          "line": 436
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:accountPassword.set.codeSent",
+      "key": "accountPassword.set.codeSent",
+      "current": {
+        "en": "We sent a 6-digit code to {email}. Enter it with your new password.",
+        "fa": "یک کود 6 رقمی به {email} فرستادیم. آن را با رمز نو بنویسید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "موږ {email} ته ۶ رقمي کوډ ولېږه. له خپل نوي پټنوم سره یې ولیکئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "email"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1090,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3044,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account-password.tsx",
+          "line": 476
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:accountPassword.set.submit",
+      "key": "accountPassword.set.submit",
+      "current": {
+        "en": "Save password",
+        "fa": "ذخیرهٔ رمز",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "پټنوم خوندي کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1092,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3045,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account-password.tsx",
+          "line": 507
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:accountPassword.set.done",
+      "key": "accountPassword.set.done",
+      "current": {
+        "en": "Password saved. You can now sign in with {email} and this password.",
+        "fa": "رمز ذخیره شد. حالا می‌توانید با {email} و این رمز وارد شوید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "پټنوم خوندي شو. اوس په {email} او دې پټنوم ننوتلی شئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "email"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1093,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3046,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account-password.tsx",
+          "line": 288
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:accountPassword.change.current",
+      "key": "accountPassword.change.current",
+      "current": {
+        "en": "Current password",
+        "fa": "رمز فعلی",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "اوسنی پټنوم"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1094,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3047,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account-password.tsx",
+          "line": 398
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:accountPassword.change.body",
+      "key": "accountPassword.change.body",
+      "current": {
+        "en": "Other phones signed in to this account will be signed out.",
+        "fa": "از این حساب در همهٔ تلفون‌های دیگر خارج می‌شوید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "نور هغه ټیلیفونونه چې دې حساب ته ننوتلي دي، له حسابه ایستل کېږي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1095,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3048,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account-password.tsx",
+          "line": 393
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:accountPassword.change.submit",
+      "key": "accountPassword.change.submit",
+      "current": {
+        "en": "Change password",
+        "fa": "تغییر رمز",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "پټنوم بدل کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1096,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3049,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account-password.tsx",
+          "line": 415
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:accountPassword.change.done",
+      "key": "accountPassword.change.done",
+      "current": {
+        "en": "Password changed. Other phones were signed out.",
+        "fa": "رمز تغییر کرد. از این حساب در تلفون‌های دیگر خارج شدید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "پټنوم بدل شو. نور ټیلیفونونه له حسابه وایستل شول."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1097,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3050,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account-password.tsx",
+          "line": 306
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:accountPassword.loadFailed",
+      "key": "accountPassword.loadFailed",
+      "current": {
+        "en": "Couldn't load your account. Check your connection and try again.",
+        "fa": "حساب شما بار نشد. اتصال را بررسی کنید و دوباره امتحان کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ستاسو حساب راوړل نه شو. خپله اړیکه وګورئ او بیا هڅه وکړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1098,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3051,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account-password.tsx",
+          "line": 383
+        },
+        {
+          "path": "apps/mobile/app/account-username.tsx",
+          "line": 134
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:accountPassword.set.fixedEmail",
+      "key": "accountPassword.set.fixedEmail",
+      "current": {
+        "en": "We'll send a 6-digit code to {email}.",
+        "fa": "یک کود 6 رقمی به {email} می‌فرستیم.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "موږ به {email} ته ۶ رقمي کوډ ولېږو."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "email"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1099,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3052,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account-password.tsx",
+          "line": 430
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:accountPassword.remove.title",
+      "key": "accountPassword.remove.title",
+      "current": {
+        "en": "Remove your password?",
+        "fa": "رمز خود را حذف می‌کنید؟",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "خپل پټنوم لرې کوئ؟"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1100,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3053,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 999
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:accountPassword.remove.body",
+      "key": "accountPassword.remove.body",
+      "current": {
+        "en": "You'll sign in with Google or Apple only. Phones signed in with the password are signed out.",
+        "fa": "تنها با گوگل یا اپل وارد خواهید شد. از این حساب در تلفون‌هایی که با رمز وارد شده‌اند، خارج می‌شوید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "یوازې د ګوګل یا اپل له لارې به ننوتلی شئ. په پټنوم ننوتلي ټیلیفونونه له حسابه ایستل کېږي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1101,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3054,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 1000
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:accountPassword.remove.cta",
+      "key": "accountPassword.remove.cta",
+      "current": {
+        "en": "Remove password",
+        "fa": "حذف رمز",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "پټنوم لرې کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1103,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3056,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 1001
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:accountPassword.remove.done",
+      "key": "accountPassword.remove.done",
+      "current": {
+        "en": "Password removed",
+        "fa": "رمز حذف شد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "پټنوم لرې شو"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1104,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3057,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account.tsx",
+          "line": 361
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:accountUsername.title",
+      "key": "accountUsername.title",
+      "current": {
+        "en": "Username",
+        "fa": "نام کاربری",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "کارن‌نوم"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1105,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3058,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account-username.tsx",
+          "line": 162
+        },
+        {
+          "path": "apps/mobile/app/account-username.tsx",
+          "line": 213
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:accountUsername.body",
+      "key": "accountUsername.body",
+      "current": {
+        "en": "A username works in place of your email when you sign in with your password. Only you see it.",
+        "fa": "نام کاربری هنگام ورود با رمز به جای ایمیل کار می‌کند. تنها شما آن را می‌بینید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "کله چې په پټنوم ننوځئ، د خپل برېښنالیک پر ځای کارن‌نوم کارولی شئ. یوازې تاسو یې وینئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1106,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3059,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account-username.tsx",
+          "line": 156
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:accountUsername.rules",
+      "key": "accountUsername.rules",
+      "current": {
+        "en": "3 to 30 characters: lowercase letters, numbers, _ and ., starting with a letter.",
+        "fa": "3 تا 30 حرف، عدد یا نشانه؛ فقط حرف‌های کوچک انگلیسی، عدد، _ و .؛ با یک حرف شروع شود.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "له ۳ تر ۳۰ تورو: د انګلیسي واړه توري، شمېرې، _ او .؛ په توري دې پیل شي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1108,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3061,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account-username.tsx",
+          "line": 180
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:accountUsername.save",
+      "key": "accountUsername.save",
+      "current": {
+        "en": "Save username",
+        "fa": "ذخیرهٔ نام کاربری",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "کارن‌نوم خوندي کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1110,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3063,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account-username.tsx",
+          "line": 187
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:accountUsername.remove",
+      "key": "accountUsername.remove",
+      "current": {
+        "en": "Remove username",
+        "fa": "حذف نام کاربری",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "کارن‌نوم لرې کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1111,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3064,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account-username.tsx",
+          "line": 197
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:accountUsername.saved",
+      "key": "accountUsername.saved",
+      "current": {
+        "en": "Username saved",
+        "fa": "نام کاربری ذخیره شد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "کارن‌نوم خوندي شو"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1112,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3065,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account-username.tsx",
+          "line": 127
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:accountUsername.removed",
+      "key": "accountUsername.removed",
+      "current": {
+        "en": "Username removed",
+        "fa": "نام کاربری حذف شد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "کارن‌نوم لرې شو"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1113,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3066,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account-username.tsx",
+          "line": 111
+        },
+        {
+          "path": "apps/mobile/app/account-username.tsx",
+          "line": 198
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:accountUsername.needsPassword",
+      "key": "accountUsername.needsPassword",
+      "current": {
+        "en": "Set a password first: a username only works with a password.",
+        "fa": "اول یک رمز بگذارید: نام کاربری تنها با رمز کار می‌کند.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "لومړی پټنوم وټاکئ؛ کارن‌نوم یوازې له پټنوم سره کار کوي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1114,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3067,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/account-username.tsx",
+          "line": 144
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auth.redirect.title",
+      "key": "auth.redirect.title",
+      "current": {
+        "en": "Sign in to continue",
+        "fa": "برای ادامه وارد شوید",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د دوام لپاره ننوځئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1952,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3801,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/onboarding/auth.tsx",
+          "line": 647
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:auth.redirect.subtitle",
+      "key": "auth.redirect.subtitle",
+      "current": {
+        "en": "Use your Kaata account. Your existing kaatas will be restored automatically.",
+        "fa": "با حساب کاتای خود وارد شوید. کاتاهای قبلی شما خودکار بازیابی می‌شوند.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "خپل کاټه حساب وکاروئ. پخوانۍ کاټې به مو په خپله بېرته راوګرځي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 1953,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 3802,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/onboarding/auth.tsx",
+          "line": 648
+        }
+      ],
+      "context": ""
+    }
+  ]
+}

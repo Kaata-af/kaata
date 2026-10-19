@@ -1,3 +1,4 @@
+import type { LocaleCode } from "./i18n";
 import { toAsciiDigits } from "./digits";
 import type { Calendar } from "./calendar";
 import { toMinorUnits } from "./money";
@@ -31,9 +32,9 @@ function noteHas(note: string, compactNote: string, term: string): boolean {
 }
 
 // A query term that is only the currency ("AFN", "؋") narrows nothing.
-const CURRENCY_TERM = /^(?:afn|؋|افغانی)$/;
+const CURRENCY_TERM = /^(?:afn|؋|افغانی|افغانۍ)$/;
 
-export type TallySearchOptions = { locale: "en" | "fa"; calendar: Calendar };
+export type TallySearchOptions = { locale: LocaleCode; calendar: Calendar };
 
 type SearchableTally = { note: string | null; amount_afn: number; created_at: number };
 // Exact value matching makes 500 distinct from 5000. Accept the displayed

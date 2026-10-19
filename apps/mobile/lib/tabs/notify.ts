@@ -6,7 +6,7 @@ import Constants from "expo-constants";
 import * as TaskManager from "expo-task-manager";
 import { getAppMeta, setAppMeta } from "../db";
 import { getAccountIdSync, getInstallIdSync } from "../db-tx";
-import { getLocale, t, tIn } from "../i18n";
+import { getLocale, subscribeLocale, t, tIn, type LocaleCode } from "../i18n";
 import { getTabLink, listTabLinks, queueNotificationReview } from "./db";
 import { registerTabNotifications, resolveTabAuth } from "./api";
 import { setTabPushRefreshHook, syncTab, requestTabSync } from "./sync";
@@ -23,6 +23,7 @@ const CHANNEL = "tab-updates";
 const ASKED = "tab_notify_asked";
 let nextRegistration = 0;
 let registrationAccount: string | null = null;
+let registrationLocale: LocaleCode | null = null;
 let registering: Promise<void> | null = null;
 let notificationsPromise: Promise<typeof import("expo-notifications")> | null = null;
 const processing = new Map<string, Promise<void>>();
@@ -44,7 +45,7 @@ async function configure(n: typeof import("expo-notifications")) {
   });
   // Stable locale-specific IDs let a message use its registration's locale,
   // even if another device has since changed the account language.
-  for (const locale of ["en", "fa"] as const) {
+  for (const locale of ["en", "fa", "ps"] as const) {
     await n.setNotificationCategoryAsync("tab-review-" + locale, [
       {
         identifier: TAB_ACCEPT,
@@ -177,28 +178,33 @@ async function bootstrap() {
 if (!isRunningInExpoGo()) void bootstrap().catch(() => undefined);
 
 export function syncTabPushSubscriptions(): Promise<void> {
-  // Finish an in-flight registration under its original identity before a new
-  // account starts. Otherwise the old task can throttle the new one for an hour.
+  // Serialize requests so an older response cannot overwrite a newer language
+  // on the server. The follow-up always reads the latest account and locale.
   if (registering) {
     return registering.then(() => {
-      if (getAccountIdSync() !== registrationAccount) return syncTabPushSubscriptions();
+      if (getAccountIdSync() !== registrationAccount || getLocale() !== registrationLocale)
+        return syncTabPushSubscriptions();
     });
   }
   const account = getAccountIdSync();
-  if (account !== registrationAccount) {
+  const locale = getLocale();
+  const current = () => account === getAccountIdSync() && locale === getLocale();
+  if (account !== registrationAccount || locale !== registrationLocale) {
     nextRegistration = 0;
     registrationAccount = account;
+    registrationLocale = locale;
   }
   if (!account) return Promise.resolve();
   if (Date.now() < nextRegistration) return Promise.resolve();
   registering = (async () => {
     await drainNativeReviews();
     const links = await listTabLinks();
-    if (!links.length) return;
+    if (!current() || !links.length) return;
     const n = await notifications();
     if (!n) return;
     await configure(n);
     let permission = await n.getPermissionsAsync();
+    if (!current()) return;
     // Upgrades/restores already have links, so the create/join hook may never
     // run again. Ask once during a signed-in FOREGROUND sweep as well. Never
     // prompt from a notification's headless/background execution.
@@ -209,6 +215,7 @@ export function syncTabPushSubscriptions(): Promise<void> {
       (await getAppMeta(ASKED)) !== "1"
     ) {
       await resolveTabAuth(links[0]);
+      if (!current()) return;
       permission = await n.requestPermissionsAsync();
       await setAppMeta(ASKED, "1");
     }
@@ -218,16 +225,16 @@ export function syncTabPushSubscriptions(): Promise<void> {
     let enabled = false;
     let failed = false;
     for (const link of links) {
-      if (account !== getAccountIdSync()) return;
+      if (!current()) return;
       try {
         const auth = await resolveTabAuth(link);
-        if (account !== getAccountIdSync()) return;
+        if (!current()) return;
         const result = await registerTabNotifications(auth, link.tab_id, {
           install_id: getInstallIdSync(),
           token,
-          locale: getLocale(),
+          locale,
         });
-        if (account !== getAccountIdSync()) return;
+        if (!current()) return;
         const active = result.enabled && !!token;
         enabled ||= active;
         await setAppMeta("tab_push_active:" + link.tab_id, active ? String(Date.now()) : "0");
@@ -235,7 +242,9 @@ export function syncTabPushSubscriptions(): Promise<void> {
         failed = true;
       }
     }
+    if (!current()) return;
     await setAppMeta("tab_push_active", enabled ? "1" : "0");
+    if (!current()) return;
     await setAppMeta(
       "tab_push_error",
       failed
@@ -246,12 +255,13 @@ export function syncTabPushSubscriptions(): Promise<void> {
             ? "server_disabled"
             : "permission_denied",
     );
-    nextRegistration = Date.now() + (failed ? 60_000 : 3600_000);
+    if (current()) nextRegistration = Date.now() + (failed ? 60_000 : 3600_000);
   })()
     .catch(async () => {
-      if (account !== getAccountIdSync()) return;
+      if (!current()) return;
       nextRegistration = Date.now() + 60_000;
       await setAppMeta("tab_push_active", "0").catch(() => undefined);
+      if (!current()) return;
       await setAppMeta("tab_push_error", "credentials_or_network").catch(() => undefined);
     })
     .finally(() => {
@@ -434,3 +444,6 @@ onTabApplied((ev) => {
 });
 setTabNotifyHook(ensureTabNotificationPermission);
 setTabPushRefreshHook(syncTabPushSubscriptions);
+// Refresh server-side push copy on a language change even when the regular
+// hourly subscription refresh would otherwise be throttled.
+subscribeLocale(() => void syncTabPushSubscriptions().catch(() => undefined));

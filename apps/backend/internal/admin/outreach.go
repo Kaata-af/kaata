@@ -122,8 +122,8 @@ var outreachExclusionKinds = map[string]bool{"vault": true, "account": true, "in
 
 // outreachLangs are the per-number message languages a mark may set
 // (outreach_contacts.lang, migration 046): "" follows the session-wide
-// setting pref.message_lang, "fa" is Dari, "en" English.
-var outreachLangs = map[string]bool{"": true, "en": true, "fa": true}
+// setting pref.message_lang, "fa" is Dari, "en" English, "ps" Pashto.
+var outreachLangs = map[string]bool{"": true, "en": true, "fa": true, "ps": true}
 
 var (
 	// ErrOutreachStale — expected_version is behind the row: another tab, or
@@ -324,7 +324,7 @@ type OutreachMarkInput struct {
 	Phones      []string
 	Status      *string
 	Note        *string
-	Lang        *string // "" | "en" | "fa" (outreachLangs); a preference, so it writes no touch
+	Lang        *string // "" | "en" | "fa" | "ps" (outreachLangs); a preference, so it writes no touch
 	Contacted   bool
 	Replied     bool
 	TemplateKey string
@@ -1964,7 +1964,7 @@ type outreachMarkBody struct {
 // Pointer fields tell an absent key from an empty one. Two bodies are 400
 // invalid body with nothing written (2026-09-30): a status together with
 // contacted:true or replied:true, and lift_stop:true naming more than one
-// phone after dedupe. A lang (batch 3) must be "", "en" or "fa", else 400
+// phone after dedupe. A lang (batch 3) must be "", "en", "fa" or "ps", else 400
 // invalid lang with nothing written; null is absent. The response is
 // {"updated": [state…], "skipped": [phone…]}: skipped lists the phones the
 // mark left untouched — a contacted mark on a row that is not a first send,

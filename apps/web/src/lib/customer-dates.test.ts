@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { formatQamariDate, resolveBillCalendar, resolveQamariOffset } from "./customer-dates.ts";
+import {
+  formatBillDate,
+  formatBillAmount,
+  formatQamariDate,
+  resolveBillCalendar,
+  resolveQamariOffset,
+} from "./customer-dates.ts";
 
 const at = (y: number, m: number, d: number) => new Date(y, m - 1, d, 12).getTime();
 
@@ -60,4 +66,25 @@ test("the frozen explicit calendar wins while old/unknown bills keep their dates
     assert.equal(resolveBillCalendar(undefined, rtl), rtl ? "jalali" : "gregorian");
     assert.equal(resolveBillCalendar("unknown", rtl), rtl ? "jalali" : "gregorian");
   }
+});
+
+test("Pashto bill vocabulary follows the snapshot language independently of its calendar", () => {
+  const date = at(2026, 3, 21);
+  assert.equal(formatBillDate(date, "ps", "jalali"), "۱ وری ۱۴۰۵");
+  assert.equal(formatBillDate(date, "ps", "gregorian"), "۲۱ مارچ ۲۰۲۶");
+  assert.equal(formatBillDate(date, "ps", "qamari"), "۲ شوال ۱۴۴۷");
+  assert.equal(formatBillDate(date, "fa", "jalali"), "۱ حمل ۱۴۰۵");
+  assert.equal(formatBillDate(date, "en", "jalali"), "1 Hamal 1405");
+  assert.equal(formatBillDate(date, "fa", "gregorian"), "۲۱ مارچ ۲۰۲۶");
+  assert.equal(formatBillDate(at(2026, 4, 1), "ps", "gregorian"), "۱ اپرېل ۲۰۲۶");
+  assert.equal(formatBillDate(at(2026, 4, 1), "fa", "gregorian"), "۱ اپریل ۲۰۲۶");
+  assert.equal(formatQamariDate(at(2026, 8, 5), "ps", 2), "۲۲ صفر ۱۴۴۸");
+  assert.equal(formatBillDate(NaN, "ps", "jalali"), "");
+  assert.equal(
+    formatBillAmount(-1234.5, "ps"),
+    new Intl.NumberFormat("ps-AF-u-nu-arabext", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(1234.5),
+  );
 });

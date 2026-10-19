@@ -21,6 +21,12 @@
 
 import assert from "node:assert/strict";
 import Database from "better-sqlite3";
+import { compileUI } from "./ui-fixture";
+
+const language = compileUI("../i18n", {
+  "expo-localization": { getLocales: () => [{ languageCode: "en" }] },
+  "./db": { getAppMeta: async () => null },
+});
 
 function withModuleStubs<T>(stubs: Record<string, unknown>, load: () => T): T {
   const saved = new Map<string, NodeJS.Module | undefined>();
@@ -99,7 +105,7 @@ const attribution = withModuleStubs(
     // pure predicate, and the real strings are asserted against below so the
     // stub cannot drift away from production behaviour.
     "../i18n": {
-      isPlaceholderSelfName: (name: string) => name === "You" || name === "شما",
+      isPlaceholderSelfName: language.isPlaceholderSelfName,
     },
   },
   () => require("../attribution") as typeof import("../attribution"),
@@ -138,6 +144,13 @@ insertMember.run(VAULT, GONE, "Old Staff", 1_700_000_000_000); // revoked
 // The restore placeholder leaking into the mirror: must never be shown as a
 // name, or a DIFFERENT member reads as "You" on this device.
 insertMember.run(VAULT, "acct-placeholder", "You", null);
+insertMember.run(VAULT, "acct-placeholder-fa", "شما", null);
+insertMember.run(
+  VAULT,
+  "acct-placeholder-ps",
+  language.tIn("ps", "recovery.selfPlaceholderName"),
+  null,
+);
 
 // A local contact row is this device's nickname for Ahmad. The mirror has no
 // name for him, so this is the fallback the COALESCE picks up.
@@ -316,6 +329,8 @@ async function main() {
       assert.equal(names.get(GONE), "Old Staff");
       // "You" must never become a member's name on this device.
       assert.equal(names.has("acct-placeholder"), false);
+      assert.equal(names.has("acct-placeholder-fa"), false);
+      assert.equal(names.has("acct-placeholder-ps"), false);
       // A rename reaches "Added by": the current profile name wins over the
       // name recorded at joining (audit #19). A blank profile name does not.
       fixture
@@ -434,12 +449,7 @@ async function main() {
   });
 
   // --- the i18n keys the row renders -------------------------------------
-  await check("every attribution string exists in BOTH languages", () => {
-    // The row's words are built by concatenation, so a missing key would show
-    // a raw dotted identifier to a user. Read as source, because importing
-    // i18n here would pull expo-localization.
-    const { readFileSync } = require("node:fs") as typeof import("node:fs");
-    const source = readFileSync(require.resolve("../i18n"), "utf8");
+  await check("every attribution string renders in all three languages", () => {
     for (const key of [
       "entry.addedBy",
       "entry.editedBy",
@@ -447,14 +457,17 @@ async function main() {
       "entry.by.you",
       "entry.by.someone",
     ]) {
-      const occurrences = source.split(`"${key}":`).length - 1;
-      assert.equal(occurrences, 2, `${key} appears ${occurrences}x, want 2 (en + fa)`);
+      for (const locale of ["en", "fa", "ps"]) {
+        const translated = language.tIn(locale, key, { name: "Actor" });
+        assert.ok(translated && translated !== key, `${locale}: ${key} is translated`);
+        if (key !== "entry.by.you" && key !== "entry.by.someone")
+          assert.ok(translated.includes("Actor"), `${locale}: ${key} interpolates the actor name`);
+      }
     }
     // Every template that takes a name must actually interpolate it.
     for (const key of ["entry.addedBy", "entry.editedBy", "entry.editedByOnly"]) {
-      for (const line of source.split("\n").filter((l) => l.includes(`"${key}":`))) {
-        assert.ok(line.includes("{name}"), `${key} is missing the {name} placeholder: ${line}`);
-      }
+      for (const locale of ["en", "fa", "ps"])
+        assert.ok(language.tIn(locale, key).includes("{name}"), `${locale}: ${key} needs {name}`);
     }
   });
 

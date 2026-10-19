@@ -3,6 +3,8 @@ package mail
 import (
 	"html"
 	"strings"
+
+	"github.com/matee/kaata-backend/internal/locale"
 )
 
 // Kind names one transactional email. No free user-supplied text ever reaches
@@ -50,7 +52,19 @@ var copyFA = map[Kind]copyText{
 	KindPasswordRemoved:   {"رمز کاتای شما حذف شد", "رمز حساب کاتای شما حذف شد. اکنون تنها با گوگل یا اپل می‌توانید وارد شوید. از این حساب در تلفون‌هایی که با رمز وارد شده بودند، خارج شدید. اگر خودتان این کار را کرده‌اید، کاری لازم نیست. اگر نه، کاتا را باز کنید، با گوگل یا اپل وارد شوید و تنظیمات حساب را بررسی کنید."},
 }
 
+var copyPS = map[Kind]copyText{
+	KindSignupCode:        {"ستاسو د کاټه د نوم‌لیکنې کوډ", "د خپل کاټه حساب جوړولو د بشپړولو لپاره دا کوډ وکاروئ:"},
+	KindResetCode:         {"د کاټه پټنوم مو بیا وټاکئ", "د خپل کاټه حساب لپاره د نوي پټنوم ټاکلو په موخه دا کوډ وکاروئ:"},
+	KindSetupCode:         {"ستاسو د کاټه کوډ", "خپل کاټه حساب ته د پټنوم زیاتولو لپاره دا کوډ وکاروئ:"},
+	KindAccountExists:     {"تاسو له مخکې د کاټه حساب لرئ", "یو چا، ښايي تاسو، هڅه کړې چې په دې برېښنالیک د کاټه حساب جوړ کړي، خو تاسو له مخکې حساب لرئ. په خپل پټنوم ننوځئ، یا په اپ کې «پټنوم مو هېر شوی؟» ووهئ او نوی پټنوم وټاکئ. که دا کار تاسو نه وي کړی، دا برېښنالیک له پامه وغورځوئ."},
+	KindProviderOnly:      {"د ګوګل یا اپل له لارې کاټه ته ننوځئ", "ستاسو د کاټه حساب د ګوګل یا اپل له لارې پرانیستل کېږي او لا پټنوم نه لري. د ننوتلو لپاره هماغه تڼۍ ووهئ. تر ننوتلو وروسته د حساب په امستنو کې پټنوم زیاتولای شئ. که دا کار تاسو نه وي کړی، دا برېښنالیک له پامه وغورځوئ."},
+	KindPasswordChanged:   {"ستاسو د کاټه پټنوم بدل شو", "ستاسو د کاټه حساب پټنوم همدا اوس وټاکل شو یا بدل شو. که دا کار تاسو کړی وي، بل کار ته اړتیا نشته. که مو نه وي کړی، همدا اوس کاټه پرانیزئ او «پټنوم مو هېر شوی؟» ووهئ چې نوی پټنوم وټاکئ؛ په دې سره به ستاسو حساب په نورو ټولو ټیلیفونونو کې ووځي."},
+	KindPasswordElsewhere: {"کاټه ته څنګه ننوځئ", "یو چا، ښايي تاسو، د دې پتې لپاره د کاټه کوډ غوښتی دی. ستاسو د کاټه حساب د ګوګل یا اپل له لارې پرانیستل کېږي، خو د پټنوم له لارې د ننوتلو لپاره مو بله برېښنالیک پته، {address}، کارولې ده. د پټنوم د بیا ټاکلو کوډونه هغې پتې ته لېږل کېږي. که هغه پته نه پېژنئ، د ګوګل یا اپل له لارې ننوځئ، «حساب» او بیا «ننوتل» پرانیزئ او پټنوم لرې کړئ. که نه، دا برېښنالیک له پامه غورځولای شئ."},
+	KindPasswordRemoved:   {"ستاسو د کاټه پټنوم لرې شو", "ستاسو د کاټه حساب پټنوم لرې شو. اوس یوازې د ګوګل یا اپل له لارې ننوتلای شئ، او په هغو ټیلیفونونو کې مو حساب ووت چې په پټنوم ورننوتلي وو. که دا کار تاسو کړی وي، بل کار ته اړتیا نشته. که مو نه وي کړی، کاټه پرانیزئ، د ګوګل یا اپل له لارې ننوځئ او د حساب امستنې وګورئ."},
+}
+
 const (
+	footerPS = "دا کوډ په 15 دقیقو کې باطلېږي. دا کوډ له هېچا سره مه شریکوئ. که تاسو نه وي غوښتی، دا برېښنالیک له پامه وغورځوئ."
 	footerEN = "It expires in 15 minutes. Never share this code with anyone. If you didn't ask for it, ignore this email."
 	footerFA = "این کود پس از 15 دقیقه باطل می‌شود. این کود را با هیچ‌کس شریک نکنید. اگر شما آن را نخواسته‌اید، این ایمیل را نادیده بگیرید."
 )
@@ -60,13 +74,8 @@ func (k Kind) HasCode() bool {
 	return k == KindSignupCode || k == KindResetCode || k == KindSetupCode
 }
 
-// Lang returns the template language for a request's lang: "fa" or "en".
-func Lang(lang string) string {
-	if strings.EqualFold(strings.TrimSpace(lang), "fa") {
-		return "fa"
-	}
-	return "en"
-}
+// Lang returns the supported language, accepting regional tags and Dari prs.
+func Lang(lang string) string { return locale.Normalize(lang) }
 
 // MaskAddress shows the first character of the local part and the whole
 // domain ("t***@evil.af"): enough for the owner to recognize the mailbox.
@@ -78,7 +87,7 @@ func MaskAddress(addr string) string {
 	return addr[:1] + "***" + addr[at:]
 }
 
-// Render builds one message. lang "fa" selects Dari, anything else English.
+// Render builds a message in English, Dari or Pashto.
 // The code is never in the subject: lock-screen previews show the opening
 // sentence, and the code only after it.
 func Render(kind Kind, lang, to, code string) Message {
@@ -92,10 +101,13 @@ func RenderElsewhere(lang, to, maskedAddress string) Message {
 }
 
 func render(kind Kind, lang, to, code, address string) Message {
-	fa := Lang(lang) == "fa"
+	lang = Lang(lang)
+	rtl := locale.RTL(lang)
 	table, footer, dir, htmlLang := copyEN, footerEN, "ltr", "en"
-	if fa {
+	if lang == "fa" {
 		table, footer, dir, htmlLang = copyFA, footerFA, "rtl", "fa"
+	} else if lang == "ps" {
+		table, footer, dir, htmlLang = copyPS, footerPS, "rtl", "ps"
 	}
 	c := table[kind]
 
@@ -103,8 +115,8 @@ func render(kind Kind, lang, to, code, address string) Message {
 	htmlLead := html.EscapeString(c.lead)
 	if strings.Contains(c.lead, "{address}") {
 		shown := address
-		if fa {
-			shown = "\u2066" + address + "\u2069" // LTR isolate inside Dari text
+		if rtl {
+			shown = "\u2066" + address + "\u2069" // LTR isolate inside RTL text
 		}
 		textLead = strings.ReplaceAll(textLead, "{address}", shown)
 		htmlLead = strings.ReplaceAll(htmlLead, "{address}", `<span dir="ltr">`+html.EscapeString(address)+`</span>`)
@@ -114,8 +126,8 @@ func render(kind Kind, lang, to, code, address string) Message {
 	text.WriteString(textLead)
 	text.WriteString("\n\n")
 	if kind.HasCode() {
-		if fa {
-			// LTR isolate, so the digits keep their order inside Dari text.
+		if rtl {
+			// LTR isolate, so the digits keep their order inside RTL text.
 			text.WriteString("⁦" + code + "⁩")
 		} else {
 			text.WriteString(code)

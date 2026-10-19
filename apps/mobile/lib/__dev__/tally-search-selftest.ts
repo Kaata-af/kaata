@@ -326,7 +326,7 @@ try {
 {
   const day = at(2026, 8, 5);
   for (const calendar of ["gregorian", "jalali", "qamari"] as const) {
-    for (const locale of ["en", "fa"] as const) {
+    for (const locale of ["en", "fa", "ps"] as const) {
       const oneDay = formatDateRangeLabel(
         datePresetRange("today", day, calendar),
         locale,
@@ -345,7 +345,7 @@ try {
           timed.includes(formatFilterClock(localDayStart(day) + 17 * 3_600_000, locale)),
         `${calendar}/${locale}: a timed single day shows both clocks`,
       );
-      if (locale === "fa") assert.ok(!timed.includes("·"), "no middle dot in Dari");
+      if (locale !== "en") assert.ok(!timed.includes("·"), "no middle dot in Dari");
     }
   }
   assert.equal(formatDateRangeLabel(null, "en", "gregorian"), "");

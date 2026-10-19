@@ -1,0 +1,2007 @@
+{
+  "note": "Same current text may need different translations in different contexts. Review by ID; never apply global search/replace.",
+  "groups": [
+    {
+      "locale": "en",
+      "text": "Done",
+      "ids": [
+        "mobile:selection.close",
+        "mobile:common.done"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "Remove",
+      "ids": [
+        "mobile:selection.remove",
+        "mobile:common.remove",
+        "mobile:members.confirm.remove.cta"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "Delete",
+      "ids": [
+        "mobile:selection.delete",
+        "mobile:person.delete.confirm",
+        "mobile:person.sheet.delete"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "Transactions",
+      "ids": [
+        "mobile:selection.summary.transactionsLabel",
+        "mobile:export.doc.transactionsSection"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "Notifications",
+      "ids": [
+        "mobile:inbox.title",
+        "mobile:preferences.notifications.section"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "Sultan",
+      "ids": [
+        "mobile:onboarding.name.placeholder",
+        "web:mock.self.name",
+        "web:mock.name.sultan"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "Last name",
+      "ids": [
+        "mobile:onboarding.lastName.label",
+        "mobile:personEdit.lastName.label"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "Phone number",
+      "ids": [
+        "mobile:onboarding.phone.label",
+        "mobile:personAdd.phone.placeholderGeneric"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "Continue",
+      "ids": [
+        "mobile:onboarding.continue",
+        "mobile:onboardingProfile.continue",
+        "mobile:menu.ble.permRationale.continue",
+        "mobile:vaultPairScan.showIdentity.continue"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "Sign in with Google",
+      "ids": [
+        "mobile:onboardingMode.google.title",
+        "mobile:menu.account.signIn"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "Sign in with Apple",
+      "ids": [
+        "mobile:onboardingMode.apple.title",
+        "mobile:menu.account.signIn.apple"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "Back",
+      "ids": [
+        "mobile:onboardingMode.back",
+        "mobile:common.back",
+        "mobile:peopleRemoved.emptyCta"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "Sign in with email",
+      "ids": [
+        "mobile:auth.email.signIn.title",
+        "mobile:menu.account.signIn.email"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "Sign in",
+      "ids": [
+        "mobile:auth.email.signIn.submit",
+        "mobile:menu.account.signIn.choose",
+        "mobile:inviteAccept.signin.cta"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "Email",
+      "ids": [
+        "mobile:auth.email.email",
+        "mobile:account.signin.email",
+        "mobile:invite.email.label",
+        "web:invite.email"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "Too many tries. Wait a few minutes, then try again.",
+      "ids": [
+        "mobile:auth.error.tooManyAttempts",
+        "mobile:auth.error.rateLimited"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "Too many tries. Try again in {time}.",
+      "ids": [
+        "mobile:auth.error.tooManyAttempts.wait",
+        "mobile:auth.error.rateLimited.wait"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "Kaata name",
+      "ids": [
+        "mobile:onboardingKaata.name.label",
+        "mobile:vaultSettings.name.label"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "Ahmad Grocery Store",
+      "ids": [
+        "mobile:onboardingKaata.name.placeholder",
+        "mobile:vaultNew.name.placeholder"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "Currency",
+      "ids": [
+        "mobile:onboardingKaata.currency.label",
+        "mobile:preferences.currency.section",
+        "mobile:vaultNew.currency.label",
+        "mobile:vaultSettings.currency.label",
+        "mobile:export.record.currency"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "How kaata works",
+      "ids": [
+        "mobile:guide.title",
+        "mobile:menu.guide"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "Restore from cloud",
+      "ids": [
+        "mobile:onboardingRestore.restore.title",
+        "mobile:vaultArchived.restoreFromCloud"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "Start fresh",
+      "ids": [
+        "mobile:onboardingRestore.fresh.title",
+        "mobile:onboardingRestore.startFresh"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "Restoring your kaata…",
+      "ids": [
+        "mobile:onboardingRestore.restoring",
+        "mobile:restoreProgress.vaultOne"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "Try again",
+      "ids": [
+        "mobile:onboardingRestore.tryAgain",
+        "mobile:common.tryAgain",
+        "web:invite.tryAgain"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "Cancel",
+      "ids": [
+        "mobile:account.differentAccount.cancel",
+        "mobile:common.cancel",
+        "mobile:restore.confirm.cancel",
+        "mobile:vaultSettings.leave.lastOwner.cancel"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "Preferences",
+      "ids": [
+        "mobile:preferences.title",
+        "mobile:account.preferences.section"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "Reminders",
+      "ids": [
+        "mobile:preferences.notifications.reminders",
+        "mobile:reminders.title"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "App health",
+      "ids": [
+        "mobile:preferences.diagnostics.row",
+        "mobile:account.appHealth.section",
+        "mobile:diagnostics.title"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "To collect",
+      "ids": [
+        "mobile:home.tab.collect",
+        "mobile:home.total.label.collect",
+        "web:home.tab.collect",
+        "web:home.total.label.collect"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "To pay",
+      "ids": [
+        "mobile:home.tab.pay",
+        "mobile:home.total.label.pay",
+        "web:home.tab.pay"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "from {count} people",
+      "ids": [
+        "mobile:home.from.many",
+        "web:home.from.many"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "Clear search",
+      "ids": [
+        "mobile:person.search.clear",
+        "mobile:search.clearQuery"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "Search customers",
+      "ids": [
+        "mobile:customers.search",
+        "mobile:groups.members.search",
+        "web:customers.search"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "Remove {name}?",
+      "ids": [
+        "mobile:groups.archiveTitle",
+        "mobile:common.remove.title"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "Default credit limit",
+      "ids": [
+        "mobile:credit.defaultTitle",
+        "mobile:credit.defaultRow"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "Date",
+      "ids": [
+        "mobile:reminders.date",
+        "mobile:export.col.date"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "settled",
+      "ids": [
+        "mobile:person.row.settled",
+        "mobile:personAdd.rightAmount.settled"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "Name",
+      "ids": [
+        "mobile:personEdit.name.label",
+        "mobile:export.col.person"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "Save changes",
+      "ids": [
+        "mobile:personEdit.save",
+        "mobile:entry.saveChanges",
+        "mobile:account.save"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "Ahmad",
+      "ids": [
+        "mobile:personAdd.firstName.placeholder",
+        "web:mock.name.ahmad"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "Note",
+      "ids": [
+        "mobile:entry.note.label",
+        "mobile:export.col.note"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "Save",
+      "ids": [
+        "mobile:entry.save",
+        "mobile:vaultSettings.name.save"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "Added by {name}",
+      "ids": [
+        "mobile:entry.addedBy",
+        "mobile:tab.addedBy"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "This Kaata is archived. Restore it or pick another.",
+      "ids": [
+        "mobile:entry.vaultArchived",
+        "mobile:home.fab.blockedArchived"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "Entry deleted",
+      "ids": [
+        "mobile:entry.deleted",
+        "mobile:auditLog.kind.local.entryDeleted"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "Open settings",
+      "ids": [
+        "mobile:contacts.permission.button",
+        "mobile:menu.ble.permDenied.openSettings",
+        "mobile:menu.battery.confirm"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "Salaam {name}.",
+      "ids": [
+        "mobile:share.greeting",
+        "web:share.greeting"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "Your kaata at {accountWith}:",
+      "ids": [
+        "mobile:share.theyOwe.header",
+        "web:share.theyOwe.header"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "🔴 You owe: −{amount} {currency}",
+      "ids": [
+        "mobile:share.theyOwe.amount",
+        "web:share.theyOwe.amount"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "Please settle when you can.",
+      "ids": [
+        "mobile:share.theyOwe.cta",
+        "web:share.theyOwe.cta"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "— Sent via www.kaata.af",
+      "ids": [
+        "mobile:share.footer",
+        "web:share.footer"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "kaata.",
+      "ids": [
+        "mobile:brand.wordmark",
+        "web:brand.wordmark"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "just now",
+      "ids": [
+        "mobile:format.justNow",
+        "mobile:vaultArchived.relative.justNow",
+        "mobile:menu.sync.justNow",
+        "mobile:auditLog.relative.justNow",
+        "mobile:peopleRemoved.relative.justNow"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "{n}m ago",
+      "ids": [
+        "mobile:format.minutesAgo",
+        "mobile:auditLog.relative.minutesAgo",
+        "mobile:peopleRemoved.relative.minutesAgo"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "{n}h ago",
+      "ids": [
+        "mobile:format.hoursAgo",
+        "mobile:auditLog.relative.hoursAgo",
+        "mobile:peopleRemoved.relative.hoursAgo"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "yesterday",
+      "ids": [
+        "mobile:format.yesterday",
+        "web:format.yesterday"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "{n}d ago",
+      "ids": [
+        "mobile:format.daysAgo",
+        "mobile:auditLog.relative.daysAgo",
+        "mobile:peopleRemoved.relative.daysAgo",
+        "web:format.daysAgo"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "{n}w ago",
+      "ids": [
+        "mobile:format.weeksAgo",
+        "web:format.weeksAgo"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "Dismiss",
+      "ids": [
+        "mobile:updateBanner.dismiss",
+        "mobile:backupNag.dismiss"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "Not now",
+      "ids": [
+        "mobile:common.notNow",
+        "mobile:menu.ble.permRationale.cancel",
+        "mobile:menu.ble.permDenied.cancel"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "Back to Kaata",
+      "ids": [
+        "mobile:common.backToKaata",
+        "web:notFound.back",
+        "web:invite.backHome"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "Sign in to continue",
+      "ids": [
+        "mobile:common.signInToContinue",
+        "mobile:auth.redirect.title"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "Restore",
+      "ids": [
+        "mobile:vaultArchived.restoreButton",
+        "mobile:peopleRemoved.restoreButton"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "{n} min ago",
+      "ids": [
+        "mobile:vaultArchived.relative.minutesAgo",
+        "mobile:menu.sync.minAgo"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "{n} hr ago",
+      "ids": [
+        "mobile:vaultArchived.relative.hoursAgo",
+        "mobile:menu.sync.hrAgo"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "{n} d ago",
+      "ids": [
+        "mobile:vaultArchived.relative.daysAgo",
+        "mobile:menu.sync.dayAgo"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "Account",
+      "ids": [
+        "mobile:menu.account",
+        "mobile:account.title"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "Sign out",
+      "ids": [
+        "mobile:menu.account.signOut",
+        "mobile:menu.account.signOut.confirm.cta"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "Set a password",
+      "ids": [
+        "mobile:account.signin.password.set",
+        "mobile:accountPassword.title.set"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "Change password",
+      "ids": [
+        "mobile:account.signin.password.change",
+        "mobile:accountPassword.title.change",
+        "mobile:accountPassword.change.submit"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "Remove password",
+      "ids": [
+        "mobile:account.signin.password.remove",
+        "mobile:accountPassword.remove.cta"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "Username",
+      "ids": [
+        "mobile:account.signin.username",
+        "mobile:accountUsername.title"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "Delete account",
+      "ids": [
+        "mobile:account.deleteAccount.label",
+        "mobile:account.deleteAccount.confirm.cta",
+        "web:footer.deleteAccount"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "Name is required",
+      "ids": [
+        "mobile:vaultNew.name.required",
+        "mobile:vaultSettings.name.required"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "Allow camera",
+      "ids": [
+        "mobile:vaultPair.twoWay.camera.headline",
+        "mobile:vaultPair.twoWay.camera.allow",
+        "mobile:vaultPairScan.permission.allow"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "Link ready to share",
+      "ids": [
+        "mobile:vaultPair.shareLinkReady",
+        "mobile:invite.copy.fallback"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "Kaata not found",
+      "ids": [
+        "mobile:vaultPair.vaultNotFound",
+        "mobile:vaultSettings.toast.notFound"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "Owner",
+      "ids": [
+        "mobile:vaultPair.role.owner",
+        "mobile:vaultSettings.role.owner"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "Editor",
+      "ids": [
+        "mobile:vaultPair.role.editor",
+        "mobile:vaultSettings.role.editor",
+        "mobile:invite.role.editor"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "Viewer",
+      "ids": [
+        "mobile:vaultPair.role.viewer",
+        "mobile:vaultSettings.role.viewer",
+        "mobile:invite.role.viewer"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "Join",
+      "ids": [
+        "mobile:vaultPairScan.confirm.prefix",
+        "mobile:tab.join.join"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "as {role}",
+      "ids": [
+        "mobile:vaultPairScan.confirm.asRole",
+        "web:invite.asRole"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "Join {name}?",
+      "ids": [
+        "mobile:pairLink.confirm.title",
+        "mobile:inviteAccept.confirm.title"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "Clerk",
+      "ids": [
+        "mobile:vaultSettings.role.clerk",
+        "mobile:invite.role.clerk"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "Members",
+      "ids": [
+        "mobile:vaultSettings.section.members",
+        "mobile:vaultSettings.row.members",
+        "mobile:members.title"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "Activity",
+      "ids": [
+        "mobile:vaultSettings.section.activity",
+        "mobile:auditLog.title"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "No active Kaata",
+      "ids": [
+        "mobile:vaultSettings.toast.noActive",
+        "mobile:members.toast.noActive",
+        "mobile:invite.toast.noActive",
+        "mobile:auditLog.toast.noActive"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "Kaata renamed",
+      "ids": [
+        "mobile:vaultSettings.toast.saved",
+        "mobile:auditLog.kind.local.renamed"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "Kaata archived",
+      "ids": [
+        "mobile:vaultSettings.toast.archived",
+        "mobile:vaultSettings.archive.success",
+        "mobile:auditLog.kind.vaultArchived"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "Invite member",
+      "ids": [
+        "mobile:vaultSettings.row.invite",
+        "mobile:invite.title"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "Transfer ownership",
+      "ids": [
+        "mobile:vaultSettings.row.transfer",
+        "mobile:vaultSettings.leave.lastOwner.transfer",
+        "mobile:ownershipTransfer.title",
+        "mobile:members.sheet.transfer"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "Kaata unarchived",
+      "ids": [
+        "mobile:vaultSettings.toast.unarchived",
+        "mobile:auditLog.kind.vaultUnarchived"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "Expires {when}",
+      "ids": [
+        "mobile:ownershipTransfer.expires",
+        "mobile:members.expiresLabel"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "soon",
+      "ids": [
+        "mobile:members.expiresIn.soon",
+        "mobile:invite.expiresIn.soon",
+        "web:invite.expires.soon"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "Member removed",
+      "ids": [
+        "mobile:members.toast.removed",
+        "mobile:auditLog.kind.memberRevoked"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "Invitation sent",
+      "ids": [
+        "mobile:invite.result.sent",
+        "mobile:auditLog.kind.inviteIssued"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "Copy link",
+      "ids": [
+        "mobile:invite.copy",
+        "mobile:tab.share.copy"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "Link copied",
+      "ids": [
+        "mobile:invite.copy.done",
+        "mobile:tab.copied"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "Something went wrong",
+      "ids": [
+        "mobile:inviteAccept.error.title",
+        "web:invite.error.server.title"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "{n}mo ago",
+      "ids": [
+        "mobile:auditLog.relative.monthsAgo",
+        "mobile:peopleRemoved.relative.monthsAgo"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "Export kaata",
+      "ids": [
+        "mobile:vaultSettings.row.export",
+        "mobile:vaultSettings.export.sheetTitle"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "Export failed. Try again.",
+      "ids": [
+        "mobile:vaultSettings.toast.exportFailed",
+        "mobile:personEdit.exportFailed"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "{n} entries",
+      "ids": [
+        "mobile:export.doc.entriesCount",
+        "mobile:peopleRemoved.entryCount"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "Balance",
+      "ids": [
+        "mobile:export.doc.balance",
+        "mobile:export.col.balance",
+        "mobile:tab.join.balanceLabel"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "People",
+      "ids": [
+        "mobile:export.doc.peopleSection",
+        "mobile:vaultSettings.section.people"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "Pending",
+      "ids": [
+        "mobile:export.record.pending",
+        "mobile:tab.status.pending"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "Accepted",
+      "ids": [
+        "mobile:export.record.accepted",
+        "mobile:tab.status.accepted",
+        "mobile:tab.accepted"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "Rejected",
+      "ids": [
+        "mobile:export.record.rejected",
+        "mobile:tab.status.disputed"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "Removed people",
+      "ids": [
+        "mobile:vaultSettings.row.removedPeople",
+        "mobile:peopleRemoved.title"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "This shared account was closed.",
+      "ids": [
+        "mobile:tab.closed",
+        "mobile:tab.join.closed"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "Shared account",
+      "ids": [
+        "mobile:tab.join.title",
+        "mobile:tab.notify.fallbackTitle"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "Product",
+      "ids": [
+        "web:nav.product",
+        "web:footer.product"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "How it works",
+      "ids": [
+        "web:nav.how",
+        "web:footer.how"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "Download",
+      "ids": [
+        "web:nav.download",
+        "web:footer.download"
+      ]
+    },
+    {
+      "locale": "en",
+      "text": "Download Kaata",
+      "ids": [
+        "web:hero.cta",
+        "web:cta.button"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "تمام",
+      "ids": [
+        "mobile:selection.close",
+        "mobile:common.done"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "حذف",
+      "ids": [
+        "mobile:selection.delete",
+        "mobile:person.delete.confirm",
+        "mobile:person.sheet.delete",
+        "mobile:common.remove",
+        "mobile:members.confirm.remove.cta"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "{count} معامله",
+      "ids": [
+        "mobile:selection.summary.transactions",
+        "mobile:selection.summary.transaction"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "اعلان‌ها",
+      "ids": [
+        "mobile:inbox.title",
+        "mobile:preferences.notifications.section"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "سلطان",
+      "ids": [
+        "mobile:onboarding.name.placeholder",
+        "web:mock.self.name",
+        "web:mock.name.sultan"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "تخلص",
+      "ids": [
+        "mobile:onboarding.lastName.label",
+        "mobile:personEdit.lastName.label"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "شماره تلفون",
+      "ids": [
+        "mobile:onboarding.phone.label",
+        "mobile:personAdd.phone.placeholderGeneric"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "ادامه",
+      "ids": [
+        "mobile:onboarding.continue",
+        "mobile:onboardingProfile.continue",
+        "mobile:menu.ble.permRationale.continue",
+        "mobile:vaultPairScan.showIdentity.continue"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "نام لازم است",
+      "ids": [
+        "mobile:onboarding.nameRequired",
+        "mobile:vaultNew.name.required",
+        "mobile:vaultSettings.name.required"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "شما",
+      "ids": [
+        "mobile:recovery.selfPlaceholderName",
+        "mobile:entry.by.you"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "ورود با گوگل",
+      "ids": [
+        "mobile:onboardingMode.google.title",
+        "mobile:menu.account.signIn"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "ورود با اپل",
+      "ids": [
+        "mobile:onboardingMode.apple.title",
+        "mobile:menu.account.signIn.apple"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "برگشت",
+      "ids": [
+        "mobile:onboardingMode.back",
+        "mobile:common.back"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "ورود با ایمیل",
+      "ids": [
+        "mobile:auth.email.signIn.title",
+        "mobile:menu.account.signIn.email"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "ورود",
+      "ids": [
+        "mobile:auth.email.signIn.submit",
+        "mobile:account.signin.section",
+        "mobile:inviteAccept.signin.cta"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "ساختن حساب",
+      "ids": [
+        "mobile:auth.email.toSignUp",
+        "mobile:auth.email.code.submit"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "ایمیل",
+      "ids": [
+        "mobile:auth.email.email",
+        "mobile:account.signin.email",
+        "mobile:invite.email.label",
+        "web:invite.email"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "3 تا 30 حرف، عدد یا نشانه؛ فقط حرف‌های کوچک انگلیسی، عدد، _ و .؛ با یک حرف شروع شود.",
+      "ids": [
+        "mobile:auth.error.username.format",
+        "mobile:accountUsername.rules"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "تلاش‌ها زیاد شد. چند دقیقه صبر کنید و دوباره امتحان کنید.",
+      "ids": [
+        "mobile:auth.error.tooManyAttempts",
+        "mobile:auth.error.rateLimited"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "تلاش‌ها زیاد شد. پس از {time} دوباره امتحان کنید.",
+      "ids": [
+        "mobile:auth.error.tooManyAttempts.wait",
+        "mobile:auth.error.rateLimited.wait"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "مشخصات شما",
+      "ids": [
+        "mobile:onboardingProfile.title",
+        "mobile:account.profile.section"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "نام کاتا",
+      "ids": [
+        "mobile:onboardingKaata.name.label",
+        "mobile:vaultSettings.name.label"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "خوراکه فروشی احمد",
+      "ids": [
+        "mobile:onboardingKaata.name.placeholder",
+        "mobile:vaultNew.name.placeholder"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "ارز",
+      "ids": [
+        "mobile:onboardingKaata.currency.label",
+        "mobile:preferences.currency.section",
+        "mobile:vaultNew.currency.label",
+        "mobile:vaultSettings.currency.label"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "ساختن کاتا",
+      "ids": [
+        "mobile:onboardingKaata.submit",
+        "mobile:home.noKaata.create"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "کاتا چطور کار می‌کند",
+      "ids": [
+        "mobile:guide.title",
+        "mobile:menu.guide"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "شروع تازه",
+      "ids": [
+        "mobile:onboardingRestore.fresh.title",
+        "mobile:onboardingRestore.startFresh"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "در حال بازیابی کاتای شما…",
+      "ids": [
+        "mobile:onboardingRestore.restoring",
+        "mobile:restoreProgress.vaultOne"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "لغو",
+      "ids": [
+        "mobile:account.differentAccount.cancel",
+        "mobile:common.cancel",
+        "mobile:restore.confirm.cancel",
+        "mobile:vaultSettings.leave.lastOwner.cancel"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "یادآوری‌ها",
+      "ids": [
+        "mobile:preferences.notifications.reminders",
+        "mobile:reminders.title"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "به‌زودی",
+      "ids": [
+        "mobile:preferences.comingSoon",
+        "web:invite.expires.soon"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "وضعیت برنامه",
+      "ids": [
+        "mobile:preferences.diagnostics.row",
+        "mobile:account.appHealth.section",
+        "mobile:diagnostics.title"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "وصول",
+      "ids": [
+        "mobile:home.tab.collect",
+        "web:home.tab.collect"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "پرداخت",
+      "ids": [
+        "mobile:home.tab.pay",
+        "web:home.tab.pay"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "قابل وصول",
+      "ids": [
+        "mobile:home.total.label.collect",
+        "web:home.total.label.collect"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "از {count} نفر",
+      "ids": [
+        "mobile:home.from.many",
+        "web:home.from.many"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "دادم",
+      "ids": [
+        "mobile:person.action.iGave",
+        "mobile:export.col.gave"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "گرفتم",
+      "ids": [
+        "mobile:person.action.iReceived",
+        "mobile:export.col.received"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "هنوز ثبتی نیست",
+      "ids": [
+        "mobile:person.empty.title",
+        "mobile:customers.noTallies",
+        "mobile:person.row.noEntries"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "پاک‌کردن جستجو",
+      "ids": [
+        "mobile:person.search.clear",
+        "mobile:search.clearQuery"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "جستجوی مشتری‌ها",
+      "ids": [
+        "mobile:customers.search",
+        "web:customers.search"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "{count} مشتری",
+      "ids": [
+        "mobile:groups.memberCountOne",
+        "mobile:groups.memberCount"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "{name} حذف شود؟",
+      "ids": [
+        "mobile:groups.archiveTitle",
+        "mobile:common.remove.title"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "حد قرض پیش‌فرض",
+      "ids": [
+        "mobile:credit.defaultTitle",
+        "mobile:credit.defaultRow"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "تاریخ",
+      "ids": [
+        "mobile:reminders.date",
+        "mobile:export.col.date"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "{count} ثبت پیدا شد · بیلانس شامل همه ثبت‌ها است",
+      "ids": [
+        "mobile:person.search.result",
+        "mobile:person.search.results"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "تصفیه",
+      "ids": [
+        "mobile:person.row.settled",
+        "mobile:personAdd.rightAmount.settled"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "نام",
+      "ids": [
+        "mobile:personEdit.name.label",
+        "mobile:personEdit.firstName.label",
+        "mobile:export.col.person"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "ذخیره تغییرات",
+      "ids": [
+        "mobile:personEdit.save",
+        "mobile:entry.saveChanges",
+        "mobile:account.save"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "احمد",
+      "ids": [
+        "mobile:personAdd.firstName.placeholder",
+        "web:mock.name.ahmad"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "یادداشت",
+      "ids": [
+        "mobile:entry.note.label",
+        "mobile:export.col.note"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "ذخیره",
+      "ids": [
+        "mobile:entry.save",
+        "mobile:vaultSettings.name.save"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "ثبت‌شده توسط {name}",
+      "ids": [
+        "mobile:entry.addedBy",
+        "mobile:tab.addedBy"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "این کاتا بایگانی شده است. آن را بازیابی کنید یا کاتای دیگری انتخاب کنید.",
+      "ids": [
+        "mobile:entry.vaultArchived",
+        "mobile:home.fab.blockedArchived"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "باز کردن تنظیمات",
+      "ids": [
+        "mobile:contacts.permission.button",
+        "mobile:menu.ble.permDenied.openSettings",
+        "mobile:menu.battery.confirm"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "سلام {name}.",
+      "ids": [
+        "mobile:share.greeting",
+        "web:share.greeting"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "کاتای شما با {accountWith}:",
+      "ids": [
+        "mobile:share.theyOwe.header",
+        "web:share.theyOwe.header"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "🔴 قرض شما: −{amount} {currency}",
+      "ids": [
+        "mobile:share.theyOwe.amount",
+        "web:share.theyOwe.amount"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "لطفاً وقتی توانستید تصفیه کنید.",
+      "ids": [
+        "mobile:share.theyOwe.cta",
+        "web:share.theyOwe.cta"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "پیام از طرف www.kaata.af",
+      "ids": [
+        "mobile:share.footer",
+        "web:share.footer"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "کاتا.",
+      "ids": [
+        "mobile:brand.wordmark",
+        "web:brand.wordmark"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "همین حالا",
+      "ids": [
+        "mobile:format.justNow",
+        "mobile:menu.sync.justNow",
+        "mobile:auditLog.relative.justNow",
+        "mobile:peopleRemoved.relative.justNow",
+        "mobile:diagnostics.section.now"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "{n} دقیقه پیش",
+      "ids": [
+        "mobile:format.minutesAgo",
+        "mobile:vaultArchived.relative.minutesAgo",
+        "mobile:menu.sync.minAgo",
+        "mobile:auditLog.relative.minutesAgo",
+        "mobile:peopleRemoved.relative.minutesAgo"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "{n} ساعت پیش",
+      "ids": [
+        "mobile:format.hoursAgo",
+        "mobile:vaultArchived.relative.hoursAgo",
+        "mobile:menu.sync.hrAgo",
+        "mobile:auditLog.relative.hoursAgo",
+        "mobile:peopleRemoved.relative.hoursAgo"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "دیروز",
+      "ids": [
+        "mobile:format.yesterday",
+        "web:format.yesterday"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "{n} روز پیش",
+      "ids": [
+        "mobile:format.daysAgo",
+        "mobile:vaultArchived.relative.daysAgo",
+        "mobile:menu.sync.dayAgo",
+        "mobile:auditLog.relative.daysAgo",
+        "mobile:peopleRemoved.relative.daysAgo",
+        "web:format.daysAgo"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "{n} هفته پیش",
+      "ids": [
+        "mobile:format.weeksAgo",
+        "web:format.weeksAgo"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "بستن",
+      "ids": [
+        "mobile:updateBanner.dismiss",
+        "mobile:backupNag.dismiss",
+        "mobile:common.close"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "حالا نه",
+      "ids": [
+        "mobile:common.notNow",
+        "mobile:menu.ble.permRationale.cancel",
+        "mobile:menu.ble.permDenied.cancel"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "برای ادامه وارد شوید",
+      "ids": [
+        "mobile:common.signInToContinue",
+        "mobile:auth.redirect.title"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "اسکن کود جفت‌سازی",
+      "ids": [
+        "mobile:menu.allKaatas.scan",
+        "mobile:vaultPairScan.title"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "بایگانی",
+      "ids": [
+        "mobile:vaultArchived.title",
+        "mobile:vaultSettings.confirm.archive.cta"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "{n} ماه پیش",
+      "ids": [
+        "mobile:vaultArchived.relative.monthsAgo",
+        "mobile:auditLog.relative.monthsAgo",
+        "mobile:peopleRemoved.relative.monthsAgo"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "{count} عضو",
+      "ids": [
+        "mobile:members.singular",
+        "mobile:members.plural"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "حساب",
+      "ids": [
+        "mobile:menu.account",
+        "mobile:account.title"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "خروج",
+      "ids": [
+        "mobile:menu.account.signOut",
+        "mobile:menu.account.signOut.confirm.cta",
+        "mobile:vaultSettings.confirm.leave.cta"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "گذاشتن رمز",
+      "ids": [
+        "mobile:account.signin.password.set",
+        "mobile:accountPassword.title.set"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "تغییر رمز",
+      "ids": [
+        "mobile:account.signin.password.change",
+        "mobile:accountPassword.title.change",
+        "mobile:accountPassword.change.submit"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "حذف رمز",
+      "ids": [
+        "mobile:account.signin.password.remove",
+        "mobile:accountPassword.remove.cta"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "نام کاربری",
+      "ids": [
+        "mobile:account.signin.username",
+        "mobile:accountUsername.title"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "حذف حساب",
+      "ids": [
+        "mobile:account.deleteAccount.label",
+        "mobile:account.deleteAccount.confirm.cta",
+        "web:footer.deleteAccount"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "اجازه کمره",
+      "ids": [
+        "mobile:vaultPair.twoWay.camera.headline",
+        "mobile:vaultPair.twoWay.camera.allow"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "لینک آماده اشتراک",
+      "ids": [
+        "mobile:vaultPair.shareLinkReady",
+        "mobile:invite.copy.fallback"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "کاتای فعال نیست",
+      "ids": [
+        "mobile:vaultPair.noActiveKaata",
+        "mobile:vaultSettings.toast.noActive",
+        "mobile:members.toast.noActive",
+        "mobile:invite.toast.noActive",
+        "mobile:auditLog.toast.noActive"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "کاتا پیدا نشد",
+      "ids": [
+        "mobile:vaultPair.vaultNotFound",
+        "mobile:vaultSettings.toast.notFound"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "مالک",
+      "ids": [
+        "mobile:vaultPair.role.owner",
+        "mobile:vaultSettings.role.owner",
+        "web:invite.role.owner"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "ویرایشگر",
+      "ids": [
+        "mobile:vaultPair.role.editor",
+        "mobile:vaultSettings.role.editor",
+        "mobile:invite.role.editor",
+        "web:invite.role.editor"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "بیننده",
+      "ids": [
+        "mobile:vaultPair.role.viewer",
+        "mobile:vaultSettings.role.viewer",
+        "mobile:invite.role.viewer",
+        "web:invite.role.viewer"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "جفت‌سازی ناکام شد",
+      "ids": [
+        "mobile:vaultPairScan.error.headline",
+        "mobile:vaultPairScan.error.generic"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "به عنوان {role}",
+      "ids": [
+        "mobile:vaultPairScan.confirm.asRole",
+        "web:invite.asRole"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "به {name} بپیوندید؟",
+      "ids": [
+        "mobile:pairLink.confirm.title",
+        "mobile:inviteAccept.confirm.title"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "ثبت‌کننده",
+      "ids": [
+        "mobile:vaultSettings.role.clerk",
+        "mobile:invite.role.clerk",
+        "mobile:export.record.author"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "اعضا",
+      "ids": [
+        "mobile:vaultSettings.section.members",
+        "mobile:vaultSettings.row.members",
+        "mobile:members.title"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "فعالیت",
+      "ids": [
+        "mobile:vaultSettings.section.activity",
+        "mobile:auditLog.title"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "نام کاتا تغییر کرد",
+      "ids": [
+        "mobile:vaultSettings.toast.saved",
+        "mobile:auditLog.kind.local.renamed"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "کاتا بایگانی شد",
+      "ids": [
+        "mobile:vaultSettings.toast.archived",
+        "mobile:vaultSettings.archive.success",
+        "mobile:auditLog.kind.vaultArchived"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "دعوت عضو",
+      "ids": [
+        "mobile:vaultSettings.row.invite",
+        "mobile:invite.title"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "انتقال مالکیت",
+      "ids": [
+        "mobile:vaultSettings.row.transfer",
+        "mobile:vaultSettings.leave.lastOwner.transfer",
+        "mobile:ownershipTransfer.title",
+        "mobile:members.sheet.transfer"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "کاتا از بایگانی خارج شد",
+      "ids": [
+        "mobile:vaultSettings.toast.unarchived",
+        "mobile:auditLog.kind.vaultUnarchived"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "به زودی",
+      "ids": [
+        "mobile:members.expiresIn.soon",
+        "mobile:invite.expiresIn.soon"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "در {hours} ساعت",
+      "ids": [
+        "mobile:members.expiresIn.hours",
+        "mobile:invite.expiresIn.hours"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "در {days} روز",
+      "ids": [
+        "mobile:members.expiresIn.days",
+        "mobile:invite.expiresIn.days"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "عضو حذف شد",
+      "ids": [
+        "mobile:members.toast.removed",
+        "mobile:auditLog.kind.memberRevoked"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "دعوت ارسال شد",
+      "ids": [
+        "mobile:invite.result.sent",
+        "mobile:auditLog.kind.inviteIssued"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "کپی لینک",
+      "ids": [
+        "mobile:invite.copy",
+        "mobile:tab.share.copy"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "لینک کپی شد",
+      "ids": [
+        "mobile:invite.copy.done",
+        "mobile:tab.copied"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "رد کردن",
+      "ids": [
+        "mobile:inviteAccept.confirm.decline",
+        "mobile:tab.reject"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "مشکلی پیش آمد",
+      "ids": [
+        "mobile:inviteAccept.error.title",
+        "web:invite.error.server.title"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "گزارش کاتا",
+      "ids": [
+        "mobile:vaultSettings.row.export",
+        "mobile:vaultSettings.export.sheetTitle",
+        "mobile:export.doc.summaryTitle"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "صورت حساب",
+      "ids": [
+        "mobile:personEdit.export",
+        "mobile:export.doc.statementTitle"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "{n} ثبت",
+      "ids": [
+        "mobile:export.doc.entriesCount",
+        "mobile:peopleRemoved.entryCount"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "باقی‌مانده",
+      "ids": [
+        "mobile:export.doc.balance",
+        "mobile:export.col.balance",
+        "mobile:tab.join.balanceLabel"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "در انتظار",
+      "ids": [
+        "mobile:export.record.pending",
+        "mobile:tab.status.pending"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "پذیرفته شده",
+      "ids": [
+        "mobile:export.record.accepted",
+        "mobile:tab.status.accepted"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "رد شده",
+      "ids": [
+        "mobile:export.record.rejected",
+        "mobile:tab.status.disputed"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "اشخاص حذف‌شده",
+      "ids": [
+        "mobile:vaultSettings.row.removedPeople",
+        "mobile:peopleRemoved.title"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "این حساب مشترک بسته شده است.",
+      "ids": [
+        "mobile:tab.closed",
+        "mobile:tab.join.closed"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "حساب مشترک",
+      "ids": [
+        "mobile:tab.join.title",
+        "mobile:tab.notify.fallbackTitle"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "طرز کار",
+      "ids": [
+        "web:nav.how",
+        "web:footer.how"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "دانلود",
+      "ids": [
+        "web:nav.download",
+        "web:footer.download"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "دانلود کاتا",
+      "ids": [
+        "web:hero.cta",
+        "web:cta.button"
+      ]
+    },
+    {
+      "locale": "fa",
+      "text": "برگشت به کاتا",
+      "ids": [
+        "web:notFound.back",
+        "web:invite.backHome"
+      ]
+    }
+  ]
+}

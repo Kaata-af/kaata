@@ -103,12 +103,9 @@ class KaataForegroundService : Service() {
     private const val REVIVAL_BOUNCE_MS = 1000L
     private const val REVIVAL_ALARM_REQUEST = 0x6B62
 
-    // Safe English fallbacks for the no-JS sticky-restart case. In practice the
+    // Localized OS-language fallbacks for a no-JS sticky restart. In practice the
     // channel already exists (created by JS on a prior launch) and persisted
     // title/body are present, so these are last-resort defaults only.
-    private const val DEFAULT_TITLE = "Nearby sync is on"
-    private const val DEFAULT_BODY = "Tap to open Kaata"
-    private const val DEFAULT_CHANNEL_NAME = "Nearby sync"
 
     // #43 P2: native-engine window cadence. The window length is just under the
     // tick period, so windows run back-to-back with only a ~5s gap — the native
@@ -537,9 +534,9 @@ class KaataForegroundService : Service() {
     ensureChannel(prefs)
 
     val title =
-      intent?.getStringExtra(EXTRA_TITLE) ?: prefs.getString(KEY_TITLE, null) ?: DEFAULT_TITLE
+      intent?.getStringExtra(EXTRA_TITLE) ?: prefs.getString(KEY_TITLE, null) ?: getString(R.string.kaata_nearby_title)
     val body =
-      intent?.getStringExtra(EXTRA_BODY) ?: prefs.getString(KEY_BODY, null) ?: DEFAULT_BODY
+      intent?.getStringExtra(EXTRA_BODY) ?: prefs.getString(KEY_BODY, null) ?: getString(R.string.kaata_nearby_body)
 
     val launch = packageManager.getLaunchIntentForPackage(packageName)?.apply {
       addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
@@ -574,7 +571,7 @@ class KaataForegroundService : Service() {
     // been set (localized) by the JS layer, and importance is user-controlled
     // after creation anyway.
     if (nm.getNotificationChannel(CHANNEL_ID) != null) return
-    val name = prefs.getString(KEY_CHANNEL_NAME, null) ?: DEFAULT_CHANNEL_NAME
+    val name = prefs.getString(KEY_CHANNEL_NAME, null) ?: getString(R.string.kaata_nearby_channel)
     val desc = prefs.getString(KEY_CHANNEL_DESC, null) ?: ""
     val channel = NotificationChannel(CHANNEL_ID, name, NotificationManager.IMPORTANCE_LOW).apply {
       description = desc

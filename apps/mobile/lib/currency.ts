@@ -24,21 +24,46 @@ export type Currency = {
   // Locale-specific names. `name` is English; `nameFa` is Afghan Dari.
   name: string;
   nameFa: string;
+  namePs: string;
   // Display symbol. Used everywhere amounts render — replaces the letter
   // code (per the user request: ؋ instead of AFN, $ instead of USD, etc.).
   symbol: string;
 };
 
 export const CURRENCIES: ReadonlyArray<Currency> = [
-  { code: "AFN", name: "Afghan Afghani", nameFa: "افغانی", symbol: "؋" },
-  { code: "USD", name: "US Dollar", nameFa: "دالر امریکا", symbol: "$" },
-  { code: "EUR", name: "Euro", nameFa: "یورو", symbol: "€" },
-  { code: "AUD", name: "Australian Dollar", nameFa: "دالر آسترالیا", symbol: "A$" },
-  { code: "GBP", name: "British Pound", nameFa: "پوند انگلیس", symbol: "£" },
-  { code: "PKR", name: "Pakistani Rupee", nameFa: "روپیه پاکستان", symbol: "₨" },
-  { code: "IRR", name: "Iranian Rial", nameFa: "ریال ایران", symbol: "﷼" },
-  { code: "AED", name: "UAE Dirham", nameFa: "درهم امارات", symbol: "د.إ" },
-  { code: "TRY", name: "Turkish Lira", nameFa: "لیره ترکیه", symbol: "₺" },
+  { code: "AFN", name: "Afghan Afghani", nameFa: "افغانی", namePs: "افغانۍ", symbol: "؋" },
+  { code: "USD", name: "US Dollar", nameFa: "دالر امریکا", namePs: "امریکایي ډالر", symbol: "$" },
+  { code: "EUR", name: "Euro", nameFa: "یورو", namePs: "یورو", symbol: "€" },
+  {
+    code: "AUD",
+    name: "Australian Dollar",
+    nameFa: "دالر آسترالیا",
+    namePs: "اسټرالیايي ډالر",
+    symbol: "A$",
+  },
+  {
+    code: "GBP",
+    name: "British Pound",
+    nameFa: "پوند انگلیس",
+    namePs: "برتانوي پونډ",
+    symbol: "£",
+  },
+  {
+    code: "PKR",
+    name: "Pakistani Rupee",
+    nameFa: "روپیه پاکستان",
+    namePs: "پاکستانۍ روپۍ",
+    symbol: "₨",
+  },
+  { code: "IRR", name: "Iranian Rial", nameFa: "ریال ایران", namePs: "ایراني ریال", symbol: "﷼" },
+  {
+    code: "AED",
+    name: "UAE Dirham",
+    nameFa: "درهم امارات",
+    namePs: "د متحده عربي اماراتو درهم",
+    symbol: "د.إ",
+  },
+  { code: "TRY", name: "Turkish Lira", nameFa: "لیره ترکیه", namePs: "ترکي لیره", symbol: "₺" },
 ];
 
 export const DEFAULT_CURRENCY = "AFN";
@@ -69,7 +94,7 @@ export function getCurrentCurrencySymbol(): string {
 // each row reads "؋  افغانی" in Dari and "؋  Afghan Afghani" in English.
 export function getCurrencyName(code: string): string {
   const c = findCurrency(code);
-  return getLocale() === "fa" ? c.nameFa : c.name;
+  return getLocale() === "ps" ? c.namePs : getLocale() === "fa" ? c.nameFa : c.name;
 }
 
 // Display symbol for an arbitrary code (not the active one) — the vault

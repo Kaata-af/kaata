@@ -19,8 +19,8 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { colors } from "../lib/colors";
 import { ltrIsolate, rowDir, textDir, trackingSafe, useIsRTL } from "../lib/direction";
 import { fonts } from "../lib/fonts";
-import { t } from "../lib/i18n";
-import { COUNTRIES } from "../lib/phone";
+import { getLocale, t } from "../lib/i18n";
+import { COUNTRIES, getCountryName } from "../lib/phone";
 import { icon, radius } from "../lib/tokens";
 
 // Slide-up sheet that mirrors BottomSheet's chrome (blur backdrop + tint +
@@ -51,7 +51,10 @@ export function CountryPickerSheet(props: {
   const filtered = q
     ? COUNTRIES.filter(
         (c) =>
+          getCountryName(c.code, getLocale()).toLowerCase().includes(q) ||
           c.name.toLowerCase().includes(q) ||
+          c.nameFa.includes(q) ||
+          c.namePs.includes(q) ||
           c.dialCode.includes(query.trim()) ||
           c.code.toLowerCase().includes(q),
       )
@@ -133,7 +136,7 @@ export function CountryPickerSheet(props: {
                         {c.flag}
                       </Text>
                       <Text style={[styles.name, textDir(isRTL)]} numberOfLines={1}>
-                        {c.name}
+                        {getCountryName(c.code, getLocale())}
                       </Text>
                       <Text style={[styles.dial, isRTL ? styles.dialRTL : styles.dialLTR]}>
                         {ltrIsolate(c.dialCode)}

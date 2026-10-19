@@ -105,7 +105,7 @@ func TestQamariBillDateAndInlineGoldens(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	program := "var calendar='qamari',rtl=false,qamariOffset=0;\n" + viewHTML[start:end] +
+	program := "var calendar='qamari',rtl=false,lang='en',qamariOffset=0;\n" + viewHTML[start:end] +
 		"\nvar cases=" + string(encoded) + ";\nvar offsetCases=" + string(encodedOffsets) + `;
 for(var tc of cases){
   rtl=false;if(fmtDate(tc.ms)!==tc.en) throw new Error('English SSR date '+fmtDate(tc.ms)+' != '+tc.en);

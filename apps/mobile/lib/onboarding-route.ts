@@ -15,6 +15,7 @@ export function parseOnboardingStep(raw: string | null): OnboardingStep | null {
 export function pickInitialRoute(args: {
   hasOnboarded: boolean;
   onboardingStep: OnboardingStep | null;
+  /** Legacy field name: true for recognized Dari or Pashto devices. */
   deviceIsPersian: boolean;
   accountId: string | null;
   restoreSkipped: boolean;
@@ -38,7 +39,7 @@ export function pickInitialRoute(args: {
   if (args.onboardingStep === "kaata") return "onboarding/kaata";
   if (args.onboardingStep === "calendar") return "onboarding/calendar";
   if (args.onboardingStep === "language") return "onboarding/language";
-  // A stale 'done' without a self row is still a fresh setup. Persian devices
+  // A stale 'done' without a self row is still a fresh setup. Dari/Pashto devices
   // already have the right language, but everyone gets to choose their dates.
   return args.deviceIsPersian ? "onboarding/calendar" : "onboarding/language";
 }

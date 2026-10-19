@@ -1,0 +1,537 @@
+{
+  "schemaVersion": 1,
+  "scope": "Repository language integration map and deferred audit scope across mobile, web, backend, public marketing and external surfaces. Read-only source inventory; no app or runtime changes.",
+  "runtimeFiles": [
+    {
+      "id": "web.language-provider",
+      "path": "apps/web/src/lib/i18n.tsx",
+      "line": 20,
+      "scope": "Only en/fa types, stored language, browser detection, document lang/dir and page title; 337–391. Add ps only after reviewed copy is approved."
+    },
+    {
+      "id": "web.language-switcher",
+      "path": "apps/web/src/components/SiteChrome.tsx",
+      "line": 68,
+      "scope": "Two-language toggle en/fa and visible language names; wordmark tracking also checks exact fa at 33 and 104."
+    },
+    {
+      "id": "web.rtl-css",
+      "path": "apps/web/src/globals.css",
+      "line": 55,
+      "scope": "CSS language selector matches only html[lang=\"fa\"]."
+    },
+    {
+      "id": "web.mockup-direction",
+      "path": "apps/web/src/components/PhoneMockups.tsx",
+      "line": 403,
+      "scope": "Preview mockup sets RTL for exact fa; number previews intentionally use en-US."
+    },
+    {
+      "id": "web.bill-language",
+      "path": "apps/web/src/pages/CustomerView.tsx",
+      "line": 303,
+      "scope": "ps is treated as RTL and then gets Dari LABELS.fa. Dates and numbers also choose fa-AF for all RTL."
+    },
+    {
+      "id": "web.bill-calendar",
+      "path": "apps/web/src/lib/customer-dates.ts",
+      "line": 4,
+      "scope": "Calendar defaults follow RTL boolean; month words currently English/Dari."
+    },
+    {
+      "id": "web.outreach-language",
+      "path": "apps/web/src/pages/admin/outreach-model.ts",
+      "line": 245,
+      "scope": "MessageLanguage en/fa; session and per-number selection at 256–293; auto detects fa/prs and sends English for ps; server-stored template overrides exist."
+    },
+    {
+      "id": "web.outreach-api-type",
+      "path": "apps/web/src/pages/admin/api.ts",
+      "line": 419,
+      "scope": "OutreachLang union only empty/en/fa."
+    },
+    {
+      "id": "web.analytics-language-labels",
+      "path": "apps/web/src/pages/admin/Acquisition.tsx",
+      "line": 128,
+      "scope": "Language chart has Dari, English, Unknown; unknown tags display raw locale string."
+    },
+    {
+      "id": "backend.bill-language",
+      "path": "apps/backend/internal/shared/handler.go",
+      "line": 196,
+      "scope": "Snapshot ps/fa -> RTL -> Dari shell and social preview. Unknown-link Accept-Language recognizes fa/prs/ps and shows Dari at 253–259."
+    },
+    {
+      "id": "backend.invite-language",
+      "path": "apps/backend/internal/tabs/view.go",
+      "line": 86,
+      "scope": "Accept-Language first tag fa/prs/ps -> true -> Dari HTML, no Pashto table."
+    },
+    {
+      "id": "backend.email-language",
+      "path": "apps/backend/internal/mail/templates.go",
+      "line": 69,
+      "scope": "Lang accepts exact fa after trimming/case folding; all other values -> en. Controls text, subject, HTML lang and direction."
+    },
+    {
+      "id": "backend.email-request-language",
+      "path": "apps/backend/internal/auth/email_handler.go",
+      "line": 25,
+      "scope": "Several account endpoints accept request lang and pass it to security/verification email paths; 296,321,347–353."
+    },
+    {
+      "id": "backend.email-language-storage",
+      "path": "apps/backend/internal/auth/email_codes.go",
+      "line": 117,
+      "scope": "Code language stored through mail.Lang; notice language fallback in email_account.go:640."
+    },
+    {
+      "id": "backend.push-language-registration",
+      "path": "apps/backend/internal/tabs/push.go",
+      "line": 85,
+      "scope": "Every non-fa registered push locale is rewritten to en. Push copy function uses exact fa."
+    },
+    {
+      "id": "backend.notification-detail-language",
+      "path": "apps/backend/internal/tabs/inbox.go",
+      "line": 235,
+      "scope": "Detailed actor/amount copy uses exact fa; all other values are English."
+    },
+    {
+      "id": "backend.outreach-language-validation",
+      "path": "apps/backend/internal/admin/outreach.go",
+      "line": 123,
+      "scope": "Per-number language validation only empty/en/fa; settings store templates and session language as uninterpreted strings."
+    },
+    {
+      "id": "backend.outreach-db-constraint",
+      "path": "apps/backend/internal/db/migrations/046_outreach_lang.sql",
+      "line": 4,
+      "scope": "DB CHECK allows only empty/en/fa; future ps support requires a new migration."
+    },
+    {
+      "id": "backend.locale-telemetry",
+      "path": "apps/backend/internal/checkin/service.go",
+      "line": 75,
+      "scope": "DeviceLocale and AppLocale stored as strings; AppLocale current value is updated at 296–309. No visible ps rejection here."
+    },
+    {
+      "id": "backend.visit-language-telemetry",
+      "path": "apps/backend/internal/visit/service.go",
+      "line": 35,
+      "scope": "Accept-Language recorded for visits; language telemetry is not a translation table."
+    },
+    {
+      "id": "backend.analytics-language-grouping",
+      "path": "apps/backend/internal/admin/service.go",
+      "line": 382,
+      "scope": "Language dashboard groups raw app_locale; label metadata is in web Acquisition."
+    },
+    {
+      "id": "mobile.catalog-locale-detection",
+      "path": "apps/mobile/lib/i18n.ts",
+      "line": 3911,
+      "scope": "TABLES contains en/fa only; LocaleCode follows its keys. pickLocale() at 3917–3923 maps fa/prs to fa and every other device language, including ps, to en. Reviewed Pashto copy must be registered and detection explicitly extended before enabling it."
+    },
+    {
+      "id": "mobile.catalog-locale-persistence",
+      "path": "apps/mobile/lib/i18n.ts",
+      "line": 3973,
+      "scope": "initLocaleFromPref reads locale_pref from app_meta but accepts only en/fa at 3976. setLocale at 3995 publishes runtime changes to subscribers. Invalid/missing preferences fall back to device detection. Keep this bootstrap sequencing and preference behavior consistent when ps is introduced."
+    },
+    {
+      "id": "mobile.catalog-message-preference",
+      "path": "apps/mobile/lib/i18n.ts",
+      "line": 4010,
+      "scope": "ShareLangPref is auto/ask/LocaleCode; getShareLangPref at 4012–4019 accepts only ask/en/fa. Message language can differ from app UI language; resolveShareLang at 4023 follows the app only for auto."
+    },
+    {
+      "id": "mobile.catalog-fallback-placeholders",
+      "path": "apps/mobile/lib/i18n.ts",
+      "line": 4038,
+      "scope": "tIn uses the selected locale table, then English fallback, and replaces every occurrence of named placeholders via replaceAll. Translation validation must retain exact placeholder names and multiplicity. isPlaceholderSelfName at 4053–4057 explicitly compares only English/Dari restore names and also needs ps coverage."
+    },
+    {
+      "id": "mobile.initialization-and-device-locale",
+      "path": "apps/mobile/app/_layout.tsx",
+      "line": 487,
+      "scope": "Locale initialization runs in the asynchronous boot gate before rendering. At 582–583 device-language detection recognizes fa/prs only; this feeds onboarding routing. Client check-in reports separate device_locale and app_locale at 1851–1858."
+    },
+    {
+      "id": "mobile.onboarding-routing",
+      "path": "apps/mobile/lib/onboarding-route.ts",
+      "line": 43,
+      "scope": "Default onboarding path skips the language choice only when deviceIsPersian is true. The boolean is produced in app/_layout.tsx:583 and app/onboarding/index.tsx:20. Decide the intended flow for recognized Pashto devices rather than treating ps as an unrecognized locale."
+    },
+    {
+      "id": "mobile.onboarding-language-picker",
+      "path": "apps/mobile/app/onboarding/language.tsx",
+      "line": 40,
+      "scope": "Picker accepts only en/fa; cards iterate those values at 71 and hardcode self-names English/دری in visual and accessibility labels at 77/87. Persisted locale_pref is written at 46 before advancing. Add a separate پښتو option after copy review."
+    },
+    {
+      "id": "mobile.account-language-picker",
+      "path": "apps/mobile/app/account.tsx",
+      "line": 92,
+      "scope": "LANGUAGE_OPTIONS lists system/en/fa; MESSAGE_LANGUAGE_OPTIONS at 101 lists auto/ask/en/fa. Stored locale_pref filtering at 273–274 accepts only en/fa. Preference writes are at 469 and 502; actual option sheets render at 931–979."
+    },
+    {
+      "id": "mobile.account-calendar-previews",
+      "path": "apps/mobile/app/account.tsx",
+      "line": 548,
+      "scope": "Account calendar preview duplicates the automatic fa→jalali / other→gregorian rule; punctuation checks exact fa at 561. Qamari preview formats the active locale at 962. Review desired Pashto calendar default and separators independently from text translation."
+    },
+    {
+      "id": "mobile.share-language-picker",
+      "path": "apps/mobile/app/person/[id].tsx",
+      "line": 2383,
+      "scope": "The person-page outgoing-message language sheet explicitly offers fa and en only. It feeds sharing/export flows that may use a locale different from the active UI."
+    },
+    {
+      "id": "mobile.invite-language-picker",
+      "path": "apps/mobile/app/vault/invite.tsx",
+      "line": 455,
+      "scope": "The member-invitation share-language sheet explicitly offers fa and en only. Labels use main i18n catalog keys."
+    },
+    {
+      "id": "mobile.shared-account-language-picker",
+      "path": "apps/mobile/components/LinkAccountDialog.tsx",
+      "line": 187,
+      "scope": "Shared-account link dialog iterates only fa/en when asking a message language and maps the labels with an exact fa conditional at 198. It composes the outgoing invite with tIn(language, ...) at 130."
+    },
+    {
+      "id": "mobile.outgoing-share-snapshot",
+      "path": "apps/mobile/lib/share.ts",
+      "line": 37,
+      "scope": "Shared-ledger upload stores args.lang as snapshot.locale; the receiver-facing web/SSR shell follows that message locale. The app calendar preference is sent independently. Translated generated entry notes may be baked into shared snapshots; preserve user-entered notes and names."
+    },
+    {
+      "id": "mobile.direction",
+      "path": "apps/mobile/lib/direction.ts",
+      "line": 39,
+      "scope": "deriveDir returns RTL only for exact fa. useIsRTL subscribes to locale changes, so this affects text alignment, row direction and script-safe letter spacing across the app. Include ps when approved."
+    },
+    {
+      "id": "mobile.native-direction-invariant",
+      "path": "apps/mobile/app/_layout.tsx",
+      "line": 98,
+      "scope": "I18nManager is intentionally neutralized with allowRTL(false), swapLeftAndRightInRTL(false), and a one-time forceRTL(false) migration at 98–102. App-controlled RTL is separate from native Yoga direction; do not re-enable process-global RTL as a translation shortcut."
+    },
+    {
+      "id": "mobile.fonts-and-glyphs",
+      "path": "apps/mobile/lib/fonts.ts",
+      "line": 48,
+      "scope": "All sans weights use bundled Vazirmatn; Inter and JetBrains Mono aliases are also available. Family choice is no longer locale-specific. Pashto glyph coverage, joining, diacritics, bold weights and iOS clipping need visual verification before rollout; text extraction cannot establish correct shaping."
+    },
+    {
+      "id": "mobile.calendar-default",
+      "path": "apps/mobile/lib/calendar.ts",
+      "line": 81,
+      "scope": "Automatic calendar selects jalali only for exact fa and gregorian otherwise. Calendar preference is separate from language. Decide whether Pashto should use jalali automatically; do not change persisted explicit calendar choices."
+    },
+    {
+      "id": "mobile.calendar-months-and-date-rendering",
+      "path": "apps/mobile/lib/jalali.ts",
+      "line": 38,
+      "scope": "AFGHAN_MONTHS and AFGHAN_MONTHS_LATIN, GREGORIAN_MONTHS_EN/FA and QAMARI_MONTHS_EN/FA store 36 English/Dari month pairs outside the catalog. Date formatting at 317–322 is typed en/fa and chooses Persian-script names/digits only for fa. Draft month rows are in mobile extra review records."
+    },
+    {
+      "id": "mobile.calendar-picker",
+      "path": "apps/mobile/components/CalendarDayPicker.tsx",
+      "line": 38,
+      "scope": "Week begins Saturday for fa or any non-Gregorian calendar, otherwise Monday. Day numbers use faDigits only for fa at 116; weekday labels are dynamic main-catalog keys at 89. Review Pashto week-start/digit conventions."
+    },
+    {
+      "id": "mobile.tally-calendar-filter",
+      "path": "apps/mobile/components/TallyDateFilterSheet.tsx",
+      "line": 108,
+      "scope": "Week-start rule duplicates CalendarDayPicker; calendar day numbers use faDigits only for exact fa at 362. Weekday/preset text is obtained through dynamic catalog keys at 252/330."
+    },
+    {
+      "id": "mobile.clock-date-formatting",
+      "path": "apps/mobile/lib/format.ts",
+      "line": 45,
+      "scope": "Clock digits use faDigits only for fa and separators use exact fa at 47; AM/PM are catalog keys. formatCalendarDate at 30 uses the active locale plus separate effective-calendar preference."
+    },
+    {
+      "id": "mobile.reminder-date-formatting",
+      "path": "apps/mobile/lib/reminder-format.ts",
+      "line": 7,
+      "scope": "Weekday names come from Intl.DateTimeFormat using fa-AF for fa and en otherwise. Digits and joining punctuation at 17/28/41/44–45 have the same two-language branch. A Pashto table alone would leave reminder weekdays/numbers English."
+    },
+    {
+      "id": "mobile.filter-date-formatting",
+      "path": "apps/mobile/lib/tally-date-filter.ts",
+      "line": 127,
+      "scope": "formatFilterClock and date-label helper are typed en/fa at 127/139; faDigits and separators branch only on fa at 131/148."
+    },
+    {
+      "id": "mobile.digit-input",
+      "path": "apps/mobile/lib/digits.ts",
+      "line": 10,
+      "scope": "toAsciiDigits accepts Extended Arabic-Indic and Arabic-Indic digits before ASCII-only validation. Keep input normalization intact when adjusting Pashto display digits."
+    },
+    {
+      "id": "mobile.money-display",
+      "path": "apps/mobile/lib/money.ts",
+      "line": 65,
+      "scope": "Amounts intentionally format whole-number grouping with en-US, independent of UI language. Input normalizes localized decimal/digit variants at 9–20. This is a product formatting decision requiring review rather than automatic translation."
+    },
+    {
+      "id": "mobile.currency-names",
+      "path": "apps/mobile/lib/currency.ts",
+      "line": 33,
+      "scope": "CURRENCIES has 9 English/Dari display-name pairs. getCurrencyName at 72 branches only on fa. ISO codes and symbols are stable identifiers; draft Pashto names are separate extra review records."
+    },
+    {
+      "id": "mobile.country-names",
+      "path": "apps/mobile/lib/phone.ts",
+      "line": 35,
+      "scope": "COUNTRIES has 11 English-only names. CountryPickerSheet.tsx:54 filters raw English c.name and :136 renders it; account.tsx:856 also displays prefC.name. Translate display/search names together while retaining ISO codes, flags and dial codes."
+    },
+    {
+      "id": "mobile.name-sorting",
+      "path": "apps/mobile/lib/customer-list.ts",
+      "line": 125,
+      "scope": "compareCustomerNames and customer-filter options are typed en/fa. Name text chunks use localeCompare with that locale at 138. A Pashto rollout should exercise sorting with Pashto names and mixed local/Latin digits."
+    },
+    {
+      "id": "mobile.name-search-normalization",
+      "path": "apps/mobile/lib/search.ts",
+      "line": 16,
+      "scope": "Search strips combining marks and normalizes Arabic/Persian Yeh/Kaf forms without rewriting stored names. Verify Pashto keyboard/spelling behavior before expanding normalization; preserve meaningful Pashto letters."
+    },
+    {
+      "id": "mobile.tally-search-normalization",
+      "path": "apps/mobile/lib/tally-search.ts",
+      "line": 7,
+      "scope": "Note search has its own normalization, Persian/Arabic letter handling and an afn/؋/افغانی currency-only query exclusion at 34. TallySearchOptions is en/fa at 36. Review Pashto currency spelling and note-search behavior without changing stored notes."
+    },
+    {
+      "id": "mobile.notification-action-locales",
+      "path": "apps/mobile/lib/tabs/notify.ts",
+      "line": 47,
+      "scope": "Notification review action categories are registered only for en/fa; buttons use tIn(locale, tab.accept/reject). Push registration passes active locale at 228 and category IDs include getLocale at 341. Extend native category registration and backend push-language handling together."
+    },
+    {
+      "id": "mobile.notification-inbox-locales",
+      "path": "apps/mobile/lib/tabs/use-inbox.ts",
+      "line": 88,
+      "scope": "Inbox caches are keyed by account plus getLocale. Locale is sent through fetchInbox; lib/tabs/api.ts:320–323 accepts a locale query parameter. Preserve locale-specific caching when ps is enabled."
+    },
+    {
+      "id": "mobile.email-language-requests",
+      "path": "apps/mobile/lib/auth.ts",
+      "line": 1352,
+      "scope": "Sign-up/reset APIs accept language strings and forward them to backend email paths. Verification/reset at 1373–1396 and password setup/change/removal at 1887–1964 also pass lang. UI sends getLocale from EmailAuthFlow.tsx:342/363/376/397 and account-password.tsx:254/286/305. Backend templates must support ps alongside the mobile rollout."
+    },
+    {
+      "id": "mobile.export-language-formatting",
+      "path": "apps/mobile/lib/export/pdf.ts",
+      "line": 126,
+      "scope": "PDF HTML language/direction choose RTL only for fa at 131; prose counts and record detail functions are typed en/fa at 103/336. CSV labels use tIn with export locale (csv.ts:82 onward). Data snapshots use LocaleCode independently of message and calendar settings. Review layout, glyphs, columns and CSV consumers after approved copy is applied."
+    },
+    {
+      "id": "mobile.boot-recovery-copy",
+      "path": "apps/mobile/app/_layout.tsx",
+      "line": 1047,
+      "scope": "Boot splash and migration/recovery prompts render hardcoded English and Dari together through 1625 because locale preferences may be inaccessible. English-only backup failures at 1302–1309/1372 and backup-age text at 1528–1531 are included in extra review rows. Future Pashto recovery must remain usable before database or fonts load."
+    },
+    {
+      "id": "mobile.native-permission-copy",
+      "path": "apps/mobile/app.json",
+      "line": 63,
+      "scope": "Expo contactsPermission is configured in English at 63; cameraPermission in English at 77. Native permission messages need build-time localization and OS testing; changing runtime i18n tables does not localize them."
+    },
+    {
+      "id": "mobile.cloud-sync-notification-copy",
+      "path": "apps/mobile/lib/mesh/bg-notify.ts",
+      "line": 73,
+      "scope": "Live cloud-sync background notification channel name/description and message title/body are hardcoded English at 73–75/111–117. Despite its mesh directory this path is active for cloud-origin ledger changes. Extra review rows include all 5 English messages."
+    },
+    {
+      "id": "mobile.native-foreground-notification",
+      "path": "apps/mobile/modules/kaata-bt-classic/android/src/main/java/expo/modules/kaatabtclassic/KaataForegroundService.kt",
+      "line": 109,
+      "scope": "Native defaults Nearby sync is on / Tap to open Kaata / Nearby sync are English at 109–111. Notification reads persisted title/body and channel values at 540–542/577–579. JavaScript supplies translated fgs catalog values in lib/mesh/foreground.ts:53–55/86–89; maintain a safe localized fallback if the feature is re-enabled."
+    },
+    {
+      "id": "mobile.server-announcements",
+      "path": "apps/mobile/lib/app-meta-context.tsx",
+      "line": 30,
+      "scope": "Release notes and announcement title/body/CTA label are loaded as server-supplied strings, persisted at 71–81, and displayed verbatim in components/UpdateBanner.tsx:40–45/86–107. Client has no locale-specific table selection for these payloads. Repository-only catalog extraction cannot capture active stored content."
+    },
+    {
+      "id": "mobile.device-preferences-on-account-switch",
+      "path": "apps/mobile/lib/auth.ts",
+      "line": 2854,
+      "scope": "DEVICE_PREF_KEYS preserves locale_pref and calendar_pref during start-fresh account switching. Include ps in accepted locale values while retaining language/calendar preferences across this flow."
+    }
+  ],
+  "unextractedStaticCopy": [
+    {
+      "id": "legal.privacy",
+      "path": "apps/web/src/pages/Privacy.tsx",
+      "line": 24,
+      "scope": "Full privacy policy English JSX prose; local comment says Dari translation tracked separately. Includes exact user-facing app navigation labels.",
+      "reason": "Separate legal/prose translation review; no full prose extracted or translated in this pack."
+    },
+    {
+      "id": "legal.terms",
+      "path": "apps/web/src/pages/Terms.tsx",
+      "line": 24,
+      "scope": "Full terms of service English JSX prose and all section titles.",
+      "reason": "Separate legal/prose translation review."
+    },
+    {
+      "id": "legal.account-deletion",
+      "path": "apps/web/src/pages/DeleteAccount.tsx",
+      "line": 58,
+      "scope": "Full English account-deletion instructions, retained-data descriptions, contact/help text.",
+      "reason": "Separate legal/prose translation review; preserve current deletion behavior and 30-day recovery facts."
+    },
+    {
+      "id": "web.seo",
+      "path": "apps/web/index.html",
+      "line": 6,
+      "scope": "Fixed English document title, description, OpenGraph and Twitter descriptions, image alt; locale metadata only en_US/fa_AF.",
+      "reason": "Separate metadata rows; do not translate Organization URLs or product identity values."
+    },
+    {
+      "id": "admin.interface",
+      "path": "apps/web/src/pages/admin",
+      "line": 1,
+      "scope": "English-only admin interface strings across AdminApp, Overview, Users, UsersDetails, Outreach, Campaigns, Acquisition, ActivityInsights, Retention, WeeklyGrowthCard, ui.tsx and model label tables.",
+      "reason": "Operator interface; full admin extraction deferred. Customer-facing outreach default messages are extracted."
+    },
+    {
+      "id": "web.admin-gate",
+      "path": "apps/web/src/pages/Admin.tsx",
+      "line": 1,
+      "scope": "English-only admin authentication/gate/status text.",
+      "reason": "Operator interface audit."
+    },
+    {
+      "id": "web.store-badges",
+      "path": "apps/web/src/components/StoreButtons.tsx",
+      "line": 1,
+      "scope": "Official App Store / Google Play badge artwork and accessibility descriptions.",
+      "reason": "Artwork itself contains English; review legal badge localization rules before replacing assets. Centralized alt keys already covered."
+    },
+    {
+      "id": "marketing.social",
+      "path": "marketing/social/post.template.html",
+      "line": 51,
+      "scope": "Dari wordmark, headline, subhead, details and download CTA; generated post-square/portrait/story HTML duplicate this template.",
+      "reason": "Marketing template extraction/translation deferred; generated copies excluded to prevent double counting."
+    },
+    {
+      "id": "marketing.flyer",
+      "path": "marketing/flyer/flyer.template.html",
+      "line": 487,
+      "scope": "Dari two-sided flyer copy, comparisons, benefit labels, install instructions, WhatsApp contact prompt and tagline through line 645.",
+      "reason": "Marketing template extraction/translation deferred; generated HTML/PDF and embedded screenshot copy excluded."
+    },
+    {
+      "id": "store.listing",
+      "path": "docs/store-listing.md",
+      "line": 127,
+      "scope": "English and Dari short/long store descriptions, language claims; screenshot captions at 58–63.",
+      "reason": "Store/editorial audit; some legacy Dari terms differ from current in-app terminology."
+    },
+    {
+      "id": "store.screenshot-artwork",
+      "path": "docs/store-assets",
+      "line": 1,
+      "scope": "Text rendered inside phone/tablet screenshot PNGs.",
+      "reason": "Visual audit required; repository text extraction cannot capture baked-in words."
+    },
+    {
+      "id": "store.release-notes",
+      "path": "apps/mobile/scripts/release-notes",
+      "line": 1,
+      "scope": "Historical Play/App Store/TestFlight release-note text files.",
+      "reason": "Release notes are historical artifacts; audit active listing/update copy separately."
+    },
+    {
+      "id": "api.error-payloads",
+      "path": "apps/backend/internal",
+      "line": 1,
+      "scope": "English httpx.Error strings and errors.New/errors formatted in handlers/services across Go packages.",
+      "reason": "Protocol/API error audit; some strings are mapped by clients. Do not translate protocol identifiers blindly."
+    },
+    {
+      "id": "external.provider-ui",
+      "path": "apps/backend/internal/auth/apple_web.go",
+      "line": 70,
+      "scope": "Apple sign-in redirect uses provider-hosted UI; Google/Apple/system/share/print/permission UI is outside repository strings.",
+      "reason": "Third-party and OS language follows their own rules; only our Return to Kaata fallback is extracted."
+    },
+    {
+      "id": "external.saved-outreach",
+      "path": "apps/backend/internal/admin/outreach.go",
+      "line": 55,
+      "scope": "Live server-stored outreach settings/templates may override repository WhatsApp message defaults.",
+      "reason": "Requires authorized live-data read or user-provided export; not accessible from repository audit alone."
+    }
+  ],
+  "deferredAudit": [
+    {
+      "id": "mobile.intentional-english-support-report",
+      "path": "apps/mobile/lib/diagnostics-report.ts",
+      "line": 162,
+      "scope": "buildDiagnosticsReport constructs the copied/shared technical report with English section names, identifiers, raw OS/library errors and diagnostic values. apps/mobile/lib/i18n.ts:1874–1877 explicitly says the report body stays English on purpose. The customer-facing diagnostics controls are localized in the main catalog.",
+      "reason": "Review intentional English support output separately; do not automatically translate raw protocol/error identifiers or the whole report body."
+    },
+    {
+      "id": "mobile.live-announcement-content",
+      "path": "apps/mobile/components/UpdateBanner.tsx",
+      "line": 86,
+      "scope": "Active server announcement text and release notes are not statically recoverable from the app repository. Repository only shows their payload fields and rendering.",
+      "reason": "Needs authorized live-server content export or user-provided values for review; decide whether content needs translations per locale."
+    },
+    {
+      "id": "mobile.pashto-visual-qa",
+      "path": "apps/mobile/lib/fonts.ts",
+      "line": 48,
+      "scope": "Pashto glyphs, joining, clipping, line wrapping, mixed-script placeholders, accessibility reading order, RTL controls, long destructive messages and exported PDFs require rendered/device checks.",
+      "reason": "Review-copy artifacts are text only. No Pashto runtime or font-support behavior has been enabled in this change."
+    },
+    {
+      "id": "mobile.calendar-product-decisions",
+      "path": "apps/mobile/lib/calendar.ts",
+      "line": 81,
+      "scope": "Confirm Pashto automatic calendar, Afghan month vocabulary, digit style, week start, AM/PM and number grouping independently from literal phrase review.",
+      "reason": "These behaviors currently encode en/fa choices; translation alone cannot decide the conventions."
+    },
+    {
+      "id": "mobile.system-provider-ui",
+      "path": "apps/mobile/app.json",
+      "line": 63,
+      "scope": "System permission dialogs, Google/Apple sign-in, native share/save/print sheets, OS notification settings and keyboard text are partly owned by OS/provider locale. Our own configured permission explanations are extracted.",
+      "reason": "Requires device and provider review; runtime dictionary changes cannot control all external UI text."
+    },
+    {
+      "id": "mobile.developer-tools",
+      "path": "apps/mobile/app/dev/btc-test.tsx",
+      "line": 241,
+      "scope": "Development Bluetooth diagnostic route has English-only buttons, logs and status messages. ProfileSettingsSheet.tsx:504 links the tool behind development gating; diagnostics.tsx:421–434 has development reset labels.",
+      "reason": "Main customer review excludes the full internal tool interface. Obvious development labels are identified as development-only in extra records; do not enable parked/debug features through copy review."
+    },
+    {
+      "id": "mobile.parked-commented-copy",
+      "path": "apps/mobile/lib/mesh/foreground-bootstrap.ts",
+      "line": 47,
+      "scope": "Legacy notifee channel text is inside a parked block comment. diagnostics.tsx:316–340 and :397–415 similarly contain commented mesh/memory sections.",
+      "reason": "Not active runtime strings; review if those features return. Excluded from translation counts to avoid false positives."
+    },
+    {
+      "id": "mobile.raw-user-and-protocol-data",
+      "path": "apps/mobile/lib/search.ts",
+      "line": 16,
+      "scope": "User names, shop/kaata names, notes, phone/email/username values, IDs, ISO currency/country codes, URLs, cryptographic payloads, SQL, raw technical errors and tests are data or protocol artifacts.",
+      "reason": "Do not translate these by broad string replacement. Translate only labeled display copy or generated UI notes with explicit context."
+    }
+  ]
+}

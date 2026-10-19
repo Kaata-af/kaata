@@ -1,0 +1,4719 @@
+{
+  "$schema": "../review.schema.json",
+  "format_version": 1,
+  "section": "06-groups-reminders-and-credit",
+  "entries": [
+    {
+      "id": "mobile:groups.filter",
+      "key": "groups.filter",
+      "current": {
+        "en": "Groups",
+        "fa": "گروه‌ها",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ډلې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 435,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2486,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/CustomerListSheet.tsx",
+          "line": 110
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:groups.filterHelp",
+      "key": "groups.filterHelp",
+      "current": {
+        "en": "Choose groups to show customers in any of them.",
+        "fa": "مشتری‌های هر یک از گروه‌های انتخاب‌شده نمایش داده می‌شوند.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ډلې غوره کړئ، څو د دې ډلو پېرودونکي ښکاره شي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 436,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2487,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/CustomerListSheet.tsx",
+          "line": 112
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:groups.all",
+      "key": "groups.all",
+      "current": {
+        "en": "All customers",
+        "fa": "همهٔ مشتری‌ها",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ټول پېرودونکي"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 437,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2488,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/CustomerListSheet.tsx",
+          "line": 115
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:groups.ungrouped",
+      "key": "groups.ungrouped",
+      "current": {
+        "en": "Ungrouped",
+        "fa": "بی‌گروه",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "بې ډلې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 438,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2489,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/index.tsx",
+          "line": 891
+        },
+        {
+          "path": "apps/mobile/components/CustomerListSheet.tsx",
+          "line": 116
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:groups.none",
+      "key": "groups.none",
+      "current": {
+        "en": "No group",
+        "fa": "بدون گروه",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "هېڅ ډله نشته"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 439,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2490,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/person/[id]/edit.tsx",
+          "line": 332
+        },
+        {
+          "path": "apps/mobile/app/person/[id]/group.tsx",
+          "line": 114
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:groups.manage",
+      "key": "groups.manage",
+      "current": {
+        "en": "Manage groups",
+        "fa": "تنظیم گروه‌ها",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ډلې تنظیم کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 440,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2491,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/group-members.tsx",
+          "line": 161
+        },
+        {
+          "path": "apps/mobile/app/groups.tsx",
+          "line": 125
+        },
+        {
+          "path": "apps/mobile/app/index.tsx",
+          "line": 1945
+        },
+        {
+          "path": "apps/mobile/app/person/[id]/group.tsx",
+          "line": 151
+        },
+        {
+          "path": "apps/mobile/app/person/[id]/group.tsx",
+          "line": 152
+        },
+        {
+          "path": "apps/mobile/components/CustomerListSheet.tsx",
+          "line": 280
+        },
+        {
+          "path": "apps/mobile/components/CustomerListSheet.tsx",
+          "line": 281
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:groups.help",
+      "key": "groups.help",
+      "current": {
+        "en": "Create your own groups for this kaata. Each customer can belong to several groups. Groups organize the list; they do not change access or balances.",
+        "fa": "برای این کاتا گروه دلخواه بسازید. هر مشتری می‌تواند در چند گروه باشد. گروه‌ها فهرست را منظم می‌کنند؛ دسترسی یا بیلانس را تغییر نمی‌دهند.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د دې کاټې لپاره خپلې ډلې جوړې کړئ. هر پېرودونکی په څو ډلو کې شاملېدای شي. ډلې لړلیک منظموي؛ د لاسرسي اجازه یا پاتې حسابونه نه بدلوي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 441,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2492,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/groups.tsx",
+          "line": 139
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:groups.personAction",
+      "key": "groups.personAction",
+      "current": {
+        "en": "Customer groups",
+        "fa": "گروه‌های مشتری",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د پېرودونکي ډلې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 443,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2494,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/person/[id].tsx",
+          "line": 1588
+        },
+        {
+          "path": "apps/mobile/app/person/[id]/edit.tsx",
+          "line": 331
+        },
+        {
+          "path": "apps/mobile/app/person/[id]/group.tsx",
+          "line": 100
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:groups.personHelp",
+      "key": "groups.personHelp",
+      "current": {
+        "en": "Choose one or more groups for this customer in this kaata.",
+        "fa": "در این کاتا برای این مشتری یک یا چند گروه انتخاب کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د دې پېرودونکي لپاره په دې کاټه کې یوه یا څو ډلې غوره کړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 444,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2495,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/person/[id]/group.tsx",
+          "line": 106
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:groups.members.help",
+      "key": "groups.members.help",
+      "current": {
+        "en": "Tick customers to put them in this group, untick to take them out. Changes are saved with Done or when you go back.",
+        "fa": "مشتری‌ها را برای افزودن به این گروه نشانی کنید و برای بیرون کردن، نشانی را بردارید. تغییرات با «تمام» یا هنگام برگشتن ذخیره می‌شوند.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "په دې ډله کې د پېرودونکو د شاملولو لپاره نښه پرې ولګوئ، او د ایستلو لپاره نښه لرې کړئ. بدلونونه د «بشپړ شو» په وهلو یا شاته تلو سره خوندي کېږي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 445,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2496,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/group-members.tsx",
+          "line": 188
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:groups.members.viewHelp",
+      "key": "groups.members.viewHelp",
+      "current": {
+        "en": "Customers in this group.",
+        "fa": "مشتری‌های این گروه.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "په دې ډله کې پېرودونکي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 447,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2498,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/group-members.tsx",
+          "line": 188
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:groups.members.search",
+      "key": "groups.members.search",
+      "current": {
+        "en": "Search customers",
+        "fa": "جستجوی مشتری",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "پېرودونکي ولټوئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 448,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2499,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/group-members.tsx",
+          "line": 200
+        },
+        {
+          "path": "apps/mobile/app/group-members.tsx",
+          "line": 202
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:groups.members.none",
+      "key": "groups.members.none",
+      "current": {
+        "en": "No customers in this group yet.",
+        "fa": "هنوز مشتری‌ای در این گروه نیست.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "په دې ډله کې لا پېرودونکي نشته."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 449,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2500,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/group-members.tsx",
+          "line": 211
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:groups.members.missing",
+      "key": "groups.members.missing",
+      "current": {
+        "en": "This group is no longer available.",
+        "fa": "این گروه دیگر در دسترس نیست.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "دا ډله نور نشته."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 450,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2501,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/group-members.tsx",
+          "line": 184
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:groups.members.open",
+      "key": "groups.members.open",
+      "current": {
+        "en": "Shows who is in this group",
+        "fa": "نشان می‌دهد چه کسانی در این گروه هستند",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ښيي چې څوک په دې ډله کې دي"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 451,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2502,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/groups.tsx",
+          "line": 153
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:groups.memberCountOne",
+      "key": "groups.memberCountOne",
+      "current": {
+        "en": "{count} customer",
+        "fa": "{count} مشتری",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "{count} پېرودونکی"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "count"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 452,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2503,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/group-members.tsx",
+          "line": 191
+        },
+        {
+          "path": "apps/mobile/app/groups.tsx",
+          "line": 164
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:groups.memberCount",
+      "key": "groups.memberCount",
+      "current": {
+        "en": "{count} customers",
+        "fa": "{count} مشتری",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "{count} پېرودونکي"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "count"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 453,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2504,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/group-members.tsx",
+          "line": 191
+        },
+        {
+          "path": "apps/mobile/app/groups.tsx",
+          "line": 164
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:groups.edit",
+      "key": "groups.edit",
+      "current": {
+        "en": "Edit {name}",
+        "fa": "ویرایش {name}",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "{name} سم کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "name"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 454,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2505,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/groups.tsx",
+          "line": 172
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:groups.empty",
+      "key": "groups.empty",
+      "current": {
+        "en": "No groups yet.",
+        "fa": "هنوز گروهی نیست.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "لا ډلې نشته."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 455,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2506,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/groups.tsx",
+          "line": 188
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:groups.name",
+      "key": "groups.name",
+      "current": {
+        "en": "Group name",
+        "fa": "نام گروه",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د ډلې نوم"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 456,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2507,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/groups.tsx",
+          "line": 198
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:groups.namePlaceholder",
+      "key": "groups.namePlaceholder",
+      "current": {
+        "en": "e.g. Family or West neighborhood",
+        "fa": "مثلاً خانواده یا محلهٔ غرب",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "لکه کورنۍ یا لوېدیځه محله"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 457,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2508,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/groups.tsx",
+          "line": 197
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:groups.nameInvalid",
+      "key": "groups.nameInvalid",
+      "current": {
+        "en": "Use a group name of 1–40 characters.",
+        "fa": "نام گروه باید ۱ تا ۴۰ حرف باشد.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د ډلې لپاره له 1 تر 40 تورو نوم وکاروئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 458,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2509,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/groups.tsx",
+          "line": 93
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:groups.nameDuplicate",
+      "key": "groups.nameDuplicate",
+      "current": {
+        "en": "A group with this name already exists.",
+        "fa": "گروهی با این نام از قبل وجود دارد.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "په دې نوم له مخکې یوه ډله شته."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 459,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2510,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/groups.tsx",
+          "line": 95
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:groups.add",
+      "key": "groups.add",
+      "current": {
+        "en": "Add group",
+        "fa": "افزودن گروه",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ډله زیاته کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 460,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2511,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/groups.tsx",
+          "line": 227
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:groups.rename",
+      "key": "groups.rename",
+      "current": {
+        "en": "Rename group",
+        "fa": "تغییر نام گروه",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د ډلې نوم بدل کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 461,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2512,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/groups.tsx",
+          "line": 239
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:groups.archive",
+      "key": "groups.archive",
+      "current": {
+        "en": "Remove group",
+        "fa": "حذف گروه",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ډله لرې کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 462,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2513,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/groups.tsx",
+          "line": 247
+        },
+        {
+          "path": "apps/mobile/app/groups.tsx",
+          "line": 261
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:groups.archiveTitle",
+      "key": "groups.archiveTitle",
+      "current": {
+        "en": "Remove {name}?",
+        "fa": "{name} حذف شود؟",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "{name} لرې شي؟"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "name"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 463,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2514,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/groups.tsx",
+          "line": 259
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:groups.archiveHelp",
+      "key": "groups.archiveHelp",
+      "current": {
+        "en": "Customers keep their other groups. Their tallies and balances stay the same.",
+        "fa": "گروه‌های دیگر مشتری‌ها باقی می‌مانند. ثبت‌ها و بیلانس آن‌ها تغییر نمی‌کند.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "پېرودونکي په خپلو نورو ډلو کې پاتې کېږي. راکړې ورکړې او پاتې حسابونه یې نه بدلېږي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 464,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2515,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/groups.tsx",
+          "line": 260
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:groups.view",
+      "key": "groups.view",
+      "current": {
+        "en": "Group: {name}",
+        "fa": "گروه: {name}",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ډله: {name}"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "name"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 467,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2518,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/index.tsx",
+          "line": 2343
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:groups.viewMany",
+      "key": "groups.viewMany",
+      "current": {
+        "en": "Groups: {name}",
+        "fa": "گروه‌ها: {name}",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ډلې: {name}"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "name"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 468,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2519,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/index.tsx",
+          "line": 2343
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:groups.clearFilter",
+      "key": "groups.clearFilter",
+      "current": {
+        "en": "Shows all customers again",
+        "fa": "دوباره همه مشتری‌ها را نشان می‌دهد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "بیا ټول پېرودونکي ښيي"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 469,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2520,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/index.tsx",
+          "line": 2334
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:reminders.channel",
+      "key": "reminders.channel",
+      "current": {
+        "en": "Customer reminders",
+        "fa": "یادآوری مشتری‌ها",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د پېرودونکو یادونې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 470,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2521,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/reminder-notifications.ts",
+          "line": 36
+        },
+        {
+          "path": "apps/mobile/lib/reminder-notifications.ts",
+          "line": 67
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:credit.title",
+      "key": "credit.title",
+      "current": {
+        "en": "Credit limits",
+        "fa": "حد قرض",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د پور حدونه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 471,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2522,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/person/[id].tsx",
+          "line": 1601
+        },
+        {
+          "path": "apps/mobile/app/person/[id]/credit-limit.tsx",
+          "line": 205
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:credit.defaultTitle",
+      "key": "credit.defaultTitle",
+      "current": {
+        "en": "Default credit limit",
+        "fa": "حد قرض پیش‌فرض",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د پور عمومي حد"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 472,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2523,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/person/[id]/credit-limit.tsx",
+          "line": 205
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:credit.defaultHelp",
+      "key": "credit.defaultHelp",
+      "current": {
+        "en": "Applies to every customer without their own limit, including customers added later. A customer's own limit always wins.",
+        "fa": "برای هر مشتری که حد قرض جداگانه ندارد اعمال می‌شود، از جمله مشتریانی که بعداً اضافه می‌شوند. حد قرض خودِ مشتری همیشه مقدم است.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "پر هر هغه پېرودونکي پلي کېږي چې خپل ځانګړی حد نه لري، په راتلونکي کې ورزیاتېدونکي پېرودونکي هم پکې شامل دي. د پېرودونکي خپل حد تل لومړیتوب لري."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 473,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2524,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/person/[id]/credit-limit.tsx",
+          "line": 229
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:credit.usesDefault",
+      "key": "credit.usesDefault",
+      "current": {
+        "en": "This customer has no limit of their own, so the kaata's default limit applies. Saving here gives them their own.",
+        "fa": "این مشتری حد قرض جداگانه ندارد، پس حد قرض پیش‌فرض کاتا بر او اعمال می‌شود. با ذخیره کردن در اینجا، حد جداگانه برایش تعیین می‌شود.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "دا پېرودونکی خپل ځانګړی حد نه لري، نو د کاټې عمومي حد پرې پلي کېږي. دلته په خوندي کولو سره ورته ځانګړی حد ټاکئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 475,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2526,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/person/[id]/credit-limit.tsx",
+          "line": 231
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:credit.defaultRow",
+      "key": "credit.defaultRow",
+      "current": {
+        "en": "Default credit limit",
+        "fa": "حد قرض پیش‌فرض",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د پور عمومي حد"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 477,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2528,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/settings.tsx",
+          "line": 745
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:credit.defaultRowHint",
+      "key": "credit.defaultRowHint",
+      "current": {
+        "en": "For customers without their own limit",
+        "fa": "برای مشتریانی که حد جداگانه ندارند",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د هغو پېرودونکو لپاره چې خپل حد نه لري"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 478,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2529,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/vault/settings.tsx",
+          "line": 746
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:credit.maxCollect",
+      "key": "credit.maxCollect",
+      "current": {
+        "en": "Maximum they owe us",
+        "fa": "بیشترین قرض آن‌ها به ما",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "تر ټولو ډېر پور چې هغوی یې زموږ پوروړي کېدای شي"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 479,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2530,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/person/[id]/credit-limit.tsx",
+          "line": 234
+        },
+        {
+          "path": "apps/mobile/app/person/[id]/credit-limit.tsx",
+          "line": 246
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:credit.maxPay",
+      "key": "credit.maxPay",
+      "current": {
+        "en": "Maximum we owe them",
+        "fa": "بیشترین قرض ما به آن‌ها",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "تر ټولو ډېر پور چې موږ یې د هغوی پوروړي کېدای شو"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 480,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2531,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/person/[id]/credit-limit.tsx",
+          "line": 249
+        },
+        {
+          "path": "apps/mobile/app/person/[id]/credit-limit.tsx",
+          "line": 261
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:credit.unlimited",
+      "key": "credit.unlimited",
+      "current": {
+        "en": "No limit",
+        "fa": "بدون حد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "حد نشته"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 481,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2532,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/person/[id]/credit-limit.tsx",
+          "line": 243
+        },
+        {
+          "path": "apps/mobile/app/person/[id]/credit-limit.tsx",
+          "line": 258
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:credit.warnMode",
+      "key": "credit.warnMode",
+      "current": {
+        "en": "Warn only",
+        "fa": "فقط هشدار بده",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "یوازې خبرداری"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 482,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2533,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/person/[id]/credit-limit.tsx",
+          "line": 294
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:credit.hardMode",
+      "key": "credit.hardMode",
+      "current": {
+        "en": "Restrict clerks",
+        "fa": "محدودکردن ثبت‌کننده‌ها",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "پر مامورینو محدودیت ولګوئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 483,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2534,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/person/[id]/credit-limit.tsx",
+          "line": 296
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:credit.editorsMode",
+      "key": "credit.editorsMode",
+      "current": {
+        "en": "Restrict editors and clerks",
+        "fa": "محدودکردن ویرایشگرها و ثبت‌کننده‌ها",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "پر سمون کوونکو او مامورینو محدودیت ولګوئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 484,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2535,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/person/[id]/credit-limit.tsx",
+          "line": 297
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:credit.modeHelp",
+      "key": "credit.modeHelp",
+      "current": {
+        "en": "Choose a warning or a restriction. Individual member permissions can change who must obey a hard limit.",
+        "fa": "هشدار یا محدودیت را انتخاب کنید. اجازهٔ جداگانهٔ هر عضو می‌تواند تعیین کند چه کسی باید حد قرض را رعایت کند.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "خبرداری یا محدودیت غوره کړئ. د غړو جلا اجازې بدلولی شي چې څوک باید حتمي حد مراعات کړي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 485,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2536,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/person/[id]/credit-limit.tsx",
+          "line": 264
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:credit.hardHelp",
+      "key": "credit.hardHelp",
+      "current": {
+        "en": "Staff covered by a hard limit need an online check for tallies that change their exposure. Tallies that reduce an existing debt remain allowed. Owners and admins can exceed limits; member exceptions apply only to hard limits.",
+        "fa": "کارمندانی که محدودیت دارند، برای ثبت‌هایی که ماندهٔ قرض را تغییر می‌دهد به بررسی آنلاین نیاز دارند. ثبت‌هایی که قرض موجود را کم می‌کند مجاز می‌ماند. مالک و مدیر می‌توانند از حد بگذرند؛ اجازه‌های جداگانهٔ اعضا فقط بر حدهای محدود اعمال می‌شود.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "هغه کارکوونکي چې حتمي حد پرې پلي کېږي، د هغو راکړو ورکړو لپاره چې د پور کچه بدلوي، انټرنېټي کتنې ته اړتیا لري. هغه راکړې ورکړې چې شته پور کموي، لا هم اجازه لري. مالک او مدیران له حدونو اوښتی شي؛ د غړو استثناوې یوازې پر حتمي حدونو پلي کېږي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 487,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2538,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/person/[id]/credit-limit.tsx",
+          "line": 304
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:credit.forCustomer",
+      "key": "credit.forCustomer",
+      "current": {
+        "en": "For {name}",
+        "fa": "برای {name}",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د {name} لپاره"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "name"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 489,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2540,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/person/[id]/credit-limit.tsx",
+          "line": 224
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:credit.zeroHelp",
+      "key": "credit.zeroHelp",
+      "current": {
+        "en": "Leave a field blank for no limit. 0 means no credit at all in that direction.",
+        "fa": "برای بدون حد، خانه را خالی بگذارید. ۰ یعنی در آن طرف هیچ قرضی نه.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "که حد نه غواړئ، ځای تش پرېږدئ. 0 په هغه لوري کې د هېڅ پور اجازه نه ورکوي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 490,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2541,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/person/[id]/credit-limit.tsx",
+          "line": 263
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:credit.loadFailed",
+      "key": "credit.loadFailed",
+      "current": {
+        "en": "Could not load the limits. Go back and open them again.",
+        "fa": "حد قرض بارگیری نشد. برگردید و دوباره باز کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "حدونه راوړل نه شول. شاته لاړ شئ او بیا یې پرانیزئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 492,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2542,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/person/[id]/credit-limit.tsx",
+          "line": 144
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:credit.limitLeft",
+      "key": "credit.limitLeft",
+      "current": {
+        "en": "Limit {limit} · {left} left",
+        "fa": "حد {limit} · {left} باقی",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "حد {limit} · {left} پاتې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "left",
+        "limit"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 493,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2543,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/CreditStatusBadge.tsx",
+          "line": 187
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:credit.limitOver",
+      "key": "credit.limitOver",
+      "current": {
+        "en": "Limit {limit} · {over} over",
+        "fa": "حد {limit} · {over} بیشتر",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "حد {limit} · {over} تر حد ډېر"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "limit",
+        "over"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 494,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2544,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/CreditStatusBadge.tsx",
+          "line": 187
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:credit.clerksNeedSignIn",
+      "key": "credit.clerksNeedSignIn",
+      "current": {
+        "en": "Ask every restricted staff member to sign in and sync before enabling restrictions.",
+        "fa": "پیش از فعال‌کردن محدودیت، از هر کارمندی که محدودیت دارد بخواهید وارد حساب شود و همگام کند.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د محدودیتونو له فعالولو مخکې، له هر اړوند کارکوونکي وغواړئ چې ننوځي او معلومات همغږي کړي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 495,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2545,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/person/[id]/credit-limit.tsx",
+          "line": 191
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:credit.warning",
+      "key": "credit.warning",
+      "current": {
+        "en": "This tally exceeds the credit limit",
+        "fa": "این ثبت از حد قرض بیشتر می‌شود",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "دا راکړه ورکړه د پور له حده اوړي"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 497,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2547,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/entry/[id]/edit.tsx",
+          "line": 246
+        },
+        {
+          "path": "apps/mobile/app/entry/new.tsx",
+          "line": 294
+        },
+        {
+          "path": "apps/mobile/app/entry/new.tsx",
+          "line": 424
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:credit.blocked",
+      "key": "credit.blocked",
+      "current": {
+        "en": "Credit limit exceeded. This tally was not recorded.",
+        "fa": "حد قرض گذشته است. این ثبت حساب نشد.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د پور له حده واوښت. دا راکړه ورکړه ثبت نه شوه."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 498,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2548,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/entry/new.tsx",
+          "line": 278
+        },
+        {
+          "path": "apps/mobile/app/entry/new.tsx",
+          "line": 323
+        },
+        {
+          "path": "apps/mobile/components/CreditIntentList.tsx",
+          "line": 57
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:credit.pending",
+      "key": "credit.pending",
+      "current": {
+        "en": "Waiting for server confirmation",
+        "fa": "منتظر تأیید سرور",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د سرور تایید ته په تمه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 499,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2549,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/entry/new.tsx",
+          "line": 284
+        },
+        {
+          "path": "apps/mobile/components/CreditIntentList.tsx",
+          "line": 124
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:credit.pendingChange",
+      "key": "credit.pendingChange",
+      "current": {
+        "en": "This change is waiting for server confirmation. The recorded tally is unchanged.",
+        "fa": "این تغییر منتظر تأیید سرور است. ثبت قبلی بدون تغییر باقی مانده است.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "دا بدلون د سرور تایید ته په تمه دی. ثبت شوې راکړه ورکړه نه ده بدله شوې."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 500,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2550,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/entry/[id]/edit.tsx",
+          "line": 139
+        },
+        {
+          "path": "apps/mobile/app/person/[id].tsx",
+          "line": 139
+        },
+        {
+          "path": "apps/mobile/app/person/[id].tsx",
+          "line": 1181
+        },
+        {
+          "path": "apps/mobile/app/person/[id].tsx",
+          "line": 2441
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:credit.refusedChange",
+      "key": "credit.refusedChange",
+      "current": {
+        "en": "This change was refused because it exceeds a credit limit. The recorded tally is unchanged.",
+        "fa": "این تغییر به دلیل گذشتن از حد قرض رد شد. ثبت قبلی بدون تغییر باقی مانده است.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "دا بدلون رد شو، ځکه د پور له حده اوړي. ثبت شوې راکړه ورکړه نه ده بدله شوې."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 502,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2551,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/entry/[id]/edit.tsx",
+          "line": 140
+        },
+        {
+          "path": "apps/mobile/app/person/[id].tsx",
+          "line": 137
+        },
+        {
+          "path": "apps/mobile/app/person/[id].tsx",
+          "line": 2441
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:credit.intentEdit",
+      "key": "credit.intentEdit",
+      "current": {
+        "en": "Edit tally",
+        "fa": "ویرایش ثبت",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "راکړه ورکړه سمه کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 504,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2553,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/CreditIntentList.tsx",
+          "line": 92
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:credit.intentDelete",
+      "key": "credit.intentDelete",
+      "current": {
+        "en": "Delete tally",
+        "fa": "حذف ثبت",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "راکړه ورکړه ړنګه کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 505,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2554,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/CreditIntentList.tsx",
+          "line": 94
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:credit.pendingHold",
+      "key": "credit.pendingHold",
+      "current": {
+        "en": "Waiting for the server to check the limit. Hand nothing over until it's confirmed.",
+        "fa": "منتظر بررسی حد قرض از طرف سرور. تا تأیید نشده، چیزی تحویل ندهید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "په تمه دي چې سرور حد وګوري. تر تایید پورې هېڅ شی مه سپارئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 506,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2555,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/entry/new.tsx",
+          "line": 283
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:credit.signInToSend",
+      "key": "credit.signInToSend",
+      "current": {
+        "en": "Not sent: sign in so the server can check it",
+        "fa": "ارسال نشده: وارد حساب شوید تا سرور آن را بررسی کند",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "نه دي لېږل شوي: ننوځئ چې سرور یې وګوري"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 508,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2556,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/CreditIntentList.tsx",
+          "line": 124
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:credit.refusalOne",
+      "key": "credit.refusalOne",
+      "current": {
+        "en": "The limit stopped a tally by {name}: {what}, {when}",
+        "fa": "حد قرض جلوی ثبت {name} را گرفت: {what}، {when}",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "حد د {name} یوه راکړه ورکړه ودروله: {what}، {when}"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "name",
+        "what",
+        "when"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 509,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2557,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/CreditStatusBadge.tsx",
+          "line": 161
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:credit.refusalMany",
+      "key": "credit.refusalMany",
+      "current": {
+        "en": "The limit stopped {count} tallies in the last 30 days. Latest by {name}: {what}, {when}",
+        "fa": "حد قرض در ۳۰ روز گذشته جلوی {count} ثبت را گرفت. آخرین از {name}: {what}، {when}",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "حد په تېرو 30 ورځو کې {count} راکړې ورکړې ودرولې. وروستۍ د {name} له خوا: {what}، {when}"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "count",
+        "name",
+        "what",
+        "when"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 510,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2558,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/CreditStatusBadge.tsx",
+          "line": 161
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:credit.refusalSomeone",
+      "key": "credit.refusalSomeone",
+      "current": {
+        "en": "a staff member",
+        "fa": "یک کارمند",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "یو کارکوونکی"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 512,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2560,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/CreditStatusBadge.tsx",
+          "line": 147
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:credit.refused",
+      "key": "credit.refused",
+      "current": {
+        "en": "Credit limit exceeded — not recorded",
+        "fa": "بیشتر از حد قرض — حساب نشده",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د پور له حده واوښت — ثبت نه شو"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 514,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2562,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/CreditIntentList.tsx",
+          "line": 124
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:credit.intentsTitle",
+      "key": "credit.intentsTitle",
+      "current": {
+        "en": "Waiting / not recorded",
+        "fa": "منتظر / حساب نشده",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "په تمه / نه دي ثبت شوي"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 515,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2563,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/CreditIntentList.tsx",
+          "line": 83
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:credit.onlineSave",
+      "key": "credit.onlineSave",
+      "current": {
+        "en": "Once you're signed in, every save of a limit needs a connection, so all phones get the same rule.",
+        "fa": "وقتی وارد حساب هستید، هر ذخیرهٔ حد قرض به اینترنت نیاز دارد تا همه تلفون‌ها یک قاعده داشته باشند.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "چې ننوځئ، د حد هر ځل خوندي کول انټرنېټ ته اړتیا لري، څو ټول ټیلیفونونه یو شان قاعده ولري."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 516,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2564,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/person/[id]/credit-limit.tsx",
+          "line": 193
+        },
+        {
+          "path": "apps/mobile/app/person/[id]/credit-limit.tsx",
+          "line": 305
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:credit.saveFailed",
+      "key": "credit.saveFailed",
+      "current": {
+        "en": "Could not save the limits. Check your connection and try again.",
+        "fa": "حد قرض ذخیره نشد. اتصال را بررسی کنید و دوباره کوشش کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "حدونه خوندي نه شول. خپل انټرنېټ وګورئ او بیا هڅه وکړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 518,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2566,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/person/[id]/credit-limit.tsx",
+          "line": 194
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:credit.limitInvalid",
+      "key": "credit.limitInvalid",
+      "current": {
+        "en": "Enter zero or a positive amount with up to two decimals",
+        "fa": "صفر یا مبلغ مثبت با حداکثر دو رقم اعشار وارد کنید",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "صفر یا مثبت مبلغ ولیکئ چې تر دوو اعشاري ځایونو پورې ولري"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 519,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2567,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/person/[id]/credit-limit.tsx",
+          "line": 157
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:credit.recorded",
+      "key": "credit.recorded",
+      "current": {
+        "en": "Recorded",
+        "fa": "حساب شد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ثبت شو"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 520,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2568,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:credit.statusOver",
+      "key": "credit.statusOver",
+      "current": {
+        "en": "Over credit limit",
+        "fa": "بیشتر از حد قرض",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د پور له حده اوښتی"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 521,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2569,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/CreditStatusBadge.tsx",
+          "line": 110
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:credit.statusNear",
+      "key": "credit.statusNear",
+      "current": {
+        "en": "Near credit limit",
+        "fa": "نزدیک حد قرض",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د پور حد ته نږدې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 522,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2570,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/CreditStatusBadge.tsx",
+          "line": 110
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:credit.save",
+      "key": "credit.save",
+      "current": {
+        "en": "Save limits",
+        "fa": "ذخیرهٔ حد قرض",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "حدونه خوندي کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 523,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2571,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/person/[id]/credit-limit.tsx",
+          "line": 308
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:credit.saved",
+      "key": "credit.saved",
+      "current": {
+        "en": "Credit limits saved",
+        "fa": "حد قرض ذخیره شد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د پور حدونه خوندي شول"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 524,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2572,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/person/[id]/credit-limit.tsx",
+          "line": 182
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:reminders.title",
+      "key": "reminders.title",
+      "current": {
+        "en": "Reminders",
+        "fa": "یادآوری‌ها",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "یادونې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 525,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2573,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/person/[id].tsx",
+          "line": 1612
+        },
+        {
+          "path": "apps/mobile/app/person/[id].tsx",
+          "line": 1787
+        },
+        {
+          "path": "apps/mobile/app/person/[id].tsx",
+          "line": 1803
+        },
+        {
+          "path": "apps/mobile/app/person/[id]/reminders.tsx",
+          "line": 191
+        },
+        {
+          "path": "apps/mobile/app/reminders.tsx",
+          "line": 106
+        },
+        {
+          "path": "apps/mobile/components/NotificationInbox.tsx",
+          "line": 192
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:reminders.personal",
+      "key": "reminders.personal",
+      "current": {
+        "en": "Only for you on this phone. Nothing is sent to the customer.",
+        "fa": "فقط برای شما در این تلفن است. چیزی به مشتری فرستاده نمی‌شود.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "یوازې ستاسې لپاره په دې ټیلیفون کې دي. پېرودونکي ته څه نه لېږل کېږي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 526,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2574,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/person/[id]/reminders.tsx",
+          "line": 197
+        },
+        {
+          "path": "apps/mobile/app/reminders.tsx",
+          "line": 112
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:reminders.add",
+      "key": "reminders.add",
+      "current": {
+        "en": "Add reminder",
+        "fa": "افزودن یادآوری",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "یادونه زیاته کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 527,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2575,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/person/[id]/reminders.tsx",
+          "line": 229
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:reminders.edit",
+      "key": "reminders.edit",
+      "current": {
+        "en": "Edit reminder",
+        "fa": "تغییر یادآوری",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "یادونه سمه کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 528,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2576,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/CustomerReminderRow.tsx",
+          "line": 63
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:reminders.once",
+      "key": "reminders.once",
+      "current": {
+        "en": "Once",
+        "fa": "یک‌بار",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "یو ځل"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 529,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2577,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:reminders.daily",
+      "key": "reminders.daily",
+      "current": {
+        "en": "Every day",
+        "fa": "هر روز",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "هره ورځ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 530,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2578,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:reminders.weekly",
+      "key": "reminders.weekly",
+      "current": {
+        "en": "Every week",
+        "fa": "هر هفته",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "هره اونۍ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 531,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2579,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:reminders.monthly",
+      "key": "reminders.monthly",
+      "current": {
+        "en": "Monthly",
+        "fa": "ماهانه",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "هره میاشت"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 532,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2580,
+          "locale": "fa"
+        }
+      ],
+      "references": [],
+      "context": ""
+    },
+    {
+      "id": "mobile:reminders.chooseWeekdays",
+      "key": "reminders.chooseWeekdays",
+      "current": {
+        "en": "Choose any days you want.",
+        "fa": "هر روزی را که می‌خواهید انتخاب کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "هرې ورځې چې غواړئ، غوره یې کړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 533,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2581,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/ReminderEditor.tsx",
+          "line": 181
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:reminders.chooseOneDay",
+      "key": "reminders.chooseOneDay",
+      "current": {
+        "en": "Choose at least one day.",
+        "fa": "حداقل یک روز را انتخاب کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "لږ تر لږه یوه ورځ غوره کړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 534,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2582,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/ReminderEditor.tsx",
+          "line": 313
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:reminders.repeatEvery",
+      "key": "reminders.repeatEvery",
+      "current": {
+        "en": "Repeat every",
+        "fa": "تکرار پس از هر",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "تکرار په هرو"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 535,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2583,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/ReminderEditor.tsx",
+          "line": 207
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:reminders.oneMonth",
+      "key": "reminders.oneMonth",
+      "current": {
+        "en": "1 month",
+        "fa": "۱ ماه",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "1 میاشت"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 536,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2584,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/reminder-format.ts",
+          "line": 26
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:reminders.monthCount",
+      "key": "reminders.monthCount",
+      "current": {
+        "en": "{months} months",
+        "fa": "{months} ماه",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "{months} میاشتې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "months"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 537,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2585,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/reminder-format.ts",
+          "line": 27
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:reminders.monthlyDate",
+      "key": "reminders.monthlyDate",
+      "current": {
+        "en": "Repeating day and month (Gregorian)",
+        "fa": "روز و ماه تکرار (میلادی)",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د تکرار ورځ او میاشت (میلادي)"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 538,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2586,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/ReminderEditor.tsx",
+          "line": 229
+        },
+        {
+          "path": "apps/mobile/components/ReminderEditor.tsx",
+          "line": 235
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:reminders.monthlyCalendar",
+      "key": "reminders.monthlyCalendar",
+      "current": {
+        "en": "Monthly reminders follow the Gregorian calendar. Choose day 1–28 so every month has that date.",
+        "fa": "یادآوری‌های ماهانه با تقویم میلادی تکرار می‌شوند. روز ۱ تا ۲۸ را انتخاب کنید تا در هر ماه موجود باشد.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "میاشتنۍ یادونې د میلادي کلیز له مخې دي. له 1 تر 28 ورځ غوره کړئ، څو دا نېټه په هره میاشت کې وي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 539,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2587,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/ReminderEditor.tsx",
+          "line": 223
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:reminders.monthDayRange",
+      "key": "reminders.monthDayRange",
+      "current": {
+        "en": "Choose a day from 1 to 28.",
+        "fa": "یک روز از ۱ تا ۲۸ را انتخاب کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "له 1 تر 28 یوه ورځ غوره کړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 541,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2589,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/ReminderEditor.tsx",
+          "line": 313
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:reminders.onMonthlyDay",
+      "key": "reminders.onMonthlyDay",
+      "current": {
+        "en": "Day {day} of every Gregorian month at {time}",
+        "fa": "روز {day} هر ماه میلادی، ساعت {time}",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د هرې میلادي میاشتې په {day} ورځ، په {time}"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "day",
+        "time"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 542,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2590,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/reminder-format.ts",
+          "line": 48
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:reminders.onMonthInterval",
+      "key": "reminders.onMonthInterval",
+      "current": {
+        "en": "Every {months} Gregorian months, day {day}, at {time}",
+        "fa": "هر {months} ماه میلادی، روز {day}، ساعت {time}",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "په هرو {months} میلادي میاشتو کې، په {day} ورځ، په {time}"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "day",
+        "months",
+        "time"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 543,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2591,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/reminder-format.ts",
+          "line": 48
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:reminders.scheduleLimit",
+      "key": "reminders.scheduleLimit",
+      "current": {
+        "en": "This phone has no notification slots left for this schedule. Choose fewer weekdays or a longer interval, or remove another reminder.",
+        "fa": "جای اعلان برای این برنامه در این تلفن نمانده است. روزهای کمتر یا فاصلهٔ طولانی‌تر انتخاب کنید، یا یک یادآوری دیگر را حذف کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "په دې ټیلیفون کې د دې مهالوېش د خبرتیاوو لپاره نور ځای نشته. د اونۍ لږې ورځې یا اوږده موده غوره کړئ، یا بله یادونه لرې کړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 544,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2592,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/person/[id]/reminders.tsx",
+          "line": 138
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:reminders.date",
+      "key": "reminders.date",
+      "current": {
+        "en": "Date",
+        "fa": "تاریخ",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "نېټه"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 546,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2594,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/ReminderEditor.tsx",
+          "line": 229
+        },
+        {
+          "path": "apps/mobile/components/ReminderEditor.tsx",
+          "line": 235
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:reminders.time",
+      "key": "reminders.time",
+      "current": {
+        "en": "Time",
+        "fa": "وقت",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "وخت"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 547,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2595,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/ReminderEditor.tsx",
+          "line": 244
+        },
+        {
+          "path": "apps/mobile/components/ReminderEditor.tsx",
+          "line": 249
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:reminders.weekday",
+      "key": "reminders.weekday",
+      "current": {
+        "en": "Day of week",
+        "fa": "روز هفته",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د اونۍ ورځ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 548,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2596,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/ReminderEditor.tsx",
+          "line": 180
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:reminders.everyDay",
+      "key": "reminders.everyDay",
+      "current": {
+        "en": "Every day at {time}",
+        "fa": "هر روز ساعت {time}",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "هره ورځ په {time}"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "time"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 549,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2597,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/reminder-format.ts",
+          "line": 34
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:reminders.everyWeekday",
+      "key": "reminders.everyWeekday",
+      "current": {
+        "en": "Every {weekday} at {time}",
+        "fa": "هر {weekday} ساعت {time}",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "هره {weekday} په {time}"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "time",
+        "weekday"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 550,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2598,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/reminder-format.ts",
+          "line": 36
+        },
+        {
+          "path": "apps/mobile/lib/reminder-format.ts",
+          "line": 42
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:reminders.next",
+      "key": "reminders.next",
+      "current": {
+        "en": "Next: {date}",
+        "fa": "نوبت بعد: {date}",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "راتلونکې: {date}"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "date"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 551,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2599,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/CustomerReminderRow.tsx",
+          "line": 54
+        },
+        {
+          "path": "apps/mobile/components/ReminderEditor.tsx",
+          "line": 317
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:reminders.due",
+      "key": "reminders.due",
+      "current": {
+        "en": "Due",
+        "fa": "وقتش رسیده",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "وخت یې رسېدلی"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 552,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2600,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/reminders.tsx",
+          "line": 116
+        },
+        {
+          "path": "apps/mobile/components/CustomerReminderRow.tsx",
+          "line": 53
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:reminders.dueShortcut",
+      "key": "reminders.dueShortcut",
+      "current": {
+        "en": "Reminders due: {count}",
+        "fa": "یادآوری‌های رسیده: {count}",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د هغو یادونو شمېر چې وخت یې رسېدلی: {count}"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "count"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 553,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2601,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/NotificationInbox.tsx",
+          "line": 192
+        },
+        {
+          "path": "apps/mobile/components/NotificationInbox.tsx",
+          "line": 341
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:reminders.all",
+      "key": "reminders.all",
+      "current": {
+        "en": "All",
+        "fa": "همه",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "ټولې"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 554,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2602,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/person/[id]/reminders.tsx",
+          "line": 259
+        },
+        {
+          "path": "apps/mobile/app/reminders.tsx",
+          "line": 122
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:reminders.empty",
+      "key": "reminders.empty",
+      "current": {
+        "en": "No reminders here yet.",
+        "fa": "هنوز یادآوری ندارید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "دلته لا یادونې نشته."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 555,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2603,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/reminders.tsx",
+          "line": 142
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:reminders.noDue",
+      "key": "reminders.noDue",
+      "current": {
+        "en": "No reminders are due.",
+        "fa": "اکنون وقت هیچ یادآوری نرسیده است.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د هېڅ یادونې وخت نه دی رسېدلی."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 556,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2604,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/reminders.tsx",
+          "line": 142
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:reminders.markDone",
+      "key": "reminders.markDone",
+      "current": {
+        "en": "Mark done",
+        "fa": "انجام شد",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د بشپړې شوې په نښه کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 557,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2605,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/CustomerReminderRow.tsx",
+          "line": 58
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:reminders.remove",
+      "key": "reminders.remove",
+      "current": {
+        "en": "Remove reminder",
+        "fa": "حذف یادآوری",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "یادونه لرې کړئ"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 558,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2606,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/person/[id]/reminders.tsx",
+          "line": 268
+        },
+        {
+          "path": "apps/mobile/app/reminders.tsx",
+          "line": 172
+        },
+        {
+          "path": "apps/mobile/components/CustomerReminderRow.tsx",
+          "line": 70
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:reminders.removeConfirm",
+      "key": "reminders.removeConfirm",
+      "current": {
+        "en": "Remove this reminder?",
+        "fa": "این یادآوری حذف شود؟",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "دا یادونه لرې شي؟"
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 559,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2607,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/person/[id]/reminders.tsx",
+          "line": 267
+        },
+        {
+          "path": "apps/mobile/app/reminders.tsx",
+          "line": 171
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:reminders.saved",
+      "key": "reminders.saved",
+      "current": {
+        "en": "Reminder saved.",
+        "fa": "یادآوری ذخیره شد.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "یادونه خوندي شوه."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 560,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2608,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/person/[id]/reminders.tsx",
+          "line": 123
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:reminders.future",
+      "key": "reminders.future",
+      "current": {
+        "en": "Choose a future date and time.",
+        "fa": "تاریخ و وقت آینده را انتخاب کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "راتلونکې نېټه او وخت غوره کړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 561,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2609,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/person/[id]/reminders.tsx",
+          "line": 95
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:reminders.unavailable",
+      "key": "reminders.unavailable",
+      "current": {
+        "en": "This customer is no longer available.",
+        "fa": "این مشتری دیگر در دسترس نیست.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "دا پېرودونکی نور نشته."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 562,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2610,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/person/[id]/reminders.tsx",
+          "line": 140
+        },
+        {
+          "path": "apps/mobile/app/person/[id]/reminders.tsx",
+          "line": 212
+        },
+        {
+          "path": "apps/mobile/app/reminders.tsx",
+          "line": 154
+        },
+        {
+          "path": "apps/mobile/components/CustomerReminderRow.tsx",
+          "line": 49
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:reminders.permissionDenied",
+      "key": "reminders.permissionDenied",
+      "current": {
+        "en": "Saved. Notifications are off; this reminder will appear in Kaata.",
+        "fa": "ذخیره شد. اعلان‌ها خاموش‌اند؛ این یادآوری در کاتا نشان داده می‌شود.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "خوندي شوه. خبرتیاوې بندې دي؛ دا یادونه به په Kaata کې ښکاره شي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 563,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2611,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/person/[id]/reminders.tsx",
+          "line": 120
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:reminders.notificationsOff",
+      "key": "reminders.notificationsOff",
+      "current": {
+        "en": "Notifications are off for Kaata, so reminders only show inside the app. Turn them on in Settings to be alerted on time.",
+        "fa": "اعلان‌های کاتا خاموش‌اند، پس یادآوری‌ها فقط داخل برنامه دیده می‌شوند. برای اینکه به‌وقت باخبر شوید، آن‌ها را در تنظیمات روشن کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د Kaata خبرتیاوې بندې دي، نو یادونې یوازې په اپ کې ښکاري. په خپل وخت د خبرتیا لپاره یې په امستنو کې فعالې کړئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 564,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2613,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/components/ReminderPermissionNotice.tsx",
+          "line": 43
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:reminders.permissionUnavailable",
+      "key": "reminders.permissionUnavailable",
+      "current": {
+        "en": "Saved. This build supports reminders inside Kaata.",
+        "fa": "ذخیره شد. در این نسخه، یادآوری در کاتا نشان داده می‌شود.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "خوندي شوه. دا نسخه په Kaata کې دننه د یادونو ملاتړ کوي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 566,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2615,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/person/[id]/reminders.tsx",
+          "line": 122
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:reminders.nativeFailed",
+      "key": "reminders.nativeFailed",
+      "current": {
+        "en": "Saved. Phone notifications could not be scheduled; the reminder remains in Kaata.",
+        "fa": "ذخیره شد. اعلان تلفن تنظیم نشد؛ یادآوری در کاتا باقی می‌ماند.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "خوندي شوه. د ټیلیفون خبرتیاوې مهالویش نه شوې؛ یادونه په Kaata کې پاتې ده."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 567,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2616,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/person/[id]/reminders.tsx",
+          "line": 128
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:reminders.limit",
+      "key": "reminders.limit",
+      "current": {
+        "en": "This phone can have up to 40 active reminders.",
+        "fa": "در این تلفن تا ۴۰ یادآوری فعال می‌توانید داشته باشید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "دا ټیلیفون تر 40 پورې فعالې یادونې لرلی شي."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 569,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2617,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/person/[id]/reminders.tsx",
+          "line": 136
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:reminders.loadFailed",
+      "key": "reminders.loadFailed",
+      "current": {
+        "en": "Reminders couldn't be read on this phone. Try again; if it keeps failing, restart Kaata.",
+        "fa": "یادآوری‌ها در این تلفن خوانده نشدند. دوباره امتحان کنید؛ اگر باز نشد، کاتا را دوباره باز کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "په دې ټیلیفون کې یادونې ونه لوستل شوې. بیا هڅه وکړئ؛ که ستونزه دوام وکړي، Kaata له سره پرانیزئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 570,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2618,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/app/person/[id]/reminders.tsx",
+          "line": 204
+        },
+        {
+          "path": "apps/mobile/app/reminders.tsx",
+          "line": 133
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:reminders.notifyBody",
+      "key": "reminders.notifyBody",
+      "current": {
+        "en": "A customer reminder is due. Open Kaata to view it.",
+        "fa": "وقت یادآوری یک مشتری رسیده است. برای دیدن آن کاتا را باز کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "د پېرودونکي د یادونې وخت رسېدلی. د لیدلو لپاره یې Kaata پرانیزئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 572,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2620,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/reminder-notifications.ts",
+          "line": 178
+        }
+      ],
+      "context": ""
+    },
+    {
+      "id": "mobile:reminders.notifyBodyNamed",
+      "key": "reminders.notifyBodyNamed",
+      "current": {
+        "en": "Time to notify {name} about their tally. Open Kaata to send it.",
+        "fa": "وقت آن است که {name} را از حسابش باخبر کنید. برای فرستادن، کاتا را باز کنید.",
+        "ps": null
+      },
+      "proposed": {
+        "en": null,
+        "fa": null,
+        "ps": "وخت دی چې {name} ته د حساب یادونه وکړئ. د لېږلو لپاره Kaata پرانیزئ."
+      },
+      "approved_locales": [
+        "ps"
+      ],
+      "notes": "",
+      "placeholders": [
+        "name"
+      ],
+      "sources": [
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 573,
+          "locale": "en"
+        },
+        {
+          "path": "apps/mobile/lib/i18n.ts",
+          "line": 2621,
+          "locale": "fa"
+        }
+      ],
+      "references": [
+        {
+          "path": "apps/mobile/lib/reminder-notifications.ts",
+          "line": 178
+        }
+      ],
+      "context": ""
+    }
+  ]
+}

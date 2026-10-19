@@ -94,7 +94,9 @@
     "selftest:credit-settings-ui": "tsx lib/__dev__/credit-settings-ui-selftest.ts",
     "selftest:members-screen": "tsx lib/__dev__/members-screen-selftest.ts",
     "selftest:ownership-transfer-ui": "tsx lib/__dev__/ownership-transfer-ui-selftest.ts",
-    "selftest:entry-create-ui": "tsx lib/__dev__/entry-create-ui-selftest.ts"
+    "selftest:entry-create-ui": "tsx lib/__dev__/entry-create-ui-selftest.ts",
+    "selftest:pashto": "tsx lib/__dev__/pashto-selftest.ts",
+    "selftest:language-core": "tsx lib/__dev__/language-core-selftest.ts"
   },
   "dependencies": {
     "@expo-google-fonts/inter": "^0.4.2",

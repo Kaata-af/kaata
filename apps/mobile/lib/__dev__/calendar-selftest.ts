@@ -33,6 +33,9 @@ async function main() {
   locale = "fa";
   assert.equal(cal.getEffectiveCalendar(), "jalali", "Auto retains the existing Dari default");
 
+  locale = "ps";
+  assert.equal(cal.getEffectiveCalendar(), "jalali", "Auto uses the Afghan calendar for Pashto");
+
   let repaintCount = 0;
   const unsubscribe = cal.subscribeCalendar(() => repaintCount++);
   stored = "qamari";

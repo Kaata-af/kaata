@@ -413,9 +413,9 @@ export type OutreachTouch = {
 };
 // The operator's per-number message language (2026-09-30, migration 046):
 // "" follows the session-wide choice (setting `pref.message_lang`), "fa" is
-// Dari, "en" English. A preference, not an outreach event: setting it writes
+// Dari, "ps" Pashto, "en" English. A preference, not an outreach event: setting it writes
 // no touch.
-export type OutreachLang = "" | "en" | "fa";
+export type OutreachLang = "" | "en" | "fa" | "ps";
 export type OutreachState = {
   phone: string;
   status: OutreachStatus;

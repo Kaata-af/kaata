@@ -1,3 +1,4 @@
+import type { LocaleCode } from "./i18n";
 // Date rendering for the three calendar systems the app supports.
 //
 // Solar Hijri uses AFGHAN month names — the zodiac set (حمل … حوت), not the
@@ -134,6 +135,51 @@ export const QAMARI_MONTHS_EN = [
   "Shawwal",
   "Dhu al-Qadah",
   "Dhu al-Hijjah",
+] as const;
+
+export const AFGHAN_MONTHS_PS = [
+  "وری",
+  "غویی",
+  "غبرګولی",
+  "چنګاښ",
+  "زمری",
+  "وږی",
+  "تله",
+  "لړم",
+  "لیندۍ",
+  "مرغومی",
+  "سلواغه",
+  "کب",
+] as const;
+
+export const GREGORIAN_MONTHS_PS = [
+  "جنوري",
+  "فبروري",
+  "مارچ",
+  "اپرېل",
+  "مې",
+  "جون",
+  "جولای",
+  "اګست",
+  "سپتمبر",
+  "اکتوبر",
+  "نومبر",
+  "دسمبر",
+] as const;
+
+export const QAMARI_MONTHS_PS = [
+  "محرم",
+  "صفر",
+  "ربیع‌الاول",
+  "ربیع‌الثاني",
+  "جمادی‌الاول",
+  "جمادی‌الثاني",
+  "رجب",
+  "شعبان",
+  "رمضان",
+  "شوال",
+  "ذوالقعده",
+  "ذوالحجه",
 ] as const;
 
 const FA_DIGITS = "۰۱۲۳۴۵۶۷۸۹";
@@ -314,17 +360,17 @@ export function toQamari(
  */
 export function formatCalendarDate(
   ms: number,
-  locale: "en" | "fa",
+  locale: LocaleCode,
   calendar: Calendar,
   qamariOffset: number = qamariOffsetDays,
 ): string {
-  const fa = locale === "fa";
+  const fa = locale !== "en";
   const num = (v: number): string => (fa ? faDigits(v) : String(v));
 
   if (calendar === "qamari") {
     try {
       const { hy, hm, hd } = toQamari(ms, qamariOffset);
-      return `${num(hd)} ${(fa ? QAMARI_MONTHS_FA : QAMARI_MONTHS_EN)[hm - 1]} ${num(hy)}`;
+      return `${num(hd)} ${(locale === "ps" ? QAMARI_MONTHS_PS : fa ? QAMARI_MONTHS_FA : QAMARI_MONTHS_EN)[hm - 1]} ${num(hy)}`;
     } catch {
       // Invalid dates and dates before the Hijri epoch use the same safe
       // Gregorian fallback as the Solar Hijri path below.
@@ -334,7 +380,7 @@ export function formatCalendarDate(
   if (calendar === "jalali") {
     try {
       const { jy, jm, jd } = toJalali(ms);
-      return `${num(jd)} ${(fa ? AFGHAN_MONTHS : AFGHAN_MONTHS_LATIN)[jm - 1]} ${num(jy)}`;
+      return `${num(jd)} ${(locale === "ps" ? AFGHAN_MONTHS_PS : fa ? AFGHAN_MONTHS : AFGHAN_MONTHS_LATIN)[jm - 1]} ${num(jy)}`;
     } catch {
       // jalCal throws outside jy ∈ [-61, 3178). A garbage timestamp must not
       // take a list row down with it — fall through to Gregorian.
@@ -346,7 +392,7 @@ export function formatCalendarDate(
   // An Invalid Date yields NaN here, which would index the table as undefined
   // and render "undefined" into a bill. Empty string is the honest answer.
   if (Number.isNaN(m)) return "";
-  return `${num(d.getDate())} ${(fa ? GREGORIAN_MONTHS_FA : GREGORIAN_MONTHS_EN)[m]} ${num(d.getFullYear())}`;
+  return `${num(d.getDate())} ${(locale === "ps" ? GREGORIAN_MONTHS_PS : fa ? GREGORIAN_MONTHS_FA : GREGORIAN_MONTHS_EN)[m]} ${num(d.getFullYear())}`;
 }
 
 /**
@@ -357,6 +403,6 @@ export function formatCalendarDate(
  * Note this used to derive the calendar from the locale — fa implied Jalali.
  * It no longer does: the calendar is the user's setting and is passed in.
  */
-export function formatSettlementDate(ms: number, locale: "en" | "fa", calendar: Calendar): string {
+export function formatSettlementDate(ms: number, locale: LocaleCode, calendar: Calendar): string {
   return formatCalendarDate(ms, locale, calendar);
 }

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { FACEBOOK_URL, INSTAGRAM_URL, TIKTOK_URL, WHATSAPP_CONTACT_URL, YOUTUBE_URL } from "../env";
-import { useI18n } from "../lib/i18n";
+import { useI18n, type Lang } from "../lib/i18n";
 import { BrandLogo } from "./BrandLogo";
 import { Button } from "./ui/button";
 
@@ -30,7 +30,7 @@ export function SiteHeader() {
           {/* Persian wordmark (کاتا.) drops tracking-tight — negative
               letter-spacing breaks Arabic-script joining. */}
           <span
-            className={`text-base font-bold text-brand-primary ${lang === "fa" ? "" : "tracking-tight"}`}
+            className={`text-base font-bold text-brand-primary ${lang !== "en" ? "" : "tracking-tight"}`}
           >
             {t("brand.wordmark")}
           </span>
@@ -59,18 +59,25 @@ export function SiteHeader() {
         </nav>
 
         <div className="flex items-center gap-2 md:justify-self-end">
-          {/* Language toggle — shows the language you'd switch TO. Persian
-              is the audience's language; one tap from either side. */}
-          <Button
-            variant="ghost"
-            size="sm"
-            type="button"
-            onClick={() => setLang(lang === "fa" ? "en" : "fa")}
-            lang={lang === "fa" ? "en" : "fa"}
-            className="text-[13px] text-muted-foreground"
+          <label className="sr-only" htmlFor="site-language">
+            {lang === "ps" ? "ژبه" : lang === "fa" ? "زبان" : "Language"}
+          </label>
+          <select
+            id="site-language"
+            value={lang}
+            onChange={(event) => setLang(event.target.value as Lang)}
+            className="h-9 rounded-md border border-neutral-200 bg-transparent px-2 text-[13px] text-muted-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-primary"
           >
-            {lang === "fa" ? "English" : "دری"}
-          </Button>
+            <option value="en" lang="en">
+              English
+            </option>
+            <option value="fa" lang="fa">
+              دری
+            </option>
+            <option value="ps" lang="ps">
+              پښتو
+            </option>
+          </select>
 
           <Button asChild size="sm" className="text-[13px]">
             <Link to="/download">{t("nav.getApp")}</Link>
@@ -101,7 +108,7 @@ export function SiteFooter() {
           <Link to="/" className="flex items-center gap-2">
             <BrandLogo className="h-7 w-7" />
             <span
-              className={`text-lg font-bold text-brand-primary ${lang === "fa" ? "" : "tracking-tight"}`}
+              className={`text-lg font-bold text-brand-primary ${lang !== "en" ? "" : "tracking-tight"}`}
             >
               {t("brand.wordmark")}
             </span>

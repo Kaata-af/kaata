@@ -61,6 +61,13 @@ let registrations: any[] = [];
 let scheduled: any[] = [];
 let nativePending: any[] = [];
 let authFailure = false;
+let locale = "en";
+const localeListeners = new Set<() => void>();
+const changeLocale = (value: string) => {
+  locale = value;
+  for (const listener of localeListeners) listener();
+};
+let registrationResult: () => Promise<{ enabled: boolean }> = async () => ({ enabled: true });
 const queued = new Set<string>();
 // The OS tray, and what left it; the read marks that reached the server stub.
 let presented: any[] = [];
@@ -91,7 +98,11 @@ stub("../db-tx", {
 });
 stub("../use-vault-role", { readVaultRole: async () => "editor", canPerformAction: () => true });
 stub("../i18n", {
-  getLocale: () => "en",
+  getLocale: () => locale,
+  subscribeLocale: (fn: () => void) => {
+    localeListeners.add(fn);
+    return () => localeListeners.delete(fn);
+  },
   t: (key: string) => key,
   tIn: (_: string, key: string) => key,
 });
@@ -110,7 +121,7 @@ stub("../tabs/api", {
   },
   registerTabNotifications: async (_: unknown, id: string, options: unknown) => {
     registrations.push({ id, options });
-    return { enabled: true };
+    return registrationResult();
   },
   markInboxRead: async (body: unknown) => {
     inboxMarks.push(body);
@@ -208,6 +219,8 @@ async function settled() {
   for (let i = 0; i < 20; i++) await new Promise<void>((resolve) => setImmediate(resolve));
 }
 function reset() {
+  locale = "en";
+  registrationResult = async () => ({ enabled: true });
   meta.clear();
   calls.length = 0;
   asks = 0;
@@ -238,7 +251,7 @@ async function main() {
   await settled();
   assert.equal(typeof responseListener, "function");
   assert.equal(registeredTask, "kaata-tab-notification-actions");
-  for (const locale of ["en", "fa"]) {
+  for (const locale of ["en", "fa", "ps"]) {
     const category = categories.find((c) => c.id === `tab-review-${locale}`)!;
     assert.equal(category.actions.length, 2);
     for (const action of category.actions) {
@@ -246,6 +259,70 @@ async function main() {
       assert.equal(action.options.isAuthenticationRequired, true);
     }
   }
+  await test("language changes refresh the server immediately inside the hourly throttle", async () => {
+    locale = "fa";
+    granted = true;
+    await notify.ensureTabNotificationPermission();
+    assert.equal(registrations[0].options.locale, "fa");
+    await notify.syncTabPushSubscriptions();
+    assert.equal(registrations.length, 1, "unchanged account/language stays throttled");
+    changeLocale("ps");
+    await settled();
+    assert.deepEqual(
+      registrations.map((item) => item.options.locale),
+      ["fa", "ps"],
+    );
+    assert.equal(asks, 0, "language changes do not reprompt when permission is granted");
+  });
+  await test("a language change during a request serializes the latest locale and ignores stale status", async () => {
+    locale = "fa";
+    granted = true;
+    let finish!: (value: { enabled: boolean }) => void;
+    registrationResult = () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      });
+    const first = notify.ensureTabNotificationPermission();
+    await settled();
+    assert.equal(registrations.length, 1);
+    changeLocale("en");
+    changeLocale("ps");
+    await settled();
+    assert.equal(registrations.length, 1, "newer requests wait for the old server response");
+    registrationResult = async () => ({ enabled: true });
+    finish({ enabled: false });
+    await first;
+    await settled();
+    assert.deepEqual(
+      registrations.map((item) => item.options.locale),
+      ["fa", "ps"],
+    );
+    assert.equal(meta.get("tab_push_active"), "1");
+    assert.equal(meta.get("tab_push_error"), "");
+    await notify.syncTabPushSubscriptions();
+    assert.equal(registrations.length, 2, "the latest successful registration owns the throttle");
+  });
+  await test("a failed old-language request cannot delay the latest-language registration", async () => {
+    locale = "fa";
+    granted = true;
+    let fail!: (error: Error) => void;
+    registrationResult = () =>
+      new Promise((_, reject) => {
+        fail = reject;
+      });
+    const first = notify.ensureTabNotificationPermission();
+    await settled();
+    changeLocale("ps");
+    registrationResult = async () => ({ enabled: true });
+    fail(new Error("synthetic old-language connection failure"));
+    await first;
+    await settled();
+    assert.deepEqual(
+      registrations.map((item) => item.options.locale),
+      ["fa", "ps"],
+    );
+    assert.equal(meta.get("tab_push_error"), "");
+  });
   await test("existing linked-contact upgrade asks once and registers push", async () => {
     await notify.ensureTabNotificationPermission();
     assert.equal(asks, 1);

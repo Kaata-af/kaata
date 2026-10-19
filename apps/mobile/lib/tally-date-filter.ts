@@ -1,3 +1,4 @@
+import type { LocaleCode } from "./i18n";
 import type { Calendar } from "./calendar";
 import { faDigits, formatSettlementDate, toJalali, toQamari } from "./jalali";
 
@@ -124,11 +125,11 @@ export function dateRangeDraft(range: TallyDateRange | null): {
   };
 }
 
-export function formatFilterClock(ms: number, locale: "en" | "fa"): string {
+export function formatFilterClock(ms: number, locale: LocaleCode): string {
   const date = new Date(ms);
   if (!Number.isFinite(date.getTime())) return "";
   const clock = `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
-  return locale === "fa" ? faDigits(clock) : clock;
+  return locale !== "en" ? faDigits(clock) : clock;
 }
 
 /** The active filter as one short label. A single day reads as that day, not
@@ -136,7 +137,7 @@ export function formatFilterClock(ms: number, locale: "en" | "fa"): string {
  *  dot against Persian digits reads as a zero (CLAUDE.md, PDF exports). */
 export function formatDateRangeLabel(
   range: TallyDateRange | null,
-  locale: "en" | "fa",
+  locale: LocaleCode,
   calendar: Calendar,
 ): string {
   if (!range) return "";
@@ -145,7 +146,7 @@ export function formatDateRangeLabel(
   const lastDate = formatSettlementDate(last, locale, calendar);
   if (range.timePrecision !== "minute")
     return startDate === lastDate ? startDate : `${startDate} – ${lastDate}`;
-  const sep = locale === "fa" ? "، " : " · ";
+  const sep = locale !== "en" ? "، " : " · ";
   const startClock = formatFilterClock(range.start, locale);
   const lastClock = formatFilterClock(last, locale);
   return startDate === lastDate

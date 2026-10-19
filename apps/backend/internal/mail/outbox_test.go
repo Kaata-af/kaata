@@ -193,10 +193,10 @@ func TestPasswordNotices(t *testing.T) {
 	if got := MaskAddress("thief@evil.af"); got != "t***@evil.af" {
 		t.Fatalf("mask %q", got)
 	}
-	if Lang(" FA ") != "fa" || Lang("") != "en" || Lang("ps") != "en" {
+	if Lang(" FA ") != "fa" || Lang("") != "en" || Lang("ps") != "ps" {
 		t.Fatal("Lang misjudged")
 	}
-	for _, lang := range []string{"en", "fa"} {
+	for _, lang := range []string{"en", "fa", "ps"} {
 		m := RenderElsewhere(lang, "owner@gmail.com", "t***@evil.af")
 		if m.To != "owner@gmail.com" || strings.Contains(m.Text, "{address}") || strings.Contains(m.HTML, "{address}") {
 			t.Fatalf("%s: %+v", lang, m)
@@ -204,7 +204,7 @@ func TestPasswordNotices(t *testing.T) {
 		if !strings.Contains(m.HTML, `<span dir="ltr">t***@evil.af</span>`) {
 			t.Fatalf("%s: the address must be an LTR span in HTML", lang)
 		}
-		if lang == "fa" && !strings.Contains(m.Text, "⁦t***@evil.af⁩") {
+		if lang != "en" && !strings.Contains(m.Text, "⁦t***@evil.af⁩") {
 			t.Fatal("fa: the address must be LTR-isolated in text")
 		}
 		if lang == "en" && !strings.Contains(m.Text, "t***@evil.af") {

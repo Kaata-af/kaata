@@ -269,7 +269,7 @@ func TestPushReviewActionsRequireCurrentEntryAndRole(t *testing.T) {
 }
 
 func TestPushReviewOutcomeText(t *testing.T) {
-	for _, locale := range []string{"en", "fa"} {
+	for _, locale := range []string{"en", "fa", "ps"} {
 		seen := map[string]bool{}
 		for _, kind := range []string{"updated", "entry_created", "entry_accepted", "entry_rejected", "entry_voided"} {
 			body := pushBody(kind, locale)
