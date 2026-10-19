@@ -1,0 +1,20 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <application>
+    <!-- Expo's original receiver remains registered for existing explicit
+         PendingIntents and boot/package-replacement scheduling. New notification
+         events select this receiver ahead of Expo's priority -1 receiver. -->
+    <receiver
+      android:name="expo.modules.kaatanotificationactions.KaataNotificationsService"
+      android:enabled="true"
+      android:exported="false">
+      <intent-filter android:priority="0">
+        <action android:name="expo.modules.notifications.NOTIFICATION_EVENT" />
+      </intent-filter>
+      <!-- Retire pre-update scheduled alarm identities before rescheduling.
+           Expo's original setup receiver remains available for boot events. -->
+      <intent-filter>
+        <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+      </intent-filter>
+    </receiver>
+  </application>
+</manifest>

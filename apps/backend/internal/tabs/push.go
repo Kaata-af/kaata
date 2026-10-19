@@ -183,6 +183,28 @@ type pushTicket struct {
 	} `json:"details"`
 }
 
+func notificationIconName(kind string) string {
+	switch kind {
+	case "entry_created":
+		return "kaata_notification_pending"
+	case "entry_accepted":
+		return "kaata_notification_accepted"
+	case "entry_rejected":
+		return "kaata_notification_rejected"
+	default:
+		return ""
+	}
+}
+
+func pushPayload(token, body, kind string, data map[string]any) map[string]any {
+	payload := map[string]any{"to": token, "title": "Kaata", "body": body,
+		"sound": "default", "channelId": "tab-updates", "ttl": 86400, "data": data}
+	if icon := notificationIconName(kind); icon != "" {
+		payload["icon"] = icon
+	}
+	return payload
+}
+
 func (p *pushClient) post(ctx context.Context, path string, body any, out any) error {
 	raw, err := json.Marshal(body)
 	if err != nil {
@@ -283,8 +305,7 @@ func (s *Service) deliverPush(ctx context.Context) (bool, error) {
 			if entryID != "" {
 				data["entry_id"] = entryID
 			}
-			payload := map[string]any{"to": token, "title": "Kaata", "body": body,
-				"sound": "default", "channelId": "tab-updates", "ttl": 86400, "data": data}
+			payload := pushPayload(token, body, kind, data)
 			if kind == "entry_created" && canReview {
 				// Do not put buttons on an entry already reviewed/voided/closed.
 				var current bool

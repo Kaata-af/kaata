@@ -1,0 +1,21 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'af.kaata.notificationactions'
+version = '0.0.1'
+
+android {
+  namespace 'expo.modules.kaatanotificationactions'
+  defaultConfig {
+    versionCode 1
+    versionName '0.0.1'
+  }
+}
+
+dependencies {
+  // SDK 57 may link Expo's precompiled AAR instead of a Gradle subproject.
+  implementation expoModule.getExpoDependency('expo-notifications')
+  testImplementation 'junit:junit:4.13.2'
+}
