@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Upload ONLY Kaata 2.2.0/code 58 to Play INTERNAL testing, preserving reviews.
+// Upload ONLY Kaata 2.2.3/code 67 to Play INTERNAL testing, preserving reviews.
 // No track-selection or review-cancellation flag exists. Every commit uses
 // ERROR_IF_IN_REVIEW; a refusal is final, with no automatic retry or fallback.
 // Run only after every other Android EAS submission has finished: one open edit
@@ -15,11 +15,21 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const MOBILE_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const PACKAGE = "af.kaata.app";
-const VERSION = "2.2.0";
-const CODE = 58;
+const VERSION = "2.2.3";
+const CODE = 67;
 const ORIGIN = "https://androidpublisher.googleapis.com";
 const BASE = `${ORIGIN}/androidpublisher/v3/applications/${PACKAGE}`;
 const COMMIT_GUARD = "changesInReviewBehavior=ERROR_IF_IN_REVIEW";
+const IMAGE_TYPES = [
+  "phoneScreenshots",
+  "sevenInchScreenshots",
+  "tenInchScreenshots",
+  "featureGraphic",
+  "icon",
+  "tvScreenshots",
+  "tvBanner",
+  "wearScreenshots",
+];
 const TOKEN_ENDPOINTS = new Set([
   "https://oauth2.googleapis.com/token",
   "https://accounts.google.com/o/oauth2/token",
@@ -167,6 +177,56 @@ function snapshot(response) {
     .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
 }
 
+const stable = (value) =>
+  JSON.stringify(value, (_key, entry) =>
+    entry && typeof entry === "object" && !Array.isArray(entry)
+      ? Object.fromEntries(Object.entries(entry).sort(([a], [b]) => a.localeCompare(b)))
+      : entry,
+  );
+
+async function captureEdit(call, editId) {
+  const [details, listings, tracks] = await Promise.all([
+    call("GET", `${BASE}/edits/${editId}/details`),
+    call("GET", `${BASE}/edits/${editId}/listings`),
+    call("GET", `${BASE}/edits/${editId}/tracks`),
+  ]);
+  if (!Array.isArray(listings?.listings) || !Array.isArray(tracks?.tracks))
+    throw new Error("Invalid Play preservation snapshot.");
+  const images = {};
+  for (const { language } of listings.listings) {
+    images[language] = {};
+    for (const type of IMAGE_TYPES)
+      images[language][type] =
+        (
+          await call(
+            "GET",
+            `${BASE}/edits/${editId}/listings/${encodeURIComponent(language)}/${type}`,
+          )
+        )?.images ?? [];
+  }
+  return {
+    details,
+    listings,
+    images,
+    tracks: [...tracks.tracks].sort((a, b) => a.track.localeCompare(b.track)),
+  };
+}
+
+function checkPreservation(before, after, intended) {
+  const otherTracks = (state) => state.tracks.filter((track) => track.track !== "internal");
+  const checks = {
+    detailsUnchanged: stable(before.details) === stable(after.details),
+    listingTextUnchanged: stable(before.listings) === stable(after.listings),
+    imagesUnchanged: stable(before.images) === stable(after.images),
+    productionAndClosedTracksUnchanged: stable(otherTracks(before)) === stable(otherTracks(after)),
+    internalExact:
+      stable(after.tracks.find((track) => track.track === "internal")) === stable(intended),
+  };
+  if (Object.values(checks).some((value) => !value))
+    throw new Error(`Internal preservation check failed: ${JSON.stringify(checks)}`);
+  return checks;
+}
+
 // Exported solely so tests can inject a mock transport; all store destinations
 // and the review guard remain fixed even when imported.
 export async function submitInternal(
@@ -226,12 +286,44 @@ export async function submitInternal(
   let failure = null;
   let productionAfter = null;
   let internalAfter = null;
+  let before = null;
+  let prepared = null;
+  let verified = null;
+  let preservationChecks = null;
+  const intended = {
+    track: "internal",
+    releases: [
+      {
+        name: `${VERSION} (${CODE}) — internal testing`,
+        versionCodes: [String(CODE)],
+        status: "completed",
+        ...(notes == null ? {} : { releaseNotes: [{ language: "en-US", text: notes.trim() }] }),
+      },
+    ],
+  };
   try {
     const edit = await call("POST", `${BASE}/edits`, {});
     if (typeof edit?.id !== "string" || !/^[A-Za-z0-9_-]+$/.test(edit.id)) {
       throw new Error("Google returned an invalid edit identifier.");
     }
     editId = edit.id;
+    before = await captureEdit(call, editId);
+    const [bundles, apks] = await Promise.all([
+      call("GET", `${BASE}/edits/${editId}/bundles`),
+      call("GET", `${BASE}/edits/${editId}/apks`),
+    ]);
+    const usedCodes = [...(bundles?.bundles ?? []), ...(apks?.apks ?? [])].map((artifact) =>
+      Number(artifact.versionCode),
+    );
+    usedCodes.push(
+      ...before.tracks
+        .flatMap((track) => (track.releases ?? []).flatMap((release) => release.versionCodes ?? []))
+        .map(Number),
+    );
+    if (usedCodes.some((code) => !Number.isSafeInteger(code) || code >= CODE))
+      throw new Error(
+        `Code ${CODE} is already uploaded or not newer than every existing artifact; inspect without re-uploading.`,
+      );
     report(
       `Uploading ${VERSION}/code ${CODE} to an internal-only edit (${(bundle.length / 1024 / 1024).toFixed(1)} MiB).`,
     );
@@ -251,26 +343,32 @@ export async function submitInternal(
       );
     }
     if (
-      typeof uploaded.sha256 === "string" &&
+      typeof uploaded.sha256 !== "string" ||
       uploaded.sha256.toLowerCase() !== createHash("sha256").update(bundle).digest("hex")
     ) {
       throw new Error("Uploaded bundle SHA-256 does not match the local AAB; discarding the edit.");
     }
-    await call("PUT", `${BASE}/edits/${editId}/tracks/internal`, {
-      track: "internal",
-      releases: [
-        {
-          name: `${VERSION} (${CODE}) — internal testing`,
-          versionCodes: [String(CODE)],
-          status: "completed",
-          ...(notes == null ? {} : { releaseNotes: [{ language: "en-US", text: notes.trim() }] }),
-        },
-      ],
-    });
+    await call("PUT", `${BASE}/edits/${editId}/tracks/internal`, intended);
     await call("POST", `${BASE}/edits/${editId}:validate`);
+    prepared = await captureEdit(call, editId);
+    preservationChecks = checkPreservation(before, prepared, intended);
     report("Committing internal only with ERROR_IF_IN_REVIEW. A refusal will not be retried.");
     await call("POST", `${BASE}/edits/${editId}:commit?${COMMIT_GUARD}`);
     committed = true;
+    // Independently inspect the committed edit state. Remove only this
+    // temporary verification edit; never repeat an upload or commit.
+    let verificationId = null;
+    try {
+      const verification = await call("POST", `${BASE}/edits`, {});
+      if (typeof verification?.id !== "string" || !/^[A-Za-z0-9_-]+$/.test(verification.id))
+        throw new Error("Google returned an invalid verification edit identifier.");
+      verificationId = verification.id;
+      verified = await captureEdit(call, verificationId);
+      preservationChecks = checkPreservation(before, verified, intended);
+      report(`Internal preservation verified: ${JSON.stringify(preservationChecks)}`);
+    } finally {
+      if (verificationId) await call("DELETE", `${BASE}/edits/${verificationId}`);
+    }
   } catch (error) {
     failure = error;
   } finally {
@@ -318,7 +416,16 @@ export async function submitInternal(
       `Commit was acknowledged but internal code ${CODE} is not yet visible. Recheck read-only status; do not re-upload.`,
     );
   report(`Internal ${VERSION}/code ${CODE}: ${release.state}. Production lifecycle unchanged.`);
-  return { committed, productionBefore, productionAfter, internalAfter };
+  return {
+    committed,
+    productionBefore,
+    productionAfter,
+    internalAfter,
+    before,
+    prepared,
+    verified,
+    preservationChecks,
+  };
 }
 
 function parseArgs(argv) {

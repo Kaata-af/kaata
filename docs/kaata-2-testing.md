@@ -6,10 +6,49 @@ durable offline queue, and push delivery infrastructure. Existing private ledger
 events are not rewritten.
 Automated checks and store submissions do not replace native two-phone testing.
 
+## Internal testing candidate 2.2.3 — 19 October 2026 (67/40)
+
+The selected entry palette is **soft apricot for “I gave”** (`#F6E4D5`, ink
+`#7D4923`) and **pale sage for “I received”** (`#E4EEE6`, ink `#3E6149`).
+The darker arrow circles use `#ECD0B7` and `#CDDFD1`, respectively. Labels,
+arrows, physical received-left/gave-right positions and touch targets remain
+unchanged. Text contrast is 5.96:1 / 5.87:1 normally and 4.76:1 / 4.66:1 when
+pressed, respectively.
+
+Rolling backup file operations now use `SQLite.defaultDatabaseDirectory`, the
+same directory used by database opens. Expo Go can scope its file-system
+document directory differently; assuming `Paths.document/SQLite` caused the
+missing-destination warning recorded below. Synchronous move/copy operations
+and the existing backup verification, rotation and recovery rules are retained.
+Failed recovery file operations now preserve the original files and keep the
+restore pending. Foreground boot and every new database connection, including
+notification/background entry points, stop before creating an empty database.
+
+The original production Home rail is restored: both To Collect and To Pay
+pages stay rendered with independent scroll positions, full-width dragging,
+the original flick/drag thresholds and spring animation. Pashto and the
+selected entry buttons remain intact.
+
+The candidate uses Android code **67** and iOS build **40**. Android will be
+built locally with all production architectures; one EAS iOS production build
+is planned. The destination is **Play internal testing and the existing
+TestFlight internal group**. Production and closed testing remain unchanged.
+The final entry colors were checked in Expo Go on the Xiaomi; automated
+SQLite tests verify local backup and restore, including interrupted file
+operations. Native artifacts and internal delivery are pending.
+
+Preflight passed: all **87 mobile selftest suites**, TypeScript, Android and
+iOS production Hermes exports, **23 Play internal-helper tests** and
+**14 TestFlight-helper tests**. Home coverage executes the installed gesture
+and spring implementations and checks stale navigation/search/account scopes.
+Backup coverage uses temporary files and real SQLite, including failed moves,
+copies/deletions, repeated recovery, background opens and concurrent callers.
+The temporary phone diagnostics were removed before committing.
+
 ## Live visual preview with Expo Go — 19 October 2026
 
-The user's root `bun dev` session is serving the current app to Expo Go 57.0.9
-on the Xiaomi. The person screen visibly shows the muted teal received button
+The user's root `bun dev` session first served the app to Expo Go 57.0.9
+on the Xiaomi. That initial preview showed the muted teal received button
 on the physical left and slate-blue gave button on the physical right, with
 the Dari labels intact. The foreground package is `host.exp.exponent`; the
 installed Kaata package and its data were not replaced or reset.

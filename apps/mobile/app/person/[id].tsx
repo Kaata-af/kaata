@@ -2052,10 +2052,16 @@ export default function PersonDetailScreen() {
                       {/* 16 is composed INTO the fixed 26px coin (see
                       actionIconCoin), so the icon scale does not apply here —
                       icon.trailing/row would fill or overflow the well. */}
-                      <View style={styles.actionIconCoin}>
-                        <Ionicons name="arrow-down-outline" size={16} color={colors.textInverted} />
+                      <View style={[styles.actionIconCoin, styles.actionReceivedCoin]}>
+                        <Ionicons
+                          name="arrow-down-outline"
+                          size={16}
+                          color={colors.entryActionReceivedText}
+                        />
                       </View>
-                      <Text style={[styles.actionText, trackingSafe(isRTL)]}>
+                      <Text
+                        style={[styles.actionText, styles.actionReceivedText, trackingSafe(isRTL)]}
+                      >
                         {t("person.action.iReceived")}
                       </Text>
                     </Pressable>
@@ -2076,10 +2082,16 @@ export default function PersonDetailScreen() {
                       ]}
                     >
                       {/* 16, composed into the coin — same reason as "I received". */}
-                      <View style={styles.actionIconCoin}>
-                        <Ionicons name="arrow-up-outline" size={16} color={colors.textInverted} />
+                      <View style={[styles.actionIconCoin, styles.actionGaveCoin]}>
+                        <Ionicons
+                          name="arrow-up-outline"
+                          size={16}
+                          color={colors.entryActionGaveText}
+                        />
                       </View>
-                      <Text style={[styles.actionText, trackingSafe(isRTL)]}>
+                      <Text
+                        style={[styles.actionText, styles.actionGaveText, trackingSafe(isRTL)]}
+                      >
                         {t("person.action.iGave")}
                       </Text>
                     </Pressable>
@@ -2693,16 +2705,18 @@ const styles = StyleSheet.create({
   },
   actionReceived: { backgroundColor: colors.entryActionReceived },
   actionGave: { backgroundColor: colors.entryActionGave },
+  actionReceivedText: { color: colors.entryActionReceivedText },
+  actionGaveText: { color: colors.entryActionGaveText },
+  actionReceivedCoin: { backgroundColor: colors.entryActionReceivedCoin },
+  actionGaveCoin: { backgroundColor: colors.entryActionGaveCoin },
   // Subtle scale + dim on press — a tactile, considered feel for a button
   // tapped all day, instead of a flat opacity blink.
   actionBtnPressed: { opacity: 0.9, transform: [{ scale: 0.985 }] },
-  // Soft translucent circle that gives the arrow a deliberate home on the dark
-  // fill — the key "refined" detail vs a bare floating arrow.
+  // A deeper tint gives the arrow its own small circular background.
   actionIconCoin: {
     width: ACTION_COIN_SIZE,
     height: ACTION_COIN_SIZE,
     borderRadius: ACTION_COIN_SIZE / 2,
-    backgroundColor: "rgba(255,255,255,0.13)",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -2712,7 +2726,6 @@ const styles = StyleSheet.create({
     lineHeight: sansLineHeight(15, 20),
     fontSize: 15,
     fontFamily: fonts.sansSemi,
-    color: colors.textInverted,
     letterSpacing: 0.2,
   },
   // One bordered card around all tallies (same as the home people list). No

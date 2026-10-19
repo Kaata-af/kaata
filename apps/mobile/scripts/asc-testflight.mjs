@@ -1,11 +1,11 @@
 #!/usr/bin/env node
-// TestFlight only. Default/status reads ASC; enable adds the exact 2.2.0 build
+// TestFlight only. Default/status reads ASC; enable adds the exact 2.2.3 / 40 build
 // to an EXISTING internal group. App Store versions and reviews are read-only.
 //
 //   node scripts/asc-testflight.mjs
 //   node scripts/asc-testflight.mjs enable --build-id <ASC-build-id> --group-id <group-id>
 //   node scripts/asc-testflight.mjs enable --build-id <ASC-build-id> --group-id <group-id> --set-exempt-encryption
-//   node scripts/asc-testflight.mjs notes --build-id <ASC-build-id> --notes-file scripts/release-notes/2.2.0-testflight.txt
+//   node scripts/asc-testflight.mjs notes --build-id <ASC-build-id> --notes-file scripts/release-notes/2.2.3-testflight.txt
 //
 // --build-id is Apple's build resource ID, not the EAS build ID. The optional
 // encryption flag applies app.json's existing false exemption ONLY when Apple's
@@ -22,7 +22,9 @@ const MOBILE_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".
 const API = "https://api.appstoreconnect.apple.com/v1";
 const KAATA_APP_ID = "6789651127";
 const KAATA_BUNDLE_ID = "af.kaata.app";
-const TEST_VERSION = "2.2.0";
+const TEST_VERSION = "2.2.3";
+const TEST_BUILD_NUMBER = "40";
+const TEST_GROUP_ID = "fcb33597-43b6-42ba-8582-b85d26fc3895";
 const ID = /^[A-Za-z0-9-]+$/;
 
 export function parseArgs(argv) {
@@ -73,8 +75,8 @@ export function parseArgs(argv) {
 }
 
 function assertTestBuild(cfg, buildId, result) {
-  if (cfg.version !== TEST_VERSION || !/^\d+$/.test(cfg.buildNumber))
-    throw new Error("Local configuration must be 2.2.0 with a numeric iOS build number.");
+  if (cfg.version !== TEST_VERSION || cfg.buildNumber !== TEST_BUILD_NUMBER)
+    throw new Error("Local configuration must be 2.2.3 / iOS build 40.");
   const build = result.data;
   if (
     build?.type !== "builds" ||
@@ -83,7 +85,7 @@ function assertTestBuild(cfg, buildId, result) {
   )
     throw new Error("Build does not belong to Kaata's ASC app.");
   if (build.attributes?.version !== cfg.buildNumber || trainFor(result, build) !== TEST_VERSION)
-    throw new Error("Build number or 2.2.0 version train does not match app.json.");
+    throw new Error("Build number or 2.2.3 version train does not match app.json.");
   if (build.attributes.processingState !== "VALID" || build.attributes.expired !== false)
     throw new Error("Build must be VALID and unexpired before changing TestFlight.");
   return build;
@@ -147,8 +149,12 @@ export function makeClient(
   if (cfg.appId !== KAATA_APP_ID) throw new Error("Unexpected ASC app ID.");
   if (enable && notes) throw new Error("Choose one TestFlight mutation capability.");
   if (notes) {
-    if (!ID.test(notes.buildId) || cfg.version !== TEST_VERSION || !/^\d+$/.test(cfg.buildNumber))
-      throw new Error("Notes require an exact 2.2.0 test build.");
+    if (
+      !ID.test(notes.buildId) ||
+      cfg.version !== TEST_VERSION ||
+      cfg.buildNumber !== TEST_BUILD_NUMBER
+    )
+      throw new Error("Notes require the exact 2.2.3 / 40 test build.");
     assertNoteText(notes.text);
   }
   let notesBuildVerified = false;
@@ -374,14 +380,16 @@ export async function status(asc, cfg) {
 }
 
 export async function enableBuild(asc, cfg, opts) {
-  if (cfg.version !== TEST_VERSION || !/^\d+$/.test(cfg.buildNumber)) {
+  if (cfg.version !== TEST_VERSION || cfg.buildNumber !== TEST_BUILD_NUMBER) {
     throw new Error(
-      `Enable is restricted to app.json ${TEST_VERSION} with an explicit numeric iOS build number.`,
+      `Enable is restricted to app.json ${TEST_VERSION} / iOS build ${TEST_BUILD_NUMBER}.`,
     );
   }
   if (!opts.buildId || !ID.test(opts.buildId) || !opts.groupId || !ID.test(opts.groupId)) {
     throw new Error("Enable needs exact ASC build and internal group IDs.");
   }
+  if (opts.groupId !== TEST_GROUP_ID)
+    throw new Error("Enable is restricted to Kaata's existing Team (Expo) internal group.");
   const [app, result, groupResult] = await Promise.all([
     asc("GET", `/apps/${cfg.appId}?fields[apps]=bundleId`),
     asc("GET", `/builds/${opts.buildId}?include=app,preReleaseVersion`),
@@ -398,7 +406,7 @@ export async function enableBuild(asc, cfg, opts) {
   )
     throw new Error("Build does not belong to Kaata's ASC app.");
   if (build.attributes?.version !== cfg.buildNumber || trainFor(result, build) !== TEST_VERSION)
-    throw new Error("Build number or 2.2.0 version train does not match app.json.");
+    throw new Error("Build number or 2.2.3 version train does not match app.json.");
   if (build.attributes.processingState !== "VALID" || build.attributes.expired !== false)
     throw new Error("Build must be VALID and unexpired before enabling TestFlight.");
   if (
@@ -455,11 +463,11 @@ export async function enableBuild(asc, cfg, opts) {
 export async function setNotes(asc, cfg, opts) {
   if (
     cfg.version !== TEST_VERSION ||
-    !/^\d+$/.test(cfg.buildNumber) ||
+    cfg.buildNumber !== TEST_BUILD_NUMBER ||
     !opts.buildId ||
     !ID.test(opts.buildId)
   )
-    throw new Error("Notes are restricted to the exact app.json 2.2.0 test build.");
+    throw new Error("Notes are restricted to the exact app.json 2.2.3 / 40 test build.");
   assertNoteText(opts.text);
   const [app, result] = await Promise.all([
     asc("GET", `/apps/${cfg.appId}?fields[apps]=bundleId`),

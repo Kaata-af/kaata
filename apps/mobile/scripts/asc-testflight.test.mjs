@@ -6,13 +6,13 @@ import { readFileSync } from "node:fs";
 import { enableBuild, makeClient, parseArgs, setNotes, status } from "./asc-testflight.mjs";
 
 const APP_ID = "6789651127";
-const BUILD_ID = "test-build-31";
-const GROUP_ID = "internal-testers";
+const BUILD_ID = "test-build-40";
+const GROUP_ID = "fcb33597-43b6-42ba-8582-b85d26fc3895";
 const cfg = {
   appId: APP_ID,
   bundleId: "af.kaata.app",
-  version: "2.2.0",
-  buildNumber: "31",
+  version: "2.2.3",
+  buildNumber: "40",
   exemptEncryption: true,
 };
 const opts = {
@@ -24,7 +24,7 @@ const opts = {
 const notes = {
   buildId: BUILD_ID,
   text: readFileSync(
-    new URL("./release-notes/2.2.0-testflight.txt", import.meta.url),
+    new URL("./release-notes/2.2.3-testflight.txt", import.meta.url),
     "utf8",
   ).trim(),
 };
@@ -38,7 +38,7 @@ function fixture(overrides = {}, options = opts, notesGrant = null) {
     type: "builds",
     id: BUILD_ID,
     attributes: {
-      version: "31",
+      version: "40",
       processingState: "VALID",
       expired: false,
       usesNonExemptEncryption: false,
@@ -46,14 +46,14 @@ function fixture(overrides = {}, options = opts, notesGrant = null) {
     },
     relationships: {
       app: { data: { type: "apps", id: overrides.buildAppId ?? APP_ID } },
-      preReleaseVersion: { data: { type: "preReleaseVersions", id: "train-2-2-0" } },
+      preReleaseVersion: { data: { type: "preReleaseVersions", id: "train-2-2-3" } },
     },
   };
   const group = {
     type: "betaGroups",
     id: GROUP_ID,
     attributes: {
-      name: "Kaata Internal",
+      name: "Team (Expo)",
       isInternalGroup: true,
       hasAccessToAllBuilds: false,
       ...overrides.group,
@@ -62,8 +62,8 @@ function fixture(overrides = {}, options = opts, notesGrant = null) {
   };
   const train = {
     type: "preReleaseVersions",
-    id: "train-2-2-0",
-    attributes: { version: overrides.train ?? "2.2.0" },
+    id: "train-2-2-3",
+    attributes: { version: overrides.train ?? "2.2.3" },
   };
   const fetchImpl = async (url, init) => {
     const route = url.pathname.replace(/^\/v1/, "");
@@ -72,7 +72,7 @@ function fixture(overrides = {}, options = opts, notesGrant = null) {
     assert.equal(url.origin, "https://api.appstoreconnect.apple.com");
     assert.equal(init.redirect, "error");
     if (init.method === "POST" && route === "/betaBuildLocalizations") {
-      const localization = { ...body.data, id: "english-notes-31" };
+      const localization = { ...body.data, id: "english-notes-40" };
       localizations.push(localization);
       return Response.json({ data: localization }, { status: 201 });
     }
@@ -111,9 +111,9 @@ function fixture(overrides = {}, options = opts, notesGrant = null) {
         data: [
           {
             type: "appStoreVersions",
-            id: "pending-version",
-            attributes: { versionString: "2.1.1", appStoreState: "WAITING_FOR_REVIEW" },
-            relationships: { build: { data: { type: "builds", id: "production-build-30" } } },
+            id: "production-version-2-2-0",
+            attributes: { versionString: "2.2.0", appStoreState: "READY_FOR_SALE" },
+            relationships: { build: { data: { type: "builds", id: "production-build-39" } } },
           },
         ],
       });
@@ -123,8 +123,8 @@ function fixture(overrides = {}, options = opts, notesGrant = null) {
         data: [
           {
             type: "reviewSubmissions",
-            id: "pending-review",
-            attributes: { state: "WAITING_FOR_REVIEW", submittedDate: "2026-10-10T00:00:00Z" },
+            id: "completed-review-39",
+            attributes: { state: "COMPLETE", submittedDate: "2026-10-16T14:32:56.952Z" },
           },
         ],
       });
@@ -138,7 +138,7 @@ function fixture(overrides = {}, options = opts, notesGrant = null) {
       return Response.json({
         data: {
           type: "buildBetaDetails",
-          id: "detail-31",
+          id: "detail-40",
           attributes: {
             internalBuildState: state,
             externalBuildState: "READY_FOR_BETA_SUBMISSION",
@@ -205,17 +205,18 @@ test("the default command is read-only; enable needs both exact resource IDs", (
   );
 });
 
-test("status reports pending production review and current TestFlight readiness without writes", async () => {
+test("status reports released production and completed review and current TestFlight readiness without writes", async () => {
   const { asc, calls } = fixture({}, null);
   const result = await status(asc, cfg);
   assert.equal(result.testFlightUrl, `https://appstoreconnect.apple.com/apps/${APP_ID}/testflight`);
   assert(calls.every((c) => c.method === "GET"));
-  assert.equal(result.production.versions[0].version, "2.1.1");
-  assert.equal(result.production.versions[0].buildId, "production-build-30");
-  assert.equal(result.production.reviews[0].id, "pending-review");
+  assert.equal(result.production.versions[0].version, "2.2.0");
+  assert.equal(result.production.versions[0].buildId, "production-build-39");
+  assert.equal(result.production.reviews[0].id, "completed-review-39");
+  assert.equal(result.production.reviews[0].state, "COMPLETE");
   assert.equal(result.target.internalBuildState, "READY_FOR_BETA_TESTING");
   assert.equal(result.target.groups[0].assigned, false);
-  assert.equal(result.recentBuilds[0].version, "2.2.0");
+  assert.equal(result.recentBuilds[0].version, "2.2.3");
 });
 
 test("enable associates only the verified new build to an existing internal group", async () => {
@@ -232,8 +233,8 @@ test("enable associates only the verified new build to an existing internal grou
   ]);
   assert.equal(result.assigned, true);
   assert.equal(result.internalBuildState, "IN_BETA_TESTING");
-  assert.equal(result.production.versions[0].state, "WAITING_FOR_REVIEW");
-  assert.equal(result.production.reviews[0].id, "pending-review");
+  assert.equal(result.production.versions[0].state, "READY_FOR_SALE");
+  assert.equal(result.production.reviews[0].id, "completed-review-39");
 });
 
 test("existing assignment and automatic group access are idempotent, with no writes", async () => {
@@ -269,6 +270,20 @@ test("wrong train, wrong number, invalid processing, expired build and unrelated
   }
   const { asc, calls } = fixture();
   await assert.rejects(enableBuild(asc, { ...cfg, version: "2.1.1" }, opts), /restricted/);
+  assert.equal(calls.length, 0);
+});
+
+test("enable refuses a different local build number or a different internal group before requests", async () => {
+  for (const buildNumber of ["39", "41", "", "forty"]) {
+    const { asc, calls } = fixture();
+    await assert.rejects(enableBuild(asc, { ...cfg, buildNumber }, opts), /restricted/);
+    assert.equal(calls.length, 0);
+  }
+  const { asc, calls } = fixture();
+  await assert.rejects(
+    enableBuild(asc, cfg, { ...opts, groupId: "other-internal-group" }),
+    /Team \(Expo\)/,
+  );
   assert.equal(calls.length, 0);
 });
 
@@ -313,7 +328,7 @@ test("client rejects every production/review write, unrelated beta targets, dest
     [
       "PATCH",
       "/appStoreVersions/pending-version",
-      { data: { attributes: { versionString: "2.2.0" } } },
+      { data: { attributes: { versionString: "2.2.3" } } },
     ],
     ["PATCH", "/reviewSubmissions/pending-review", { data: { attributes: { canceled: true } } }],
     ["POST", "/reviewSubmissionItems", { data: {} }],
@@ -325,7 +340,7 @@ test("client rejects every production/review write, unrelated beta targets, dest
     [
       "POST",
       `/betaGroups/${GROUP_ID}/relationships/builds`,
-      { data: [{ type: "builds", id: "production-build-30" }] },
+      { data: [{ type: "builds", id: "production-build-39" }] },
     ],
     [
       "PATCH",
@@ -383,17 +398,17 @@ test("notes creates only English beta metadata for the verified test build, pres
     ],
   );
   assert.equal(result.locale, "en-US");
-  assert.equal(result.localizationId, "english-notes-31");
+  assert.equal(result.localizationId, "english-notes-40");
   assert.equal(result.characters, notes.text.length);
   assert.equal(result.changed, true);
-  assert.equal(result.production.versions[0].buildId, "production-build-30");
-  assert.equal(result.production.reviews[0].state, "WAITING_FOR_REVIEW");
+  assert.equal(result.production.versions[0].buildId, "production-build-39");
+  assert.equal(result.production.reviews[0].state, "COMPLETE");
 });
 
 test("notes updates only the exact build's existing English localization and is idempotent", async () => {
   const english = {
     type: "betaBuildLocalizations",
-    id: "english-notes-31",
+    id: "english-notes-40",
     attributes: { locale: "en-US", whatsNew: "Old test notes" },
   };
   const otherLocale = {
@@ -408,11 +423,11 @@ test("notes updates only the exact build's existing English localization and is 
     [
       {
         method: "PATCH",
-        route: "/betaBuildLocalizations/english-notes-31",
+        route: "/betaBuildLocalizations/english-notes-40",
         body: {
           data: {
             type: "betaBuildLocalizations",
-            id: "english-notes-31",
+            id: "english-notes-40",
             attributes: { whatsNew: notes.text },
           },
         },
@@ -446,7 +461,8 @@ test("notes rejects unrelated builds, invalid readiness, ambiguous locales and i
   }
   for (const invalid of [
     { ...cfg, version: "2.1.1" },
-    { ...cfg, buildNumber: "30" },
+    { ...cfg, buildNumber: "39" },
+    { ...cfg, buildNumber: "41" },
   ]) {
     const { asc, calls } = fixture({}, null, notes);
     await assert.rejects(setNotes(asc, invalid, notes));
@@ -458,10 +474,19 @@ test("notes rejects unrelated builds, invalid readiness, ambiguous locales and i
   assert.equal(calls.length, 0);
 });
 
+test("notes capability cannot be granted to another local version or build", () => {
+  for (const local of [
+    { ...cfg, version: "2.2.0" },
+    { ...cfg, buildNumber: "39" },
+    { ...cfg, buildNumber: "41" },
+  ])
+    assert.throws(() => makeClient(local, { notes }), /exact 2\.2\.3 \/ 40/);
+});
+
 test("notes capability requires preflight and blocks unrelated IDs, changed payloads and App Store metadata", async () => {
   const english = {
     type: "betaBuildLocalizations",
-    id: "english-notes-31",
+    id: "english-notes-40",
     attributes: { locale: "en-US", whatsNew: "Old" },
   };
   const { asc, calls } = fixture({ localizations: [english] }, null, notes);
@@ -492,7 +517,7 @@ test("notes capability requires preflight and blocks unrelated IDs, changed payl
         data: {
           type: "betaBuildLocalizations",
           attributes: { locale: "en-US", whatsNew: notes.text },
-          relationships: { build: { data: { type: "builds", id: "production-build-30" } } },
+          relationships: { build: { data: { type: "builds", id: "production-build-39" } } },
         },
       },
     ],

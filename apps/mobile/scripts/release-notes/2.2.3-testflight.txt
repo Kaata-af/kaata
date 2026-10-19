@@ -1,0 +1,12 @@
+Kaata 2.2.3 testing build 40
+
+Update the existing app without uninstalling or clearing data. Test with disposable data when checking recovery. These are checks to perform, not claims of completed iPhone testing.
+
+- Pashto: choose Pashto during setup and in Settings. Check onboarding, customer lists, tallies, reminders, shared-account updates and statements. Switch between English, Dari and Pashto; confirm right-to-left layout, complete labels, dates and amount digits.
+- Ninja mode: confirm the original ninja icon, the Continue in ninja mode action and the warning that losing the phone means losing phone-only data. Signed-in accounts must still work offline.
+- Entry buttons: I gave uses soft apricot; I received uses pale sage green. Received stays on the physical left and Gave on the right in all three languages. Check both entry forms, pressed states and large text without saving unintended tallies.
+- Home: check To Collect and To Pay, switching between the original pages, customer navigation, search and returning to the previous scroll position.
+- Local backups: check backup creation and app restart. On disposable data, verify recovery keeps the source backup and retained original; a failed file operation must preserve pending recovery instead of opening an empty ledger. Do not test corruption or reset against a real kaata.
+- Existing sign-in, cloud restore, shared accounts, reminders and staff permissions should remain stable.
+
+Testing only: the existing Team (Expo) internal TestFlight group and Google Play internal testing. No App Store production review submission, Play production promotion or external beta distribution.
