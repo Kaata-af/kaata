@@ -97,6 +97,23 @@ const query = (value: string) => find("TextInput")!.props.onChangeText(value);
 const dateControl = () => find("TallyDateFilterSheet")!;
 const pingButton = () => nodes(tree).find((n) => n.props.testID === "whatsapp-reminder")!;
 
+const flattenStyle = (value: any): any =>
+  Array.isArray(value) ? Object.assign({}, ...value.filter(Boolean).map(flattenStyle)) : value;
+function contrastOverWhite(foreground: string, background: string, opacity = 1): number {
+  const luminance = (hex: string) => {
+    assert.match(hex, /^#[\da-f]{6}$/i, "action colors are opaque RGB values");
+    return [1, 3, 5]
+      .map((at) => (parseInt(hex.slice(at, at + 2), 16) / 255) * opacity + 1 - opacity)
+      .map((channel) =>
+        channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4,
+      )
+      .reduce((sum, channel, index) => sum + channel * [0.2126, 0.7152, 0.0722][index], 0);
+  };
+  const a = luminance(foreground);
+  const b = luminance(background);
+  return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+}
+
 let params: Record<string, string> = { id: "person" };
 let justSaved: string | null = null;
 let platform = "android",
@@ -1190,6 +1207,37 @@ async function main() {
           node.type === "AnimatedView" && nodes(node).some((child) => child.type === "TextInput"),
       )!;
       assert.ok(dock, "search lives in the bottom action dock");
+      // Read the composed styles from the real controls, including press
+      // feedback. A palette can change without losing readable text or arrows.
+      for (const [label, arrowName] of [
+        ["person.action.iReceived", "arrow-down-outline"],
+        ["person.action.iGave", "arrow-up-outline"],
+      ]) {
+        const button = nodes(dock).find(
+          (node) => node.type === "Pressable" && words(node) === label,
+        )!;
+        assert.ok(button, `${label} is an entry button`);
+        const text = nodes(button).find((node) => node.type === "Text")!;
+        const arrow = nodes(button).find((node) => node.type === "Icon")!;
+        const coin = nodes(button).find(
+          (node) => node.type === "View" && nodes(node).includes(arrow),
+        )!;
+        const ink = flattenStyle(text.props.style).color;
+        assert.equal(arrow.props.name, arrowName);
+        assert.equal(arrow.props.color, ink, `${label} arrow and label share readable ink`);
+        for (const pressed of [false, true]) {
+          const face = flattenStyle(button.props.style({ pressed }));
+          const opacity = face.opacity ?? 1;
+          assert.ok(
+            contrastOverWhite(ink, face.backgroundColor, opacity) >= 4.5,
+            `${label} text is readable with pressed=${pressed}`,
+          );
+          assert.ok(
+            contrastOverWhite(ink, flattenStyle(coin.props.style).backgroundColor, opacity) >= 3,
+            `${label} arrow is readable with pressed=${pressed}`,
+          );
+        }
+      }
       assert.ok(words(tree).includes("Family"), "The customer's group name is visible");
       assert.equal(words(tree).includes("groups.view"), false, "Group names have no Group prefix");
       const nameRow = nodes(tree).find(

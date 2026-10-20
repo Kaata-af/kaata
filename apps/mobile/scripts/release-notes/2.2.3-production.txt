@@ -1,0 +1,6 @@
+Kaata 2.2.3
+
+- Added Pashto alongside English and Dari.
+- Brought back Ninja mode with clearer guidance about keeping your data safe.
+- Added softer colors to I gave and I received for clearer actions.
+- Improved backup reliability and everyday stability.

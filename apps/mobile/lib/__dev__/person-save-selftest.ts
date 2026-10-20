@@ -129,7 +129,7 @@ stub("../contacts-sync", {
   },
 });
 stub("../db-health", { assertLedgerReadable: () => {} });
-stub("../db-backup", { deleteLocalBackups: async () => {} });
+stub("../db-backup", { deleteLocalBackups: async () => {}, finishInterruptedRestore: () => false });
 stub("../checkin-trigger", { requestImmediateCheckIn: () => {} });
 stub("../projection-conflicts", { notifyProjectionConflictsChanged: () => {} });
 stub("../use-vault-role", {

@@ -50,6 +50,13 @@ export function getDb(): Promise<SQLite.SQLiteDatabase> {
     // and all of them await the PRAGMAs. Caching after the await would let a
     // second caller race in with an unconfigured connection.
     const opening = (async () => {
+      // Headless tasks and notification handlers can open the ledger before
+      // RootLayout boots. Never create an empty live file over a pending
+      // restore. The lazy import avoids a static db-tx/db-backup cycle; this
+      // file-only check never calls getDb(). A failure follows the same cached
+      // rejection/reset path as an unsuccessful native open.
+      const { finishInterruptedRestore } = await import("./db-backup");
+      finishInterruptedRestore();
       const db = await SQLite.openDatabaseAsync(DB_NAME);
       try {
         await db.execAsync(CONNECTION_PRAGMAS);

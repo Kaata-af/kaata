@@ -394,13 +394,18 @@ export default function RootLayout() {
       //    database, and getDb() on a missing file creates an empty one — at
       //    which point the half-finished restore is indistinguishable from a
       //    fresh install and the user's recovered ledger is stranded under a
-      //    temp name. Pure file operations, no SQL, so it cannot itself fail
-      //    the way the steps below can.
+      //    temp name. A failed file operation must block boot as well: the
+      //    pending restore and its original sidecars must remain untouched.
       try {
         const { finishInterruptedRestore } = await import("../lib/db-backup");
         finishInterruptedRestore();
       } catch (err) {
-        console.warn("[init] interrupted-restore check failed", err);
+        console.error("[init] interrupted restore is still pending", err);
+        setBootError(toBootError("init_db", err));
+        aborted = true;
+        // The regular step() failure path queues diagnostics in SQLite. Even
+        // that would create an empty live file while this restore is pending.
+        return;
       }
 
       // Finish only a server-confirmed deletion before sync or onboarding can

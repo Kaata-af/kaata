@@ -3,7 +3,7 @@
     "name": "Kaata",
     "slug": "kaata",
     "scheme": "kaata",
-    "version": "2.2.2",
+    "version": "2.2.3",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -14,7 +14,7 @@
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       },
-      "buildNumber": "39"
+      "buildNumber": "40"
     },
     "android": {
       "package": "af.kaata.app",
@@ -37,7 +37,7 @@
         "android.permission.SYSTEM_ALERT_WINDOW",
         "android.permission.RECORD_AUDIO"
       ],
-      "versionCode": 65
+      "versionCode": 67
     },
     "web": {
       "favicon": "./assets/favicon.png"

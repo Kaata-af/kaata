@@ -9,7 +9,7 @@ import { colors } from "../colors";
 import { sumAmounts } from "../money";
 import { canPerformAction } from "../vault-roles";
 
-type Node = { type: string; key?: string | number; props: Record<string, any> };
+type Node = { type: string; props: Record<string, any> };
 type Effect = { deps?: unknown[]; cleanup?: () => void };
 let slots: any[] = [],
   cursor = 0,
@@ -53,6 +53,7 @@ const homeReadScopes: (string | null)[] = [];
 let appState = "active";
 let roleReadFails = false,
   focusEpoch = 0;
+let homeOwnerFocused = true;
 // app_meta.account_id survives sign-out; the in-memory cache does not.
 let persistedAccountId: string | null = null,
   cachedAccountId: string | null = null;
@@ -68,38 +69,11 @@ const backListeners = new Set<() => boolean>();
 let contactsReads = 0,
   permissionRequests = 0;
 let nextTimer = 0;
-let nextAnimationFrame = 0;
-const animationFrames = new Map<number, (timestamp: number) => void>();
-const sharedValueObservers = new Set<() => void>();
-let homeSwipeRnCalls = 0;
-const homeImpactHaptics: string[] = [];
-const homeAnimationTimings: { target: number; duration: number; reduceMotion: string }[] = [];
-const mockSharedValue = (initial: unknown) => {
-  let value = initial;
-  return {
-    get value() { return value; },
-    set value(next: unknown) {
-      if (Object.is(value, next)) return;
-      value = next;
-      for (const observe of [...sharedValueObservers]) observe();
-    },
-  };
-};
-// Controlled counterpart of RN's monotonic native scroll timestamp clock.
-// Phone checks still establish the platform clock/lifecycle integration.
-let nativeNow = 1_000;
 const timers = new Map<number, () => void>();
 const appListeners = new Set<(state: string) => void>();
 const same = (a?: unknown[], b?: unknown[]) =>
   !!a && !!b && a.length === b.length && a.every((value, index) => Object.is(value, b[index]));
 const react = {
-  createContext(initial: any) {
-    const context: any = { _fixtureValue: initial };
-    context.Provider = { _fixtureContext: context };
-    return context;
-  },
-  useContext: (context: any) => context._fixtureValue,
-  memo: (component: any) => component,
   useState(initial: any) {
     const i = cursor++;
     if (!(i in slots)) slots[i] = typeof initial === "function" ? initial() : initial;
@@ -139,23 +113,16 @@ const react = {
       slots[i].cleanup = fn();
     });
   },
-  useLayoutEffect(fn: () => void | (() => void), deps?: unknown[]) {
-    react.useEffect(fn, deps);
-  },
 };
-const jsx = (type: string, props: any, key?: string | number): Node => ({
+const jsx = (type: string, props: any): Node => ({
   type,
-  key,
   props:
     type === "SearchFieldTrigger" ? { ...props, accessibilityLabel: props.placeholder } : props,
 });
 const nodes = (node: any): Node[] =>
   Array.isArray(node)
     ? node.flatMap(nodes)
-    : !node ||
-        typeof node !== "object" ||
-        flattenStyle(node.props?.style)?.display === "none" ||
-        flattenStyle(node.props?.style)?.opacity === 0
+    : !node || typeof node !== "object"
       ? []
       : [
           node,
@@ -312,8 +279,7 @@ function compile(file: string, mocks: Record<string, any>) {
       target: ts.ScriptTarget.ES2022,
     },
   }).outputText;
-  new Function("require", "exports", "setTimeout", "clearTimeout", "__DEV__", "performance",
-    "requestAnimationFrame", "cancelAnimationFrame", js)(
+  new Function("require", "exports", "setTimeout", "clearTimeout", "__DEV__", js)(
     (name: string) => {
       assert.ok(name in mocks, `${file}: unexpected dependency ${name}`);
       return mocks[name];
@@ -326,13 +292,6 @@ function compile(file: string, mocks: Record<string, any>) {
     },
     (id: number) => timers.delete(id),
     false,
-    { now: () => nativeNow },
-    (fn: (timestamp: number) => void) => {
-      const id = ++nextAnimationFrame;
-      animationFrames.set(id, fn);
-      return id;
-    },
-    (id: number) => animationFrames.delete(id),
   );
   return exports;
 }
@@ -376,69 +335,17 @@ const roleHooks = compile("../use-vault-role", {
   "./projection/role-gate": { invalidateRoleGateCache() {} },
   "./vault-roles": { canPerformAction },
 });
-const makeHomePan = () => {
-  const pan: any = { config: {}, callbacks: {} };
-  for (const name of ["enabled", "maxPointers", "activeOffsetX", "failOffsetY", "hitSlop"])
-    pan[name] = (value: unknown) => { pan.config[name] = value; return pan; };
-  pan.withRef = (ref: { current: unknown }) => { ref.current = pan; return pan; };
-  for (const name of ["onTouchesDown", "onTouchesMove", "onStart", "onUpdate", "onEnd", "onFinalize"])
-    pan[name] = (callback: unknown) => { pan.callbacks[name] = callback; return pan; };
-  return pan;
-};
 const sharedMocks: Record<string, any> = {
   react,
   "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
   "react-native": native,
-  "react-native-gesture-handler": {
-    Gesture: { Pan: makeHomePan }, GestureDetector: "GestureDetector",
-    ScrollView: "ScrollView", RefreshControl: "RefreshControl",
-    createNativeWrapper: (component: unknown) => component,
-  },
-  "react-native-reanimated": {
-    __esModule: true,
-    default: { View: "HomeAnimatedBody", ScrollView: "ScrollView", createAnimatedComponent: (component: unknown) => component },
-    useSharedValue: (value: unknown) => react.useRef(mockSharedValue(value)).current,
-    useAnimatedStyle: (read: () => any) => {
-      const state = react.useRef({ read, style: null as any }).current;
-      state.read = read;
-      state.style ??= { get transform() { return state.read().transform; } };
-      return state.style;
-    },
-    cancelAnimation: () => {},
-    ReduceMotion: { System: "system" },
-    withTiming: (target: number, config: { duration: number; reduceMotion: string }) => {
-      homeAnimationTimings.push({ target, ...config });
-      return target;
-    },
-    useAnimatedReaction: (prepare: () => unknown, reaction: (value: unknown, previous: unknown) => void) => {
-      const callbacks = react.useRef({ prepare, reaction });
-      callbacks.current = { prepare, reaction };
-      react.useEffect(() => {
-        let initialized = false, previous: unknown = null;
-        const observe = () => {
-          const value = callbacks.current.prepare();
-          if (initialized && Object.is(value, previous)) return;
-          const before = previous;
-          previous = value;
-          initialized = true;
-          callbacks.current.reaction(value, before);
-        };
-        sharedValueObservers.add(observe);
-        observe();
-        return () => sharedValueObservers.delete(observe);
-      }, []);
-    },
-    useEvent: (worklet: unknown, eventNames: string[]) => react.useRef({ workletEventHandler: { worklet, eventNames } }).current,
-  },
-  "react-native-worklets": { scheduleOnRN: (work: (...args: any[]) => void, ...args: any[]) => {
-    homeSwipeRnCalls++;
-    work(...args);
-  } },
   "expo-router": {
     useRouter: () => router,
     useLocalSearchParams: () => routeParams,
     Redirect: "Redirect",
-    useFocusEffect: (fn: any) => react.useEffect(fn, [fn, focusEpoch]),
+    useFocusEffect: (fn: any) => react.useEffect(
+      () => homeOwnerFocused ? fn() : undefined, [fn, focusEpoch, homeOwnerFocused],
+    ),
   },
   "@expo/vector-icons": { Ionicons: "Icon" },
   "react-native-safe-area-context": {
@@ -612,18 +519,26 @@ function screenMocks(prefix: string) {
     ),
   };
 }
+const gesture: any = {};
+const gestureHandlers: Record<string, (event: any) => void> = {};
+for (const name of ["activeOffsetX", "failOffsetY", "runOnJS"]) gesture[name] = () => gesture;
+for (const name of ["onUpdate", "onEnd"])
+  gesture[name] = (handler: (event: any) => void) => {
+    gestureHandlers[name] = handler;
+    return gesture;
+  };
 const home = compile("../../app/index", {
   ...screenMocks("../"),
   "expo-haptics": {
-    impactAsync: async (style: string) => { homeImpactHaptics.push(style); },
+    impactAsync: async () => {},
     selectionAsync: async () => {},
     ImpactFeedbackStyle: { Light: "light", Soft: "soft" },
   },
+  "react-native-gesture-handler": { Gesture: { Pan: () => gesture }, GestureDetector: "Gesture" },
 }).default;
 const addOrFind = compile("../../app/person/new", screenMocks("../../")).default;
 function unmount() {
   for (const slot of slots) slot?.cleanup?.();
-  assert.equal(sharedValueObservers.size, 0, "unmount removes the fixture's UI reaction observer");
   slots = [];
   effects = [];
   timers.clear();
@@ -661,6 +576,7 @@ function fixture(
   springTargets.length = 0;
   groupState = { groups: [], groupsByPerson: {} };
   focusEpoch = 0;
+  homeOwnerFocused = true;
   routes.length = 0;
   toasts.length = 0;
   writes.length = 0;
@@ -672,9 +588,6 @@ function fixture(
   permissionRequests = 0;
   activeVaultsOverride = null;
   homeReadScopes.length = 0;
-  nativeNow = 1_000;
-  homeSwipeRnCalls = 0;
-  homeImpactHaptics.length = 0;
   dirty = true;
 }
 async function flush() {
@@ -694,13 +607,6 @@ async function runTimers() {
   const scheduled = [...timers.values()];
   timers.clear();
   scheduled.forEach((fn) => fn());
-  await flush();
-}
-async function flushAnimationFrames() {
-  const scheduled = [...animationFrames.values()];
-  animationFrames.clear();
-  nativeNow += 16;
-  scheduled.forEach((fn) => fn(nativeNow));
   await flush();
 }
 function changeAppState(next: string) {
@@ -772,24 +678,9 @@ async function main() {
   const renderList = (node: any): any => {
     if (Array.isArray(node)) return node.map(renderList);
     if (!node?.props) return node;
-    const fixtureContext = node.type?._fixtureContext;
-    if (fixtureContext) {
-      const previous = fixtureContext._fixtureValue;
-      fixtureContext._fixtureValue = node.props.value;
-      try { return renderList(node.props.children); }
-      finally { fixtureContext._fixtureValue = previous; }
-    }
     if (typeof node.type === "function") return renderList(node.type(node.props));
     return { ...node, props: { ...node.props, children: renderList(node.props.children) } };
   };
-  // Unlike the visible-node query, this also inspects retained off-side rows.
-  // Those rows must keep their keys without appearing in visible UI assertions.
-  const retainedNodes = (node: any): Node[] =>
-    Array.isArray(node)
-      ? node.flatMap(retainedNodes)
-      : !node || typeof node !== "object"
-        ? []
-        : [node, ...retainedNodes(node.props?.children)];
 
   // Exercise the real home handlers, not a second implementation of selection.
   // Selection lives in the combined search sheet. Its select-all includes
@@ -876,6 +767,71 @@ async function main() {
     return dialog;
   };
 
+  // Both real pages remain mounted, with separate native scroll owners. The
+  // off-screen page must not expose touch or accessibility targets.
+  for (const nextRtl of [false, true]) {
+    fixture(home, "owner", nextRtl);
+    const payPerson = { ...people[0], id: "pay-person", balance: -200 };
+    peopleByVault.set("kaata", [...people, payPerson]);
+    await flush();
+    const pages = homePages();
+    assert.deepEqual(pages.map((page) => page.props.direction), ["collect", "pay"]);
+    assert.notEqual(pages[0].props.scrollRef, pages[1].props.scrollRef,
+      "Each side retains its own native scroll owner");
+    const collectRef = pages[0].props.scrollRef, payRef = pages[1].props.scrollRef;
+    const hiddenPage = renderList(pages[1]);
+    assert.equal(hiddenPage.props.pointerEvents, "none");
+    assert.equal(hiddenPage.props.accessibilityElementsHidden, true);
+    assert.equal(hiddenPage.props.importantForAccessibility, "no-hide-descendants");
+    pages[1].props.onPersonPress(payPerson);
+    pages[1].props.onPersonLongPress(payPerson);
+    await flush();
+    assert.equal(routes.length, 0, "Inactive financial-side callbacks cannot navigate");
+    assert.equal(find("BottomSheet")!.props.visible, false);
+    const oldCollectRow = homeRow("ahmad");
+    find("Tabs")!.props.onChange("pay");
+    await flush();
+    assert.equal(homePages()[0].props.scrollRef, collectRef);
+    assert.equal(homePages()[1].props.scrollRef, payRef,
+      "Tab changes retain both independent native scroll owners");
+    oldCollectRow.props.onPress(people[0]);
+    oldCollectRow.props.onLongPress(people[0]);
+    await flush();
+    assert.equal(routes.length, 0, "A queued Collect callback cannot navigate from Pay");
+    assert.equal(find("BottomSheet")!.props.visible, false);
+    const activePage = renderList(homePages()[1]);
+    assert.equal(activePage.props.pointerEvents, "auto");
+    assert.equal(activePage.props.accessibilityElementsHidden, false);
+    find("Tabs")!.props.onChange("collect");
+    await flush();
+    const coveredRow = homeRow("ahmad");
+    await openHomeSearch();
+    coveredRow.props.onPress(people[0]);
+    coveredRow.props.onLongPress(people[0]);
+    await flush();
+    assert.equal(routes.length, 0, "Covered Home rows cannot navigate while search is open");
+    assert.equal(find("BottomSheet")!.props.visible, false,
+      "Covered Home rows cannot open a second action sheet");
+  }
+  for (const invalidation of ["vault", "account", "blur", "unmount"]) {
+    fixture(home, "owner");
+    await flush();
+    const row = homeRow("ahmad");
+    if (invalidation === "vault") vaultId = "replacement-kaata";
+    if (invalidation === "account") cachedAccountId = "replacement-account";
+    if (invalidation === "blur") {
+      homeOwnerFocused = false;
+      dirty = true;
+      await flush();
+    }
+    if (invalidation === "unmount") unmount();
+    dirty = false;
+    row.props.onPress(people[0]);
+    row.props.onLongPress(people[0]);
+    assert.equal(routes.length, 0, `${invalidation}: old row cannot navigate`);
+    assert.equal(dirty, false, `${invalidation}: old row cannot open actions or update state`);
+  }
+
   for (const nextRtl of [false, true]) {
     fixture(home, "owner", nextRtl);
     const payPerson = { ...people[0], id: "pay-person", name: "Pay Person", balance: -200 };
@@ -953,564 +909,6 @@ async function main() {
     assert.equal(selection(), undefined, "Done exits selection mode");
     assert.ok(homeRows().every((row) => !row.props.selecting && !row.props.selected));
     assert.equal(archivedPeople.length, 0, "selecting and closing do not write ledger data");
-  }
-
-  // Worklet recognition chooses the physical tabs identically in English/FA.
-  // Bounded UI translation never commits before release or adds a second page.
-  for (const nextRtl of [false, true]) {
-    fixture(home, "owner", nextRtl);
-    await flush();
-    const gesture = () => homePages()[0].props.swipeGesture;
-    const runSwipe = async (dx: number, dy: number, hold = 20, afterActivation = 100, success = true, velocityX = 0,
-      earlyMove?: { dx: number; dy?: number; at: number }) => {
-      const pan = gesture();
-      let failures = 0;
-      const manager = { fail: () => failures++ };
-      pan.callbacks.onTouchesDown({ numberOfTouches: 1, allTouches: [{ absoluteX: 180, absoluteY: 300 }] }, manager);
-      if (earlyMove) {
-        nativeNow += earlyMove.at;
-        pan.callbacks.onTouchesMove({ numberOfTouches: 1,
-          allTouches: [{ absoluteX: 180 + earlyMove.dx, absoluteY: 300 + (earlyMove.dy ?? 0) }] }, manager);
-      }
-      nativeNow += hold - (earlyMove?.at ?? 0);
-      const move = { numberOfTouches: 1, allTouches: [{ absoluteX: 180 + dx, absoluteY: 300 + dy }] };
-      pan.callbacks.onTouchesMove(move, manager);
-      pan.callbacks.onStart();
-      nativeNow += afterActivation;
-      pan.callbacks.onTouchesMove(move, manager);
-      const beforeSide = find("Tabs")!.props.value;
-      const beforeRn = homeSwipeRnCalls;
-      const beforeHaptics = homeImpactHaptics.length;
-      pan.callbacks.onUpdate({ absoluteX: 180 + dx, absoluteY: 300 + dy });
-      assert.equal(find("Tabs")!.props.value, beforeSide, "Preview does not replace content before release");
-      assert.equal(homeSwipeRnCalls, beforeRn, "Per-move preview stays on UI");
-      const preview = homePages()[0].props.swipeBodyStyle.transform[0].translateX;
-      assert.ok(Number.isFinite(preview) && Math.abs(preview) <= 96, "Preview has a finite96-point bound");
-      pan.callbacks.onEnd({ absoluteX: 180 + dx, absoluteY: 300 + dy, translationX: 0, velocityX, numberOfPointers: 1 }, success);
-      pan.callbacks.onFinalize();
-      await flush();
-      assert.deepEqual(homeImpactHaptics.slice(beforeHaptics), find("Tabs")!.props.value === beforeSide ? [] : ["soft"],
-        "Only a successful physical tab change emits one original Soft impact");
-      return failures;
-    };
-    assert.equal(gesture().config.enabled, true);
-    assert.deepEqual(gesture().config.activeOffsetX, [-12, 12]);
-    assert.deepEqual(gesture().config.failOffsetY, [-12, 12]);
-    assert.deepEqual(gesture().config.hitSlop, { left: -24, right: -24 });
-    assert.equal(typeof gesture().callbacks.onUpdate, "function");
-    assert.equal(gesture().callbacks.onChange, undefined);
-    const stablePan = gesture();
-    await runSwipe(-32, 0, 20, 700);
-    assert.equal(find("Tabs")!.props.value, "pay", "A continuous slow left swipe chooses physical right Pay even in FA");
-    assert.equal(gesture(), stablePan, "a direction change retains the native recognizer and its UI callbacks");
-    await runSwipe(32, 0);
-    assert.equal(find("Tabs")!.props.value, "collect", "A right swipe chooses physical left Collect even in FA");
-    assert.equal(gesture(), stablePan, "the stable recognizer reads the current atomic direction lease");
-    await runSwipe(-18, 0, 20, 100, true, -450);
-    assert.equal(find("Tabs")!.props.value, "pay", "A short18-point matching left flick selects Pay in EN/FA");
-    await runSwipe(18, 0, 20, 100, true, 450);
-    assert.equal(find("Tabs")!.props.value, "collect", "A short18-point matching right flick selects Collect in EN/FA");
-    await runSwipe(-32, 0, 400, 100, true, 0, { dx: -6, at: 200 });
-    assert.equal(find("Tabs")!.props.value, "pay", "A slow swipe already moving by200ms can activate after350ms in EN/FA");
-    await runSwipe(32, 0, 400, 100, true, 0, { dx: 6, at: 200 });
-    assert.equal(find("Tabs")!.props.value, "collect", "Early deliberate slow movement also preserves the physical right swipe");
-    for (const earlyMove of [undefined, { dx: -5, at: 200 }, { dx: -6, dy: 4, at: 200 }, { dx: -30, dy: 13, at: 200 }]) {
-      await runSwipe(-32, 0, 400, 100, true, 0, earlyMove);
-      assert.equal(find("Tabs")!.props.value, "collect", "Late first movement, sub6-point jitter, diagonal or vertical movement cannot revive a stationary hold");
-    }
-    for (const [dx, velocityX] of [[-31, 0], [-17, -900], [-18, -449], [-18, 900], [-18, NaN], [-18, -Infinity]]) {
-      await runSwipe(dx, 0, 20, 100, true, velocityX);
-      assert.equal(find("Tabs")!.props.value, "collect", "Insufficient travel or invalid/opposite flick velocity cannot change the side");
-    }
-    const hapticsBeforeTaps = homeImpactHaptics.length;
-    find("Tabs")!.props.onChange("pay"); await flush();
-    find("Tabs")!.props.onChange("pay"); await flush();
-    find("Tabs")!.props.onChange("collect"); await flush();
-    assert.equal(homeImpactHaptics.length, hapticsBeforeTaps, "Original plain-tab behavior has no impact on real or same-side taps");
-    reducedMotion = true;
-    dirty = true;
-    await flush();
-    const beforeReducedTiming = homeAnimationTimings.length;
-    await runSwipe(-100, 0);
-    assert.equal(find("Tabs")!.props.value, "pay", "Reduced motion preserves physical navigation in EN/FA");
-    assert.equal(homePages()[0].props.swipeBodyStyle.transform[0].translateX, 0);
-    assert.equal(homeAnimationTimings.length, beforeReducedTiming, "Reduced motion creates no preview/entry timing");
-    await runSwipe(100, 0);
-    reducedMotion = false;
-    dirty = true;
-    await flush();
-    const beforeCancelledStroke = homeSwipeRnCalls;
-    const hapticsBeforeCancelledStroke = homeImpactHaptics.length;
-    const manager = { fail() {} };
-    stablePan.callbacks.onTouchesDown({ numberOfTouches: 1, allTouches: [{ absoluteX: 180, absoluteY: 300 }] }, manager);
-    nativeNow += 20;
-    stablePan.callbacks.onStart();
-    // Same-side taps update only the owner epoch: no React render or direction
-    // change is needed for the UI reaction to cancel an already active stroke.
-    find("Tabs")!.props.onChange("collect");
-    stablePan.callbacks.onEnd({ absoluteX: 80, absoluteY: 300, numberOfPointers: 1 }, true);
-    stablePan.callbacks.onFinalize();
-    assert.equal(homeSwipeRnCalls, beforeCancelledStroke,
-      "an invalidated live UI stroke is blocked before it can cross to RN");
-    assert.equal(homeImpactHaptics.length, hapticsBeforeCancelledStroke, "A stale UI completion cannot vibrate");
-    await flush();
-    assert.equal(find("Tabs")!.props.value, "collect");
-    for (const [dx, dy, hold, success] of [[-100, 90, 20, true], [0, 100, 20, true], [-17, 0, 20, true],
-      [-100, 0, 350, true], [-100, 0, 20, false]] as const) {
-      await runSwipe(dx, dy, hold, 100, success);
-      assert.equal(find("Tabs")!.props.value, "collect", "Diagonal/vertical/short/held/canceled gestures preserve the selected side");
-    }
-    assert.equal(homePages().length, 1);
-    assert.equal(routes.length, 0, "Recognizing body swipes never opens a row");
-    homeRow("ahmad").props.onLongPress(homeRow("ahmad").props.person);
-    await flush();
-    assert.equal(find("BottomSheet")!.props.visible, true, "Ordinary row long-press still opens its action menu");
-    assert.equal(gesture().config.enabled, false, "The open action menu disables body swipes");
-    find("BottomSheet")!.props.onDismiss(); await flush();
-  }
-
-  // One scope-keyed native list retains person-ID rows across tab changes.
-  // Off-side rows leave layout/accessibility and reject delayed interactions.
-  // Fresh native drag leases own scroll positions; restoration stops a fling
-  // even when the old and new sides both happen to restore to zero.
-  fixture(home, "owner");
-  peopleByVault.set("kaata", [
-    ...people,
-    { ...people[0], id: "pay-person", name: "Pay Person", balance: -300 },
-  ]);
-  await flush();
-  assert.equal(find("RailView"), undefined, "Home has no hidden animated rail");
-  assert.equal(homePages()[0].props.swipeGesture.config.enabled, true,
-    "A lightweight directional recognizer switches the same single list");
-  assert.equal(homePages().length, 1, "one overview page is mounted");
-  assert.equal(find("Tabs")!.props.value, "collect");
-  assert.deepEqual(homeIds(), ["ahmad", "fatima"]);
-  const firstCollectPage = homePages()[0];
-  const nativeScroll = () => {
-    const lists = nodes(renderList(homePages())).filter((node) => node.type === "ScrollView");
-    assert.equal(lists.length, 1, "both directions share one native ScrollView");
-    return lists[0];
-  };
-  const firstScrollKey = nativeScroll().key;
-  assert.notEqual(firstScrollKey, undefined);
-  assert.equal(
-    nativeScroll().props.contentOffset,
-    undefined,
-    "native restoration uses a command rather than a contentOffset prop that cannot cancel flings",
-  );
-  const moves: { x: number; y: number; animated: boolean }[] = [];
-  const financialKeys = () =>
-    retainedNodes(renderList(homePages()))
-      .filter((node) => node.key === "ahmad" || node.key === "pay-person")
-      .map((node) => node.key);
-  assert.deepEqual(financialKeys(), ["ahmad", "pay-person"]);
-  const rawRows = retainedNodes(renderList(homePages())).filter(
-    (node) => node.type === "PersonRow",
-  );
-  assert.deepEqual(
-    rawRows.map((row) => row.props.person.id),
-    ["ahmad", "pay-person", "fatima"],
-    "both financial sides stay retained, with the neutral customer only once",
-  );
-  assert.deepEqual(
-    homeRows().map((row) => row.props.person.id),
-    ["ahmad", "fatima"],
-    "only Collect and neutral rows are visible",
-  );
-  const hiddenPay = retainedNodes(renderList(homePages())).find((node) => node.key === "pay")!;
-  assert.equal(flattenStyle(hiddenPay.props.style).position, "absolute");
-  assert.equal(flattenStyle(hiddenPay.props.style).left, 0);
-  assert.equal(flattenStyle(hiddenPay.props.style).right, 0);
-  assert.equal(flattenStyle(hiddenPay.props.style).opacity, 0);
-  assert.equal(flattenStyle(hiddenPay.props.style).overflow, "hidden");
-  assert.equal(hiddenPay.props.pointerEvents, "none");
-  assert.equal(hiddenPay.props.accessibilityElementsHidden, true);
-  assert.equal(hiddenPay.props.importantForAccessibility, "no-hide-descendants");
-  assert.deepEqual(
-    retainedNodes(hiddenPay)
-      .filter((node) => node.type === "PersonRow")
-      .map((row) => row.props.person.id),
-    ["pay-person"],
-    "the hidden ancestor owns only its financial side",
-  );
-  assert.equal(
-    retainedNodes(hiddenPay).find((node) => node.key === "pay-person")!.props.style,
-    undefined,
-    "ordinary customer rows inherit hidden state from their cached direction group",
-  );
-  assert.deepEqual(
-    nodes(renderList(homePages()))
-      .filter(
-        (node) =>
-          node.type === "Text" &&
-          ["home.total.label.collect", "home.total.label.pay"].includes(node.props.children),
-      )
-      .map((node) => node.props.children),
-    ["home.total.label.collect"],
-    "only the active cached hero is visible",
-  );
-  const oldCollectRow = homeRow("ahmad");
-  const hiddenPayRow = rawRows.find((row) => row.props.person.id === "pay-person")!;
-  hiddenPayRow.props.onPress(hiddenPayRow.props.person);
-  hiddenPayRow.props.onLongPress(hiddenPayRow.props.person);
-  await flush();
-  assert.equal(routes.length, 0, "a retained hidden Pay row cannot navigate from Collect");
-  assert.equal(
-    find("BottomSheet")!.props.visible,
-    false,
-    "a hidden row cannot open its action sheet",
-  );
-
-  const scrollEvent = (y: number, timestamp = (nativeNow += 10)) => ({
-    nativeEvent: { contentOffset: { x: 0, y }, timestamp },
-  });
-  const queuedBeforeRef = scrollEvent(950);
-  nativeNow += 100;
-  firstCollectPage.props.scrollRef.current = { scrollTo: (offset: any) => moves.push(offset) };
-  nativeScroll().props.onContentSizeChange();
-  assert.deepEqual(moves.at(-1), { x: 0, y: 0, animated: false });
-  assert.equal(animationFrames.size, 1, "content layout schedules one post-layout restoration");
-  nativeScroll().props.onContentSizeChange();
-  assert.equal(animationFrames.size, 1, "repeated content callbacks coalesce the pending frame");
-  const beforeFrameRestore = moves.length;
-  await flushAnimationFrames();
-  assert.equal(moves.length, beforeFrameRestore + 1, "the queued frame reapplies the target once");
-  assert.deepEqual(moves.at(-1), { x: 0, y: 0, animated: false });
-  assert.equal(animationFrames.size, 0, "the correction never schedules a permanent frame loop");
-  const firstCollectScroll = firstCollectPage.props.onScroll;
-  firstCollectPage.props.onScrollBeginDrag(queuedBeforeRef);
-  firstCollectScroll(queuedBeforeRef);
-  const restoresAfterRef = moves.length;
-  nativeScroll().props.onContentSizeChange();
-  assert.equal(
-    moves.length,
-    restoresAfterRef + 1,
-    "the first real ref restoration rejects an earlier queued drag",
-  );
-  find("Tabs")!.props.onChange("collect");
-  await flush();
-  assert.equal(animationFrames.size, 1,
-    "tapping the current side cannot strand a pending post-layout restoration");
-  const headerTouch = nodes(tree).find((node) => typeof node.props.onTouchStart === "function");
-  assert.ok(headerTouch);
-  headerTouch.props.onTouchStart();
-  assert.equal(animationFrames.size, 1,
-    "a header touch without navigation cannot strand the pending restoration");
-  const firstFreshDrag = scrollEvent(0);
-  nativeNow += 100;
-  nativeScroll().props.onContentSizeChange();
-  const frameBeforeFreshDrag = [...animationFrames.values()][0];
-  assert.ok(frameBeforeFreshDrag);
-  firstCollectPage.props.onScrollBeginDrag(firstFreshDrag);
-  firstCollectScroll(scrollEvent(180));
-  const restoredCount = moves.length;
-  assert.equal(animationFrames.size, 0, "a fresh drag cancels the queued layout correction");
-  frameBeforeFreshDrag(nativeNow);
-  assert.equal(moves.length, restoredCount, "a canceled frame cannot reset a fresh drag even if delivered late");
-  nativeScroll().props.onContentSizeChange();
-  assert.equal(
-    moves.length,
-    restoredCount,
-    "content-size callbacks never reset an active user's drag",
-  );
-  homeToastOffset = 24;
-  dirty = true;
-  await flush();
-  assert.equal(
-    homePages()[0].props.scrollOffset,
-    firstCollectPage.props.scrollOffset,
-    "unrelated renders never send an old scroll offset back to the same native list",
-  );
-  const queuedBeforePaySwitch = scrollEvent(950);
-  find("Tabs")!.props.onChange("pay");
-  await flush();
-  assert.equal(homePages().length, 1);
-  assert.equal(homePages()[0].props.direction, "pay");
-  assert.deepEqual(homeIds(), ["pay-person", "fatima"]);
-  assert.equal(
-    nativeScroll().key,
-    firstScrollKey,
-    "direction changes preserve native scroll identity",
-  );
-  assert.equal(
-    homePages()[0].key,
-    firstCollectPage.key,
-    "direction changes preserve the page identity",
-  );
-  assert.deepEqual(
-    financialKeys(),
-    ["ahmad", "pay-person"],
-    "person-ID keys do not change across tabs",
-  );
-  assert.equal(
-    homePages()[0].props.cachedContents,
-    firstCollectPage.props.cachedContents,
-    "direction changes retain the same hero/card React elements",
-  );
-  assert.deepEqual(
-    nodes(renderList(homePages()))
-      .filter(
-        (node) =>
-          node.type === "Text" &&
-          ["home.total.label.collect", "home.total.label.pay"].includes(node.props.children),
-      )
-      .map((node) => node.props.children),
-    ["home.total.label.pay"],
-  );
-  assert.deepEqual(
-    homeRows().map((row) => row.props.person.id),
-    ["pay-person", "fatima"],
-  );
-  assert.equal(
-    homePages()[0].props.onPersonPress,
-    firstCollectPage.props.onPersonPress,
-    "retained memoized rows keep a stable press callback across tabs",
-  );
-  oldCollectRow.props.onPress(oldCollectRow.props.person);
-  oldCollectRow.props.onLongPress(oldCollectRow.props.person);
-  await flush();
-  assert.equal(routes.length, 0, "an old visible Collect callback cannot navigate from Pay");
-  assert.equal(find("BottomSheet")!.props.visible, false);
-  assert.deepEqual(homePages()[0].props.scrollOffset, { x: 0, y: 0 });
-  assert.deepEqual(
-    moves.at(-1),
-    { x: 0, y: 0, animated: false },
-    "tab changes cancel/restore natively",
-  );
-  homePages()[0].props.onScroll(scrollEvent(900));
-  nativeScroll().props.onContentSizeChange();
-  homePages()[0].props.onScrollBeginDrag(queuedBeforePaySwitch);
-  homePages()[0].props.onScroll(queuedBeforePaySwitch);
-  homePages()[0].props.onScrollBeginDrag({ nativeEvent: { contentOffset: { y: 999 } } });
-  homePages()[0].props.onScrollBeginDrag(scrollEvent(999, Number.NaN));
-  homePages()[0].props.onScrollBeginDrag(scrollEvent(999, Number.POSITIVE_INFINITY));
-  const stalePayFrame = [...animationFrames.values()][0];
-  assert.ok(stalePayFrame);
-  const payFrameHandle = [...animationFrames.keys()][0];
-  const beforeStaleContent = moves.length;
-  firstCollectPage.props.onContentSizeChange();
-  assert.equal(moves.length, beforeStaleContent, "an old page's layout callback cannot restore its offset");
-  assert.deepEqual([...animationFrames.keys()], [payFrameHandle],
-    "an old page's layout callback cannot cancel the current page's necessary frame");
-  find("Tabs")!.props.onChange("collect");
-  await flush();
-  assert.equal(animationFrames.size, 0, "switching sides cancels the old page's queued correction");
-  const afterPayFrameCancellation = moves.length;
-  stalePayFrame(nativeNow);
-  assert.equal(moves.length, afterPayFrameCancellation, "a late canceled Pay frame cannot scroll Collect");
-  find("Tabs")!.props.onChange("pay");
-  await flush();
-  assert.deepEqual(
-    homePages()[0].props.scrollOffset,
-    { x: 0, y: 0 },
-    "automatic events, missing/nonfinite timestamps and queued pre-restore drags cannot own the new side",
-  );
-  homePages()[0].props.onScrollBeginDrag(scrollEvent(0));
-  homePages()[0].props.onScroll(scrollEvent(42));
-  const newestPayEvent = scrollEvent(42);
-  homePages()[0].props.onScroll(newestPayEvent);
-  homePages()[0].props.onScroll(scrollEvent(999, newestPayEvent.nativeEvent.timestamp - 1));
-  find("Tabs")!.props.onChange("collect");
-  await flush();
-  assert.deepEqual(homePages()[0].props.scrollOffset, { x: 0, y: 180 });
-  assert.deepEqual(moves.at(-1), { x: 0, y: 180, animated: false });
-  firstCollectScroll(scrollEvent(999));
-  find("Tabs")!.props.onChange("pay");
-  await flush();
-  assert.deepEqual(homePages()[0].props.scrollOffset, { x: 0, y: 42 });
-  find("Tabs")!.props.onChange("collect");
-  await flush();
-  assert.deepEqual(
-    homePages()[0].props.scrollOffset,
-    { x: 0, y: 180 },
-    "a stale Collect callback cannot overwrite a later Collect presentation",
-  );
-  screenWidth = 320;
-  dirty = true;
-  await flush();
-  assert.equal(homePages().length, 1);
-  assert.equal(find("Tabs")!.props.value, "collect", "resizing retains the active tab");
-  const beforeSearchTabChange = find("Tabs")!.props.onChange;
-  const beforeSearchBegin = homePages()[0].props.onScrollBeginDrag;
-  const beforeSearchScroll = homePages()[0].props.onScroll;
-  nativeScroll().props.onContentSizeChange();
-  const frameBeforeSearch = [...animationFrames.values()][0];
-  assert.ok(frameBeforeSearch);
-  await openHomeSearch();
-  const afterSearchFrameCancellation = moves.length;
-  frameBeforeSearch(nativeNow);
-  assert.equal(moves.length, afterSearchFrameCancellation, "a queued pre-search frame stays inert");
-  await flushAnimationFrames();
-  assert.equal(animationFrames.size, 0, "a search-invalidated correction never starts a frame loop");
-  assert.deepEqual(
-    new Set(homeIds()),
-    new Set(["ahmad", "fatima", "pay-person"]),
-    "one search list includes both financial sides",
-  );
-  beforeSearchTabChange("pay");
-  find("Tabs")!.props.onChange("pay");
-  await flush();
-  assert.equal(
-    find("Tabs")!.props.value,
-    "collect",
-    "search invalidates prior and current overview tab callbacks",
-  );
-  await closeHomeSearch();
-  beforeSearchBegin(scrollEvent(999));
-  beforeSearchScroll(scrollEvent(999));
-  beforeSearchTabChange("pay");
-  await flush();
-  assert.equal(homePages().length, 1);
-  assert.equal(
-    find("Tabs")!.props.value,
-    "collect",
-    "a pre-search callback stays invalid after dismissal",
-  );
-  find("Tabs")!.props.onChange("pay");
-  await flush();
-  find("Tabs")!.props.onChange("collect");
-  await flush();
-  assert.deepEqual(
-    homePages()[0].props.scrollOffset,
-    { x: 0, y: 180 },
-    "search invalidates the old native scroll lease without changing its remembered position",
-  );
-  const oldScopeScroll = homePages()[0].props.onScroll;
-  const oldScopeTabChange = find("Tabs")!.props.onChange;
-  nativeScroll().props.onContentSizeChange();
-  const oldScopeFrame = [...animationFrames.values()][0];
-  assert.ok(oldScopeFrame);
-  vaultId = "new-kaata";
-  peopleByVault.set(vaultId, [{ ...people[0], id: "new-scope-person" }]);
-  activeVaultsOverride = [{ id: vaultId, name: "New", currency: "AFN" }];
-  ledgerEvents.emitLedgerApplied(vaultId, "remote");
-  await runTimers();
-  assert.equal(animationFrames.size, 0, "changing the ledger scope cancels its pending frame");
-  const afterScopeFrameCancellation = moves.length;
-  oldScopeFrame(nativeNow);
-  assert.equal(moves.length, afterScopeFrameCancellation, "a prior kaata's canceled frame cannot issue a command");
-  oldScopeScroll(scrollEvent(999));
-  oldScopeTabChange("pay");
-  await flush();
-  assert.equal(find("Tabs")!.props.value, "collect", "a prior kaata cannot change the current tab");
-  assert.equal(homePages().length, 1);
-  assert.deepEqual(homeIds(), ["new-scope-person"]);
-  assert.deepEqual(
-    homePages()[0].props.scrollOffset,
-    { x: 0, y: 0 },
-    "a different kaata never inherits the previous list's scroll position",
-  );
-  assert.notEqual(
-    nativeScroll().key,
-    firstScrollKey,
-    "a different ledger scope creates a new native list",
-  );
-  assert.deepEqual(moves.at(-1), { x: 0, y: 0, animated: false });
-
-  // The equal-offset case still needs a native command to abort old momentum.
-  fixture(home, "owner");
-  await flush();
-  const zeroMoves: any[] = [];
-  homePages()[0].props.scrollRef.current = { scrollTo: (offset: any) => zeroMoves.push(offset) };
-  homePages()[0].props.onContentSizeChange();
-  const beforeZeroSwitch = zeroMoves.length;
-  find("Tabs")!.props.onChange("pay");
-  await flush();
-  assert.equal(zeroMoves.length, beforeZeroSwitch + 1);
-  assert.deepEqual(
-    zeroMoves.at(-1),
-    { x: 0, y: 0, animated: false },
-    "zero-to-zero tab changes still cancel the native fling",
-  );
-  const activePayGroup = retainedNodes(renderList(homePages())).find((node) => node.key === "pay")!;
-  const emptyFinancialCard = retainedNodes(activePayGroup).find(
-    (node) =>
-      flattenStyle(node.props?.style)?.height === 0 &&
-      flattenStyle(node.props?.style)?.opacity === 0,
-  );
-  assert.ok(
-    emptyFinancialCard,
-    "an empty side keeps its financial card inert and accessibility-hidden",
-  );
-  const cachedCardStyle = flattenStyle(emptyFinancialCard.props.style);
-  assert.equal(cachedCardStyle.height, 0);
-  assert.equal(cachedCardStyle.opacity, 0);
-  assert.equal(cachedCardStyle.overflow, "hidden");
-  assert.equal(emptyFinancialCard.props.pointerEvents, "none");
-  assert.equal(emptyFinancialCard.props.importantForAccessibility, "no-hide-descendants");
-  const innerCard = retainedNodes(emptyFinancialCard).find(
-    (node) => flattenStyle(node.props?.style)?.marginHorizontal === 16,
-  );
-  assert.ok(innerCard, "the zero-height wrapper keeps its ordinary bordered card");
-  assert.equal(
-    flattenStyle(innerCard.props.style).marginHorizontal,
-    16,
-    "an empty cached card keeps the same horizontal inset as the visible card",
-  );
-  assert.deepEqual(
-    homeRows().map((row) => row.props.person.id),
-    ["fatima"],
-    "the empty financial card never duplicates or obscures the neutral row",
-  );
-  nativeScroll().props.onContentSizeChange();
-  const frameBeforeSettings = [...animationFrames.values()][0];
-  assert.ok(frameBeforeSettings);
-  byLabel("menu.title.profile")!.props.onPress();
-  await flush();
-  assert.equal(animationFrames.size, 1,
-    "an ordinary overlay preserves its unchanged Home page's necessary correction");
-  const beforeSettingsCompletion = zeroMoves.length;
-  await flushAnimationFrames();
-  assert.equal(zeroMoves.length, beforeSettingsCompletion + 1,
-    "the same page completes its one useful restoration while Settings is open");
-  find("Settings")!.props.onDismiss();
-  await flush();
-  assert.equal(animationFrames.size, 0, "closing Settings needs no duplicate restoration frame");
-  nativeScroll().props.onContentSizeChange();
-  const frameBeforeUnmount = [...animationFrames.values()][0];
-  assert.ok(frameBeforeUnmount);
-  unmount();
-  assert.equal(animationFrames.size, 0, "unmount cancels the queued native correction");
-  const afterUnmountFrameCancellation = zeroMoves.length;
-  frameBeforeUnmount(nativeNow);
-  assert.equal(zeroMoves.length, afterUnmountFrameCancellation, "a canceled frame cannot command an unmounted page");
-
-  // Android's reused native list does not change iOS/web's existing
-  // direction-keyed lists or require native timestamps on those platforms.
-  for (const nextPlatform of ["ios", "web"]) {
-    fixture(home, "owner", false, nextPlatform);
-    peopleByVault.set("kaata", [
-      ...people,
-      { ...people[0], id: "pay-person", name: "Pay Person", balance: -300 },
-    ]);
-    await flush();
-    const originalPageKey = homePages()[0].key;
-    const originalScrollKey = nativeScroll().key;
-    assert.deepEqual(nativeScroll().props.contentOffset, { x: 0, y: 0 });
-    assert.deepEqual(
-      retainedNodes(renderList(homePages()))
-        .filter((node) => node.type === "PersonRow")
-        .map((node) => node.props.person.id),
-      ["ahmad", "fatima"],
-      `${nextPlatform} retains only the active financial rows`,
-    );
-    homePages()[0].props.onScroll({ nativeEvent: { contentOffset: { x: 0, y: 37 } } });
-    find("Tabs")!.props.onChange("pay");
-    await flush();
-    assert.notEqual(homePages()[0].key, originalPageKey);
-    assert.notEqual(nativeScroll().key, originalScrollKey);
-    assert.deepEqual(nativeScroll().props.contentOffset, { x: 0, y: 0 });
-    assert.deepEqual(
-      homeRows().map((row) => row.props.person.id),
-      ["pay-person", "fatima"],
-    );
-    find("Tabs")!.props.onChange("collect");
-    await flush();
-    assert.deepEqual(
-      nativeScroll().props.contentOffset,
-      { x: 0, y: 37 },
-      `${nextPlatform} keeps its original timestamp-free scroll restoration`,
-    );
   }
 
   // Search can select both financial sides. Keep each side's current balance,
@@ -1854,14 +1252,14 @@ async function main() {
         const overviewScrolls = nodes(renderList(homePages())).filter(
           (node) => node.type === "ScrollView",
         );
-        assert.equal(overviewScrolls.length, 1);
+        assert.equal(overviewScrolls.length, 2);
         assert.ok(
           overviewScrolls.every(
             (node) =>
               node.props.refreshControl?.type === "RefreshControl" &&
               typeof node.props.refreshControl.props.onRefresh === "function",
           ),
-          "the active homepage list retains pull-to-refresh",
+          "both homepage lists retain pull-to-refresh",
         );
         const overviewBefore = homePages().map((page) => ({
           people: page.props.people.map((person: any) => person.id),
@@ -2465,41 +1863,37 @@ async function main() {
     ["ahmad-high", "ahmad", "ahmad-other", "ahmad-low"],
     "name sorting orders both money directions together during search",
   );
-  // Search preserves the selected overview tab and its financial data. Only
-  // that side is visible; search results still combine both directions.
+  // Both previous pages survive a complete search session. A delayed swipe
+  // callback from the old rail must not change that remembered page.
   await closeHomeSearch();
   await flush();
   assert.equal(find("Tabs")!.props.value, "collect");
   for (const previousDirection of ["collect", "pay"]) {
     find("Tabs")!.props.onChange(previousDirection);
     await flush();
-    assert.equal(homePages().length, 1);
-    const totalBefore = homePages()[0].props.allPeople.reduce(
-      (sum: number, person: any) => sum + person.balance,
-      0,
-    );
-    assert.equal(
-      totalBefore,
-      previousDirection === "collect" ? 1500 : -700,
-      "each overview retains its exact full financial total despite search filters",
-    );
-    const beforeSearchTabChange = find("Tabs")!.props.onChange;
+    const oldGestureEnd = gestureHandlers.onEnd;
     await changeHomeQuery("Ahmad");
     await flush();
     assert.deepEqual(homeIds(), ["ahmad-high", "ahmad", "ahmad-other", "ahmad-low"]);
-    beforeSearchTabChange(previousDirection === "collect" ? "pay" : "collect");
-    find("Tabs")!.props.onChange(previousDirection === "collect" ? "pay" : "collect");
+    oldGestureEnd({ translationX: previousDirection === "collect" ? -200 : 200, velocityX: 0 });
     await flush();
     await closeHomeSearch();
-    beforeSearchTabChange(previousDirection === "collect" ? "pay" : "collect");
     await flush();
     assert.equal(find("Tabs")!.props.value, previousDirection);
-    assert.equal(homePages().length, 1);
-    assert.equal(homePages()[0].props.direction, previousDirection);
+    assert.equal(springTargets.at(-1), previousDirection === "collect" ? 0 : -screenWidth);
+    oldGestureEnd({ translationX: previousDirection === "collect" ? -200 : 200, velocityX: 0 });
+    await flush();
     assert.equal(
-      homePages()[0].props.allPeople.reduce((sum: number, person: any) => sum + person.balance, 0),
-      totalBefore,
-      "combined search never changes the active overview's financial total",
+      find("Tabs")!.props.value,
+      previousDirection,
+      "a pre-search swipe remains invalid even after the original tab is restored",
+    );
+    assert.equal(
+      homePages()
+        .find((page) => page.props.direction === "collect")!
+        .props.allPeople.reduce((sum: number, person: any) => sum + person.balance, 0),
+      1500,
+      "combined search never changes the normal overview totals",
     );
   }
   await changeHomeQuery("   ");
@@ -2529,7 +1923,7 @@ async function main() {
     assert.deepEqual(
       page.props.neverTalliedPeople.map((person: any) => person.id),
       ["new-person", "fatima"],
-      "the latest addition leads the active tab's neutral section",
+      "the latest addition leads the neutral section on both pages",
     );
     const freshRow = nodes(renderList(page)).find(
       (node) => node.type === "PersonRow" && node.props.person.id === "new-person",
@@ -3046,7 +2440,7 @@ async function main() {
   assert.deepEqual(routes.at(-1), { pathname: "/person/[id]", params: { id: "created" } });
   unmount();
   console.log(
-    "PASS: contact action-sheet entry into combined-sheet multi-select, exact selected debt/credit totals and pending shared balances, visible-result select-all, search/group retention and remote pruning, role/account/vault clearing, modal dismissal/Done/cancel, guarded bulk removal and partial-failure retry; one Android Home list with retained person-ID keys, hidden-row interaction/accessibility guards, fresh native drag leases and imperative fling cancellation, unchanged iOS/web scroll restoration; input-triggered search sheet, sheet-only groups/sort/query with unchanged home rows and totals, combined collect/pay results, remembered-tab/search-generation guards, EN/FA and 320px access, zero-tally/phone searches, multi-group/sort composition, scoped live/resume reloads, in-place role downgrades, late-read and unmount guards, no viewer phone-book reads/prompts or writes, stable writable tally refresh and authorized creation",
+    "PASS: contact action-sheet entry into combined-sheet multi-select, exact selected debt/credit totals and pending shared balances, visible-result select-all, search/group retention and remote pruning, role/account/vault clearing, modal dismissal/Done/cancel, guarded bulk removal and partial-failure retry; two real Home pages with independent retained scroll refs, inactive-page touch/accessibility guards, covered/search/scope/blur/unmount row guards; input-triggered search sheet, sheet-only groups/sort/query with unchanged home rows and totals, combined collect/pay results, remembered-tab/stale-swipe guards, EN/FA and 320px access, zero-tally/phone searches, multi-group/sort composition, scoped live/resume reloads, in-place role downgrades, late-read and unmount guards, no viewer phone-book reads/prompts or writes, stable writable tally refresh and authorized creation",
   );
 }
 void main().catch((error) => {

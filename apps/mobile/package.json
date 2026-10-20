@@ -72,6 +72,7 @@
     "selftest:trust-cache": "tsx lib/trust/__dev__/successful-verification-cache-selftest.ts && tsx lib/trust/__dev__/successful-verification-prewarm-selftest.ts && tsx lib/trust/__dev__/crypto-cache-proof-selftest.ts",
     "selftest:trust-native": "node modules/kaata-bt-classic/tests/generate-ed25519-vectors.mjs --check && node --test modules/kaata-bt-classic/tests/ed25519-wrapper.test.mjs",
     "selftest:snapshot-timeout": "tsx lib/__dev__/snapshot-timeout-selftest.ts",
+    "selftest:db-backup": "tsx lib/__dev__/db-backup-selftest.ts",
     "selftest:diagnostics": "tsx lib/__dev__/diagnostics-report-selftest.ts",
     "selftest:sync-live": "tsx lib/__dev__/sync-live-selftest.ts",
     "selftest:person-detail": "tsx lib/__dev__/person-detail-selftest.ts",

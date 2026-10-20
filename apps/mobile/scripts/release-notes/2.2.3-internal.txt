@@ -1,0 +1,1 @@
+Kaata 2.2.3 beta (67): Pashto support, restored Ninja mode and original To Collect/To Pay pages, soft apricot I gave and sage I received buttons, and safer local backups/restores. Test English, Dari and Pashto, offline use, sign-in and restore using disposable accounts. Update participating phones in place; do not uninstall. Internal testing only; no production rollout.

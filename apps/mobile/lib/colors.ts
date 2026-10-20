@@ -1,5 +1,6 @@
 // Everyday app chrome is neutral: white reading surfaces, gray separators and
-// black actions, including onboarding, the logo and exports. The marketing
+// black actions, including onboarding, the logo and exports. The two entry
+// actions use soft apricot/sage tints to distinguish their verbs. The marketing
 // palette lives separately in apps/_shared/brand-palette.json for flyers and
 // social posts; changing it must not recolor the app. Emerald/garnet direction,
 // pending amber, provider artwork and danger keep their semantic meanings.
@@ -17,6 +18,14 @@ export const colors = {
   // Keep action intent separate from brand identity so ordinary controls do
   // not become purple whenever the brand palette is used elsewhere.
   actionPrimary: "#000000",
+  // Entry actions identify giving/receiving, independent of asset/liability
+  // balances and review outcomes. Keep their arrows and labels as well as hue.
+  entryActionGave: "#F6E4D5",
+  entryActionGaveText: "#7D4923",
+  entryActionGaveCoin: "#ECD0B7",
+  entryActionReceived: "#E4EEE6",
+  entryActionReceivedText: "#3E6149",
+  entryActionReceivedCoin: "#CDDFD1",
   providerApple: "#000000",
   pressedOverlay: "#00000008",
   // Linked two-party account marker; never used for money direction.

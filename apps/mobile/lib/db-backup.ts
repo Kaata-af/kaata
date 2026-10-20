@@ -33,7 +33,7 @@
 //    restore sequences silently interleave. relocateSidecar() is the worst
 //    case: its copy-then-delete fallback would delete the WAL before the copy
 //    finished, destroying the uncheckpointed commits it exists to preserve.
-import { Directory, File, Paths } from "expo-file-system";
+import { File } from "expo-file-system";
 import * as SQLite from "expo-sqlite";
 import { runQuickCheck } from "./db-health";
 import {
@@ -46,8 +46,6 @@ import {
   _resetDbHandleForReset,
 } from "./db-tx";
 
-// expo-sqlite resolves database names against <documents>/SQLite.
-const SQLITE_DIR = "SQLite";
 const CURRENT = "kaata.backup.db";
 const PREVIOUS = "kaata.backup.prev.db";
 const SCRATCH = "kaata.backup.tmp.db";
@@ -61,7 +59,12 @@ function sqliteSidecars(name: string): string[] {
 }
 
 function sqliteFile(name: string): File {
-  return new File(new Directory(Paths.document, SQLITE_DIR), name);
+  // Expo Go can scope FileSystem's document directory differently from SQLite.
+  // Use the same native directory as openDatabaseAsync for every generation,
+  // restore file and sidecar. Android reports an absolute path; iOS a file URI.
+  const directory: string = SQLite.defaultDatabaseDirectory;
+  const uri = directory.startsWith("file://") ? directory : `file://${directory}`;
+  return new File(uri, name);
 }
 
 function deleteQuietly(name: string): void {
@@ -73,8 +76,14 @@ function deleteQuietly(name: string): void {
   }
 }
 
+/** Restore prerequisites must finish before another database can land. */
+function deleteBeforeRestore(name: string): void {
+  const file = sqliteFile(name);
+  if (file.exists) file.delete();
+}
+
 /**
- * Move a WAL/SHM sidecar to `to`, or delete it if `to` is already taken.
+ * Move a WAL/SHM sidecar to `to`, or remove an already preserved duplicate.
  *
  * Sidecars are never simply deleted when parking a damaged database. Under
  * `synchronous=FULL` in WAL mode the newest commits live in the `-wal` until a
@@ -87,28 +96,38 @@ function deleteQuietly(name: string): void {
  */
 function relocateSidecar(from: string, to: string): void {
   const src = sqliteFile(from);
-  try {
-    if (!src.exists) return;
-    if (sqliteFile(to).exists) {
-      // The destination already holds an older parked WAL; this one belongs to
-      // a file we no longer need. It cannot stay where it is.
-      src.delete();
+  if (!src.exists) return;
+  const destination = sqliteFile(to);
+  if (!destination.exists) {
+    try {
+      src.moveSync(destination);
       return;
+    } catch {
+      /* fall through to the verified-copy attempt */
     }
-    src.moveSync(sqliteFile(to));
-    return;
-  } catch {
-    /* fall through to the copy attempt */
   }
-  // A failed move (an Android file lock, a directory-entry write error) must
-  // not become a delete — that would destroy the commits this whole function
-  // exists to save. Try copying first, and only give up if that fails too.
-  try {
-    src.copySync(sqliteFile(to));
-  } catch {
-    /* nothing else to try */
+
+  // A native move may itself copy then fail to remove its source. Re-derive
+  // the handle, and never discard either file unless the parked bytes match.
+  const retained = sqliteFile(from);
+  if (destination.exists) {
+    const sourceHash = retained.md5;
+    if (!sourceHash || sourceHash !== destination.md5) {
+      throw new Error("Local restore sidecar differs from the parked copy; keeping both files.");
+    }
+  } else {
+    try {
+      retained.copySync(destination);
+    } catch (err) {
+      // A failed copy can leave a partial destination. Only this newly created
+      // file may be cleaned up; the original WAL must survive for another try.
+      deleteQuietly(to);
+      throw err;
+    }
   }
-  deleteQuietly(from);
+  // This deletion must succeed before staging can land. Leaving the old WAL
+  // beside the restored database could replay it over the recovered ledger.
+  retained.delete();
 }
 
 export type BackupInfo = { name: string; modifiedAt: number | null; size: number | null };
@@ -399,6 +418,14 @@ export async function findRestoreCandidate(): Promise<RestoreCandidate | null> {
  * spend their last copy on a single attempt.
  */
 export async function restoreFromLocalBackup(): Promise<RestoreResult> {
+  // A retry must finish the already staged restore before replacing staging or
+  // treating an existing parked original as permission to discard its WAL.
+  try {
+    if (finishInterruptedRestore()) return "restored";
+  } catch (err) {
+    console.warn("[db-backup] previous restore is still pending", err);
+    return "failed";
+  }
   const hasAnyFile = [CURRENT, PREVIOUS].some((n) => {
     try {
       return sqliteFile(n).exists;
@@ -466,7 +493,7 @@ export async function restoreFromLocalBackup(): Promise<RestoreResult> {
     // days later the trade holds — by then a backup from the last six hours
     // covers the live file, and nothing covers the original.
     if (sqliteFile(CORRUPT_KEEP).exists) {
-      for (const f of sqliteSidecars(DB_NAME)) deleteQuietly(f);
+      for (const f of sqliteSidecars(DB_NAME)) deleteBeforeRestore(f);
     } else {
       if (sqliteFile(DB_NAME).exists) sqliteFile(DB_NAME).moveSync(sqliteFile(CORRUPT_KEEP));
       // The sidecars travel WITH the parked file instead of being deleted —
@@ -476,14 +503,14 @@ export async function restoreFromLocalBackup(): Promise<RestoreResult> {
       // A hot rollback journal is not worth parking and must not survive: it
       // would be played back over the restored file before SQLite even reads
       // the WAL.
-      deleteQuietly(`${DB_NAME}-journal`);
+      deleteBeforeRestore(`${DB_NAME}-journal`);
     }
     sqliteFile(RESTORE_STAGING).moveSync(sqliteFile(DB_NAME));
     return "restored";
   } catch (err) {
     console.warn(`[db-backup] restore from ${chosen} failed`, err);
     // Leave the staged copy in place when the live file is gone: the process
-    // may have died between the two renames, and finishLandingRestore() on the
+    // may have died between the two renames, and finishInterruptedRestore() on the
     // next launch is what turns that half-done state back into a database.
     if (sqliteFile(DB_NAME).exists) {
       for (const f of sqliteSidecars(RESTORE_STAGING)) deleteQuietly(f);
@@ -514,12 +541,14 @@ export function finishInterruptedRestore(): boolean {
     }
     relocateSidecar(`${DB_NAME}-wal`, `${CORRUPT_KEEP}-wal`);
     relocateSidecar(`${DB_NAME}-shm`, `${CORRUPT_KEEP}-shm`);
-    deleteQuietly(`${DB_NAME}-journal`);
+    deleteBeforeRestore(`${DB_NAME}-journal`);
     sqliteFile(RESTORE_STAGING).moveSync(sqliteFile(DB_NAME));
     console.warn("[db-backup] completed a restore that was interrupted last launch");
     return true;
   } catch (err) {
     console.warn("[db-backup] could not finish the interrupted restore", err);
-    return false;
+    // The caller must block boot here. Opening a missing live file would make
+    // an empty ledger while the recovered one still waits under its temp name.
+    throw err;
   }
 }

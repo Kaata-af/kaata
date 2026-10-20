@@ -783,7 +783,6 @@ assert.equal(capturedStyles.actions.bottom, 0);
 assert.equal(capturedStyles.actionBtn.flex, undefined, "no vertical flex collapse");
 assert.ok(capturedStyles.actionBtn.minHeight >= 52);
 assert.equal(capturedStyles.actionBtnWrap.flex, 1, "equal-width buttons");
-assert.equal(capturedStyles.actionText.color, colors.textInverted);
 assert.ok(capturedStyles.actionText.lineHeight >= 20, "visible Dari line box");
 // Toasts lift the dock, except above an open keyboard (the toast is behind it).
 assert.match(person, /translateY: keyboardShown \? 0 : toastOffset/);

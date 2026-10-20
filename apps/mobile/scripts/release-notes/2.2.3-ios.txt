@@ -1,0 +1,6 @@
+Kaata 2.2.3
+
+- Pashto is now available alongside English and Dari, including reminders, statements and shared-account updates.
+- Ninja mode is back, with clearer guidance about data stored only on your phone.
+- Soft apricot and sage buttons make "I gave" and "I received" easier to tell apart.
+- Improved local recovery backups, clearer wording and everyday stability.

@@ -32,6 +32,199 @@ still required before the next release: long wrapped notes, item lists with
 blank lines, text scrolling at the height cap, large text and Save above the
 keyboard on iOS and Android. No app build, version bump or store submission was
 made for this fix.
+## Production submissions 2.2.3 — 19 October 2026 (67/40)
+
+Matee confirmed that the testing release works and explicitly approved
+production promotion. Both stores accepted the **same tested binaries** from
+source `b43c73c69321833084672b389ca79f6ffffb0638`; no new builds, binary uploads or
+signing changes were required.
+
+- **Google Play: 2.2.3/code 67 IN_REVIEW**, independently verified at
+  **14:16 UTC**. Promoted the existing internal bundle to production with a
+  completed 100% rollout, automatic publication after approval and one guarded
+  `ERROR_IF_IN_REVIEW` commit. Google's existing bundle checksum matched the
+  tested AAB. All five preservation checks passed: app details, listing text,
+  images, internal/closed tracks and the exact intended production release.
+  Internal 67 remains published; production 64 remains published during review.
+- **App Store: 2.2.3/build 40 WAITING_FOR_REVIEW**, submitted at
+  **14:13:55 UTC**, independently verified at **14:15 UTC**. Release type is
+  `AFTER_APPROVAL`. Version ID: `3fcb3517-ec11-48fd-89f8-c573400c2358`;
+  review ID: `e490bc28-897f-47b7-b403-35cff68f52b1`. All **12/12** verification
+  checks passed, including the exact TestFlight build, notes, reviewer account,
+  12 inherited screenshots and preservation of previous versions/reviews.
+  Apple's new App Info copy retains the existing localized content and ratings;
+  the previous resource is unchanged.
+
+The reviewer account passed a fresh sign-in, read-only demo snapshot and
+temporary-session sign-out check at **14:10 UTC**. No financial data or messages
+were written. Android promotion safety coverage passed **23/23** mock tests,
+including unknown commit outcomes, checksum mismatches and metadata drift;
+the runner was independently reviewed before its single live invocation.
+
+The exact submitted notes are now committed under
+`apps/mobile/scripts/release-notes/`: Android's `2.2.3-production.txt` uses
+"everyday stability" (255 characters; SHA-256
+`c020bbc0e9b336466100234da2c9340472681736e0f636616d417008766d58d3`).
+iOS's `2.2.3-ios.txt` omits the Home experiment-history line because build 39
+already shipped the original pages (368 characters; SHA-256
+`de52f9f3910bb78a1a4c914fab5aa3790a01d027e83bfe11c11453330a374143`).
+These note corrections do not alter either tested binary.
+
+Durable receipts are retained under ignored `build/release-2.2.3/`:
+`play-production-promotion-receipt.json` and
+`ios-production/production-verification.json`, with reviewer preflight and
+App Info copy evidence beside the latter. Submission acceptance is confirmed;
+store approval and public availability are still pending.
+
+## Internal testing release 2.2.3 — 19 October 2026 (67/40)
+
+The selected entry palette is **soft apricot for “I gave”** (`#F6E4D5`, ink
+`#7D4923`) and **pale sage for “I received”** (`#E4EEE6`, ink `#3E6149`).
+The darker arrow circles use `#ECD0B7` and `#CDDFD1`, respectively. Labels,
+arrows, physical received-left/gave-right positions and touch targets remain
+unchanged. Text contrast is 5.96:1 / 5.87:1 normally and 4.76:1 / 4.66:1 when
+pressed, respectively.
+
+Rolling backup file operations now use `SQLite.defaultDatabaseDirectory`, the
+same directory used by database opens. Expo Go can scope its file-system
+document directory differently; assuming `Paths.document/SQLite` caused the
+missing-destination warning recorded below. Synchronous move/copy operations
+and the existing backup verification, rotation and recovery rules are retained.
+Failed recovery file operations now preserve the original files and keep the
+restore pending. Foreground boot and every new database connection, including
+notification/background entry points, stop before creating an empty database.
+
+The original production Home rail is restored: both To Collect and To Pay
+pages stay rendered with independent scroll positions, full-width dragging,
+the original flick/drag thresholds and spring animation. Pashto and the
+selected entry buttons remain intact.
+
+Both stores now have **2.2.3** available for internal testing from source
+`b43c73c69321833084672b389ca79f6ffffb0638` on
+`codex/colored-entry-actions`:
+
+- **Google Play internal: code 67, PUBLISHED.** Built locally with all four
+  production architectures; no Android cloud build was used. The upload's
+  SHA-256 matched the verified local bundle. The guarded internal-only commit
+  used `ERROR_IF_IN_REVIEW`. An independent verification edit confirmed that
+  production, closed tracks, listing text, images and app details were unchanged.
+  Final lifecycle readback at 14:06 UTC confirmed internal 67 published and
+  production **2.2.2/code 64** still published.
+- **TestFlight internal: build 40, VALID / IN_BETA_TESTING.** The existing
+  **Team (Expo)** internal group has access; its automatic access setting was
+  retained. Exactly **one** iOS cloud build was used. Apple processed the upload,
+  and independent readback at 14:06 UTC confirmed the exact build, group and
+  beta testing notes. Production **2.2.0/build 39** and its completed review
+  remained unchanged; no 2.2.3 production version or review submission was created.
+
+Android's signed AAB passed **47/47** artifact checks and the iOS IPA passed
+**35/35**. Both contain all **4,479** EN/FA/PS catalog strings, the original
+Ninja icon and warning, the final apricot/sage palette and the backup guards.
+Android checks include the original upload signer, all four ABIs and 16 KB
+alignment of every 64-bit native library. iOS checks include the existing
+signing team/profile, exact fonts, native language resources and opaque icons.
+
+The final entry colors were checked in Expo Go on the Xiaomi. Backup recovery
+was verified with temporary files and real SQLite in automated tests; an
+end-to-end backup and restored Home swipe check on the phone is still part of
+native testing, not a result claimed by this release record.
+
+Release artifacts and receipts are retained under ignored `build/release-2.2.3/`:
+
+- `kaata-2.2.3-67.aab`, SHA-256
+  `16b84527b0ac20712b4ca0517cbfa79e80f8c91333afb1f602ad893f5549b6f0`;
+  `android-build-receipt.json`, `verification/verification.json` and
+  `play-internal-receipt.json`.
+- `ios/kaata-2.2.3-40.ipa`, SHA-256
+  `50dfece45bcba1bd2c2306d38afa0f2961b0b08bf40666bbf2d904d5272647bf`;
+  `ios/ipa-verification.json` and `ios/testflight-verification.json`.
+- [EAS iOS build a9f05eaf](https://expo.dev/accounts/mateesaafi/projects/kaata/builds/a9f05eaf-88a7-47ab-9069-4536ce36b792),
+  [TestFlight upload 2ef9a1d5](https://expo.dev/accounts/mateesaafi/projects/kaata/submissions/2ef9a1d5-b1ea-449a-8168-9be24a49945a).
+  App Store Connect build ID: `af5911b3-2c3c-438f-be8f-b9cc466069e6`.
+
+Preflight passed: all **87 mobile selftest suites**, TypeScript, Android and
+iOS production Hermes exports, **23 Play internal-helper tests** and
+**14 TestFlight-helper tests**. Home coverage executes the installed gesture
+and spring implementations and checks stale navigation/search/account scopes.
+Backup coverage uses temporary files and real SQLite, including failed moves,
+copies/deletions, repeated recovery, background opens and concurrent callers.
+The temporary phone diagnostics were removed before committing.
+
+## Live visual preview with Expo Go — 19 October 2026
+
+The user's root `bun dev` session first served the app to Expo Go 57.0.9
+on the Xiaomi. That initial preview showed the muted teal received button
+on the physical left and slate-blue gave button on the physical right, with
+the Dari labels intact. The foreground package is `host.exp.exponent`; the
+installed Kaata package and its data were not replaced or reset.
+
+Use this live session and Fast Refresh for subsequent color, copy and layout
+iterations. No new native build is needed for those changes. Native dependency,
+permission and store-release validation still require a native build. Local
+preview evidence is under ignored `build/action-colors-device/expo-go-*`.
+
+The preview also displayed a development warning from `db-backup`:
+`FileSystemFile.moveSync` rejected a destination path that does not exist.
+This visual check did not validate backup behavior. The directory mismatch
+and recovery fixes are included in the 2.2.3 internal release above; automated
+SQLite/file-system checks pass, while native backup testing remains outstanding.
+
+## Colored entry actions Android preview — 19 October 2026 (66)
+
+**2.2.2 / Android 66** is installed in place on the connected Xiaomi. The
+installation returned `Success`; the installed package reports version 2.2.2 /
+code 66, and the cold launch returned `Status: ok`. This preview uses
+source `1222a005014d80b828ea70a62ac3cfaeb5621449` on
+`codex/colored-entry-actions`; its version remains 2.2.2.
+
+“I gave” now uses muted slate blue (`#405D7B`) and “I received” uses muted teal
+(`#2D615C`). These distinguish the direction of a transaction without treating
+it as a loss or gain. White labels and arrows, touch size and the fixed physical
+button positions are preserved; the shadow is softer. White text contrast is
+6.84:1 / 7.06:1 normally and 5.37:1 / 5.51:1 when pressed, respectively.
+Type checking and the tally UI, person-detail and entry-create UI suites passed.
+
+The phone screenshot confirms teal “I received” on the physical left and slate
+blue “I gave” on the physical right, with both Pashto labels fully visible.
+The original `firstInstallTime` remains `2026-09-15 12:50:18`; the new
+`lastUpdateTime` is `2026-10-19 17:07:55`. The cold launch took **1,230 ms**
+(`WaitTime: 1,232 ms`). All **8 device UI checks** passed: both action routes
+opened the correct empty entry form, pressed gestures worked, equal button
+bounds and the Pashto labels/positions/colors were verified. Both forms were
+cancelled; no financial input was saved and no tallies were created.
+
+The release build uses the production backend, fresh Hermes JavaScript and the
+existing native English/Dari/Pashto resources, fonts and Ninja mode. Only the
+Android build number changed in native config; no native dependency changes or
+prebuild regeneration were needed. This device preview is **arm64-v8a only**.
+
+- AAB: `build/action-colors-device/kaata-action-colors-66.aab`, 45,020,692 bytes;
+  SHA-256 `e67a24b6bf9e55fe94778781fae7d4884d2e404e33293da0052e04cb71cc050f`.
+  All **38 static verification checks** passed, including exact source binding,
+  both action colors, all 4,479 catalog strings, native locales, fonts,
+  original Ninja copy/icon, upload signer and 16 KiB native alignment.
+- Google-signed APK: `build/action-colors-device/kaata-action-colors-66-play.apk`,
+  55,072,028 bytes; SHA-256
+  `899663b292d0ce31c948004a73e72823fbe6ca824d4d265508c2f0f917018bba`.
+  All **30 APK verification checks** passed, including the original installed
+  Play signer, identical verified AAB payload and actual 16 KiB ZIP alignment.
+
+Google acknowledged code 66 as an **unassigned bundle only** at
+`2026-10-19T12:34:25.486Z`; it was not added to a track or distributed.
+Independent readback at `2026-10-19T12:34:41.706Z` verified every previous track,
+release, listing, image and app detail remained unchanged, including the code 65
+internal diagnostic draft and published production/internal code 64. The
+inspection edit was deleted. A lifecycle-list quota error was handled through
+an explicit guarded commit that kept Google's `ERROR_IF_IN_REVIEW` behavior,
+recent published-state proof and a fresh unchanged-edit check. All **28 offline
+signing safeguards** passed, including the actual published64/draft65 proof and
+refusal of unknown drafts, review/permission errors and ambiguous commit retries.
+
+Code 66 is reserved in `app.json`; the next store upload must use **67 or higher**.
+Do not promote either diagnostic artifact. No iOS build or store review
+submission was made. Local verification, signing and preservation receipts are
+under ignored `build/action-colors-device/`, including `phone-ui-checks.json`
+and the normal/pressed phone screenshots.
 
 ## Pashto and Ninja-mode Android device build — 19 October 2026 (65)
 
@@ -64,8 +257,10 @@ Independent readback at `2026-10-19T11:59:44.626Z` verified that all previous
 releases, other tracks, listing text, images and app details were preserved;
 the inspection edit was deleted. Published production/internal code 64 remains
 unchanged. Code 65 was not distributed to testers or production, and no iOS
-build or submission was made. Code 65 remains reserved in `app.json`; the next
-store upload must use **66 or higher**. Do not promote this diagnostic artifact.
+build or submission was made. Code 65 was reserved in `app.json` for this build;
+the next upload floor at that time was 66. The code 66 preview above now
+supersedes that floor and reserves **67 or higher** for the next store upload.
+Do not promote this diagnostic artifact.
 
 Local evidence is retained under ignored `build/pashto-ninja-device/`:
 `verification.json`, `apk-verification.json` and `play-device-receipt.json`.
