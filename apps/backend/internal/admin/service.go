@@ -86,6 +86,12 @@ type RecentInstall struct {
 }
 
 type Stats struct {
+	// Users follow the directory's units: one non-excluded account, including
+	// dormant accounts without installs, plus one non-excluded installation
+	// without a proven account link. These are not deduplicated people.
+	UsersTotal     int64 `json:"users_total"`
+	UsersAccounts  int64 `json:"users_accounts"`
+	UsersAnonymous int64 `json:"users_anonymous"`
 	// Funnel (installs): total → onboarded → made an entry → shared → active.
 	InstallsTotal  int64          `json:"installs_total"`
 	DeviceEstimate DeviceEstimate `json:"device_estimate"`
@@ -187,9 +193,23 @@ func (s *Service) GetStats(ctx context.Context, bucket string, points int) (Stat
 	// it. "active" is now RECENCY-WINDOWED via last_activity_at instead of the
 	// old "ever touched a feature" (which counted every reinstall of one dev
 	// phone). excluded_installs reports the noise we filtered.
-	if err := s.pool.QueryRow(ctx, `
-		WITH `+reportExclusionCTEs+`
+	// User totals and their splits share this statement's snapshot with the
+	// install funnel. Reuse the directory's account resolver, without loading
+	// its identities, kaatas or snapshots, so a concurrent sign-in cannot make
+	// the account and anonymous counts come from different states.
+	if err := s.pool.QueryRow(ctx, userReportInstalls+`, `+reportExclusionCTEs+`,
+		user_counts AS (
+		  SELECT
+		    (SELECT COUNT(*) FROM accounts a
+		     WHERE a.id::text NOT IN (SELECT id FROM report_excluded_accounts)) AS accounts,
+		    (SELECT COUNT(*) FROM report_installs i
+		     WHERE i.resolved_account_id IS NULL
+		       AND i.install_id NOT IN (SELECT install_id FROM report_excluded_installs)) AS anonymous
+		)
 		SELECT
+		  (SELECT accounts + anonymous FROM user_counts),
+		  (SELECT accounts FROM user_counts),
+		  (SELECT anonymous FROM user_counts),
 		  COUNT(*) FILTER (WHERE keep),
 		  COUNT(*) FILTER (WHERE keep AND has_onboarded),
 		  COUNT(*) FILTER (WHERE keep AND usage_entries_created > 0),
@@ -209,6 +229,7 @@ func (s *Service) GetStats(ctx context.Context, bucket string, points int) (Stat
 		  FROM installs
 		) i
 	`, s.operatorAccountIDs).Scan(
+		&st.UsersTotal, &st.UsersAccounts, &st.UsersAnonymous,
 		&st.InstallsTotal, &st.Onboarded, &st.WithEntries, &st.WithShares,
 		&st.Active7d, &st.Active30d, &st.EverActive, &st.DistinctAccounts,
 		&st.EntriesSum, &st.CustomersSum, &st.SharesSum, &st.ExcludedInstalls,

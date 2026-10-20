@@ -1,7 +1,5 @@
 import type { Growth, GrowthWeek } from "./api";
 
-export const WEEKLY_GROWTH_TARGET = 7;
-
 // Follow backend metadata during rollout/rollback. A new frontend must never
 // label the previous backend's Monday aggregates as Saturday reporting weeks.
 export function reportingWeekLabels(weekStartsOn?: number) {
@@ -37,19 +35,13 @@ export function comparableWeek(row: GrowthWeek): boolean {
     typeof row.previous_active === "number" &&
     row.previous_active > 0 &&
     typeof row.growth_rate_percent === "number" &&
-    Number.isFinite(row.growth_rate_percent) &&
-    typeof row.target_met === "boolean"
+    Number.isFinite(row.growth_rate_percent)
   );
 }
 
 export function weeklyRateLabel(row: GrowthWeek): string {
   if (!comparableWeek(row)) return "—";
   const rate = row.growth_rate_percent!;
-  // Avoid printing 7.00% beside a Below target badge after rounding. The
-  // exact whole-device goal remains authoritative and is shown with the count.
-  if (rate < WEEKLY_GROWTH_TARGET && Number(rate.toFixed(2)) >= WEEKLY_GROWTH_TARGET) {
-    return `<${WEEKLY_GROWTH_TARGET.toFixed(2)}%`;
-  }
   return `${rate > 0 ? "+" : ""}${rate.toLocaleString("en-US", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,

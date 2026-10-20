@@ -77,7 +77,7 @@ test("unfinished weeks cannot become the completed headline, even when the respo
   assert.equal(weeklyRateLabel(current), "—");
 });
 
-test("missing coverage from an older backend cannot produce a percentage or verdict", () => {
+test("missing coverage from an older backend cannot produce a percentage", () => {
   const legacy: GrowthWeek = {
     week: "2026-09-19",
     new: 7,
@@ -114,18 +114,22 @@ test("zero baseline remains undefined while negative and zero growth retain thei
   assert.equal(weeklyRateLabel(week()), "+7.00%");
 });
 
-test("rounding the displayed rate cannot overturn the server's exact whole-device verdict", () => {
-  const below = week({
+test("actual weekly rates are independent of legacy target metadata", () => {
+  const row = week({
     active: 21_399,
     previous_active: 20_000,
     target_active: 21_400,
     growth_rate_percent: 6.995,
     target_met: false,
   });
-  assert.equal(comparableWeek(below), true);
-  assert.equal(weeklyRateLabel(below), "<7.00%");
-  assert.equal(below.target_met, false);
-  assert.equal(below.target_active! - below.active!, 1);
+  for (const target_met of [true, false, null, undefined]) {
+    const input = { ...row, target_met, target_active: undefined };
+    assert.equal(comparableWeek(input), true);
+    assert.equal(weeklyRateLabel(input), "+7.00%");
+  }
+  assert.equal(row.target_met, false);
+  assert.equal(row.active, 21_399);
+  assert.equal(row.growth_rate_percent, 6.995);
 });
 
 test("UTC history and the mixed-calendar cutover are labelled without claiming comparable growth", () => {

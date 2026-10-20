@@ -6,6 +6,7 @@ import { C, Card, ErrorCard, PageHeader, SkeletonCard, fmtInt, fmtPct } from "./
 import { WeeklyGrowthCard } from "./WeeklyGrowthCard";
 import { ActivityInsights, RecentInstalls, type ActivityView } from "./ActivityInsights";
 import { DeviceEstimateCard } from "./DeviceEstimateCard";
+import { UserGoalCard } from "./UserGoalCard";
 
 export function Overview() {
   const [days, setDays] = useState(30);
@@ -20,8 +21,20 @@ export function Overview() {
     <div className="min-w-0 max-w-full">
       <PageHeader
         title="Overview"
-        description="Who is using Kaata, how often they return, and what they use."
+        description="Build toward 100,000 users by year-end, and understand the people using Kaata today."
       />
+      <div className="mb-4 min-w-0 sm:mb-5">
+        {stats.isPending ? (
+          <SkeletonCard lines={6} />
+        ) : stats.isError ? (
+          <ErrorCard
+            message="The year-end goal couldn't be refreshed. Try again to load the current total."
+            onRetry={() => void stats.refetch()}
+          />
+        ) : (
+          <UserGoalCard stats={stats.data} />
+        )}
+      </div>
       {stats.isPending ? (
         <div className="grid min-w-0 grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-5">
           {Array.from({ length: 5 }).map((_, i) => (
@@ -49,7 +62,7 @@ export function Overview() {
           <SkeletonCard lines={5} />
         ) : growth.isError ? (
           <ErrorCard
-            message="Weekly growth couldn't be loaded."
+            message="Weekly activity couldn't be loaded."
             onRetry={() => void growth.refetch()}
           />
         ) : (

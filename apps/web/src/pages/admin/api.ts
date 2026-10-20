@@ -70,6 +70,12 @@ export type DeviceEstimate = {
 
 export type Stats = {
   installs_total: number;
+  // Same population as the Users page, excluding operator/test records.
+  // Optional during independent backend/frontend rollout; never use installs
+  // as a fallback for a missing user total.
+  users_total?: number;
+  users_accounts?: number;
+  users_anonymous?: number;
   // Optional while the dashboard and backend roll out independently.
   device_estimate?: DeviceEstimate;
   onboarded: number;

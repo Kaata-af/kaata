@@ -11,6 +11,60 @@ current day plus the preceding 6 or 29 days; daily counts must not be summed.
 The daily chart and these KPIs are computed in one SQL statement so concurrent
 check-ins cannot make today's chart point disagree with DAU.
 
+## 100,000 users by the end of 2026
+
+Overview leads with a fixed goal of **100,000 total users by December 31, 2026**.
+The deadline is exclusive January 1, 2027 at 00:00 in Kabul
+(`2026-12-31T19:30:00Z`); it never automatically advances to another year.
+
+The goal counts the same population as `reportedRows(userRows(users))`: one
+non-excluded signed-in account, including dormant accounts without installs,
+plus one non-excluded installation without a proven account link. Unidentified
+Ninja users are included. Operator accounts and manually excluded accounts are
+left out; anonymous installation exclusions use the shared reporting rules
+below. A proven account link takes precedence over a single unambiguous active
+legacy credential link, matching the directory. Signed-in accounts with several
+installations count once. Unlinked reinstalls can count separately, so this is
+a tracked-user count, not a verified count of distinct people.
+
+`GET /v1/admin/stats` adds `users_total`, `users_accounts` and `users_anonymous`.
+All three are computed in the first existing aggregate SQL statement, with the
+directory resolver and reporting exclusion CTEs, rather than fetching the full
+user directory and its profiles/vaults on every Overview refresh. The total is
+independent of the selected activity range and is the sum of the two splits.
+Raw directory counts include flagged test records and are not a substitute.
+
+The required weekly compound percentage uses the count `N` and timestamp from
+that server response. With `D` fractional days remaining:
+
+```
+required weekly percent = 100 × expm1(log(100000 / N) × 7 / D)
+next-seven-day total    = ceil(N × exp(log(100000 / N) × min(7, D) / D))
+average net new per day = ceil((100000 - N) / D)
+```
+
+The displayed percentage rounds upward to two decimals. Days/weeks are not
+rounded before computing the rate. The next-seven-day target caps at 100,000
+when fewer than seven days remain. The daily average is a separate even pace,
+not the first day's addition on the compound path. Milestones are 1k, 5k, 10k,
+25k, 50k, 75k and 100k; the next one strictly above the current count is shown.
+The snapshot time is visible in Kabul time; browser clocks do not alter the
+required pace for an old snapshot.
+
+Zero users has no percentage baseline; it shows absolute acquisition targets
+using an even pace instead. Missing, invalid or unsupported user snapshots
+show unavailable, never zero or an installation-count fallback. A reached goal
+caps the progress bar at 100% while preserving the actual count. After the
+deadline, the goal closes without rolling forward or presenting the current
+total as a historical year-end result. An unrepresentable last-moment weekly
+rate shows the remaining absolute requirement rather than Infinity.
+
+The old 7% benchmark is removed from the dashboard. **Weekly activity** still
+shows actual weekly active-install counts, rates and completed-week history.
+Those activity rates are not total-user acquisition, and there is no fabricated
+"on track" verdict or acquisition history. Legacy backend growth target fields
+and frozen-week rules remain compatible; they do not drive the year-end goal.
+
 ## Midnight and historical data
 
 New reporting days start at midnight in `Asia/Kabul` (19:30 UTC). Weekly buckets
@@ -600,10 +654,18 @@ calendar cutover, and PostgreSQL session timezone independence;
 `report_exclusions_test.go` covers test data across every metric (deleted
 accounts included), frozen weeks surviving link changes and recalculating on a
 rule change, the rules fingerprint, and the Users exclusion flags.
+`stats_users_test.go` verifies total-user parity with the directory, dormant
+accounts, explicit/legacy/conflicting/revoked links, sign-in/unlink transitions,
+all exclusion histories, concurrent first sign-in and explicit JSON zero counts.
 
 From `apps/web`, run
 `node --experimental-strip-types --test src/pages/admin/dates.test.ts src/pages/admin/users-model.test.ts src/pages/admin/outreach-model.test.ts src/pages/admin/live.test.ts src/pages/admin/weekly-growth.test.ts`,
 `bun run typecheck`, and `bun run build`.
+`bun test ./src/pages/admin` also runs the JSX card tests. Goal tests cover exact
+compound math, fractional weeks, Kabul year-end boundaries, missing/zero/invalid
+snapshots, late-time overflow, reached/closed states, rounding and separation
+from weekly active-install growth. Local rendered previews at 320, 390, 768
+and 1440 pixels verify normal, near-complete, unavailable and final-day states.
 
 The backend live-channel tests exercise authentication, ticket expiry/replay,
 fanout, heartbeat, disconnect/shutdown, and routing through the logging/CORS
