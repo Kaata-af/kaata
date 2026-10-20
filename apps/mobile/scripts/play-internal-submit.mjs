@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Upload ONLY Kaata 2.2.3/code 67 to Play INTERNAL testing, preserving reviews.
+// Upload ONLY Kaata 2.2.4/code 68 to Play INTERNAL testing, preserving reviews.
 // No track-selection or review-cancellation flag exists. Every commit uses
 // ERROR_IF_IN_REVIEW; a refusal is final, with no automatic retry or fallback.
 // Run only after every other Android EAS submission has finished: one open edit
@@ -15,8 +15,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const MOBILE_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const PACKAGE = "af.kaata.app";
-const VERSION = "2.2.3";
-const CODE = 67;
+const VERSION = "2.2.4";
+const CODE = 68;
 const ORIGIN = "https://androidpublisher.googleapis.com";
 const BASE = `${ORIGIN}/androidpublisher/v3/applications/${PACKAGE}`;
 const COMMIT_GUARD = "changesInReviewBehavior=ERROR_IF_IN_REVIEW";
@@ -282,6 +282,7 @@ export async function submitInternal(
   }
 
   let editId = null;
+  let commitAttempted = false;
   let committed = false;
   let failure = null;
   let productionAfter = null;
@@ -353,7 +354,13 @@ export async function submitInternal(
     prepared = await captureEdit(call, editId);
     preservationChecks = checkPreservation(before, prepared, intended);
     report("Committing internal only with ERROR_IF_IN_REVIEW. A refusal will not be retried.");
-    await call("POST", `${BASE}/edits/${editId}:commit?${COMMIT_GUARD}`);
+    // A response can be lost after Google commits. Never mutate or discard
+    // this staging edit after ANY commit attempt, including an HTTP refusal.
+    commitAttempted = true;
+    const acknowledgement = await call("POST", `${BASE}/edits/${editId}:commit?${COMMIT_GUARD}`);
+    if (acknowledgement?.id !== editId) {
+      throw new Error("Google did not acknowledge the expected committed edit identifier.");
+    }
     committed = true;
     // Independently inspect the committed edit state. Remove only this
     // temporary verification edit; never repeat an upload or commit.
@@ -371,8 +378,12 @@ export async function submitInternal(
     }
   } catch (error) {
     failure = error;
+    if (commitAttempted && !committed)
+      report(
+        "Commit was not acknowledged with the expected edit ID. Inspect read-only release status; no edit cleanup or submission retry will be attempted.",
+      );
   } finally {
-    if (editId && !committed) {
+    if (editId && !commitAttempted) {
       try {
         await call("DELETE", `${BASE}/edits/${editId}`);
         report("Discarded this upload edit. No unguarded commit or fallback attempted.");

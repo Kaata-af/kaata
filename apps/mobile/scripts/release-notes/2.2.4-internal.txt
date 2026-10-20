@@ -1,0 +1,1 @@
+Kaata 2.2.4 beta (68): calculate tally amounts with decimals, percentages, memory and history, and enjoy improved add-tally spacing and multiline notes. Please test calculations, amount entry, note scrolling and Save visibility in English, Dari and Pashto on small and large screens. Update in place; do not uninstall. Internal testing only.
