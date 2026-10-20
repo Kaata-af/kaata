@@ -130,6 +130,9 @@ type InstallRow struct {
 	ExclusionReason string `json:"exclusion_reason"`
 }
 
+// UsersResult is the complete directory. The dashboard computes summary cards,
+// search, filters and pagination from these rows, so neither list may be capped
+// independently of those operations.
 type UsersResult struct {
 	Users []UserRow `json:"users"`
 	// AnonymousInstalls = devices with no unambiguous account binding. Telemetry plus the
@@ -203,7 +206,6 @@ func (s *Service) GetUsers(ctx context.Context) (UsersResult, error) {
 		LEFT JOIN account_last_seen als ON als.resolved_account_id = a.id
 		WHERE a.id::text <> ALL($1::text[])
 		ORDER BY last_seen DESC NULLS LAST, a.last_login_at DESC
-		LIMIT 1000
 	`, s.operatorAccountIDs)
 	if err != nil {
 		return out, err
@@ -504,7 +506,6 @@ func (s *Service) fetchAnonymousInstalls(ctx context.Context, tx pgx.Tx) ([]Inst
 		FROM report_installs
 		WHERE resolved_account_id IS NULL
 		ORDER BY last_seen_at DESC NULLS LAST
-		LIMIT 1000
 	`)
 	if err != nil {
 		return out, err

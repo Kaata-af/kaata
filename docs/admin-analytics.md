@@ -92,6 +92,12 @@ signed-out install. These rows are not DAU or unique-person counts: an account
 can have several devices, and a person can have several signed-out installs.
 Unidentified installs are hidden by default, with explicit counts and a toggle.
 
+`GET /v1/admin/users` returns the complete account and signed-out install lists.
+The dashboard computes summary cards, search, filters and page counts from those
+rows, then paginates the visible list in groups of 25, 50 or 100. Neither server
+query may silently cap the returned rows: the former 1,000-row limits made the
+signed-in total stop at 1,000 and hid older records as new users arrived.
+
 The report reads all account and install queries from one read-only,
 repeatable-read snapshot. A verified `installs.account_id` takes precedence.
 For legacy installs missing that column's value, exactly one distinct active
