@@ -1,16 +1,25 @@
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { Ionicons } from "@expo/vector-icons";
 import {
+  Keyboard,
+  BackHandler,
   KeyboardAvoidingView,
+  InputAccessoryView,
   Platform,
+  Pressable,
   ScrollView,
+  StatusBar,
   StyleSheet,
   Text,
   TextInput,
+  TurboModuleRegistry,
   View,
+  useWindowDimensions,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "../../components/Button";
+import { EntryCalculator } from "../../components/EntryCalculator";
 import { ScreenLoading } from "../../components/ScreenLoading";
 import { ScreenHeader } from "../../components/SettingsScreen";
 import { queuePendingToast, useToast } from "../../components/Toast";
@@ -28,7 +37,16 @@ import { textDir, trackingSafe, useIsRTL } from "../../lib/direction";
 import { EventSigningUnavailableError, RoleGateRejectionError } from "../../lib/event-log";
 import { fonts, sansLineHeight } from "../../lib/fonts";
 import { t } from "../../lib/i18n";
-import { normalizeAmountInput, parseAmountInput } from "../../lib/money";
+import { parseAmountInput } from "../../lib/money";
+import { evaluateCalculation } from "../../lib/calculator";
+import {
+  calculatorDraft,
+  calculatorKey,
+  selectCalculation,
+  rememberCalculation,
+  type CalculatorDraft,
+  type CalculatorRecord,
+} from "../../lib/calculator-input";
 import { getTabLinkForPerson } from "../../lib/tabs/db";
 import { creditWarning } from "../../lib/credit-limits";
 import { noteSavedEntry } from "../../lib/recent-entry";
@@ -39,7 +57,7 @@ import {
   TabInputError,
   TabPermissionError,
 } from "../../lib/tabs/errors";
-import { radius, typography } from "../../lib/tokens";
+import { radius, TOUCH_MIN, typography } from "../../lib/tokens";
 import { ENTRY_NOTE_MAX_LENGTH, type EntryType, type PersonWithBalance } from "../../lib/types";
 
 // presentation:"modal" screen: the loaded branch is a bare <SafeAreaView>,
@@ -59,6 +77,15 @@ type UIAttempt = ScreenScope & { focus: number };
 export default function NewEntryScreen() {
   const router = useRouter();
   const isRTL = useIsRTL();
+  const { height: windowHeight, fontScale } = useWindowDimensions();
+  // iOS keeps one stable three-line viewport so UIKit can reveal the caret
+  // without racing a growing field. Android grows to six lines, then scrolls.
+  const noteLineHeight = sansLineHeight(15, 22) * Math.max(1, fontScale);
+  const noteMinHeight = Math.ceil(noteLineHeight * 3 + 26);
+  const noteMaxHeight = Math.max(
+    noteMinHeight,
+    Math.min(Math.ceil(noteLineHeight * 6 + 26), Math.floor(windowHeight * 0.24)),
+  );
   const toast = useToast();
   const params = useLocalSearchParams<{ personId?: string; type?: string }>();
   const personId = params.personId ?? "";
@@ -66,8 +93,17 @@ export default function NewEntryScreen() {
 
   const [person, setPerson] = useState<PersonWithBalance | null>(null);
   const [loading, setLoading] = useState(true);
-  const [amount, setAmount] = useState("");
+  const [calculation, setCalculation] = useState(() => calculatorDraft());
+  const calculationRef = useRef(calculation);
+  const calculationResult = evaluateCalculation(calculation.expression);
+  const amount = calculationResult.canApply ? calculationResult.amount : "";
   const [note, setNote] = useState("");
+  const [calculatorAttempt, setCalculatorAttempt] = useState<UIAttempt | null>(null);
+  const calculatorRef = useRef<UIAttempt | null>(null);
+  const [calculatorHistory, setCalculatorHistory] = useState<CalculatorRecord[]>([]);
+  const activeField = useRef<"amount" | "note" | null>(null);
+  const amountSelectionIntent = useRef(false);
+  const [nativeKeyboardOpen, setNativeKeyboardOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   // Inline errors — this screen is presentation:"modal", and toasts cannot
   // render above native stack modals (see components/Toast.tsx), so
@@ -96,8 +132,24 @@ export default function NewEntryScreen() {
     };
   }, [amount, personId, type]);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const saveErrorRef = useRef(saveError);
+  saveErrorRef.current = saveError;
   const amountRef = useRef<TextInput>(null);
   const noteRef = useRef<TextInput>(null);
+  const initialFocusTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const noteAccessoryId = useId();
+  const scrollRef = useRef<ScrollView>(null);
+  const keyboardFrameRef = useRef<View>(null);
+  const keyboardMeasurement = useRef(0);
+  const [keyboardOffset, setKeyboardOffset] = useState(0);
+  const [availableHeight, setAvailableHeight] = useState<number | undefined>();
+  const [saveBarHeight, setSaveBarHeight] = useState<number | undefined>();
+  const amountField = useRef({ y: 0, height: 0 });
+  const noteField = useRef({ y: 0, height: 0 });
+  const saveErrorField = useRef<{ y: number; height: number } | null>(null);
+  const formViewport = useRef(0);
+  const formScrollY = useRef(0);
+  const formInsets = useRef({ top: 0, bottom: 0 });
   // Synchronous re-entry guard. `busy` state alone can't stop a double-tap:
   // setState doesn't apply within the same frame, so two rapid taps both
   // observe busy === false and each write an entry. The ref flips
@@ -129,6 +181,87 @@ export default function NewEntryScreen() {
     mounted.current = true;
     return () => {
       mounted.current = false;
+      amountSelectionIntent.current = false;
+    };
+  }, []);
+
+  // Android keeps its form/footer inside the resized keyboard avoider. iOS
+  // uses native scroll insets and a UIKit accessory for Save, so its sheet
+  // position never depends on an asynchronously measured keyboard offset.
+  function measureKeyboardFrame() {
+    if (Platform.OS !== "android") return;
+    const attempt = { ...scopeRef.current, focus: focusGeneration.current };
+    const measurement = ++keyboardMeasurement.current;
+    keyboardFrameRef.current?.measureInWindow((_x, y) => {
+      if (measurement !== keyboardMeasurement.current || !isCurrent(attempt)) return;
+      // RN subtracts the status/cutout inset from window measurements in a
+      // non-edge-to-edge host (including Expo Go), but keyboard screenY still
+      // includes it. Match those coordinates without double-counting that
+      // inset in the edge-to-edge production app.
+      const edgeToEdge = TurboModuleRegistry.get<{
+        getConstants(): { isEdgeToEdge?: boolean };
+      }>("DeviceInfo")?.getConstants().isEdgeToEdge;
+      const androidWindowTop = edgeToEdge === false ? (StatusBar.currentHeight ?? 0) : 0;
+      setKeyboardOffset(y + androidWindowTop);
+    });
+  }
+
+  function revealField({ y, height }: { y: number; height: number }) {
+    const viewport = formViewport.current;
+    const { top, bottom } = formInsets.current;
+    if (!viewport || viewport <= top + bottom || !height) return;
+    const clippedAbove = y < formScrollY.current + top;
+    if (clippedAbove || y + height > formScrollY.current + viewport - bottom)
+      scrollRef.current?.scrollTo({
+        y: Math.max(0, clippedAbove ? y - top : Math.min(y - top, y + height - viewport + bottom)),
+        animated: true,
+      });
+  }
+
+  function revealAmount() {
+    revealField(amountField.current);
+  }
+
+  function revealNote() {
+    // iOS already reveals the caret while animating its native keyboard inset.
+    // A second JS scroll (especially scrollToEnd) overshoots the note into the
+    // header because that end includes all of the newly added keyboard space.
+    if (Platform.OS === "android") revealField(noteField.current);
+  }
+
+  function revealSaveError() {
+    if (activeField.current === "note" && saveErrorRef.current && saveErrorField.current)
+      revealField(saveErrorField.current);
+  }
+
+  useEffect(() => {
+    const show = Keyboard.addListener("keyboardDidShow", () => {
+      if (!mounted.current || !focused.current) return;
+      setNativeKeyboardOpen(true);
+      if (activeField.current === "note") revealNote();
+      revealSaveError();
+    });
+    const hide = Keyboard.addListener("keyboardDidHide", () => {
+      formInsets.current.bottom = 0;
+      if (mounted.current) setNativeKeyboardOpen(false);
+    });
+    const willShow = Keyboard.addListener("keyboardWillShow", () => {
+      if (Platform.OS === "ios" && mounted.current && focused.current) setNativeKeyboardOpen(true);
+    });
+    const back = BackHandler.addEventListener("hardwareBackPress", () => {
+      if (!focused.current || !calculatorRef.current) return false;
+      calculatorRef.current = null;
+      activeField.current = null;
+      amountSelectionIntent.current = false;
+      setCalculatorAttempt(null);
+      amountRef.current?.blur();
+      return true;
+    });
+    return () => {
+      show.remove();
+      hide.remove();
+      willShow.remove();
+      back.remove();
     };
   }, []);
 
@@ -148,7 +281,13 @@ export default function NewEntryScreen() {
       setBusy(savingRef.current);
       setLoading(true);
       setPerson(null);
+      saveErrorField.current = null;
       setSaveError(null);
+      calculatorRef.current = null;
+      activeField.current = null;
+      amountSelectionIntent.current = false;
+      setCalculatorAttempt(null);
+      setCalculatorHistory([]);
       void (async () => {
         try {
           const guard = await getActiveVaultArchivedState();
@@ -182,6 +321,10 @@ export default function NewEntryScreen() {
       return () => {
         focused.current = false;
         focusGeneration.current++;
+        calculatorRef.current = null;
+        activeField.current = null;
+        amountSelectionIntent.current = false;
+        if (mounted.current) setCalculatorAttempt(null);
       };
       // A changed route or local identity needs a new scoped read; a completed
       // read from a previous focus must never redirect the newly visible screen.
@@ -196,15 +339,25 @@ export default function NewEntryScreen() {
     if (loading || !person) return;
     const attempt = { ...scopeRef.current, focus: focusGeneration.current };
     const focusTimer = setTimeout(() => {
-      if (isCurrent(attempt)) amountRef.current?.focus();
+      if (initialFocusTimer.current === focusTimer) initialFocusTimer.current = null;
+      if (isCurrent(attempt)) measureKeyboardFrame();
+      if (isCurrent(attempt) && activeField.current === null) amountRef.current?.focus();
     }, 280);
-    return () => clearTimeout(focusTimer);
+    initialFocusTimer.current = focusTimer;
+    return () => {
+      clearTimeout(focusTimer);
+      if (initialFocusTimer.current === focusTimer) initialFocusTimer.current = null;
+    };
   }, [loading, person, focusVersion]);
 
   async function onSave() {
     const attempt = { ...scope, focus: focusGeneration.current };
-    if (savingRef.current || !attempt.personId || !isCurrent(attempt)) return;
-    const parsedAmount = parseAmountInput(amount);
+    if (savingRef.current || !attempt.personId || !isCurrent(attempt) || !isCurrent(renderAttempt))
+      return;
+    // Evaluate the latest key synchronously. A pending operator or bad result
+    // must never save the previous valid preview, even before React repaints.
+    const result = evaluateCalculation(calculationRef.current.expression);
+    const parsedAmount = result.canApply ? parseAmountInput(result.amount) : null;
     if (parsedAmount === null) {
       setAmountError(t("entry.invalidAmount"));
       return;
@@ -212,6 +365,7 @@ export default function NewEntryScreen() {
     const savedNote = note.trim().slice(0, ENTRY_NOTE_MAX_LENGTH) || null;
     savingRef.current = true;
     setBusy(true);
+    saveErrorField.current = null;
     setSaveError(null);
     let session: SessionSnapshot | null = null;
     const present = async (work: () => void) => {
@@ -350,6 +504,97 @@ export default function NewEntryScreen() {
     }
   }
 
+  function openCalculator() {
+    const attempt = { ...scopeRef.current, focus: focusGeneration.current };
+    if (
+      savingRef.current ||
+      calculatorRef.current ||
+      !isCurrent(attempt) ||
+      !isCurrent(renderAttempt)
+    )
+      return;
+    calculatorRef.current = attempt;
+    activeField.current = "amount";
+    noteRef.current?.blur();
+    setCalculatorAttempt(attempt);
+    revealAmount();
+  }
+
+  function focusNote() {
+    const attempt = { ...scopeRef.current, focus: focusGeneration.current };
+    if (savingRef.current || !isCurrent(attempt) || !isCurrent(renderAttempt)) return;
+    activeField.current = "note";
+    amountSelectionIntent.current = false;
+    calculatorRef.current = null;
+    setCalculatorAttempt(null);
+    measureKeyboardFrame();
+    noteRef.current?.focus();
+  }
+
+  function dismissCalculator() {
+    const attempt = calculatorRef.current;
+    if (
+      !attempt ||
+      attempt !== calculatorAttempt ||
+      !isCurrent(attempt) ||
+      !isCurrent(renderAttempt)
+    )
+      return;
+    if (initialFocusTimer.current !== null) {
+      clearTimeout(initialFocusTimer.current);
+      initialFocusTimer.current = null;
+    }
+    calculatorRef.current = null;
+    activeField.current = null;
+    amountSelectionIntent.current = false;
+    setCalculatorAttempt(null);
+    amountRef.current?.blur();
+  }
+
+  const renderAttempt = { ...scope, focus: focusGeneration.current };
+  function armAmountSelection() {
+    if (savingRef.current || !isCurrent(renderAttempt)) return;
+    amountSelectionIntent.current = true;
+  }
+
+  function changeCalculation(
+    next: CalculatorDraft,
+    source: "programmatic" | "native" | "selection" = "programmatic",
+  ) {
+    if (!isCurrent(renderAttempt) || savingRef.current) return;
+    // Android can echo an old controlled cursor after newer keypad edits.
+    // Only direct input interaction may take cursor ownership back. Keep that
+    // intent across native selection dragging and paste/cut follow-up events.
+    if (source !== "selection") amountSelectionIntent.current = source === "native";
+    calculationRef.current = next;
+    setCalculation(next);
+    setAmountError(null);
+    saveErrorField.current = null;
+    setSaveError(null);
+  }
+
+  let calculationHint: string | null = null;
+  if (calculationResult.status === "error")
+    calculationHint = t(
+      calculationResult.code === "division_by_zero"
+        ? "calculator.divisionByZero"
+        : calculationResult.code === "too_complex"
+          ? "calculator.tooComplex"
+          : calculationResult.code === "overflow"
+            ? "calculator.tooLarge"
+            : "calculator.invalid",
+    );
+  else if (calculationResult.status === "valid" && !calculationResult.canApply)
+    calculationHint = t(
+      calculationResult.applyError === "non_positive"
+        ? "calculator.positiveAmount"
+        : "calculator.tooLarge",
+    );
+  else if (calculationResult.status === "incomplete" && calculation.expression)
+    calculationHint = t("calculator.incomplete");
+  else if (calculationResult.status === "valid" && calculationResult.rounded)
+    calculationHint = t("calculator.rounded");
+
   // Derived above the load branches on purpose: the verb comes from the route
   // param, not from the person, so the loading header can already show the
   // final title and nothing moves when the read resolves.
@@ -375,8 +620,31 @@ export default function NewEntryScreen() {
     );
   }
 
+  const noteKeyboardShown =
+    Platform.OS === "ios" && nativeKeyboardOpen && activeField.current === "note";
+  const saveBar = (
+    <View
+      style={styles.saveBar}
+      onLayout={(event) => {
+        const { height } = event.nativeEvent.layout;
+        if (height > 0) setSaveBarHeight(height);
+      }}
+    >
+      <Button
+        label={t("entry.save")}
+        onPress={onSave}
+        loading={busy}
+        disabled={!calculationResult.canApply}
+        fullWidth
+      />
+    </View>
+  );
+
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView
+      style={styles.container}
+      edges={nativeKeyboardOpen ? ["top", "left", "right"] : MODAL_EDGES}
+    >
       {/* The "Cancel" word becomes the shared chevron; it survives as the a11y
           label so TalkBack still announces "Cancel", not "Back". */}
       <ScreenHeader
@@ -386,88 +654,276 @@ export default function NewEntryScreen() {
         backLabel={t("common.cancel")}
       />
 
-      <KeyboardAvoidingView
+      <View
+        ref={keyboardFrameRef}
+        collapsable={false}
         style={styles.keyboardAvoider}
-        behavior="height"
-        enabled={Platform.OS === "android"}
+        onLayout={(event) => {
+          measureKeyboardFrame();
+          setAvailableHeight(event.nativeEvent.layout.height);
+        }}
       >
-        <ScrollView
-          contentContainerStyle={styles.body}
-          keyboardShouldPersistTaps="handled"
-          automaticallyAdjustKeyboardInsets={Platform.OS === "ios"}
+        <KeyboardAvoidingView
+          style={styles.keyboardAvoider}
+          behavior="height"
+          enabled={Platform.OS === "android"}
+          keyboardVerticalOffset={keyboardOffset}
         >
-          <View style={styles.context}>
-            <Text style={[styles.contextLabel, textDir(isRTL), trackingSafe(isRTL)]}>
-              {type === "debt" ? t("entry.context.to") : t("entry.context.from")}
-            </Text>
-            <Text style={[styles.contextName, textDir(isRTL)]}>{person.name}</Text>
-          </View>
-
-          <View style={styles.field}>
-            <Text style={[styles.label, textDir(isRTL)]}>
-              {t("entry.amount.labelTemplate", { code: getCurrentCurrencySymbol() })}{" "}
-              <Text style={styles.required}>*</Text>
-            </Text>
-            <TextInput
-              ref={amountRef}
-              style={[styles.amountInput, amountError ? styles.inputError : null]}
-              value={amount}
-              onChangeText={(raw) => {
-                setAmountError(null);
-                setAmount(normalizeAmountInput(raw));
+          <Pressable
+            style={styles.form}
+            accessible={false}
+            focusable={false}
+            disabled={!calculatorAttempt}
+            onPress={dismissCalculator}
+          >
+            <ScrollView
+              ref={scrollRef}
+              style={styles.form}
+              contentContainerStyle={styles.body}
+              // Native keyboard dismissal only knows about Note. Let blank
+              // amount-keyboard taps reach the surrounding dismiss target.
+              keyboardShouldPersistTaps={calculatorAttempt ? "always" : "handled"}
+              bounces={false}
+              alwaysBounceVertical={false}
+              overScrollMode="never"
+              automaticallyAdjustKeyboardInsets={Platform.OS === "ios"}
+              onContentSizeChange={() => {
+                revealSaveError();
               }}
-              placeholder="0"
-              placeholderTextColor={colors.textMuted}
-              keyboardType="decimal-pad"
-              inputMode="decimal"
-              // Validate the amount instead of truncating pasted extra digits
-              // with maxLength, which could silently change a financial value.
-              accessibilityLabel={t("entry.amount.labelTemplate", {
-                code: getCurrentCurrencySymbol(),
-              })}
-              returnKeyType="next"
-              onSubmitEditing={() => noteRef.current?.focus()}
-              submitBehavior="submit"
-            />
-            {amountError ? (
-              <Text style={[styles.fieldError, textDir(isRTL)]} accessibilityLiveRegion="polite">
-                {amountError}
-              </Text>
-            ) : overLimit ? (
-              <Text style={[styles.creditHint, textDir(isRTL)]} accessibilityLiveRegion="polite">
-                {t("credit.warning")}
-              </Text>
-            ) : null}
-          </View>
+              onScroll={(event) => {
+                formScrollY.current = event.nativeEvent.contentOffset.y;
+                formInsets.current = {
+                  top: event.nativeEvent.contentInset?.top ?? 0,
+                  bottom: event.nativeEvent.contentInset?.bottom ?? 0,
+                };
+              }}
+              scrollEventThrottle={16}
+              onLayout={(event) => {
+                formViewport.current = event.nativeEvent.layout.height;
+                if (activeField.current === "note") revealNote();
+                else if (activeField.current === "amount") revealAmount();
+                revealSaveError();
+              }}
+            >
+              <View style={styles.context}>
+                <Text style={[styles.contextLabel, textDir(isRTL), trackingSafe(isRTL)]}>
+                  {type === "debt" ? t("entry.context.to") : t("entry.context.from")}
+                </Text>
+                <Text style={[styles.contextName, textDir(isRTL)]}>{person.name}</Text>
+              </View>
 
-          <View style={styles.field}>
-            <Text style={[styles.label, textDir(isRTL)]}>{t("entry.note.label")}</Text>
-            <TextInput
-              ref={noteRef}
-              style={[styles.noteInput, textDir(isRTL)]}
-              value={note}
-              onChangeText={setNote}
-              placeholder={t("entry.note.placeholder")}
-              placeholderTextColor={colors.textMuted}
-              maxLength={ENTRY_NOTE_MAX_LENGTH}
-              accessibilityLabel={t("entry.note.label")}
-              multiline
-              keyboardType="default"
-              inputMode="text"
-              submitBehavior="newline"
-              scrollEnabled
+              <View
+                onLayout={(event) => {
+                  amountField.current = event.nativeEvent.layout;
+                  if (activeField.current === "amount") revealAmount();
+                }}
+              >
+                <Text style={[styles.label, textDir(isRTL)]}>
+                  {t("entry.amount.labelTemplate", { code: getCurrentCurrencySymbol() })}{" "}
+                  <Text style={styles.required}>*</Text>
+                </Text>
+                <View style={[styles.amountCard, amountError ? styles.inputError : null]}>
+                  <View style={styles.expressionRow}>
+                    <TextInput
+                      ref={amountRef}
+                      style={styles.amountInput}
+                      value={calculation.expression}
+                      selection={calculation.selection}
+                      onChangeText={(raw) => changeCalculation(calculatorDraft(raw), "native")}
+                      onSelectionChange={(event) => {
+                        if (!amountSelectionIntent.current || activeField.current !== "amount")
+                          return;
+                        const { start, end } = event.nativeEvent.selection;
+                        const next = selectCalculation(calculationRef.current, start, end);
+                        if (
+                          next.selection.start !== calculationRef.current.selection.start ||
+                          next.selection.end !== calculationRef.current.selection.end
+                        )
+                          changeCalculation(next, "selection");
+                      }}
+                      onFocus={() => {
+                        armAmountSelection();
+                        openCalculator();
+                      }}
+                      onBlur={() => {
+                        amountSelectionIntent.current = false;
+                      }}
+                      onKeyPress={armAmountSelection}
+                      onPressIn={() => {
+                        armAmountSelection();
+                        if (activeField.current === "note") {
+                          noteRef.current?.blur();
+                          Keyboard.dismiss();
+                        }
+                        openCalculator();
+                      }}
+                      showSoftInputOnFocus={false}
+                      autoCorrect={false}
+                      spellCheck={false}
+                      autoCapitalize="none"
+                      editable={!busy}
+                      placeholder="0"
+                      placeholderTextColor={colors.textMuted}
+                      inputMode="none"
+                      // Validate the amount instead of truncating pasted extra digits
+                      // with maxLength, which could silently change a financial value.
+                      accessibilityLabel={t("entry.amount.labelTemplate", {
+                        code: getCurrentCurrencySymbol(),
+                      })}
+                      returnKeyType="next"
+                      onSubmitEditing={focusNote}
+                      submitBehavior="submit"
+                    />
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={t("calculator.delete")}
+                      disabled={busy}
+                      onPress={() =>
+                        changeCalculation(calculatorKey(calculationRef.current, "delete"))
+                      }
+                      onLongPress={() =>
+                        changeCalculation(calculatorKey(calculationRef.current, "AC"))
+                      }
+                      style={styles.amountDelete}
+                    >
+                      <Ionicons name="backspace-outline" size={22} color={colors.textMuted} />
+                    </Pressable>
+                  </View>
+                  <View style={styles.calculatedRow}>
+                    <Text style={styles.calculatedCurrency}>{getCurrentCurrencySymbol()}</Text>
+                    <Text
+                      accessibilityLabel={t("calculator.result")}
+                      style={styles.calculatedValue}
+                      numberOfLines={1}
+                      adjustsFontSizeToFit
+                    >
+                      = {calculationResult.display ?? (calculation.expression ? "—" : "0")}
+                    </Text>
+                  </View>
+                </View>
+                {calculationHint && !amountError ? (
+                  <Text
+                    style={[
+                      styles.calculationHint,
+                      calculationResult.status === "error" && styles.errorText,
+                      textDir(isRTL),
+                    ]}
+                    accessibilityLiveRegion="polite"
+                  >
+                    {calculationHint}
+                  </Text>
+                ) : null}
+                {amountError ? (
+                  <Text
+                    style={[styles.fieldError, textDir(isRTL)]}
+                    accessibilityLiveRegion="polite"
+                  >
+                    {amountError}
+                  </Text>
+                ) : overLimit ? (
+                  <Text
+                    style={[styles.creditHint, textDir(isRTL)]}
+                    accessibilityLiveRegion="polite"
+                  >
+                    {t("credit.warning")}
+                  </Text>
+                ) : null}
+              </View>
+
+              <View
+                onLayout={(event) => {
+                  if (Platform.OS === "ios" && !isCurrent(renderAttempt)) return;
+                  noteField.current = event.nativeEvent.layout;
+                  if (activeField.current === "note") revealNote();
+                }}
+              >
+                <Text style={[styles.label, textDir(isRTL)]}>{t("entry.note.label")}</Text>
+                <TextInput
+                  ref={noteRef}
+                  style={[
+                    styles.noteInput,
+                    { minHeight: noteMinHeight, maxHeight: noteMaxHeight },
+                    Platform.OS === "ios" && { height: noteMinHeight },
+                    textDir(isRTL),
+                  ]}
+                  value={note}
+                  onFocus={focusNote}
+                  onChangeText={setNote}
+                  placeholder={t("entry.note.placeholder")}
+                  placeholderTextColor={colors.textMuted}
+                  maxLength={ENTRY_NOTE_MAX_LENGTH}
+                  accessibilityLabel={t("entry.note.label")}
+                  inputAccessoryViewID={Platform.OS === "ios" ? noteAccessoryId : undefined}
+                  multiline
+                  keyboardType="default"
+                  inputMode="text"
+                  submitBehavior="newline"
+                  scrollEnabled
+                />
+              </View>
+              {saveError ? (
+                <Text
+                  style={[styles.fieldError, textDir(isRTL)]}
+                  accessibilityLiveRegion="polite"
+                  onLayout={(event) => {
+                    if (!saveErrorRef.current || !isCurrent(renderAttempt)) return;
+                    saveErrorField.current = event.nativeEvent.layout;
+                    revealSaveError();
+                  }}
+                >
+                  {saveError}
+                </Text>
+              ) : null}
+            </ScrollView>
+          </Pressable>
+          <View style={styles.dock}>
+            {noteKeyboardShown ? null : saveBar}
+            <EntryCalculator
+              key={focusVersion}
+              draft={calculation}
+              getDraft={() => calculationRef.current}
+              onChange={(next) => {
+                if (calculatorAttempt && calculatorRef.current === calculatorAttempt)
+                  changeCalculation(next);
+              }}
+              disabled={busy}
+              availableHeight={availableHeight}
+              footerHeight={saveBarHeight}
+              visible={Boolean(calculatorAttempt)}
+              history={calculatorHistory}
+              onRecord={(record) => {
+                if (
+                  !savingRef.current &&
+                  calculatorAttempt &&
+                  calculatorRef.current === calculatorAttempt &&
+                  isCurrent(calculatorAttempt)
+                )
+                  setCalculatorHistory((history) => rememberCalculation(history, record));
+              }}
+              onClearHistory={() => {
+                if (
+                  !savingRef.current &&
+                  calculatorAttempt &&
+                  calculatorRef.current === calculatorAttempt &&
+                  isCurrent(calculatorAttempt)
+                )
+                  setCalculatorHistory([]);
+              }}
+              onNext={() => {
+                if (calculatorAttempt && calculatorRef.current === calculatorAttempt) focusNote();
+              }}
             />
           </View>
-
-          {saveError ? (
-            <Text style={[styles.fieldError, textDir(isRTL)]} accessibilityLiveRegion="polite">
-              {saveError}
-            </Text>
-          ) : null}
-          <View style={{ height: 24 }} />
-          <Button label={t("entry.save")} onPress={onSave} loading={busy} />
-        </ScrollView>
-      </KeyboardAvoidingView>
+        </KeyboardAvoidingView>
+      </View>
+      {/* Mount before Note is focused so UIKit can attach it to that input.
+          Only Save is in the accessory; the multiline Note stays in the form.
+          UIKit keeps this toolbar above every native keyboard frame. */}
+      {Platform.OS === "ios" ? (
+        <InputAccessoryView nativeID={noteAccessoryId} backgroundColor={colors.bgDefault}>
+          {saveBar}
+        </InputAccessoryView>
+      ) : null}
     </SafeAreaView>
   );
 }
@@ -475,10 +931,26 @@ export default function NewEntryScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bgDefault },
   keyboardAvoider: { flex: 1 },
-  body: { flexGrow: 1, padding: 16, paddingTop: 24, paddingBottom: 24 },
-  context: { marginBottom: 24 },
+  form: { flex: 1 },
+  dock: { flexShrink: 0, backgroundColor: colors.bgDefault },
+  saveBar: {
+    width: "100%",
+    maxWidth: 640,
+    alignSelf: "center",
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    paddingBottom: 10,
+    borderTopWidth: 1,
+    borderColor: colors.borderSubtle,
+    gap: 8,
+  },
+  // Intrinsic height is essential: stretching this to the viewport would
+  // turn iOS's native keyboard inset into a long, empty scrollable tail.
+  body: { width: "100%", maxWidth: 640, alignSelf: "center", padding: 16, gap: 16 },
+  context: { gap: 4 },
   contextLabel: {
     fontSize: 11,
+    lineHeight: sansLineHeight(11, 16),
     fontFamily: fonts.sansSemi,
     color: colors.textSubtle,
     textTransform: "uppercase",
@@ -494,22 +966,69 @@ const styles = StyleSheet.create({
     ...typography.heading,
     fontFamily: fonts.sansBold,
     color: colors.textEmphasis,
-    marginTop: 4,
   },
-  field: { marginBottom: 20 },
   label: {
     fontSize: 13,
+    lineHeight: sansLineHeight(13, 20),
     fontFamily: fonts.sansMedium,
     color: colors.textDefault,
     marginBottom: 8,
   },
   required: { color: colors.danger },
-  noteInput: {
-    minHeight: 104,
-    maxHeight: 200,
+  amountCard: {
     borderWidth: 1,
     borderColor: colors.borderDefault,
-    borderRadius: radius.sm,
+    borderRadius: radius.md,
+    backgroundColor: colors.bgDefault,
+    overflow: "hidden",
+    direction: "ltr",
+  },
+  expressionRow: { flexDirection: "row", direction: "ltr", alignItems: "center" },
+  amountDelete: {
+    minHeight: TOUCH_MIN,
+    minWidth: TOUCH_MIN,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 4,
+  },
+  calculatedRow: {
+    flexDirection: "row",
+    direction: "ltr",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+    borderTopWidth: 1,
+    borderColor: colors.borderSubtle,
+    marginHorizontal: 14,
+    paddingVertical: 8,
+  },
+  calculatedCurrency: {
+    fontFamily: fonts.sansRegular,
+    fontSize: 13,
+    lineHeight: sansLineHeight(13, 20),
+    color: colors.textSubtle,
+  },
+  calculatedValue: {
+    flexShrink: 1,
+    fontFamily: fonts.monoMedium,
+    fontSize: 17,
+    lineHeight: sansLineHeight(17, 25),
+    color: colors.textEmphasis,
+    textAlign: "right",
+    writingDirection: "ltr",
+  },
+  calculationHint: {
+    fontFamily: fonts.sansRegular,
+    fontSize: 12,
+    lineHeight: sansLineHeight(12, 18),
+    marginTop: 6,
+    color: colors.textSubtle,
+  },
+  errorText: { color: colors.danger },
+  noteInput: {
+    borderWidth: 1,
+    borderColor: colors.borderDefault,
+    borderRadius: radius.md,
     paddingHorizontal: 14,
     paddingVertical: 12,
     fontSize: 15,
@@ -521,16 +1040,17 @@ const styles = StyleSheet.create({
     backgroundColor: colors.bgDefault,
   },
   amountInput: {
-    minHeight: 72,
-    borderWidth: 1,
-    borderColor: colors.borderDefault,
-    borderRadius: radius.md,
-    paddingHorizontal: 16,
-    fontSize: 36,
+    flex: 1,
+    minWidth: 0,
+    minHeight: 64,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    fontSize: 28,
     fontFamily: fonts.monoBold,
     color: colors.textEmphasis,
     backgroundColor: colors.bgDefault,
-    textAlign: "center",
+    textAlign: "left",
+    writingDirection: "ltr",
   },
   // Mirrors FormField's error treatment so inline errors look the same
   // whether a screen uses the shared component or a custom input.
