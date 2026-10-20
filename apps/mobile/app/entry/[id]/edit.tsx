@@ -1,6 +1,14 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
-import { KeyboardAvoidingView, Platform, StyleSheet, Text, TextInput, View } from "react-native";
+import {
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "../../../components/Button";
 import { ScreenLoading } from "../../../components/ScreenLoading";
@@ -16,7 +24,7 @@ import { fonts, sansLineHeight } from "../../../lib/fonts";
 import { t } from "../../../lib/i18n";
 import { normalizeAmountInput, parseAmountInput } from "../../../lib/money";
 import { getTabLinkForRelationship } from "../../../lib/tabs/db";
-import { radius, TOUCH_MIN } from "../../../lib/tokens";
+import { radius } from "../../../lib/tokens";
 import { ENTRY_NOTE_MAX_LENGTH, type EntryType } from "../../../lib/types";
 
 // presentation:"modal" screen: the loaded branch is a bare <SafeAreaView>,
@@ -205,75 +213,85 @@ export default function EditEntryScreen() {
         backLabel={t("common.cancel")}
       />
       <KeyboardAvoidingView
-        style={styles.body}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        style={styles.keyboardAvoider}
+        behavior="height"
+        enabled={Platform.OS === "android"}
       >
-        <Text style={[styles.hint, textDir(isRTL)]}>{t("entry.edit.hint", { otherVerb })}</Text>
+        <ScrollView
+          contentContainerStyle={styles.body}
+          keyboardShouldPersistTaps="handled"
+          automaticallyAdjustKeyboardInsets={Platform.OS === "ios"}
+        >
+          <Text style={[styles.hint, textDir(isRTL)]}>{t("entry.edit.hint", { otherVerb })}</Text>
 
-        <View style={styles.field}>
-          <Text style={[styles.label, textDir(isRTL)]}>
-            {t("entry.amount.labelTemplate", { code: getCurrentCurrencySymbol() })}{" "}
-            <Text style={styles.required}>*</Text>
-          </Text>
-          <TextInput
-            ref={amountRef}
-            style={[styles.amountInput, amountError ? styles.inputError : null]}
-            value={amount}
-            onChangeText={(raw) => {
-              setAmountError(null);
-              setAmount(normalizeAmountInput(raw));
-            }}
-            placeholder="0"
-            placeholderTextColor={colors.textMuted}
-            keyboardType="decimal-pad"
-            inputMode="decimal"
-            // Keep over-precise pasted input intact so validation can reject
-            // it rather than quietly saving a truncated amount.
-            accessibilityLabel={t("entry.amount.labelTemplate", {
-              code: getCurrentCurrencySymbol(),
-            })}
-            selectTextOnFocus
-            returnKeyType="next"
-            onSubmitEditing={() => noteRef.current?.focus()}
-            submitBehavior="submit"
-          />
-          {amountError ? (
-            <Text style={[styles.fieldError, textDir(isRTL)]} accessibilityLiveRegion="polite">
-              {amountError}
+          <View style={styles.field}>
+            <Text style={[styles.label, textDir(isRTL)]}>
+              {t("entry.amount.labelTemplate", { code: getCurrentCurrencySymbol() })}{" "}
+              <Text style={styles.required}>*</Text>
             </Text>
-          ) : overLimit && !tabLocked ? (
-            <Text style={[styles.creditHint, textDir(isRTL)]} accessibilityLiveRegion="polite">
-              {t("credit.warning")}
+            <TextInput
+              ref={amountRef}
+              style={[styles.amountInput, amountError ? styles.inputError : null]}
+              value={amount}
+              onChangeText={(raw) => {
+                setAmountError(null);
+                setAmount(normalizeAmountInput(raw));
+              }}
+              placeholder="0"
+              placeholderTextColor={colors.textMuted}
+              keyboardType="decimal-pad"
+              inputMode="decimal"
+              // Keep over-precise pasted input intact so validation can reject
+              // it rather than quietly saving a truncated amount.
+              accessibilityLabel={t("entry.amount.labelTemplate", {
+                code: getCurrentCurrencySymbol(),
+              })}
+              selectTextOnFocus
+              returnKeyType="next"
+              onSubmitEditing={() => noteRef.current?.focus()}
+              submitBehavior="submit"
+            />
+            {amountError ? (
+              <Text style={[styles.fieldError, textDir(isRTL)]} accessibilityLiveRegion="polite">
+                {amountError}
+              </Text>
+            ) : overLimit && !tabLocked ? (
+              <Text style={[styles.creditHint, textDir(isRTL)]} accessibilityLiveRegion="polite">
+                {t("credit.warning")}
+              </Text>
+            ) : null}
+          </View>
+          <View style={styles.field}>
+            <Text style={[styles.label, textDir(isRTL)]}>{t("entry.note.label")}</Text>
+            <TextInput
+              ref={noteRef}
+              style={[styles.noteInput, textDir(isRTL)]}
+              value={note}
+              onChangeText={setNote}
+              placeholder={t("entry.note.placeholder")}
+              placeholderTextColor={colors.textMuted}
+              maxLength={ENTRY_NOTE_MAX_LENGTH}
+              accessibilityLabel={t("entry.note.label")}
+              multiline
+              keyboardType="default"
+              inputMode="text"
+              submitBehavior="newline"
+              scrollEnabled
+            />
+          </View>
+          {saveError ? (
+            <Text style={[styles.fieldError, textDir(isRTL)]} accessibilityLiveRegion="polite">
+              {saveError}
             </Text>
           ) : null}
-        </View>
-        <View style={styles.field}>
-          <Text style={[styles.label, textDir(isRTL)]}>{t("entry.note.label")}</Text>
-          <TextInput
-            ref={noteRef}
-            style={[styles.input, textDir(isRTL)]}
-            value={note}
-            onChangeText={setNote}
-            placeholder={t("entry.note.placeholder")}
-            placeholderTextColor={colors.textMuted}
-            maxLength={ENTRY_NOTE_MAX_LENGTH}
-            accessibilityLabel={t("entry.note.label")}
-            returnKeyType="done"
-            onSubmitEditing={onSave}
+          <View style={{ height: 24 }} />
+          <Button
+            label={t("entry.saveChanges")}
+            onPress={onSave}
+            loading={busy}
+            disabled={tabLocked}
           />
-        </View>
-        {saveError ? (
-          <Text style={[styles.fieldError, textDir(isRTL)]} accessibilityLiveRegion="polite">
-            {saveError}
-          </Text>
-        ) : null}
-        <View style={{ height: 24 }} />
-        <Button
-          label={t("entry.saveChanges")}
-          onPress={onSave}
-          loading={busy}
-          disabled={tabLocked}
-        />
+        </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -281,7 +299,8 @@ export default function EditEntryScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bgDefault },
-  body: { flex: 1, padding: 16, paddingTop: 20 },
+  keyboardAvoider: { flex: 1 },
+  body: { flexGrow: 1, padding: 16, paddingTop: 20, paddingBottom: 24 },
   hint: {
     fontSize: 12,
     fontFamily: fonts.sansRegular,
@@ -297,13 +316,18 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   required: { color: colors.danger },
-  input: {
-    minHeight: TOUCH_MIN,
+  noteInput: {
+    minHeight: 104,
+    maxHeight: 200,
     borderWidth: 1,
     borderColor: colors.borderDefault,
     borderRadius: radius.sm,
     paddingHorizontal: 14,
+    paddingVertical: 12,
     fontSize: 15,
+    lineHeight: sansLineHeight(15, 22),
+    textAlignVertical: "top",
+    overflow: "hidden",
     fontFamily: fonts.sansRegular,
     color: colors.textEmphasis,
     backgroundColor: colors.bgDefault,

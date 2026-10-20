@@ -6,6 +6,33 @@ durable offline queue, and push delivery infrastructure. Existing private ledger
 events are not rewritten.
 Automated checks and store submissions do not replace native two-phone testing.
 
+## Pending next release — multiline entry notes (20 October 2026)
+
+Both new-entry and edit-entry Note fields wrap long text and accept Return as
+a newline. Return no longer saves an entry; the visible Save button does that,
+while Amount's Next still focuses Note. The textarea starts at 104dp, grows up
+to 200dp and scrolls internally beyond that height. Top alignment, vertical
+padding and the existing iOS-safe font line height keep text inside its border.
+Both forms now scroll with keyboard avoidance on Android and automatic keyboard
+insets on iOS, so Note and Save remain reachable on smaller screens.
+
+The existing 500-character limit and storage format are unchanged. Internal
+newlines, blank lines and item indentation survive saving and loading; existing
+outer-whitespace trimming remains. A retained customer-page row remeasures
+edited note text and ignores stale native layout callbacks, so changing a short
+note into a list does not leave its later lines hidden when expanded. Closed
+rows retain their one-line preview, and note search still shows the full text.
+
+Verification passed: **86 entry-form UI checks** (the original 70 plus 16 new
+cases across create/edit, iOS/Android and LTR/RTL), tally UI checks including
+English/Dari/Pashto edited-note regressions, and mobile TypeScript. These checks
+execute the real screen/component code with controlled native/storage edges;
+the form tests also use the real font line-height helper. Native phone QA is
+still required before the next release: long wrapped notes, item lists with
+blank lines, text scrolling at the height cap, large text and Save above the
+keyboard on iOS and Android. No app build, version bump or store submission was
+made for this fix.
+
 ## Pashto and Ninja-mode Android device build — 19 October 2026 (65)
 
 **2.2.2 / Android 65** is installed in place on the connected Xiaomi after the

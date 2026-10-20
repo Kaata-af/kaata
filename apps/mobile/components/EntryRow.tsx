@@ -93,6 +93,8 @@ export const EntryRow = memo(function EntryRow(props: {
   useCalendar(); // This memoized row must also refresh when its calendar changes.
   const { entry } = props;
   const tab = props.tab ?? entry.tab;
+  // An opening entry has no authored note; label it in the reader's language.
+  const note = entry.note ?? (tab?.kind === "opening" ? t("tab.opening.note") : null);
   const voided = tab?.voided === true;
   const excluded = voided || tab?.status === "disputed";
   const isGave = entry.type === "debt";
@@ -114,8 +116,16 @@ export const EntryRow = memo(function EntryRow(props: {
   // closed shows the relative time and the one-line note. The note only
   // expands once we've measured that it actually overflows (`clipped`), so a
   // short note never grows a "less" cue.
-  const [measured, setMeasured] = useState(false);
-  const [clipped, setClipped] = useState(false);
+  const [noteMeasurement, setNoteMeasurement] = useState<{
+    text: string;
+    clipped: boolean;
+  } | null>(null);
+  const currentNote = useRef(note);
+  currentNote.current = note;
+  // Edits retain this row's identity. Measure the new text unclamped instead
+  // of applying the previous note's one-line result to it.
+  const measured = noteMeasurement?.text === note;
+  const clipped = measured && noteMeasurement?.clipped === true;
   const reviewBusy = useRef(false);
   const [reviewing, setReviewing] = useState(false);
   const review = async (action: (entry: Entry) => void | Promise<void>) => {
@@ -215,13 +225,6 @@ export const EntryRow = memo(function EntryRow(props: {
     tab && tab.status === "disputed" && !voided && tab.dispute_reason
       ? t("tab.disputedReason", { reason: tab.dispute_reason })
       : null;
-
-  // An opening entry deliberately carries NO note on the wire: "the balance
-  // carried over" is structural, not something the author wrote, so each side
-  // labels it in ITS OWN language. (The web page does the same — a Dari
-  // customer must not read the shopkeeper's English.) A note the author
-  // actually typed always wins.
-  const note = entry.note ?? (tab?.kind === "opening" ? t("tab.opening.note") : null);
 
   return (
     // White whatever the review state; an OPEN row turns bgMuted, actions
@@ -418,9 +421,13 @@ export const EntryRow = memo(function EntryRow(props: {
                       // Full note for screen readers, regardless of the visual clamp.
                       accessibilityLabel={note}
                       onTextLayout={(e) => {
-                        if (!measured) {
-                          setClipped(e.nativeEvent.lines.length > 1);
-                          setMeasured(true);
+                        // Native layout from the previous text can arrive
+                        // after an edit. It cannot classify the current note.
+                        if (!measured && currentNote.current === note) {
+                          setNoteMeasurement({
+                            text: note,
+                            clipped: e.nativeEvent.lines.length > 1,
+                          });
                         }
                       }}
                     >

@@ -1,8 +1,27 @@
 // Execute the real entry modal with controlled native/session/storage edges.
 // Delayed admissions remain durable; feedback belongs only to its tap's screen.
 import assert from "node:assert/strict";
-import { compileUI, deferred, jsx, nodes, settleUI, uiHooks } from "./ui-fixture";
+import { compileUI, deferred, flattenStyle, jsx, nodes, settleUI, uiHooks } from "./ui-fixture";
 import { normalizeAmountInput, parseAmountInput } from "../money";
+import { ENTRY_NOTE_MAX_LENGTH } from "../types";
+
+type PlatformOS = "android" | "ios";
+const fontEdges = Object.fromEntries(
+  (["android", "ios"] as const).map((os) => [
+    os,
+    compileUI("../fonts", {
+      "react-native": { Platform: { OS: os } },
+      "@expo-google-fonts/inter": {},
+      "@expo-google-fonts/jetbrains-mono": {},
+      "@expo-google-fonts/vazirmatn": {},
+    }),
+  ]),
+);
+const directionEdges = (rtl: boolean) => ({
+  useIsRTL: () => rtl,
+  textDir: () => ({ textAlign: rtl ? "right" : "left", writingDirection: rtl ? "rtl" : "ltr" }),
+  trackingSafe: () => ({}),
+});
 
 class SessionChangedError extends Error {}
 class RoleGateRejectionError extends Error {}
@@ -32,7 +51,7 @@ const words = (node: any): string =>
         ? words(node.props.children)
         : "";
 
-function fixture() {
+function fixture({ os = "android", rtl = false }: { os?: PlatformOS; rtl?: boolean } = {}) {
   const hooks = uiHooks(),
     routes: any[] = [],
     notices: any[] = [],
@@ -79,7 +98,8 @@ function fixture() {
       },
       "react-native": {
         KeyboardAvoidingView: "KeyboardAvoidingView",
-        Platform: { OS: "android" },
+        Platform: { OS: os },
+        ScrollView: "ScrollView",
         StyleSheet: { create: (s: any) => s },
         Text: "Text",
         TextInput: "TextInput",
@@ -127,13 +147,9 @@ function fixture() {
           return result;
         },
       },
-      "../../lib/direction": {
-        useIsRTL: () => false,
-        textDir: () => ({}),
-        trackingSafe: () => ({}),
-      },
+      "../../lib/direction": directionEdges(rtl),
       "../../lib/event-log": { EventSigningUnavailableError, RoleGateRejectionError },
-      "../../lib/fonts": { fonts: {} },
+      "../../lib/fonts": fontEdges[os],
       "../../lib/i18n": { t: (key: string) => key },
       "../../lib/money": { normalizeAmountInput, parseAmountInput },
       "../../lib/credit-limits": { creditWarning: async () => overLimit },
@@ -152,7 +168,7 @@ function fixture() {
         TabPermissionError,
       },
       "../../lib/tokens": { radius: {}, TOUCH_MIN: 44, typography: {} },
-      "../../lib/types": { ENTRY_NOTE_MAX_LENGTH: 2000 },
+      "../../lib/types": { ENTRY_NOTE_MAX_LENGTH },
     },
     {
       setTimeout: (fn: () => void) => {
@@ -166,6 +182,10 @@ function fixture() {
   const render = () => hooks.render(Screen);
   const button = () => nodes(hooks.tree).find((n) => n.type === "Button")!;
   const input = () => nodes(hooks.tree).find((n) => n.type === "TextInput")!;
+  const note = () =>
+    nodes(hooks.tree).find(
+      (n) => n.type === "TextInput" && n.props.accessibilityLabel === "entry.note.label",
+    )!;
   const flush = async () => {
     await settleUI();
     render();
@@ -232,6 +252,7 @@ function fixture() {
     ready,
     button,
     input,
+    note,
     blur,
     refocus,
     transitions,
@@ -254,6 +275,144 @@ function fixture() {
       return keyboardFocuses;
     },
   };
+}
+
+// The edit screen has a different storage edge, but uses the same real form
+// controls. Keep this fixture limited to loading and saving an editable entry.
+function editFixture(os: PlatformOS, rtl: boolean, initialNote: string) {
+  const hooks = uiHooks(),
+    routes: string[] = [],
+    writes: any[] = [];
+  const Screen = compileUI(
+    "../../app/entry/[id]/edit",
+    {
+      "react/jsx-runtime": { jsx, jsxs: jsx },
+      react: hooks.react,
+      "expo-router": {
+        useRouter: () => ({ back: () => routes.push("back") }),
+        useLocalSearchParams: () => ({ id: "entry" }),
+      },
+      "react-native": {
+        KeyboardAvoidingView: "KeyboardAvoidingView",
+        Platform: { OS: os },
+        ScrollView: "ScrollView",
+        StyleSheet: { create: (value: any) => value },
+        Text: "Text",
+        TextInput: "TextInput",
+        View: "View",
+      },
+      "react-native-safe-area-context": { SafeAreaView: "SafeAreaView" },
+      "../../../components/Button": { Button: "Button" },
+      "../../../components/ScreenLoading": { ScreenLoading: "ScreenLoading" },
+      "../../../components/SettingsScreen": { ScreenHeader: "ScreenHeader" },
+      "../../../components/Toast": { useToast: () => ({ push: () => {} }) },
+      "../../../lib/colors": { colors: require("../colors").colors },
+      "../../../lib/credit-limits": { creditWarningForEdit: async () => false },
+      "../../../lib/currency": { getCurrentCurrencySymbol: () => "AFN" },
+      "../../../lib/db": {
+        getEntry: async () => ({
+          id: "entry",
+          relationship_id: "relationship",
+          type: "debt",
+          amount_afn: 125.5,
+          note: initialNote,
+        }),
+        updateEntry: async (...args: any[]) => {
+          writes.push(args);
+        },
+        SettledChapterError: class extends Error {},
+        TabLinkedEntryError: class extends Error {},
+      },
+      "../../../lib/direction": directionEdges(rtl),
+      "../../../lib/event-log": { EventSigningUnavailableError, RoleGateRejectionError },
+      "../../../lib/fonts": fontEdges[os],
+      "../../../lib/i18n": { t: (key: string) => key },
+      "../../../lib/money": { normalizeAmountInput, parseAmountInput },
+      "../../../lib/tabs/db": { getTabLinkForRelationship: async () => null },
+      "../../../lib/tokens": { radius: {} },
+      "../../../lib/types": { ENTRY_NOTE_MAX_LENGTH },
+    },
+    {
+      setTimeout: () => 1,
+      clearTimeout: () => {},
+    },
+  ).default;
+  const render = () => hooks.render(Screen);
+  const input = () => nodes(hooks.tree).find((node) => node.type === "TextInput")!;
+  const note = () =>
+    nodes(hooks.tree).find(
+      (node) => node.type === "TextInput" && node.props.accessibilityLabel === "entry.note.label",
+    )!;
+  const button = () => nodes(hooks.tree).find((node) => node.type === "Button")!;
+  return {
+    hooks,
+    routes,
+    writes,
+    render,
+    input,
+    note,
+    button,
+    ready: async () => {
+      render();
+      await settleUI();
+      render();
+    },
+  };
+}
+
+function assertMultilineForm(
+  form: Pick<ReturnType<typeof fixture>, "hooks" | "input" | "note" | "button" | "writes">,
+  os: PlatformOS,
+  rtl: boolean,
+) {
+  const note = form.note(),
+    amount = form.input();
+  assert.equal(note.props.multiline, true);
+  assert.equal(note.props.submitBehavior, "newline");
+  assert.equal(note.props.onSubmitEditing, undefined, "Return must never invoke Save");
+  assert.notEqual(note.props.returnKeyType, "done");
+  assert.notEqual(note.props.blurOnSubmit, true);
+  assert.equal(note.props.scrollEnabled, true);
+  assert.equal(note.props.maxLength, ENTRY_NOTE_MAX_LENGTH);
+  assert.equal(ENTRY_NOTE_MAX_LENGTH, 500, "the fixture must use the real storage limit");
+  let noteFocuses = 0;
+  note.props.ref.current = { focus: () => noteFocuses++ };
+  assert.equal(amount.props.returnKeyType, "next");
+  assert.equal(amount.props.submitBehavior, "submit");
+  amount.props.onSubmitEditing();
+  assert.equal(noteFocuses, 1, "Amount Next focuses Note");
+  assert.equal(form.writes.length, 0, "moving between fields never saves");
+
+  const style = flattenStyle(note.props.style);
+  assert.ok(Number.isFinite(style.minHeight) && style.minHeight > 0);
+  assert.ok(Number.isFinite(style.maxHeight) && style.maxHeight > style.minHeight);
+  assert.equal(style.height, undefined, "the textarea can grow before scrolling");
+  assert.equal(style.textAlignVertical, "top");
+  assert.ok(style.paddingVertical > 0 && style.paddingHorizontal > 0);
+  assert.equal(
+    style.lineHeight,
+    os === "ios" ? 24 : 22,
+    "the real font helper keeps iOS ascenders inside the line box",
+  );
+  assert.ok(
+    style.minHeight >= 3 * style.lineHeight + 2 * style.paddingVertical + 2 * style.borderWidth,
+    "the textarea initially fits three complete lines without clipping padding or borders",
+  );
+  assert.equal(style.textAlign, rtl ? "right" : "left");
+  assert.equal(style.writingDirection, rtl ? "rtl" : "ltr");
+
+  const avoider = nodes(form.hooks.tree).find((node) => node.type === "KeyboardAvoidingView")!;
+  const scroll = nodes(avoider).find((node) => node.type === "ScrollView")!;
+  assert.ok(scroll, "form scrolls within its keyboard-aware viewport");
+  assert.equal(avoider.props.behavior, "height");
+  assert.equal(avoider.props.enabled, os === "android");
+  assert.equal(scroll.props.automaticallyAdjustKeyboardInsets, os === "ios");
+  assert.equal(scroll.props.keyboardShouldPersistTaps, "handled");
+  assert.ok(
+    nodes(scroll).includes(note) && nodes(scroll).includes(form.button()),
+    "Note and Save stay in the same scrollable form",
+  );
+  assert.equal(flattenStyle(scroll.props.contentContainerStyle).flexGrow, 1);
 }
 
 const savedNotes: [string, string][] = [];
@@ -522,6 +681,67 @@ async function main() {
     g.hooks.unmount();
     cases++;
   }
+  for (const os of ["android", "ios"] as const)
+    for (const rtl of [false, true])
+      for (const mode of ["create", "edit"] as const) {
+        const loadedNote = "Rice 10 kg\n\nچای دو پاکت\n  keep this indentation";
+        const changedNote = `${loadedNote}\n\nوروستۍ کرښه`;
+        const f = mode === "create" ? fixture({ os, rtl }) : editFixture(os, rtl, loadedNote);
+        await f.ready();
+        assert.equal(
+          f.note().props.value,
+          mode === "edit" ? loadedNote : "",
+          `${mode}: loaded notes retain their blank lines`,
+        );
+        assertMultilineForm(f, os, rtl);
+        f.note().props.onChangeText(changedNote);
+        f.render();
+        assert.equal(
+          f.note().props.value,
+          changedNote,
+          `${mode}: controlled value retains pasted paragraphs`,
+        );
+        // Native Return inserts a newline through onChangeText. There is no
+        // submit handler to confuse that keystroke with pressing Save.
+        f.note().props.onChangeText(`${changedNote}\n`);
+        f.render();
+        assert.equal(f.note().props.value, `${changedNote}\n`);
+        assert.equal(f.writes.length, 0, `${mode}: Return cannot save`);
+        f.note().props.onChangeText(changedNote);
+        f.render();
+        await f.button().props.onPress();
+        await settleUI();
+        f.render();
+        assert.equal(f.writes.length, 1);
+        assert.equal(
+          f.writes[0][mode === "create" ? 3 : 2],
+          changedNote,
+          `${mode}/${os}/${rtl ? "RTL" : "LTR"}: Save preserves internal line breaks and whitespace`,
+        );
+        assert.deepEqual(f.routes, ["back"]);
+        f.hooks.unmount();
+        cases++;
+      }
+  for (const os of ["android", "ios"] as const)
+    for (const mode of ["create", "edit"] as const)
+      for (const value of ["x".repeat(245) + "\n\n" + "ی".repeat(260), "\n \n"]) {
+        const f = mode === "create" ? fixture({ os }) : editFixture(os, true, "Loaded\n\noriginal");
+        await f.ready();
+        assert.equal(f.note().props.maxLength, 500);
+        // Bypass the native maxLength to exercise the independent save clamp:
+        // pasted/stale values must not evade the actual 500-character limit.
+        f.note().props.onChangeText(value);
+        f.render();
+        await f.button().props.onPress();
+        assert.equal(f.writes[0][mode === "create" ? 3 : 2], value.trim().slice(0, 500) || null);
+        if (value.length > 500)
+          assert.ok(
+            f.writes[0][mode === "create" ? 3 : 2].includes("\n\n"),
+            "clamping length keeps internal blank lines",
+          );
+        f.hooks.unmount();
+        cases++;
+      }
   console.log(`entry-create-ui selftest: ${cases} checks passed`);
 }
 void main().catch((error) => {

@@ -1,6 +1,14 @@
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { KeyboardAvoidingView, Platform, StyleSheet, Text, TextInput, View } from "react-native";
+import {
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "../../components/Button";
 import { ScreenLoading } from "../../components/ScreenLoading";
@@ -18,7 +26,7 @@ import { getCurrentCurrencySymbol } from "../../lib/currency";
 import { createEntryDetailed, getActiveVaultArchivedState, getPerson } from "../../lib/db";
 import { textDir, trackingSafe, useIsRTL } from "../../lib/direction";
 import { EventSigningUnavailableError, RoleGateRejectionError } from "../../lib/event-log";
-import { fonts } from "../../lib/fonts";
+import { fonts, sansLineHeight } from "../../lib/fonts";
 import { t } from "../../lib/i18n";
 import { normalizeAmountInput, parseAmountInput } from "../../lib/money";
 import { getTabLinkForPerson } from "../../lib/tabs/db";
@@ -31,7 +39,7 @@ import {
   TabInputError,
   TabPermissionError,
 } from "../../lib/tabs/errors";
-import { radius, TOUCH_MIN, typography } from "../../lib/tokens";
+import { radius, typography } from "../../lib/tokens";
 import { ENTRY_NOTE_MAX_LENGTH, type EntryType, type PersonWithBalance } from "../../lib/types";
 
 // presentation:"modal" screen: the loaded branch is a bare <SafeAreaView>,
@@ -91,9 +99,9 @@ export default function NewEntryScreen() {
   const amountRef = useRef<TextInput>(null);
   const noteRef = useRef<TextInput>(null);
   // Synchronous re-entry guard. `busy` state alone can't stop a double-tap:
-  // setState doesn't apply within the same frame, so two rapid taps (or a
-  // note-field "done" + button tap) both observe busy === false and each
-  // write an entry. The ref flips synchronously before any await.
+  // setState doesn't apply within the same frame, so two rapid taps both
+  // observe busy === false and each write an entry. The ref flips
+  // synchronously before any await.
   const savingRef = useRef(false);
   const mounted = useRef(true);
   const focused = useRef(false);
@@ -379,76 +387,86 @@ export default function NewEntryScreen() {
       />
 
       <KeyboardAvoidingView
-        style={styles.body}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        style={styles.keyboardAvoider}
+        behavior="height"
+        enabled={Platform.OS === "android"}
       >
-        <View style={styles.context}>
-          <Text style={[styles.contextLabel, textDir(isRTL), trackingSafe(isRTL)]}>
-            {type === "debt" ? t("entry.context.to") : t("entry.context.from")}
-          </Text>
-          <Text style={[styles.contextName, textDir(isRTL)]}>{person.name}</Text>
-        </View>
-
-        <View style={styles.field}>
-          <Text style={[styles.label, textDir(isRTL)]}>
-            {t("entry.amount.labelTemplate", { code: getCurrentCurrencySymbol() })}{" "}
-            <Text style={styles.required}>*</Text>
-          </Text>
-          <TextInput
-            ref={amountRef}
-            style={[styles.amountInput, amountError ? styles.inputError : null]}
-            value={amount}
-            onChangeText={(raw) => {
-              setAmountError(null);
-              setAmount(normalizeAmountInput(raw));
-            }}
-            placeholder="0"
-            placeholderTextColor={colors.textMuted}
-            keyboardType="decimal-pad"
-            inputMode="decimal"
-            // Validate the amount instead of truncating pasted extra digits
-            // with maxLength, which could silently change a financial value.
-            accessibilityLabel={t("entry.amount.labelTemplate", {
-              code: getCurrentCurrencySymbol(),
-            })}
-            returnKeyType="next"
-            onSubmitEditing={() => noteRef.current?.focus()}
-            submitBehavior="submit"
-          />
-          {amountError ? (
-            <Text style={[styles.fieldError, textDir(isRTL)]} accessibilityLiveRegion="polite">
-              {amountError}
+        <ScrollView
+          contentContainerStyle={styles.body}
+          keyboardShouldPersistTaps="handled"
+          automaticallyAdjustKeyboardInsets={Platform.OS === "ios"}
+        >
+          <View style={styles.context}>
+            <Text style={[styles.contextLabel, textDir(isRTL), trackingSafe(isRTL)]}>
+              {type === "debt" ? t("entry.context.to") : t("entry.context.from")}
             </Text>
-          ) : overLimit ? (
-            <Text style={[styles.creditHint, textDir(isRTL)]} accessibilityLiveRegion="polite">
-              {t("credit.warning")}
+            <Text style={[styles.contextName, textDir(isRTL)]}>{person.name}</Text>
+          </View>
+
+          <View style={styles.field}>
+            <Text style={[styles.label, textDir(isRTL)]}>
+              {t("entry.amount.labelTemplate", { code: getCurrentCurrencySymbol() })}{" "}
+              <Text style={styles.required}>*</Text>
+            </Text>
+            <TextInput
+              ref={amountRef}
+              style={[styles.amountInput, amountError ? styles.inputError : null]}
+              value={amount}
+              onChangeText={(raw) => {
+                setAmountError(null);
+                setAmount(normalizeAmountInput(raw));
+              }}
+              placeholder="0"
+              placeholderTextColor={colors.textMuted}
+              keyboardType="decimal-pad"
+              inputMode="decimal"
+              // Validate the amount instead of truncating pasted extra digits
+              // with maxLength, which could silently change a financial value.
+              accessibilityLabel={t("entry.amount.labelTemplate", {
+                code: getCurrentCurrencySymbol(),
+              })}
+              returnKeyType="next"
+              onSubmitEditing={() => noteRef.current?.focus()}
+              submitBehavior="submit"
+            />
+            {amountError ? (
+              <Text style={[styles.fieldError, textDir(isRTL)]} accessibilityLiveRegion="polite">
+                {amountError}
+              </Text>
+            ) : overLimit ? (
+              <Text style={[styles.creditHint, textDir(isRTL)]} accessibilityLiveRegion="polite">
+                {t("credit.warning")}
+              </Text>
+            ) : null}
+          </View>
+
+          <View style={styles.field}>
+            <Text style={[styles.label, textDir(isRTL)]}>{t("entry.note.label")}</Text>
+            <TextInput
+              ref={noteRef}
+              style={[styles.noteInput, textDir(isRTL)]}
+              value={note}
+              onChangeText={setNote}
+              placeholder={t("entry.note.placeholder")}
+              placeholderTextColor={colors.textMuted}
+              maxLength={ENTRY_NOTE_MAX_LENGTH}
+              accessibilityLabel={t("entry.note.label")}
+              multiline
+              keyboardType="default"
+              inputMode="text"
+              submitBehavior="newline"
+              scrollEnabled
+            />
+          </View>
+
+          {saveError ? (
+            <Text style={[styles.fieldError, textDir(isRTL)]} accessibilityLiveRegion="polite">
+              {saveError}
             </Text>
           ) : null}
-        </View>
-
-        <View style={styles.field}>
-          <Text style={[styles.label, textDir(isRTL)]}>{t("entry.note.label")}</Text>
-          <TextInput
-            ref={noteRef}
-            style={[styles.input, textDir(isRTL)]}
-            value={note}
-            onChangeText={setNote}
-            placeholder={t("entry.note.placeholder")}
-            placeholderTextColor={colors.textMuted}
-            maxLength={ENTRY_NOTE_MAX_LENGTH}
-            accessibilityLabel={t("entry.note.label")}
-            returnKeyType="done"
-            onSubmitEditing={onSave}
-          />
-        </View>
-
-        {saveError ? (
-          <Text style={[styles.fieldError, textDir(isRTL)]} accessibilityLiveRegion="polite">
-            {saveError}
-          </Text>
-        ) : null}
-        <View style={{ height: 24 }} />
-        <Button label={t("entry.save")} onPress={onSave} loading={busy} />
+          <View style={{ height: 24 }} />
+          <Button label={t("entry.save")} onPress={onSave} loading={busy} />
+        </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -456,7 +474,8 @@ export default function NewEntryScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bgDefault },
-  body: { flex: 1, padding: 16, paddingTop: 24 },
+  keyboardAvoider: { flex: 1 },
+  body: { flexGrow: 1, padding: 16, paddingTop: 24, paddingBottom: 24 },
   context: { marginBottom: 24 },
   contextLabel: {
     fontSize: 11,
@@ -485,13 +504,18 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   required: { color: colors.danger },
-  input: {
-    minHeight: TOUCH_MIN,
+  noteInput: {
+    minHeight: 104,
+    maxHeight: 200,
     borderWidth: 1,
     borderColor: colors.borderDefault,
     borderRadius: radius.sm,
     paddingHorizontal: 14,
+    paddingVertical: 12,
     fontSize: 15,
+    lineHeight: sansLineHeight(15, 22),
+    textAlignVertical: "top",
+    overflow: "hidden",
     fontFamily: fonts.sansRegular,
     color: colors.textEmphasis,
     backgroundColor: colors.bgDefault,

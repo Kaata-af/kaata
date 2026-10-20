@@ -217,6 +217,95 @@ function opened(props: any) {
   body(closed)?.props.onPress();
   return render(props);
 }
+// Editing a tally keeps its row mounted. Its old one-line measurement must
+// neither hide newly added lines nor leave a short replacement expandable.
+for (const [isRTL, short, multiline, shortAgain] of [
+  [false, "Goods", "Rice\n\nOil", "Paid"],
+  [true, "خرید", "برنج\n\nروغن", "پرداخت شد"],
+  [true, "پېرود", "وریجې\n\nغوړي", "ورکړل شول"],
+] as const) {
+  rtl = isRTL;
+  slots = [];
+  const props = (note: string, showFullNote = false) => ({
+    ...base,
+    entry: { ...base.entry, note },
+    showFullNote,
+  });
+  const noteText = (tree: any, note: string) => {
+    const found = nodes(tree).find(
+      (node) => node.type === "Text" && node.props.accessibilityLabel === note,
+    );
+    assert.ok(found, "the complete authored note remains available to screen readers");
+    return found;
+  };
+  const layout = (callback: (event: any) => void, count: number) =>
+    callback({ nativeEvent: { lines: Array.from({ length: count }, () => ({})) } });
+
+  let tree = render(props(short));
+  const oldShortLayout = noteText(tree, short).props.onTextLayout;
+  layout(oldShortLayout, 1);
+  tree = render(props(short));
+  assert.equal(noteText(tree, short).props.numberOfLines, 1);
+  assert.equal(words(tree).includes("common.more"), false);
+
+  tree = render(props(multiline));
+  const newNote = noteText(tree, multiline);
+  assert.equal(newNote.props.numberOfLines, undefined, "changed text is measured before clamping");
+  const oldMultilineLayout = newNote.props.onTextLayout;
+  layout(oldMultilineLayout, 3);
+  // The previous native view can finish layout after the edited text did.
+  layout(oldShortLayout, 1);
+  tree = render(props(multiline));
+  assert.equal(
+    noteText(tree, multiline).props.numberOfLines,
+    1,
+    "closed rows retain the one-line preview",
+  );
+  assert.ok(
+    words(tree).includes("common.more"),
+    "an old short-note callback cannot hide the new lines",
+  );
+  body(tree)?.props.onPress();
+  tree = render(props(multiline));
+  const expanded = noteText(tree, multiline);
+  assert.equal(expanded.props.numberOfLines, undefined);
+  assert.equal(
+    expanded.props.children[0],
+    multiline,
+    "expanded notes preserve authored blank lines",
+  );
+  assert.ok(words(tree).includes("common.less"));
+  body(tree)?.props.onPress();
+  tree = render(props(multiline, true));
+  assert.equal(
+    noteText(tree, multiline).props.numberOfLines,
+    undefined,
+    "search still shows the entire note",
+  );
+
+  body(tree)?.props.onPress();
+  tree = render(props(shortAgain));
+  assert.equal(noteText(tree, shortAgain).props.numberOfLines, undefined);
+  layout(noteText(tree, shortAgain).props.onTextLayout, 1);
+  layout(oldMultilineLayout, 3);
+  tree = render(props(shortAgain));
+  assert.equal(
+    body(tree)?.props.accessibilityState.expanded,
+    true,
+    "editing the note keeps the row's open state",
+  );
+  assert.equal(noteText(tree, shortAgain).props.numberOfLines, 1);
+  assert.equal(
+    words(tree).includes("common.more"),
+    false,
+    "short replacements lose the stale more cue",
+  );
+  assert.equal(
+    words(tree).includes("common.less"),
+    false,
+    "old multiline layout cannot make a short note expandable",
+  );
+}
 for (const isRTL of [false, true]) {
   rtl = isRTL;
   const start = rtl ? "right" : "left";
