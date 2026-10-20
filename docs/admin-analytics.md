@@ -87,6 +87,56 @@ store-distribution change accompanies this dashboard update.
 
 ## Users directory
 
+### Device estimate and installation history
+
+Overview and Users show a separate **Installations & devices** card. An
+installation remains the random `install_id` created in local app storage;
+clearing app data creates another installation and preserves the earlier
+record. Sign-in and restore still require their existing authenticated account
+and installation credentials. Matching a device identifier never merges
+installations, accounts, sessions, ledger history or exclusion rules.
+
+Updated native apps optionally report `device_id_hash` and `device_id_kind`
+(`android_id` or `ios_idfv`) on check-in. The client validates and normalizes the
+platform ID, then computes SHA-256 over
+`kaata-device:v1:<kind>:<normalized-id>`. The raw OS identifier is not sent or
+stored. Expo Go and unsupported platforms omit this field; missing identifiers
+and native errors do not prevent check-in, and the next check-in retries.
+Migration 066 stores the first valid pair per installation. Old clients cannot
+erase it; later conflicting values cannot rewrite that installation's identity.
+These are self-reported analytics signals, never proof of device or account
+ownership. The public privacy policy describes the additional collection.
+
+`device_estimate` on both Stats and Users reports the same operator/test-filtered
+population. It contains `total_installs`, `identified_installs`,
+`unidentified_installs`, `identified_devices` (distinct kind/hash pairs), and
+`estimated_devices` = identified devices + unidentified installations. Each
+unidentified installation counts separately; no match is inferred from an
+account, phone number, profile name or device model. Excluding a record does not
+exclude unrelated installations just because they report the same hash.
+
+The card shows coverage and a collecting state until any updated app supplies a
+valid ID. Existing historical installations cannot be retroactively matched
+unless that installation checks in with an identifier. Android profiles,
+signing keys and factory resets, and iPhone vendor-ID resets, can cause one
+physical device to have more than one estimate identity. The estimate can
+decrease as coverage improves; it is neither a count of people nor a revision to
+the installation-based activity charts, retention, cohorts or growth history.
+
+The new check-in fields are backward compatible, so backend/web can deploy
+before the next native release. A main-branch push does not update the app on
+existing phones. Hard account purge clears device hashes alongside self-profile
+fields; pending deletion retains them during the existing recovery grace period.
+
+Focused checks: `npm run selftest:device-estimate` from `apps/mobile`;
+`bun test src/pages/admin/device-estimate.test.tsx` from `apps/web`; and
+`go test ./internal/admin ./internal/checkin ./internal/auth` from `apps/backend`
+against a disposable `POSTGRES_TEST_URL`. They cover repeat-install grouping,
+missing IDs, late coverage, platform separation, test exclusions, immutable
+installation history and account purge.
+
+### Directory records
+
 The people directory combines one row per signed-in account with one row per
 signed-out install. These rows are not DAU or unique-person counts: an account
 can have several devices, and a person can have several signed-out installs.

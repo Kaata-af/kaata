@@ -73,6 +73,11 @@ type Request struct {
 	AppVersion   string `json:"app_version"`
 	Platform     string `json:"platform"`
 	DeviceLocale string `json:"device_locale"`
+	// Optional analytics-only digest of the platform identifier. Raw Android
+	// IDs / IDFVs never leave the phone. The pair is validated together and the
+	// first valid value is pinned per install; it never identifies a session.
+	DeviceIDHash *string `json:"device_id_hash,omitempty"`
+	DeviceIDKind *string `json:"device_id_kind,omitempty"`
 	// AppLocale is the resolved IN-APP language ('en'/'fa'/'ps') — what the user
 	// actually runs the app in, distinct from the OS DeviceLocale. Drives the
 	// language split on the admin dashboard. Empty from older clients.
@@ -212,6 +217,7 @@ func (s *Service) Handle(ctx context.Context, req Request, clientIP string) (Res
 	req.SelfName = clampRunesPtr(req.SelfName, 200)
 	req.SelfPhone = clampRunesPtr(req.SelfPhone, 200)
 	req.ShopName = clampRunesPtr(req.ShopName, 200)
+	deviceIDHash, deviceIDKind := validatedDeviceEstimate(req.Platform, req.DeviceIDHash, req.DeviceIDKind)
 
 	// Clamp installed_at against device clock skew. A timestamp more than
 	// a few minutes in the future is bogus — fall back to NOW() by passing
@@ -273,7 +279,8 @@ func (s *Service) Handle(ctx context.Context, req Request, clientIP string) (Res
 			migration_001_phones_invalid, migration_001_phones_conflict,
 			usage_entries_created, usage_customers_added, usage_shares_sent,
 			installed_at, has_onboarded, last_activity_at, app_locale,
-			self_name, self_phone, shop_name, account_id
+			self_name, self_phone, shop_name, account_id,
+			device_id_hash, device_id_kind
 		)
 		VALUES (
 			$1, $2, $3, $4, 1, $5, $6,
@@ -283,7 +290,7 @@ func (s *Service) Handle(ctx context.Context, req Request, clientIP string) (Res
 			CASE WHEN $12::boolean THEN NOW() ELSE NULL END,
 			NULLIF($13, ''),
 			NULLIF($14, ''), NULLIF($15, ''), NULLIF($16, ''),
-			NULLIF($17, '')::uuid
+			NULLIF($17, '')::uuid, $18, $19
 		)
 		ON CONFLICT (install_id) DO UPDATE
 		SET last_seen_at   = NOW(),
@@ -292,6 +299,11 @@ func (s *Service) Handle(ctx context.Context, req Request, clientIP string) (Res
 		    -- (sign-in / account-switch re-stamps it authoritatively), so a
 		    -- check-in never overwrites a good value — it only fills NULLs.
 		    account_id     = COALESCE(installs.account_id, NULLIF($17, '')::uuid),
+		    -- Keep install history separate even when two installs report the
+		    -- same phone. Older clients cannot clear a known device estimate,
+		    -- and later values cannot rewrite the first observed identity.
+		    device_id_hash = COALESCE(installs.device_id_hash, EXCLUDED.device_id_hash),
+		    device_id_kind = COALESCE(installs.device_id_kind, EXCLUDED.device_id_kind),
 		    app_version    = EXCLUDED.app_version,
 		    -- app_locale tracks the CURRENT in-app language: take the latest
 		    -- non-empty value (the user can switch language), keep the old one
@@ -336,6 +348,7 @@ func (s *Service) Handle(ctx context.Context, req Request, clientIP string) (Res
 		req.UsageEntriesCreated, req.UsageCustomersAdded, req.UsageSharesSent,
 		installedAt, req.HasOnboarded, hadUsage, req.AppLocale,
 		req.SelfName, req.SelfPhone, req.ShopName, actorAccountID,
+		deviceIDHash, deviceIDKind,
 	)
 	if err != nil {
 		return Response{}, err

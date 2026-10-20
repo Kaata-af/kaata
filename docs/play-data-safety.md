@@ -58,7 +58,7 @@ subscription to the backend. Expo/FCM/APNs receive the actor’s party label, ta
 currency and outcome, plus tab/entry identifiers, party and revision. They do not receive
 notes, balances or invitation credentials. Durable in-app history and per-account read
 state are stored server-side; the app caches its first page per account and locale.
-Device identifiers are optional for app functionality (notification delivery).
+Notification tokens are optional for app functionality (notification delivery).
 Review the current Play/Apple provider-processing declarations before release;
 the old assertion that no messaging provider exists no longer describes 2.0.
 
@@ -168,8 +168,15 @@ Google's definitions exclude purely on-device processing. (Verified:
 
 `install_id` (locally-generated UUID) + device Ed25519 public keys + client **IP**
 captured server-side in `crash_reports`/`web_visits` (+ the Expo push token when the
-user enables notifications, see the 2.0 note above). **Not** an advertising ID /
-hardware ID (none collected). The `install_id` is **pseudonymous, not anonymous**
+user enables notifications, see the 2.0 note above). Updated native apps also send
+an app-domain-separated SHA-256 hash of Android ID or the iPhone vendor ID when
+available, used only for a separate device estimate. The original OS identifier,
+MAC address, IMEI and advertising ID are not collected. This hash can connect
+repeat installations and can be associated with a signed-in account, so it is
+pseudonymous rather than anonymous. Hard account purge clears the stored hash;
+the existing recovery grace period retains it until then. Backend/web deployment
+alone does not add this collection to already installed mobile builds.
+The `install_id` is **pseudonymous, not anonymous**
 (matches the Privacy page's "not necessarily anonymous"): it keys the usage counters,
 the check-in self-profile and crash reports, and a claimed web visit's IP. Account
 deletion retires the `installs` row (self-profile cleared, crash reports deleted) but

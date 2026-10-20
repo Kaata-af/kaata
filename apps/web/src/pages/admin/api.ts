@@ -58,8 +58,20 @@ export type LatestInstall = {
   first_seen_at: string;
 };
 
+// Separate from installation/activity history. Installs without an identifier
+// each contribute one device until an updated app checks in.
+export type DeviceEstimate = {
+  estimated_devices: number;
+  identified_devices: number;
+  identified_installs: number;
+  unidentified_installs: number;
+  total_installs: number;
+};
+
 export type Stats = {
   installs_total: number;
+  // Optional while the dashboard and backend roll out independently.
+  device_estimate?: DeviceEstimate;
   onboarded: number;
   with_entries: number;
   with_shares: number;
@@ -183,6 +195,7 @@ export type UsersResult = {
   signed_in_count: number;
   anonymous_count: number;
   total_installs: number;
+  device_estimate?: DeviceEstimate;
   generated_at: string;
 };
 

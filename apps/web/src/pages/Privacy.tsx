@@ -8,7 +8,7 @@ import { SiteFooter, SiteHeader } from "../components/SiteChrome";
 // require a reachable, truthful privacy policy URL once any personal data is
 // collected — this page is that URL (kaata.af/privacy) and must stay accurate to
 // what the app actually does. When you change a data flow, change this page.
-const UPDATED = "11 October 2026";
+const UPDATED = "20 October 2026";
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
@@ -64,6 +64,14 @@ export function Privacy() {
               An <strong>installation ID</strong> — a random identifier generated on your phone the
               first time you open the app. It is not tied to your name unless you provide one
               (below).
+            </li>
+            <li>
+              In updated versions, a <strong>hashed device identifier</strong>, when available —
+              derived on your phone from Android ID or the iPhone vendor ID. We receive the hash,
+              not the original identifier, and use it to estimate how many devices installations
+              represent, including repeat installations. This identifier can change after a reset or
+              reinstall and may be associated with your account when you sign in. It is not an
+              advertising identifier and is not used to sign you in or restore your ledger.
             </li>
             <li>
               <strong>App version, platform, and usage counters</strong> (e.g. how many entries you

@@ -288,6 +288,7 @@ const api = load<Api>("../api", {
   "../constants/env": { BACKEND_URL_FALLBACK: BASE },
   "./auth": auth,
   "./db": { getAppMeta: async (key: string) => metaGet(key) },
+  "./device-estimate": { getDeviceEstimate: async () => null },
   "./install-id": installId,
 });
 

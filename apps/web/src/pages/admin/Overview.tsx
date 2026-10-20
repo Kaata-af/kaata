@@ -5,6 +5,7 @@ import { useGrowth, useStats, type Growth, type Stats } from "./api";
 import { C, Card, ErrorCard, PageHeader, SkeletonCard, fmtInt, fmtPct } from "./ui";
 import { WeeklyGrowthCard } from "./WeeklyGrowthCard";
 import { ActivityInsights, RecentInstalls, type ActivityView } from "./ActivityInsights";
+import { DeviceEstimateCard } from "./DeviceEstimateCard";
 
 export function Overview() {
   const [days, setDays] = useState(30);
@@ -35,6 +36,14 @@ export function Overview() {
       ) : (
         <KpiStrip stats={stats.data} />
       )}
+      {stats.data ? (
+        <div className="mt-4 min-w-0 sm:mt-5">
+          <DeviceEstimateCard
+            estimate={stats.data.device_estimate}
+            installations={stats.data.installs_total}
+          />
+        </div>
+      ) : null}
       <div className="mt-4 min-w-0 sm:mt-5">
         {growth.isPending ? (
           <SkeletonCard lines={5} />

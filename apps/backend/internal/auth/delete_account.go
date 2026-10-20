@@ -172,7 +172,8 @@ func (s *Service) hardDeleteAccount(ctx context.Context, accountID string, expir
 		return fmt.Errorf("delete installation diagnostics: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `UPDATE installs
-		SET account_id = NULL, self_name = NULL, self_phone = NULL, shop_name = NULL
+		SET account_id = NULL, self_name = NULL, self_phone = NULL, shop_name = NULL,
+		    device_id_hash = NULL, device_id_kind = NULL
 		WHERE install_id = ANY($1::uuid[])`, retiredIDs); err != nil {
 		return fmt.Errorf("clear installation identity: %w", err)
 	}

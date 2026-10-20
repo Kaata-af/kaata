@@ -87,10 +87,11 @@ type RecentInstall struct {
 
 type Stats struct {
 	// Funnel (installs): total → onboarded → made an entry → shared → active.
-	InstallsTotal int64 `json:"installs_total"`
-	Onboarded     int64 `json:"onboarded"`
-	WithEntries   int64 `json:"with_entries"`
-	WithShares    int64 `json:"with_shares"`
+	InstallsTotal  int64          `json:"installs_total"`
+	DeviceEstimate DeviceEstimate `json:"device_estimate"`
+	Onboarded      int64          `json:"onboarded"`
+	WithEntries    int64          `json:"with_entries"`
+	WithShares     int64          `json:"with_shares"`
 	// Active = used a feature within the window. active_7d is the HONEST
 	// headline; ever_active is the old "touched a feature ever" number (kept
 	// for continuity, no longer labelled "active"). distinct_accounts is the
@@ -200,7 +201,9 @@ func (s *Service) GetStats(ctx context.Context, bucket string, points int) (Stat
 		  COALESCE(SUM(usage_entries_created) FILTER (WHERE keep), 0),
 		  COALESCE(SUM(usage_customers_added) FILTER (WHERE keep), 0),
 		  COALESCE(SUM(usage_shares_sent) FILTER (WHERE keep), 0),
-		  COUNT(*) FILTER (WHERE NOT keep)
+		  COUNT(*) FILTER (WHERE NOT keep),
+		  COUNT(*) FILTER (WHERE keep AND device_id_hash IS NOT NULL),
+		  COUNT(DISTINCT (device_id_kind, device_id_hash)) FILTER (WHERE keep AND device_id_hash IS NOT NULL)
 		FROM (
 		  SELECT *, (install_id NOT IN (SELECT install_id FROM report_excluded_installs)) AS keep
 		  FROM installs
@@ -209,9 +212,11 @@ func (s *Service) GetStats(ctx context.Context, bucket string, points int) (Stat
 		&st.InstallsTotal, &st.Onboarded, &st.WithEntries, &st.WithShares,
 		&st.Active7d, &st.Active30d, &st.EverActive, &st.DistinctAccounts,
 		&st.EntriesSum, &st.CustomersSum, &st.SharesSum, &st.ExcludedInstalls,
+		&st.DeviceEstimate.IdentifiedInstalls, &st.DeviceEstimate.IdentifiedDevices,
 	); err != nil {
 		return st, err
 	}
+	st.DeviceEstimate.setTotalInstalls(st.InstallsTotal)
 
 	// Web funnel. `keep` = not an operator IP ($1) and not an obvious bot ($2,
 	// matched against lowercased UA). Visits/downloads are DEDUPED by

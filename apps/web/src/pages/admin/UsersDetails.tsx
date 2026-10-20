@@ -22,10 +22,10 @@ export function AccountDetail(props: { u: UserRow }) {
         <DetailItem label="Last sign-in" value={fmtDateTime(u.last_login_at)} />
         <DetailItem label="Last reported activity" value={fmtDateTime(u.last_activity_at)} />
         <DetailItem
-          label="Latest device"
+          label="Latest installation"
           value={`${u.platform || "Unknown"}${u.app_version ? ` · v${u.app_version}` : ""}`}
         />
-        <DetailItem label="Linked devices" value={fmtInt(u.install_count)} />
+        <DetailItem label="Linked installations" value={fmtInt(u.install_count)} />
         <DetailItem label="Onboarding" value={u.has_onboarded ? "Completed" : "Not completed"} />
       </dl>
       <div className="mt-5">

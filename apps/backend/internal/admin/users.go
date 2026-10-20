@@ -137,11 +137,12 @@ type UsersResult struct {
 	Users []UserRow `json:"users"`
 	// AnonymousInstalls = devices with no unambiguous account binding. Telemetry plus the
 	// shopkeeper's own self profile reported on check-in (migration 028).
-	AnonymousInstalls []InstallRow `json:"anonymous_installs"`
-	SignedInCount     int          `json:"signed_in_count"`
-	AnonymousCount    int          `json:"anonymous_count"`
-	TotalInstalls     int          `json:"total_installs"`
-	GeneratedAt       string       `json:"generated_at"`
+	AnonymousInstalls []InstallRow   `json:"anonymous_installs"`
+	SignedInCount     int            `json:"signed_in_count"`
+	AnonymousCount    int            `json:"anonymous_count"`
+	TotalInstalls     int            `json:"total_installs"`
+	DeviceEstimate    DeviceEstimate `json:"device_estimate"`
+	GeneratedAt       string         `json:"generated_at"`
 }
 
 // snapDoc is the minimal slice of vault_snapshots.snapshot we parse to recover
@@ -382,6 +383,10 @@ func (s *Service) GetUsers(ctx context.Context) (UsersResult, error) {
 		signedInInstalls += out.Users[i].InstallCount
 	}
 	out.TotalInstalls = signedInInstalls + out.AnonymousCount
+	out.DeviceEstimate, err = s.getDeviceEstimate(ctx, tx)
+	if err != nil {
+		return out, err
+	}
 	out.GeneratedAt = time.Now().UTC().Format(time.RFC3339)
 	if err := tx.Commit(ctx); err != nil {
 		return out, err

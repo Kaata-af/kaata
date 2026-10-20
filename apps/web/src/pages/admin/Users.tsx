@@ -6,6 +6,7 @@ import { postExclusion, useAdminToken, useUsers, type OutreachExclusionBody } fr
 import { fmtDateTimeParts, reportingDay } from "./dates";
 import { ErrorCard, PageHeader, SkeletonCard, fmtDateTime, fmtInt, lastSeenInfo } from "./ui";
 import { AccountDetail, InstallDetail } from "./UsersDetails";
+import { DeviceEstimateCard } from "./DeviceEstimateCard";
 import {
   DEFAULT_FILTERS,
   PRESETS,
@@ -198,7 +199,7 @@ export function Users() {
       active: counted.filter((row) => matchesActivity(row, "7d", now) && isIdentified(row)).length,
       onboarding: counted.filter((row) => !row.onboarded).length,
       accounts: counted.filter((row) => row.kind === "account").length,
-      devices: reportedDevices(allRows),
+      installations: reportedDevices(allRows),
     };
   }, [allRows, now]);
 
@@ -291,7 +292,7 @@ export function Users() {
     <div className="min-w-0 w-full max-w-full">
       <PageHeader
         title="Users"
-        description="Who is using Kaata, on which devices, and what they have reported."
+        description="Who is using Kaata, their installations, and what they have reported."
       />
       {users.isPending ? (
         <SkeletonCard lines={10} />
@@ -310,7 +311,7 @@ export function Users() {
             <SummaryCard
               label="Signed-in accounts"
               value={summary.accounts}
-              sub={`${fmtInt(summary.devices)} devices in total`}
+              sub={`${fmtInt(summary.installations)} installations in total`}
               onClick={() => {
                 reset();
                 updateFilters({ signIn: "signed-in" });
@@ -332,6 +333,12 @@ export function Users() {
               icon="onboarding"
             />
           </div>
+          <div className="mb-5 min-w-0">
+            <DeviceEstimateCard
+              estimate={users.data.device_estimate}
+              installations={summary.installations}
+            />
+          </div>
           <section
             className="min-w-0 w-full max-w-full rounded-xl border border-brand-border bg-white shadow-sm"
             aria-label="User directory"
@@ -341,7 +348,7 @@ export function Users() {
                 <div className="min-w-0 flex-1">
                   <h2 className="text-base font-semibold text-brand-ink">People directory</h2>
                   <p className="mt-1 text-xs leading-5 text-brand-muted">
-                    One row per account or signed-out device. Expand a person for details.
+                    One row per account or signed-out installation. Expand a person for details.
                   </p>
                 </div>
                 <span className="rounded-full bg-brand-faint px-3 py-1 text-xs font-medium tabular-nums text-brand-muted">
@@ -588,7 +595,7 @@ export function Users() {
                 </label>
                 <label
                   className="flex min-h-11 min-w-0 cursor-pointer items-center gap-2 text-xs text-brand-sub"
-                  title="Accounts and devices left out of the reports as operator or test data"
+                  title="Accounts and installations left out of the reports as operator or test data"
                 >
                   <input
                     type="checkbox"
@@ -747,7 +754,7 @@ export function Users() {
             ) : null}
           </section>
           <p className="mt-4 text-xs leading-5 text-brand-muted">
-            Accounts can include several devices. Account entries come from synced kaatas;
+            Accounts can include several installations. Account entries come from synced kaatas;
             signed-out entries come from reported usage. “No entries reported” does not prove an
             empty local ledger. Last seen is a device check-in, not a ledger edit.
           </p>
@@ -1224,8 +1231,8 @@ function UserDetails({
           </h3>
           <p className="mt-1 text-xs leading-5 text-brand-muted">
             {row.kind === "account"
-              ? `Signed-in account · ${fmtInt(row.account?.install_count ?? 0)} linked devices`
-              : "Signed-out device profile"}
+              ? `Signed-in account · ${fmtInt(row.account?.install_count ?? 0)} linked installations`
+              : "Signed-out installation profile"}
           </p>
         </div>
         <div className="flex min-w-0 max-w-full flex-wrap gap-2">
@@ -1267,7 +1274,7 @@ function ReportStatus(props: { row: UserListRow; busy: boolean; onExclusion: Exc
   const kind = row.kind === "account" ? "account" : "install";
   const id = row.account?.account_id ?? row.install?.install_id ?? "";
   if (!id) return null;
-  const subject = row.kind === "account" ? "account" : "device";
+  const subject = row.kind === "account" ? "account" : "installation";
   let body: ReactNode;
   if (row.excluded && row.excludedBy === kind) {
     body = (
@@ -1300,7 +1307,7 @@ function ReportStatus(props: { row: UserListRow; busy: boolean; onExclusion: Exc
   } else if (row.excluded) {
     body = (
       <p className="text-xs leading-5 text-brand-sub">
-        <span className="font-medium text-brand-ink">Excluded from reports</span>: this device{" "}
+        <span className="font-medium text-brand-ink">Excluded from reports</span>: this installation{" "}
         {row.excludedBy === "operator"
           ? "is or was signed in to an operator account (OPERATOR_ACCOUNT_IDS), deleted accounts included."
           : "is or was signed in to an account excluded as test data; that account's Undo counts it again."}
@@ -1312,13 +1319,13 @@ function ReportStatus(props: { row: UserListRow; busy: boolean; onExclusion: Exc
         <p className="text-xs leading-5 text-brand-sub">
           Counted in reports.{" "}
           {row.kind === "account"
-            ? "Excluding leaves out every device this account has used — in the Overview, weekly growth and cohorts, past weeks included — and drops its number and the books it owns from Outreach."
-            : "Excluding leaves this device out of the Overview, weekly growth and cohorts, past weeks included."}
+            ? "Excluding leaves out every installation this account has used — in the Overview, weekly growth and cohorts, past weeks included — and drops its number and the books it owns from Outreach."
+            : "Excluding leaves this installation out of the Overview, weekly growth and cohorts, past weeks included."}
         </p>
         {row.kind === "account" && row.excludedDevices > 0 ? (
           <p className="text-xs leading-5 text-brand-muted">
-            {fmtInt(row.excludedDevices)} of {fmtInt(row.account?.install_count ?? 0)} devices are
-            already left out on their own.
+            {fmtInt(row.excludedDevices)} of {fmtInt(row.account?.install_count ?? 0)} installations
+            are already left out on their own.
           </p>
         ) : null}
         <ExcludeForm

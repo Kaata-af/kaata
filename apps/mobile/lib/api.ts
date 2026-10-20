@@ -1,6 +1,7 @@
 import { BACKEND_URL_FALLBACK } from "../constants/env";
 import { getSessionJWT, InstallRetiredError } from "./auth";
 import { getAppMeta } from "./db";
+import { getDeviceEstimate } from "./device-estimate";
 import { clearInstallRetired, markInstallRetired } from "./install-id";
 import type { CheckInResponse } from "./types";
 
@@ -61,13 +62,20 @@ export async function checkIn(payload: {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   const jwt = await getSessionJWT().catch(() => null);
   if (jwt) headers.Authorization = `Bearer ${jwt}`;
+  const deviceEstimate = await getDeviceEstimate();
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   try {
     const res = await fetch(`${baseUrl}/v1/check-in`, {
       method: "POST",
       headers,
-      body: JSON.stringify(payload),
+      body: JSON.stringify({
+        ...payload,
+        // Internal, best-effort metadata. Undefined also strips any fields a
+        // JavaScript caller might have supplied; only this phone supplies them.
+        device_id_hash: deviceEstimate?.device_id_hash,
+        device_id_kind: deviceEstimate?.device_id_kind,
+      }),
       signal: controller.signal,
     });
     if (res.status === 410) {

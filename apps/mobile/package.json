@@ -21,6 +21,7 @@
     "selftest:projection-conflicts": "tsx lib/__dev__/projection-conflicts-selftest.ts",
     "selftest:contacts-access": "tsx lib/__dev__/contacts-access-selftest.ts",
     "selftest:device-key": "tsx lib/__dev__/device-key-selftest.ts",
+    "selftest:device-estimate": "tsx lib/__dev__/device-estimate-selftest.ts",
     "selftest:attribution": "tsx lib/__dev__/attribution-selftest.ts",
     "selftest:member-profiles": "tsx lib/__dev__/member-profiles-selftest.ts",
     "selftest:self-profile": "tsx lib/__dev__/self-profile-selftest.ts",
