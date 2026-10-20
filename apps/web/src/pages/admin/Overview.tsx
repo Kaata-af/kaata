@@ -66,7 +66,7 @@ export function Overview() {
             onRetry={() => void growth.refetch()}
           />
         ) : (
-          <WeeklyGrowthCard growth={growth.data} />
+          <WeeklyGrowthCard growth={growth.data} stats={stats.isError ? undefined : stats.data} />
         )}
       </div>
       <div className="mt-4 min-w-0 sm:mt-5">

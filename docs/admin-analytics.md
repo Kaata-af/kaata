@@ -61,6 +61,21 @@ rate shows the remaining absolute requirement rather than Infinity.
 
 The old 7% benchmark is removed from the dashboard. **Weekly activity** still
 shows actual weekly active-install counts, rates and completed-week history.
+The in-progress week also shows an **activity pace target**, with a progress
+bar, deadline and remaining-device count. It applies the exact required
+total-user weekly factor to the previous completed week's active-install count,
+rounding the result up to a whole device. For example, a 48.30% required pace
+and 507 active last week produces a target of 752; 595 active so far means
+157 more needed. The exact underlying rate is used, not the rounded label.
+This is a live activity benchmark that recalculates with the total-user
+snapshot; it does not establish whether the cumulative-user goal will be met.
+It appears only with a valid open goal, nonzero previous active count, valid
+current count, comparable tracking/calendar and a total-user snapshot inside
+that reporting week. Zero current activity is valid. No legacy 7% fallback is
+used. If the last week straddles year-end, the deadline is shortened to the end
+of December 31 and the compound factor is prorated over that reporting period.
+Progress caps at 100% visually while retaining the actual active count and
+"reached so far" wording; unfinished weeks never receive a final verdict.
 Those activity rates are not total-user acquisition, and there is no fabricated
 "on track" verdict or acquisition history. Legacy backend growth target fields
 and frozen-week rules remain compatible; they do not drive the year-end goal.

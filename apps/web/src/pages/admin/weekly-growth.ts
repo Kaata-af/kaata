@@ -1,4 +1,58 @@
 import type { Growth, GrowthWeek } from "./api";
+import { USER_GOAL_DEADLINE, type UserGoal } from "./user-goal.ts";
+
+// This is an activity benchmark using the total-user goal's required pace.
+// It is deliberately separate from both acquisition progress and the legacy
+// frozen 7% verdicts. Compare a weekly install count with an install target.
+export function weeklyActivityPace(row: GrowthWeek, goal: UserGoal) {
+  const baseline = row.previous_active;
+  const active = row.active;
+  if (
+    goal.status !== "open" ||
+    goal.weeklyRate === null ||
+    !Number.isFinite(goal.weeklyRate) ||
+    goal.weeklyRate < 0 ||
+    row.complete !== false ||
+    row.tracking_complete !== true ||
+    row.previous_tracking_complete !== true ||
+    row.calendar_comparable !== true ||
+    typeof baseline !== "number" ||
+    !Number.isSafeInteger(baseline) ||
+    baseline <= 0 ||
+    typeof active !== "number" ||
+    !Number.isSafeInteger(active) ||
+    active < 0 ||
+    !/^\d{4}-\d{2}-\d{2}$/.test(row.week)
+  )
+    return null;
+  const calendarDay = Date.parse(`${row.week}T00:00:00Z`);
+  if (
+    !Number.isFinite(calendarDay) ||
+    new Date(calendarDay).toISOString().slice(0, 10) !== row.week
+  )
+    return null;
+  const dayMs = 86_400_000;
+  const weekMs = 7 * dayMs;
+  const startsAt = calendarDay - 4.5 * 3_600_000; // Kabul midnight
+  const weekEndsAt = startsAt + weekMs;
+  const endsAt = Math.min(weekEndsAt, Date.parse(USER_GOAL_DEADLINE));
+  const asOf = Date.parse(goal.asOf);
+  // Do not apply an old week's rate to a new reporting window during refresh.
+  if (!Number.isFinite(asOf) || asOf < startsAt || asOf >= endsAt) return null;
+  const target = Math.ceil(
+    baseline * Math.exp((Math.log1p(goal.weeklyRate / 100) * (endsAt - startsAt)) / weekMs),
+  );
+  if (!Number.isSafeInteger(target) || target <= 0) return null;
+  return {
+    active,
+    target,
+    remaining: Math.max(0, target - active),
+    progress: Math.min(100, (active / target) * 100),
+    weeklyRate: goal.weeklyRate,
+    endsAt,
+    shortened: endsAt < weekEndsAt,
+  };
+}
 
 // Follow backend metadata during rollout/rollback. A new frontend must never
 // label the previous backend's Monday aggregates as Saturday reporting weeks.

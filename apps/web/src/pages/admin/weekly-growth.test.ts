@@ -9,7 +9,9 @@ import {
   weeklyRateLabel,
   weeklyCalendarLabel,
   reportingWeekLabels,
+  weeklyActivityPace,
 } from "./weekly-growth.ts";
+import { userGoal } from "./user-goal.ts";
 
 test("week labels follow the backend calendar through rollout and rollback", () => {
   assert.deepEqual(reportingWeekLabels(6), {
@@ -143,4 +145,64 @@ test("UTC history and the mixed-calendar cutover are labelled without claiming c
   });
   assert.equal(comparableWeek(transition), false);
   assert.match(comparisonUnavailable(transition, "2026-01-01T00:00:00Z"), /calendar changed/);
+});
+
+test("current activity progress uses the exact year-end pace in matching device units", () => {
+  const current = week({ week: "2026-10-17", complete: false, active: 595, previous_active: 507 });
+  const goal = userGoal(1690, "2026-10-20T07:49:00Z");
+  const pace = weeklyActivityPace(current, goal);
+  assert.ok(pace);
+  assert.equal(pace.target, 752);
+  assert.equal(pace.remaining, 157);
+  assert.equal(pace.active, 595);
+  assert.equal(pace.progress, (595 / 752) * 100);
+  assert.equal(new Date(pace.endsAt).toISOString(), "2026-10-23T19:30:00.000Z");
+  assert.equal(pace.shortened, false);
+  if (goal.status !== "open") throw new Error("Expected an open goal");
+  assert.equal(weeklyActivityPace(current, { ...goal, weeklyRate: 7.001 })?.target, 543);
+  const precise = weeklyActivityPace(
+    { ...current, previous_active: 10000 },
+    { ...goal, weeklyRate: 7.001 },
+  );
+  assert.equal(precise?.target, 10701); // rounding the rate to 7% would understate this
+});
+
+test("final-week activity deadline and compound horizon stop at Kabul year-end", () => {
+  const current = week({ week: "2026-12-26", complete: false, active: 140, previous_active: 100 });
+  const goal = userGoal(50000, "2026-12-26T00:00:00+04:30");
+  const pace = weeklyActivityPace(current, goal);
+  assert.ok(pace);
+  assert.equal(pace.shortened, true);
+  assert.equal(pace.target, 200);
+  assert.equal(pace.remaining, 60);
+  assert.equal(new Date(pace.endsAt).toISOString(), "2026-12-31T19:30:00.000Z");
+});
+
+test("weekly activity targets require matching snapshots and valid comparable counts", () => {
+  const current = week({ week: "2026-10-17", complete: false, active: 0, previous_active: 507 });
+  const goal = userGoal(1690, "2026-10-20T07:49:00Z");
+  assert.equal(weeklyActivityPace(current, goal)?.progress, 0);
+  assert.equal(weeklyActivityPace({ ...current, active: 800 }, goal)?.progress, 100);
+  for (const change of [
+    { complete: true },
+    { tracking_complete: false },
+    { previous_tracking_complete: false },
+    { calendar_comparable: false },
+    { previous_active: 0 },
+    { previous_active: Number.NaN },
+    { active: -1 },
+    { active: 1.5 },
+    { active: Number.POSITIVE_INFINITY },
+    { week: "2026-02-30" },
+    { week: "2026-10-24" },
+    { week: "2026-10-10" },
+  ])
+    assert.equal(weeklyActivityPace({ ...current, ...change }, goal), null);
+  if (goal.status !== "open") throw new Error("Expected an open goal");
+  for (const rate of [Number.NaN, Number.POSITIVE_INFINITY, -1, Number.MAX_SAFE_INTEGER]) {
+    assert.equal(weeklyActivityPace(current, { ...goal, weeklyRate: rate }), null);
+  }
+  assert.equal(weeklyActivityPace(current, userGoal(0, goal.asOf)), null);
+  assert.equal(weeklyActivityPace(current, userGoal(100000, goal.asOf)), null);
+  assert.equal(weeklyActivityPace(current, userGoal(1690, "2027-01-01T00:00:00+04:30")), null);
 });

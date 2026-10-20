@@ -1,6 +1,8 @@
 import { format, parseISO } from "date-fns";
-import type { Growth, GrowthWeek } from "./api";
+import type { Growth, GrowthWeek, Stats } from "./api";
 import { Card, fmtDateTime, fmtInt } from "./ui";
+import { REPORTING_TIME_ZONE } from "./dates";
+import { goalProgressLabel, requiredRateLabel, userGoal, type UserGoal } from "./user-goal";
 import {
   comparableWeek,
   comparisonUnavailable,
@@ -9,6 +11,7 @@ import {
   weeklyRateLabel,
   weeklyCalendarLabel,
   reportingWeekLabels,
+  weeklyActivityPace,
 } from "./weekly-growth";
 
 function weekLabel(week: string): string {
@@ -19,8 +22,9 @@ function weekLabel(week: string): string {
   }
 }
 
-export function WeeklyGrowthCard({ growth }: { growth: Growth | null }) {
+export function WeeklyGrowthCard({ growth, stats }: { growth: Growth | null; stats?: Stats }) {
   const reporting = reportingWeekLabels(growth?.week_starts_on);
+  const goal = userGoal(stats?.users_total, stats?.generated_at ?? "");
   const { available, completed, latest, current } = weeklyGrowthView(growth);
   const comparable = latest !== null && comparableWeek(latest);
   return (
@@ -67,7 +71,7 @@ export function WeeklyGrowthCard({ growth }: { growth: Growth | null }) {
                 </>
               ) : null}
             </div>
-            {current ? <CurrentWeek row={current} weekEndsOn={reporting.end} /> : null}
+            {current ? <CurrentWeek row={current} weekEndsOn={reporting.end} goal={goal} /> : null}
           </div>
           {completed.length > 0 ? (
             <details className="mt-5 border-t border-brand-border pt-4">
@@ -193,8 +197,25 @@ export function WeeklyGrowthCard({ growth }: { growth: Growth | null }) {
   );
 }
 
-function CurrentWeek({ row, weekEndsOn }: { row: GrowthWeek; weekEndsOn: string }) {
+function CurrentWeek({
+  row,
+  weekEndsOn,
+  goal,
+}: {
+  row: GrowthWeek;
+  weekEndsOn: string;
+  goal: UserGoal;
+}) {
   const active = row.active ?? 0;
+  const pace = weeklyActivityPace(row, goal);
+  const deadlineLabel = pace
+    ? new Intl.DateTimeFormat("en-US", {
+        timeZone: REPORTING_TIME_ZONE,
+        weekday: "long",
+        month: "short",
+        day: "numeric",
+      }).format(pace.endsAt - 1)
+    : "";
   const canCompareWhenComplete =
     row.tracking_complete === true &&
     row.previous_tracking_complete === true &&
@@ -209,6 +230,49 @@ function CurrentWeek({ row, weekEndsOn }: { row: GrowthWeek; weekEndsOn: string 
       <p className="mt-3 text-2xl font-semibold tabular-nums text-brand-ink">
         {fmtInt(active)} <span className="text-xs font-normal">active devices so far</span>
       </p>
+      {pace ? (
+        <div className="mt-4">
+          <p className="text-xs leading-5 text-brand-sub">
+            Activity pace target by {deadlineLabel}:{" "}
+            <strong className="font-semibold tabular-nums text-brand-ink">
+              {fmtInt(pace.target)} devices
+            </strong>
+          </p>
+          <div
+            role="progressbar"
+            aria-label="Current week active devices toward the activity pace target"
+            aria-valuemin={0}
+            aria-valuemax={pace.target}
+            aria-valuenow={Math.min(pace.active, pace.target)}
+            aria-valuetext={`${fmtInt(pace.active)} active devices so far; activity target ${fmtInt(pace.target)} by ${deadlineLabel}. Week still in progress.`}
+            className="mt-3 h-2 overflow-hidden rounded-full bg-white"
+          >
+            <div
+              className="h-full rounded-full bg-brand-primary"
+              style={{ width: `${pace.progress}%` }}
+            />
+          </div>
+          <p className="mt-2 text-xs leading-5 tabular-nums text-brand-ink">
+            {pace.remaining > 0
+              ? `${fmtInt(pace.remaining)} more needed`
+              : "Activity pace count reached so far"}
+            {" · "}
+            {goalProgressLabel(pace.progress)} of target
+          </p>
+          <p className="mt-2 text-xs leading-5 text-brand-muted">
+            Uses the {requiredRateLabel(pace.weeklyRate)} weekly pace for the 100k goal as an
+            activity benchmark. Recalculates with the user count; the year-end goal tracks total
+            users separately.
+            {pace.shortened ? " This final week's target ends at the year-end deadline." : ""}
+          </p>
+        </div>
+      ) : (
+        <p className="mt-3 text-xs leading-5 text-brand-muted">
+          {goal.status === "closed" || goal.status === "reached"
+            ? "The year-end goal is closed or reached, so no new activity pace target is set."
+            : "The activity target needs a current total-user pace and two comparable, fully tracked weeks."}
+        </p>
+      )}
       <p className="mt-2 text-xs leading-relaxed text-brand-sub">
         {fmtInt(row.previous_active ?? 0)} active last week.{" "}
         {canCompareWhenComplete
