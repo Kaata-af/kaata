@@ -21,3 +21,8 @@ fail at runtime. Do not undo either:
   `lib/contacts-sync.ts`.
 
 Toolchain floors: **Node >= 22.13**, iOS >= 16.4, Xcode >= 26.4, Android 7+.
+
+# Git workflow
+
+Commit and push directly to `main` by default. Use another branch only when
+the user explicitly asks for one. Keep unrelated changes out of the commit.
