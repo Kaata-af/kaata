@@ -18,12 +18,68 @@ the correct opaque Kaata mark and its compiled asset catalog is present.
 The October 16 campaign follows Matee’s Facebook reference: white background,
 black original K logo, blue emphasis (`#1683C5`), and a thin yellow–blue–red
 footer. All headlines, sample customer names, notes and UI labels are Persian
-(Dari wording). Amounts and counts retain English digits. The product remains
-neutral black/white; no Google logo, store badge or download button appears.
+(Dari wording). Amounts and counts retain English digits. Product chrome stays
+neutral black/white; the released customer actions use soft apricot and sage.
+No Google logo, store badge or download button appears.
 
 The images are **manually composed app previews with fictional data**, not
 native device captures. They follow the current screens and installed app
 fonts. Check against the final iOS/Android release when preparing future updates.
+
+### Banner and customer image refresh — October 20, 2026
+
+The Play feature graphic keeps its existing Persian copy, white/blue campaign
+and footer. Its complete phone, logo and copy now sit inside **132px horizontal
+insets**, replacing the former 56/58px margins. A 522×294 `object-fit: cover`
+preview reproduces the user's clipped Play card with the old image and retains
+**37.56px** of visible side space with the corrected image. Only the decorative
+footer reaches the edges. The source stays at Play's required **1024×500**;
+the safe area is checked in the generated layout as well as visually.
+
+All five `02-person-detail.png` variants now match the tested/released 2.2.3
+buttons: physical-left **I received** uses `#E4EEE6`, ink `#3E6149` and coin
+`#CDDFD1`; physical-right **I gave** uses `#F6E4D5`, ink `#7D4923` and coin
+`#ECD0B7`. Existing arrows, Persian labels, equal touch-target heights and
+fictional customer data remain intact. iOS previews retain their native font
+line-height floor. The surrounding campaign and other screenshot panels are
+unchanged.
+
+The six changed PNGs passed the existing renderer's font, asset, text-clipping,
+dimensions and opacity checks. All five customer panels were independently
+reviewed in full and checked for the six exact palette colors. The side-by-side
+crop proof, approved file hashes and publication receipts are retained under
+ignored `.generated/store-refresh-2026-10-20/`.
+
+**Google Play:** the image-only edit `06799624388228727958` was accepted at
+**02:42 UTC**. Independent readback verified all four intended image groups,
+hashes and order, with **5/5** preservation checks passing. Listing text, app
+details, icon, other image types/locales and every release track stayed unchanged;
+production and internal **2.2.3/code 67** remain published. Screenshot slot 1
+kept its original ID. Slots 2–6 were uploaded in order because the image API
+appends uploads; only slot 2 has new pixels, and slots 3–6 remain byte-identical.
+The guarded updater passed **29/29** mocked checks before its single invocation.
+New feature image ID: `18002848814488897640`; customer image IDs:
+`8506320547017544328` (phone), `9286799201023342740` (7-inch), and
+`16666537614471662517` (10-inch). Receipts: `play-image-refresh-receipt.json`
+and `artwork-verification.json` in the ignored refresh folder.
+
+Public availability is **not yet confirmed**. At **02:45 UTC**, the public
+en-US/US listing's three customer images still matched the old images exactly
+at the pixel level. Google's publishing API and public CDN use different URL
+identifiers, so direct pathname comparison is inconclusive; the pixel check is
+recorded in `public-pixel-verification.json`. A read-only Console browser check
+was rejected by automatic approval for a domain mismatch (`google.play`
+instead of the requested `play.google.com`). It was not retried or bypassed;
+the Console's precise review/publication status remains unverified. The
+successful API commit and independent preservation readback are unaffected.
+
+**App Store:** Matee explicitly chose to preserve 2.2.3/build 40's current
+Waiting for Review submission. No Apple assets or review state were changed.
+The corrected iPhone and iPad customer PNGs are ready for the **next release**.
+Apple disallows screenshot edits while waiting for review, and withdrawing
+would restart review on resubmission. See
+[Apple's submission status rules](https://developer.apple.com/help/app-store-connect/reference/app-information/app-and-submission-statuses/)
+and [withdrawal consequences](https://developer.apple.com/help/app-store-connect/manage-submissions-to-app-review/remove-a-submission-from-review/).
 
 ### Store upload status — October 16, 2026
 

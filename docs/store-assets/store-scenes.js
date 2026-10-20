@@ -1,8 +1,8 @@
 // Persian store artwork scenes, maintained against the mobile source.
 // Names, balances and notes below are fictional demonstration data. No customer
 // records, telephone numbers, live invite links or backend calls are used.
-// Product screens retain the app's neutral colors; the enclosing marketing
-// panels own the blue accents. All displayed numerals intentionally stay Latin.
+// Product chrome stays neutral; entry actions use the app's apricot/sage tints.
+// Marketing panels own the blue accents. Displayed numerals stay Latin.
 
 const d = (n) => `calc(var(--k)*${n}px)`;
 const di = (n) => `calc(var(--k)*(${n}px + var(--ib)))`;
@@ -42,6 +42,10 @@ function createScenes(S) {
   }
 
   function screenPerson(opts = {}) {
+    const action = (kind, label, arrow) => {
+      const token = kind === "received" ? "entryActionReceived" : "entryActionGave";
+      return `<div class="abtn" data-entry-action="${kind}" style="background:${app[token]};color:${app[`${token}Text`]}"><span class="coin" style="background:${app[`${token}Coin`]}">${ion(arrow, 16, app[`${token}Text`])}</span><span>${label}</span></div>`;
+    };
     const entry = (gave, amount, note, when) =>
       `<div class="erow"><div class="etile" style="background:${gave ? app.payBg : app.collectBg}">${ion(gave ? "arrow-up-outline" : "arrow-down-outline", 16, gave ? app.payStrong : app.collectStrong)}</div><div class="emid"><div class="etop"><div class="eamt">${money(amount)}</div><div class="emeta"><span class="ewhen" dir="rtl">${when}</span></div></div>${note ? `<div class="enote" dir="rtl">${note}</div>` : ""}</div></div>`;
     const flow = (label, amount) =>
@@ -52,7 +56,7 @@ function createScenes(S) {
         <div class="pd-overview"><div class="pd-balance"><div class="pd-chip" dir="rtl">از شما قرضدار</div><div class="pd-bal">${money("12,500", "collect")}</div></div><div class="pd-flows">${flow("دادم (2)", "15,000")}${flow("گرفتم (1)", "2,500")}</div></div>
       </div>
       <div class="ecard">${entry(true, "5,000", "روغن و برنج", "2 ساعت پیش")}${divider}${entry(false, "2,500", "", "دیروز")}${divider}${entry(true, "10,000", "آرد", "4 روز پیش")}</div>
-      <div class="pdock"><div class="pdock-row"><div class="abtn"><span class="coin">${ion("arrow-down-outline", 16, app.bg)}</span><span>گرفتم</span></div><div class="abtn"><span class="coin">${ion("arrow-up-outline", 16, app.bg)}</span><span>دادم</span></div></div>
+      <div class="pdock"><div class="pdock-row">${action("received", "گرفتم", "arrow-down-outline")}${action("gave", "دادم", "arrow-up-outline")}</div>
         <div class="psearch"><div class="psearch-box">${ion("search-outline", 16, app.textSubtle)}<span dir="rtl">جستجو: یادداشت یا مقدار</span></div><div class="pdate">${ion("calendar-outline", 22, app.textSubtle)}</div></div>
       </div>
     </div>`;
@@ -153,6 +157,9 @@ const SCENE_CSS = `
 .store-ui .flow-lbl{font-size:${d(12)};line-height:1.7;white-space:nowrap;}
 .store-ui .flow-amt{font-size:${d(15)};line-height:1.4;}
 .store-ui .etile{margin-right:0;margin-left:${d(12)};}
+.store-ui .pdock-row{direction:ltr;}
+.store-ui .pdock .abtn{line-height:${d(20)};box-shadow:0 ${d(3)} ${d(8)} rgba(0,0,0,.10);}
+.store-device.ios .store-ui .pdock .abtn{line-height:${d(24)};}
 .store-ui .enote{text-align:right;}
 .store-ui .ectx,.store-ui .flbl{text-align:right;}
 .store-ui .notebox{justify-content:flex-start;}

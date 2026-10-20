@@ -12,6 +12,12 @@ const brand = require("../../apps/_shared/brand-palette.json");
 // Mirror of apps/mobile/lib/colors.ts.
 const app = {
   action: "#000000",
+  entryActionGave: "#F6E4D5",
+  entryActionGaveText: "#7D4923",
+  entryActionGaveCoin: "#ECD0B7",
+  entryActionReceived: "#E4EEE6",
+  entryActionReceivedText: "#3E6149",
+  entryActionReceivedCoin: "#CDDFD1",
   bg: "#FFFFFF",
   bgMuted: "#F7F7F7",
   bgSubtle: "#EFEFEF",

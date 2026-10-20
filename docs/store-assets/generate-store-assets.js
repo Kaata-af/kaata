@@ -59,18 +59,21 @@ html,body{width:${format.width}px;height:${format.height}px;overflow:hidden;back
 }
 
 function featurePage() {
+  // Play also shows this 1024x500 asset in narrower cards (including 16:9).
+  // Keep the complete foreground inside 132px side insets; only the footer
+  // reaches the edge, so the phone and RTL copy survive a centered crop.
   return documentPage(
     "کتابچهٔ حساب کاتا",
     `
 html,body{width:1024px;height:500px;overflow:hidden;background:#fff;}
 .feature{width:1024px;height:500px;position:relative;overflow:hidden;background:#fff;font-family:"Vaz",sans-serif;color:${P.ink};}
-.feature-copy{position:absolute;right:56px;top:40px;width:514px;direction:rtl;}
-.brand-lockup{display:flex;align-items:center;gap:12px;font-size:31px;font-weight:800;}.brand-lockup img{width:42px;height:42px;border-radius:11px;}
-.feature h1{font-size:49px;line-height:1.55;margin-top:27px;font-weight:700;}.feature h1 em{color:${P.blue};font-style:normal;}
-.feature p{font-size:21px;line-height:1.8;color:${P.muted};margin-top:18px;}
-.feature-phone{position:absolute;left:58px;top:34px;width:260px;height:432px;padding:7px;border-radius:28px;background:#222;box-shadow:0 12px 24px #00000017;}
-.feature-screen{position:relative;width:100%;height:100%;border-radius:22px;overflow:hidden;background:#fff;--k:.626;--ib:16px;--sbar:30px;}
-.feature-screen .sbar{height:30px;padding:8px 17px 0;}.feature-screen .sb-time{font-size:9px;}.feature-screen .sb-right{transform:scale(.4);transform-origin:right center;}
+.feature-copy{position:absolute;right:132px;top:64px;width:436px;direction:rtl;}
+.brand-lockup{display:flex;align-items:center;gap:10px;font-size:28px;font-weight:800;}.brand-lockup img{width:38px;height:38px;border-radius:10px;}
+.feature h1{font-size:42px;line-height:1.55;margin-top:24px;font-weight:700;}.feature h1 em{color:${P.blue};font-style:normal;}
+.feature p{font-size:18px;line-height:1.8;color:${P.muted};margin-top:18px;}
+.feature-phone{position:absolute;left:132px;top:64px;width:224px;height:372px;padding:6px;border-radius:24px;background:#222;box-shadow:0 10px 20px #00000017;}
+.feature-screen{position:relative;width:100%;height:100%;border-radius:19px;overflow:hidden;background:#fff;--k:.5394;--ib:14px;--sbar:26px;}
+.feature-screen .sbar{height:26px;padding:7px 14px 0;}.feature-screen .sb-time{font-size:8px;}.feature-screen .sb-right{transform:scale(.345);transform-origin:right center;}
 .color-strip{display:flex;position:absolute;bottom:0;left:0;right:0;height:10px;}.color-strip i{flex:1;background:${P.yellow};}.color-strip i:nth-child(2){background:${P.blue};}.color-strip i:nth-child(3){background:${P.red};}
 `,
     `<main class="feature"><section class="feature-copy">${wordmark}<h1>کتابچهٔ حساب شما،<br><em>همیشه همراه شما.</em></h1><p>ثبت قرض‌ها، حساب مشتری‌ها و یادآوری‌ها<br>ساده، روشن و به زبان خودتان.</p></section><div class="feature-phone"><div class="feature-screen">${S.screenHome({ compact: true })}</div></div>${strip}</main>`,
