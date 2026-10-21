@@ -120,6 +120,29 @@ export type Stats = {
   generated_at: string;
 };
 
+// ---- /v1/admin/day-comparison ----
+
+export type DayComparisonPoint = {
+  hour: number;
+  active: number | null;
+  installs: number | null;
+};
+export type DayComparisonDay = {
+  date: string;
+  completed_hours: number;
+  activity_available: boolean;
+  // Cumulative distinct-install prefixes at H:00, not sums of hourly counts.
+  points: DayComparisonPoint[];
+};
+export type DayComparisonResult = {
+  day: DayComparisonDay;
+  compare_day: DayComparisonDay;
+  generated_at: string;
+  tracking_since: string;
+  min_date: string;
+  max_date: string;
+};
+
 // ---- /v1/admin/users ----
 
 export type KaataMember = { name: string; email: string; role: string };
@@ -282,6 +305,30 @@ export function useStats(points = 30, bucket: "day" | "hour" = "day") {
         ? previousData
         : undefined,
     enabled: !!token,
+  });
+}
+
+export function useDayComparison(day = "", compareDay = "", enabled = true) {
+  const token = useAdminToken();
+  return useQuery({
+    queryKey: ["admin", "day-comparison", token, day, compareDay],
+    queryFn: async (): Promise<DayComparisonResult | null> => {
+      // Empty parameters let the server choose Kabul today and yesterday,
+      // including when the operator's browser clock or timezone differs.
+      const params = new URLSearchParams();
+      if (day) params.set("day", day);
+      if (compareDay) params.set("compare_day", compareDay);
+      const query = params.size ? `?${params.toString()}` : "";
+      const res = await fetch(`${BACKEND_URL}/v1/admin/day-comparison${query}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.status === 401) throw new AuthError();
+      if (res.status === 404) return null;
+      if (!res.ok) throw new Error(`Server error (${res.status}).`);
+      return (await res.json()) as DayComparisonResult;
+    },
+    // Different dates never borrow the previous pair's totals or curves.
+    enabled: !!token && enabled,
   });
 }
 

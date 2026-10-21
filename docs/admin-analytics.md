@@ -154,6 +154,49 @@ the fractional-second hourly-cutover regression passed against isolated
 PostgreSQL 18, without skips or production data access. No mobile version or
 store-distribution change accompanies this dashboard update.
 
+## Comparing days at the same hour
+
+**Activity & installs → Compare days** overlays two cumulative Kabul days,
+initially today and yesterday. Choose **Active installs** or **New installs**,
+two dates from the last 90 reporting days, and a common hour cutoff. Daily
+remains the dashboard's initial chart view. The selected date pair has its own
+query key and receives the existing live, 60-second and midnight refreshes.
+Changing dates never relabels cached results from another pair.
+
+The default cutoff is the latest hour completed on both dates. At 14:37 Kabul,
+today and yesterday are both compared through 14:00. A point labelled 14:00
+counts midnight up to, but excluding, 14:00. Before 01:00 there is no completed
+hour yet. Two historical days can compare through 24:00, the end of each day.
+The chart, both values, absolute change and percentage use the same cutoff;
+an empty comparison baseline never produces an infinite percentage.
+
+`GET /v1/admin/day-comparison?day=YYYY-MM-DD&compare_day=YYYY-MM-DD` defaults its
+dates from one captured server time. It returns both dates, 25 cumulative
+boundaries (0–24), completed-hour limits, tracking coverage, server time and
+date-picker bounds. Invalid, future or out-of-range dates return 400. Both
+curves come from the same database snapshot and apply the existing operator
+and test exclusions.
+
+Active counts deduplicate installation IDs across the whole selected day's
+prefix. Adding the existing hourly activity totals would count the same
+installation repeatedly. Activity includes signed-out and background check-ins;
+it does not count authenticated accounts or the separate device estimate.
+Installation timestamps use `LEAST(installed_at, first_seen_at)`, and offline
+installations may appear in historical totals when they first reach the server.
+
+Hourly history cannot reconstruct exact by-minute activity. Unfinished hours
+are not compared. A date whose midnight precedes the exact hourly tracking
+start has unknown cumulative activity, including a partially recorded rollout
+day; its install counts remain available. Missing coverage and future hours are
+`null`, not zero. This feature adds no migration or mobile telemetry.
+
+Focused checks: `go test ./internal/admin -run TestDayComparison` from
+`apps/backend`, against a disposable `POSTGRES_TEST_URL`, and
+`bun test src/pages/admin/day-comparison-model.test.ts src/pages/admin/day-comparison.test.tsx`
+from `apps/web`. They cover cross-hour deduplication, hour/midnight boundaries,
+coverage gaps, date validation, timezone independence, common cutoffs and zero
+baselines.
+
 ## Users directory
 
 ### Device estimate and installation history

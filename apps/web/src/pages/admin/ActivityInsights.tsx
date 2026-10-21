@@ -4,8 +4,9 @@ import type { Stats } from "./api";
 import { fmtExactDateTime } from "./dates";
 import { busiestHours, hourlyProfile, hourlyTimeline, type HourlyPeak } from "./hourly-activity";
 import { C, Card, ErrorCard, fmtInt } from "./ui";
+import { DayComparison } from "./DayComparison";
 
-export type ActivityView = "hour" | "day" | "profile";
+export type ActivityView = "hour" | "day" | "profile" | "compare";
 
 function rangeLabel(points: number, view: ActivityView): string {
   return view === "day"
@@ -34,10 +35,14 @@ export function ActivityInsights(props: {
   return (
     <Card
       title="Activity & installs"
-      sub={`Last ${reportedRange} · ${props.view === "day" ? "Kabul reporting calendar" : "Kabul time (UTC+04:30)"}`}
+      sub={
+        props.view === "compare"
+          ? "Compare two Kabul days through the same completed hour"
+          : `Last ${reportedRange} · ${props.view === "day" ? "Kabul reporting calendar" : "Kabul time (UTC+04:30)"}`
+      }
       action={
         <div
-          className="inline-flex max-w-full rounded-lg border border-brand-border bg-brand-ivory p-1"
+          className="inline-flex max-w-full flex-wrap rounded-lg border border-brand-border bg-brand-ivory p-1"
           role="group"
           aria-label="Activity view"
         >
@@ -46,6 +51,7 @@ export function ActivityInsights(props: {
               ["hour", "Hourly"],
               ["day", "Daily"],
               ["profile", "Busy hours"],
+              ["compare", "Compare days"],
             ] as const
           ).map(([view, label]) => (
             <Choice key={view} selected={props.view === view} onClick={() => props.onView(view)}>
@@ -55,48 +61,54 @@ export function ActivityInsights(props: {
         </div>
       }
     >
-      <div className="mb-4 flex min-w-0 flex-wrap items-center justify-between gap-2">
-        <p className="flex min-w-0 items-center gap-2 text-xs text-brand-sub">
-          <span>
-            {props.view === "profile"
-              ? "Average devices and installs at each hour of the day"
-              : "Active devices and new installs"}
-          </span>
-          <span
-            role="status"
-            className="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center"
-          >
-            <span
-              aria-hidden="true"
-              className={`h-3 w-3 rounded-full border border-brand-border border-t-brand-muted motion-safe:animate-spin ${refreshing ? "opacity-100" : "opacity-0"}`}
-            />
-            <span className="sr-only">{refreshing ? "Updating chart" : ""}</span>
-          </span>
-        </p>
-        <div
-          className="inline-flex max-w-full rounded-lg border border-brand-border p-1"
-          role="group"
-          aria-label="Activity date range"
-        >
-          {ranges.map((points) => (
-            <Choice
-              key={points}
-              selected={props.range === points}
-              onClick={() => props.onRange(points)}
-            >
-              {rangeLabel(points, props.view)}
-            </Choice>
-          ))}
-        </div>
-      </div>
-      {props.pending ? (
-        <div className="h-56 animate-pulse rounded-lg bg-brand-faint sm:h-64" />
-      ) : props.error || !props.stats ? (
-        <ErrorCard message="The activity chart couldn't be loaded." onRetry={props.onRetry} />
-      ) : props.view === "day" ? (
-        props.dailyChart
+      {props.view === "compare" ? (
+        <DayComparison />
       ) : (
-        <HourlyChart stats={props.stats} profile={props.view === "profile"} />
+        <>
+          <div className="mb-4 flex min-w-0 flex-wrap items-center justify-between gap-2">
+            <p className="flex min-w-0 items-center gap-2 text-xs text-brand-sub">
+              <span>
+                {props.view === "profile"
+                  ? "Average devices and installs at each hour of the day"
+                  : "Active devices and new installs"}
+              </span>
+              <span
+                role="status"
+                className="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center"
+              >
+                <span
+                  aria-hidden="true"
+                  className={`h-3 w-3 rounded-full border border-brand-border border-t-brand-muted motion-safe:animate-spin ${refreshing ? "opacity-100" : "opacity-0"}`}
+                />
+                <span className="sr-only">{refreshing ? "Updating chart" : ""}</span>
+              </span>
+            </p>
+            <div
+              className="inline-flex max-w-full rounded-lg border border-brand-border p-1"
+              role="group"
+              aria-label="Activity date range"
+            >
+              {ranges.map((points) => (
+                <Choice
+                  key={points}
+                  selected={props.range === points}
+                  onClick={() => props.onRange(points)}
+                >
+                  {rangeLabel(points, props.view)}
+                </Choice>
+              ))}
+            </div>
+          </div>
+          {props.pending ? (
+            <div className="h-56 animate-pulse rounded-lg bg-brand-faint sm:h-64" />
+          ) : props.error || !props.stats ? (
+            <ErrorCard message="The activity chart couldn't be loaded." onRetry={props.onRetry} />
+          ) : props.view === "day" ? (
+            props.dailyChart
+          ) : (
+            <HourlyChart stats={props.stats} profile={props.view === "profile"} />
+          )}
+        </>
       )}
     </Card>
   );

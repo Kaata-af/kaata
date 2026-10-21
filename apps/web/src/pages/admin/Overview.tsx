@@ -12,10 +12,8 @@ export function Overview() {
   const [days, setDays] = useState(30);
   const [hours, setHours] = useState(168);
   const [activityView, setActivityView] = useState<ActivityView>("day");
-  const stats = useStats(
-    activityView === "day" ? days : hours,
-    activityView === "day" ? "day" : "hour",
-  );
+  const dailyStats = activityView === "day" || activityView === "compare";
+  const stats = useStats(dailyStats ? days : hours, dailyStats ? "day" : "hour");
   const growth = useGrowth();
   return (
     <div className="min-w-0 max-w-full">
@@ -73,7 +71,7 @@ export function Overview() {
         <ActivityInsights
           stats={stats.data}
           view={activityView}
-          range={activityView === "day" ? days : hours}
+          range={dailyStats ? days : hours}
           pending={stats.isPending}
           error={stats.isError}
           fetching={stats.isFetching}
@@ -81,7 +79,7 @@ export function Overview() {
             if (view === "profile" && hours === 24) setHours(168);
             setActivityView(view);
           }}
-          onRange={(points) => (activityView === "day" ? setDays(points) : setHours(points))}
+          onRange={(points) => (dailyStats ? setDays(points) : setHours(points))}
           onRetry={() => void stats.refetch()}
           dailyChart={stats.data ? <ActivityChart stats={stats.data} /> : null}
         />

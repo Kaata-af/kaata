@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 
@@ -44,6 +45,20 @@ func (h *Handler) Growth(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpx.JSON(w, http.StatusOK, g)
+}
+
+// DayComparison — GET /v1/admin/day-comparison. Uses completed Kabul hours.
+func (h *Handler) DayComparison(w http.ResponseWriter, r *http.Request) {
+	comparison, err := h.svc.GetDayComparison(r.Context(), r.URL.Query().Get("day"), r.URL.Query().Get("compare_day"))
+	if err != nil {
+		if errors.Is(err, ErrDayComparisonDate) {
+			httpx.Error(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		httpx.Error(w, http.StatusInternalServerError, "day comparison query failed")
+		return
+	}
+	httpx.JSON(w, http.StatusOK, comparison)
 }
 
 // Users — GET /v1/admin/users. The operator drill-down: signed-in users, their
