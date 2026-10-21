@@ -16,10 +16,10 @@ export const WHATSAPP_CONTACT_URL: string = envOr(
   "https://wa.me/93781696644",
 );
 
-// Social profiles — stable brand handles shown in the footer (and mirrored in
+// Official social profiles shown in the footer (and mirrored in
 // the JSON-LD `sameAs` in index.html). Not env-driven: there's no per-deploy
 // reason to point these elsewhere, so no VITE_* var / Dockerfile ARG.
-export const FACEBOOK_URL = "https://www.facebook.com/kaata.af";
+export const FACEBOOK_URL = "https://www.facebook.com/profile.php?id=61595065627313";
 export const INSTAGRAM_URL = "https://www.instagram.com/kaata.af";
 export const TIKTOK_URL = "https://www.tiktok.com/@kaata.af";
 export const YOUTUBE_URL = "https://www.youtube.com/@KaataAF";
