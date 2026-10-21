@@ -126,6 +126,10 @@ export type DayComparisonPoint = {
   hour: number;
   active: number | null;
   installs: number | null;
+  // H=1..24 covers the preceding [H-1, H) hour; H=0 has no hourly value.
+  // Optional only while an older comparison backend is deployed.
+  hourly_active?: number | null;
+  hourly_installs?: number | null;
 };
 export type DayComparisonDay = {
   date: string;
@@ -137,11 +141,14 @@ export type DayComparisonDay = {
 export type DayComparisonResult = {
   day: DayComparisonDay;
   compare_day: DayComparisonDay;
+  days?: DayComparisonDay[];
   generated_at: string;
   tracking_since: string;
   min_date: string;
   max_date: string;
 };
+export type DayComparisonPreset = "today-yesterday" | "last7" | "last7-complete" | "same-weekday";
+export type DayComparisonSelection = { preset: DayComparisonPreset } | { days: string[] };
 
 // ---- /v1/admin/users ----
 
@@ -308,17 +315,22 @@ export function useStats(points = 30, bucket: "day" | "hour" = "day") {
   });
 }
 
-export function useDayComparison(day = "", compareDay = "", enabled = true) {
+export function useDayComparison(
+  selection: DayComparisonSelection = { preset: "today-yesterday" },
+  enabled = true,
+) {
   const token = useAdminToken();
+  const preset = "preset" in selection ? selection.preset : "custom";
+  const days = "days" in selection ? selection.days.join(",") : "";
   return useQuery({
-    queryKey: ["admin", "day-comparison", token, day, compareDay],
+    queryKey: ["admin", "day-comparison", token, preset, days],
     queryFn: async (): Promise<DayComparisonResult | null> => {
-      // Empty parameters let the server choose Kabul today and yesterday,
-      // including when the operator's browser clock or timezone differs.
+      // Presets remain relative to the server's Kabul reporting day, including
+      // after midnight or when the operator's browser timezone differs.
       const params = new URLSearchParams();
-      if (day) params.set("day", day);
-      if (compareDay) params.set("compare_day", compareDay);
-      const query = params.size ? `?${params.toString()}` : "";
+      if (preset === "custom") params.set("days", days);
+      else params.set("preset", preset);
+      const query = `?${params.toString()}`;
       const res = await fetch(`${BACKEND_URL}/v1/admin/day-comparison${query}`, {
         headers: { Authorization: `Bearer ${token}` },
       });

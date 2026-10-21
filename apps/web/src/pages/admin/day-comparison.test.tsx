@@ -1,5 +1,4 @@
 // From apps/web: bun test ./src/pages/admin/day-comparison.test.tsx
-// Bun renders the existing React components directly; no extra test dependency.
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -7,122 +6,96 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { ActivityInsights } from "./ActivityInsights";
 import { AdminTokenContext, type DayComparisonResult } from "./api";
 import { DayComparisonPanel } from "./DayComparison";
+import { parseComparisonPreferences, type ComparisonPreferences } from "./day-comparison-model";
 
-function data(overrides: Partial<DayComparisonResult> = {}): DayComparisonResult {
+function data(): DayComparisonResult {
+  const days = Array.from({ length: 7 }, (_, index) => ({
+    date: `2026-10-${21 - index}`,
+    completed_hours: index === 0 ? 14 : 24,
+    activity_available: true,
+    points: Array.from({ length: 25 }, (_, hour) => ({
+      hour,
+      active: hour * (index + 2),
+      installs: hour * (index + 1),
+      hourly_active: hour ? 10 + index : null,
+      hourly_installs: hour ? index + 1 : null,
+    })),
+  }));
   return {
-    day: {
-      date: "2026-10-21",
-      completed_hours: 14,
-      activity_available: true,
-      points: Array.from({ length: 25 }, (_, hour) => ({ hour, active: hour * 2, installs: hour })),
-    },
-    compare_day: {
-      date: "2026-10-20",
-      completed_hours: 24,
-      activity_available: true,
-      points: Array.from({ length: 25 }, (_, hour) => ({
-        hour,
-        active: hour * 3,
-        installs: hour * 2,
-      })),
-    },
-    generated_at: "2026-10-21T10:07:00Z", // 14:37 Kabul; comparison still ends at 14:00.
+    days,
+    day: days[0],
+    compare_day: days[1],
+    generated_at: "2026-10-21T10:07:00Z",
     tracking_since: "2026-10-14T00:00:00Z",
     min_date: "2026-07-24",
     max_date: "2026-10-21",
-    ...overrides,
   };
 }
-function render(input = data()) {
-  return renderToStaticMarkup(<DayComparisonPanel data={input} onDates={() => {}} />);
+function render(input = data(), patch: Partial<ComparisonPreferences> = {}) {
+  return renderToStaticMarkup(
+    <DayComparisonPanel
+      data={input}
+      preferences={{ ...parseComparisonPreferences(null), ...patch }}
+    />,
+  );
 }
 
-test("both totals and the difference use the same completed Kabul hour", () => {
+test("seven date totals share the last completed hour and default second-day baseline", () => {
   const html = render();
   assert.match(html, /Through 14:00 Kabul · last completed hour/);
-  assert.match(html, />28<\/dd>/);
-  assert.match(html, />42<\/dd>/);
-  assert.match(html, /−14<\/dd>/);
-  assert.match(html, /−33\.3% vs comparison day/);
-  assert.doesNotMatch(html, />72<\/dd>|14:37|24:00 · complete day/);
-  assert.match(html, /minute-by-minute comparison is unavailable/);
+  assert.match(html, /Cumulative totals through 14:00 Kabul/);
+  assert.match(html, /Oct 21, 2026: 28 active installs/);
+  assert.match(html, /−14 \(−33\.3%\) vs Oct 20, 2026/);
+  assert.match(html, /Average across 7 days: 70/);
+  assert.match(html, /All 7 selected days set the shared cutoff/);
 });
-
-test("date controls and displayed dates use the response instead of the browser date", () => {
-  const original = process.env.TZ;
-  try {
-    for (const timezone of ["America/Los_Angeles", "Asia/Kabul"]) {
-      process.env.TZ = timezone;
-      const html = render();
-      const inputs = html.match(/<input[^>]*>/g) ?? [];
-      for (const [name, value] of [
-        ["day", "2026-10-21"],
-        ["compare_day", "2026-10-20"],
-      ]) {
-        const input = inputs.find((input) => input.includes(`name="${name}"`)) ?? "";
-        assert.match(input, /min="2026-07-24"/);
-        assert.match(input, /max="2026-10-21"/);
-        assert.ok(input.includes(`value="${value}"`));
-      }
-      assert.match(html, /Oct 21, 2026/);
-      assert.match(html, /Oct 20, 2026/);
-    }
-  } finally {
-    if (original === undefined) delete process.env.TZ;
-    else process.env.TZ = original;
-  }
+test("per-hour mode keeps summary totals explicitly cumulative and reports bucket semantics", () => {
+  const html = render(data(), { mode: "hourly" });
+  assert.match(html, /aria-pressed="true"[^>]*>Per hour<\/button>/);
+  assert.match(html, /Cumulative totals through 14:00 Kabul/);
+  assert.match(html, /Table totals stay cumulative in both chart modes/);
+  assert.match(html, /14:00 means 13:00–14:00 Kabul/);
+  assert.match(html, /cannot be added into distinct daily activity/);
 });
-
-test("incomplete activity stays unknown while a tracked zero remains visible", () => {
+test("unknown totals suppress averages and best-day claims without hiding known individual hours", () => {
   const input = data();
-  input.day.activity_available = false;
-  input.compare_day.points = input.compare_day.points.map((point) => ({ ...point, active: 0 }));
-  const html = render(input);
-  assert.match(html, /Hourly activity unavailable/);
-  assert.match(html, /Those totals stay unknown/);
-  assert.match(html, />0<\/dd>/);
-  assert.match(html, /Requires both recorded totals/);
-  assert.doesNotMatch(html, /No change|vs comparison day/);
+  input.days![0].activity_available = false;
+  const html = render(input, { mode: "hourly" });
+  assert.match(html, /Cumulative totals are unknown for Oct 21, 2026/);
+  assert.match(html, /Average and highest day require known cumulative totals/);
+  assert.doesNotMatch(html, /Average across/);
 });
-
-test("a zero comparison baseline reports the count difference without a percentage", () => {
+test("hidden baseline stays marked and the last visible series cannot be removed", () => {
   const input = data();
-  input.compare_day.points = input.compare_day.points.map((point) => ({ ...point, active: 0 }));
-  const html = render(input);
-  assert.match(html, /\+28<\/dd>/);
-  assert.match(html, /Comparison day is zero; percentage unavailable/);
-  assert.doesNotMatch(html, /Infinity|NaN|% vs comparison day/);
+  const html = render(input, { hiddenDates: input.days!.slice(1).map((day) => day.date) });
+  assert.match(html, /Baseline · line hidden/);
+  assert.match(html, /aria-label="Show Oct 21, 2026 on chart" disabled="" checked=""/);
 });
-
-test("before the first completed hour the panel waits instead of showing zero totals", () => {
+test("custom editor has bounded dates and stops at seven fields", () => {
+  const input = data();
+  const html = render(input, { preset: "custom", customDates: input.days!.map((day) => day.date) });
+  assert.equal((html.match(/type="date"/g) ?? []).length, 7);
+  assert.match(html, /min="2026-07-24" max="2026-10-21"/);
+  assert.match(html, />Apply dates<\/button>/);
+  assert.match(html, /disabled="">\+ Add date<\/button>/);
+});
+test("before 01:00 a remembered cutoff has a readable disabled selector and no invented totals", () => {
   const input = data();
   input.day.completed_hours = 0;
-  const html = renderToStaticMarkup(
-    <DayComparisonPanel data={input} requestedHour={8} onDates={() => {}} />,
-  );
+  const html = render(input, { requestedHour: 8 });
   assert.match(html, /No completed hour to compare yet/);
-  assert.match(html, /The first comparison is available after 01:00 Kabul/);
-  assert.match(html, /Waiting for the first completed hour/);
   assert.match(html, /value="latest" selected="">No completed hour yet/);
-  assert.doesNotMatch(html, />0<\/dd>|No change|vs comparison day/);
+  assert.match(html, /first comparison is available after 01:00 Kabul/);
+  assert.doesNotMatch(html, /Average across/);
 });
-
-test("the selected metric and earlier cutoff can stay controlled across date pairs", () => {
-  for (const date of ["2026-10-21", "2026-10-19"]) {
-    const input = data();
-    input.day.date = date;
-    const html = renderToStaticMarkup(
-      <DayComparisonPanel data={input} metric="installs" requestedHour={4} onDates={() => {}} />,
-    );
-    assert.match(html, /Through 04:00 Kabul · same cutoff for both days/);
-    assert.match(html, />4<\/dd>/);
-    assert.match(html, />8<\/dd>/);
-    assert.match(html, /−4<\/dd>/);
-    assert.match(html, /aria-pressed="true"[^>]*>New installs<\/button>/);
-  }
+test("old pair-only data never masquerades as a seven-day comparison", () => {
+  const input = data();
+  delete input.days;
+  const html = render(input, { preset: "last7" });
+  assert.match(html, /Advanced day comparison requires the server update/);
+  assert.doesNotMatch(html, /Cumulative totals/);
 });
-
-test("ordinary daily charts render without mounting the comparison query", () => {
+test("ordinary daily mode does not mount the comparison query", () => {
   const html = renderToStaticMarkup(
     <ActivityInsights
       stats={undefined}
@@ -139,12 +112,10 @@ test("ordinary daily charts render without mounting the comparison query", () =>
   );
   assert.match(html, /aria-pressed="true"[^>]*>Daily<\/button>/);
   assert.match(html, />Compare days<\/button>/);
-  assert.match(html, /Activity date range/);
 });
-
-test("a missing comparison endpoint has its own retry state independent of ordinary stats", () => {
+test("an unavailable endpoint has retry and a safe preset reset independently of stats", () => {
   const client = new QueryClient();
-  client.setQueryData(["admin", "day-comparison", "synthetic", "", ""], null);
+  client.setQueryData(["admin", "day-comparison", "synthetic", "today-yesterday", ""], null);
   const html = renderToStaticMarkup(
     <QueryClientProvider client={client}>
       <AdminTokenContext.Provider value="synthetic">
@@ -163,7 +134,7 @@ test("a missing comparison endpoint has its own retry state independent of ordin
       </AdminTokenContext.Provider>
     </QueryClientProvider>,
   );
-  assert.match(html, /Day comparison is unavailable until the server update is ready/);
+  assert.match(html, /Advanced day comparison requires the server update/);
   assert.match(html, />Retry<\/button>/);
-  assert.doesNotMatch(html, /The activity chart couldn|Activity date range/);
+  assert.match(html, /Reset to today and yesterday/);
 });

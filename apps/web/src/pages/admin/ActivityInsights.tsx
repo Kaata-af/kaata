@@ -37,7 +37,7 @@ export function ActivityInsights(props: {
       title="Activity & installs"
       sub={
         props.view === "compare"
-          ? "Compare two Kabul days through the same completed hour"
+          ? "Compare Kabul days through the same completed hour"
           : `Last ${reportedRange} · ${props.view === "day" ? "Kabul reporting calendar" : "Kabul time (UTC+04:30)"}`
       }
       action={

@@ -156,46 +156,81 @@ store-distribution change accompanies this dashboard update.
 
 ## Comparing days at the same hour
 
-**Activity & installs → Compare days** overlays two cumulative Kabul days,
+**Activity & installs → Compare days** overlays two to seven Kabul days,
 initially today and yesterday. Choose **Active installs** or **New installs**,
-two dates from the last 90 reporting days, and a common hour cutoff. Daily
-remains the dashboard's initial chart view. The selected date pair has its own
-query key and receives the existing live, 60-second and midnight refreshes.
-Changing dates never relabels cached results from another pair.
+a cumulative or hourly chart, and a common hour cutoff. Daily remains the
+dashboard's initial chart view. Presets select today/yesterday, the last seven
+days including today, the last seven completed days, or today and the same
+weekday in each of the preceding four weeks. Custom dates must be distinct
+and fall within the last 90 reporting days. Add, remove or edit dates, then
+apply the selection together.
 
-The default cutoff is the latest hour completed on both dates. At 14:37 Kabul,
-today and yesterday are both compared through 14:00. A point labelled 14:00
-counts midnight up to, but excluding, 14:00. Before 01:00 there is no completed
-hour yet. Two historical days can compare through 24:00, the end of each day.
-The chart, both values, absolute change and percentage use the same cutoff;
-an empty comparison baseline never produces an infinite percentage.
+Choose any selected date as the comparison baseline. The table shows each
+day's cumulative total through the cutoff and its absolute and percentage
+change against that baseline, even when the chart is in hourly mode. Hiding a
+line does not remove its day from the table, change the baseline, or change
+the common cutoff. At least one line stays visible. Remembered controls hold
+only non-sensitive chart preferences; presets retain their relative meaning
+after midnight. A reset recovers from stale custom dates or invalid settings.
+CSV export includes the selected metric's chart values, with the chart mode,
+Kabul timezone, cutoff and snapshot time; unknown values are empty cells.
 
-`GET /v1/admin/day-comparison?day=YYYY-MM-DD&compare_day=YYYY-MM-DD` defaults its
-dates from one captured server time. It returns both dates, 25 cumulative
-boundaries (0–24), completed-hour limits, tracking coverage, server time and
-date-picker bounds. Invalid, future or out-of-range dates return 400. Both
-curves come from the same database snapshot and apply the existing operator
-and test exclusions.
+The selection has its own query key and receives the existing live, 60-second
+and midnight refreshes. Changing the selection never relabels cached results
+from other dates.
+
+The default cutoff is the latest hour completed on all dates. At 14:37 Kabul,
+today and yesterday are both compared through 14:00. A cumulative point
+labelled 14:00 counts midnight up to, but excluding, 14:00. An hourly point
+labelled 14:00 counts only 13:00–14:00; hour 0 has no preceding-hour value.
+Before 01:00 there is no completed hour yet if today is selected. Historical
+dates can compare through 24:00, the end of each day. Every selected date,
+including hidden lines, participates in the common cutoff. The chart, table
+totals, absolute changes and percentages use that cutoff; a zero baseline
+never produces an infinite percentage.
+
+`GET /v1/admin/day-comparison` accepts one of:
+
+- `preset=today-yesterday|last7|last7-complete|same-weekday`, resolved from one
+  captured server time in Kabul.
+- `days=YYYY-MM-DD,YYYY-MM-DD,...`, two to seven distinct dates in display order.
+- Legacy `day=YYYY-MM-DD&compare_day=YYYY-MM-DD`; omitted legacy dates still
+  default to today/yesterday, and selecting the same date twice remains valid.
+
+The response adds ordered `days[]` while retaining `day` and `compare_day` as
+aliases of the first two entries for compatibility. Each day has 25 boundaries
+(0–24), cumulative `active`/`installs`, preceding-hour
+`hourly_active`/`hourly_installs`, completed-hour limits and tracking coverage.
+Top-level metadata includes server time and date-picker bounds. Invalid,
+future, out-of-range, duplicate custom dates, mixed selection parameters,
+unknown presets and custom selections outside the two-to-seven limit return 400. All days and both metrics come from one database snapshot and apply the
+existing operator and test exclusions. An older server without `days[]` does
+not silently render a requested multi-day comparison as a two-day result.
 
 Active counts deduplicate installation IDs across the whole selected day's
 prefix. Adding the existing hourly activity totals would count the same
-installation repeatedly. Activity includes signed-out and background check-ins;
-it does not count authenticated accounts or the separate device estimate.
+installation repeatedly. Conversely, hourly activity counts distinct installs
+within that individual hour; subtracting consecutive cumulative active totals
+would count only installations making their first appearance that day and is
+not an hourly-active metric. Activity includes signed-out and background
+check-ins; it does not count authenticated accounts or the separate device estimate.
 Installation timestamps use `LEAST(installed_at, first_seen_at)`, and offline
 installations may appear in historical totals when they first reach the server.
 
 Hourly history cannot reconstruct exact by-minute activity. Unfinished hours
 are not compared. A date whose midnight precedes the exact hourly tracking
 start has unknown cumulative activity, including a partially recorded rollout
-day; its install counts remain available. Missing coverage and future hours are
+day; its install counts remain available. Individual hourly active values on
+that rollout day are available only when the entire preceding hour starts at
+or after the exact tracking start. Missing coverage and future hours are
 `null`, not zero. This feature adds no migration or mobile telemetry.
 
 Focused checks: `go test ./internal/admin -run TestDayComparison` from
 `apps/backend`, against a disposable `POSTGRES_TEST_URL`, and
 `bun test src/pages/admin/day-comparison-model.test.ts src/pages/admin/day-comparison.test.tsx`
 from `apps/web`. They cover cross-hour deduplication, hour/midnight boundaries,
-coverage gaps, date validation, timezone independence, common cutoffs and zero
-baselines.
+coverage gaps, multi-day ordering, presets, selection validation, timezone
+independence, common cutoffs, baselines, visibility, preferences and CSV output.
 
 ## Users directory
 

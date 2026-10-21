@@ -1,188 +1,208 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { DayComparisonResult } from "./api";
-import { comparisonModel } from "./day-comparison-model.ts";
+import type { DayComparisonDay, DayComparisonResult } from "./api";
+import {
+  advancedComparisonModel,
+  comparisonCsv,
+  customDateError,
+  parseComparisonPreferences,
+  supportsAdvancedComparison,
+  validComparisonDate,
+  type ComparisonPreferences,
+} from "./day-comparison-model.ts";
 
-type Day = DayComparisonResult["day"];
-
-function day(overrides: Partial<Day> = {}): Day {
+function day(date: string, index = 0): DayComparisonDay {
   return {
-    date: "2026-10-21",
-    completed_hours: 24,
+    date,
+    completed_hours: date === "2026-10-21" ? 14 : 24,
     activity_available: true,
     points: Array.from({ length: 25 }, (_, hour) => ({
       hour,
-      active: hour * 3,
-      installs: hour * 2,
+      active: hour * (index + 2),
+      installs: hour * (index + 1),
+      hourly_active: hour ? 10 + index : null,
+      hourly_installs: hour ? index + 1 : null,
     })),
-    ...overrides,
   };
 }
-
-function result(current: Partial<Day> = {}, comparison: Partial<Day> = {}): DayComparisonResult {
+function data(count = 7): DayComparisonResult {
+  const days = Array.from({ length: count }, (_, index) => day(`2026-10-${21 - index}`, index));
   return {
-    day: day(current),
-    compare_day: day({ date: "2026-10-20", ...comparison }),
-    generated_at: "2026-10-21T12:00:00Z",
+    days,
+    day: days[0],
+    compare_day: days[1],
+    generated_at: "2026-10-21T10:07:00Z",
     tracking_since: "2026-10-14T00:00:00Z",
-    min_date: "2026-09-01",
+    min_date: "2026-07-24",
     max_date: "2026-10-21",
   };
 }
+function prefs(patch: Partial<ComparisonPreferences> = {}): ComparisonPreferences {
+  return { ...parseComparisonPreferences(null), ...patch };
+}
 
-test("unavailable activity remains unknown while tracked zero is a real zero", () => {
-  const input = result(
-    { activity_available: false },
-    { points: [{ hour: 24, active: 0, installs: 0 }] },
-  );
-  const model = comparisonModel(input, "active", null);
-  assert.equal(model.activityAvailable, false);
-  assert.ok(model.points.every((point) => point.day === null));
-  assert.equal(model.compareValue, 0);
-  assert.equal(model.dayValue, null);
-  assert.equal(model.difference, null);
-  assert.equal(model.percentChange, null);
-
-  const installs = comparisonModel(input, "installs", null);
-  assert.equal(installs.dayValue, 48);
-  assert.equal(installs.compareValue, 0);
-  assert.equal(installs.activityAvailable, false);
-});
-
-test("the latest selection clips both curves at the lesser completed hour", () => {
-  const model = comparisonModel(
-    result({ completed_hours: 8 }, { completed_hours: 12 }),
-    "active",
-    null,
-  );
-  assert.equal(model.cutoff, 8);
-  assert.equal(model.maxCutoff, 8);
-  assert.equal(model.points[8].day, 24);
-  assert.equal(model.points[8].compareDay, 24);
+test("the shared cutoff includes all seven selected dates, including hidden days", () => {
+  const input = data();
+  const model = advancedComparisonModel(input, prefs({ hiddenDates: [input.day.date] }));
+  assert.equal(model.cutoff, 14);
+  assert.equal(model.totals.length, 7);
+  assert.equal(model.totals[0].value, 28);
+  assert.equal(model.visibleDates.length, 6);
   assert.ok(
-    model.points.slice(9).every((point) => point.day === null && point.compareDay === null),
+    model.points
+      .slice(15)
+      .every((point) => Object.values(point.values).every((value) => value === null)),
   );
-  assert.equal(model.dayValue, 24);
-  assert.equal(model.compareValue, 24);
 });
-
-test("a lower selected hour uses cumulative server values without adding earlier hours", () => {
-  const model = comparisonModel(
-    result({ completed_hours: 18 }, { completed_hours: 14 }),
-    "installs",
-    5,
+test("earlier cutoffs read cumulative prefixes without summing or differencing", () => {
+  const input = data();
+  const cumulative = advancedComparisonModel(input, prefs({ requestedHour: 4 }));
+  const hourly = advancedComparisonModel(input, prefs({ requestedHour: 4, mode: "hourly" }));
+  assert.equal(cumulative.points[4].values[input.day.date], 8);
+  assert.equal(hourly.points[4].values[input.day.date], 10);
+  assert.equal(hourly.totals[0].value, 8);
+  assert.equal(hourly.points[0].values[input.day.date], null);
+});
+test("a partly tracked day can have known individual hours and unknown cumulative activity", () => {
+  const input = data();
+  input.days![2].activity_available = false;
+  input.days![2].points[5].hourly_active = null;
+  const cumulative = advancedComparisonModel(input, prefs());
+  const hourly = advancedComparisonModel(input, prefs({ mode: "hourly" }));
+  assert.equal(cumulative.totals[2].value, null);
+  assert.equal(cumulative.points[6].values[input.days![2].date], null);
+  assert.equal(hourly.points[6].values[input.days![2].date], 12);
+  assert.equal(hourly.points[5].values[input.days![2].date], null);
+  assert.equal(hourly.average, null);
+  assert.deepEqual(hourly.bestDates, []);
+  assert.equal(advancedComparisonModel(input, prefs({ metric: "installs" })).totals[2].value, 42);
+});
+test("missing and invalid server values stay unknown instead of becoming zero", () => {
+  const input = data();
+  input.day.points = input.day.points.filter((point) => point.hour !== 14);
+  input.days![1].points[14].active = -1;
+  const model = advancedComparisonModel(input, prefs());
+  assert.equal(model.totals[0].value, null);
+  assert.equal(model.totals[1].value, null);
+  assert.equal(model.totals[2].difference, null);
+  assert.equal(model.average, null);
+});
+test("baseline is selectable and stays the baseline even when its line is hidden", () => {
+  const input = data();
+  const baseline = input.days![6].date;
+  const model = advancedComparisonModel(
+    input,
+    prefs({ baselineDate: baseline, hiddenDates: [baseline] }),
   );
-  assert.equal(model.cutoff, 5);
-  assert.equal(model.maxCutoff, 14);
-  assert.equal(model.dayValue, 10);
-  assert.equal(model.compareValue, 10);
-  assert.equal(model.points[4].day, 8);
-  assert.equal(model.points[5].day, 10);
-  assert.equal(model.points[6].day, null);
-  assert.equal(model.points[6].compareDay, null);
+  assert.equal(model.baselineDate, baseline);
+  assert.equal(model.totals[0].difference, 28 - 112);
+  assert.equal(model.totals[6].difference, 0);
+  assert.ok(!model.visibleDates.includes(baseline));
+  assert.equal(
+    advancedComparisonModel(input, prefs({ baselineDate: "2026-01-01" })).baselineDate,
+    input.compare_day.date,
+  );
 });
-
-test("requesting a future hour cannot leak values from either day", () => {
-  const model = comparisonModel(result({ completed_hours: 3 }), "installs", 24);
-  assert.equal(model.cutoff, 3);
-  assert.equal(model.dayValue, 6);
-  assert.equal(model.compareValue, 6);
+test("zero baseline keeps absolute changes and never invents a percentage", () => {
+  const input = data();
+  input.compare_day.points[14].active = 0;
+  const model = advancedComparisonModel(input, prefs());
+  assert.equal(model.totals[0].difference, 28);
+  assert.equal(model.totals[0].percentChange, null);
+  assert.equal(model.totals[1].difference, 0);
+  assert.equal(model.totals[1].percentChange, null);
+});
+test("before 01:00 all summary totals wait, and past pairs permit the full 24 hours", () => {
+  const input = data(2);
+  input.day.completed_hours = 0;
   assert.ok(
-    model.points.slice(4).every((point) => point.day === null && point.compareDay === null),
+    advancedComparisonModel(input, prefs({ requestedHour: 18 })).totals.every(
+      (row) => row.value === null,
+    ),
   );
+  input.day.completed_hours = 24;
+  const complete = advancedComparisonModel(input, prefs());
+  assert.equal(complete.cutoff, 24);
+  assert.equal(complete.points.length, 25);
+  assert.equal(complete.totals[0].value, 48);
 });
-
-test("completed past days include their 24:00 totals and always produce 25 points", () => {
-  const model = comparisonModel(result(), "active", null);
-  assert.equal(model.cutoff, 24);
-  assert.equal(model.maxCutoff, 24);
-  assert.equal(model.points.length, 25);
-  assert.deepEqual(model.points[0], { hour: 0, label: "00:00", day: 0, compareDay: 0 });
-  assert.deepEqual(model.points[24], { hour: 24, label: "24:00", day: 72, compareDay: 72 });
-  assert.equal(model.activityAvailable, true);
-  assert.equal(model.dayValue, 72);
-});
-
-test("before 01:00 no uncompleted hour is shown or invented", () => {
-  const model = comparisonModel(result({ completed_hours: 0 }), "active", null);
-  assert.equal(model.maxCutoff, 0);
-  assert.equal(model.cutoff, 0);
-  assert.equal(model.dayValue, 0);
-  assert.equal(model.compareValue, 0);
-  assert.equal(model.difference, 0);
-  assert.equal(model.percentChange, null);
-  assert.ok(
-    model.points.slice(1).every((point) => point.day === null && point.compareDay === null),
+test("one visible line is retained when remembered visibility would hide every date", () => {
+  const input = data();
+  const model = advancedComparisonModel(
+    input,
+    prefs({ hiddenDates: input.days!.map((day) => day.date) }),
   );
+  assert.deepEqual(model.visibleDates, [input.day.date]);
+  assert.equal(model.cutoff, 14);
 });
-
-test("missing points stay unknown and do not borrow an earlier cumulative total", () => {
-  const model = comparisonModel(
-    result({ points: [{ hour: 2, active: 7, installs: 2 }] }),
-    "active",
-    3,
+test("averages and all tied best days require complete cumulative values", () => {
+  const input = data(2);
+  input.compare_day.points[14].active = 28;
+  const model = advancedComparisonModel(input, prefs());
+  assert.equal(model.average, 28);
+  assert.deepEqual(model.bestDates, [input.day.date, input.compare_day.date]);
+});
+test("custom dates reject duplicates, impossible calendars, out-of-range and oversized selections", () => {
+  assert.ok(validComparisonDate("2024-02-29"));
+  assert.ok(!validComparisonDate("2026-02-29"));
+  assert.ok(customDateError(["2026-10-21", "2026-10-21"], "2026-07-24", "2026-10-21"));
+  assert.ok(customDateError(["2026-10-22", "2026-10-20"], "2026-07-24", "2026-10-21"));
+  assert.ok(customDateError(["2026-10-21"], "2026-07-24", "2026-10-21"));
+  assert.equal(customDateError(["2026-10-20", "2026-10-21"], "2026-07-24", "2026-10-21"), "");
+});
+test("preferences whitelist harmless controls and preserve relative preset keys", () => {
+  const restored = parseComparisonPreferences({
+    preset: "last7",
+    customDates: [],
+    metric: "installs",
+    mode: "hourly",
+    requestedHour: 8,
+    baselineDate: "2026-10-20",
+    hiddenDates: ["2026-10-19"],
+    token: "secret",
+    arbitrary: true,
+  });
+  assert.equal(restored.preset, "last7");
+  assert.equal(restored.requestedHour, 8);
+  assert.equal(restored.mode, "hourly");
+  assert.ok(!("token" in restored));
+  assert.ok(!("arbitrary" in restored));
+  assert.equal(
+    parseComparisonPreferences({
+      preset: "custom",
+      customDates: ["2026-02-30", "2026-10-20"],
+      requestedHour: 99,
+    }).preset,
+    "today-yesterday",
   );
-  assert.equal(model.points[1].day, null);
-  assert.equal(model.points[2].day, 7);
-  assert.equal(model.points[3].day, null);
-  assert.equal(model.dayValue, null);
-  assert.equal(model.compareValue, 9);
-  assert.equal(model.difference, null);
-  assert.equal(model.percentChange, null);
+  assert.equal(parseComparisonPreferences({ requestedHour: 0 }).requestedHour, null);
 });
-
-test("unknown comparison totals do not produce a difference or percentage", () => {
-  const model = comparisonModel(
-    result({}, { points: [{ hour: 24, active: null, installs: null }] }),
-    "installs",
-    null,
-  );
-  assert.equal(model.dayValue, 48);
-  assert.equal(model.compareValue, null);
-  assert.equal(model.difference, null);
-  assert.equal(model.percentChange, null);
+test("old pair-only or incomplete contracts require a server update", () => {
+  const input = data();
+  assert.ok(supportsAdvancedComparison(input));
+  assert.ok(!supportsAdvancedComparison({ ...input, days: undefined }));
+  delete input.days![0].points[0].hourly_active;
+  assert.ok(!supportsAdvancedComparison(input));
 });
-
-test("percentage change uses the comparison total as its baseline", () => {
-  for (const [current, previous, difference, percentage] of [
-    [15, 10, 5, 50],
-    [6, 10, -4, -40],
-    [10, 10, 0, 0],
-    [0, 10, -10, -100],
-  ]) {
-    const model = comparisonModel(
-      result(
-        { points: [{ hour: 24, active: current, installs: current }] },
-        { points: [{ hour: 24, active: previous, installs: previous }] },
-      ),
-      "active",
-      null,
-    );
-    assert.equal(model.difference, difference);
-    assert.equal(model.percentChange, percentage);
-  }
+test("CSV includes all selected days, blanks for unknowns, shared cutoff and reporting metadata", () => {
+  const input = data(3);
+  input.days![2].activity_available = false;
+  const preferences = prefs({ hiddenDates: [input.days![2].date], requestedHour: 2 });
+  const csv = comparisonCsv(input, advancedComparisonModel(input, preferences), preferences);
+  assert.ok(csv.startsWith("\uFEFFtimezone,Asia/Kabul\r\n"));
+  assert.match(csv, /generated_at,2026-10-21T10:07:00Z/);
+  assert.match(csv, /cutoff_kabul,02:00/);
+  assert.match(csv, /chart_mode,cumulative/);
+  assert.match(csv, /tracking_since,/);
+  assert.match(csv, /hour_kabul,2026-10-21,2026-10-20,2026-10-19/);
+  assert.match(csv, /02:00,4,6,\r\n/);
+  assert.doesNotMatch(csv, /03:00,/);
 });
-
-test("a zero baseline never invents a percentage, including zero against zero", () => {
-  for (const current of [0, 10]) {
-    const model = comparisonModel(
-      result(
-        { points: [{ hour: 24, active: current, installs: current }] },
-        { points: [{ hour: 24, active: 0, installs: 0 }] },
-      ),
-      "active",
-      null,
-    );
-    assert.equal(model.difference, current);
-    assert.equal(model.percentChange, null);
-  }
-});
-
-test("completed and requested hours are clamped to integer boundaries", () => {
-  assert.equal(comparisonModel(result({ completed_hours: 30 }), "active", null).maxCutoff, 24);
-  assert.equal(comparisonModel(result({ completed_hours: 5.9 }), "active", null).maxCutoff, 5);
-  assert.equal(comparisonModel(result({ completed_hours: -1 }), "active", null).maxCutoff, 0);
-  assert.equal(comparisonModel(result(), "active", 8.9).cutoff, 8);
-  assert.equal(comparisonModel(result(), "active", -5).cutoff, 0);
-  assert.equal(comparisonModel(result(), "active", Number.NaN).cutoff, 0);
+test("hourly CSV uses server bucket values and omits the non-hour midnight point", () => {
+  const input = data(2);
+  const preferences = prefs({ mode: "hourly", requestedHour: 2 });
+  const csv = comparisonCsv(input, advancedComparisonModel(input, preferences), preferences);
+  assert.match(csv, /chart_mode,hourly/);
+  assert.match(csv, /01:00,10,11/);
+  assert.doesNotMatch(csv, /\r\n00:00,/);
 });

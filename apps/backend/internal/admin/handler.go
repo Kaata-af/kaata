@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/matee/kaata-backend/internal/httpx"
 )
@@ -49,7 +50,22 @@ func (h *Handler) Growth(w http.ResponseWriter, r *http.Request) {
 
 // DayComparison — GET /v1/admin/day-comparison. Uses completed Kabul hours.
 func (h *Handler) DayComparison(w http.ResponseWriter, r *http.Request) {
-	comparison, err := h.svc.GetDayComparison(r.Context(), r.URL.Query().Get("day"), r.URL.Query().Get("compare_day"))
+	query := r.URL.Query()
+	var comparison DayComparison
+	var err error
+	if query.Has("days") || query.Has("preset") {
+		if query.Has("day") || query.Has("compare_day") || (query.Has("days") && query.Has("preset")) || len(query["days"]) > 1 || len(query["preset"]) > 1 || (query.Has("preset") && query.Get("preset") == "") {
+			httpx.Error(w, http.StatusBadRequest, "choose either days, preset, or a legacy date pair")
+			return
+		}
+		var days []string
+		if query.Has("days") {
+			days = strings.Split(query.Get("days"), ",")
+		}
+		comparison, err = h.svc.GetDayComparisons(r.Context(), days, query.Get("preset"))
+	} else {
+		comparison, err = h.svc.GetDayComparison(r.Context(), query.Get("day"), query.Get("compare_day"))
+	}
 	if err != nil {
 		if errors.Is(err, ErrDayComparisonDate) {
 			httpx.Error(w, http.StatusBadRequest, err.Error())
