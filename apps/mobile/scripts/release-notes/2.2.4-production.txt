@@ -1,0 +1,5 @@
+Kaata 2.2.4
+
+- Calculate tally amounts directly in the amount field, with percentages, memory and calculation history.
+- Write multiline notes with improved spacing and a Save button that stays above the keyboard.
+- Enjoy faster startup and lighter switching between To collect and To pay, with each page remembering its scroll position.
