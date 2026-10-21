@@ -1,0 +1,165 @@
+name: iOS production candidate (local Mac build)
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_commit:
+        description: Full main commit to build (must match this workflow run)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-production-local
+  cancel-in-progress: false
+
+jobs:
+  build:
+    # Standard public-repository runners are free; fail closed if visibility changes.
+    if: github.repository == 'Kaata-af/kaata' && github.ref == 'refs/heads/main' && toJSON(github.event.repository.private) == 'false'
+    runs-on: macos-26
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: apps/mobile
+        shell: bash
+    env:
+      CI: '1'
+      EXPO_NO_TELEMETRY: '1'
+      EAS_NO_TELEMETRY: '1'
+      EXPO_APPLE_TEAM_ID: '2JPK69B8Z2'
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+    steps:
+      - name: Check out the requested main commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22.23.3'
+          package-manager-cache: false
+
+      - name: Verify source, free runner and production configuration
+        env:
+          EXPECTED_SOURCE_COMMIT: ${{ inputs.source_commit }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(gh api repos/Kaata-af/kaata --jq '.visibility')" = public
+          node <<'NODE'
+          const fs = require('node:fs');
+          const { execFileSync } = require('node:child_process');
+          const assert = require('node:assert/strict');
+          const event = JSON.parse(fs.readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8'));
+          assert.equal(event.repository.full_name, 'Kaata-af/kaata');
+          assert.equal(event.repository.private, false);
+          assert.equal(process.env.GITHUB_EVENT_NAME, 'workflow_dispatch');
+          assert.equal(process.env.GITHUB_REF, 'refs/heads/main');
+          assert.match(process.env.EXPECTED_SOURCE_COMMIT, /^[0-9a-f]{40}$/);
+          const actual = execFileSync('git', ['rev-parse', 'HEAD'], {encoding: 'utf8'}).trim();
+          assert.equal(actual, process.env.EXPECTED_SOURCE_COMMIT);
+          assert.equal(actual, process.env.GITHUB_SHA);
+          const app = JSON.parse(fs.readFileSync('app.json', 'utf8')).expo;
+          const eas = JSON.parse(fs.readFileSync('eas.json', 'utf8'));
+          const prod = eas.build.production;
+          assert.equal(app.version, '2.2.4');
+          assert.equal(app.ios.bundleIdentifier, 'af.kaata.app');
+          assert.equal(app.ios.buildNumber, '41');
+          assert.equal(app.owner, 'mateesaafi');
+          assert.equal(app.extra.eas.projectId, 'a612156b-0f0b-47ea-ac66-b54d880d98aa');
+          assert.equal(eas.cli.appVersionSource, 'local');
+          assert.equal(prod.ios.buildConfiguration, 'Release');
+          assert.ok(!prod.developmentClient);
+          assert.ok(!prod.autoIncrement);
+          assert.ok(!prod.ios.autoIncrement);
+          assert.ok(!prod.distribution || prod.distribution === 'store');
+          assert.equal(prod.ios.credentialsSource ?? prod.credentialsSource ?? 'remote', 'remote');
+          assert.equal(prod.env.EXPO_PUBLIC_BACKEND_URL, 'https://api.kaata.af');
+          assert.equal(prod.env.EXPO_PUBLIC_SOLO_STORE_MODE, '1');
+          assert.equal(prod.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID,
+            '987359341353-dgceg8n94aem9pgorclo11l4nr5906i8.apps.googleusercontent.com');
+          assert.equal(fs.existsSync('credentials.json'), false);
+          console.log(`Verified production source ${actual}, iOS 2.2.4 (41).`);
+          NODE
+          xcodebuild -version
+          test "$(xcodebuild -version | head -n 1)" = 'Xcode 26.6'
+          command -v pod
+          command -v fastlane
+
+      - name: Install locked mobile dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Prepare the pinned local build tool
+        run: npx --yes eas-cli@25.2.0 --version
+
+      - name: Build on this Mac using existing frozen signing credentials
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "$EXPO_TOKEN" ]; then
+            echo 'EXPO_TOKEN must be configured as an encrypted GitHub Actions secret.' >&2
+            exit 1
+          fi
+          mkdir -p "$RUNNER_TEMP/kaata-ios-output"
+          npx --yes eas-cli@25.2.0 build \
+            --local --platform ios --profile production \
+            --freeze-credentials --non-interactive \
+            --output "$RUNNER_TEMP/kaata-ios-output/Kaata.ipa"
+
+      - name: Record candidate identity for final verification
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import hashlib, json, os, pathlib, plistlib, zipfile
+          out = pathlib.Path(os.environ['RUNNER_TEMP']) / 'kaata-ios-output'
+          ipa = out / 'Kaata.ipa'
+          raw = ipa.read_bytes()
+          with zipfile.ZipFile(ipa) as z:
+              infos = [p for p in z.namelist() if p.startswith('Payload/') and p.endswith('.app/Info.plist') and p.count('/') == 2]
+              assert len(infos) == 1, 'Expected exactly one app'
+              info = plistlib.loads(z.read(infos[0]))
+              root = infos[0].removesuffix('Info.plist')
+              assert info['CFBundleIdentifier'] == 'af.kaata.app'
+              assert info['CFBundleShortVersionString'] == '2.2.4'
+              assert info['CFBundleVersion'] == '41'
+              assert info['MinimumOSVersion'] == '16.4'
+              assert sorted(info['UIDeviceFamily']) == [1, 2]
+              assert sorted(info['CFBundleLocalizations']) == ['en', 'fa', 'ps']
+              js = z.read(root + 'main.jsbundle')
+              assert js[:8].hex() == 'c61fbc03c103191f', 'Expected release Hermes bundle'
+          receipt = {
+              'sourceCommit': os.environ['GITHUB_SHA'],
+              'repository': os.environ['GITHUB_REPOSITORY'],
+              'runId': os.environ['GITHUB_RUN_ID'],
+              'runAttempt': os.environ['GITHUB_RUN_ATTEMPT'],
+              'runner': 'standard macos-26', 'xcode': '26.6',
+              'easCli': '25.2.0', 'localBuild': True,
+              'credentialsFrozen': True, 'storeSubmissionPerformed': False,
+              'requiresFinalArtifactVerification': True,
+              'identity': {k: info[k] for k in ['CFBundleIdentifier', 'CFBundleShortVersionString', 'CFBundleVersion', 'MinimumOSVersion', 'DTSDKName', 'DTXcode']},
+              'ipaBytes': len(raw), 'ipaSha256': hashlib.sha256(raw).hexdigest(),
+              'jsSha256': hashlib.sha256(js).hexdigest(),
+              'appConfigSha256': hashlib.sha256(pathlib.Path('app.json').read_bytes()).hexdigest(),
+              'lockfileSha256': hashlib.sha256(pathlib.Path('package-lock.json').read_bytes()).hexdigest(),
+          }
+          (out / 'candidate-receipt.json').write_text(json.dumps(receipt, indent=2) + '\n')
+          print(json.dumps({'version': '2.2.4', 'build': '41', 'ipaBytes': len(raw), 'ipaSha256': receipt['ipaSha256'], 'requiresFinalArtifactVerification': True}))
+          PY
+
+      - name: Keep only the IPA and its non-secret identity receipt
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: kaata-ios-2.2.4-41-candidate-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/kaata-ios-output/Kaata.ipa
+            ${{ runner.temp }}/kaata-ios-output/candidate-receipt.json
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
