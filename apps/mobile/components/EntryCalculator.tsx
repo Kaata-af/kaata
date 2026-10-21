@@ -49,6 +49,7 @@ const LABELS = {
   "M−": "calculator.memorySubtract",
 } as const;
 const GLYPHS: Record<string, string> = { "/": "÷", "*": "×", "-": "−", sign: "+/−", "()": "( )" };
+const KEY_GAP = 5;
 export const prettyCalculation = (expression: string) =>
   expression.replace(/\*/g, "×").replace(/\//g, "÷").replace(/-/g, "−");
 
@@ -103,7 +104,7 @@ export function EntryCalculator(props: Props) {
     : 0;
   const remainingHeight = availableHeight - footerHeight - toolsHeight - feedbackHeight - 1;
   const formReserve = Math.max(80, Math.min(160, remainingHeight * 0.45));
-  const naturalKeysHeight = keyHeight * 6 + 25 + 8;
+  const naturalKeysHeight = keyHeight * 6 + KEY_GAP * 5 + 8;
   const panelHeight = Math.min(
     naturalKeysHeight,
     Math.max(TOUCH_MIN, remainingHeight - formReserve),
@@ -150,7 +151,7 @@ export function EntryCalculator(props: Props) {
     }
     change(next);
   };
-  const key = (value: string, extra?: object) => (
+  const key = (value: string) => (
     <Pressable
       key={value}
       accessibilityRole="button"
@@ -165,7 +166,6 @@ export function EntryCalculator(props: Props) {
         /[+*/\-]/.test(value) && styles.operatorKey,
         ["AC", "M+", "M−", "delete", "%"].includes(value) && styles.utilityKey,
         value === "=" && styles.equalsKey,
-        extra,
         pressed && styles.pressed,
       ]}
     >
@@ -305,26 +305,28 @@ export function EntryCalculator(props: Props) {
               <View style={styles.bottomNumbers}>
                 <View style={styles.row}>{["1", "2", "3"].map((value) => key(value))}</View>
                 <View style={styles.row}>
-                  {key("0", { flex: 2, marginRight: 0 })}
-                  {key(".")}
+                  <View style={styles.doubleKeySlot}>{key("0")}</View>
+                  <View style={styles.keySlot}>{key(".")}</View>
                 </View>
               </View>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={t("calculator.nextNote")}
-                disabled={props.disabled}
-                onPress={() => {
-                  if (canEdit()) props.onNext();
-                }}
-                style={({ pressed }) => [
-                  styles.key,
-                  styles.nextKey,
-                  { minHeight: keyHeight * 2 + 5 },
-                  pressed && styles.pressed,
-                ]}
-              >
-                <Ionicons name="arrow-forward" size={27} color={colors.textEmphasis} />
-              </Pressable>
+              <View style={styles.keySlot}>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={t("calculator.nextNote")}
+                  disabled={props.disabled}
+                  onPress={() => {
+                    if (canEdit()) props.onNext();
+                  }}
+                  style={({ pressed }) => [
+                    styles.key,
+                    styles.nextKey,
+                    { minHeight: keyHeight * 2 + KEY_GAP },
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <Ionicons name="arrow-forward" size={27} color={colors.textEmphasis} />
+                </Pressable>
+              </View>
             </View>
           </>
         )}
@@ -363,9 +365,13 @@ const styles = StyleSheet.create({
     writingDirection: "ltr",
   },
   memorySet: { color: colors.textEmphasis },
-  keys: { paddingHorizontal: 8, paddingBottom: 8, gap: 5 },
-  row: { flexDirection: "row", direction: "ltr", gap: 5 },
-  bottomNumbers: { flex: 3, gap: 5 },
+  keys: { paddingHorizontal: 8, paddingBottom: 8, gap: KEY_GAP },
+  row: { flexDirection: "row", direction: "ltr", gap: KEY_GAP },
+  // Spanning groups include their internal gutters before sharing the remaining
+  // width. Borderless slots keep key borders out of that flex calculation.
+  bottomNumbers: { flex: 3, flexBasis: KEY_GAP * 2, gap: KEY_GAP },
+  keySlot: { flex: 1 },
+  doubleKeySlot: { flex: 2, flexBasis: KEY_GAP },
   key: {
     flex: 1,
     alignItems: "center",

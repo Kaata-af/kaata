@@ -217,12 +217,17 @@ for (const os of ["android", "ios"] as const)
         ] as const) {
           const row = nodes(f.hooks.tree).find(
             (node) =>
-              Array.isArray(node.props.children) && node.props.children.includes(f.key(first)),
+              node.type === "View" &&
+              style(node).flexDirection === "row" &&
+              nodes(node).includes(f.key(first)) &&
+              nodes(node).filter((child) => child.type === "Pressable").length === values.length,
           )!;
           assert.equal(style(row).flexDirection, "row");
           assert.equal(style(row).direction, "ltr", "inherited RTL cannot reverse a row");
           assert.deepEqual(
-            row.props.children.map((node: UINode) => node.props.accessibilityLabel),
+            nodes(row)
+              .filter((node) => node.type === "Pressable")
+              .map((node) => node.props.accessibilityLabel),
             values.map((value) => (value in labels ? f.translate(labels[value]) : value)),
           );
         }
@@ -253,7 +258,9 @@ for (const os of ["android", "ios"] as const)
           "key targets expand with accessibility text",
         );
         assert.ok(style(f.key("next")).minHeight >= style(f.key("7")).minHeight * 2);
-        assert.ok(style(f.key("0")).flex > style(f.key(".")).flex, "zero spans two columns");
+        const slot = (value: string) =>
+          nodes(f.hooks.tree).find((node) => node.props.children === f.key(value))!;
+        assert.ok(style(slot("0")).flex > style(slot(".")).flex, "zero spans two columns");
         const scroll = nodes(f.hooks.tree).find((node) => node.type === "ScrollView")!;
         assert.equal(scroll.props.keyboardShouldPersistTaps, "always");
         assert.ok(style(scroll).maxHeight > 0 && style(scroll).maxHeight < height);
