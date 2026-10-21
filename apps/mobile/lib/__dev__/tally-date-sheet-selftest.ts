@@ -27,6 +27,7 @@ for (const calendar of ["gregorian", "jalali", "qamari"] as Calendar[])
       let activeCalendar = calendar;
       let inline = false;
       let contextKey = "account:vault:person";
+      const protectClockGesture = () => {};
       const module = compileUI(
         "../../components/TallyDateFilterSheet",
         {
@@ -80,6 +81,7 @@ for (const calendar of ["gregorian", "jalali", "qamari"] as Calendar[])
             useSheetDrag: (_visible: boolean, entrance: unknown, onDismiss: () => void) => ({
               translateY: entrance,
               panHandlers: {},
+              controlProps: { onTouchStart: protectClockGesture },
               dismiss: onDismiss,
             }),
           },
@@ -148,6 +150,15 @@ for (const calendar of ["gregorian", "jalali", "qamari"] as Calendar[])
             : nodes(hooks.tree).find((node) => node.type === "TimePicker")!.props;
         assert.equal(native.mode, "time");
         if (platform === "android") assert.equal(native.is24Hour, true);
+        else
+          assert.ok(
+            nodes(hooks.tree).some(
+              (node) =>
+                node.props.onTouchStart === protectClockGesture &&
+                nodes(node).some((child) => child.type === "TimePicker" && child.props === native),
+            ),
+            "the iOS wheel's vertical gesture is excluded from panel dismissal",
+          );
         return native;
       };
       const pickClock = (field: "start" | "end", hour: number, minute: number) => {

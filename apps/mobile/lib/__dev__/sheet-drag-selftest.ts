@@ -191,6 +191,96 @@ assert.equal(offset.value, 0);
 assert.equal(springs.length, springCount, "Reduce Motion returns immediately without a spring");
 assert.ok(keyboardDismisses > 0, "dragging/tapping the handle dismisses a search keyboard");
 
+// Panel gestures leave a scrolled list with its native responder. Once a
+// stroke begins in that list, reaching its top must not turn it into a close.
+let surfaceDismissed = 0;
+props.onDismiss = () => surfaceDismissed++;
+drag = render();
+const scroll = (y: number) => drag.scrollProps.onScroll({ nativeEvent: { contentOffset: { y } } });
+const touchSurface = (inScroll = true) => {
+  assert.equal(
+    drag.surfacePanHandlers.onStartShouldSetPanResponderCapture({}, state(20, 0)),
+    false,
+    "panel taps and row actions keep their responders",
+  );
+  if (inScroll) drag.scrollProps.onTouchStart();
+};
+const claimSurface = (dy = 10, dx = 0, touches = 1) =>
+  drag.surfacePanHandlers.onMoveShouldSetPanResponderCapture({}, state(20, dy, 0, dx, touches));
+const pullSurface = (dy = 75) => {
+  assert.equal(claimSurface(), true);
+  drag.surfacePanHandlers.onPanResponderGrant({}, state(20, 0));
+  drag.surfacePanHandlers.onPanResponderMove({}, state(20, dy));
+  assert.equal(offset.value, dy);
+  drag.surfacePanHandlers.onPanResponderRelease({}, state(20, dy));
+};
+const nativeList = {};
+drag.scrollProps.ref(nativeList);
+assert.equal(drag.scrollProps.scrollEventThrottle, 16);
+scroll(200);
+touchSurface();
+assert.equal(claimSurface(), false, "a downward swipe in a scrolled list stays a scroll");
+scroll(0);
+assert.equal(claimSurface(), false, "reaching the top mid-stroke cannot close the panel");
+assert.equal(surfaceDismissed, 0);
+assert.equal(offset.value, 0);
+touchSurface();
+for (const [dy, dx, touches] of [
+  [-30, 0, 1],
+  [3, 0, 1],
+  [10, 30, 1],
+  [20, 0, 2],
+])
+  assert.equal(claimSurface(dy, dx, touches), false);
+pullSurface();
+assert.equal(surfaceDismissed, 1, "a new pull from the top dismisses the panel");
+drag.dismiss();
+assert.equal(surfaceDismissed, 1, "surface/handle/Back dismissal still coalesces");
+
+reopen();
+scroll(200);
+touchSurface(false);
+pullSurface();
+assert.equal(surfaceDismissed, 2, "the header/footer can pull even when the list is scrolled");
+
+reopen();
+touchSurface();
+assert.equal(claimSurface(), false, "a rapid reopen preserves its existing list position");
+drag.scrollProps.ref(null);
+drag.scrollProps.ref({});
+touchSurface();
+scroll(-8);
+assert.equal(claimSurface(), true, "a fresh list and iOS top overscroll allow dismissal");
+drag.surfacePanHandlers.onPanResponderGrant({}, state(20, 0));
+drag.surfacePanHandlers.onPanResponderMove({}, state(20, 25));
+drag.surfacePanHandlers.onPanResponderRelease({}, state(20, 25));
+assert.equal(surfaceDismissed, 2, "short panel pulls restore instead of dismissing");
+assert.equal(offset.value, 0);
+
+touchSurface();
+scroll(20);
+assert.equal(claimSurface(), false, "content that started scrolling retains its responder");
+scroll(0);
+touchSurface();
+assert.equal(claimSurface(), true);
+drag.surfacePanHandlers.onPanResponderGrant({}, state(20, 0));
+drag.surfacePanHandlers.onPanResponderMove({}, state(20, 30));
+drag.surfacePanHandlers.onPanResponderStart({}, state(20, 30, 0, 0, 2));
+drag.surfacePanHandlers.onPanResponderRelease({}, state(20, 90));
+assert.equal(surfaceDismissed, 2, "a second finger cancels a panel pull immediately");
+assert.equal(offset.value, 0);
+
+touchSurface(false);
+drag.controlProps.onTouchStart();
+drag.scrollProps.onTouchStart();
+assert.equal(claimSurface(90), false, "a native clock wheel keeps its vertical gesture");
+assert.equal(surfaceDismissed, 2);
+assert.equal(offset.value, 0);
+
+touchSurface();
+reopen();
+assert.equal(claimSurface(), false, "a stale touch cannot claim a reopened panel");
+
 deferStop = true;
 begin(15);
 move(15, 100);

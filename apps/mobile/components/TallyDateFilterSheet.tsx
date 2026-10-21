@@ -398,7 +398,7 @@ export function TallyDateFilterSheet(props: DateFilterProps & { inline?: boolean
             })}
           </View>
           {picker && Platform.OS !== "android" ? (
-            <View style={styles.timePicker}>
+            <View {...drag.controlProps} style={styles.timePicker}>
               <DateTimePicker
                 key={picker.request}
                 value={clockDate(picker.field === "start" ? startMinute : endMinute)}
@@ -456,7 +456,7 @@ export function TallyDateFilterSheet(props: DateFilterProps & { inline?: boolean
         ]}
         pointerEvents={props.visible ? "auto" : "none"}
       >
-        <SafeAreaView edges={["bottom"]} style={{ flexShrink: 1 }}>
+        <SafeAreaView {...drag.surfacePanHandlers} edges={["bottom"]} style={{ flexShrink: 1 }}>
           <SheetHandle panHandlers={drag.panHandlers} onDismiss={drag.dismiss} />
           <View style={[styles.heading, rowDir(props.isRTL)]}>
             <Text accessibilityRole="header" style={[styles.title, textDir(props.isRTL)]}>
@@ -471,7 +471,9 @@ export function TallyDateFilterSheet(props: DateFilterProps & { inline?: boolean
               <Ionicons name="close" size={22} color={colors.textMuted} />
             </Pressable>
           </View>
-          <ScrollView bounces={false}>{content}</ScrollView>
+          <ScrollView {...drag.scrollProps} bounces={false}>
+            {content}
+          </ScrollView>
         </SafeAreaView>
       </Animated.View>
     </Modal>

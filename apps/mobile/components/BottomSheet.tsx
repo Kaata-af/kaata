@@ -72,8 +72,8 @@ export function BottomSheet(props: {
         style={[styles.sheetContainer, { transform: [{ translateY: drag.translateY }] }]}
         pointerEvents={props.visible ? "box-none" : "none"}
       >
-        <SafeAreaView edges={["bottom"]} style={styles.sheetWrap}>
-          <View style={styles.sheet} onStartShouldSetResponder={() => true}>
+        <SafeAreaView {...drag.surfacePanHandlers} edges={["bottom"]} style={styles.sheetWrap}>
+          <View style={styles.sheet}>
             <SheetHandle panHandlers={drag.panHandlers} onDismiss={drag.dismiss} />
             {props.title ? <Text style={[styles.title, textDir(isRTL)]}>{props.title}</Text> : null}
             {props.actions.map((a, i) => {

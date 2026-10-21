@@ -211,6 +211,7 @@ export function ProfileSettingsSheet(props: {
         pointerEvents={props.visible ? "box-none" : "none"}
       >
         <SafeAreaView
+          {...drag.surfacePanHandlers}
           edges={["bottom"]}
           style={[
             styles.sheetWrap,
@@ -227,6 +228,7 @@ export function ProfileSettingsSheet(props: {
                 its own header, so the extra title was visual noise. */}
 
             <ScrollView
+              {...drag.scrollProps}
               showsVerticalScrollIndicator={false}
               bounces={false}
               contentContainerStyle={{

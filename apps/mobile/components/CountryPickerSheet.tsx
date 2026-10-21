@@ -77,6 +77,7 @@ export function CountryPickerSheet(props: {
         pointerEvents={props.visible ? "box-none" : "none"}
       >
         <SafeAreaView
+          {...drag.surfacePanHandlers}
           edges={["bottom"]}
           style={[styles.sheetWrap, { maxHeight: Dimensions.get("window").height * 0.75 }]}
         >
@@ -108,6 +109,8 @@ export function CountryPickerSheet(props: {
             </View>
 
             <ScrollView
+              {...drag.scrollProps}
+              bounces={false}
               keyboardShouldPersistTaps="handled"
               style={styles.list}
               contentContainerStyle={styles.listContent}

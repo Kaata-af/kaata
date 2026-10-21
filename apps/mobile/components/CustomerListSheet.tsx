@@ -268,10 +268,10 @@ export function CustomerListSheet(props: {
         ]}
         pointerEvents={props.visible ? "auto" : "none"}
       >
-        <SafeAreaView edges={["bottom"]} style={styles.content}>
+        <SafeAreaView {...drag.surfacePanHandlers} edges={["bottom"]} style={styles.content}>
           <SheetHandle panHandlers={drag.panHandlers} onDismiss={drag.dismiss} />
           <Text style={[styles.title, textDir(props.isRTL)]}>{t("customers.listOptions")}</Text>
-          <ScrollView bounces={false} style={styles.optionsScroll}>
+          <ScrollView {...drag.scrollProps} bounces={false} style={styles.optionsScroll}>
             {CustomerListOptions(props)}
           </ScrollView>
           {props.canManage ? (

@@ -145,6 +145,7 @@ export function VaultPickerSheet(props: {
             trap fixed in HamburgerMenuSheet.tsx (the original Phase 5.1
             "completely messed up slider" bug). */}
         <SafeAreaView
+          {...drag.surfacePanHandlers}
           edges={["bottom"]}
           style={[
             styles.sheetWrap,
@@ -163,6 +164,7 @@ export function VaultPickerSheet(props: {
             </Text>
 
             <ScrollView
+              {...drag.scrollProps}
               showsVerticalScrollIndicator={false}
               bounces={false}
               contentContainerStyle={{

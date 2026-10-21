@@ -78,13 +78,15 @@ export function OptionSheet(props: {
         pointerEvents={visible ? "box-none" : "none"}
       >
         <SafeAreaView
+          {...drag.surfacePanHandlers}
           edges={["bottom"]}
           style={[styles.sheetWrap, { maxHeight: Dimensions.get("window").height * 0.75 }]}
         >
-          <View style={styles.sheet} onStartShouldSetResponder={() => true}>
+          <View style={styles.sheet}>
             <SheetHandle panHandlers={drag.panHandlers} onDismiss={drag.dismiss} />
             <Text style={[styles.sheetTitle, textDir(isRTL), trackingSafe(isRTL)]}>{title}</Text>
             <ScrollView
+              {...drag.scrollProps}
               showsVerticalScrollIndicator={false}
               bounces={false}
               contentContainerStyle={{ paddingBottom: 8 }}
