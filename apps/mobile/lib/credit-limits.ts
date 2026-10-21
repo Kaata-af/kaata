@@ -230,13 +230,14 @@ export async function refreshCreditPolicies(
     await applyForCurrentSession(session, async () => {
       const { applyEventMutex } = await import("./projection");
       const db = await getDb();
+      let cacheChanged = false;
       await applyEventMutex.runExclusive(() =>
         db.withTransactionAsync(async () => {
           if ((policyVersions.get(vaultId) ?? 0) !== version) return;
-          await cacheCreditPolicies(db, vaultId, policies, startedAt);
+          cacheChanged = await cacheCreditPolicies(db, vaultId, policies, startedAt);
         }),
       );
-      emitCreditPoliciesChanged(vaultId);
+      if (cacheChanged) emitCreditPoliciesChanged(vaultId);
     });
   } finally {
     clearTimeout(timer);

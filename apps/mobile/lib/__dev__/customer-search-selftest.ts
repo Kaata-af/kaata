@@ -3,6 +3,7 @@ import {
   CUSTOMER_SORTS,
   DEFAULT_CUSTOMER_LIST,
   DEFAULT_CUSTOMER_SEARCH,
+  compareCustomerNames,
   parseCustomerListPreference,
   parseCustomerSearchPreference,
   selectCustomers,
@@ -106,6 +107,41 @@ for (const [locale, names, expected] of [
     expected,
     "natural name ordering works across both sides in each locale",
   );
+}
+
+// Collator reuse must preserve the existing base-sensitive natural ordering,
+// including mixed digit scripts, equal numeric chunks and locale changes.
+const namesToCompare = ["", "Ahmad", "ahmad", "Áhmad", "عبدالله", "غلام", "څانګه", "ښاغلی"];
+for (const locale of ["en", "fa", "ps", "fa", "en"] as const) {
+  for (const a of namesToCompare) {
+    for (const b of namesToCompare) {
+      assert.equal(
+        Math.sign(compareCustomerNames(a, b, locale)),
+        Math.sign(a.localeCompare(b, locale, { sensitivity: "base" })),
+        `${locale}: ${a} / ${b}`,
+      );
+    }
+  }
+  for (const [earlier, later] of [
+    ["Ahmad 2", "Ahmad 10"],
+    ["Ahmad 02", "Ahmad 10"],
+    ["دکان ٢", "دکان ۱۰"],
+    ["دکان ۲", "دکان ۱۰"],
+    ["رحمت 99999999999999999999", "رحمت 100000000000000000000"],
+  ]) {
+    assert.ok(compareCustomerNames(earlier, later, locale) < 0, `${locale}: ${earlier}`);
+    assert.ok(compareCustomerNames(later, earlier, locale) > 0, `${locale}: ${later}`);
+  }
+  for (const [a, b] of [
+    ["Ahmad 2", "Ahmad 02"],
+    ["دکان ٢", "دکان ۲"],
+  ]) {
+    assert.equal(
+      Math.sign(compareCustomerNames(a, b, locale)),
+      Math.sign(a.localeCompare(b, locale, { sensitivity: "base" })),
+      "equal numeric values retain the original full-name tie break",
+    );
+  }
 }
 
 const memberships = { a: ["family", "shop"], b: "shop", c: null, d: ["family"] };

@@ -1,4 +1,4 @@
-// Host-only: execute the real Home rail gesture against the installed RNGH Pan.
+// Host-only: execute the real single-page Home release gesture with RNGH Pan.
 // Keep this script name so existing CI commands continue covering Home swipes.
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -20,11 +20,11 @@ function walk(node) {
 }
 walk(ast);
 const gesture = declarations.get('swipeGesture');
-assert.ok(gesture?.initializer?.arguments?.[0]?.body, 'Actual Home rail recognizer must exist');
-const constants = ['FLICK_VELOCITY', 'DRAG_COMMIT_FRACTION', 'RAIL_SPRING'];
-const inputs = ['Gesture', 'direction', 'screenWidth', 'translateX', 'searchGestureGeneration',
+assert.ok(gesture?.initializer?.arguments?.[0]?.body, 'Actual Home recognizer must exist');
+const constants = ['FLICK_VELOCITY', 'DRAG_COMMIT_FRACTION'];
+const inputs = ['Gesture', 'direction', 'screenWidth', 'homeInteraction', 'searchGestureGeneration',
   'searchGestureState', 'mounted', 'selectionOwnerActive', 'activeVaultId', 'activeAccountId',
-  'getActiveVaultIdSyncMaybe', 'getAccountIdSync', 'Animated', 'Haptics', 'setDirection'];
+  'getActiveVaultIdSyncMaybe', 'getAccountIdSync', 'Haptics', 'setDirection'];
 const factorySource = constants.map((name) => 'const ' + name + '=' + declarations.get(name).initializer.getText(ast) + ';').join('\n')
   + '\nmodule.exports=(env)=>{const {' + inputs.join(',') + '}=env;'
   + gesture.initializer.arguments[0].body.getText(ast).slice(1, -1) + '};';
@@ -54,19 +54,15 @@ const { PanGesture } = evaluateGesture('panGesture.ts', (id) => {
 });
 let checks = 0;
 function fixture(direction = 'collect', width = 390) {
-  const commits = [], haptics = [], springs = [], values = [];
+  const commits = [], haptics = [];
   const live = { vault: 'vault-a', account: 'account-a' };
   const env = {
     Gesture: { Pan: () => new PanGesture() }, direction, screenWidth: width,
-    translateX: { setValue: (value) => values.push(value) },
+    homeInteraction: { current: { busy: false } },
     searchGestureGeneration: 0, searchGestureState: { current: { active: false, generation: 0 } },
     mounted: { current: true }, selectionOwnerActive: { current: true },
     activeVaultId: live.vault, activeAccountId: live.account,
     getActiveVaultIdSyncMaybe: () => live.vault, getAccountIdSync: () => live.account,
-    Animated: { spring: (value, config) => {
-      assert.equal(value, env.translateX);
-      return { start: () => springs.push(config) };
-    } },
     Haptics: { ImpactFeedbackStyle: { Soft: 'soft' }, impactAsync: (style) => {
       haptics.push(style); return Promise.resolve();
     } },
@@ -74,26 +70,17 @@ function fixture(direction = 'collect', width = 390) {
   };
   const pan = factory.exports(env);
   pan.initialize();
-  assert.equal(pan.config.runOnJS, true, 'Restored rail explicitly uses JS callbacks');
+  assert.equal(pan.config.runOnJS, true, 'Only the completed release crosses to JS');
   assert.equal(pan.shouldUseReanimated, false, 'Installed RNGH selects JS event delivery');
   assert.deepEqual([pan.config.activeOffsetXStart, pan.config.activeOffsetXEnd], [-24, 24]);
   assert.deepEqual([pan.config.failOffsetYStart, pan.config.failOffsetYEnd], [-16, 16]);
-  assert.equal(typeof pan.handlers.onUpdate, 'function');
+  assert.equal(pan.handlers.onUpdate, undefined, 'Finger movement does not enqueue per-frame JS work');
   assert.equal(typeof pan.handlers.onEnd, 'function');
-  return { env, pan, commits, haptics, springs, values, live };
+  return { env, pan, commits, haptics, live };
 }
 
 for (const width of [320, 390, 844]) {
   for (const direction of ['collect', 'pay']) {
-    const f = fixture(direction, width);
-    const resting = direction === 'collect' ? 0 : -width;
-    for (const dx of [-width * 3, -width / 2, 0, width / 2, width * 3]) {
-      f.pan.handlers.onUpdate({ translationX: dx });
-      assert.equal(f.values.at(-1), Math.max(-width, Math.min(0, resting + dx)),
-        'Real rail follows the complete drag while clamped to its two pages');
-      assert.equal(f.commits.length, 0, 'Drag presentation cannot commit before release');
-      checks++;
-    }
     const sign = direction === 'collect' ? -1 : 1;
     for (const [distance, velocity, commit] of [
       [sign * width * 0.3, 0, true], [sign * (width * 0.3 - 0.01), 0, false],
@@ -105,14 +92,6 @@ for (const width of [320, 390, 844]) {
       assert.deepEqual(one.commits, commit ? [direction === 'collect' ? 'pay' : 'collect'] : [],
         'Actual release uses the original 30% drag / 500 velocity thresholds');
       assert.deepEqual(one.haptics, commit ? ['soft'] : [], 'Only a committed swipe vibrates once');
-      assert.equal(one.springs.length, commit ? 0 : 1, 'Rejected release springs back exactly once');
-      if (!commit) {
-        const config = one.springs[0];
-        assert.equal(config.toValue, resting);
-        assert.equal(config.useNativeDriver, false, 'Spring-back preserves the MIUI first-paint fix');
-        assert.equal(config.friction, 14);
-        assert.equal(config.tension, 110);
-      }
       checks++;
     }
   }
@@ -125,19 +104,17 @@ for (const invalidate of [
   (f) => { f.env.selectionOwnerActive.current = false; },
   (f) => { f.live.vault = 'vault-b'; },
   (f) => { f.live.account = 'account-b'; },
+  (f) => { f.env.homeInteraction.current.busy = true; },
 ]) {
   const f = fixture();
   invalidate(f);
-  f.pan.handlers.onUpdate({ translationX: -200 });
   f.pan.handlers.onEnd({ translationX: -200, velocityX: -1000 });
-  assert.deepEqual(f.values, [], 'Stale/search/unfocused gesture cannot move the rail');
-  assert.deepEqual(f.commits, [], 'Stale/search/unfocused gesture cannot change the tab');
-  assert.deepEqual(f.haptics, [], 'Stale gesture cannot vibrate');
-  assert.deepEqual(f.springs, [], 'Stale gesture cannot schedule a spring');
+  assert.deepEqual(f.commits, [], 'Stale/search/unfocused/busy gesture cannot change the tab');
+  assert.deepEqual(f.haptics, [], 'Rejected gesture cannot vibrate');
   checks++;
 }
 console.log(JSON.stringify({ allPassed: true, hostOnly: true, checks,
   installedRNGH: req('react-native-gesture-handler/package.json').version,
   homeSourceSha256: crypto.createHash('sha256').update(source).digest('hex'),
-  boundaryStubs: ['native touch recognition/delivery', 'Animated node storage', 'spring dispatch', 'haptic dispatch'],
+  boundaryStubs: ['native touch recognition/delivery', 'haptic dispatch'],
   limitation: 'Actual Home callbacks and installed JS routing; native touch arbitration and device frame timing require phone QA.' }, null, 2));

@@ -1,161 +1,215 @@
-// Execute Home's real rail effect with the installed RN JS spring algorithm.
-// Node storage, native driver selection and frame delivery are explicit boundaries.
+// Execute the real transition hook. Native timing/completion is controlled;
+// this is not a native rendering or frame-time test.
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const vm = require('node:vm');
 const crypto = require('node:crypto');
 const { createRequire } = require('node:module');
 const mobile = path.resolve(__dirname, '../..');
 const req = createRequire(path.join(mobile, 'package.json'));
 const ts = req('typescript');
-const babel = req('@babel/core');
-const filename = path.join(mobile, 'app/index.tsx');
-const source = fs.readFileSync(filename, 'utf8');
-const ast = ts.createSourceFile(filename, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
-let railEffect, initialValue, springConfig;
-function walk(node) {
-  if (ts.isCallExpression(node) && node.expression.getText(ast) === 'useEffect'
-    && node.arguments[0]?.getText(ast).includes('Animated.spring(translateX')) railEffect = node;
-  if (ts.isVariableDeclaration(node) && node.name.getText(ast) === 'translateX') initialValue = node.initializer;
-  if (ts.isVariableDeclaration(node) && node.name.getText(ast) === 'RAIL_SPRING') springConfig = node.initializer;
-  ts.forEachChild(node, walk);
-}
-walk(ast);
-assert.ok(railEffect && initialValue && springConfig, 'Actual rail effect, initial transform and spring policy must exist');
-const effectDependencies = railEffect.arguments[1].elements.map((node) => node.getText(ast));
-assert.deepEqual(effectDependencies, ['direction', 'screenWidth', 'translateX', 'searching'],
-  'Direction, rotation and search changes must clean up and restart the resting animation');
-const moduleFactory = { exports: {} };
-const extracted = 'module.exports={initial:(Animated,useRef)=>(' + initialValue.getText(ast) + '),'
-  + 'effect:(useEffect,Animated,direction,screenWidth,translateX,searching)=>{const RAIL_SPRING='
-  + springConfig.getText(ast) + ';' + railEffect.getText(ast) + ';}};';
-vm.runInNewContext(ts.transpileModule(extracted, { compilerOptions: {
-  module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022,
-} }).outputText, { module: moduleFactory, exports: moduleFactory.exports });
-
-let now = 0, nextFrame = 0, executed = 0;
-const frames = new Map();
-const context = vm.createContext({ __DEV__: false, Date: { now: () => now },
-  setTimeout: () => assert.fail('Home spring has no delay'), clearTimeout: () => {},
-  requestAnimationFrame: (work) => { const id = ++nextFrame; frames.set(id, work); return id; },
-  cancelAnimationFrame: (id) => frames.delete(id),
-});
-vm.runInContext('global = globalThis', context);
-const hashes = {};
-function evaluate(relative, requireDependency) {
-  const file = path.join(mobile, 'node_modules/react-native/Libraries/Animated', relative);
-  const content = fs.readFileSync(file, 'utf8');
-  hashes[relative] = crypto.createHash('sha256').update(content).digest('hex');
-  const code = babel.transformSync(content, { filename: file, configFile: false, babelrc: false,
-    plugins: [req.resolve('babel-plugin-syntax-hermes-parser'),
-      req.resolve('@babel/plugin-transform-flow-strip-types'),
-      req.resolve('@babel/plugin-transform-modules-commonjs')],
-  }).code;
+const hookFile = path.join(mobile, 'lib/use-home-page-transition.ts');
+const fixtureFile = path.join(__dirname, 'ui-fixture.ts');
+function compile(filename, requireDependency) {
   const module = { exports: {} };
-  vm.runInContext('(function(module,exports,require){' + code + '\n})', context,
-    { filename: file })(module, module.exports, requireDependency);
+  const code = ts.transpileModule(fs.readFileSync(filename, 'utf8'), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+  new Function('require', 'module', 'exports', code)(requireDependency, module, module.exports);
   return module.exports;
 }
-const nativeHelper = { shouldUseNativeDriver: (config) => {
-  assert.equal(config.useNativeDriver, false, 'Every actual Home spring remains JS-driven');
-  return false;
-} };
-const BaseAnimation = evaluate('animations/Animation.js', (id) => {
-  if (id.endsWith('/NativeAnimatedHelper')) return nativeHelper;
-  if (id.endsWith('/ReactNativeFeatureFlags')) return {};
-  if (id === '../nodes/AnimatedProps') return class {};
-  assert.fail('Unexpected installed base animation dependency: ' + id);
-}).default;
-const config = evaluate('SpringConfig.js', (id) => assert.fail(id));
-const SpringAnimation = evaluate('animations/SpringAnimation.js', (id) => {
-  if (id === './Animation') return BaseAnimation;
-  if (id === '../SpringConfig') return config;
-  if (id === '../nodes/AnimatedColor') return class {};
-  if (id === 'invariant') return (condition, message) => assert.ok(condition, message);
-  assert.fail('Unexpected installed spring dependency: ' + id);
-}).default;
-const animations = [], completions = [];
-class Value {
-  constructor(initial) { this.value = initial; this.animation = null; }
-  setValue(next) { this.animation?.stop(); this.animation = null; this.value = next; }
-}
-const Animated = { Value, spring: (value, options) => {
-  const animation = new SpringAnimation(options);
-  animations.push({ animation, options });
-  return {
-    start: () => {
-      const previous = value.animation;
-      previous?.stop();
-      value.animation = animation;
-      animation.start(value.value, (next) => { value.value = next; },
-        (result) => {
-          completions.push(result.finished);
-          if (value.animation === animation) value.animation = null;
-        }, previous, { __isNative: false });
+const { uiHooks } = compile(fixtureFile, req);
+let checks = 0;
+function fixture(initialDirection = 'collect') {
+  const hooks = uiHooks();
+  // Shared fixture models effect ordering, not React's native paint boundary.
+  const react = { ...hooks.react, useLayoutEffect: hooks.react.useEffect };
+  const animations = [];
+  const props = { direction: initialDirection, enabled: true, resetKey: 'account-a/vault-a/390/search0' };
+  let current = true;
+  class Value {
+    constructor(value) { this.value = value; }
+    setValue(value) { this.value = value; }
+  }
+  const Animated = {
+    Value,
+    timing(value, options) {
+      assert.equal(options.useNativeDriver, true, 'Slide requests the native driver');
+      assert.equal(options.isInteraction, false, 'Presentation does not block interaction scheduling');
+      const record = { value, options, stopped: false, callback: null };
+      animations.push(record);
+      return {
+        start(callback) { record.callback = callback; },
+        stop() {
+          record.stopped = true;
+          record.callback?.({ finished: false });
+        },
+      };
     },
-    stop: () => animation.stop(),
   };
-} };
-const translation = moduleFactory.exports.initial(Animated, (value) => ({ current: value }));
-assert.equal(translation.value, 0, 'Actual initial Animated.Value puts Collect on-screen on the first paint');
-let cleanup;
-function mount(direction, width = 390, searching = false) {
-  cleanup?.();
-  moduleFactory.exports.effect((effect) => { cleanup = effect(); }, Animated,
-    direction, width, translation, searching);
-  assert.ok(frames.size <= 1, 'The actual effect can own at most one spring frame');
+  const { useHomePageTransition } = compile(hookFile, (name) => {
+    if (name === 'react') return react;
+    if (name === 'react-native') return { Animated };
+    assert.fail('Unexpected hook dependency: ' + name);
+  });
+  const render = () => hooks.render(() => useHomePageTransition(
+    props.direction, props.enabled, props.resetKey, () => current));
+  const update = (changes) => { Object.assign(props, changes); return render(); };
+  const complete = (record, finished = true) => {
+    assert.equal(typeof record.callback, 'function', 'Animation actually started');
+    if (finished && !record.stopped) record.value.setValue(record.options.toValue);
+    // Deliberately deliver stale callbacks even after stop/unmount.
+    record.callback({ finished });
+  };
+  const finish = (record, finished = true) => { complete(record, finished); return render(); };
+  const assertResting = (direction) => {
+    assert.equal(hooks.tree.renderedDirection, direction);
+    assert.equal(hooks.tree.switching, false);
+    assert.equal(hooks.tree.translateX.value, 0, 'Resting page is visibly at zero');
+    checks++;
+  };
+  render();
+  return { hooks, props, animations, render, update, complete, finish, assertResting,
+    setCurrent(value) { current = value; }, get state() { return hooks.tree; } };
 }
-function frame() {
-  assert.ok(frames.size <= 1, 'No accumulating retry or idle frame chains');
-  const current = [...frames.values()];
-  frames.clear(); now += 16;
-  current.forEach((work) => { executed++; work(now); });
+for (const initial of ['collect', 'pay']) {
+  const f = fixture(initial);
+  f.assertResting(initial);
+  assert.equal(f.animations.length, 0, 'Initial page needs no native animation to become visible');
+  for (let i = 0; i < 20; i++) f.render();
+  assert.equal(f.animations.length, 0, 'Resting rerenders schedule no idle animations');
+  f.hooks.unmount();
 }
-function settle(target) {
-  let count = 0;
-  while (frames.size && count++ < 600) frame();
-  assert.equal(frames.size, 0, 'Installed spring finishes within a bounded number of frames');
-  assert.equal(translation.value, target, 'Installed spring reaches the exact resting page');
-  const after = executed;
-  for (let i = 0; i < 120; i++) frame();
-  assert.equal(executed, after, 'A settled rail schedules no idle animation work');
-  return count;
+for (const [from, target, offset] of [['collect', 'pay', -24], ['pay', 'collect', 24]]) {
+  const f = fixture(from);
+  f.update({ direction: target });
+  assert.equal(f.state.renderedDirection, from, 'Destination stays unrendered throughout exit');
+  assert.equal(f.state.switching, true);
+  assert.equal(f.animations.length, 1);
+  const exit = f.animations[0];
+  assert.equal(exit.options.toValue, offset);
+  assert.equal(exit.options.duration, 100);
+  f.complete(exit);
+  assert.equal(f.state.renderedDirection, from, 'Delayed React commit still shows the old page');
+  assert.equal(f.state.translateX.value, offset, 'Exit completion cannot jump the old page to incoming edge');
+  assert.equal(f.animations.length, 1, 'Entry waits for the destination commit');
+  f.render();
+  assert.equal(f.state.renderedDirection, target, 'Successful current exit commits only the destination');
+  assert.equal(f.state.translateX.value, -offset, 'Committed destination starts at the opposite small offset');
+  assert.equal(f.state.switching, true, 'Actions stay blocked through entry');
+  assert.equal(f.animations.length, 2);
+  const enter = f.animations[1];
+  assert.equal(enter.options.toValue, 0);
+  assert.equal(enter.options.duration, 160);
+  f.finish(enter);
+  f.assertResting(target);
+  const count = f.animations.length;
+  f.render(); f.render();
+  assert.equal(f.animations.length, count, 'Completed transition schedules no more animation');
+  f.hooks.unmount();
 }
-mount('collect');
-assert.equal(frames.size, 0, 'Initial resting Collect paint needs no follow-up animation frame');
-mount('pay');
-assert.equal(animations.at(-1).options.toValue, -390, 'Actual Pay tab effect animates to physical right page');
-frame(); frame();
-assert.ok(translation.value < 0 && translation.value > -390, 'Installed spring moves between the real page positions');
-mount('collect');
-assert.ok(completions.includes(false), 'A rapid tab change stops the obsolete spring');
-const backFrames = settle(0);
-mount('pay');
-const payFrames = settle(-390);
-mount('pay', 844);
-const rotationFrames = settle(-844);
-mount('collect', 844);
-frame(); frame();
-mount('pay', 844, true);
-assert.equal(translation.value, -844, 'Opening search puts the remembered page directly at rest');
-assert.equal(frames.size, 0, 'Search stops the live rail animation');
-const beforeSearch = animations.length;
-for (let i = 0; i < 120; i++) frame();
-assert.equal(animations.length, beforeSearch, 'Search has no hidden animation loop');
-mount('pay', 844, false);
-settle(-844);
-mount('collect');
-frame();
-cleanup();
-const unmountedValue = translation.value;
-assert.equal(frames.size, 0, 'Unmount cleanup cancels the pending JS frame');
-for (let i = 0; i < 120; i++) frame();
-assert.equal(translation.value, unmountedValue, 'Unmounted spring never resumes');
-console.log(JSON.stringify({ allPassed: true, hostOnly: true,
-  installedRN: req('react-native/package.json').version,
-  framesToRest: { rapidSwitch: backFrames, pay: payFrames, rotation: rotationFrames },
-  executed, pendingFrames: frames.size,
-  sourceSha256: { ...hashes, 'app/index.tsx': crypto.createHash('sha256').update(source).digest('hex') },
-  boundaryStubs: ['React effect scheduling', 'Animated node storage/dispatch', 'native driver selection', 'host frame delivery'],
-  limitation: 'Actual Home effect and installed JS spring algorithm/lifecycle; Android rendering and frame timing require phone QA.' }, null, 2));
+{
+  const f = fixture();
+  f.update({ direction: 'pay' });
+  const oldExit = f.animations[0];
+  f.update({ direction: 'collect' });
+  assert.ok(oldExit.stopped, 'Reversal before exit stops the old animation');
+  f.assertResting('collect');
+  f.finish(oldExit);
+  f.assertResting('collect');
+  f.update({ direction: 'pay' });
+  const latestExit = f.animations.at(-1);
+  f.finish(oldExit);
+  assert.equal(f.state.renderedDirection, 'collect', 'Old completion cannot satisfy a new matching target');
+  f.finish(latestExit);
+  f.finish(f.animations.at(-1));
+  f.assertResting('pay');
+  f.hooks.unmount();
+}
+{
+  const f = fixture();
+  f.update({ direction: 'pay' });
+  f.finish(f.animations[0]);
+  const oldEnter = f.animations[1];
+  f.update({ direction: 'collect' });
+  const newExit = f.animations[2];
+  f.finish(oldEnter);
+  assert.equal(f.state.renderedDirection, 'pay');
+  assert.equal(f.state.switching, true, 'Old entry cannot clear a newer busy guard');
+  f.finish(newExit);
+  f.finish(f.animations.at(-1));
+  f.assertResting('collect');
+  f.hooks.unmount();
+}
+for (const changes of [
+  { enabled: false },
+  { resetKey: 'account-a/vault-a/844/search0' },
+  { resetKey: 'account-a/vault-b/390/search0' },
+  { resetKey: 'account-b/vault-a/390/search0' },
+  { resetKey: 'account-a/vault-a/390/search1' },
+]) {
+  for (const phase of ['exit', 'enter']) {
+    const f = fixture();
+    f.update({ direction: 'pay' });
+    if (phase === 'enter') f.finish(f.animations[0]);
+    const pending = f.animations.at(-1);
+    f.update(changes);
+    assert.ok(pending.stopped);
+    f.assertResting('pay');
+    const count = f.animations.length;
+    f.finish(pending);
+    f.assertResting('pay');
+    assert.equal(f.animations.length, count, 'Canceled completion starts no new phase');
+    f.hooks.unmount();
+  }
+}
+for (const phase of ['exit', 'enter']) {
+  const f = fixture();
+  f.update({ direction: 'pay' });
+  if (phase === 'enter') f.finish(f.animations[0]);
+  const pending = f.animations.at(-1);
+  f.state.cancel(); // Focus/AppState departure or explicit cancellation.
+  f.render();
+  f.assertResting('pay');
+  f.finish(pending);
+  f.assertResting('pay');
+  f.hooks.unmount();
+}
+{
+  const f = fixture();
+  f.update({ direction: 'pay' });
+  const pending = f.animations[0];
+  f.setCurrent(false);
+  f.finish(pending);
+  assert.equal(f.state.renderedDirection, 'collect', 'Live ownership guard rejects completion before cleanup');
+  assert.equal(f.animations.length, 1, 'Rejected completion starts no entry');
+  f.state.cancel(); f.render();
+  f.assertResting('pay');
+  f.hooks.unmount();
+}
+{
+  const f = fixture();
+  f.update({ direction: 'pay' });
+  f.finish(f.animations[0], false);
+  assert.equal(f.state.renderedDirection, 'collect', 'Unfinished exit cannot publish destination');
+  assert.equal(f.animations.length, 1);
+  f.state.cancel(); f.render();
+  f.assertResting('pay');
+  f.hooks.unmount();
+}
+for (const phase of ['exit', 'enter']) {
+  const f = fixture();
+  f.update({ direction: 'pay' });
+  if (phase === 'enter') f.finish(f.animations[0]);
+  const pending = f.animations.at(-1);
+  f.hooks.unmount();
+  assert.ok(pending.stopped);
+  const writes = f.hooks.lateWrites;
+  f.complete(pending);
+  assert.equal(f.hooks.lateWrites, writes, 'Late native completion cannot update unmounted state');
+  checks++;
+}
+console.log(JSON.stringify({ allPassed: true, hostOnly: true, checks,
+  sourceSha256: { 'lib/use-home-page-transition.ts': crypto.createHash('sha256').update(fs.readFileSync(hookFile)).digest('hex') },
+  boundaryStubs: ['React hook/effect scheduling via uiHooks; layout effects share its controlled queue', 'Animated.Value storage', 'native timing/completion delivery'],
+  limitation: 'Actual hook lifecycle and destination timing; native rendering, gesture arbitration and frame times require device QA.' }, null, 2));

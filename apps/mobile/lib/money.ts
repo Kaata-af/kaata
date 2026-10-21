@@ -59,10 +59,16 @@ export function sumAmounts(amounts: Iterable<number>): number {
   return fromMinorUnits(minor);
 }
 
+// Reuse ICU's formatter across rows instead of constructing one for every
+// number.toLocaleString call. Keep it lazy so imports do no formatting work.
+let wholeAmountFormatter: Intl.NumberFormat | undefined;
+
 /** Unsigned Latin digits in every language; whole amounts retain their shape. */
 export function formatMoneyAmount(amount: number): string {
   const minor = Math.abs(toMinorUnits(amount));
-  const whole = Math.floor(minor / 100).toLocaleString("en-US");
+  const whole = (wholeAmountFormatter ??= new Intl.NumberFormat("en-US")).format(
+    Math.floor(minor / 100),
+  );
   const cents = minor % 100;
   return cents === 0 ? whole : `${whole}.${String(cents).padStart(2, "0")}`;
 }

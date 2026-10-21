@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { SharedAccountBadge } from "./SharedAccountBadge";
 import { CreditStatusBadge, type CreditStatus } from "./CreditStatusBadge";
-import { memo } from "react";
+import { memo, useRef } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { colors } from "../lib/colors";
 import { getCurrentCurrencySymbol } from "../lib/currency";
@@ -20,7 +20,7 @@ import { SelectionMark } from "./SelectionMark";
 // signed amount so balances from both directions stay clear in the same list.
 //
 // Memoized, and the callbacks take the person so parents can pass STABLE
-// handlers — home renders every person in two lists, and without the memo a
+// handlers — home can show hundreds of customers, and without the memo a
 // toast push (which re-renders the whole screen twice via the toast context)
 // re-rendered hundreds of rows on low-end devices.
 export const PersonRow = memo(function PersonRow(props: {
@@ -35,6 +35,7 @@ export const PersonRow = memo(function PersonRow(props: {
 }) {
   const isRTL = useIsRTL();
   const { person } = props;
+  const activePress = useRef<{ personId: string } | null>(null);
   const abs = Math.abs(person.balance);
   // Deliberately settled (user drew the line, balance zero, nothing since) —
   // NOT the same as a balance that merely sums to zero. Settled rows get a
@@ -65,13 +66,31 @@ export const PersonRow = memo(function PersonRow(props: {
 
   return (
     <Pressable
-      onPress={() => props.onPress(person)}
+      onPressIn={() => {
+        activePress.current = { personId: person.id };
+      }}
+      onPressOut={() => {
+        const press = activePress.current;
+        // Pressability can call onPress immediately after onPressOut. Keep
+        // that release bound to its original customer until this turn ends.
+        queueMicrotask(() => {
+          if (activePress.current === press) activePress.current = null;
+        });
+      }}
+      onPress={() => {
+        if (activePress.current && activePress.current.personId !== person.id) return;
+        props.onPress(person);
+      }}
       // Pressability checks the CURRENT handler on release. Entering selection
       // removes the parent's start handler, so keep one installed while selecting
       // or that same hold becomes an onPress and immediately deselects the row.
       onLongPress={
         props.onLongPress || props.selecting
-          ? () => (props.selecting ? props.onPress(person) : props.onLongPress?.(person))
+          ? () => {
+              if (activePress.current && activePress.current.personId !== person.id) return;
+              if (props.selecting) props.onPress(person);
+              else props.onLongPress?.(person);
+            }
           : undefined
       }
       delayLongPress={350}

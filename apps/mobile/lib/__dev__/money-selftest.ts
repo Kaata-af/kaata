@@ -22,6 +22,7 @@ import type {
 } from "../events";
 import type { Entry } from "../types";
 import {
+  MAX_ENTRY_AMOUNT,
   addAmounts,
   formatMoneyAmount,
   fromMinorUnits,
@@ -300,6 +301,21 @@ async function main(): Promise<void> {
     assert.equal(formatMoneyAmount(100), "100");
     assert.equal(formatMoneyAmount(100.5), "100.50");
     assert.equal(formatMoneyAmount(-1234.56), "1,234.56");
+    for (const [amount, expected] of [
+      [0, "0"],
+      [-0, "0"],
+      [0.01, "0.01"],
+      [999.99, "999.99"],
+      [1000, "1,000"],
+      [-1_000_000.1, "1,000,000.10"],
+      [MAX_ENTRY_AMOUNT, "9,999,999,999.99"],
+      [90_000_000_000_000, "90,000,000,000,000"],
+    ] as const) {
+      assert.equal(formatMoneyAmount(amount), expected);
+    }
+    for (const amount of [NaN, Infinity, -Infinity, 0.001]) {
+      assert.throws(() => formatMoneyAmount(amount), RangeError);
+    }
     for (const value of [NaN, Infinity, -Infinity, 0.001, 1.005, Number.MAX_SAFE_INTEGER]) {
       assert.throws(() => toMinorUnits(value), RangeError, String(value));
     }

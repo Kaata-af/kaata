@@ -122,8 +122,22 @@ function asciiDigits(value: string): string {
     .replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 0x0660));
 }
 
+// At most one collator per supported app language. Keep collation setup out
+// of the sort's comparisons without changing the language or sensitivity.
+const nameCollators = new Map<LocaleCode, Intl.Collator>();
+
+function nameCollator(locale: LocaleCode): Intl.Collator {
+  let collator = nameCollators.get(locale);
+  if (!collator) {
+    collator = new Intl.Collator(locale, { sensitivity: "base" });
+    nameCollators.set(locale, collator);
+  }
+  return collator;
+}
+
 /** Number-aware name order: "Ahmad 2" before "Ahmad 10", "دکان ۲" before "دکان ۱۰". */
 export function compareCustomerNames(a: string, b: string, locale: LocaleCode): number {
+  const compare = nameCollator(locale).compare;
   const chunks = (value: string) => asciiDigits(value).match(/\d+|\D+/g) ?? [];
   const left = chunks(a);
   const right = chunks(b);
@@ -135,11 +149,11 @@ export function compareCustomerNames(a: string, b: string, locale: LocaleCode): 
       const y = right[i].replace(/^0+(?=\d)/, "");
       order = x.length - y.length || (x < y ? -1 : x > y ? 1 : 0);
     } else {
-      order = left[i].localeCompare(right[i], locale, { sensitivity: "base" });
+      order = compare(left[i], right[i]);
     }
     if (order !== 0) return order;
   }
-  return left.length - right.length || a.localeCompare(b, locale, { sensitivity: "base" });
+  return left.length - right.length || compare(a, b);
 }
 
 /** Sorting/filtering is presentation only: never modifies balances or input. */

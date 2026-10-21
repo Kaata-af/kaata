@@ -167,6 +167,7 @@ const credit = compile<typeof import("../credit-limits")>("../credit-limits", (n
   if (name === "./credit-policy-events")
     return {
       emitCreditPoliciesChanged: () => {
+        assert.equal(fixture.inTransaction, false, "policy notifications follow the commit");
         emits++;
       },
     };
@@ -810,7 +811,102 @@ async function ownerArchiveAuthority() {
     "PASS owner-only archive/unarchive gate, Admin name/currency authority, and signed-out editor/clerk/viewer configuration denial",
   );
 }
+async function unchangedPolicyRefreshes() {
+  resetSession("jwt-noop", "noop-owner");
+  const rowChanges = () =>
+    (fixture.prepare("SELECT total_changes() AS n").get() as { n: number }).n;
+  const refresh = async (rows: CreditPolicy[], expectedChanges: number) => {
+    getReply = rows;
+    const beforeEmits = emits;
+    const beforeChanges = rowChanges();
+    await credit.refreshCreditPolicies("v1");
+    assert.equal(
+      rowChanges() - beforeChanges,
+      expectedChanges,
+      "only changed cache rows are written",
+    );
+    assert.equal(
+      emits - beforeEmits,
+      expectedChanges > 0 ? 1 : 0,
+      "one committed cache change notifies; unchanged responses do not",
+    );
+  };
+  await refresh([], 0);
+  await refresh([], 0);
+
+  let rows = [
+    policy(null, "warn", 10),
+    { ...policy(null, "warn", 10), relationship_id: KAATA_DEFAULT_CREDIT_ID },
+  ];
+  await refresh(rows, 2);
+  await refresh(rows, 0);
+  await refresh(rows, 0);
+
+  // Exercise real changes independently for both customer and kaata default.
+  // Equal-version differences retain the cache's existing <= timestamp contract.
+  for (const index of [0, 1]) {
+    for (const patch of [
+      { max_collect_minor: 0 },
+      { max_pay_minor: null },
+      { mode: "clerk_block" as const },
+      { restrict_editors: true },
+      { updated_at_ms: 11 },
+      { restrict_editors: false },
+    ]) {
+      rows = rows.map((row, i) => (i === index ? { ...row, ...patch } : row));
+      await refresh(rows, 1);
+      await refresh(rows, 0);
+      const stored = await credit.readCreditPolicy(rows[index].relationship_id, "v1");
+      assert.deepEqual(stored, {
+        ...rows[index],
+        restrict_editors: !!rows[index].restrict_editors,
+      });
+    }
+  }
+  // Omitted false and explicit false are the same persisted restriction.
+  await refresh(
+    rows.map(({ restrict_editors: _, ...row }) => row),
+    0,
+  );
+  await refresh([rows[1]], 1);
+  await refresh([rows[1]], 0);
+  await refresh([], 1);
+  await refresh([], 0);
+  await refresh([{ ...policy(), relationship_id: "r2" }], 0);
+  const wrongVaultRows = fixture
+    .prepare("SELECT count(*) AS n FROM customer_credit_limits WHERE vault_id='v1'")
+    .get() as { n: number };
+  assert.equal(wrongVaultRows.n, 0, "a different vault's relationship is not cached");
+
+  // Partial work rolls back before any notification if a response is invalid.
+  getReply = [rows[1], policy(1.5)];
+  const beforeInvalid = emits;
+  await assert.rejects(credit.refreshCreditPolicies("v1"), /Invalid credit policy response/);
+  assert.equal(emits, beforeInvalid);
+  assert.equal(await credit.readCreditPolicy(KAATA_DEFAULT_CREDIT_ID, "v1"), null);
+  assert.equal(await credit.readCreditPolicy("r1", "v1"), null);
+
+  assert.equal(await cacheCreditPolicies(db, "v1", [policy(100, "warn", 20)], 21), true);
+  await refresh([policy(1, "clerk_block", 10)], 0);
+  assert.equal(cached()?.max_collect_minor, 100, "an older response cannot change the cache");
+  fixture.prepare("UPDATE customer_credit_limits SET sync_pending=1 WHERE vault_id='v1'").run();
+  assert.equal(await cacheCreditPolicies(db, "v1", [], 30), false);
+  assert.equal(await cacheCreditPolicies(db, "v1", [policy(1, "clerk_block", 30)], 30), false);
+  assert.equal(cached()?.max_collect_minor, 100, "pending local intent remains unchanged");
+  assert.equal(cached()?.sync_pending, 1);
+
+  fixture.exec("DELETE FROM customer_credit_limits; DELETE FROM kaata_credit_defaults");
+  resetSession(null, null);
+  getReply = [];
+  puts = 0;
+  emits = 0;
+  console.log(
+    "PASS unchanged policy GETs perform zero row changes and notifications; real/default changes, removals, rollback, scope and pending intent retain their contracts",
+  );
+}
+
 async function run() {
+  await unchangedPolicyRefreshes();
   assert.equal(creditExceeded(policy(), 0, 10000), false);
   assert.equal(creditExceeded(policy(), 10000, 10001), true);
   assert.equal(
@@ -899,9 +995,11 @@ async function run() {
   const late = credit.refreshCreditPolicies("v1");
   await new Promise((r) => setTimeout(r, 0));
   await credit.saveCreditPolicy("v1", policy(500));
+  const beforeLateReply = emits;
   release();
   await late;
   deferGET = null;
+  assert.equal(emits, beforeLateReply, "a version-superseded GET emits no false policy change");
   assert.equal(
     cached()?.max_collect_minor,
     500,
@@ -914,9 +1012,11 @@ async function run() {
   const switched = credit.refreshCreditPolicies("v1");
   await new Promise((r) => setTimeout(r, 0));
   resetSession("jwt-b", "b");
+  const beforeSwitchedReply = emits;
   release();
   await assert.rejects(switched, SessionChangedError);
   deferGET = null;
+  assert.equal(emits, beforeSwitchedReply, "another session's response cannot notify this session");
   assert.equal(cached()?.max_collect_minor, 500, "A reply cannot mutate B cache");
   console.log("PASS stale GET vs save and same-vault account-switch response guards");
 

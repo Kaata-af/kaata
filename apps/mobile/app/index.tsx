@@ -7,7 +7,7 @@ import {
   useRouter,
 } from "expo-router";
 import { useSearchFocusEffect as useFocusEffect } from "../lib/use-search-focus-effect";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   AppState,
@@ -94,6 +94,7 @@ import {
 import { onCreditPoliciesChanged } from "../lib/credit-policy-events";
 import type { CreditStatus } from "../components/CreditStatusBadge";
 import { useLedgerRefresh } from "../lib/ledger-events";
+import { useHomePageTransition } from "../lib/use-home-page-transition";
 import { syncActiveVaultNow } from "../lib/sync/scheduler";
 import { syncAllTabs } from "../lib/tabs/sync";
 import { bidiIsolate, rowDir, textDir, trackingSafe, useIsRTL } from "../lib/direction";
@@ -124,6 +125,10 @@ const PROFILE_SLOT_SIZE = 36;
 // Add button and search share the 52px action height used by the other docks.
 const FAB_SIZE = 52;
 const EMPTY_PEOPLE: PersonWithBalance[] = [];
+const EMPTY_SEARCH_MATCHES = {
+  people: EMPTY_PEOPLE,
+  relevanceById: new Map<string, number>(),
+};
 
 // Tab labels are computed at render time so locale changes (after a hot reload
 // during dev) flow through. The keys remain stable identifiers.
@@ -140,9 +145,6 @@ const FLICK_VELOCITY = 500;
 // Drag distance (as a fraction of screen width) at or above which a slow drag
 // commits even without a flick. 30% is the common iOS/Material convention.
 const DRAG_COMMIT_FRACTION = 0.3;
-// Spring config for both the gesture-end animation and the tab-tap animation.
-// Mid-stiffness: fast settle without overshoot.
-const RAIL_SPRING = { friction: 14, tension: 110 } as const;
 
 /**
  * ONE sync toggle: enabling Nearby sync also turns on the native background
@@ -307,23 +309,6 @@ export default function HomeScreen() {
   // NavRow opens this dialog; only on confirmation do we actually wipe the
   // local session.
   const [signOutConfirm, setSignOutConfirm] = useState(false);
-
-  // Rail position: 0 = collect tab visible, -screenWidth = pay tab visible.
-  //
-  // JS-DRIVEN ON PURPOSE (useNativeDriver:false everywhere translateX is
-  // animated). The Xiaomi/MIUI "blank page until you swipe" bug is the
-  // native-driver initial-frame problem: with useNativeDriver:true an
-  // Animated.View's starting transform isn't pushed to the native layer until
-  // the first animation/interaction, so on some OEMs the rail paints blank
-  // until a swipe kicks it. The 0ms-timing commit hack we tried did NOT fix it
-  // on the Mi 10T. JS-driven Animated resolves the current value into a plain
-  // style on every React render, so the very first paint already has
-  // transform: translateX(0) (collect visible) — no native commit required.
-  // Cost is ~nil here: the pan gesture is runOnJS(true) and already calls
-  // .setValue() on the JS thread, so we weren't getting the UI-thread win
-  // anyway; only the short tab-switch/spring-back springs move to JS, which is
-  // imperceptible for a single transform.
-  const translateX = useRef(new Animated.Value(0)).current;
 
   // Timestamp of the last hardware back press while home is focused. Lives
   // OUTSIDE the useFocusEffect callback so it persists across re-subscriptions —
@@ -695,7 +680,7 @@ export default function HomeScreen() {
   const visibleSearchPeople = currentPeopleScope ? peopleForSearch : EMPTY_PEOPLE;
   const searching = searchVisible && currentPeopleScope && currentVaultScope;
   // A swipe queued before search must never switch the remembered tab, even
-  // if its JS callback arrives after search is cleared and the rail returns.
+  // if its JS callback arrives after search is cleared and the page returns.
   const searchGestureState = useRef({ active: searching, generation: 0 });
   if (searchGestureState.current.active !== searching) {
     searchGestureState.current.active = searching;
@@ -705,8 +690,11 @@ export default function HomeScreen() {
   // committed `searching` value stays false. Memoize by this generation too.
   const searchGestureGeneration = searchGestureState.current.generation;
   const searchMatches = useMemo(
-    () => searchCustomerMatches(splitSearchQuery(customerQuery), visibleSearchPeople),
-    [visibleSearchPeople, customerQuery],
+    () =>
+      searching
+        ? searchCustomerMatches(splitSearchQuery(customerQuery), visibleSearchPeople)
+        : EMPTY_SEARCH_MATCHES,
+    [searching, visibleSearchPeople, customerQuery],
   );
   const collectPeople = useMemo(
     () =>
@@ -724,14 +712,16 @@ export default function HomeScreen() {
   );
   const searchPeople = useMemo(
     () =>
-      selectSearchCustomers(
-        searchMatches.people,
-        listPreference,
-        groupByPerson,
-        locale,
-        searchMatches.relevanceById,
-      ),
-    [searchMatches, listPreference, groupByPerson, locale],
+      searching
+        ? selectSearchCustomers(
+            searchMatches.people,
+            listPreference,
+            groupByPerson,
+            locale,
+            searchMatches.relevanceById,
+          )
+        : EMPTY_PEOPLE,
+    [searching, searchMatches, listPreference, groupByPerson, locale],
   );
   const canSelect = caps.resolved && canAmend && currentVaultScope && currentPeopleScope;
   const selecting = searching && selectionMode && canSelect;
@@ -865,11 +855,11 @@ export default function HomeScreen() {
     () => visibleAllPeople.filter((p) => !isNeverTalliedCustomer(p) && customerSide(p) === "pay"),
     [visibleAllPeople],
   );
-  // Both pages stay mounted; only the visible page may act on a customer.
   // Read the live scope when a retained row callback eventually runs.
-  const homePeopleById = useMemo(() => new Map(visibleAllPeople.map((person) => [person.id, person])), [visibleAllPeople]);
-  const homeInteraction = useRef({ direction, searching, people: homePeopleById });
-  homeInteraction.current = { direction, searching, people: homePeopleById };
+  const homePeopleById = useMemo(
+    () => new Map(visibleAllPeople.map((person) => [person.id, person])),
+    [visibleAllPeople],
+  );
   const effectiveGroup = useMemo(
     () => availableCustomerGroupFilter(listPreference.group, customerGroups),
     [listPreference.group, customerGroups],
@@ -895,9 +885,14 @@ export default function HomeScreen() {
       : selectedCustomerGroupIds(effectiveGroup).length;
   // A new order starts at its top; otherwise the first rows of a re-sorted
   // long list are scrolled off-screen.
-  const collectScrollRef = useRef<ScrollView>(null);
-  const payScrollRef = useRef<ScrollView>(null);
+  const homeScrollRef = useRef<ScrollView>(null);
   const searchScrollRef = useRef<ScrollView>(null);
+  const homeScrollScope = JSON.stringify([activeAccountId, activeVaultId]);
+  const homeScrollPositions = useRef({ scope: homeScrollScope, collect: 0, pay: 0 });
+  if (homeScrollPositions.current.scope !== homeScrollScope)
+    homeScrollPositions.current = { scope: homeScrollScope, collect: 0, pay: 0 };
+  // Retained callbacks write their own scope's record, including account ABA.
+  const homeScrollPosition = homeScrollPositions.current;
   const listOrderKey = `${listPreference.sort}|${JSON.stringify(effectiveGroup)}`;
   const shownListOrderKey = useRef(listOrderKey);
   useEffect(() => {
@@ -951,55 +946,67 @@ export default function HomeScreen() {
     setSearchVisible(true);
   };
 
-  // Animate the rail to the resting position for the current direction.
-  // Fires on both tab taps (direction changes via Tabs) and post-commit
-  // direction changes from swipe. Cleanup stops any in-flight spring so
-  // a rapid tap-then-swipe (or vice-versa) doesn't stall mid-screen.
+  const pageCurrent = () =>
+    mounted.current &&
+    selectionOwnerActive.current &&
+    activeVaultId === getActiveVaultIdSyncMaybe() &&
+    activeAccountId === getAccountIdSync() &&
+    !searchGestureState.current.active;
+  const {
+    renderedDirection,
+    switching: pageSwitching,
+    translateX,
+    cancel: cancelPageSwitch,
+  } = useHomePageTransition(
+    direction,
+    loaded && screenWidth > 0 && !searching,
+    JSON.stringify([activeAccountId, activeVaultId, screenWidth, searchGestureGeneration]),
+    pageCurrent,
+  );
+  const pageBusy = pageSwitching || direction !== renderedDirection;
+  const homeInteraction = useRef({
+    direction: renderedDirection,
+    searching,
+    people: homePeopleById,
+    busy: pageBusy,
+  });
+  homeInteraction.current = {
+    direction: renderedDirection,
+    searching,
+    people: homePeopleById,
+    busy: pageBusy,
+  };
+  useRouteFocusEffect(
+    useCallback(
+      () => () => {
+        if (mounted.current) cancelPageSwitch();
+      },
+      [cancelPageSwitch],
+    ),
+  );
   useEffect(() => {
-    const target = direction === "collect" ? 0 : -screenWidth;
-    if (searching) {
-      // setValue stops any swipe spring while the rail is hidden. The effect
-      // reruns on clearing search, so the remembered tab remounts at rest.
-      translateX.setValue(target);
-      return;
-    }
-    const animation = Animated.spring(translateX, {
-      toValue: target,
-      useNativeDriver: false, // see translateX decl — JS-driven to fix MIUI blank-on-mount
-      ...RAIL_SPRING,
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state !== "active") cancelPageSwitch();
     });
-    animation.start();
-    return () => animation.stop();
-  }, [direction, screenWidth, translateX, searching]);
+    return () => subscription.remove();
+  }, [cancelPageSwitch]);
 
-  // (The old 0ms native-driver "commit the initial transform" effect was
-  // removed — it didn't fix the Mi 10T blank-on-mount. The rail is now
-  // JS-driven so the first paint already carries the correct transform; see the
-  // translateX declaration above.)
-
-  // The swipe gesture. activeOffsetX requires ~24px of horizontal movement
-  // before the pan claims the touch — keeps small vertical drags falling
-  // through to the inner ScrollView. failOffsetY abandons the gesture entirely
-  // if the user starts a clearly-vertical drag.
+  // Recognize the original horizontal thresholds without sending every drag
+  // frame through JS. The one-page slide runs natively after release.
   const swipeGesture = useMemo(() => {
-    const baseAt = (d: Direction) => (d === "collect" ? 0 : -screenWidth);
     const generation = searchGestureGeneration;
     const current = () =>
-      mounted.current && selectionOwnerActive.current &&
-      activeVaultId === getActiveVaultIdSyncMaybe() && activeAccountId === getAccountIdSync() &&
-      !searchGestureState.current.active && searchGestureState.current.generation === generation;
+      mounted.current &&
+      selectionOwnerActive.current &&
+      activeVaultId === getActiveVaultIdSyncMaybe() &&
+      activeAccountId === getAccountIdSync() &&
+      !homeInteraction.current.busy &&
+      !searchGestureState.current.active &&
+      searchGestureState.current.generation === generation;
     return Gesture.Pan()
       .activeOffsetX([-24, 24])
       .failOffsetY([-16, 16])
       .runOnJS(true)
-      .onUpdate((e) => {
-        if (!current()) return;
-        // Follow finger. Clamp to the rail's bounds so users can't drag
-        // past the first/last tab into empty space.
-        const next = baseAt(direction) + e.translationX;
-        const clamped = Math.max(-screenWidth, Math.min(0, next));
-        translateX.setValue(clamped);
-      })
       .onEnd((e) => {
         if (!current()) return;
         const distance = e.translationX;
@@ -1021,26 +1028,21 @@ export default function HomeScreen() {
         } else if (commitToCollect) {
           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Soft).catch(() => undefined);
           setDirection("collect");
-        } else {
-          // Released below the threshold — spring back to the current tab's
-          // resting position. The post-commit useEffect handles the other
-          // case, so we only need this branch here.
-          Animated.spring(translateX, {
-            toValue: baseAt(direction),
-            useNativeDriver: false, // see translateX decl — JS-driven to fix MIUI blank-on-mount
-            ...RAIL_SPRING,
-          }).start();
         }
       });
-  }, [direction, screenWidth, translateX, searching, searchGestureGeneration, activeVaultId, activeAccountId]);
+  }, [direction, screenWidth, searching, searchGestureGeneration, activeVaultId, activeAccountId]);
 
   // Stable row handlers — PersonRow is memoized, and these two props must
   // keep their identity across renders or every row re-renders on each
   // toast push / locale flip (see PersonRow's memo rationale).
   const openPerson = useCallback(
     (p: PersonWithBalance) => {
-      if (!mounted.current || !selectionOwnerActive.current ||
-          activeVaultId !== getActiveVaultIdSyncMaybe() || activeAccountId !== getAccountIdSync())
+      if (
+        !mounted.current ||
+        !selectionOwnerActive.current ||
+        activeVaultId !== getActiveVaultIdSyncMaybe() ||
+        activeAccountId !== getAccountIdSync()
+      )
         return;
       if (searching && !isCurrentSearch()) return;
       if (selecting) {
@@ -1069,22 +1071,38 @@ export default function HomeScreen() {
       } else {
         const current = homeInteraction.current;
         const person = current.people.get(p.id);
-        if (current.searching || !person ||
-            (!isNeverTalliedCustomer(person) && customerSide(person) !== current.direction)) return;
+        if (
+          current.searching ||
+          current.busy ||
+          !person ||
+          (!isNeverTalliedCustomer(person) && customerSide(person) !== current.direction)
+        )
+          return;
         router.push({ pathname: "/person/[id]", params: { id: p.id } });
       }
     },
     [router, activeVaultId, activeAccountId, selecting, selectableIds, searching, searchRequest],
   );
-  const openHomePersonActions = useCallback((p: PersonWithBalance) => {
-    const current = homeInteraction.current;
-    const person = current.people.get(p.id);
-    if (!mounted.current || !selectionOwnerActive.current || !canSelectRef.current ||
-        current.searching || activeVaultId !== getActiveVaultIdSyncMaybe() ||
-        activeAccountId !== getAccountIdSync() || !person ||
-        (!isNeverTalliedCustomer(person) && customerSide(person) !== current.direction)) return;
-    setSheetFor(person);
-  }, [activeVaultId, activeAccountId]);
+  const openHomePersonActions = useCallback(
+    (p: PersonWithBalance) => {
+      const current = homeInteraction.current;
+      const person = current.people.get(p.id);
+      if (
+        !mounted.current ||
+        !selectionOwnerActive.current ||
+        !canSelectRef.current ||
+        current.searching ||
+        current.busy ||
+        activeVaultId !== getActiveVaultIdSyncMaybe() ||
+        activeAccountId !== getAccountIdSync() ||
+        !person ||
+        (!isNeverTalliedCustomer(person) && customerSide(person) !== current.direction)
+      )
+        return;
+      setSheetFor(person);
+    },
+    [activeVaultId, activeAccountId],
+  );
 
   const confirmationVersion = selectionConfirmationVersion.current;
   const selectionToolbar = selecting ? (
@@ -1339,7 +1357,13 @@ export default function HomeScreen() {
       {activeVaultId ? (
         <View style={[styles.tabsWrap, rowDir(isRTL)]}>
           <View style={{ flex: 1 }}>
-            <Tabs<Direction> tabs={buildTabs()} value={direction} onChange={setDirection} />
+            <Tabs<Direction>
+              tabs={buildTabs()}
+              value={direction}
+              onChange={(next) => {
+                if (pageCurrent()) setDirection(next);
+              }}
+            />
           </View>
         </View>
       ) : null}
@@ -1406,7 +1430,7 @@ export default function HomeScreen() {
               />
             </View>
           ) : loaded && loadError && allPeople.length === 0 ? (
-            // Load failed with nothing cached to show. Rendering the rail here
+            // Load failed with nothing cached to show. Rendering the page here
             // would show "0" totals — the false data-loss signal this audience
             // is most sensitive to. A later successful retry clears this.
             <View style={styles.loadingFill}>
@@ -1421,44 +1445,26 @@ export default function HomeScreen() {
               </Pressable>
             </View>
           ) : loaded && screenWidth > 0 ? (
-            // screenWidth>0 gate: on some devices (Xiaomi/MIUI) useWindowDimensions
-            // returns 0 for the first frame(s); rendering the rail at width 0 paints
-            // blank-white until a swipe forces a re-layout (the reported bug). Showing
-            // the spinner until width resolves makes the main page appear on its own.
+            // A real positive width and resting transform0 keep the first page
+            // visible without waiting for a native animation to initialize.
             <GestureDetector gesture={swipeGesture}>
               <Animated.View
-                style={[styles.rail, { width: screenWidth * 2, transform: [{ translateX }] }]}
+                style={[styles.page, { width: screenWidth, transform: [{ translateX }] }]}
               >
                 <TabPage
-                  direction="collect"
-                  active={direction === "collect"}
-                  people={collectPeople}
-                  allPeople={collectAll}
+                  key={homeScrollScope}
+                  direction={renderedDirection}
+                  active={!pageBusy}
+                  people={renderedDirection === "collect" ? collectPeople : payPeople}
+                  allPeople={renderedDirection === "collect" ? collectAll : payAll}
                   neverTalliedPeople={neverTalliedPeople}
                   filtered={false}
-                  filterTotal={collectAll.length}
-                  scrollRef={collectScrollRef}
-                  groupFilterLabel={null}
-                  groupFilterCount={0}
-                  onClearGroupFilter={() => {}}
-                  creditByPerson={creditByPerson}
-                  vaultId={activeVaultId}
-                  width={screenWidth}
-                  paddingBottom={96 + insets.bottom}
-                  refreshing={refreshing}
-                  onRefresh={onRefresh}
-                  onPersonPress={openPerson}
-                  onPersonLongPress={canAmend ? openHomePersonActions : undefined}
-                />
-                <TabPage
-                  direction="pay"
-                  active={direction === "pay"}
-                  people={payPeople}
-                  allPeople={payAll}
-                  neverTalliedPeople={neverTalliedPeople}
-                  filtered={false}
-                  filterTotal={payAll.length}
-                  scrollRef={payScrollRef}
+                  filterTotal={renderedDirection === "collect" ? collectAll.length : payAll.length}
+                  scrollRef={homeScrollRef}
+                  initialScrollY={homeScrollPosition[renderedDirection]}
+                  onScrollOffset={(offset) => {
+                    homeScrollPosition[renderedDirection] = offset;
+                  }}
                   groupFilterLabel={null}
                   groupFilterCount={0}
                   onClearGroupFilter={() => {}}
@@ -1474,7 +1480,7 @@ export default function HomeScreen() {
               </Animated.View>
             </GestureDetector>
           ) : (
-            // Pre-load: spinner instead of the rail. Rendering the rail before
+            // Pre-load: spinner instead of the page. Rendering the page before
             // load() resolves flashed "0" totals + the first-run empty state at
             // every cold launch — a false "my ledger is gone" signal for a
             // shopkeeper with a full book.
@@ -2050,6 +2056,8 @@ export default function HomeScreen() {
 
 type CustomerRowsProps = {
   people: PersonWithBalance[];
+  /** Idle financial pages reuse stateless native row slots across directions. */
+  reuseSlots?: boolean;
   creditByPerson: Record<string, CreditStatus>;
   onPersonPress: (person: PersonWithBalance) => void;
   // Omitted for a viewer (read-only) — long-press opens the edit/delete sheet.
@@ -2078,25 +2086,49 @@ type RefreshableCustomerScrollProps = CustomerScrollProps & {
 
 /** One bordered card keeps the existing row behavior in idle and search. */
 function CustomerRows(props: CustomerRowsProps) {
-  return (
-    <View style={styles.peopleCard}>
-      {props.people.map((item, index) => (
-        <View key={item.id}>
+  const {
+    people,
+    creditByPerson,
+    onPersonPress,
+    onPersonLongPress,
+    selecting,
+    selectedIds,
+    selectionBusy,
+    showDirection,
+    reuseSlots,
+  } = props;
+  // Reuse the visible page's rows during unrelated Home updates. Rebuild only
+  // when displayed data, selection or actions change.
+  const rows = useMemo(
+    () =>
+      people.map((item, index) => (
+        <View key={reuseSlots ? index : item.id}>
           {index > 0 ? <View style={styles.divider} /> : null}
           <PersonRow
             person={item}
-            creditStatus={props.creditByPerson[item.id] ?? "none"}
-            onPress={props.onPersonPress}
-            onLongPress={props.onPersonLongPress}
-            selecting={props.selecting}
-            selected={props.selecting && props.selectedIds?.has(item.id)}
-            disabled={props.selectionBusy}
-            showDirection={props.showDirection}
+            creditStatus={creditByPerson[item.id] ?? "none"}
+            onPress={onPersonPress}
+            onLongPress={onPersonLongPress}
+            selecting={selecting}
+            selected={selecting && selectedIds?.has(item.id)}
+            disabled={selectionBusy}
+            showDirection={showDirection}
           />
         </View>
-      ))}
-    </View>
+      )),
+    [
+      people,
+      creditByPerson,
+      onPersonPress,
+      onPersonLongPress,
+      selecting,
+      selectedIds,
+      selectionBusy,
+      showDirection,
+      reuseSlots,
+    ],
   );
+  return <View style={styles.peopleCard}>{rows}</View>;
 }
 
 /** A customer has no money direction until there is a tally. Kept visible on
@@ -2177,11 +2209,25 @@ function TabPage(
       filterTotal: number;
       vaultId: string | null;
       width: number;
+      initialScrollY: number;
+      onScrollOffset: (offset: number) => void;
     },
 ) {
   const isRTL = useIsRTL();
-  const total = sumAmounts(props.allPeople.map((p) => Math.abs(p.balance)));
-  const active = props.allPeople.filter((p) => p.balance !== 0).length;
+  // Keep one native list. Replacing it on every tab switch remounts hundreds
+  // of rows; only the visible data and remembered position need to change.
+  useLayoutEffect(() => {
+    props.scrollRef.current?.scrollTo({ y: props.initialScrollY, animated: false });
+    // Ordinary scroll updates must never snap the page to a previous offset.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.direction, props.scrollRef]);
+  const { total, active } = useMemo(
+    () => ({
+      total: sumAmounts(props.allPeople.map((p) => Math.abs(p.balance))),
+      active: props.allPeople.filter((p) => p.balance !== 0).length,
+    }),
+    [props.allPeople],
+  );
   const totalLabel =
     props.direction === "collect" ? t("home.total.label.collect") : t("home.total.label.pay");
   // The hero total is the main page's direction cue: the collect color when
@@ -2202,13 +2248,24 @@ function TabPage(
 
   return (
     <View
-      style={{ width: props.width }}
+      style={{ flex: 1, width: props.width }}
       pointerEvents={props.active ? "auto" : "none"}
       accessibilityElementsHidden={!props.active}
       importantForAccessibility={props.active ? "auto" : "no-hide-descendants"}
     >
       <ScrollView
         ref={props.scrollRef}
+        scrollEnabled={props.active}
+        onContentSizeChange={() => {
+          // A longer destination can finish layout after the first scroll
+          // command. Restore again while the page is still entering.
+          if (!props.active)
+            props.scrollRef.current?.scrollTo({ y: props.initialScrollY, animated: false });
+        }}
+        onScroll={(event) => {
+          if (props.active) props.onScrollOffset(Math.max(0, event.nativeEvent.contentOffset.y));
+        }}
+        scrollEventThrottle={64}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
         contentContainerStyle={{ paddingBottom: props.paddingBottom }}
@@ -2288,6 +2345,7 @@ function TabPage(
           />
         ) : people.length > 0 ? (
           <CustomerRows
+            reuseSlots={!props.selecting}
             selecting={props.selecting}
             selectedIds={props.selectedIds}
             selectionBusy={props.selectionBusy}
@@ -2445,9 +2503,9 @@ const styles = StyleSheet.create({
     borderRadius: PROFILE_SLOT_SIZE / 2,
     backgroundColor: colors.bgMuted,
   },
-  // tabsWrap — gap above the swipe rail. marginTop:2 closes the gap a
+  // tabsWrap — gap above the page. marginTop:2 closes the gap a
   // hair after the header's paddingBottom shrunk to 14 (was 16);
-  // marginBottom:16 keeps the rail from feeling glued to the tab strip.
+  // marginBottom:16 keeps the page from feeling glued to the tab strip.
   tabsWrap: { paddingHorizontal: 16, marginTop: 2, marginBottom: 16, gap: 8, alignItems: "center" },
   groupChip: {
     alignSelf: "flex-start",
@@ -2526,17 +2584,7 @@ const styles = StyleSheet.create({
     fontFamily: fonts.sansSemi,
     color: colors.textInverted,
   },
-  rail: {
-    flex: 1,
-    // Keep collect-tab on the physical left, pay-tab on the physical right.
-    // The swipe gesture's translateX math assumes this layout (translateX 0
-    // = collect visible, translateX -screenWidth = pay visible). Yoga
-    // WOULD auto-reverse `flexDirection: 'row'` children if the Activity
-    // were RTL, breaking the gesture. We avoid that by ensuring the
-    // Activity is LTR via _layout.tsx's I18nManager neutralization + the
-    // one-shot migration prompt — see that file for the full architecture.
-    flexDirection: "row",
-  },
+  page: { flex: 1 },
   totalBlock: { marginHorizontal: 16, marginBottom: 20 },
   totalLabel: {
     fontSize: 11,

@@ -9,7 +9,12 @@ import * as money from "../money";
 import { compileUI, deferred, jsx, nodes, settleUI, uiHooks, type UINode } from "./ui-fixture";
 
 const hooks = uiHooks();
-const react = hooks.react;
+let activeReact: any = hooks.react;
+const react: any = Object.fromEntries(
+  Object.keys(hooks.react).map((name) => [name, (...args: any[]) => activeReact[name](...args)]),
+);
+// This host fixture treats layout effects as its synchronous commit boundary.
+react.useLayoutEffect = react.useEffect;
 let vault = "vault-a",
   account = "account-a";
 let reload: () => Promise<void> = async () => undefined;
@@ -56,6 +61,21 @@ const blockNextListRead = () => {
 const archived: { id: string; scope: { vaultId: string; accountId: string } }[] = [];
 let archivePending: ReturnType<typeof deferred<void>> | null = null;
 let keyboardDismissals = 0;
+let searchMatchRuns = 0;
+let searchSortRuns = 0;
+let rowElements = 0;
+const scrollToCalls: { ref: any; y: number; animated: boolean }[] = [];
+let noTalliesSection: ((props: any) => UINode) | undefined;
+const homeJsx: typeof jsx = (type, props, key?: string | number) => {
+  if (type === "PersonRow") rowElements++;
+  if (typeof type === "function" && type.name === "NoTalliesSection") noTalliesSection = type;
+  if (type === "ScrollView" && props.ref && !props.ref.current)
+    props.ref.current = {
+      scrollTo: (options: { y: number; animated: boolean }) =>
+        scrollToCalls.push({ ref: props.ref, ...options }),
+    };
+  return Object.assign(jsx(type, props), { key });
+};
 const noop = () => undefined;
 const asyncNoop = async () => undefined;
 let meshImports = 0;
@@ -70,7 +90,8 @@ const toasts: { message: string; kind: string }[] = [];
 const toast = {
   push: (message: string, kind: string) => toasts.push({ message, kind }),
 };
-const router = { push: noop, replace: noop };
+const navigations: unknown[] = [];
+const router = { push: (target: unknown) => navigations.push(target), replace: noop };
 const metadata = new Map<string, string>();
 const pan = () => {
   const chain: any = {};
@@ -78,6 +99,16 @@ const pan = () => {
     chain[name] = () => chain;
   return chain;
 };
+type Timing = {
+  config: { toValue: number; duration: number; useNativeDriver: boolean; isInteraction: boolean };
+  stopped: boolean;
+  settled: boolean;
+  finish: () => void;
+  replay: () => void;
+  start: (callback: (result: { finished: boolean }) => void) => void;
+  stop: () => void;
+};
+const timings: Timing[] = [];
 const native = {
   ActivityIndicator: "ActivityIndicator",
   View: "View",
@@ -101,12 +132,46 @@ const native = {
   Animated: {
     View: "AnimatedView",
     Value: class {
-      constructor(_value: number) {}
-      setValue(_value: number) {}
+      constructor(public value: number) {}
+      setValue(value: number) {
+        this.value = value;
+      }
     },
     spring: () => ({ start: noop, stop: noop }),
+    timing: (value: { setValue: (value: number) => void }, config: Timing["config"]) => {
+      let callback: ((result: { finished: boolean }) => void) | undefined;
+      const animation: Timing = {
+        config,
+        stopped: false,
+        settled: false,
+        finish: () => {
+          assert.equal(animation.settled, false, "An animation completes only once");
+          animation.settled = true;
+          value.setValue(config.toValue);
+          callback?.({ finished: true });
+        },
+        // A native completion already queued before stop can arrive late.
+        replay: () => callback?.({ finished: true }),
+        start: (next) => {
+          callback = next;
+          timings.push(animation);
+        },
+        stop: () => {
+          animation.stopped = true;
+          if (animation.settled) return;
+          animation.settled = true;
+          callback?.({ finished: false });
+        },
+      };
+      return animation;
+    },
   },
 };
+const pageTransition = compileUI("../use-home-page-transition", {
+  // This fixture has no native commit phase; layout effects run at its effect boundary.
+  react: { ...react, useLayoutEffect: react.useEffect },
+  "react-native": native,
+});
 const contactQueries = compileUI("../contacts-merge", {
   "./contacts-sync": { phoneKey: (value: string) => value },
   "./digits": digits,
@@ -120,7 +185,7 @@ const selectionSummary = compileUI("../selection-summary", {
 });
 const mocks: Record<string, any> = {
   react,
-  "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
+  "react/jsx-runtime": { jsx: homeJsx, jsxs: homeJsx, Fragment: "Fragment" },
   "react-native": native,
   "expo-router": {
     Redirect: "Redirect",
@@ -131,6 +196,7 @@ const mocks: Record<string, any> = {
   "../lib/use-search-focus-effect": {
     useSearchFocusEffect: (work: () => any) => react.useEffect(work, [work]),
   },
+  "../lib/use-home-page-transition": pageTransition,
   "expo-haptics": {
     selectionAsync: asyncNoop,
     impactAsync: asyncNoop,
@@ -148,7 +214,13 @@ const mocks: Record<string, any> = {
   "../lib/app-meta-context": { useAppMeta: () => ({ forceUpdate: false }) },
   "../lib/colors": { colors },
   "../lib/contacts-merge": contactQueries,
-  "../lib/search": search,
+  "../lib/search": {
+    ...search,
+    searchCustomerMatches: (...args: Parameters<typeof search.searchCustomerMatches>) => {
+      searchMatchRuns++;
+      return search.searchCustomerMatches(...args);
+    },
+  },
   "../lib/currency": { applyVaultCurrency: asyncNoop, getCurrentCurrencySymbol: () => "AFN" },
   "../lib/auth": {
     getSessionUser: async () => ({ id: account, name: "Self" }),
@@ -194,7 +266,13 @@ const mocks: Record<string, any> = {
       groupsByPerson: { c: ["g"] },
     }),
   },
-  "../lib/customer-list": customerList,
+  "../lib/customer-list": {
+    ...customerList,
+    selectSearchCustomers: (...args: Parameters<typeof customerList.selectSearchCustomers>) => {
+      searchSortRuns++;
+      return customerList.selectSearchCustomers(...args);
+    },
+  },
   "../lib/credit-limits": {
     creditStatusForBalance: () => "none",
     readCreditPoliciesForPeople: async () => ({}),
@@ -275,14 +353,43 @@ Object.defineProperty(mocks, "../lib/mesh", {
 const Home = compileUI("../../app/index", mocks, { __DEV__: false }).default;
 
 // Home-local list components are real; imported visual components remain opaque.
+let pageHooks: { key: string | undefined; hooks: ReturnType<typeof uiHooks> } | undefined;
 function expand(value: any): any {
   if (Array.isArray(value)) return value.map(expand);
   if (!value?.props) return value;
-  if (typeof value.type === "function") return expand(value.type(value.props));
+  if (typeof value.type === "function") {
+    if (value.type.name === "TabPage") {
+      // Model this page's actual keyed lifetime independently of Home's hooks.
+      if (!pageHooks) pageHooks = { key: value.key, hooks: uiHooks() };
+      const previousReact = activeReact;
+      let page: UINode;
+      try {
+        activeReact = pageHooks.hooks.react;
+        page = pageHooks.hooks.render(() => value.type(value.props));
+      } finally {
+        activeReact = previousReact;
+      }
+      return expand(page);
+    }
+    return expand(value.type(value.props));
+  }
   return { ...value, props: { ...value.props, children: expand(value.props.children) } };
 }
 let tree: UINode;
-const render = () => (tree = expand(hooks.render(Home)));
+let renderedPage: (UINode & { key?: string }) | undefined;
+const render = () => {
+  const screen = hooks.render(Home);
+  const pages = nodes(screen).filter(
+    (node) => typeof node.type === "function" && node.type.name === "TabPage",
+  );
+  assert.ok(pages.length <= 1, "Home mounts at most one customer page");
+  renderedPage = pages[0];
+  if (pageHooks && renderedPage?.key !== pageHooks.key) {
+    pageHooks.hooks.unmount();
+    pageHooks = undefined;
+  }
+  return (tree = expand(screen));
+};
 const flush = async () => {
   await settleUI();
   render();
@@ -301,14 +408,13 @@ const askRemove = () => {
   assert.equal(toolbar().type, "SelectionToolbar", "Confirmation keeps the summary card mounted");
   return sheet().props.confirmation;
 };
-const searchRows = () =>
-  nodes(
-    expand(
-      typeof sheet().props.children === "function"
-        ? sheet().props.children(160)
-        : sheet().props.children,
-    ),
-  ).filter((node) => node.type === "PersonRow");
+const searchContent = () =>
+  expand(
+    typeof sheet().props.children === "function"
+      ? sheet().props.children(160)
+      : sheet().props.children,
+  );
+const searchRows = () => nodes(searchContent()).filter((node) => node.type === "PersonRow");
 const searchIds = () => searchRows().map((node) => node.props.person.id);
 const outsideSheet = (node: any): UINode[] =>
   Array.isArray(node)
@@ -316,6 +422,63 @@ const outsideSheet = (node: any): UINode[] =>
     : !node?.props || node.type === "SearchSheet"
       ? []
       : [node, ...outsideSheet(node.props.children)];
+const homeRows = () => outsideSheet(tree).filter((node) => node.type === "PersonRow");
+const rowKeys = (value: any) =>
+  nodes(value)
+    .filter(
+      (node) =>
+        node.type === "View" &&
+        [node.props.children].flat().some((child) => child?.type === "PersonRow"),
+    )
+    .map((node) => (node as UINode & { key?: string | number }).key);
+const homeScroll = () =>
+  outsideSheet(tree).find(
+    (node) => node.type === "ScrollView" && node.props.ref === renderedPage!.props.scrollRef,
+  )!;
+const scrollHome = (y: number) =>
+  homeScroll().props.onScroll({ nativeEvent: { contentOffset: { y } } });
+const homeScrollCalls = () =>
+  scrollToCalls.filter((call) => call.ref === renderedPage!.props.scrollRef);
+const expectPage = (direction: "collect" | "pay", active = true) => {
+  assert.ok(renderedPage, "Loaded Home has one customer page");
+  assert.equal(renderedPage.props.direction, direction);
+  assert.equal(renderedPage.props.active, active, "Rows are interactive only after the transition");
+  assert.deepEqual(
+    homeRows().map((row) => row.props.person.id),
+    direction === "collect" ? ["a", "c"] : ["b"],
+  );
+  const text = outsideSheet(tree)
+    .filter((node) => node.type === "Text")
+    .map((node) => node.props.children);
+  assert.ok(
+    text.includes(`home.total.label.${direction}`),
+    "The hero belongs to the rendered side",
+  );
+  assert.ok(
+    text.includes(direction === "collect" ? "130" : "40"),
+    "The hero shows that side's total",
+  );
+};
+const changeTab = (direction: "collect" | "pay") => {
+  nodes(tree)
+    .find((node) => node.type === "Tabs")!
+    .props.onChange(direction);
+  render();
+};
+const latestTiming = (duration: number) => {
+  const timing = timings.at(-1)!;
+  assert.ok(timing && !timing.settled, "A requested transition waits for native completion");
+  assert.equal(timing.config.duration, duration);
+  assert.equal(timing.config.useNativeDriver, true);
+  assert.equal(timing.config.isInteraction, false);
+  return timing;
+};
+const finishSwitch = () => {
+  latestTiming(100).finish();
+  render();
+  latestTiming(160).finish();
+  render();
+};
 const startFromContactMenu = () => {
   const row = outsideSheet(tree).find(
     (node) => node.type === "PersonRow" && node.props.person.id === "a",
@@ -371,12 +534,154 @@ const pairSummary = {
 async function main() {
   render();
   await flush();
+  assert.equal(searchMatchRuns, 0, "Startup does not match customers for closed search");
+  assert.equal(searchSortRuns, 0, "Startup does not sort customers for closed search");
+  expectPage("collect");
+  assert.equal(timings.length, 0, "The first page is visible without an animation");
+  const collectKey = renderedPage!.key;
+  const collectRef = renderedPage!.props.scrollRef;
+  const originalScopeScroll = renderedPage!.props.onScrollOffset;
+  assert.equal(renderedPage!.props.initialScrollY, 0);
+  assert.deepEqual(rowKeys(tree), [0, 1], "Idle financial rows use stable native slot keys");
+  assert.deepEqual(homeScrollCalls().at(-1), { ref: collectRef, y: 0, animated: false });
+  scrollHome(128);
+  const beforeOrdinaryScroll = homeScrollCalls().length;
+  homeScroll().props.onContentSizeChange(390, 1200);
+  render();
+  assert.equal(
+    homeScrollCalls().length,
+    beforeOrdinaryScroll,
+    "Active layout or ordinary updates never restore an old offset",
+  );
+  assert.equal(renderedPage!.props.initialScrollY, 128);
+  const collectRow = homeRows()[0];
+  const initialRowElements = rowElements;
+  changeTab("pay");
+  expectPage("collect", false);
+  assert.equal(homeScroll().props.scrollEnabled, false);
+  scrollHome(999);
+  render();
+  assert.equal(
+    renderedPage!.props.initialScrollY,
+    128,
+    "Outgoing native scroll events do not overwrite saved offsets",
+  );
+  assert.equal(
+    rowElements,
+    initialRowElements,
+    "The target rows are not built before the exit finishes",
+  );
+  collectRow.props.onPress(people[0]);
+  assert.deepEqual(navigations, [], "The outgoing page cannot open a customer while switching");
+  latestTiming(100).finish();
+  render();
+  expectPage("pay", false);
+  assert.equal(renderedPage!.key, collectKey, "Changing sides preserves the same page instance");
+  assert.equal(
+    renderedPage!.props.scrollRef,
+    collectRef,
+    "Both sides share one native ScrollView ref",
+  );
+  assert.deepEqual(rowKeys(tree), [0], "Incoming idle rows reuse the first native slot");
+  assert.deepEqual(homeScrollCalls().at(-1), { ref: collectRef, y: 0, animated: false });
+  const beforePayLayout = homeScrollCalls().length;
+  homeScroll().props.onContentSizeChange(390, 1800);
+  assert.equal(
+    homeScrollCalls().length,
+    beforePayLayout + 1,
+    "An inactive native layout repeats destination restoration",
+  );
+  assert.deepEqual(homeScrollCalls().at(-1), { ref: collectRef, y: 0, animated: false });
+  assert.equal(
+    renderedPage!.props.initialScrollY,
+    0,
+    "A new side does not inherit the other side's offset",
+  );
+  assert.equal(
+    rowElements,
+    initialRowElements + 1,
+    "Only the incoming side's rows are built after exit",
+  );
+  latestTiming(160).finish();
+  render();
+  expectPage("pay");
+  assert.equal(homeScroll().props.scrollEnabled, true);
+  scrollHome(240);
+  collectRow.props.onPress(people[0]);
+  assert.deepEqual(
+    navigations,
+    [],
+    "A retained row callback cannot open the previous side's customer",
+  );
+  homeRows()[0].props.onPress(people[1]);
+  assert.deepEqual(navigations, [{ pathname: "/person/[id]", params: { id: "b" } }]);
+  changeTab("collect");
+  latestTiming(100).finish();
+  render();
+  expectPage("collect", false);
+  homeScroll().props.onContentSizeChange(390, 3000);
+  assert.deepEqual(
+    homeScrollCalls().at(-1),
+    { ref: collectRef, y: 128, animated: false },
+    "A longer incoming layout restores its saved offset before becoming interactive",
+  );
+  latestTiming(160).finish();
+  render();
+  expectPage("collect");
+  assert.equal(renderedPage!.key, collectKey);
+  assert.equal(renderedPage!.props.scrollRef, collectRef);
+  assert.deepEqual(homeScrollCalls().at(-1), { ref: collectRef, y: 128, animated: false });
+  assert.equal(
+    renderedPage!.props.initialScrollY,
+    128,
+    "Returning to Collect restores its own offset",
+  );
+  changeTab("pay");
+  finishSwitch();
+  expectPage("pay");
+  assert.equal(renderedPage!.props.initialScrollY, 240, "Pay also restores its own offset");
+  assert.deepEqual(homeScrollCalls().at(-1), { ref: collectRef, y: 240, animated: false });
+  changeTab("collect");
+  finishSwitch();
+  const beforeSupersededRows = rowElements;
+  changeTab("pay");
+  const supersededExit = latestTiming(100);
+  changeTab("collect");
+  assert.equal(supersededExit.stopped, true);
+  expectPage("collect");
+  supersededExit.replay();
+  render();
+  expectPage("collect");
+  assert.equal(
+    rowElements,
+    beforeSupersededRows,
+    "A canceled transition never builds the superseded side",
+  );
+  const beforeSameTab = timings.length;
+  changeTab("collect");
+  assert.equal(timings.length, beforeSameTab, "Tapping the current tab starts no animation");
+  assert.ok(noTalliesSection);
+  const neutral = expand(
+    jsx(noTalliesSection, {
+      ...renderedPage!.props,
+      people: [
+        { ...people[0], id: "neutral", balance: 0, last_entry_at: null, last_entry_type: null },
+      ],
+    }),
+  );
+  assert.deepEqual(rowKeys(neutral), ["neutral"], "Neutral contacts retain customer-ID keys");
+  await reload();
+  await flush();
+  assert.equal(searchMatchRuns, 0, "Closed-search background refresh does not match customers");
+  assert.equal(searchSortRuns, 0, "Closed-search background refresh does not sort customers");
   assert.equal(meshImports, 0, "Closed settings never imports the mesh status module");
   assert.equal(meshSubscriptions, 0, "Closed settings owns no peer listener");
   assert.equal(meshSnapshots, 0, "Closed settings reads no peer snapshot");
   const settings = () => nodes(tree).find((node) => node.type === "ProfileSettingsSheet")!;
   const openSettings = () => {
-    nodes(tree).find((node) => node.props.accessibilityLabel === "menu.title.profile")!.props.onPress();
+    nodes(tree)
+      .find((node) => node.props.accessibilityLabel === "menu.title.profile")!
+      .props.onPress();
     render();
   };
   const closeSettings = () => {
@@ -390,7 +695,11 @@ async function main() {
   assert.equal(meshSubscriptions, 1);
   assert.equal(meshListeners.size, 1);
   assert.equal(meshSnapshots, 1);
-  assert.equal(settings().props.activePeers, 3, "Opening settings immediately seeds current peer status");
+  assert.equal(
+    settings().props.activePeers,
+    3,
+    "Opening settings immediately seeds current peer status",
+  );
   const firstPeerCallback = meshCallbacks[0];
   firstPeerCallback({ activePeers: 9 });
   render();
@@ -402,7 +711,11 @@ async function main() {
   firstPeerCallback({ activePeers: 77 });
   render();
   await flush();
-  assert.equal(settings().props.activePeers, 0, "An already queued hidden-sheet callback is ignored");
+  assert.equal(
+    settings().props.activePeers,
+    0,
+    "An already queued hidden-sheet callback is ignored",
+  );
   assert.equal(meshImports, 1, "Closed renders do not reload the mesh module");
 
   const lateMesh = deferred<any>();
@@ -426,7 +739,11 @@ async function main() {
   assert.equal(meshSubscriptions, 2);
   assert.equal(meshSnapshots, 2);
   assert.equal(meshListeners.size, 1);
-  assert.equal(settings().props.activePeers, 5, "Reopening acquires one fresh status lease and snapshot");
+  assert.equal(
+    settings().props.activePeers,
+    5,
+    "Reopening acquires one fresh status lease and snapshot",
+  );
   firstPeerCallback({ activePeers: 88 });
   render();
   assert.equal(settings().props.activePeers, 5, "An old lease cannot overwrite reopened settings");
@@ -445,6 +762,8 @@ async function main() {
     assert.ok(!row.props.selecting, "Homepage rows have no selection checkboxes");
   const initialListReads = listRequests.length;
   startFromContactMenu();
+  assert.ok(searchMatchRuns > 0, "Opening search computes current customer matches");
+  assert.ok(searchSortRuns > 0, "Opening search applies its current sort and filters");
   assert.equal(sheet().props.visible, true);
   assert.equal(
     sheet().props.autoFocus,
@@ -452,6 +771,11 @@ async function main() {
     "Select opens the search sheet without bringing up the keyboard",
   );
   assert.deepEqual(searchIds(), ["a", "b", "c"], "Both money directions share one selectable list");
+  assert.deepEqual(
+    rowKeys(searchContent()),
+    ["a", "b", "c"],
+    "Search and selection retain customer-ID keys",
+  );
   assert.equal(toolbar().type, "SelectionToolbar");
   expectSummary(1, firstSummary);
   searchRows()
@@ -503,6 +827,11 @@ async function main() {
   sheet().props.onChangeQuery("Cyrus");
   render();
   assert.deepEqual(searchIds(), ["c"]);
+  assert.deepEqual(
+    rowKeys(searchContent()),
+    ["c"],
+    "Filtering search preserves the remaining customer identity",
+  );
   assert.equal(
     toolbar().props.count,
     2,
@@ -626,6 +955,26 @@ async function main() {
   assert.equal(sheet().props.visible, false, "A vault switch immediately hides old selection data");
   await reload();
   await flush();
+  expectPage("collect");
+  assert.notEqual(renderedPage!.key, collectKey, "A new vault remounts the scoped page");
+  assert.equal(
+    renderedPage!.props.initialScrollY,
+    0,
+    "A new vault does not inherit old scroll offsets",
+  );
+  assert.equal(
+    homeScrollCalls().at(-1)!.y,
+    0,
+    "The newly scoped page restores its own initial offset",
+  );
+  originalScopeScroll(999);
+  render();
+  assert.equal(
+    renderedPage!.props.initialScrollY,
+    0,
+    "A retained prior-scope scroll callback cannot alter the new vault",
+  );
+  const secondVaultPageKey = renderedPage!.key;
   startFromContactMenu();
   expectSummary(1, firstSummary);
   previousVault.resolve(updatedPeople);
@@ -646,6 +995,14 @@ async function main() {
   );
   identityListeners.forEach((listener) => listener());
   await flush();
+  expectPage("collect");
+  assert.notEqual(renderedPage!.key, secondVaultPageKey, "A new account remounts the scoped page");
+  assert.equal(
+    renderedPage!.props.initialScrollY,
+    0,
+    "A new account does not inherit old scroll offsets",
+  );
+  assert.equal(homeScrollCalls().at(-1)!.y, 0, "The new account restores its own initial offset");
   startFromContactMenu();
   expectSummary(1, firstSummary);
   previousAccount.resolve(updatedPeople);
@@ -657,13 +1014,34 @@ async function main() {
 
   sheet().props.onDismiss();
   render();
+  changeTab("pay");
+  const beforeSearchExit = latestTiming(100);
   const trigger = outsideSheet(tree).find((node) => node.type === "SearchFieldTrigger")!;
   trigger.props.onPress();
   render();
+  assert.equal(beforeSearchExit.stopped, true, "Opening search cancels the pending page animation");
+  const beforeLateSearchPage = renderedPage!.key;
+  const beforeLateSearchTimings = timings.length;
+  beforeSearchExit.replay();
+  render();
+  assert.equal(
+    renderedPage!.key,
+    beforeLateSearchPage,
+    "A stale transition cannot replace the page behind search",
+  );
+  assert.equal(
+    timings.length,
+    beforeLateSearchTimings,
+    "A stale transition cannot animate behind search",
+  );
+  assert.equal(sheet().props.visible, true);
   assert.equal(sheet().props.autoFocus, true, "Ordinary search still focuses its input");
   assert.equal(sheet().props.footer, null, "Ordinary search starts outside selection mode");
   sheet().props.onDismiss();
   render();
+  expectPage("pay");
+  changeTab("collect");
+  finishSwitch();
   startFromContactMenu();
   searchRows()
     .find((row) => row.props.person.id === "b")!
@@ -695,9 +1073,21 @@ async function main() {
   ]);
   assert.deepEqual(toasts, [{ message: "2 contacts removed", kind: "success" }]);
   assert.equal(sheet().props.visible, true, "Success is visible while search stays open");
+  sheet().props.onDismiss();
+  render();
+  changeTab("pay");
+  const beforeUnmountExit = latestTiming(100);
   hooks.unmount();
+  assert.equal(beforeUnmountExit.stopped, true);
+  const writesAfterCleanup = hooks.lateWrites;
+  beforeUnmountExit.replay();
+  assert.equal(
+    hooks.lateWrites,
+    writesAfterCleanup,
+    "A late native completion cannot update unmounted Home",
+  );
   console.log(
-    "PASS home selection: instant count and financial totals without per-tap reads, coherent background snapshots, stale vault/account reads, settings-only mesh leases, shared sheet, scoped select-all, search/group preservation, modal confirmation, cancel/totals, duplicate and stale guards, dismissal",
+    "PASS home selection: stable single page/native slots, deferred rendering, canceled/stale transitions, scoped side scroll restoration, search/neutral ID keys, instant financial totals without per-tap reads, coherent background snapshots, stale vault/account reads, settings-only mesh leases, shared sheet, scoped select-all, search/group preservation, modal confirmation, duplicate/stale guards, dismissal",
   );
 }
 void main();
