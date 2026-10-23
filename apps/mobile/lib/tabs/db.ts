@@ -38,6 +38,7 @@ import type {
   TabSettlement,
 } from "./types";
 import { wireToMinor } from "./wire";
+import { historyReady } from "./history";
 
 // Anything longer is a stack trace, not a diagnosis; the App health report
 // shows this verbatim and the column is TEXT with no other reader.
@@ -136,7 +137,7 @@ export async function getLatestTabLinkForPerson(personId: string): Promise<TabLi
       WHERE r.user_b_id = ?
         AND r.vault_id  = ?
         AND r.archived_at IS NULL
-      ORDER BY (tl.closed_at IS NULL) DESC, tl.linked_at DESC
+      ORDER BY (tl.closed_at IS NULL) DESC, CAST(tl.history_order AS INTEGER) DESC, tl.linked_at DESC
       LIMIT 1`,
     personId,
     vaultId,
@@ -159,7 +160,7 @@ export async function getAnyTabLinkForRelationship(
   const db = await getDb();
   const row = await db.getFirstAsync<TabLink>(
     `SELECT * FROM tab_links WHERE relationship_id = ?
-      ORDER BY (closed_at IS NULL) DESC, linked_at DESC LIMIT 1`,
+      ORDER BY (closed_at IS NULL) DESC, CAST(history_order AS INTEGER) DESC, linked_at DESC LIMIT 1`,
     relationshipId,
   );
   return row ?? null;
@@ -170,6 +171,33 @@ export async function getTabLink(tabId: string): Promise<TabLink | null> {
   const db = await getDb();
   const row = await db.getFirstAsync<TabLink>(`SELECT * FROM tab_links WHERE tab_id = ?`, tabId);
   return row ?? null;
+}
+
+export async function getSharedHistoryReceiptForRelationship(
+  relationshipId: string,
+  vaultId: string,
+): Promise<{
+  tab_id: string;
+  rev: number;
+  history_order: string | null;
+  revisions: Record<string, number>;
+} | null> {
+  const db = await getDb();
+  const links = await db.getAllAsync<TabLink>(
+    `SELECT * FROM tab_links WHERE relationship_id=? AND vault_id=?
+     ORDER BY CAST(history_order AS INTEGER) DESC`,
+    relationshipId,
+    vaultId,
+  );
+  if (!links.length) return null;
+  if (!historyReady(links) || links.some((link) => !link.history_order))
+    throw new Error("shared_history_refresh_required");
+  return {
+    tab_id: links[0].tab_id,
+    rev: links[0].rev,
+    history_order: links[0].history_order ?? null,
+    revisions: Object.fromEntries(links.map((link) => [link.tab_id, link.rev])),
+  };
 }
 
 /** Every link, open ones by default; optionally one vault's only. */
@@ -194,15 +222,16 @@ export async function upsertTabLink(link: TabLink): Promise<void> {
   await db.runAsync(
     `INSERT INTO tab_links (tab_id, vault_id, relationship_id, role, currency, party_token,
                             my_label, other_label, other_joined_at, invite_url, rev, closed_at,
-                            linked_at, last_synced_at, last_error)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            linked_at, last_synced_at, last_error, history_order)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(tab_id) DO UPDATE SET
        vault_id = excluded.vault_id, relationship_id = excluded.relationship_id,
        role = excluded.role, currency = excluded.currency, party_token = excluded.party_token,
        my_label = excluded.my_label, other_label = excluded.other_label,
        other_joined_at = excluded.other_joined_at, invite_url = excluded.invite_url,
        rev = excluded.rev, closed_at = excluded.closed_at, linked_at = excluded.linked_at,
-       last_synced_at = excluded.last_synced_at, last_error = excluded.last_error`,
+       last_synced_at = excluded.last_synced_at, last_error = excluded.last_error,
+       history_order = COALESCE(excluded.history_order, tab_links.history_order)`,
     link.tab_id,
     link.vault_id,
     link.relationship_id,
@@ -218,6 +247,7 @@ export async function upsertTabLink(link: TabLink): Promise<void> {
     link.linked_at,
     link.last_synced_at,
     link.last_error,
+    link.history_order ?? null,
   );
 }
 
@@ -464,6 +494,8 @@ export async function upsertTabFromWire(
       closed_reason: resp.tab.closed_reason ?? null,
     };
     if (
+      (resp.tab.parties[me].history_order != null &&
+        resp.tab.parties[me].history_order !== (stored.history_order ?? null)) ||
       (resp.tab.parties[them].account_name ?? "") !== (stored.other_account_name ?? "") ||
       meta.my_label !== stored.my_label ||
       meta.other_label !== stored.other_label ||
@@ -479,7 +511,8 @@ export async function upsertTabFromWire(
     await db.runAsync(
       `UPDATE tab_links
           SET rev = MAX(rev, ?), currency = ?, my_label = ?, other_label = ?,
-              other_joined_at = ?, closed_at = ?, closed_reason = ?, last_synced_at = ?, last_error = NULL
+              other_joined_at = ?, closed_at = ?, closed_reason = ?, last_synced_at = ?, last_error = NULL,
+              history_order = COALESCE(?, history_order)
         WHERE tab_id = ?`,
       advanceCursor ? resp.tab.rev : stored.rev,
       resp.tab.currency,
@@ -489,6 +522,7 @@ export async function upsertTabFromWire(
       meta.closed_at,
       meta.closed_reason,
       now,
+      resp.tab.parties[me].history_order ?? null,
       link.tab_id,
     );
   });
@@ -797,11 +831,10 @@ export async function listVaultContactsForJoin(vaultId: string): Promise<TabJoin
             CASE WHEN tl.tab_id IS NOT NULL THEN 1 ELSE 0 END AS linked
        FROM relationships r
        INNER JOIN users u ON u.id = r.user_b_id
-       -- Any tab, open or closed: joining onto a contact that already holds a
-       -- frozen tab would wipe its balance (party b mints no opening entry,
-       -- and only the latest tab counts), so such a contact is not offerable.
+       -- Closed periods remain selectable; prepareSharedHistory verifies their
+       -- final reviews and server receipt before any new binding is written.
        LEFT JOIN tab_links tl
-         ON tl.relationship_id = r.id
+         ON tl.relationship_id = r.id AND tl.vault_id = r.vault_id AND tl.closed_at IS NULL
       WHERE r.vault_id = ?
         AND r.archived_at IS NULL
       GROUP BY u.id

@@ -78,17 +78,25 @@ func TestCreditRestrictedEditorLinkPreservesButCannotIncreaseExposure(t *testing
 	rel := uuid.NewString()
 	boundary := time.Now().UnixMilli()
 	f.svc.SetCreditBalanceReader(syncapi.CreditBalance)
+	var previousTabID *string
+	var previousRev *int64
 	create := func(amount string) (CreateResult, error) {
 		return f.svc.Create(ctx, CreateInput{Currency: "AFN", Label: "Store", AccountID: &f.acctA, VaultID: &f.vaultA, RelationshipID: &rel, LinkedAtMS: &boundary,
+			ExpectedPreviousTabID: previousTabID, ExpectedPreviousRev: previousRev,
 			Opening: &OpeningInput{Direction: "a_to_b", Amount: amount, OccurredAtMS: boundary - 1}})
 	}
 	old, err := create("120")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.svc.Close(ctx, f.party(t, old.MyToken, old.Tab.ID)); err != nil {
+	if _, err := f.svc.Accept(ctx, f.party(t, old.InviteToken, old.Tab.ID), old.Entries[0].ID); err != nil {
 		t.Fatal(err)
 	}
+	closed, err := f.svc.Close(ctx, f.party(t, old.MyToken, old.Tab.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	previousTabID, previousRev = &old.Tab.ID, &closed.Tab.Rev
 	if _, err := f.pool.Exec(ctx, `INSERT INTO customer_credit_limits(vault_id,relationship_id,max_collect_minor,max_pay_minor,mode,restrict_editors,updated_at_ms) VALUES($1::uuid,$2::uuid,10000,10000,'clerk_block',true,1)`, f.vaultA, rel); err != nil {
 		t.Fatal(err)
 	}
@@ -134,15 +142,18 @@ func TestCreditEditorEnforceAndBoundOverride(t *testing.T) {
 	}
 }
 
-func TestCreditRestrictedEditorCannotCloseIntoLargerHistoricalPeriod(t *testing.T) {
+func TestCreditRestrictedEditorCanCloseWithoutChangingLatestRecordedBalance(t *testing.T) {
 	f := newTabFixture(t)
 	ctx := context.Background()
 	rel := uuid.NewString()
 	boundary := time.Now().UnixMilli()
 	f.svc.SetCreditBalanceReader(syncapi.CreditBalance)
+	var previousTabID *string
+	var previousRev *int64
 	create := func(amount string, linked int64) CreateResult {
 		t.Helper()
 		r, err := f.svc.Create(ctx, CreateInput{Currency: "AFN", Label: "Store", AccountID: &f.acctA, VaultID: &f.vaultA, RelationshipID: &rel, LinkedAtMS: &linked,
+			ExpectedPreviousTabID: previousTabID, ExpectedPreviousRev: previousRev,
 			Opening: &OpeningInput{Direction: "a_to_b", Amount: amount, OccurredAtMS: boundary - 100}})
 		if err != nil {
 			t.Fatal(err)
@@ -150,9 +161,14 @@ func TestCreditRestrictedEditorCannotCloseIntoLargerHistoricalPeriod(t *testing.
 		return r
 	}
 	old := create("120", boundary)
-	if _, err := f.svc.Close(ctx, f.party(t, old.MyToken, old.Tab.ID)); err != nil {
+	if _, err := f.svc.Accept(ctx, f.party(t, old.InviteToken, old.Tab.ID), old.Entries[0].ID); err != nil {
 		t.Fatal(err)
 	}
+	closed, err := f.svc.Close(ctx, f.party(t, old.MyToken, old.Tab.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	previousTabID, previousRev = &old.Tab.ID, &closed.Tab.Rev
 	current := create("80", boundary-1)
 	if _, err := f.pool.Exec(ctx, `INSERT INTO customer_credit_limits(vault_id,relationship_id,max_collect_minor,max_pay_minor,mode,restrict_editors,updated_at_ms) VALUES($1::uuid,$2::uuid,10000,10000,'clerk_block',true,1)`, f.vaultA, rel); err != nil {
 		t.Fatal(err)
@@ -164,8 +180,17 @@ func TestCreditRestrictedEditorCannotCloseIntoLargerHistoricalPeriod(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.svc.Close(ctx, p); !errors.Is(err, credit.ErrLimit) {
-		t.Fatalf("closing restored larger old period: %v", err)
+	if _, err := f.svc.Close(ctx, p); err != nil {
+		t.Fatalf("credit policy trapped a participant in sharing: %v", err)
+	}
+	tx, err := f.pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	got, err := syncapi.CreditBalance(ctx, tx, f.vaultA, rel)
+	if err != nil || got != 8000 {
+		t.Fatalf("closing backdated latest binding restored older money: %d %v", got, err)
 	}
 }
 

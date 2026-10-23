@@ -43,6 +43,8 @@ export type BalanceRow = {
   kind: TabEntryKind;
   status?: "pending" | "accepted" | "disputed";
   voided_by_entry_id: string | null;
+  local_pending?: number;
+  local_action_pending?: number;
 };
 
 /**
@@ -60,6 +62,24 @@ export function tabBalanceMinor(role: TabRole, rows: Iterable<BalanceRow>): numb
   let total = 0;
   for (const row of rows) {
     total += signedMinorFor(role, row);
+    if (!Number.isSafeInteger(total)) throw new RangeError("Tab balance exceeds safe cents range");
+  }
+  return total;
+}
+
+/** Only a server-confirmed acknowledgement changes the shared amount owed.
+ * Recorded/pending rows remain visible separately; an offline Accept tap is
+ * still pending until the server returns its acknowledgement. */
+export function confirmedSignedMinorFor(role: TabRole, row: BalanceRow): number {
+  return row.status === "accepted" && !row.local_pending && !row.local_action_pending
+    ? signedMinorFor(role, row)
+    : 0;
+}
+
+export function tabConfirmedBalanceMinor(role: TabRole, rows: Iterable<BalanceRow>): number {
+  let total = 0;
+  for (const row of rows) {
+    total += confirmedSignedMinorFor(role, row);
     if (!Number.isSafeInteger(total)) throw new RangeError("Tab balance exceeds safe cents range");
   }
   return total;
@@ -89,4 +109,15 @@ export function tabBalanceSql(roleExpr: string, alias = "te"): string {
     WHEN ${live} AND ${gave} THEN ${p}amount_minor
     WHEN ${live} THEN -${p}amount_minor
     ELSE 0 END), 0)`;
+}
+
+/** Client-cache counterpart of tabConfirmedBalanceMinor. Keep the recorded
+ * aggregate above for credit admission; a pending repayment must not make a
+ * confirmed loan disappear from the customer/home/statement balance. */
+export function tabConfirmedBalanceSql(roleExpr: string, alias = "te"): string {
+  const recorded = tabBalanceSql(roleExpr, alias);
+  return recorded.replaceAll(
+    `${alias}.status <> 'disputed'`,
+    `${alias}.status = 'accepted' AND ${alias}.local_pending = 0 AND COALESCE(${alias}.local_action_pending, 0) = 0`,
+  );
 }

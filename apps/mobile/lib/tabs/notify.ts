@@ -6,6 +6,7 @@ import Constants from "expo-constants";
 import * as TaskManager from "expo-task-manager";
 import { getAppMeta, setAppMeta } from "../db";
 import { getAccountIdSync, getInstallIdSync } from "../db-tx";
+import { applyForCurrentSession, captureCurrentSession } from "../auth";
 import { getLocale, subscribeLocale, t, tIn, type LocaleCode } from "../i18n";
 import { getTabLink, listTabLinks, queueNotificationReview } from "./db";
 import { registerTabNotifications, resolveTabAuth } from "./api";
@@ -27,6 +28,13 @@ let registrationLocale: LocaleCode | null = null;
 let registering: Promise<void> | null = null;
 let notificationsPromise: Promise<typeof import("expo-notifications")> | null = null;
 const processing = new Map<string, Promise<void>>();
+
+/** Closing sharing mutes alerts, independently of the remaining review rights. */
+async function isClosedTabNotice(data: unknown): Promise<boolean> {
+  const tabId = (data as { tab_id?: unknown } | null)?.tab_id;
+  if (typeof tabId !== "string") return false;
+  return (await getTabLink(tabId))?.closed_at != null;
+}
 
 async function notifications() {
   if (isRunningInExpoGo()) return null;
@@ -70,19 +78,22 @@ async function review(action: string, data: unknown, notificationId: string) {
   const existing = processing.get(key);
   if (existing) return existing;
   const work = (async () => {
+    const session = await captureCurrentSession();
     const link = await getTabLink(parsed.tabId);
-    if (!link || link.role !== parsed.role || link.closed_at != null) return;
+    if (!link || link.role !== parsed.role) return;
     // Never turn a signed-out tap into an operation for a later account.
     await resolveTabAuth(link);
-    await queueNotificationReview(link, parsed.entryId, parsed.rev, parsed.action);
-    // Reviewing from the notification handles its notice (bell + tray);
-    // durable and never awaited, like the person-screen verbs in link.ts.
-    // The payload's rev IS the notice, so the mark is exact; the entry id
-    // is only a tray hint (lib/tabs/inbox-reads.ts toReadBody).
-    void markInboxHandled({ tab_id: parsed.tabId, rev: parsed.rev, entry_id: parsed.entryId });
+    await applyForCurrentSession(session, async () => {
+      await queueNotificationReview(link, parsed.entryId, parsed.rev, parsed.action);
+      // Bind the durable intent and its handled notice to the account that
+      // tapped. Authentication can finish after a different account signs in.
+      // The payload's rev names the notice; the entry is only a tray hint.
+      void markInboxHandled({ tab_id: parsed.tabId, rev: parsed.rev, entry_id: parsed.entryId });
+    });
     const n = await notifications();
     // Durable now. A weak connection retries through the existing ordered
-    // outbox; a stale/revoked/closed verdict becomes a visible failed operation.
+    // outbox; current server authority and the entry's first decision govern
+    // this explicit action even after sharing has closed.
     await n?.dismissNotificationAsync(notificationId);
     await syncTab(link.tab_id);
   })().finally(() => processing.delete(key));
@@ -102,13 +113,15 @@ async function handleResponse(response: NotificationResponse) {
   } catch {
     // No successful receipt = no claim of success. iOS retains its native
     // handoff; Android offers an explicit retry by opening the notification.
+    const data = response.notification.request.content.data;
+    if (await isClosedTabNotice(data).catch(() => false)) return;
     const n = await notifications().catch(() => null);
     await n
       ?.scheduleNotificationAsync({
         content: {
           title: "Kaata",
           body: t("tab.notify.actionFailed"),
-          data: response.notification.request.content.data,
+          data,
         },
         trigger: { channelId: CHANNEL },
       })
@@ -145,15 +158,17 @@ async function bootstrap() {
       const data = notification.request.content.data;
       // A customer reminder is an alarm the user set for themselves: it must
       // alert even while Kaata is open, where it used to be silently dropped.
-      // Shared-account notices stay quiet in the foreground (the open app
-      // already shows them) and never alert their own author.
+      // Shared-account notices do not alert in the foreground, their own
+      // author, or a closed relationship. Server delivery applies the same
+      // close gate; this also catches an already-sent, late arrival.
       const show =
         data?.kind === "customer_reminder" ||
         ((AppState.currentState === "background" || AppState.currentState === "inactive") &&
           !(
             typeof data?.actor_account_id === "string" &&
             data.actor_account_id === getAccountIdSync()
-          ));
+          ) &&
+          !(await isClosedTabNotice(data).catch(() => false)));
       return {
         shouldShowBanner: show,
         shouldShowList: show,
@@ -284,12 +299,13 @@ onTabApplied((ev) => {
     if (registered && Date.now() - registered < 2 * 3600_000) return;
     const n = await notifications();
     const link = await getTabLink(ev.tabId);
-    if (!n || !link) return;
+    if (!n || !link || link.closed_at != null) return;
     await configure(n);
     const { readVaultRole, canPerformAction } = await import("../use-vault-role");
-    const canReview =
-      link.closed_at == null &&
-      canPerformAction(await readVaultRole(link.vault_id, getAccountIdSync()), "entry.amend");
+    const canReview = canPerformAction(
+      await readVaultRole(link.vault_id, getAccountIdSync()),
+      "entry.amend",
+    );
     for (const change of ev.changes!) {
       let body =
         change.kind === "entry_created"
@@ -335,6 +351,9 @@ onTabApplied((ev) => {
           notificationVars(link, entry, t("tab.them")),
         );
       }
+      // A local unlink can finish while the entry and native adapters load.
+      const current = await getTabLink(ev.tabId);
+      if (!current || current.closed_at != null) return;
       await n.scheduleNotificationAsync({
         identifier: `tab:${ev.tabId}:${change.entryId}:${change.rev}`,
         content: {
@@ -396,9 +415,10 @@ onInboxReadsApplied((specs) => {
 /**
  * The tray against the truth: an "Accept or reject it" notification for a
  * tally that is no longer pending (reviewed by this account's other phone or
- * a kaata member, or cancelled by its author) or whose tab is closed is moot
- * — its buttons would only answer review_final. The server drops such a
- * push while it is still queued (decision C); one that was already delivered
+ * a kaata member, or cancelled by its author) is moot. Closing a relationship
+ * separately mutes ALL of its tray alerts, including review outcomes, while
+ * retaining its inbox history and pending review rights. The server drops
+ * closed-tab pushes while queued; one that was already delivered
  * — a late FCM arrival after the review, or a phone that got it before the
  * account handled it elsewhere — is only ever cleared here. Runs on return to
  * the foreground and after every pull, reads the local cache only, never
@@ -414,25 +434,23 @@ async function sweepTray(): Promise<void> {
   const links = new Map<string, Awaited<ReturnType<typeof getTabLink>>>();
   for (const s of shown) {
     const data = s.request.content.data as Record<string, unknown> | undefined;
-    if (
-      typeof data?.tab_id !== "string" ||
-      data.kind !== "entry_created" ||
-      typeof data.entry_id !== "string"
-    )
-      continue;
+    if (typeof data?.tab_id !== "string" || data.kind === "customer_reminder") continue;
     let link = links.get(data.tab_id);
     if (link === undefined) {
       link = await getTabLink(data.tab_id);
       links.set(data.tab_id, link);
     }
+    if (link?.closed_at != null) {
+      await n.dismissNotificationAsync(s.request.identifier).catch(() => undefined);
+      continue;
+    }
+    if (data.kind !== "entry_created" || typeof data.entry_id !== "string") continue;
     const row = await db.getFirstAsync<Pick<TabEntryRow, "status" | "voided_by_entry_id">>(
       "SELECT status, voided_by_entry_id FROM tab_entries WHERE id=? AND tab_id=?",
       data.entry_id,
       data.tab_id,
     );
-    const moot =
-      (link != null && link.closed_at != null) ||
-      (row != null && (row.status !== "pending" || row.voided_by_entry_id != null));
+    const moot = row != null && (row.status !== "pending" || row.voided_by_entry_id != null);
     if (moot) await n.dismissNotificationAsync(s.request.identifier).catch(() => undefined);
   }
 }
@@ -441,6 +459,10 @@ AppState.addEventListener("change", (state) => {
 });
 onTabApplied((ev) => {
   if (ev.origin === "pull") void sweepTray().catch(() => undefined);
+  else
+    void getTabLink(ev.tabId)
+      .then((link) => (link?.closed_at != null ? sweepTray() : undefined))
+      .catch(() => undefined);
 });
 setTabNotifyHook(ensureTabNotificationPermission);
 setTabPushRefreshHook(syncTabPushSubscriptions);

@@ -26,6 +26,8 @@ import { signedEntryMinorSumSql } from "./money-sql";
 import { emitCreditPoliciesChanged } from "./credit-policy-events";
 import { Mutex } from "./util/mutex";
 import { resolveAccountIdCandidates } from "./effective-account";
+import { effectiveRecordedBalanceSql, historyReady } from "./tabs/history";
+import type { TabLink } from "./tabs/types";
 
 export class ClerkCloudEnrollmentRequiredError extends Error {}
 export class CreditOnlineSaveRequiredError extends Error {}
@@ -110,11 +112,13 @@ export async function creditBalanceInTx(
   vaultId: string,
   relationshipId: string,
 ): Promise<number> {
-  const link = await tx.getFirstAsync<{ tab_id: string; role: "a" | "b"; linked_at: number }>(
-    "SELECT tab_id,role,linked_at FROM tab_links WHERE vault_id=? AND relationship_id=? ORDER BY (closed_at IS NULL) DESC,linked_at DESC LIMIT 1",
+  const links = await tx.getAllAsync<TabLink>(
+    "SELECT * FROM tab_links WHERE vault_id=? AND relationship_id=? ORDER BY CAST(history_order AS INTEGER) DESC,linked_at DESC",
     vaultId,
     relationshipId,
   );
+  if (!historyReady(links)) throw new Error("shared_history_refresh_required");
+  const link = links[0];
   const local = await tx.getFirstAsync<{ balance: number }>(
     `SELECT ${signedEntryMinorSumSql("e", "e.disputed_at IS NULL AND (? IS NULL OR e.created_at > ?)")} AS balance FROM entries e WHERE e.vault_id=? AND e.relationship_id=?`,
     link?.linked_at ?? null,
@@ -127,10 +131,10 @@ export async function creditBalanceInTx(
   let balance = local?.balance ?? 0;
   if (link) {
     const tab = await tx.getFirstAsync<{ balance: number }>(
-      "SELECT COALESCE(SUM(CASE WHEN direction='a_to_b' THEN amount_minor ELSE -amount_minor END),0) AS balance FROM tab_entries WHERE tab_id=? AND kind<>'void' AND voided_by_entry_id IS NULL AND status<>'disputed'",
+      `SELECT ${effectiveRecordedBalanceSql()} AS balance FROM tab_links tl WHERE tl.tab_id=?`,
       link.tab_id,
     );
-    balance += (link.role === "a" ? 1 : -1) * (tab?.balance ?? 0);
+    balance += tab?.balance ?? 0;
   }
   if (!Number.isSafeInteger(balance)) throw new RangeError("Unsafe credit balance");
   return balance;

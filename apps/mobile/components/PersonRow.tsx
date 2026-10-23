@@ -50,8 +50,8 @@ export const PersonRow = memo(function PersonRow(props: {
   // added that this side has not reviewed lead the subtitle. On the sub line,
   // never in the amount column — that column is baseline-aligned between the
   // figure and its currency and switches to the settled tick; a pill stacked
-  // there would break both. "{n} to review", not "pending": a tally already
-  // counts (D6), so the only thing waiting is the shopkeeper's glance.
+  // there would break both. Pending changes never contribute to the confirmed
+  // amount. Both sides can see that an acknowledgement is still outstanding.
   // A shared account found on this phone but not downloaded yet has no known
   // balance: say so rather than show a false 0.
   const unsynced = person.tab_unsynced === 1;
@@ -62,7 +62,9 @@ export const PersonRow = memo(function PersonRow(props: {
     ? t("tab.row.notDownloaded")
     : person.tab_id && person.tab_pending > 0
       ? `${t("tab.row.pending", { count: person.tab_pending })} · ${timeline}`
-      : timeline;
+      : (person.tab_pending_count ?? 0) > 0
+        ? `${t("tab.row.awaiting", { count: person.tab_pending_count ?? 0 })} · ${timeline}`
+        : timeline;
 
   return (
     <Pressable

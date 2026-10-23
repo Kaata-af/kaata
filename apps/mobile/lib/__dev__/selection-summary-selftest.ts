@@ -13,15 +13,16 @@ sql.exec(`
   CREATE INDEX entries_relationship ON entries(relationship_id, created_at);
   CREATE TABLE settlements(relationship_id TEXT, settled_at_ms INTEGER);
   CREATE TABLE tab_links(tab_id TEXT PRIMARY KEY, vault_id TEXT, relationship_id TEXT, role TEXT, linked_at INTEGER, closed_at INTEGER, last_synced_at INTEGER,
-    other_account_name TEXT DEFAULT '', other_joined_at INTEGER);
+    other_account_name TEXT DEFAULT '', other_joined_at INTEGER, history_order TEXT, currency TEXT DEFAULT 'AFN');
   CREATE INDEX tab_links_relationship ON tab_links(relationship_id);
   CREATE INDEX tab_links_vault ON tab_links(vault_id);
+  CREATE INDEX tab_links_scope_order ON tab_links(vault_id,relationship_id,history_order);
   CREATE TABLE tab_entries(id TEXT PRIMARY KEY, tab_id TEXT, direction TEXT, amount_minor INTEGER, kind TEXT, status TEXT, voided_by_entry_id TEXT,
     created_by TEXT DEFAULT 'a', occurred_at INTEGER DEFAULT 100, created_at INTEGER DEFAULT 100,
     seq INTEGER DEFAULT 1, local_pending INTEGER DEFAULT 0, local_action_pending INTEGER DEFAULT 0);
   CREATE INDEX tab_entries_tab ON tab_entries(tab_id);
   CREATE TABLE tab_settlements(tab_id TEXT, through_seq INTEGER);
-  CREATE TABLE tab_outbox(tab_id TEXT);
+  CREATE TABLE tab_outbox(tab_id TEXT, op TEXT);
 `);
 let dbReads = 0;
 const { summarizeSelectionEntries, summarizeSelectedPeople } = compileUI("../selection-summary", {
@@ -60,6 +61,7 @@ const { listAllPeopleForSearch, getPerson } = compileUI("../db", {
   "./money-sql": require("../money-sql"),
   "./tabs/db": {},
   "./tabs/direction": require("../tabs/direction"),
+  "./tabs/history": require("../tabs/history"),
   "./tabs/errors": {},
 }) as typeof import("../db");
 let peopleSnapshot: import("../types").PersonWithBalance[] = [];
@@ -138,7 +140,7 @@ function tab(
 ) {
   sql
     .prepare(
-      "INSERT INTO tab_links(tab_id,vault_id,relationship_id,role,linked_at,closed_at,last_synced_at) VALUES(?,?,?,?,?,?,?)",
+      "INSERT INTO tab_links(tab_id,vault_id,relationship_id,role,linked_at,closed_at,last_synced_at,history_order) VALUES(?,?,?,?,?,?,?,?)",
     )
     .run(
       id,
@@ -148,6 +150,7 @@ function tab(
       options.linkedAt ?? 100,
       options.closedAt ?? null,
       options.unsynced ? null : 101,
+      String((sql.prepare("SELECT COUNT(*) AS n FROM tab_links").get() as { n: number }).n + 1),
     );
 }
 function shared(
@@ -325,13 +328,13 @@ async function main() {
   shared("void-row", "active", "b_to_a", 100000, { kind: "void" });
   await reload();
   assert.deepEqual(selected(["linked"]), {
-    debtCount: 3,
+    debtCount: 2,
     creditCount: 1,
-    debt: 510.29,
+    debt: 500.29,
     credit: 200,
-    collect: 310.29,
+    collect: 300.29,
     pay: 0,
-    net: 310.29,
+    net: 300.29,
     pending: false,
   });
 
@@ -419,6 +422,22 @@ async function main() {
   const elapsed = performance.now() - start;
   assert.equal(dbReads, readsBefore, "large selection changes use zero further storage reads");
   console.log(`5000-contact pure summary: ${(elapsed / 100).toFixed(2)} ms/run on test host`);
+
+  // Exercise the real correlated people SQL with substantial shared history,
+  // not just the in-memory selection reducer above.
+  sql.transaction(() => {
+    for (let i = 0; i < 500; i++) {
+      const rel = person(`shared-many-${i}`);
+      const tabId = `shared-many-tab-${i}`;
+      tab(tabId, rel);
+      for (let j = 0; j < 20; j++) shared(`${tabId}-${j}`, tabId, j % 2 ? "b_to_a" : "a_to_b", 100);
+    }
+  })();
+  const sharedQueryStarted = performance.now();
+  await reload();
+  console.log(
+    `People SQL with 5000 private contacts + 500 shared books/10000 shared rows: ${(performance.now() - sharedQueryStarted).toFixed(0)} ms on test host`,
+  );
 
   sql.close();
   console.log(

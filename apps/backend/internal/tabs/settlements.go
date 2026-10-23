@@ -141,6 +141,39 @@ func (s *Service) Settle(ctx context.Context, p Party, in SettleInput) (Settleme
 	if balance != 0 {
 		return SettlementResponse{}, ErrSettlementNotZero
 	}
+	// A rejected/withdrawn new opening must not hide an older acknowledged
+	// loan, or strand a legacy proposal beneath a newer period. Either side
+	// can request this marker, so validate both parties' bound contact scopes.
+	rows, err := tx.Query(ctx, `SELECT vault_id::text,relationship_id::text FROM tab_parties
+	 WHERE tab_id=$1::uuid AND vault_id IS NOT NULL AND relationship_id IS NOT NULL`, p.TabID)
+	if err != nil {
+		return SettlementResponse{}, err
+	}
+	var scopes [][2]string
+	for rows.Next() {
+		var scope [2]string
+		if err := rows.Scan(&scope[0], &scope[1]); err != nil {
+			rows.Close()
+			return SettlementResponse{}, err
+		}
+		scopes = append(scopes, scope)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return SettlementResponse{}, err
+	}
+	for _, scope := range scopes {
+		nonzero, unresolved, err := sharedAcceptedHistory(ctx, tx, scope[0], scope[1], "")
+		if err != nil {
+			return SettlementResponse{}, err
+		}
+		if unresolved {
+			return SettlementResponse{}, ErrSettlementPending
+		}
+		if nonzero {
+			return SettlementResponse{}, ErrSettlementNotZero
+		}
+	}
 	if newEntries == 0 {
 		return SettlementResponse{}, ErrSettlementEmpty
 	}

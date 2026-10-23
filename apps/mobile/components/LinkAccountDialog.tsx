@@ -19,6 +19,7 @@ import { getTabLinkForPerson } from "../lib/tabs/db";
 import { linkContact, shareTabLinkOnWhatsApp } from "../lib/tabs/link";
 import {
   TabAlreadyLinkedError,
+  TabApiError,
   TabAuthUnavailableError,
   TabPermissionError,
 } from "../lib/tabs/errors";
@@ -149,11 +150,17 @@ export function LinkAccountDialog(props: {
       } else {
         if (target.current?.invite_url && action !== "copy") setShareFailed(true);
         setError(
-          err instanceof TabPermissionError
-            ? t("entry.roleDenied")
-            : target.current?.invite_url
-              ? t(action === "copy" ? "entry.saveFailed" : "share.whatsappUnavailable")
-              : t("tab.link.failed"),
+          err instanceof TabApiError && err.code === "shared_history_pending"
+            ? t("tab.history.pending")
+            : err instanceof TabApiError && err.code === "shared_history_changed"
+              ? t("tab.history.changed")
+              : err instanceof TabApiError && err.code === "shared_history_opening_required"
+                ? t("tab.history.openingRequired")
+                : err instanceof TabPermissionError
+                  ? t("entry.roleDenied")
+                  : target.current?.invite_url
+                    ? t(action === "copy" ? "entry.saveFailed" : "share.whatsappUnavailable")
+                    : t("tab.link.failed"),
         );
       }
     } finally {

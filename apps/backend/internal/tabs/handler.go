@@ -124,6 +124,12 @@ func mapServiceError(err error) (int, string, string) {
 		return http.StatusConflict, "same_account", err.Error()
 	case errors.Is(err, ErrAlreadyLinked):
 		return http.StatusConflict, "already_linked", err.Error()
+	case errors.Is(err, ErrSharedHistoryPending):
+		return http.StatusConflict, "shared_history_pending", err.Error()
+	case errors.Is(err, ErrSharedHistoryChanged):
+		return http.StatusConflict, "shared_history_changed", err.Error()
+	case errors.Is(err, ErrSharedHistoryOpeningRequired):
+		return http.StatusConflict, "shared_history_opening_required", err.Error()
 	case errors.Is(err, ErrCurrencyMismatch):
 		return http.StatusConflict, "currency_mismatch", err.Error()
 	case errors.Is(err, ErrRoleInsufficient):
@@ -221,12 +227,15 @@ type openingRequest struct {
 }
 
 type createRequest struct {
-	LinkedAtMS     *int64          `json:"linked_at_ms"`
-	Currency       string          `json:"currency"`
-	Label          string          `json:"label"`
-	VaultID        *string         `json:"vault_id"`
-	RelationshipID *string         `json:"relationship_id"`
-	Opening        *openingRequest `json:"opening"`
+	ExpectedHistoryRevisions map[string]int64 `json:"expected_history_revisions"`
+	ExpectedPreviousTabID    *string          `json:"expected_previous_tab_id"`
+	ExpectedPreviousRev      *int64           `json:"expected_previous_rev"`
+	LinkedAtMS               *int64           `json:"linked_at_ms"`
+	Currency                 string           `json:"currency"`
+	Label                    string           `json:"label"`
+	VaultID                  *string          `json:"vault_id"`
+	RelationshipID           *string          `json:"relationship_id"`
+	Opening                  *openingRequest  `json:"opening"`
 }
 
 // CreateResponse — 201 for POST /v1/tabs. Both plaintext tokens appear here
@@ -240,18 +249,24 @@ type CreateResponse struct {
 }
 
 type joinRequest struct {
-	LinkedAtMS     *int64  `json:"linked_at_ms"`
-	Token          string  `json:"token"`
-	Label          string  `json:"label"`
-	VaultID        *string `json:"vault_id"`
-	RelationshipID *string `json:"relationship_id"`
+	ExpectedHistoryRevisions map[string]int64 `json:"expected_history_revisions"`
+	ExpectedPreviousTabID    *string          `json:"expected_previous_tab_id"`
+	ExpectedPreviousRev      *int64           `json:"expected_previous_rev"`
+	LinkedAtMS               *int64           `json:"linked_at_ms"`
+	Token                    string           `json:"token"`
+	Label                    string           `json:"label"`
+	VaultID                  *string          `json:"vault_id"`
+	RelationshipID           *string          `json:"relationship_id"`
 }
 
 type bindRequest struct {
-	LinkedAtMS     *int64  `json:"linked_at_ms"`
-	Token          string  `json:"token"`
-	VaultID        *string `json:"vault_id"`
-	RelationshipID *string `json:"relationship_id"`
+	ExpectedHistoryRevisions map[string]int64 `json:"expected_history_revisions"`
+	ExpectedPreviousTabID    *string          `json:"expected_previous_tab_id"`
+	ExpectedPreviousRev      *int64           `json:"expected_previous_rev"`
+	LinkedAtMS               *int64           `json:"linked_at_ms"`
+	Token                    string           `json:"token"`
+	VaultID                  *string          `json:"vault_id"`
+	RelationshipID           *string          `json:"relationship_id"`
 }
 
 type labelRequest struct {
@@ -297,13 +312,16 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 	accountID, installID := accountFromClaims(r)
 	in := CreateInput{
-		LinkedAtMS:     req.LinkedAtMS,
-		Currency:       req.Currency,
-		Label:          req.Label,
-		VaultID:        vaultID,
-		RelationshipID: relationshipID,
-		AccountID:      accountID,
-		InstallID:      installID,
+		ExpectedHistoryRevisions: req.ExpectedHistoryRevisions,
+		ExpectedPreviousTabID:    req.ExpectedPreviousTabID,
+		ExpectedPreviousRev:      req.ExpectedPreviousRev,
+		LinkedAtMS:               req.LinkedAtMS,
+		Currency:                 req.Currency,
+		Label:                    req.Label,
+		VaultID:                  vaultID,
+		RelationshipID:           relationshipID,
+		AccountID:                accountID,
+		InstallID:                installID,
 	}
 	if req.Opening != nil {
 		in.Opening = &OpeningInput{
@@ -459,12 +477,15 @@ func (h *Handler) Join(w http.ResponseWriter, r *http.Request) {
 	}
 	accountID, installID := accountFromClaims(r)
 	res, err := h.svc.Join(r.Context(), p, JoinInput{
-		LinkedAtMS:     req.LinkedAtMS,
-		Label:          req.Label,
-		VaultID:        vaultID,
-		RelationshipID: relationshipID,
-		AccountID:      accountID,
-		InstallID:      installID,
+		ExpectedHistoryRevisions: req.ExpectedHistoryRevisions,
+		ExpectedPreviousTabID:    req.ExpectedPreviousTabID,
+		ExpectedPreviousRev:      req.ExpectedPreviousRev,
+		LinkedAtMS:               req.LinkedAtMS,
+		Label:                    req.Label,
+		VaultID:                  vaultID,
+		RelationshipID:           relationshipID,
+		AccountID:                accountID,
+		InstallID:                installID,
 	})
 	if err != nil {
 		writeServiceError(w, err)
@@ -499,11 +520,14 @@ func (h *Handler) Bind(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	res, err := h.svc.Bind(r.Context(), p, BindInput{
-		LinkedAtMS:     req.LinkedAtMS,
-		AccountID:      claims.AccountID,
-		InstallID:      installIDFromClaims(claims),
-		VaultID:        vaultID,
-		RelationshipID: relationshipID,
+		ExpectedHistoryRevisions: req.ExpectedHistoryRevisions,
+		ExpectedPreviousTabID:    req.ExpectedPreviousTabID,
+		ExpectedPreviousRev:      req.ExpectedPreviousRev,
+		LinkedAtMS:               req.LinkedAtMS,
+		AccountID:                claims.AccountID,
+		InstallID:                installIDFromClaims(claims),
+		VaultID:                  vaultID,
+		RelationshipID:           relationshipID,
 	})
 	if err != nil {
 		writeServiceError(w, err)

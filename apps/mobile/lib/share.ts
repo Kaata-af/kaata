@@ -6,6 +6,7 @@ import { bumpUsageCounter } from "./db";
 import { formatAmount } from "./format";
 import { tIn, type LocaleCode } from "./i18n";
 import type { Entry, Self } from "./types";
+import { countsTowardBalance } from "./export/shared-record";
 
 // Max entries carried in a shared snapshot. The backend caps at 500; a customer
 // only needs the recent history, and it keeps the stored packet small.
@@ -58,7 +59,7 @@ async function uploadSharedLedger(args: {
     // audit trail: a voided tally is not part of the account, so it is left
     // out here — the same rule lib/export applies.
     entries: args.entries
-      .filter((e) => !e.tab?.voided && e.tab?.status !== "disputed")
+      .filter(countsTowardBalance)
       .slice(0, MAX_SHARED_ENTRIES)
       .map((e) => ({
         type: e.type,

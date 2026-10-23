@@ -99,7 +99,8 @@ export class TabAlreadyLinkedError extends Error {
   }
 }
 
-/** The tab was closed by either party; every write is refused (reads still work). */
+/** The tab was closed by either party; new sharing is refused. Existing
+ * pending entries can still receive their final review or cancellation. */
 export class TabClosedError extends Error {
   readonly kind = "tab_closed" as const;
   constructor() {

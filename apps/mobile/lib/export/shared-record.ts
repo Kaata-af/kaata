@@ -19,20 +19,37 @@ export function recordedAmount(entry: AmountRow): number {
   return entry.type === "debt" ? entry.amount_afn : -entry.amount_afn;
 }
 
-/** Rejected/cancelled records remain evidence but never contribute money. */
-export function balanceContribution(entry: AmountRow): number {
+/** Amount in the recorded ledger, including unconfirmed shared changes. */
+export function recordedContribution(entry: AmountRow): number {
   return isExcludedRecord(entry) ? 0 : recordedAmount(entry);
+}
+
+/** The amount owed changes only after a shared record is acknowledged by
+ * the server. Private tallies keep their usual immediate contribution. */
+export function countsTowardBalance(entry: AmountRow): boolean {
+  return (
+    !isExcludedRecord(entry) &&
+    (!entry.tab || (entry.tab.status === "accepted" && !entry.tab.local_pending))
+  );
+}
+
+export function balanceContribution(entry: AmountRow): number {
+  return countsTowardBalance(entry) ? recordedAmount(entry) : 0;
 }
 
 export type RecordTotals = { acknowledged: number; pending: number; private: number };
 
 export function addRecordTotal(totals: RecordTotals, entry: AmountRow): RecordTotals {
-  const amount = balanceContribution(entry);
+  let amount = recordedContribution(entry);
   const key = !entry.tab
     ? "private"
     : entry.tab.status === "accepted" && !entry.tab.local_pending
       ? "acknowledged"
       : "pending";
+  if (key === "pending")
+    amount = entry.tab?.pending_balance_excluded
+      ? 0
+      : addAmounts(amount, entry.tab?.pending_balance_adjustment ?? 0);
   return { ...totals, [key]: addAmounts(totals[key], amount) };
 }
 

@@ -46,6 +46,9 @@ const entries = [
   tally("b", 0.2),
   tally("c", 12.34, "payment"),
   tally("pending", 5, "debt", { tab: { ...entryMeta, status: "pending", local_pending: true } }),
+  tally("pending-repayment", 99, "payment", { tab: { ...entryMeta, status: "pending" } }),
+  tally("unsynced-accept", 88, "payment", { tab: { ...entryMeta, local_pending: true } }),
+  tally("confirmed-handover", 7, "debt", { tab: entryMeta }),
   tally("opening", 500, "debt", { tab: { ...entryMeta, kind: "opening" } }),
   tally("reject", 60, "payment", { tab: { ...entryMeta, status: "disputed" } }),
   tally("local-reject", 60, "debt", { disputed_at: 3 }),
@@ -57,7 +60,7 @@ const entries = [
 ];
 const before = JSON.stringify(entries);
 assert.deepEqual(summarizeTallyFlows(entries), {
-  gave: { count: 3, amount: 5.3 },
+  gave: { count: 3, amount: 7.3 },
   received: { count: 2, amount: 22.35 },
 });
 assert.equal(JSON.stringify(entries), before, "summary cannot mutate ledger evidence");
@@ -67,7 +70,7 @@ assert.throws(
   "never round a corrupt sub-cent tally",
 );
 console.log(
-  "PASS flow totals: exact cents, known pre-link history, pending, rejected/cancelled/opening/deleted and duplicate exclusion",
+  "PASS flow totals: exact cents, known pre-link and acknowledged shared handovers; pending repayments, unacked acceptances, rejected/cancelled/opening/deleted and duplicates excluded",
 );
 
 // Audit #23: the summary beside the balance stays as small as the balance side.

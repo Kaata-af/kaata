@@ -59,6 +59,13 @@ import type { TabLink } from "./tabs/types";
 import { entryTypeFor, tabBalanceSql } from "./tabs/direction";
 import type { DuplicateHint, TabDirection } from "./tabs/types";
 import { TabLinkedEntryError } from "./tabs/errors";
+import {
+  effectiveConfirmedBalanceSql,
+  effectiveConfirmedSql,
+  effectivePendingBalanceSql,
+  effectiveSharedPeriods,
+  unknownHistorySql,
+} from "./tabs/history";
 
 // The mutual-tab immutability guard lives with its siblings in lib/tabs/errors.ts
 // (event-log.ts throws it too and cannot import this module); re-exported so
@@ -111,6 +118,7 @@ const MIGRATION_037 = "037_customer_group_memberships";
 const MIGRATION_038 = "038_kaata_credit_defaults";
 const MIGRATION_039 = "039_customer_groups_from_payloads";
 const MIGRATION_040 = "040_member_credit_permissions";
+const MIGRATION_041 = "041_shared_history_order";
 
 // Phase 5 mesh: app_meta keys used by the lib/mesh package. They are NOT
 // referenced from db.ts directly — the table itself is the generic key/value
@@ -538,6 +546,9 @@ export async function initDb(opts: { installId?: string } = {}): Promise<void> {
   }
   if (!(await hasRunMigration(db, MIGRATION_040))) {
     await runMigration040(db);
+  }
+  if (!(await hasRunMigration(db, MIGRATION_041))) {
+    await runMigration041(db);
   }
 }
 
@@ -3576,6 +3587,18 @@ async function runMigration040(db: SQLite.SQLiteDatabase): Promise<void> {
   });
 }
 
+async function runMigration041(db: SQLite.SQLiteDatabase): Promise<void> {
+  await db.withTransactionAsync(async () => {
+    await db.execAsync(`ALTER TABLE tab_links ADD COLUMN history_order TEXT;
+      CREATE INDEX IF NOT EXISTS idx_tab_links_scope_order ON tab_links(vault_id, relationship_id, history_order);`);
+    await db.runAsync(
+      "INSERT INTO schema_migrations (name,applied_at) VALUES (?,?)",
+      MIGRATION_041,
+      Date.now(),
+    );
+  });
+}
+
 // --- v0 row shapes (used only during migration) ---
 type V0Shopkeeper = {
   id: number;
@@ -4262,16 +4285,26 @@ type RawPersonRow = PersonWithBalance & {
 /** The tab-aware SELECT columns shared by selectAllPeopleRaw and getPerson. */
 const TAB_PERSON_COLUMNS = `
             tl.tab_id AS tab_id,
+            EXISTS(SELECT 1 FROM tab_outbox co WHERE co.tab_id=tl.tab_id AND co.op='close') AS tab_close_pending,
             tl.other_account_name AS tab_account_name,
-            CASE WHEN tl.tab_id IS NULL OR tl.closed_at IS NOT NULL THEN 0 ELSE
+            CASE WHEN tl.tab_id IS NULL THEN 0 ELSE
               (SELECT COUNT(*) FROM tab_entries tp
                 WHERE tp.tab_id = tl.tab_id AND tp.created_by <> tl.role
                   AND tp.status = 'pending' AND tp.kind <> 'void'
                   AND tp.voided_by_entry_id IS NULL)
             END AS tab_pending,
+            (SELECT COUNT(*) FROM tab_entries tp
+              JOIN tab_links pl ON pl.tab_id=tp.tab_id
+              WHERE pl.vault_id=tl.vault_id AND pl.relationship_id=tl.relationship_id AND tp.kind <> 'void'
+                AND tp.voided_by_entry_id IS NULL
+                AND (tp.status = 'pending' OR tp.local_pending <> 0
+                  OR COALESCE(tp.local_action_pending, 0) <> 0)) AS tab_pending_count,
+            (SELECT ${tabBalanceSql("tl.role", "te")} FROM tab_entries te WHERE te.tab_id = tl.tab_id) / 100.0 AS tab_recorded_balance,
+            (${effectiveConfirmedBalanceSql()}) / 100.0 AS tab_confirmed_balance,
+            (${effectivePendingBalanceSql()}) / 100.0 AS tab_pending_balance,
             tl.closed_at AS tab_closed_at,
             CASE WHEN tl.other_joined_at IS NOT NULL THEN 1 ELSE 0 END AS tab_other_joined,
-            CASE WHEN tl.tab_id IS NOT NULL AND tl.last_synced_at IS NULL THEN 1 ELSE 0 END AS tab_unsynced,
+            CASE WHEN tl.tab_id IS NOT NULL AND (tl.last_synced_at IS NULL OR (${unknownHistorySql()})) THEN 1 ELSE 0 END AS tab_unsynced,
             (SELECT MAX(tn.occurred_at) FROM tab_entries tn
               WHERE tn.tab_id = tl.tab_id AND tn.kind <> 'void') AS tab_last_at,
             (SELECT tn.direction FROM tab_entries tn
@@ -4283,17 +4316,19 @@ const TAB_PERSON_COLUMNS = `
 
 /**
  * Balance column. Once a contact has EVER been linked, its account is the
- * tab's rows plus any local tallies written after the link — and never the
+ * acknowledged shared rows plus any local tallies written after the link — and never the
  * pre-link local rows, whose sum the tab's opening entry already carries
  * (D8). That rule outlives the link: closing a tab freezes its rows, it does
  * not un-happen them, so a closed tab keeps counting and the pre-link rows
- * stay out. Reverting to the bare local sum on close would both lose every
+ * stay out. Older acknowledged periods survive until a later opening is
+ * acknowledged; server binding order selects that checkpoint. Reverting to
+ * the bare local sum on close would both lose every
  * tally of the shared period and put a months-old number on the home screen.
  * Unlinked contacts take the ELSE arm and are untouched.
  */
 const PERSON_BALANCE_SQL = `
             CASE WHEN tl.tab_id IS NOT NULL THEN
-              (SELECT ${tabBalanceSql("tl.role", "te")} FROM tab_entries te WHERE te.tab_id = tl.tab_id)
+              (${effectiveConfirmedBalanceSql()})
               + ${signedEntryMinorSumSql("e", "e.created_at > tl.linked_at")}
             ELSE (${signedEntryMinorSumSql("e")}) END / 100.0 AS balance`;
 
@@ -4307,7 +4342,7 @@ const PERSON_BALANCE_SQL = `
 const TAB_LINK_JOIN = `LEFT JOIN tab_links tl ON tl.tab_id = (
        SELECT t2.tab_id FROM tab_links t2
         WHERE t2.relationship_id = r.id AND t2.vault_id = r.vault_id
-        ORDER BY (t2.closed_at IS NULL) DESC, t2.linked_at DESC
+        ORDER BY (t2.closed_at IS NULL) DESC, CAST(t2.history_order AS INTEGER) DESC, t2.linked_at DESC
         LIMIT 1)`;
 
 /**
@@ -4363,19 +4398,19 @@ async function selectAllPeopleRaw(
        -- Aggregate each shared book once, before the local-entry join. The
        -- current link below chooses its one carried opening/history; neither
        -- older books nor pre-link local records may be counted again.
-       SELECT te.tab_id,
-              SUM(CASE WHEN te.direction = CASE WHEN stl.role = 'a' THEN 'a_to_b' ELSE 'b_to_a' END
+       SELECT stl.tab_id,
+              SUM(CASE WHEN te.direction = CASE WHEN hl.role = 'a' THEN 'a_to_b' ELSE 'b_to_a' END
                        THEN 1 ELSE 0 END) AS debt_count,
-              SUM(CASE WHEN te.direction <> CASE WHEN stl.role = 'a' THEN 'a_to_b' ELSE 'b_to_a' END
+              SUM(CASE WHEN te.direction <> CASE WHEN hl.role = 'a' THEN 'a_to_b' ELSE 'b_to_a' END
                        THEN 1 ELSE 0 END) AS credit_count,
-              SUM(CASE WHEN te.direction = CASE WHEN stl.role = 'a' THEN 'a_to_b' ELSE 'b_to_a' END
+              SUM(CASE WHEN te.direction = CASE WHEN hl.role = 'a' THEN 'a_to_b' ELSE 'b_to_a' END
                        THEN te.amount_minor ELSE 0 END) AS debt_minor,
-              SUM(CASE WHEN te.direction <> CASE WHEN stl.role = 'a' THEN 'a_to_b' ELSE 'b_to_a' END
+              SUM(CASE WHEN te.direction <> CASE WHEN hl.role = 'a' THEN 'a_to_b' ELSE 'b_to_a' END
                        THEN te.amount_minor ELSE 0 END) AS credit_minor
-         FROM tab_links stl INNER JOIN tab_entries te ON te.tab_id = stl.tab_id
-        WHERE stl.vault_id = ? AND te.kind IN ('entry', 'opening')
-          AND te.voided_by_entry_id IS NULL AND te.status <> 'disputed'
-        GROUP BY te.tab_id
+         FROM tab_links stl INNER JOIN tab_links hl ON hl.vault_id=stl.vault_id AND hl.relationship_id=stl.relationship_id
+         INNER JOIN tab_entries te ON te.tab_id = hl.tab_id
+        WHERE stl.vault_id = ? AND ${effectiveConfirmedSql("te", "hl", "stl")}
+        GROUP BY stl.tab_id
      )
      SELECT u.id            AS id,
             u.display_name  AS name,
@@ -4419,7 +4454,7 @@ async function selectAllPeopleRaw(
             -- queued changes reopen the account's current page.
             CASE
               WHEN tl.tab_id IS NOT NULL
-               AND ((SELECT ${tabBalanceSql("tl.role", "te")} FROM tab_entries te WHERE te.tab_id = tl.tab_id)
+               AND ((${effectiveConfirmedBalanceSql()})
                     + ${signedEntryMinorSumSql("e", "e.created_at > tl.linked_at")}) = 0
                AND EXISTS (SELECT 1 FROM tab_settlements s WHERE s.tab_id = tl.tab_id
                     AND s.through_seq >= COALESCE((SELECT MAX(te.seq) FROM tab_entries te WHERE te.tab_id = tl.tab_id), 0))
@@ -4797,7 +4832,7 @@ export async function listEntries(personId: string): Promise<Entry[]> {
   const link = await getLatestTabLinkForPerson(personId);
   if (link) {
     const [tabRows, afterLink] = await Promise.all([
-      listTabEntriesAsEntries(link),
+      listEffectiveSharedEntries(link),
       db.getAllAsync<Entry>(
         `SELECT e.id, e.relationship_id, e.type, e.amount_afn, e.note,
                 e.created_at, e.updated_at, e.deleted_at, e.proposed_by_user_id,
@@ -4851,8 +4886,30 @@ export async function listArchivedSharedPeriodsForExport(
     current.tab_id,
   );
   const result: Array<{ link: TabLink; entries: Entry[] }> = [];
-  for (const link of links) result.push({ link, entries: await listTabEntriesAsEntries(link) });
+  const activeIds = new Set((await listEffectiveSharedEntries(current)).map((entry) => entry.id));
+  for (const link of links) {
+    const entries = (await listTabEntriesAsEntries(link)).filter(
+      (entry) => !activeIds.has(entry.id),
+    );
+    if (entries.length) result.push({ link, entries });
+  }
   return result;
+}
+
+/** Current visible shared history includes older acknowledged records until
+ * a later opening is acknowledged. The entry's original tab_id and receipt
+ * stay intact, so reviews/exports never invent a new author or acceptance. */
+async function listEffectiveSharedEntries(current: TabLink): Promise<Entry[]> {
+  const db = await getDb();
+  const links = await db.getAllAsync<TabLink>(
+    "SELECT * FROM tab_links WHERE vault_id=? AND relationship_id=?",
+    current.vault_id,
+    current.relationship_id,
+  );
+  const periods = await Promise.all(
+    links.map(async (link) => ({ link, entries: await listTabEntriesAsEntries(link) })),
+  );
+  return effectiveSharedPeriods(periods).current;
 }
 
 /** One row of the whole-kaata export journal: an entry plus its person. */
@@ -4935,7 +4992,7 @@ export async function listEntriesForExport(vaultId: string): Promise<ExportEntry
      INNER JOIN tab_links tl ON tl.tab_id = te.tab_id
        AND tl.tab_id = (SELECT t2.tab_id FROM tab_links t2
                          WHERE t2.relationship_id = tl.relationship_id
-                         ORDER BY (t2.closed_at IS NULL) DESC, t2.linked_at DESC
+                         ORDER BY (t2.closed_at IS NULL) DESC, CAST(t2.history_order AS INTEGER) DESC, t2.linked_at DESC
                          LIMIT 1)
      INNER JOIN relationships r ON r.id = tl.relationship_id
      INNER JOIN users u ON u.id = r.user_b_id
@@ -4957,7 +5014,7 @@ export async function listEntriesForExport(vaultId: string): Promise<ExportEntry
     const link = await getTabLink(tabId);
     if (link) for (const e of await listTabEntriesAsEntries(link)) sharedEntries.set(e.id, e);
   }
-  return rows.map(({ tab_id, ...row }) => {
+  const mapped = rows.map(({ tab_id, ...row }) => {
     if (!tab_id) return row;
     const entry = sharedEntries.get(row.id);
     if (!entry?.tab) throw new Error("Shared records changed during export. Please try again.");
@@ -4973,6 +5030,43 @@ export async function listEntriesForExport(vaultId: string): Promise<ExportEntry
       tab: entry.tab,
     };
   });
+  const contacts = await db.getAllAsync<{
+    id: string;
+    name: string;
+    phone: string | null;
+    tab_id: string;
+  }>(
+    `SELECT u.id,u.display_name AS name,u.phone_e164 AS phone,tl.tab_id FROM relationships r
+     JOIN users u ON u.id=r.user_b_id ${TAB_LINK_JOIN}
+     WHERE r.vault_id=? AND r.archived_at IS NULL AND tl.tab_id IS NOT NULL`,
+    vaultId,
+  );
+  const seen = new Set(mapped.map((entry) => entry.id));
+  for (const contact of contacts) {
+    const link = await getTabLink(contact.tab_id);
+    if (!link) continue;
+    for (const entry of await listEffectiveSharedEntries(link)) {
+      if (seen.has(entry.id)) {
+        const existing = mapped.find((row) => row.id === entry.id);
+        if (existing) existing.tab = entry.tab;
+        continue;
+      }
+      seen.add(entry.id);
+      mapped.push({
+        id: entry.id,
+        type: entry.type,
+        amount_afn: entry.amount_afn,
+        note: entry.note,
+        created_at: entry.created_at,
+        kind: entry.tab?.kind ?? "entry",
+        tab: entry.tab,
+        person_id: contact.id,
+        person_name: contact.name,
+        person_phone: contact.phone,
+      });
+    }
+  }
+  return mapped.sort((a, b) => a.created_at - b.created_at || a.id.localeCompare(b.id));
 }
 
 // Public API preserved — same signature, same return type, same usage-counter

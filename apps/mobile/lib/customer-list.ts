@@ -93,9 +93,11 @@ function parsePreference(
 
 /** Settled people keep the side of their preceding balance. */
 export function customerSide(p: PersonWithBalance): Direction {
-  return p.balance > 0
+  const directionBalance =
+    p.balance || ((p.tab_pending_count ?? 0) > 0 ? (p.tab_pending_balance ?? 0) : 0);
+  return directionBalance > 0
     ? "collect"
-    : p.balance < 0
+    : directionBalance < 0
       ? "pay"
       : p.last_entry_type === "debt"
         ? "pay"
@@ -217,7 +219,9 @@ function outstandingTier(person: PersonWithBalance): number {
   // A restored shared ledger's cached balance is unknown, whether it says 500
   // or zero. Keep it between verified balances and confirmed settled contacts.
   if (person.tab_unsynced === 1) return 1;
-  return person.balance !== 0 && person.is_settled !== 1 ? 0 : 2;
+  return (person.tab_pending_count ?? 0) > 0 || (person.balance !== 0 && person.is_settled !== 1)
+    ? 0
+    : 2;
 }
 
 function selectCustomerRows<T extends PersonWithBalance>(

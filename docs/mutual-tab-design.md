@@ -1,3 +1,107 @@
+## October 22: confirmed balances and safe unlinking
+
+This section supersedes the earlier pending-inclusive balance, open-only review,
+latest-period-only history and close-notification descriptions below.
+
+- The contact headline counts server-confirmed accepted shared tallies, plus
+  separately identified private entries after the latest shared boundary.
+  Pending changes have their own net amount and unresolved count. Locally queued
+  acceptance is pending until acknowledged by the server. Rejection/cancellation
+  does not remove an already accepted record; those decisions remain final.
+- Unlink stops new shared entries, invitations and OS alerts. It does not forgive
+  debt, delete history or prevent the final acceptance/rejection/author cancellation
+  of an existing pending tally. The same applies to a surviving authorized party
+  after an account-deletion closure. Deleted actors have no write authority.
+  Durable inbox/history records remain; closed-tab OS alerts of every kind are
+  suppressed and removed locally.
+- The local close is durable and visibly waiting until synced. Its own retry
+  deadline applies, but an older append's backoff cannot delay it. While close is
+  waiting, no other uploads overtake it. Refused older appends retain Not sent
+  receipts; review operations can finish after closure. Credit limits never block
+  stopping sharing; their existing pending-inclusive exposure rules remain.
+  Credit exposure uses the latest live pending/accepted opening as its own
+  checkpoint; rejected/cancelled openings cannot hide earlier debt. Review and
+  cancellation admission compares actual exposure before/after the transaction,
+  including an older checkpoint revealed by removing an opening.
+- Relinking syncs all previous periods and requires no pending reviews or queued
+  changes. Create/Join/Bind send `expected_previous_tab_id` and
+  `expected_previous_rev`; the server checks this under the contact lock alongside
+  reviews and appends. Multi-period histories additionally require an exact
+  `expected_history_revisions` map of all prior tab IDs/revisions; checking only
+  the latest period would miss a final review in older legacy history. Stale or
+  absent receipts for a new binding with history
+  fail with `shared_history_changed`; unresolved history fails with
+  `shared_history_pending`. First links and same-binding recovery stay compatible.
+- `tab_parties.history_order` is a server sequence assigned at first complete
+  vault/contact binding, stable across retries. The API sends decimal strings;
+  SQLite stores TEXT and compares with integer casts. Business dates cannot order
+  new shared periods. Migration 067 backfills legacy ordering conservatively from
+  the prior selector, with the active period last; historical first-binding times
+  were not recorded and cannot be reconstructed exactly.
+- An accepted opening checkpoints the previous acknowledged balance. Until then,
+  a pending or rejected opening cannot hide older accepted loans. Older accepted
+  records stay in the current history and exports until absorbed by a later
+  accepted opening. Pending net changes subtract the acknowledged amount already
+  carried into a proposed opening; exports retain original amounts and identify
+  these derived balance contributions without rewriting review evidence.
+  Missing/duplicate order or mixed-currency history requires refresh rather than
+  guessing or adding unlike currencies.
+- A new binding without an opening is refused while earlier confirmed shared
+  debt remains (`shared_history_opening_required`). A private repayment that
+  offsets an older loan to zero cannot silently become a zero-value shared
+  agreement. Explicit zero-balance consent requires a future supported record;
+  this change retains the positive-only opening contract.
+- A settlement sequence belongs to its own period. It cannot hide retained
+  records from an earlier period. The server checks retained accepted balances
+  and unresolved proposals for both bound contacts before certifying a clear
+  current period. The app conservatively refuses current-period
+  clearing while earlier nonzero accepted contributions remain outside its opening
+  checkpoint. New account/session bindings cannot receive a late cache write or
+  queued review from an old action.
+
+Deploy the backend migration/API before the mobile app. Mobile migration 041 adds
+the history-order cache and lookup indexes. Discovery refreshes backfilled order
+even when the financial revision is unchanged. Older
+apps retain their pending-inclusive presentation until updated and may need the
+new app to relink safely; their first links and reads continue working.
+The explicit revision map grows with the number of shared periods. The existing
+8 KiB request limit remains in place, so exceptionally long histories can exceed
+the relink request budget and fail closed. A compact server-verified history
+receipt is future work before supporting hundreds of re-link periods per contact.
+
+These records remain server-stored bookkeeping acknowledgements. This change does
+not add verified identity, consent-text receipts, independent tamper evidence or
+legal recognition. KYC, signature/consent design, retention and a jurisdictional
+legal review remain separate future work. Existing missing evidence stays unknown.
+
+Validation uses an isolated PostgreSQL database and synthetic mobile SQLite/UI
+fixtures, covering close/review races, immutable decisions, stale relink receipts,
+history checkpoints, exports, notification silence, queued-close priority and
+session changes. Two-party phone QA is still required before release. No production
+data is used by these tests.
+
+Before releasing, use disposable accounts against an updated test backend on two
+phones:
+
+1. Accept a 300 loan, propose a 300 repayment, then unlink before reviewing it.
+   Both phones must retain 300 confirmed and show the repayment separately.
+   Review/cancel that pending record after unlink; new shared writes must fail.
+2. Leave a pending loan, cancel it as its author, and verify the peer refreshes.
+   Repeat with an accepted/rejected record and verify cancellation is refused.
+3. Relink a closed contact with a nonzero opening. Until acceptance, older debt
+   remains confirmed; rejection cannot hide it. A private offset to zero must not
+   permit an unreviewable zero opening to replace that debt.
+4. Set a 350 hard cap with 300 accepted debt, reject the replacement opening,
+   then try adding 100 as a restricted member. The attempt must remain outside
+   balances and retain a refusal receipt. Verify a lawful repayment still works.
+5. Try clearing a current zero period with older accepted debt or a pending
+   proposal on either party's contact. Verify refusal, retained history and a
+   normal reviewed zero ledger that can still be cleared.
+6. Upgrade an older cache with several finished periods. Restore on another
+   phone, compare current balances and PDF/CSV history, and verify every review
+   still targets its original period. After unlink, neither phone should receive
+   new OS alerts from that relationship, including review outcomes.
+
 ## October 2 refinement (tally rows revised October 11, design "A · Quiet")
 
 Tally rows carry no review-state colour: every row is white whatever its state, and
@@ -152,7 +256,7 @@ page. Every JSON shape, table and function signature below is normative.
 | D10 | **Access = capability token per party** (SHA-256 at rest) **or** a session JWT whose account is bound to the party / is a member of the party's kaata.                                                                                                                                                                                                                                     | Web-only party needs no account. Signed-in phones need no stored secret and recover tabs after reinstall via `GET /v1/tabs/mine`. A signed-out phone keeps its token in SQLite (lost on reinstall — documented, same as the old spec).                                                                                                                                                                                                                          |
 | D11 | **The invite link IS party B's link** (`kaata.af/t/<b_token>`), not spent on join.                                                                                                                                                                                                                                                                                                         | The WhatsApp thread stays the durable place to find it (paper culture). Forwarding risk is accepted for v1; A can **regenerate** B's link, either side can **close** the tab.                                                                                                                                                                                                                                                                                   |
 | D12 | **Web page = Go-templated shell + inline JS at `/t/{token}`**, exactly like the bill page, polling every 10 s. React SPA gets no `/t/` route in v1.                                                                                                                                                                                                                                        | Per-tab WhatsApp preview needs SSR; one renderer instead of the bill's two; no CSP fight. Web live updates via polling — the web party has no JWT for the WebSocket.                                                                                                                                                                                                                                                                                            |
-| D13 | **Realtime on mobile**: signed-in phones get `{"t":"tab_poke","tab_id"}` frames on the existing `/v1/sync/live` socket (subscribed under an `acct:<id>` pseudo-key); every phone also pulls on foreground, on person-screen focus and every 5 s in the foreground, with account-wide binding discovery every 60 s.                                                                                                                        | Reuses the broker; the poll is the backstop (pokes are lossy by design).                                                                                                                                                                                                                                                                                                                                                                                        |
+| D13 | **Realtime on mobile**: signed-in phones get `{"t":"tab_poke","tab_id"}` frames on the existing `/v1/sync/live` socket (subscribed under an `acct:<id>` pseudo-key); every phone also pulls on foreground, on person-screen focus and every 5 s in the foreground, with account-wide binding discovery every 60 s.                                                                         | Reuses the broker; the poll is the backstop (pokes are lossy by design).                                                                                                                                                                                                                                                                                                                                                                                        |
 | D14 | **Notifications = in-app review badges plus Expo remote push**, with a local pull fallback when remote delivery is disabled.                                                                                                                                                                                                                                                               | Push registration is party-authorized and renewed on foreground; transactional delivery jobs retry and check receipts. Generic remote payloads carry only a tab ID/revision. Native FCM/APNs credentials and `TAB_PUSH_ENABLED=true` are required; Expo Go skips the module. Permission is requested at link/join, never at boot.                                                                                                                               |
 | D15 | **Deep link v1 = `kaata://t/<token>`** via the web page's "Open in Kaata" button (Android `intent://…S.browser_fallback_url`). App Links / Universal Links are a follow-up (§12).                                                                                                                                                                                                          | Needs Play App Signing SHA-256 + AASA hosting + native rebuild; not blocking.                                                                                                                                                                                                                                                                                                                                                                                   |
 | D16 | **Money**: server stores `amount_minor BIGINT` (hundredths); the wire carries `amount` as a **decimal string in major units** (`"12.34"`, `"100"`). Never floats.                                                                                                                                                                                                                          | Matches mobile's major-unit convention (`lib/money.ts`); Go does integer arithmetic only.                                                                                                                                                                                                                                                                                                                                                                       |

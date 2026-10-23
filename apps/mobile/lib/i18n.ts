@@ -1824,9 +1824,9 @@ const en = {
   "export.col.id": "Entry ID",
   "export.record.title": "Shared record with recorded acknowledgements",
   "export.record.explanation":
-    "The ledger balance includes pending tallies. Rejected and cancelled tallies are shown for history and contribute zero. Missing reviewer details were not recorded. Names are account labels, not verified legal identities.",
+    "The balance counts confirmed shared tallies and private entries separately identified here. Pending net changes exclude acknowledged amounts already carried into a proposed opening. Pending amounts are not acknowledged debt. Rejected and cancelled tallies contribute zero. Missing reviewer details were not recorded. Names are account labels, not verified legal identities.",
   "export.record.acknowledgedBalance": "Acknowledged net balance",
-  "export.record.pendingBalance": "Pending net balance (including unsynced reviews)",
+  "export.record.pendingBalance": "Pending net balance",
   "export.record.privateBalance": "Private net balance",
   "export.record.contribution": "Balance contribution",
   "export.record.status": "Record status",
@@ -1965,13 +1965,19 @@ const en = {
   "tab.regenerate.ok": "New link",
   "tab.unlink": "Unlink",
   "tab.unlink.title": "Unlink {name}?",
-  // What closing actually does (docs/mutual-tab-design.md §4.3): the shared
-  // period FREEZES — its tallies and the balance they add up to stay on this
-  // contact, nobody can add to or review them any more, and new tallies are
-  // ordinary entries in your own book again. Says "for both of you" because
-  // close is a server-side act: the other party's link goes read-only too.
+  // Unlinking stops new sharing after the server acknowledges it. Existing
+  // evidence and the right to resolve pending tallies remain.
   "tab.unlink.body":
-    "The shared account closes for both of you. Its tallies stay here and still count, but neither side can add to them any more. New tallies go back to your own book.",
+    "After syncing, neither side can add new shared tallies or send alerts through this account. Accepted records and the confirmed balance stay saved. Pending tallies can still be reviewed or cancelled under the same rules. New tallies in your own book are private.",
+  "tab.unlink.pending": "Unlinking is waiting to sync. Connect to stop sharing on both phones.",
+  "tab.history.pending":
+    "Review and sync the pending tallies from the previous shared period before linking again.",
+  "tab.history.changed":
+    "The shared history changed. Refresh it and check the opening balance before linking again.",
+  "tab.history.openingRequired":
+    "This contact still has a confirmed shared balance. Linking again needs an opening balance the other party can review.",
+  "tab.balance.confirmed": "Confirmed shared balance: {amount} {currency}",
+  "tab.balance.pending": "{count} pending · net change {amount} {currency}",
   "tab.unlinked": "Unlinked",
   "tab.chip.linked": "Linked · {name}",
   "tab.chip.waiting": "Link sent · waiting",
@@ -2021,7 +2027,8 @@ const en = {
   "tab.dispute.notFound": "This tally is no longer on the shared account.",
   "tab.disputed": "Rejected — removed from the balance",
   "tab.closed": "This shared account was closed.",
-  "tab.closedNote": "Shared account closed on {date}. New tallies here are private.",
+  "tab.closedNote":
+    "Sharing stopped on {date}. Confirmed records stay saved and pending tallies can still be reviewed. New tallies here are private.",
   "tab.settle.confirm":
     "The reviewed balance with {name} is zero. Move these tallies into shared history for both of you and start a fresh page? The records stay saved, and you can keep using this shared account.",
   "tab.settle.pending": "Review and sync all pending tallies before clearing this account.",
@@ -2032,7 +2039,8 @@ const en = {
   "tab.reviewedBy": "Reviewed by {name}",
   "tab.cancelledBy": "Cancelled by {name}",
   "tab.needsConnection": "Go online to add to a shared account.",
-  "tab.editLocked": "Tallies on a shared account can't be edited — void it and add a new one.",
+  "tab.editLocked":
+    "Shared tallies cannot be edited. You can cancel your own pending tally; corrections to accepted tallies need a new record.",
   "tab.currencyLocked": "Unlink shared accounts before changing the currency.",
   // D17 settlement double-log warning, toasted after the save lands.
   "tab.duplicateHint": "Already recorded by {name} — check it isn't counted twice.",
@@ -2041,6 +2049,7 @@ const en = {
   // by {name}" / "so {name} understands", and "they" turns both ungrammatical.
   "tab.them": "the other side",
   "tab.row.pending": "{count} to review",
+  "tab.row.awaiting": "{count} awaiting confirmation",
   "tab.row.notDownloaded": "Shared account not downloaded yet",
   "tab.notDownloaded":
     "This shared account hasn't downloaded to this phone yet. Its balance appears once it does; check your connection if this stays.",
@@ -3744,9 +3753,9 @@ const fa: Partial<Record<Key, string>> = {
   "export.col.id": "نمبر ثبت",
   "export.record.title": "سابقهٔ مشترک با تأییدهای ثبت‌شده",
   "export.record.explanation":
-    "باقی‌مانده شامل ثبت‌های در انتظار است. ثبت‌های رد یا لغوشده برای حفظ سابقه نشان داده می‌شوند و در جمع حساب سهم ندارند. جزئیات خالیِ بررسی‌کننده ثبت نشده‌اند. نام‌ها نام حساب‌اند، نه هویت حقوقی تأییدشده.",
+    "مانده شامل ثبت‌های مشترک تأییدشده و ثبت‌های شخصی است که اینجا جدا مشخص شده‌اند. تغییر خالصِ در انتظار، ماندهٔ تأییدشده‌ای را که در ماندهٔ آغازین پیشنهادی انتقال یافته دوباره نمی‌شمارد. مبالغ در انتظار، بدهی تأییدشده نیستند. ثبت‌های رد یا لغوشده در جمع سهم ندارند. جزئیات خالیِ بررسی‌کننده ثبت نشده‌اند. نام‌ها نام حساب‌اند، نه هویت حقوقی تأییدشده.",
   "export.record.acknowledgedBalance": "باقی‌ماندهٔ خالص تأییدشده",
-  "export.record.pendingBalance": "باقی‌ماندهٔ خالص در انتظار (با بررسی‌های همگام‌نشده)",
+  "export.record.pendingBalance": "تغییر خالصِ در انتظار",
   "export.record.privateBalance": "باقی‌ماندهٔ خالص خصوصی",
   "export.record.contribution": "سهم در باقی‌مانده",
   "export.record.status": "وضعیت ثبت",
@@ -3868,7 +3877,17 @@ const fa: Partial<Record<Key, string>> = {
   "tab.unlink": "قطع پیوند",
   "tab.unlink.title": "پیوند با {name} قطع شود؟",
   "tab.unlink.body":
-    "حساب مشترک برای هر دوی شما بسته می‌شود. ثبت‌های آن همین‌جا می‌مانند و در حساب شمار می‌شوند، اما پس از این هیچ‌کدام‌تان چیزی به آن اضافه کرده نمی‌توانید. ثبت‌های نو دوباره به کتاب خودتان می‌روند.",
+    "پس از همگام‌سازی، هیچ‌کدام‌تان نمی‌توانید ثبت مشترک نو اضافه کنید یا از این حساب اعلان بفرستید. ثبت‌های پذیرفته‌شده و ماندهٔ تأییدشده محفوظ می‌مانند. ثبت‌های در انتظار هنوز طبق همان قواعد قابل بررسی یا لغو هستند. ثبت‌های نو در کتاب خودتان شخصی هستند.",
+  "tab.unlink.pending":
+    "قطع پیوند در انتظار همگام‌سازی است. برای توقف اشتراک در هر دو تلفون به اینترنت وصل شوید.",
+  "tab.history.pending":
+    "پیش از پیوند دوباره، ثبت‌های در انتظار دورهٔ مشترک قبلی را بررسی و همگام کنید.",
+  "tab.history.changed":
+    "تاریخچهٔ مشترک تغییر کرده است. آن را تازه کنید و پیش از پیوند دوباره ماندهٔ آغازین را بررسی کنید.",
+  "tab.history.openingRequired":
+    "این طرف هنوز ماندهٔ مشترک تأییدشده دارد. پیوند دوباره به ماندهٔ آغازینی نیاز دارد که طرف دیگر بتواند بررسی کند.",
+  "tab.balance.confirmed": "ماندهٔ تأییدشدهٔ مشترک: {amount} {currency}",
+  "tab.balance.pending": "{count} در انتظار · تغییر خالص {amount} {currency}",
   "tab.unlinked": "پیوند قطع شد",
   "tab.chip.linked": "پیوند شده · {name}",
   "tab.chip.waiting": "لینک فرستاده شد · در انتظار",
@@ -3913,7 +3932,8 @@ const fa: Partial<Record<Key, string>> = {
   "tab.dispute.notFound": "این ثبت دیگر در حساب مشترک نیست.",
   "tab.disputed": "رد شد — از ماندهٔ حساب حذف شد",
   "tab.closed": "این حساب مشترک بسته شده است.",
-  "tab.closedNote": "حساب مشترک در {date} بسته شد. ثبت‌های تازه اینجا شخصی هستند.",
+  "tab.closedNote":
+    "اشتراک در {date} متوقف شد. ثبت‌های تأییدشده محفوظ‌اند و ثبت‌های در انتظار هنوز قابل بررسی هستند. ثبت‌های تازه اینجا شخصی هستند.",
   "tab.settle.confirm":
     "بیلانس بررسی‌شده با {name} صفر است. این ثبت‌ها به سابقهٔ مشترک هر دوی شما منتقل و صفحهٔ تازه باز شود؟ ثبت‌ها محفوظ می‌مانند و می‌توانید از همین حساب مشترک استفاده کنید.",
   "tab.settle.pending": "پیش از صاف‌کردن حساب، همهٔ ثبت‌های در انتظار را بررسی و همگام کنید.",
@@ -3923,11 +3943,13 @@ const fa: Partial<Record<Key, string>> = {
   "tab.reviewedBy": "بررسی‌کننده: {name}",
   "tab.cancelledBy": "لغوکننده: {name}",
   "tab.needsConnection": "برای ثبت در حساب مشترک آنلاین شوید.",
-  "tab.editLocked": "ثبت‌های حساب مشترک ویرایش نمی‌شوند — آن را باطل کنید و یکی نو اضافه کنید.",
+  "tab.editLocked":
+    "ثبت‌های مشترک ویرایش نمی‌شوند. ثبت در انتظار خودتان را می‌توانید لغو کنید؛ اصلاح ثبت پذیرفته‌شده به یک ثبت نو نیاز دارد.",
   "tab.currencyLocked": "پیش از تغییر ارز، پیوند حساب‌های مشترک را قطع کنید.",
   "tab.duplicateHint": "پیشتر توسط {name} ثبت شده — بررسی کنید دو بار حساب نشود.",
   "tab.them": "او",
   "tab.row.pending": "{count} برای بررسی",
+  "tab.row.awaiting": "{count} در انتظار تأیید",
   "tab.row.notDownloaded": "حساب مشترک هنوز دانلود نشده",
   "tab.notDownloaded":
     "این حساب مشترک هنوز روی این تلفن دانلود نشده است. بیلانس آن پس از دانلود نمایش داده می‌شود؛ اگر همین‌طور ماند، اتصال انترنت را بررسی کنید.",
@@ -5123,7 +5145,17 @@ const ps: Record<Key, string> = {
   "tab.unlink": "اړیکه پرې کړئ",
   "tab.unlink.title": "له {name} سره اړیکه پرې کړئ؟",
   "tab.unlink.body":
-    "ګډ حساب ستاسو دواړو لپاره تړل کېږي. راکړې ورکړې یې دلته پاتې کېږي او لا هم شمېرل کېږي، خو هېڅ لوری نورې راکړې ورکړې پکې نه شي زیاتولای. نوې راکړې ورکړې بېرته یوازې ستاسو په خپله کاټه کې ثبتېږي.",
+    "له همغږي کېدو وروسته، هېڅ لوری نوې ګډې راکړې ورکړې یا د دې حساب له لارې خبرتیاوې نه شي لېږلای. منل شوې راکړې ورکړې او تایید شوی پاتې حساب ساتل کېږي. په تمه راکړې ورکړې د هماغو اصولو له مخې لا هم کتل یا لغوه کېدای شي. ستاسو په خپله کاټه کې نوې راکړې ورکړې شخصي دي.",
+  "tab.unlink.pending":
+    "د اړیکې پرې کول همغږي کېدو ته په تمه دي. د دواړو ټیلیفونونو د ګډ کار د درولو لپاره انټرنېټ سره وصل شئ.",
+  "tab.history.pending":
+    "تر بیا نښلولو مخکې، د پخوانۍ ګډې دورې په تمه راکړې ورکړې وګورئ او همغږې یې کړئ.",
+  "tab.history.changed":
+    "ګډه تاریخچه بدله شوې ده. تازه یې کړئ او تر بیا نښلولو مخکې لومړنی پاتې حساب وګورئ.",
+  "tab.history.openingRequired":
+    "دا کس لا هم تایید شوی ګډ پاتې حساب لري. د بیا نښلولو لپاره داسې لومړنی پاتې حساب پکار دی چې بل لوری یې بیاکتنه وکړای شي.",
+  "tab.balance.confirmed": "تایید شوی ګډ پاتې حساب: {amount} {currency}",
+  "tab.balance.pending": "{count} په تمه · خالص بدلون {amount} {currency}",
   "tab.unlinked": "اړیکه پرې شوه",
   "tab.chip.linked": "نښلول شوی · {name}",
   "tab.chip.waiting": "لینک ولېږل شو · په تمه",
@@ -5166,7 +5198,8 @@ const ps: Record<Key, string> = {
   "tab.dispute.notFound": "دا راکړه ورکړه نور په ګډ حساب کې نشته.",
   "tab.disputed": "رد شوه — له پاتې حسابه وایستل شوه",
   "tab.closed": "دا ګډ حساب تړل شوی.",
-  "tab.closedNote": "ګډ حساب په {date} وتړل شو. دلته نوې راکړې ورکړې شخصي دي.",
+  "tab.closedNote":
+    "ګډ کار په {date} ودرول شو. تایید شوې راکړې ورکړې ساتل کېږي او په تمه راکړې ورکړې لا هم کتل کېدای شي. دلته نوې راکړې ورکړې شخصي دي.",
   "tab.settle.confirm":
     "له {name} سره بیاکتل شوی پاتې حساب صفر دی. دا راکړې ورکړې ستاسو دواړو ګډې مخینې ته ولېږدوئ او نوې پاڼه پیل کړئ؟ ریکارډونه خوندي پاتې کېږي او دا ګډ حساب همداسې کارولای شئ.",
   "tab.settle.pending":
@@ -5177,11 +5210,13 @@ const ps: Record<Key, string> = {
   "tab.reviewedBy": "د {name} له خوا بیاکتل شوې",
   "tab.cancelledBy": "د {name} له خوا لغوه شوې",
   "tab.needsConnection": "ګډ حساب ته د راکړې ورکړې د زیاتولو لپاره له انټرنېټ سره وصل شئ.",
-  "tab.editLocked": "د ګډ حساب راکړې ورکړې سمېدای نه شي — لغوه یې کړئ او نوې زیاته کړئ.",
+  "tab.editLocked":
+    "ګډې راکړې ورکړې نه شي سمېدای. خپله په تمه راکړه ورکړه لغوه کولای شئ؛ د منل شوې راکړې ورکړې سمون نوي ثبت ته اړتیا لري.",
   "tab.currencyLocked": "د پیسو د ډول تر بدلولو مخکې د ګډو حسابونو اړیکې پرې کړئ.",
   "tab.duplicateHint": "د {name} له خوا له مخکې ثبت شوې — وګورئ چې دوه ځله ونه شمېرل شي.",
   "tab.them": "بل لوری",
   "tab.row.pending": "{count} د بیاکتنې لپاره",
+  "tab.row.awaiting": "{count} تایید ته په تمه",
   "tab.row.notDownloaded": "ګډ حساب لا نه دی ډاونلوډ شوی",
   "tab.notDownloaded":
     "دا ګډ حساب لا دې ټیلیفون ته نه دی ډاونلوډ شوی. کله چې ډاونلوډ شي، پاتې حساب به یې ښکاره شي؛ که دا حالت دوام وکړي، خپله اړیکه وګورئ.",
@@ -5666,10 +5701,9 @@ const ps: Record<Key, string> = {
   "export.col.id": "د راکړې ورکړې پېژند",
   "export.record.title": "د ثبت شویو منلو سره ګډ ریکارډ",
   "export.record.explanation":
-    "د کاټې په پاتې حساب کې د منلو په تمه راکړې ورکړې هم شاملې دي. رد شوې او لغوه شوې راکړې ورکړې د مخینې لپاره ښکاري او په حساب کې صفر شمېرل کېږي. د بیاکتونکي هغه جزییات چې نشته، نه دي ثبت شوي. نومونه د حساب نومونه دي، تایید شوي قانوني هویتونه نه دي.",
+    "په پاتې حساب کې تایید شوې ګډې راکړې ورکړې او دلته جلا ښودل شوي شخصي ثبتونه شمېرل کېږي. په تمه خالص بدلون هغه تایید شوی پاتې حساب بیا نه شمېري چې وړاندیز شوي لومړني پاتې حساب ته لېږدول شوی وي. په تمه مبلغونه تایید شوی پور نه دی. رد شوي او لغوه شوي ثبتونه صفر شمېرل کېږي. د بیاکتونکي ورک جزییات نه دي ثبت شوي. نومونه د حساب نومونه دي، تایید شوي قانوني هویتونه نه دي.",
   "export.record.acknowledgedBalance": "منل شوی خالص پاتې حساب",
-  "export.record.pendingBalance":
-    "د منلو په تمه خالص پاتې حساب (د لا نه همغږو شویو بیاکتنو په ګډون)",
+  "export.record.pendingBalance": "په تمه خالص بدلون",
   "export.record.privateBalance": "شخصي خالص پاتې حساب",
   "export.record.contribution": "پر پاتې حساب اغېز",
   "export.record.status": "د ریکارډ حالت",

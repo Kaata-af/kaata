@@ -1,6 +1,7 @@
 // apps/mobile/lib/tabs/sync.ts
 //
-// The tab sync loop: flush this device's outbox ops for a tab IN ORDER, then
+// The tab sync loop: close sharing first when requested, otherwise flush this
+// device's financial outbox ops for a tab IN ORDER, then
 // pull `after_rev` from the server, apply, repeat on a cadence. It is a
 // sibling of lib/sync/scheduler.ts, not a leg of it, for one reason the
 // scheduler cannot accommodate: AutoSync mounts the scheduler only when
@@ -272,9 +273,23 @@ async function runSyncTab(tabId: string): Promise<SyncTabResult> {
       return { ...result, ok: false, error: "auth_unavailable" };
     }
 
-    // ---- flush, in order --------------------------------------------------
+    // Stop unwanted incoming activity before waiting out an older append's
+    // network backoff. Only close may overtake financial operations; its own
+    // backoff still applies. While close is waiting, upload no new tallies.
+    const queuedClose = await (
+      await getDb()
+    ).getFirstAsync<TabOutboxRow>(
+      `SELECT * FROM tab_outbox WHERE tab_id = ? AND op = 'close' ORDER BY rowid LIMIT 1`,
+      tabId,
+    );
+    const closeDue =
+      queuedClose != null && (queuedClose.next_at == null || queuedClose.next_at <= Date.now());
+    const due = queuedClose && !closeDue ? [] : await listDueTabOps(tabId);
+    const ops = closeDue ? [queuedClose, ...due.filter((op) => op.id !== queuedClose.id)] : due;
+
+    // ---- flush; financial operations retain their relative order ---------
     let flushError: string | null = null;
-    for (const op of await listDueTabOps(tabId)) {
+    for (const op of ops) {
       try {
         await applyForCurrentSession(session, async () => {});
         const r = await withAuthFallback(link, auth, (a) => performOp(a, link, op));
@@ -307,6 +322,10 @@ async function runSyncTab(tabId: string): Promise<SyncTabResult> {
           needFullPull.add(tabId);
           flushError = `${op.op}: ${describe(err)}`;
           if (__DEV__) console.warn("[tabs.sync] op dropped", op.op, err.code);
+          // A refused close must first show the server's actual open state.
+          // Leave every other intent durable rather than sending new activity
+          // in the same run that failed to stop it.
+          if (op.op === "close") break;
           continue;
         }
         // Transient (or unexpected — a malformed payload is logged the same
@@ -572,9 +591,17 @@ async function runReconcileTabsFromServer(): Promise<void> {
         if (existing) {
           // /mine carries metadata, not entries. It must not advance the cursor
           // or close the cache before all intervening rows have been pulled.
+          // Binding order was backfilled without a financial revision change.
+          // Upgrade caches must pull it even for completed closed periods.
+          const order = t.tab.parties[t.role].history_order;
+          const orderChanged =
+            typeof order === "string" &&
+            /^[1-9][0-9]*$/.test(order) &&
+            order !== existing.history_order;
           return (
             existing.last_synced_at == null ||
             t.tab.rev > existing.rev ||
+            orderChanged ||
             (t.tab.closed_at_ms != null && existing.closed_at == null)
           );
         }
@@ -608,6 +635,7 @@ async function runReconcileTabsFromServer(): Promise<void> {
             vault_id: t.vault_id,
             relationship_id: t.relationship_id,
             role: me,
+            history_order: t.tab.parties[me].history_order ?? null,
             currency: t.tab.currency,
             party_token: null,
             my_label: t.tab.parties[me].label,
@@ -680,20 +708,35 @@ async function runSyncAll(discover: boolean): Promise<void> {
   }
   const now = Date.now();
   const full = discover || now - lastFullSweepAt >= FULL_SWEEP_INTERVAL_MS;
+  // Closing stops new activity, but existing pending tallies may still receive
+  // their one final review/cancellation. Keep those periods current without
+  // polling every completed historical period on every minute sweep.
+  const pendingClosed = new Set(
+    full
+      ? (
+          await (
+            await getDb()
+          ).getAllAsync<{ tab_id: string }>(
+            `SELECT tl.tab_id FROM tab_links tl
+             WHERE tl.closed_at IS NOT NULL AND EXISTS (
+               SELECT 1 FROM tab_entries te WHERE te.tab_id = tl.tab_id
+                 AND te.status = 'pending' AND te.kind <> 'void'
+                 AND te.voided_by_entry_id IS NULL)`,
+          )
+        ).map((row) => row.tab_id)
+      : [],
+  );
   const ids = new Set<string>();
   for (const l of await listTabLinks({ includeClosed: true })) {
-    // Open links every sweep. A CLOSED one only when it has never been
-    // pulled (rev 0) — which is exactly the reinstall case: /mine hands the
-    // link back with an empty cache, and a frozen tab's rows still count
-    // toward the contact's balance (D8), so without this one pull the
-    // contact would read 0 forever. Closing always bumps the server rev, so
-    // a populated closed tab is re-pulled by /mine reconciliation only when
-    // its revision changes (for example, after an account is deleted).
-    if (!(l.closed_at == null || l.rev === 0)) continue;
+    const hot = isHot(l.tab_id, now);
+    // Screens and live pokes need the same 5 s backstop after unlinking.
+    // /mine remains the safety net for completed periods whose metadata
+    // changes; rev 0 still needs a first full pull after restore.
+    if (!(l.closed_at == null || l.rev === 0 || hot || pendingClosed.has(l.tab_id))) continue;
     // Between full sweeps, only links where a wait is felt (see isHot); a
     // never-synced link (restore) is always due. rev 0 is not that test: an
     // empty tab stays at rev 0 after it has been pulled.
-    if (full || l.last_synced_at == null || isHot(l.tab_id, now)) ids.add(l.tab_id);
+    if (full || l.last_synced_at == null || hot) ids.add(l.tab_id);
   }
   // Unsent ops (closes included) are due every tick.
   for (const id of await listTabIdsWithQueuedOps()) ids.add(id);

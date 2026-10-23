@@ -4,6 +4,7 @@ import {
   DEFAULT_CUSTOMER_LIST,
   DEFAULT_CUSTOMER_SEARCH,
   compareCustomerNames,
+  customerSide,
   parseCustomerListPreference,
   parseCustomerSearchPreference,
   selectCustomers,
@@ -76,6 +77,30 @@ assert.deepEqual(
 );
 const changedStaleBalances = extraPeople.map((p) =>
   p.tab_unsynced === 1 ? { ...p, balance: p.balance === 0 ? -9999 : 0 } : p,
+);
+const pendingGiven = person("pending-given", "Ali Pending", 0, 100, {
+  tab_id: "shared-pending",
+  tab_pending_count: 1,
+  tab_pending_balance: 40,
+  last_entry_type: "debt",
+});
+assert.equal(customerSide(pendingGiven), "collect", "an unconfirmed loan stays on its giving side");
+assert.equal(
+  customerSide({ ...pendingGiven, tab_pending_balance: -40, last_entry_type: "payment" }),
+  "pay",
+  "an unconfirmed receipt stays on its receiving side",
+);
+assert.equal(
+  customerSide({ ...pendingGiven, balance: -10 }),
+  "pay",
+  "confirmed debt direction takes precedence over an opposing pending change",
+);
+assert.deepEqual(
+  selectSearchCustomers([people[2], pendingGiven], DEFAULT_CUSTOMER_SEARCH, {}, "en").map(
+    (p) => p.id,
+  ),
+  ["pending-given", "c"],
+  "a pending-only shared account is not buried among settled contacts",
 );
 assert.deepEqual(
   selectSearchCustomers(changedStaleBalances, DEFAULT_CUSTOMER_SEARCH, {}, "en").map((p) => p.id),

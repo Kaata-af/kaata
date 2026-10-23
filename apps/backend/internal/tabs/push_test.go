@@ -321,8 +321,8 @@ func TestPushStopsAfterInstallationSignsOut(t *testing.T) {
 
 // Handled means read: a phone that read a notice in the app, or reviewed the
 // tally by any path, is not rung about it afterwards; a review request is
-// dropped once the tally is no longer pending or the tab is closed, while the
-// outcome kinds still go out; and a provider that keeps rejecting a message
+// dropped once the tally is no longer pending, and a closed tab sends no
+// remote alerts; a provider that keeps rejecting a message
 // gets exactly one re-send before the job is dropped.
 func TestPushSkipsReadAndReviewed(t *testing.T) {
 	f := newHTTPFixture(t)
@@ -506,7 +506,7 @@ func TestPushSkipsReadAndReviewed(t *testing.T) {
 	}
 	sendMode = "ok"
 
-	// (6) Closing the tab moots a pending review request; the close itself is announced.
+	// (6) Closing stops every remote alert; existing proposals stay in history.
 	f.append(t, pa, "a_to_b", "70", now)
 	if _, err := f.svc.Close(ctx, pa); err != nil {
 		t.Fatal(err)
@@ -516,7 +516,7 @@ func TestPushSkipsReadAndReviewed(t *testing.T) {
 	}
 	deliver(true)
 	deliver(true)
-	if sends != 7 || lastKind != "updated" || jobs() != 1 {
+	if sends != 6 || jobs() != 0 {
 		t.Fatalf("close: sends=%d kind=%s jobs=%d", sends, lastKind, jobs())
 	}
 }

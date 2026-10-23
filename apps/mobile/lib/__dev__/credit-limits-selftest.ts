@@ -63,6 +63,9 @@ const pendingActionDDL = /ALTER TABLE tab_entries ADD COLUMN local_action_pendin
 )?.[0];
 assert.ok(pendingActionDDL, "actual shared action-pending migration");
 fixture.exec(pendingActionDDL);
+const historyOrderDDL = /ALTER TABLE tab_links ADD COLUMN history_order TEXT;/.exec(dbSource)?.[0];
+assert.ok(historyOrderDDL, "actual shared history order migration");
+fixture.exec(historyOrderDDL);
 const db = {
   getFirstAsync: async (sql: string, ...args: unknown[]) =>
     fixture.prepare(sql).get(...args) ?? null,
@@ -164,6 +167,7 @@ const credit = compile<typeof import("../credit-limits")>("../credit-limits", (n
   if (name === "./effective-account") return { resolveAccountIdCandidates: async () => identities };
   if (name === "./money") return { toMinorUnits };
   if (name === "./money-sql") return { signedEntryMinorSumSql };
+  if (name === "./tabs/history") return require("../tabs/history");
   if (name === "./credit-policy-events")
     return {
       emitCreditPoliciesChanged: () => {
@@ -198,6 +202,7 @@ const tabs = compile<typeof import("../tabs/db")>("../tabs/db", (name) => {
   if (name === "./events") return { emitTabApplied: () => {} };
   if (name === "../money") return require("../money");
   if (name === "./direction") return require("../tabs/direction");
+  if (name === "./history") return require("../tabs/history");
   if (name === "./errors") return require("../tabs/errors");
   if (name === "./wire") return require("../tabs/wire");
   throw Error(`unexpected tab import ${name}`);
@@ -1059,6 +1064,95 @@ async function run() {
   );
   console.log(
     "PASS local plus shared exposure, cents, both party perspectives and frozen link boundary",
+  );
+
+  // A rejected replacement opening cannot make earlier exposure disappear
+  // from the real policy warning/admission input.
+  fixture.exec(`INSERT INTO vaults VALUES('v-check',NULL,NULL,NULL,'anchor');
+    INSERT INTO relationships VALUES('r-check','v-check','p-check',1,NULL);
+    INSERT INTO users VALUES('p-check',0,'Checkpoint customer');
+    INSERT INTO customer_credit_limits(vault_id,relationship_id,max_collect_minor,max_pay_minor,mode,updated_at_ms)
+      VALUES('v-check','r-check',35000,35000,'clerk_block',1);
+    INSERT INTO tab_links(tab_id,vault_id,relationship_id,role,linked_at,currency,closed_at,history_order)
+      VALUES('credit-old','v-check','r-check','a',100,'AFN',200,'10'),
+            ('credit-new','v-check','r-check','b',300,'AFN',NULL,'11');
+    INSERT INTO tab_entries(id,tab_id,seq,rev,created_by,direction,amount_minor,kind,occurred_at,created_at,status)
+      VALUES('credit-old-loan','credit-old',1,1,'a','a_to_b',30000,'opening',1,1,'accepted'),
+            ('credit-new-opening','credit-new',1,1,'b','b_to_a',30000,'opening',2,2,'disputed');`);
+  try {
+    const before = await credit.creditBalanceInTx(db, "v-check", "r-check");
+    assert.equal(before, 30000, "rejected opening preserves older accepted 300 exposure");
+    assert.equal(await credit.creditWarning("p-check", "debt", 100, "v-check"), true);
+    assert.equal(
+      creditExceeded(
+        { ...policy(350, "clerk_block", 1), max_collect_minor: 35000 },
+        before,
+        before + 10000,
+      ),
+      true,
+      "the 350 cap refuses another100 against the real preserved300",
+    );
+    fixture.exec(`INSERT INTO tab_entries(id,tab_id,seq,rev,created_by,direction,amount_minor,kind,occurred_at,created_at,status)
+      VALUES('credit-new-gave','credit-new',2,2,'b','b_to_a',10000,'entry',3,3,'pending');`);
+    assert.equal(
+      await credit.creditBalanceInTx(db, "v-check", "r-check"),
+      40000,
+      "each period uses its own role; pending new100 counts once",
+    );
+    fixture.prepare("UPDATE tab_entries SET status='pending' WHERE id='credit-new-opening'").run();
+    assert.equal(
+      await credit.creditBalanceInTx(db, "v-check", "r-check"),
+      40000,
+      "a live pending opening absorbs prior300 without doublecounting",
+    );
+    fixture
+      .prepare("UPDATE tab_entries SET amount_minor=10000 WHERE id='credit-new-opening'")
+      .run();
+    assert.equal(
+      await credit.creditBalanceInTx(db, "v-check", "r-check"),
+      20000,
+      "pending-inclusive policy preserves the pending opening's recorded amount",
+    );
+    fixture
+      .prepare(
+        "UPDATE tab_entries SET voided_by_entry_id='withdrawal' WHERE id='credit-new-opening'",
+      )
+      .run();
+    assert.equal(
+      await credit.creditBalanceInTx(db, "v-check", "r-check"),
+      40000,
+      "withdrawing an opening restores the older recorded checkpoint",
+    );
+    fixture.exec(`INSERT INTO entries(id,vault_id,relationship_id,type,amount_afn,created_at)
+      VALUES('credit-before','v-check','r-check','debt',999,250),
+            ('credit-after','v-check','r-check','debt',0.01,301);`);
+    assert.equal(
+      await credit.creditBalanceInTx(db, "v-check", "r-check"),
+      40001,
+      "post-latest private cents count once; earlier private history stays excluded",
+    );
+    fixture.exec(`INSERT INTO tab_entries(id,tab_id,seq,rev,created_by,direction,amount_minor,kind,occurred_at,created_at,status)
+      VALUES('credit-new-repayment','credit-new',3,3,'b','a_to_b',40000,'entry',4,4,'pending');`);
+    assert.equal(
+      await credit.creditBalanceInTx(db, "v-check", "r-check"),
+      1,
+      "offsetting pending recorded flows reach zero without dropping privatecents",
+    );
+    const creditStarted = performance.now();
+    for (let i = 0; i < 100; i++) await credit.creditBalanceInTx(db, "v-check", "r-check");
+    console.log(
+      `Cross-period recorded credit read: ${((performance.now() - creditStarted) / 100).toFixed(2)} ms/read on test host`,
+    );
+  } finally {
+    fixture.prepare("DELETE FROM tab_links WHERE vault_id='v-check'").run();
+    fixture.prepare("DELETE FROM entries WHERE vault_id='v-check'").run();
+    fixture.prepare("DELETE FROM customer_credit_limits WHERE vault_id='v-check'").run();
+    fixture.prepare("DELETE FROM relationships WHERE vault_id='v-check'").run();
+    fixture.prepare("DELETE FROM users WHERE id='p-check'").run();
+    fixture.prepare("DELETE FROM vaults WHERE id='v-check'").run();
+  }
+  console.log(
+    "PASS recorded credit checkpoints preserve pending-inclusive caps across rejected/cancelled openings, party reversal, zero and private boundaries",
   );
 
   const event = {

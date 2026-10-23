@@ -130,8 +130,8 @@ export async function resolveTabAuth(link: TabLink): Promise<TabAuth> {
 }
 
 /** POST /v1/tabs — authenticated caller becomes party a. */
-export async function createTab(req: CreateRequest): Promise<CreateResponse> {
-  return request<CreateResponse>("POST", "/v1/tabs", await requireJwt(), req);
+export async function createTab(req: CreateRequest, auth?: TabAuth): Promise<CreateResponse> {
+  return request<CreateResponse>("POST", "/v1/tabs", auth ?? (await requireJwt()), req);
 }
 
 /** GET /v1/tabs/mine — every tab a party of which is bound to this account or
@@ -162,12 +162,12 @@ export async function fetchTabByToken(
 
 /** POST /v1/tabs/{id}/join — party b's first contact; idempotent re-join updates the label. */
 export async function joinTab(
-  auth: TabAuth | { token: string },
+  auth: TabAuth | { token: string; jwt?: string },
   tabId: string,
   req: JoinRequest,
 ): Promise<TabResponse> {
   if ("token" in auth) {
-    const session = await requireJwt();
+    const session = auth.jwt ? { jwt: auth.jwt } : await requireJwt();
     return request<TabResponse>("POST", `/v1/tabs/${encodeURIComponent(tabId)}/join`, session, {
       ...req,
       token: auth.token,
@@ -181,7 +181,14 @@ export async function joinTab(
 export async function bindTab(
   token: string,
   tabId: string,
-  body: { vault_id: string | null; relationship_id: string | null; linked_at_ms?: number },
+  body: {
+    vault_id: string | null;
+    relationship_id: string | null;
+    linked_at_ms?: number;
+    expected_previous_tab_id?: string | null;
+    expected_previous_rev?: number;
+    expected_history_revisions?: Record<string, number>;
+  },
 ): Promise<TabResponse> {
   return request<TabResponse>(
     "POST",

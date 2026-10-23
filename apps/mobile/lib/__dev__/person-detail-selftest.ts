@@ -26,6 +26,10 @@ const { summarizeSelectionEntries } = compileUI("../selection-summary", {
   "./money": money,
   "./db-tx": { getDb: () => assert.fail("Tally selection totals are already loaded") },
 }) as typeof import("../selection-summary");
+const translations = compileUI("../i18n", {
+  "expo-localization": { getLocales: () => [{ languageCode: "en" }] },
+  "./db": { getAppMeta: async () => null },
+}) as typeof import("../i18n");
 
 type Node = { type: string; props: Record<string, any> };
 type Effect = { deps?: unknown[]; cleanup?: () => void };
@@ -104,9 +108,7 @@ function contrastOverWhite(foreground: string, background: string, opacity = 1):
     assert.match(hex, /^#[\da-f]{6}$/i, "action colors are opaque RGB values");
     return [1, 3, 5]
       .map((at) => (parseInt(hex.slice(at, at + 2), 16) / 255) * opacity + 1 - opacity)
-      .map((channel) =>
-        channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4,
-      )
+      .map((channel) => (channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4))
       .reduce((sum, channel, index) => sum + channel * [0.2126, 0.7152, 0.0722][index], 0);
   };
   const a = luminance(foreground);
@@ -132,6 +134,10 @@ let priorPeriods: any[] = [],
   historyReadGate: Promise<any[]> | null = null;
 let accountId = "account",
   vaultId = "vault";
+let balanceLabelLocale: "en" | "fa" | "ps" | null = null;
+const tabLinksById = new Map<string, any>();
+let tabLinkReadGate: Promise<any> | null = null;
+const sharedActions: Array<{ name: string; link: any; entryId: string }> = [];
 const identityListeners = new Set<() => void>();
 let reminderRows: any[] = [],
   reminderReadGate: Promise<any[]> | null = null;
@@ -344,6 +350,7 @@ const mocks: Record<string, any> = {
     },
     savedMessage: () => null,
   },
+  "../../lib/export/shared-record": require("../export/shared-record"),
   "../../lib/ledger-events": {
     useLedgerRefresh(_: string, load: () => Promise<void>) {
       ledgerRefresh = load;
@@ -358,17 +365,22 @@ const mocks: Record<string, any> = {
     useIsRTL: () => rtl,
   },
   "../../lib/fonts": { fonts: {}, sansLineHeight: (_: number, h: number) => h },
-  "../../lib/format": { formatAmount: (amount: number) => `amount:${amount}` },
+  "../../lib/format": {
+    formatAmount: (amount: number) => `amount:${Math.abs(amount)}`,
+    formatDate: () => "fixture date",
+  },
   "../../lib/money": { sumAmounts },
   "../../lib/i18n": {
-    getLocale: () => (rtl ? "fa" : "en"),
+    getLocale: () => balanceLabelLocale ?? (rtl ? "fa" : "en"),
     getShareLangPref: async () => {
       preferenceReads++;
       return preference;
     },
     resolveShareLang: (value: string) => value,
     t: (key: string, values?: Record<string, any>) =>
-      key + (values?.count == null ? "" : `:${values.count}`),
+      balanceLabelLocale && (key === "tab.balance.confirmed" || key === "tab.balance.pending")
+        ? translations.tIn(balanceLabelLocale, key, values)
+        : key + (values?.count == null ? "" : `:${values.count}`),
   },
   "../../lib/jalali": { formatSettlementDate: () => "fixture date" },
   "../../lib/calendar": { useCalendar: () => calendar },
@@ -402,6 +414,11 @@ const mocks: Record<string, any> = {
     }),
   },
   "../../lib/tabs/db": {
+    getTabLink: async (id: string) => {
+      if (tabLinkReadGate) return tabLinkReadGate;
+      const target = tabLinksById.get(id) ?? (link?.tab_id === id ? link : null);
+      return target ? { ...target } : null;
+    },
     getLatestTabLinkForPerson: async () => (link ? { ...link } : null),
     listPreLinkEntries: async () => [...preLink],
     listFailedTabEntries: async () => [...failed],
@@ -419,7 +436,12 @@ const mocks: Record<string, any> = {
         "unlinkContact",
         "voidEntry",
         "settleSharedTab",
-      ].map((name) => [name, async () => {}]),
+      ].map((name) => [
+        name,
+        async (target: any, entryId: string) => {
+          sharedActions.push({ name, link: { ...target }, entryId });
+        },
+      ]),
     ),
     TabAuthUnavailableError: dummyError,
     TabClosedError: dummyError,
@@ -587,6 +609,10 @@ function fixture(shared = false) {
   historyReadGate = null;
   accountId = "account";
   vaultId = "vault";
+  balanceLabelLocale = null;
+  tabLinksById.clear();
+  tabLinkReadGate = null;
+  sharedActions.length = 0;
   failed = [];
   markers = [];
   link = null;
@@ -1192,7 +1218,240 @@ async function inlineSearchScopeTests() {
   }
 }
 
+async function sharedClosureReviewTests() {
+  const entryRow = (id: string) => {
+    const row = tallies().find((node) => node.props.entry.id === id);
+    assert.ok(row, `shared tally ${id} is visible`);
+    return row;
+  };
+  const prepareClosed = (reason: "account_deleted" | null) => {
+    fixture(true);
+    markers = [];
+    boundaries = [];
+    settlement = { count: 0, lastSettledAtMs: null };
+    link = { ...link, closed_at: 10_000, closed_reason: reason };
+    const meta = (by: string, status = "pending") => ({
+      tab_id: link.tab_id,
+      seq: 1,
+      kind: "entry",
+      by,
+      status,
+      voided: false,
+    });
+    entries = [
+      tally("incoming", "awaiting my review", 10, 600, meta("them")),
+      tally("mine", "awaiting their review", 20, 500, meta("me")),
+      tally("accepted", "accepted permanently", 30, 400, meta("me", "accepted")),
+      tally("rejected", "rejected permanently", 40, 300, meta("me", "disputed")),
+    ];
+  };
+  for (const os of ["ios", "android"])
+    for (const reason of [null, "account_deleted"] as const) {
+      platform = os;
+      prepareClosed(reason);
+      await flush();
+      assert.equal(watched.get("tab"), 1, `${os}: closed history keeps live sync while focused`);
+      const incoming = entryRow("incoming");
+      const mine = entryRow("mine");
+      assert.equal(typeof incoming.props.onAccept, "function");
+      assert.equal(typeof incoming.props.onReject, "function");
+      assert.equal(typeof mine.props.onCancel, "function");
+      await incoming.props.onAccept(incoming.props.entry);
+      await incoming.props.onReject(incoming.props.entry);
+      await mine.props.onCancel(mine.props.entry);
+      assert.deepEqual(
+        sharedActions.map(({ name, link: target, entryId }) => [
+          name,
+          target.tab_id,
+          target.closed_at,
+          entryId,
+        ]),
+        [
+          ["acceptEntry", "tab", 10_000, "incoming"],
+          ["disputeEntry", "tab", 10_000, "incoming"],
+          ["voidEntry", "tab", 10_000, "mine"],
+        ],
+        "the screen dispatches final decisions without reopening sharing",
+      );
+      sharedActions.length = 0;
+      for (const id of ["accepted", "rejected", "incoming"]) {
+        const row = entryRow(id);
+        await row.props.onCancel(row.props.entry);
+      }
+      assert.deepEqual(
+        sharedActions,
+        [],
+        "reviewed tallies and another party's tally cannot be cancelled",
+      );
+      blur();
+      assert.equal(watched.get("tab"), 0);
+      refocus();
+      await flush();
+      assert.equal(watched.get("tab"), 1);
+    }
+
+  prepareClosed(null);
+  const old = { ...link, tab_id: "old-period" };
+  link = { ...link, tab_id: "latest-period", closed_at: null };
+  tabLinksById.set(old.tab_id, old);
+  entries[0].tab.tab_id = old.tab_id;
+  await flush();
+  const historical = entryRow("incoming");
+  await historical.props.onAccept(historical.props.entry);
+  await historical.props.onReject(historical.props.entry);
+  assert.deepEqual(
+    sharedActions.map(({ link: target }) => target.tab_id),
+    ["old-period", "old-period"],
+    "entry metadata selects the original period instead of the newest link",
+  );
+
+  prepareClosed(null);
+  delete entries[0].tab.tab_id;
+  await flush();
+  const legacy = entryRow("incoming");
+  await legacy.props.onAccept(legacy.props.entry);
+  assert.equal(
+    sharedActions[0]?.link.tab_id,
+    "tab",
+    "old cached rows without a period ID use their displayed history link",
+  );
+
+  const warn = console.warn;
+  console.warn = () => {};
+  try {
+    for (const mismatch of ["missing", "vault", "relationship"] as const) {
+      prepareClosed(null);
+      entries[0].tab.tab_id = "foreign-period";
+      if (mismatch !== "missing")
+        tabLinksById.set("foreign-period", {
+          ...link,
+          tab_id: "foreign-period",
+          ...(mismatch === "vault"
+            ? { vault_id: "other-vault" }
+            : { relationship_id: "other-person" }),
+        });
+      await flush();
+      const incoming = entryRow("incoming");
+      await incoming.props.onAccept(incoming.props.entry);
+      await incoming.props.onReject(incoming.props.entry);
+      assert.deepEqual(
+        sharedActions,
+        [],
+        `${mismatch}: a row cannot review an unknown or out-of-scope period`,
+      );
+      assert.equal(toasts.length, 2, "scope failures give feedback without dispatching mutations");
+    }
+    for (const depart of ["account", "vault", "blur"] as const) {
+      prepareClosed(null);
+      await flush();
+      const incoming = entryRow("incoming");
+      let release!: (target: any) => void;
+      const target = { ...link };
+      tabLinkReadGate = new Promise((resolve) => {
+        release = resolve;
+      });
+      const reviewing = incoming.props.onAccept(incoming.props.entry);
+      if (depart === "account") accountId = "another-account";
+      else if (depart === "vault") vaultId = "another-vault";
+      else blur();
+      release(target);
+      await reviewing;
+      await flush();
+      assert.deepEqual(
+        sharedActions,
+        [],
+        `${depart}: a lookup finishing after departure cannot submit a stale review`,
+      );
+    }
+  } finally {
+    console.warn = warn;
+    tabLinkReadGate = null;
+  }
+  console.log(
+    "PASS: closed-period reviews stay available, resolve the exact tally period, preserve finality, and reject wrong or departed scopes",
+  );
+
+  for (const locale of ["en", "fa", "ps"] as const) {
+    prepareClosed(null);
+    rtl = locale !== "en";
+    balanceLabelLocale = locale;
+    person = {
+      ...person,
+      balance: 30,
+      tab_confirmed_balance: 30,
+      tab_pending_count: 2,
+      tab_pending_balance: 10,
+    };
+    await flush();
+    const confirmed = translations.tIn(locale, "tab.balance.confirmed", {
+      amount: "+amount:30",
+      currency: "AFN",
+    });
+    const pending = translations.tIn(locale, "tab.balance.pending", {
+      count: 2,
+      amount: "+amount:10",
+      currency: "AFN",
+    });
+    assert.ok(
+      words(tree).includes("amount:30"),
+      `${locale}: the confirmed headline remains visible`,
+    );
+    assert.ok(
+      words(tree).includes(confirmed),
+      `${locale}: confirmed money has its own localized label`,
+    );
+    assert.ok(
+      words(tree).includes(pending),
+      `${locale}: pending transaction count and signed net change remain explicit`,
+    );
+    assert.notEqual(confirmed, "tab.balance.confirmed");
+    assert.notEqual(pending, "tab.balance.pending");
+    person = { ...person, balance: 0, tab_confirmed_balance: -30, tab_pending_balance: -10 };
+    await ledgerRefresh();
+    await flush();
+    for (const [key, amount] of [
+      ["tab.balance.confirmed", "−amount:30"],
+      ["tab.balance.pending", "−amount:10"],
+    ] as const)
+      assert.ok(
+        words(tree).includes(translations.tIn(locale, key, { count: 2, amount, currency: "AFN" })),
+        `${locale}: negative shared balances and pending repayments retain their direction`,
+      );
+    person = { ...person, tab_pending_balance: 0 };
+    await ledgerRefresh();
+    await flush();
+    assert.ok(
+      words(tree).includes(
+        translations.tIn(locale, "tab.balance.pending", {
+          count: 2,
+          amount: "amount:0",
+          currency: "AFN",
+        }),
+      ),
+      "opposite pending tallies remain visible even when their net is zero",
+    );
+    person = { ...person, tab_pending_count: 0 };
+    await ledgerRefresh();
+    await flush();
+    assert.ok(
+      !words(tree).includes(
+        translations.tIn(locale, "tab.balance.pending", {
+          count: 0,
+          amount: "amount:0",
+          currency: "AFN",
+        }),
+      ),
+      "no empty pending label after the last review",
+    );
+  }
+  balanceLabelLocale = null;
+  console.log(
+    "PASS: the real person screen labels confirmed balance and pending count/net separately in English, Dari and Pashto",
+  );
+}
+
 async function main() {
+  await sharedClosureReviewTests();
   await tallySelectionTests();
   await inlineSearchScopeTests();
   await notificationReminderFlowTests();
@@ -1687,10 +1946,10 @@ async function main() {
   assert.deepEqual(
     find("TallyFlowSummary")?.props.summary,
     {
-      gave: { count: 4, amount: 516 },
+      gave: { count: 3, amount: 511 },
       received: { count: 1, amount: 10 },
     },
-    "known pre-link handovers count once; rejected/cancelled and failed intents do not count",
+    "known pre-link handovers count once; pending, rejected/cancelled and failed intents do not count",
   );
   console.log(
     "PASS: amount search and explicit date ranges span shared, pre-link and failed tallies; selected dates survive calendar preferences",

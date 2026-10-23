@@ -29,23 +29,41 @@ func CreditBalance(ctx context.Context, tx pgx.Tx, vaultID, relationshipID strin
 }
 
 func creditBalanceWithProjection(ctx context.Context, tx pgx.Tx, vaultID, relationshipID string, p *Projection) (int64, error) {
-	var tabID, party string
+	var mixedCurrency bool
+	if err := tx.QueryRow(ctx, `SELECT COUNT(DISTINCT t.currency)>1 OR COALESCE(BOOL_OR(t.currency<>v.currency),FALSE)
+	 FROM tab_parties p JOIN tabs t ON t.id=p.tab_id JOIN vaults v ON v.vault_id=p.vault_id
+	 WHERE p.vault_id=$1::uuid AND p.relationship_id=$2::uuid`, vaultID, relationshipID).Scan(&mixedCurrency); err != nil {
+		return 0, err
+	}
+	if mixedCurrency {
+		return 0, fmt.Errorf("credit balance unavailable: shared history currency mismatch")
+	}
 	var boundary *int64
-	err := tx.QueryRow(ctx, `SELECT p.tab_id::text,p.role,p.linked_at_ms FROM tab_parties p JOIN tabs t ON t.id=p.tab_id WHERE p.vault_id=$1::uuid AND p.relationship_id=$2::uuid ORDER BY (t.closed_at IS NULL) DESC,p.linked_at_ms DESC LIMIT 1`, vaultID, relationshipID).Scan(&tabID, &party, &boundary)
+	err := tx.QueryRow(ctx, `SELECT p.linked_at_ms FROM tab_parties p JOIN tabs t ON t.id=p.tab_id WHERE p.vault_id=$1::uuid AND p.relationship_id=$2::uuid ORDER BY p.history_order DESC NULLS LAST,t.created_at DESC,t.id DESC,p.role DESC LIMIT 1`, vaultID, relationshipID).Scan(&boundary)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return 0, err
 	}
 	sum := new(big.Int)
 	if err == nil {
 		var tabSum string
-		if err := tx.QueryRow(ctx, `SELECT COALESCE(SUM(CASE WHEN direction='a_to_b' THEN amount_minor ELSE -amount_minor END),0)::text FROM tab_entries WHERE tab_id=$1::uuid AND kind<>'void' AND voided_by_entry_id IS NULL AND status<>'disputed'`, tabID).Scan(&tabSum); err != nil {
+		// Credit exposure remains pending-inclusive. A live opening replaces
+		// earlier periods, but rejecting/withdrawing it reveals that earlier
+		// exposure instead of turning a previously accepted loan into zero.
+		if err := tx.QueryRow(ctx, `WITH periods AS (
+		 SELECT tab_id,role,history_order FROM tab_parties WHERE vault_id=$1::uuid AND relationship_id=$2::uuid
+		), checkpoint AS (
+		 SELECT MAX(p.history_order) AS history_order FROM periods p JOIN tab_entries e ON e.tab_id=p.tab_id
+		 WHERE e.kind='opening' AND e.voided_by_entry_id IS NULL AND e.status IN ('pending','accepted')
+		)
+		 SELECT COALESCE(SUM(CASE WHEN (p.role='a' AND e.direction='a_to_b') OR (p.role='b' AND e.direction='b_to_a')
+		   THEN e.amount_minor ELSE -e.amount_minor END),0)::text
+		 FROM periods p JOIN tab_entries e ON e.tab_id=p.tab_id CROSS JOIN checkpoint c
+		 WHERE p.history_order>=COALESCE(c.history_order,0) AND e.kind<>'void'
+		   AND e.voided_by_entry_id IS NULL AND e.status IN ('pending','accepted')`, vaultID, relationshipID).Scan(&tabSum); err != nil {
 			return 0, err
 		}
 		if _, ok := sum.SetString(tabSum, 10); !ok {
 			return 0, fmt.Errorf("invalid tab balance")
-		}
-		if party == "b" {
-			sum.Neg(sum)
 		}
 	}
 	for _, e := range p.Entries {

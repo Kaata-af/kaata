@@ -198,6 +198,9 @@ const MIGRATION_028_DDL = /execAsync\(`([^`]*CREATE TABLE IF NOT EXISTS tab_link
   dbSource,
 )?.[1];
 assert.ok(MIGRATION_028_DDL, "migration 028 DDL is one execAsync block in lib/db.ts");
+const MIGRATION_041_DDL =
+  /execAsync\(`(ALTER TABLE tab_links ADD COLUMN history_order TEXT;[^`]*)`\)/.exec(dbSource)?.[1];
+assert.ok(MIGRATION_041_DDL, "migration041 preserves authoritative server history ordering");
 const MIGRATION_029_DDL =
   /execAsync\(`([^`]*CREATE TABLE IF NOT EXISTS tab_failed_ops[^`]*)`\)/.exec(dbSource)?.[1];
 assert.ok(MIGRATION_029_DDL, "migration 029 preserves refused offline intent");
@@ -296,6 +299,7 @@ function openFixture(): void {
     ${MIGRATION_030_DDL}
     ${MIGRATION_031_DDL}
     ${MIGRATION_032_DDL}
+    ${MIGRATION_041_DDL}
     ${MIGRATION_034_DDL}
     ${MIGRATION_038_DDL}
     ${EDITOR_LIMIT_DDL!.replace("${table}", "customer_credit_limits")};
@@ -570,6 +574,7 @@ const fakeFetch = async (
 function link(over: Partial<TabLink> = {}): TabLink {
   return {
     tab_id: TAB,
+    history_order: "1",
     vault_id: VAULT,
     relationship_id: REL,
     role: "a",
@@ -770,6 +775,82 @@ async function main(): Promise<void> {
     }
   });
 
+  await test("confirmed balances exclude pending repayments and offline acceptance until server acknowledgement", async () => {
+    const rows = [
+      {
+        direction: "a_to_b" as const,
+        amount_minor: 1_000_000,
+        kind: "entry" as const,
+        status: "accepted" as const,
+        voided_by_entry_id: null,
+      },
+      {
+        direction: "b_to_a" as const,
+        amount_minor: 1_000_000,
+        kind: "entry" as const,
+        status: "pending" as const,
+        voided_by_entry_id: null,
+      },
+      {
+        direction: "a_to_b" as const,
+        amount_minor: 100,
+        kind: "entry" as const,
+        status: "accepted" as const,
+        local_action_pending: 1,
+        voided_by_entry_id: null,
+      },
+    ];
+    assert.equal(
+      direction.tabBalanceMinor("a", rows),
+      100,
+      "recorded amount stays available for admission",
+    );
+    assert.equal(direction.tabConfirmedBalanceMinor("a", rows), 1_000_000);
+    assert.equal(direction.tabConfirmedBalanceMinor("b", rows), -1_000_000);
+    const tl = link();
+    await tabsDb.upsertTabLink(tl);
+    server.seed({
+      id: "loan",
+      created_by: "a",
+      status: "accepted",
+      amount: "10000",
+      direction: "a_to_b",
+    });
+    server.seed({ id: "repayment", created_by: "b", amount: "10000", direction: "b_to_a" });
+    await sync.syncTab(TAB);
+    const before = (await db.getPerson(CONTACT))!;
+    assert.equal(before.balance, 10000);
+    assert.equal(before.tab_pending_balance, -10000);
+    assert.equal(before.tab_recorded_balance, 0);
+    assert.equal(before.tab_pending_count, 1);
+    await tabsDb.applyOptimisticStatus(tl, "repayment", "accepted", null);
+    assert.equal(
+      (await db.getPerson(CONTACT))?.balance,
+      10000,
+      "offline intention is not acceptance evidence",
+    );
+    const repayment = server.entries.find((row) => row.id === "repayment")!;
+    repayment.status = "accepted";
+    repayment.rev = ++server.rev;
+    await sync.syncTab(TAB);
+    assert.equal(
+      (await db.getPerson(CONTACT))?.balance,
+      0,
+      "acknowledged repayment changes the amount owed",
+    );
+    assert.equal((await db.getPerson(CONTACT))?.tab_pending_count, 0);
+    server.seed({ id: "pending-gave", created_by: "a", amount: "10", direction: "a_to_b" });
+    server.seed({ id: "pending-received", created_by: "b", amount: "10", direction: "b_to_a" });
+    await sync.syncTab(TAB);
+    assert.equal((await db.getPerson(CONTACT))?.tab_pending_balance, 0);
+    assert.equal(
+      (await db.getPerson(CONTACT))?.tab_pending_count,
+      2,
+      "offsetting pending claims remain unresolved even when their net is zero",
+    );
+    assert.equal((await db.listAllPeople())[0].is_settled, 0);
+  });
+
   await test("wire money: string surgery only, both directions, both edges", () => {
     assert.equal(wire.wireToMinor("0.10"), 10);
     assert.equal(wire.wireToMinor("0.20"), 20);
@@ -820,6 +901,7 @@ async function main(): Promise<void> {
       "last_error",
       "other_account_name",
       "closed_reason",
+      "history_order",
     ]);
     assert.deepEqual(cols("tab_entries"), [
       "id",
@@ -1233,6 +1315,38 @@ async function main(): Promise<void> {
     assert.deepEqual(
       history.map((r) => (r.kind === "entry" ? r.entry.id : r.settlement.id)),
       ["backdated-received", "backdated-gave", "cleared", "settled-received", "settled-gave"],
+    );
+    const carried = {
+      ...old,
+      id: "older-accepted-loan",
+      tab: { ...old.tab!, tab_id: "older-period", seq: 2 },
+    };
+    const currentMarker = { ...marker, through_seq: 10 };
+    assert.equal(
+      chapters.afterSharedSettlement(carried, 10, TAB),
+      true,
+      "an older period's seq2 survives the current period's seq10 clearance",
+    );
+    assert.equal(
+      chapters.afterSharedSettlement(old, 10, TAB),
+      false,
+      "the current period still folds its acknowledged rows normally",
+    );
+    const carriedHistory = chapters.sharedHistory([...entries, carried], [currentMarker], TAB);
+    const carriedIds = carriedHistory.flatMap((item) =>
+      item.kind === "entry" ? [item.entry.id] : [],
+    );
+    assert.equal(
+      new Set(carriedIds).size,
+      carriedIds.length,
+      "a carried record is never rendered twice",
+    );
+    assert.equal(carriedIds.filter((id) => id === carried.id).length, 1);
+    assert.equal(carriedHistory.at(-1)?.kind, "entry");
+    assert.equal(
+      carriedHistory[0].kind,
+      "marker",
+      "the current marker still precedes the rows it cleared",
     );
     const queuedReview = { ...old, tab: { ...old.tab!, local_pending: true } };
     assert.deepEqual(
@@ -2087,6 +2201,7 @@ async function main(): Promise<void> {
     await tabsDb.upsertTabLink(link({ tab_id: "old-period", linked_at: 1, rev: 2 }));
     server.seed({
       id: "new-opening",
+      status: "accepted",
       kind: "opening",
       created_by: "a",
       direction: "a_to_b",
@@ -2418,6 +2533,7 @@ async function main(): Promise<void> {
     server.parties.b = { label: "Synthetic Customer", joined_at_ms: 6_000, bound: true };
     server.seed({
       id: "op",
+      status: "accepted",
       created_by: "a",
       direction: "a_to_b",
       amount: "70",
@@ -2452,12 +2568,15 @@ async function main(): Promise<void> {
         pending: after.tab_pending,
         joined: after.tab_other_joined,
       },
-      { balance: 55, last: 8_000, tab_id: TAB, pending: 1, joined: 1 },
-      "tab balance 70 - 20 + 5 (optimistic counts), local rows excluded",
+      { balance: 70, last: 8_000, tab_id: TAB, pending: 1, joined: 1 },
+      "only the acknowledged opening counts; pending repayment and local append stay separate",
     );
+    assert.equal(after.tab_recorded_balance, 55);
+    assert.equal(after.tab_pending_balance, -15);
+    assert.equal(after.tab_pending_count, 2);
     assert.equal(after.tab_unsynced, 0, "the first pull makes the balance known");
     const home = await db.listAllPeople();
-    assert.equal(home[0].balance, 55);
+    assert.equal(home[0].balance, 70);
     assert.equal(home[0].last_entry_at, 8_000);
     assert.equal(home[0].last_entry_type, "debt", "newest is my a_to_b tally");
     assert.equal(home[0].is_settled, 0);
@@ -2475,6 +2594,12 @@ async function main(): Promise<void> {
       ["l2", "l1"],
     );
     assert.equal(await tabsDb.vaultHasOpenTab(VAULT), true);
+    assert.equal(
+      (await tabsDb.listVaultContactsForJoin(VAULT)).find((candidate) => candidate.id === CONTACT)
+        ?.linked,
+      1,
+      "an open shared contact cannot take a second binding",
+    );
 
     // Immutability guards, for a tab row AND a frozen pre-link local row.
     await assert.rejects(db.updateEntry("b1", 21, null), errors.TabLinkedEntryError);
@@ -2513,9 +2638,11 @@ async function main(): Promise<void> {
         pending: closed?.tab_pending,
         last: closed?.last_entry_at,
       },
-      { balance: 55, tab_id: TAB, closed_at: 9_000, pending: 0, last: 8_000 },
-      "frozen, still counted; nothing left to review on a closed tab",
+      { balance: 70, tab_id: TAB, closed_at: 9_000, pending: 1, last: 8_000 },
+      "unlink preserves both the acknowledged balance and unresolved review count",
     );
+    assert.equal(closed?.tab_pending_count, 2);
+    assert.equal(closed?.tab_pending_balance, -15);
     assert.deepEqual(
       (await db.listEntries(CONTACT)).map((e) => e.id),
       ["my-opt", "b1", "op"],
@@ -2526,6 +2653,12 @@ async function main(): Promise<void> {
       "the pre-link fold survives the close",
     );
     assert.equal(await tabsDb.vaultHasOpenTab(VAULT), false, "the currency lock lifts");
+    assert.equal(
+      (await tabsDb.listVaultContactsForJoin(VAULT)).find((candidate) => candidate.id === CONTACT)
+        ?.linked,
+      0,
+      "a closed shared contact is selectable; history preflight still decides whether binding is safe",
+    );
     assert.equal(
       (await db.listEntriesForExport(VAULT)).map((r) => r.id).join(","),
       "op,b1,my-opt",
@@ -2538,16 +2671,16 @@ async function main(): Promise<void> {
     // they add on top of the frozen balance rather than replacing it.
     await db.createEntry(CONTACT, "debt", 45, "after unlink");
     const afterUnlink = await db.getPerson(CONTACT);
-    assert.equal(afterUnlink?.balance, 100, "55 carried over + 45 new");
+    assert.equal(afterUnlink?.balance, 115, "70 confirmed + 45 private");
     const merged = await db.listEntries(CONTACT);
     assert.equal(merged.length, 4);
     assert.equal(merged[0].note, "after unlink", "newest first across both sources");
     assert.equal(merged[0].tab, undefined, "a post-unlink tally is a plain local row");
     // And that new row edits and deletes like any other local entry.
     await db.updateEntry(merged[0].id, 46, "fixed");
-    assert.equal((await db.getPerson(CONTACT))?.balance, 101);
+    assert.equal((await db.getPerson(CONTACT))?.balance, 116);
     await db.softDeleteEntry(merged[0].id);
-    assert.equal((await db.getPerson(CONTACT))?.balance, 55);
+    assert.equal((await db.getPerson(CONTACT))?.balance, 70);
   });
 
   await test("re-link: only the LATEST tab counts, and the journal agrees with the balance", async () => {
@@ -2567,14 +2700,14 @@ async function main(): Promise<void> {
       `INSERT INTO tab_entries (id, tab_id, seq, rev, created_by, direction, amount_minor, kind,
                                 note, occurred_at, created_at, status, status_at, dispute_reason,
                                 voids_entry_id, voided_by_entry_id, local_pending)
-       VALUES (?, ?, ?, ?, 'a', ?, ?, ?, NULL, ?, ?, 'pending', NULL, NULL, NULL, NULL, 0)`,
+       VALUES (?, ?, ?, ?, 'a', ?, ?, ?, NULL, ?, ?, 'accepted', NULL, NULL, NULL, NULL, 0)`,
     );
 
     // Before any link: one local tally of 500.
     localEntry.run("e1", VAULT, REL, "debt", 500, 1_000, 1_000);
     // Tab one: opening 500 (carried), they pay 200 -> 300. Closed at 3000.
     await tabsDb.upsertTabLink(
-      link({ tab_id: "tab-1", linked_at: 2_000, closed_at: 3_000, rev: 9 }),
+      link({ tab_id: "tab-1", history_order: "1", linked_at: 2_000, closed_at: 3_000, rev: 9 }),
     );
     tabRow.run("t1", "tab-1", 1, 1, "a_to_b", 50_000, "opening", 2_000, 2_000);
     tabRow.run("t2", "tab-1", 2, 2, "b_to_a", 20_000, "entry", 2_500, 2_500);
@@ -2584,9 +2717,100 @@ async function main(): Promise<void> {
     localEntry.run("e2", VAULT, REL, "debt", 70, 4_000, 4_000);
     assert.equal((await db.getPerson(CONTACT))?.balance, 370);
     // Re-link: tab two opens carrying 370, then a tally of 100.
-    await tabsDb.upsertTabLink(link({ tab_id: "tab-2", linked_at: 5_000, rev: 7 }));
+    await tabsDb.upsertTabLink(
+      link({ tab_id: "tab-2", history_order: "2", linked_at: 5_000, rev: 7 }),
+    );
     tabRow.run("t3", "tab-2", 1, 1, "a_to_b", 37_000, "opening", 5_000, 5_000);
     tabRow.run("t4", "tab-2", 2, 2, "a_to_b", 10_000, "entry", 5_500, 5_500);
+    assert.deepEqual(
+      await tabsDb.getSharedHistoryReceiptForRelationship(REL, VAULT),
+      {
+        tab_id: "tab-2",
+        rev: 7,
+        history_order: "2",
+        revisions: { "tab-1": 9, "tab-2": 7 },
+      },
+      "the binding receipt covers every scoped period, not only the latest revision",
+    );
+    fixture.prepare("UPDATE tab_links SET rev=10 WHERE tab_id='tab-1'").run();
+    const updatedHistoryReceipt = await tabsDb.getSharedHistoryReceiptForRelationship(REL, VAULT);
+    assert.equal(
+      updatedHistoryReceipt?.rev,
+      7,
+      "the latest period's revision can remain unchanged",
+    );
+    assert.equal(
+      updatedHistoryReceipt?.revisions["tab-1"],
+      10,
+      "an older period's final review changes the full history receipt",
+    );
+    assert.equal(
+      await tabsDb.getSharedHistoryReceiptForRelationship(REL, "other-vault"),
+      null,
+      "history snapshots never cross the vault scope",
+    );
+
+    fixture.prepare("UPDATE tab_entries SET status='pending' WHERE id='t3'").run();
+    fixture.prepare("UPDATE tab_links SET linked_at=250 WHERE tab_id='tab-1'").run();
+    assert.equal(
+      (await db.getPerson(CONTACT))?.balance,
+      400,
+      "a pending opening cannot erase the older accepted 300; new accepted 100 adds",
+    );
+    assert.equal(
+      (await db.getPerson(CONTACT))?.tab_pending_balance,
+      70,
+      "only the opening's additional unacknowledged carry stays pending",
+    );
+    const currentEvidence = await db.listEntries(CONTACT);
+    const recordTotals = require("../export/shared-record")
+      .recordTotals as typeof import("../export/shared-record").recordTotals;
+    assert.equal(recordTotals(currentEvidence).acknowledged, 400);
+    assert.equal(
+      recordTotals(currentEvidence).pending,
+      70,
+      "CSV/PDF pending delta agrees with the current balance summary",
+    );
+    assert.deepEqual((await db.listEntries(CONTACT)).map((entry) => entry.id).sort(), [
+      "t1",
+      "t2",
+      "t3",
+      "t4",
+    ]);
+    assert.deepEqual(
+      (await db.listEntriesForExport(VAULT)).map((entry) => entry.id).sort(),
+      ["t1", "t2", "t3", "t4"],
+      "home and export keep the same acknowledged carry",
+    );
+    assert.equal(
+      (await db.listArchivedSharedPeriodsForExport(CONTACT)).length,
+      0,
+      "retained balance-bearing evidence is not printed twice",
+    );
+    fixture.prepare("UPDATE tab_entries SET status='disputed' WHERE id='t3'").run();
+    assert.equal(
+      (await db.getPerson(CONTACT))?.balance,
+      400,
+      "rejecting a replacement opening does not reject the older accepted loan",
+    );
+    fixture.prepare("UPDATE tab_links SET history_order=NULL WHERE tab_id='tab-1'").run();
+    assert.equal(
+      (await db.getPerson(CONTACT))?.tab_unsynced,
+      1,
+      "legacy multi-period cache must refresh server ordering before displaying an amount",
+    );
+    await assert.rejects(db.listEntries(CONTACT), /shared_history_refresh_required/);
+    fixture.prepare("UPDATE tab_links SET history_order='1' WHERE tab_id='tab-1'").run();
+    fixture.prepare("UPDATE tab_links SET role='b' WHERE tab_id='tab-2'").run();
+    fixture.prepare("UPDATE tab_entries SET direction='b_to_a' WHERE id IN ('t3','t4')").run();
+    assert.equal(
+      (await db.getPerson(CONTACT))?.balance,
+      400,
+      "periods keep their own viewer role when a later invitation reverses parties",
+    );
+    fixture.prepare("UPDATE tab_links SET role='a' WHERE tab_id='tab-2'").run();
+    fixture.prepare("UPDATE tab_entries SET direction='a_to_b' WHERE id IN ('t3','t4')").run();
+    fixture.prepare("UPDATE tab_entries SET status='accepted' WHERE id='t3'").run();
 
     const person = await db.getPerson(CONTACT);
     assert.equal(person?.balance, 470, "tab 2 only: 370 carried + 100");
@@ -2779,7 +3003,11 @@ async function main(): Promise<void> {
     await tabsDb.upsertTabLink(tl);
     server.seed({ id: "goods", created_by: "b", direction: "a_to_b", amount: "100" });
     await sync.syncTab(TAB);
-    assert.equal((await db.getPerson(CONTACT))?.balance, 100);
+    assert.equal(
+      (await db.getPerson(CONTACT))?.balance,
+      0,
+      "an unreviewed tally is recorded separately",
+    );
     const before = await tabsDb.listTabEntriesAsEntries(tl);
     assert.equal(before.length, 1);
     await tabsDb.applyOptimisticStatus(tl, "goods", "disputed", null);
@@ -2804,6 +3032,15 @@ async function main(): Promise<void> {
     server.seed({ id: "corrected", created_by: "b", direction: "a_to_b", amount: "100" });
     await sync.syncTab(TAB);
     await tabsDb.applyOptimisticStatus(tl, "corrected", "accepted", null);
+    assert.equal(
+      (await db.getPerson(CONTACT))?.balance,
+      0,
+      "queued acceptance still awaits the server",
+    );
+    const corrected = server.entries.find((row) => row.id === "corrected")!;
+    corrected.status = "accepted";
+    corrected.rev = ++server.rev;
+    await sync.syncTab(TAB);
     assert.equal((await db.getPerson(CONTACT))?.balance, 100);
     assert.equal(
       (await tabsDb.listTabEntriesAsEntries(tl)).length,
@@ -2942,7 +3179,11 @@ async function main(): Promise<void> {
       next_at: null,
       last_error: null,
     });
-    assert.equal((await db.getPerson(CONTACT))?.balance, 10);
+    assert.equal(
+      (await db.getPerson(CONTACT))?.balance,
+      0,
+      "unconfirmed offline acceptance contributes nothing",
+    );
     // Other phone rejected while this one had not yet uploaded its accept.
     target.status = "disputed";
     target.dispute_reason = "Wrong amount";

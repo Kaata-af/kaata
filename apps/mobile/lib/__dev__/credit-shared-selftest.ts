@@ -167,6 +167,7 @@ function reset(): void {
     INSERT INTO users VALUES('self',1,'Editor');`);
   for (const marker of [
     "CREATE TABLE IF NOT EXISTS tab_links",
+    "ALTER TABLE tab_links ADD COLUMN history_order",
     "CREATE TABLE IF NOT EXISTS tab_failed_ops",
     "ALTER TABLE tab_entries ADD COLUMN author_account_id",
     "ALTER TABLE tab_entries ADD COLUMN author_member_role",

@@ -105,6 +105,16 @@ export type Person = {
 // Consumers usually display `Math.abs(balance)` and infer direction from the sign.
 export type PersonWithBalance = Person & {
   balance: number;
+  /** Derived shared-only amounts; ordinary private tallies are not part of
+   * these fields. The headline balance includes confirmed shared records and
+   * any private tallies written after the shared period. */
+  tab_confirmed_balance?: number;
+  tab_recorded_balance?: number;
+  tab_pending_balance?: number;
+  /** Both parties' unresolved shared tallies, including unsynced reviews.
+   * Remains visible after unlinking, even if their net amount is zero. */
+  tab_pending_count?: number;
+  tab_close_pending?: number;
   last_entry_at: number | null;
   /** Current-book financial totals loaded with the people list in the same
    * SQLite snapshot. Selection sums these integer amounts directly in memory;
@@ -133,13 +143,15 @@ export type PersonWithBalance = Person & {
   // don't select it; the home split (selectAllPeopleRaw) does.
   last_entry_type?: EntryType | null;
   // Mutual tab (Kaata 2.0). tab_id is set once the contact has EVER been
-  // linked — open or closed — and then `balance` is the tab's balance plus
-  // any local tallies written after the link (D8: the pre-link local rows are
+  // linked — open or closed — and then `balance` is the acknowledged shared
+  // balance plus any local tallies written after the latest link. A later
+  // opening absorbs older shared history only when acknowledged; pending or
+  // rejected replacements cannot erase an older accepted debt. Pre-link rows are
   // carried by the tab's opening entry and stay excluded forever, or closing
   // the tab would double-count them). tab_closed_at is null while the tab is
   // live and is the only thing that distinguishes "shared account" from
-  // "frozen shared history"; tab_pending (the other party's tallies awaiting
-  // my accept/dispute — the home badge) is therefore always 0 once closed.
+  // retained shared history; tab_pending (the other party's tallies awaiting
+  // my accept/dispute — the home badge) remains visible after closing.
   // tab_other_joined = 1 once the counterparty has opened their link.
   tab_id: string | null;
   tab_closed_at: number | null;

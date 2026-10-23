@@ -52,7 +52,7 @@ import {
   type VaultReport,
 } from "./data";
 import { EVIDENCE_KEYS, evidenceCells, evidenceTime, recordStatus } from "./evidence";
-import { balanceContribution, recordTotals } from "./shared-record";
+import { balanceContribution, isExcludedRecord, recordTotals } from "./shared-record";
 import type { Entry } from "../types";
 import type { TabEntryMeta } from "../tabs/types";
 
@@ -400,7 +400,7 @@ function archivedPeriodHtml(
 <td class="idx n">${num(String(++index))}</td>
 <td class="muted" dir="auto">${esc(formatSettlementDate(entry.created_at, locale, calendar))}</td>
 <td class="c"><span class="type ${cls}" dir="auto">${esc(tIn(locale, gave ? "export.col.gave" : "export.col.received"))}</span><span class="recordStatus" dir="auto">${esc(recordStatus(entry.tab, locale))}</span></td>
-<td class="n amount ${cls}${balanceContribution(entry) === 0 ? " excluded" : ""}">${num(`${formatAmount(entry.amount_afn)} ${esc(period.link.currency)}`)}</td>
+<td class="n amount ${cls}${isExcludedRecord(entry) ? " excluded" : ""}">${num(`${formatAmount(entry.amount_afn)} ${esc(period.link.currency)}`)}</td>
 <td class="n bal">${num(fmtSigned(row.balanceAfter))}</td>
 <td class="note" dir="auto">${esc(noteFor(entry.note, entry.tab?.kind, locale) ?? "")}</td>
 </tr>${recordDetailHtml(entry, locale)}`;
@@ -513,7 +513,7 @@ ${card({ tone: "flat", label: tIn(locale, "export.doc.balance"), value: `${fmtSi
           `<td class="idx n">${num(String(++n))}</td>` +
           `<td class="muted" dir="auto">${esc(formatSettlementDate(e.created_at, locale, calendar))}</td>` +
           `<td class="c"><span class="type ${cls}" dir="auto">${esc(typeLabel)}</span>${shared ? `<span class="recordStatus" dir="auto">${esc(recordStatus(e.tab, locale))}</span>` : ""}</td>` +
-          `<td class="n amount ${cls}${e.tab && balanceContribution(e) === 0 ? " excluded" : ""}">${num(`${formatAmount(e.amount_afn)} ${esc(sym)}`)}</td>` +
+          `<td class="n amount ${cls}${isExcludedRecord(e) ? " excluded" : ""}">${num(`${formatAmount(e.amount_afn)} ${esc(sym)}`)}</td>` +
           // The running balance is back, and deliberately NEUTRAL. A statement
           // exists to be checked, and without it the reader has to add
           // twenty-five numbers to see how the total was reached. It is not

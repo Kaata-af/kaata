@@ -39,6 +39,9 @@ const meta = new Map<string, string>();
 const calls: string[] = [];
 let links = [link];
 let signedIn = true;
+let accountId = "account";
+let bindingVersion = 1;
+let authWait: (() => Promise<void>) | null = null;
 let expoGo = false;
 let granted = false;
 let canAskAgain = true;
@@ -51,6 +54,7 @@ const emitApplied = (ev: unknown) => {
   for (const fn of appliedListeners) fn(ev);
 };
 let currentEntry: any;
+let onEntryRead: (() => void) | null = null;
 // tab_entries rows by id for the tray sweep; anything else answers currentEntry.
 const rows = new Map<string, any>();
 let responseListener: any;
@@ -90,11 +94,38 @@ stub("../db", {
 });
 stub("../db-tx", {
   getInstallIdSync: () => "install",
-  getAccountIdSync: () => "account",
+  getAccountIdSync: () => accountId,
   getDb: async () => ({
-    getFirstAsync: async (_sql: string, ...args: unknown[]) =>
-      rows.get(String(args[0])) ?? currentEntry,
+    getFirstAsync: async (sql: string, ...args: unknown[]) => {
+      const row = rows.get(String(args[0])) ?? currentEntry;
+      if (sql.includes("SELECT * FROM tab_entries")) {
+        const hook = onEntryRead;
+        onEntryRead = null;
+        hook?.();
+      }
+      return row;
+    },
   }),
+});
+stub("../auth", {
+  captureCurrentSession: async () => ({
+    accountId,
+    bindingVersion,
+    jwt: signedIn ? "synthetic" : null,
+  }),
+  applyForCurrentSession: async (
+    snapshot: { accountId: string; bindingVersion: number; jwt: string | null },
+    run: () => Promise<unknown>,
+  ) => {
+    if (
+      !signedIn ||
+      !snapshot.jwt ||
+      snapshot.accountId !== accountId ||
+      snapshot.bindingVersion !== bindingVersion
+    )
+      throw new Error("session changed");
+    return run();
+  },
 });
 stub("../use-vault-role", { readVaultRole: async () => "editor", canPerformAction: () => true });
 stub("../i18n", {
@@ -116,6 +147,9 @@ stub("../tabs/db", {
 });
 stub("../tabs/api", {
   resolveTabAuth: async () => {
+    const wait = authWait;
+    authWait = null;
+    if (wait) await wait();
     if (!signedIn || authFailure) throw new Error("no session or locked keychain");
     return { jwt: "synthetic" };
   },
@@ -227,6 +261,9 @@ function reset() {
   registrations = [];
   scheduled = [];
   signedIn = true;
+  accountId = "account";
+  bindingVersion = 1;
+  authWait = null;
   authFailure = false;
   granted = false;
   canAskAgain = true;
@@ -240,6 +277,8 @@ function reset() {
   dismissed.length = 0;
   inboxMarks.length = 0;
   rows.clear();
+  currentEntry = undefined;
+  onEntryRead = null;
 }
 let passed = 0;
 async function test(name: string, fn: () => Promise<void>) {
@@ -367,6 +406,53 @@ async function main() {
       "review must read exactly the notice the push announced",
     );
   });
+  await test("explicit old notification reviews still reach the server after either closure reason", async () => {
+    for (const closed_reason of [null, "account_deleted"] as const) {
+      links = [{ ...link, closed_at: 10, closed_reason }];
+      for (const action of ["tab-accept", "tab-reject"]) {
+        calls.length = 0;
+        await task({ data: response(action) });
+        assert.deepEqual(calls.slice(0, 3), ["queue", "dismiss", "sync"]);
+      }
+    }
+    assert.equal(queued.has(`${ENTRY}:1:accept`), true);
+    assert.equal(queued.has(`${ENTRY}:1:dispute`), true);
+    assert.equal(scheduled.length, 0, "reviewing is separate from alert permission");
+    authFailure = true;
+    calls.length = 0;
+    await task({ data: response("tab-accept") });
+    assert.equal(calls.includes("queue"), false, "closure never bypasses current authentication");
+    assert.equal(scheduled.length, 0, "a failed closed-tab action does not create a new alert");
+  });
+  await test("an old notification tap cannot queue or mark a review for a replacement account", async () => {
+    links = [{ ...link, closed_at: 10 }];
+    let start!: () => void, release!: () => void;
+    const started = new Promise<void>((resolve) => {
+      start = resolve;
+    });
+    const waiting = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    authWait = async () => {
+      start();
+      await waiting;
+    };
+    const handling = task({ data: response("tab-accept") });
+    await started;
+    accountId = "replacement";
+    bindingVersion++;
+    release();
+    await handling;
+    await settled();
+    assert.equal(queued.size, 0, "the replacement session cannot inherit the old tap");
+    assert.deepEqual(inboxMarks, [], "nor can it mark the previous account's notice as handled");
+    assert.equal(calls.includes("sync"), false);
+    assert.equal(
+      scheduled.length,
+      0,
+      "the closed relationship stays muted on a stale action failure",
+    );
+  });
   await test("reject and foreground listener use the same non-navigation path", async () => {
     responseListener(response("tab-reject"));
     await settled();
@@ -441,6 +527,8 @@ async function main() {
       shown("pending", { tab_id: TAB, entry_id: ENTRY2, rev: 2, kind: "entry_created" }),
       shown("outcome", { tab_id: TAB, entry_id: ENTRY, rev: 3, kind: "entry_accepted" }),
       shown("closed", { tab_id: TAB2, entry_id: ENTRY2, rev: 1, kind: "entry_created" }),
+      shown("closed-outcome", { tab_id: TAB2, entry_id: ENTRY2, rev: 2, kind: "entry_accepted" }),
+      shown("closed-meta", { tab_id: TAB2, rev: 3, kind: "updated" }),
       shown("unknown", {
         tab_id: TAB,
         entry_id: ENTRY2.replace("3", "9"),
@@ -456,8 +544,8 @@ async function main() {
     await settled();
     assert.deepEqual(
       dismissed,
-      ["reviewed", "closed"],
-      "a request to review a tally that is no longer pending, or on a closed tab, is moot; a pending one, an outcome and an unknown row stay",
+      ["reviewed", "closed", "closed-outcome", "closed-meta"],
+      "closed relationships mute every alert; only stale review requests disappear on open ones",
     );
     dismissed.length = 0;
     presented = sweepable();
@@ -466,7 +554,7 @@ async function main() {
     await settled();
     assert.deepEqual(
       dismissed,
-      ["reviewed", "pending", "closed"],
+      ["reviewed", "pending", "closed", "closed-outcome", "closed-meta"],
       "a pull sweeps; a voided tally is moot too",
     );
     dismissed.length = 0;
@@ -480,6 +568,25 @@ async function main() {
     });
     await settled();
     assert.deepEqual(dismissed, [], "a local write is not new truth");
+  });
+  await test("a local unlink immediately clears all tray alerts without erasing inbox history", async () => {
+    links = [{ ...link, closed_at: 20 }];
+    presented = [
+      shown("created", { tab_id: TAB, entry_id: ENTRY, kind: "entry_created" }),
+      shown("accepted", { tab_id: TAB, entry_id: ENTRY, kind: "entry_accepted" }),
+      shown("rejected", { tab_id: TAB, entry_id: ENTRY2, kind: "entry_rejected" }),
+      shown("metadata", { tab_id: TAB, kind: "updated" }),
+      shown("reminder", { tab_id: TAB, kind: "customer_reminder" }),
+      shown("other", { unrelated: true }),
+    ];
+    emitApplied({ tabId: TAB, origin: "local", changes: [] });
+    await settled();
+    assert.deepEqual(dismissed, ["created", "accepted", "rejected", "metadata"]);
+    assert.deepEqual(
+      inboxMarks,
+      [],
+      "muting presentation does not mark or delete durable inbox records",
+    );
   });
   await test("iOS cold-start handoff survives keychain failure, then drains", async () => {
     platform.OS = "ios";
@@ -534,6 +641,41 @@ async function main() {
       });
     }
   });
+  await test("late remote alerts for closed relationships stay silent on both platforms", async () => {
+    state.currentState = "background";
+    for (const os of ["android", "ios"]) {
+      platform.OS = os;
+      for (const closed_reason of [null, "account_deleted"] as const) {
+        links = [{ ...link, closed_at: 30, closed_reason }];
+        for (const kind of [
+          "entry_created",
+          "entry_accepted",
+          "entry_rejected",
+          "entry_voided",
+          "updated",
+        ]) {
+          const result = await handler.handleNotification(
+            response("default", { ...payload, kind }).notification,
+          );
+          assert.deepEqual(result, {
+            shouldShowBanner: false,
+            shouldShowList: false,
+            shouldPlaySound: false,
+            shouldSetBadge: false,
+          });
+        }
+        assert.equal(
+          (
+            await handler.handleNotification(
+              response("default", { tab_id: TAB, kind: "customer_reminder" }).notification,
+            )
+          ).shouldShowBanner,
+          true,
+          "the user's own reminder remains independent of shared alerts",
+        );
+      }
+    }
+  });
   await test("pull fallback ignores foreground and own acknowledgements", async () => {
     const ev = {
       tabId: TAB,
@@ -565,6 +707,56 @@ async function main() {
     emitApplied(ev);
     await settled();
     assert.equal(scheduled.length, 1, "real incoming fallback");
+  });
+  await test("closed-period pulls update history without scheduling any fallback alerts", async () => {
+    state.currentState = "background";
+    currentEntry = {
+      created_by: "a",
+      status: "pending",
+      amount_minor: 100,
+      direction: "a_to_b",
+      author_name: "Writer",
+      author_account_id: "peer",
+    };
+    for (const closed_reason of [null, "account_deleted"] as const) {
+      links = [{ ...link, closed_at: 40, closed_reason }];
+      emitApplied({
+        tabId: TAB,
+        origin: "pull",
+        changes: ["entry_created", "entry_accepted", "entry_rejected", "entry_voided"].map(
+          (kind) => ({
+            entryId: ENTRY,
+            rev: 1,
+            kind,
+          }),
+        ),
+      });
+      await settled();
+    }
+    assert.equal(scheduled.length, 0);
+    assert.deepEqual(inboxMarks, []);
+  });
+  await test("unlinking during an incoming fallback's entry read prevents the alert", async () => {
+    state.currentState = "background";
+    currentEntry = {
+      created_by: "a",
+      status: "pending",
+      amount_minor: 100,
+      direction: "a_to_b",
+      author_name: "Writer",
+      author_account_id: "peer",
+    };
+    onEntryRead = () => {
+      links = [{ ...link, closed_at: 50 }];
+    };
+    emitApplied({
+      tabId: TAB,
+      origin: "pull",
+      changes: [{ entryId: ENTRY, rev: 1, kind: "entry_created" }],
+    });
+    await settled();
+    assert.equal(onEntryRead, null, "the close raced the shipped fallback path");
+    assert.equal(scheduled.length, 0);
   });
   await test("Expo Go skips native registration and tray dismissal", async () => {
     expoGo = true;

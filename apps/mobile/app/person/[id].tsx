@@ -72,6 +72,7 @@ import {
   type ExportFormat,
 } from "../../lib/export";
 import { useLedgerRefresh } from "../../lib/ledger-events";
+import { balanceContribution } from "../../lib/export/shared-record";
 import {
   bidiIsolate,
   ltrIsolate,
@@ -95,6 +96,7 @@ import {
 } from "../../lib/tally-date-filter";
 import { summarizeTallyFlows } from "../../lib/tally-summary";
 import {
+  getTabLink,
   getLatestTabLinkForPerson,
   listPreLinkEntries,
   listFailedTabEntries,
@@ -133,6 +135,12 @@ import type { Entry, PersonWithBalance, Self } from "../../lib/types";
 // only" sentence for a tab tally as for a local one), a closed tab names
 // itself, and no credential means "go online" rather than a generic failure.
 function tabErrorMessage(err: unknown): string {
+  if (err instanceof TabApiError && err.code === "shared_history_opening_required")
+    return t("tab.history.openingRequired");
+  if (err instanceof TabApiError && err.code === "shared_history_pending")
+    return t("tab.history.pending");
+  if (err instanceof TabApiError && err.code === "shared_history_changed")
+    return t("tab.history.changed");
   if (err instanceof TabApiError && err.code === "credit_limit_exceeded")
     return t("credit.refusedChange");
   if (err instanceof TabApiError && err.code === "credit_confirmation_pending")
@@ -153,6 +161,10 @@ const EMPTY_ATTRIBUTION: Map<string, EntryAttribution> = new Map();
 // tappable tally rows) fills the space underneath. The margin covers the
 // spring's settle.
 const DOCK_SKIRT = TOAST_LIFT + 12;
+
+function signedSharedAmount(amount: number): string {
+  return ltrIsolate(`${amount > 0 ? "+" : amount < 0 ? "−" : ""}${formatAmount(amount)}`);
+}
 
 export default function PersonDetailScreen() {
   const router = useRouter();
@@ -393,7 +405,8 @@ export default function PersonDetailScreen() {
 
   // MUTUAL TAB (docs/mutual-tab-design.md §4.4). `tabHistory` is the contact's
   // tab whether it is live or closed; `link` is the same row only while it is
-  // OPEN, and is what every action reads — a closed tab accepts no writes.
+  // OPEN for new sharing. Existing pending tallies can still be reviewed after
+  // unlinking; they resolve against their own retained tab, never a newer link.
   // While linked, `entries` are the tab's rows and `person.balance` is the tab
   // balance (D8); `preLink` holds the frozen local rows from before linking,
   // shown behind a fold and excluded from the balance because the opening
@@ -534,7 +547,9 @@ export default function PersonDetailScreen() {
   const chapterEntries = useMemo(
     () =>
       tabHistory
-        ? displayedEntries.filter((e) => afterSharedSettlement(e, sharedThroughSeq))
+        ? displayedEntries.filter((e) =>
+            afterSharedSettlement(e, sharedThroughSeq, tabHistory.tab_id),
+          )
         : settlement.lastSettledAtMs == null
           ? displayedEntries
           : displayedEntries.filter((e) => e.created_at > settlement.lastSettledAtMs!),
@@ -549,16 +564,7 @@ export default function PersonDetailScreen() {
   // the number in the header.
   // Rejected tallies remain visible but contribute nothing to the balance.
   const chapterSum = useMemo(
-    () =>
-      sumAmounts(
-        chapterEntries.map((e) =>
-          e.tab?.voided || e.tab?.status === "disputed"
-            ? 0
-            : e.type === "debt"
-              ? e.amount_afn
-              : -e.amount_afn,
-        ),
-      ),
+    () => sumAmounts(chapterEntries.map(balanceContribution)),
     [chapterEntries],
   );
   const chapterCoherent = person == null || chapterSum === person.balance;
@@ -596,7 +602,7 @@ export default function PersonDetailScreen() {
   const historyItems = useMemo<HistoryItem[]>(() => {
     if (searching) {
       const items = tabHistory
-        ? sharedHistory(matchedEntries, sharedSettlements)
+        ? sharedHistory(matchedEntries, sharedSettlements, tabHistory.tab_id)
         : withLocalMarkers(matchedEntries);
       const shown = items.filter(
         (item, i) => item.kind === "entry" || items[i - 1]?.kind !== "marker",
@@ -604,7 +610,8 @@ export default function PersonDetailScreen() {
       while (shown.at(-1)?.kind === "marker") shown.pop();
       return shown;
     }
-    if (tabHistory && effectiveShowFull) return sharedHistory(displayedEntries, sharedSettlements);
+    if (tabHistory && effectiveShowFull)
+      return sharedHistory(displayedEntries, sharedSettlements, tabHistory.tab_id);
     if (!effectiveShowFull || tabHistory || boundaries.length === 0)
       return visibleEntries.map((entry) => ({ kind: "entry", entry }));
     return withLocalMarkers(displayedEntries);
@@ -765,19 +772,26 @@ export default function PersonDetailScreen() {
   visibleReviewIds.current = new Set(
     historyItems.flatMap((item) => (item.kind === "entry" ? [item.entry.id] : [])),
   );
-  const sharedReviewPending = entries.some(
-    (e) =>
-      e.tab &&
-      (e.tab.local_pending ||
-        (!e.tab.voided && e.tab.kind !== "void" && e.tab.status === "pending")),
-  );
+  const sharedReviewPending =
+    (person?.tab_pending_count ?? 0) > 0 ||
+    entries.some(
+      (e) =>
+        e.tab &&
+        (e.tab.local_pending ||
+          (!e.tab.voided && e.tab.kind !== "void" && e.tab.status === "pending")),
+    );
   const unsettledOriginalCount = tabHistory
-    ? entries.filter((e) => e.tab?.kind !== "void" && afterSharedSettlement(e, sharedThroughSeq))
-        .length
+    ? entries.filter(
+        (e) =>
+          e.tab?.kind !== "void" && afterSharedSettlement(e, sharedThroughSeq, tabHistory.tab_id),
+      ).length
     : chapterEntries.length;
   const canSettle =
     canAmend &&
     (!tabHistory || (!!link && !sharedReviewPending)) &&
+    !entries.some(
+      (e) => e.tab?.tab_id && e.tab.tab_id !== tabHistory?.tab_id && balanceContribution(e) !== 0,
+    ) &&
     chapterCoherent &&
     person != null &&
     person.balance === 0 &&
@@ -1088,11 +1102,9 @@ export default function PersonDetailScreen() {
       let stopWatch: (() => void) | null = null;
       void load().then((tl) => {
         if (!tl) return;
-        // Only an OPEN tab is worth syncing; a closed one never changes again.
-        if (tl.closed_at == null) {
-          requestTabSync(tl.tab_id);
-          if (active) stopWatch = watchTab(tl.tab_id);
-        }
+        // A closed period may still receive final decisions on pending rows.
+        requestTabSync(tl.tab_id);
+        if (active) stopWatch = watchTab(tl.tab_id);
         // Decision A4: the screen is up with the tab's rows on it, so its
         // notices up to the applied rev are handled — unless the user left
         // (or the app did) while the load was in flight.
@@ -1261,10 +1273,24 @@ export default function PersonDetailScreen() {
   }
 
   // Only pending tallies can be reviewed; the first decision is final.
+  async function reviewLinkFor(entry: Entry): Promise<TabLink | null> {
+    if (!entry.tab || !screenIsCurrent()) return null;
+    const target = entry.tab.tab_id ? await getTabLink(entry.tab.tab_id) : tabHistory;
+    if (!screenIsCurrent()) return null;
+    if (
+      !target ||
+      target.vault_id !== activeVaultId ||
+      target.relationship_id !== entry.relationship_id
+    )
+      throw new TabPermissionError();
+    return target;
+  }
+
   async function onAccept(entry: Entry) {
-    if (!link) return;
     try {
-      await acceptEntry(link, entry.id);
+      const target = await reviewLinkFor(entry);
+      if (!target) return;
+      await acceptEntry(target, entry.id);
       // This queues an optimistic review. The live comparison announces it
       // only once the server confirms the decision.
       await load();
@@ -1275,9 +1301,10 @@ export default function PersonDetailScreen() {
   }
 
   async function onReject(entry: Entry) {
-    if (!link) return;
     try {
-      await disputeEntry(link, entry.id, "");
+      const target = await reviewLinkFor(entry);
+      if (!target) return;
+      await disputeEntry(target, entry.id, "");
       await load();
     } catch (err) {
       toast.push(tabErrorMessage(err), "error");
@@ -1286,10 +1313,11 @@ export default function PersonDetailScreen() {
 
   // Inline withdrawal of a pending tally; reviewed rows are immutable.
   async function onVoid(target: Entry) {
-    if (!link || target.tab?.by !== "me" || target.tab.status !== "pending" || target.tab.voided)
-      return;
+    if (target.tab?.by !== "me" || target.tab.status !== "pending" || target.tab.voided) return;
     try {
-      await voidEntry(link, target.id);
+      const reviewLink = await reviewLinkFor(target);
+      if (!reviewLink) return;
+      await voidEntry(reviewLink, target.id);
       toast.push(t("tab.voided"), "success");
       await load();
     } catch (err) {
@@ -1435,9 +1463,9 @@ export default function PersonDetailScreen() {
               attribution={attribution.get(entry.id)}
               tab={entry.tab}
               selfAccountId={getAccountIdSync()}
-              onAccept={canAmend && link ? guardedSearchAction(onAccept) : undefined}
-              onReject={canAmend && link ? guardedSearchAction(onReject) : undefined}
-              onCancel={canAmend && link ? guardedSearchAction(onVoid) : undefined}
+              onAccept={canAmend && entry.tab ? guardedSearchAction(onAccept) : undefined}
+              onReject={canAmend && entry.tab ? guardedSearchAction(onReject) : undefined}
+              onCancel={canAmend && entry.tab ? guardedSearchAction(onVoid) : undefined}
               showFullNote={searchTerms.length > 0}
             />
             {highlight?.id === entry.id ? (
@@ -1697,12 +1725,14 @@ export default function PersonDetailScreen() {
                     {ltrIsolate(person.phone)}
                   </Text>
                 ) : null}
-                {/* A closed shared account freezes its history; tallies written
+                {/* Unlinking preserves shared history and pending reviews; tallies written
                     after it are private and carry no review state, which made
                     them look like accepted shared ones (audit #6). */}
-                {tabHistory?.closed_at != null ? (
-                  <Text style={[styles.groups, textDir(isRTL)]} numberOfLines={2}>
-                    {t("tab.closedNote", { date: formatDate(tabHistory.closed_at) })}
+                {tabHistory?.closed_at != null || person.tab_close_pending === 1 ? (
+                  <Text style={[styles.groups, textDir(isRTL)]}>
+                    {person.tab_close_pending === 1
+                      ? t("tab.unlink.pending")
+                      : t("tab.closedNote", { date: formatDate(tabHistory!.closed_at!) })}
                   </Text>
                 ) : null}
                 <View style={{ height: 16 }} />
@@ -1775,6 +1805,23 @@ export default function PersonDetailScreen() {
                     {person.tab_unsynced === 1 ? (
                       <Text style={[styles.unsyncedNote, textDir(isRTL)]}>
                         {t("tab.notDownloaded")}
+                      </Text>
+                    ) : null}
+                    {tabHistory && person.tab_unsynced !== 1 ? (
+                      <Text style={[styles.unsyncedNote, textDir(isRTL)]}>
+                        {t("tab.balance.confirmed", {
+                          amount: signedSharedAmount(person.tab_confirmed_balance ?? 0),
+                          currency: getCurrentCurrencySymbol(),
+                        })}
+                      </Text>
+                    ) : null}
+                    {(person.tab_pending_count ?? 0) > 0 && person.tab_unsynced !== 1 ? (
+                      <Text style={[styles.unsyncedNote, textDir(isRTL)]}>
+                        {t("tab.balance.pending", {
+                          count: person.tab_pending_count ?? 0,
+                          amount: signedSharedAmount(person.tab_pending_balance ?? 0),
+                          currency: getCurrentCurrencySymbol(),
+                        })}
                       </Text>
                     ) : null}
                     <CreditStatusBadge personId={person.id} vaultId={activeVaultId} />
@@ -2089,9 +2136,7 @@ export default function PersonDetailScreen() {
                           color={colors.entryActionGaveText}
                         />
                       </View>
-                      <Text
-                        style={[styles.actionText, styles.actionGaveText, trackingSafe(isRTL)]}
-                      >
+                      <Text style={[styles.actionText, styles.actionGaveText, trackingSafe(isRTL)]}>
                         {t("person.action.iGave")}
                       </Text>
                     </Pressable>

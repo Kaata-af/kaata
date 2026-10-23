@@ -64,8 +64,8 @@ export type PersonStatement = {
    *  it is a machine column that is always Solar Hijri (see shamsiDate). */
   calendar: Calendar;
   generatedAtMs: number;
-  /** Present only when the statement contains shared records. Pending is
-   *  still included in the ledger balance; acknowledgement is shown separately. */
+  /** Present only when the statement contains shared records. Pending stays
+   * separate from the confirmed headline and running balance. */
   sharedTotals?: RecordTotals;
   archivedSharedPeriods?: Array<
     Awaited<ReturnType<typeof listArchivedSharedPeriodsForExport>>[number] & {
@@ -93,12 +93,21 @@ function sharedStatementRows(
     running = addAmounts(running, balanceContribution(entry));
     rows.push({ kind: "entry", entry, balanceAfter: running });
   };
+  // A pending replacement opening keeps older acknowledged records in the
+  // current statement. Their per-tab sequence is unrelated to this tab's
+  // clearance boundaries; retain their real receipts ahead of this period.
+  const retained = ordered.filter((entry) => entry.tab?.tab_id && entry.tab.tab_id !== tabId);
+  for (const entry of retained.sort(
+    (a, b) => (a.tab?.recorded_at ?? a.created_at) - (b.tab?.recorded_at ?? b.created_at),
+  ))
+    appendEntry(entry);
+  const current = ordered.filter((entry) => !entry.tab?.tab_id || entry.tab.tab_id === tabId);
   for (const settlement of [...settlements].sort((a, b) => a.through_seq - b.through_seq)) {
     while (
-      index < ordered.length &&
-      !afterSharedSettlement(ordered[index], settlement.through_seq)
+      index < current.length &&
+      !afterSharedSettlement(current[index], settlement.through_seq)
     ) {
-      appendEntry(ordered[index++]);
+      appendEntry(current[index++]);
     }
     rows.push({
       kind: "settled",
@@ -107,7 +116,7 @@ function sharedStatementRows(
       shared: { tabId, settlement },
     });
   }
-  while (index < ordered.length) appendEntry(ordered[index++]);
+  while (index < current.length) appendEntry(current[index++]);
   return rows;
 }
 

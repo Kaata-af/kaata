@@ -1,5 +1,6 @@
 import { fromMinorUnits, toMinorUnits } from "./money";
 import type { Entry } from "./types";
+import { countsTowardBalance } from "./export/shared-record";
 
 export type TallyFlowSummary = {
   gave: { count: number; amount: number };
@@ -18,10 +19,8 @@ export function summarizeTallyFlows(entries: readonly Entry[]): TallyFlowSummary
     if (
       entry.deleted_at != null ||
       entry.disputed_at != null ||
-      entry.tab?.voided ||
-      entry.tab?.kind === "void" ||
       entry.tab?.kind === "opening" ||
-      entry.tab?.status === "disputed"
+      !countsTowardBalance(entry)
     )
       continue;
     const bucket = totals[entry.type];

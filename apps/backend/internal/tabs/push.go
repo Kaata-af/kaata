@@ -221,8 +221,10 @@ func (p *pushClient) post(ctx context.Context, path string, body any, out any) e
 // checks, "handled means read": a notice the subscription's account already
 // read in the app (a review reads it server-side) must not ring the phone
 // afterwards, and an entry_created request to review a tally is moot once
-// that tally is no longer pending (reviewed or voided) or the tab is closed.
-// The other kinds still send unless read. An invalid job is deleted.
+// that tally is no longer pending (reviewed or voided). Closing a tab stops
+// all remote alerts, including outcomes of its remaining pending reviews;
+// the durable inbox and live history still record those decisions.
+// An invalid job is deleted.
 func (s *Service) deliverPush(ctx context.Context) (bool, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -239,6 +241,7 @@ func (s *Service) deliverPush(ctx context.Context) (bool, error) {
   o.receipt_id,o.attempts,o.event_kind,COALESCE(o.entry_id::text,''),
   COALESCE(s.account_id=p.account_id OR EXISTS(SELECT 1 FROM vault_members vm WHERE vm.vault_id=p.vault_id AND vm.account_id=s.account_id AND vm.accepted_at IS NOT NULL AND vm.revoked_at IS NULL AND vm.role IN ('owner','manager','editor')),FALSE),
 	  s.renewed_at>NOW()-INTERVAL '30 days' AND o.created_at>NOW()-INTERVAL '24 hours'
+	  AND t.closed_at IS NULL
 	  AND EXISTS(SELECT 1 FROM auth_credentials ac WHERE ac.install_id=s.install_id AND ac.account_id=s.account_id AND ac.revoked_at IS NULL)
  AND NOT EXISTS(SELECT 1 FROM tab_notifications n WHERE n.tab_id=s.tab_id AND n.rev=o.rev
    AND (n.actor_account_id=s.account_id OR n.actor_install_id=s.install_id))
@@ -251,6 +254,7 @@ func (s *Service) deliverPush(ctx context.Context) (bool, error) {
     SELECT 1 FROM vault_members vm WHERE vm.vault_id=p.vault_id AND vm.account_id=s.account_id
       AND vm.accepted_at IS NOT NULL AND vm.revoked_at IS NULL)))), FALSE)
   FROM tab_push_outbox o JOIN tab_push_subscriptions s ON s.id=o.subscription_id
+  JOIN tabs t ON t.id=s.tab_id
   JOIN tab_parties p ON p.tab_id=s.tab_id AND p.role=s.role
   WHERE o.next_at<=NOW() ORDER BY o.next_at,o.id LIMIT 1 FOR UPDATE OF o SKIP LOCKED`).Scan(
 		&id, &rev, &subID, &tabID, &role, &token, &locale, &receipt, &attempts, &kind, &entryID, &canReview, &valid)

@@ -543,6 +543,12 @@ export default function TabJoinScreen() {
         setPickError(t("tab.join.alreadyLinked"));
       } else if (err instanceof TabClosedError) {
         setPickError(t("tab.join.closed"));
+      } else if (err instanceof TabApiError && err.code === "shared_history_pending") {
+        setPickError(t("tab.history.pending"));
+      } else if (err instanceof TabApiError && err.code === "shared_history_changed") {
+        setPickError(t("tab.history.changed"));
+      } else if (err instanceof TabApiError && err.code === "shared_history_opening_required") {
+        setPickError(t("tab.history.openingRequired"));
       } else if (err instanceof TabPermissionError) {
         setPickError(t("entry.roleDenied"));
       } else {

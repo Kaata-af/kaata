@@ -57,6 +57,22 @@ const reset = () => {
 };
 let checks = 0;
 
+reuse({ ...a, balance: 0, tab_id: "shared", tab_pending: 0, tab_pending_count: 1 });
+assert.ok(
+  JSON.stringify(row!).includes("tab.row.awaiting"),
+  "own pending loans remain visibly unconfirmed",
+);
+reuse({ ...a, balance: 0, tab_id: "shared", tab_pending: 1, tab_pending_count: 2 });
+assert.ok(
+  JSON.stringify(row!).includes("tab.row.pending"),
+  "incoming reviews keep the actionable subtitle",
+);
+assert.ok(
+  !JSON.stringify(row!).includes("tab.row.awaiting"),
+  "one subtitle avoids duplicate pending labels",
+);
+checks++;
+reuse(a);
 render();
 row!.props.onPressIn();
 row!.props.onPressOut();

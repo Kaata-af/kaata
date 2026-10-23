@@ -18,7 +18,8 @@
 export type TabRole = "a" | "b";
 /** Value moved from X to Y. The target now owes the source more. */
 export type TabDirection = "a_to_b" | "b_to_a";
-/** Pending/accepted tallies count; rejected (wire: disputed) tallies do not. */
+/** Only server-acknowledged accepted tallies affect the confirmed balance;
+ * pending entries remain a separate recorded claim. */
 export type TabEntryStatus = "pending" | "accepted" | "disputed";
 /** `opening` is the carried-over balance at link time (D7); `void` is the
  *  visible cancellation row that references the original (D5). */
@@ -59,6 +60,7 @@ export type WireEntry = TabReviewEvidence & {
 };
 
 export type WireParty = {
+  history_order?: string | null;
   account_name?: string;
   /** How this party names ITSELF; shown to the other side. */
   label: string;
@@ -99,6 +101,9 @@ export type OpeningRequest = {
 };
 
 export type CreateRequest = {
+  expected_previous_tab_id?: string | null;
+  expected_previous_rev?: number;
+  expected_history_revisions?: Record<string, number>;
   linked_at_ms?: number;
   currency: string;
   label: string;
@@ -116,6 +121,9 @@ export type CreateResponse = {
 };
 
 export type JoinRequest = {
+  expected_previous_tab_id?: string | null;
+  expected_previous_rev?: number;
+  expected_history_revisions?: Record<string, number>;
   linked_at_ms?: number;
   label: string;
   vault_id: string | null;
@@ -179,6 +187,8 @@ export type MineResponse = {
 // Local cache rows (§4.1). Column-for-column with migration 028 in lib/db.ts.
 
 export type TabLink = {
+  /** Server-assigned order when this party first bound to its local scope. */
+  history_order?: string | null;
   other_account_name?: string;
   tab_id: string;
   vault_id: string;
@@ -244,6 +254,9 @@ export type TabOutboxRow = {
  * mapped `Entry` as `entry.tab`. Absent on ordinary local entries.
  */
 export type TabEntryMeta = TabReviewEvidence & {
+  /** Local derived carry adjustment for pending totals, never review evidence. */
+  pending_balance_adjustment?: number;
+  pending_balance_excluded?: boolean;
   author_name?: string;
   author_account_id?: string | null;
   by: "me" | "them";

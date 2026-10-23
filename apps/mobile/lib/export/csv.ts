@@ -25,7 +25,7 @@ import { EVIDENCE_KEYS, evidenceCells, evidenceTime } from "./evidence";
 import {
   addRecordTotal,
   balanceContribution,
-  isExcludedRecord,
+  countsTowardBalance,
   recordedAmount,
   type AmountRow,
   type RecordTotals,
@@ -62,7 +62,7 @@ function csvLine(cells: Array<string | number | null | undefined>): string {
 /** Gave and Received: only an amount that counts toward the Balance column.
  *  A private row is never excluded, so its cells are exactly 2.0.0's. */
 function countedCells(e: AmountRow): [number | "", number | ""] {
-  if (isExcludedRecord(e)) return ["", ""];
+  if (!countsTowardBalance(e)) return ["", ""];
   return [e.type === "debt" ? e.amount_afn : "", e.type === "payment" ? e.amount_afn : ""];
 }
 

@@ -25,6 +25,7 @@ import {
   captureCurrentSession,
   getSessionJWT,
   updateAccountPhone,
+  type SessionSnapshot,
 } from "../auth";
 import { applyVaultCurrency } from "../currency";
 import {
@@ -56,8 +57,10 @@ import {
   queueTabMutation,
   getTabLink,
   getAnyTabLinkForRelationship,
+  getSharedHistoryReceiptForRelationship,
   getTabLinkForPerson,
   getTabLinkForRelationship,
+  listTabLinks,
   setTabInviteUrl,
   upsertTabFromWire,
   upsertTabLink,
@@ -176,28 +179,88 @@ function requireOpen(link: TabLink): void {
   if (link.closed_at != null) throw new TabClosedError();
 }
 
+/** Resolve the previous shared period before copying its balance. The server
+ * checks the receipt again under its contact lock, so a concurrent final review
+ * cannot silently turn a stale opening into a new acknowledgement. */
+async function prepareSharedHistory(relationshipId: string, vaultId: string, currency: string) {
+  let previous = await getAnyTabLinkForRelationship(relationshipId);
+  if (!previous) return {};
+  // Another phone may have restored or closed a period this cache has never
+  // seen. Refresh the whole binding set before collecting its revision map.
+  await reconcileTabsFromServer();
+  previous = await getAnyTabLinkForRelationship(relationshipId);
+  if (!previous) throw new TabAuthUnavailableError();
+  if (previous.vault_id !== vaultId) throw new TabPermissionError();
+  if (previous.closed_at == null) throw new TabAlreadyLinkedError(previous.tab_id);
+  const history = (await listTabLinks({ vaultId, includeClosed: true })).filter(
+    (link) => link.relationship_id === relationshipId,
+  );
+  const otherCurrency = history.find((link) => link.currency !== currency)?.currency;
+  if (otherCurrency) throw new TabCurrencyMismatchError(currency, otherCurrency);
+  for (const link of history) {
+    const result = await syncTab(link.tab_id);
+    if (!result.ok || result.error) throw new TabAuthUnavailableError();
+  }
+  const db = await getDb();
+  const unresolved = await db.getFirstAsync<{ pending: number }>(
+    `SELECT EXISTS (
+       SELECT 1 FROM tab_entries e JOIN tab_links l ON l.tab_id=e.tab_id
+        WHERE l.vault_id=? AND l.relationship_id=? AND e.kind<>'void'
+          AND e.voided_by_entry_id IS NULL
+          AND (e.status='pending' OR e.local_pending=1 OR e.local_action_pending=1)
+     ) OR EXISTS (
+       SELECT 1 FROM tab_outbox o JOIN tab_links l ON l.tab_id=o.tab_id
+        WHERE l.vault_id=? AND l.relationship_id=?
+     ) AS pending`,
+    vaultId,
+    relationshipId,
+    vaultId,
+    relationshipId,
+  );
+  if (unresolved?.pending)
+    throw new TabApiError(409, "shared_history_pending", "Review and sync previous shared tallies");
+  const receipt = await getSharedHistoryReceiptForRelationship(relationshipId, vaultId).catch(
+    (err: unknown) => {
+      if (err instanceof Error && err.message === "shared_history_refresh_required")
+        throw new TabApiError(409, "shared_history_changed", "Refresh previous shared history");
+      throw err;
+    },
+  );
+  if (!receipt || !receipt.history_order)
+    throw new TabApiError(409, "shared_history_changed", "Refresh previous shared history");
+  return {
+    expected_previous_tab_id: receipt.tab_id,
+    expected_previous_rev: receipt.rev,
+    expected_history_revisions: receipt.revisions,
+  };
+}
+
 async function newOp(
   link: TabLink,
   op: TabOutboxRow["op"],
   payload: Record<string, unknown>,
   id = Crypto.randomUUID(),
-  opts: { deferAppend?: boolean; deferFinancial?: boolean } = {},
+  opts: { deferAppend?: boolean; deferFinancial?: boolean; session?: SessionSnapshot } = {},
 ): Promise<string> {
-  if (!(await getSessionJWT())) throw new TabAuthUnavailableError();
-  await queueTabMutation(
-    link,
-    {
-      id,
-      tab_id: link.tab_id,
-      op,
-      payload: JSON.stringify(payload),
-      created_at: Date.now(),
-      attempts: 0,
-      next_at: null,
-      last_error: null,
-    },
-    opts,
-  );
+  const session = opts.session ?? (await captureCurrentSession());
+  if (!session.jwt) throw new TabAuthUnavailableError();
+  await applyForCurrentSession(session, async () => {
+    if (getActiveVaultIdSyncMaybe() !== link.vault_id) throw new TabAuthUnavailableError();
+    await queueTabMutation(
+      link,
+      {
+        id,
+        tab_id: link.tab_id,
+        op,
+        payload: JSON.stringify(payload),
+        created_at: Date.now(),
+        attempts: 0,
+        next_at: null,
+        last_error: null,
+      },
+      opts,
+    );
+  });
   return id;
 }
 
@@ -295,10 +358,17 @@ async function joinFailure(
   vaultCurrency: string,
   tab: WireTab,
   afterPush: boolean,
+  scope: { session: SessionSnapshot; vaultId: string },
 ): Promise<unknown> {
   if (createdPersonId && err instanceof TabApiError && !isRetryableTabError(err)) {
     try {
-      await archivePerson(createdPersonId);
+      await applyForCurrentSession(scope.session, async () => {
+        if (getActiveVaultIdSyncMaybe() !== scope.vaultId) return;
+        await archivePerson(createdPersonId, {
+          vaultId: scope.vaultId,
+          accountId: scope.session.accountId,
+        });
+      });
     } catch (cleanupErr) {
       console.warn("[tabs.link] could not roll back the contact after a failed join", cleanupErr);
     }
@@ -333,6 +403,8 @@ export async function linkContact(
   personId: string,
   opts: { myLabel: string; openingNote?: string | null },
 ): Promise<{ link: TabLink; inviteUrl: string }> {
+  const session = await captureCurrentSession();
+  if (!session.jwt) throw new TabAuthUnavailableError();
   const vaultId = getActiveVaultIdSyncMaybe();
   if (!vaultId) throw new TabInputError("no_active_vault");
   const label = cleanLabel(opts.myLabel);
@@ -343,6 +415,7 @@ export async function linkContact(
   if (existing) throw new TabAlreadyLinkedError(existing.tab_id);
   const currency = await vaultCurrency(vaultId);
   if (!currency) throw new TabInputError("currency_unknown");
+  const historyReceipt = await prepareSharedHistory(relId, vaultId, currency);
 
   // The opening entry carries the contact's balance AS THE SHOPKEEPER SEES IT
   // — getPerson's number, not a fresh sum of the local rows. Those differ the
@@ -355,6 +428,12 @@ export async function linkContact(
   const current = await getPerson(personId);
   if (!current) throw new TabInputError("no_relationship");
   const balanceMinor = toMinorUnits(current.balance);
+  if (balanceMinor === 0 && toMinorUnits(current.tab_confirmed_balance ?? 0) !== 0)
+    throw new TabApiError(
+      409,
+      "shared_history_opening_required",
+      "A prior confirmed balance needs a reviewable opening before relinking",
+    );
   const now = Date.now();
   const opening =
     balanceMinor === 0
@@ -368,17 +447,23 @@ export async function linkContact(
           occurred_at_ms: now,
         };
 
-  const signedIn = (await getSessionJWT().catch(() => null)) != null;
-  if (!signedIn) throw new TabAuthUnavailableError();
   await resendSelfPhone();
-  const resp = await createTab({
-    linked_at_ms: now,
-    currency,
-    label,
-    vault_id: signedIn ? vaultId : null,
-    relationship_id: signedIn ? relId : null,
-    opening,
-  }).catch(async (err: unknown) => {
+  await applyForCurrentSession(session, async () => {
+    if (getActiveVaultIdSyncMaybe() !== vaultId) throw new TabAuthUnavailableError();
+  });
+  const resp = await createTab(
+    {
+      ...historyReceipt,
+      linked_at_ms: now,
+      currency,
+      label,
+      vault_id: vaultId,
+      relationship_id: relId,
+      opening,
+    },
+    { jwt: session.jwt },
+  ).catch(async (err: unknown) => {
+    await applyForCurrentSession(session, async () => {});
     if (err instanceof TabApiError && err.code === "already_linked") {
       await reconcileTabsFromServer();
       const recovered = await getTabLinkForRelationship(relId);
@@ -400,6 +485,7 @@ export async function linkContact(
     my_label: resp.tab.parties.a.label,
     other_label: resp.tab.parties.b.label,
     other_joined_at: resp.tab.parties.b.joined_at_ms,
+    history_order: resp.tab.parties.a.history_order ?? null,
     invite_url: resp.invite_url,
     rev: 0,
     closed_at: resp.tab.closed_at_ms,
@@ -407,14 +493,16 @@ export async function linkContact(
     last_synced_at: null,
     last_error: null,
   };
-  await upsertTabLink(link);
-  await upsertTabFromWire(
-    link,
-    { tab: resp.tab, entries: resp.entries, full: true },
-    {
-      origin: "local",
-    },
-  );
+  await applyForCurrentSession(session, async () => {
+    await upsertTabLink(link);
+    await upsertTabFromWire(
+      link,
+      { tab: resp.tab, entries: resp.entries, full: true },
+      {
+        origin: "local",
+      },
+    );
+  });
   askNotifyPermission();
   return { link: (await getTabLink(link.tab_id)) ?? link, inviteUrl: resp.invite_url };
 }
@@ -548,6 +636,8 @@ export async function joinTabAsContact(
   target: JoinTarget,
   myLabel: string,
 ): Promise<TabLink> {
+  const session = await captureCurrentSession();
+  if (!session.jwt) throw new TabAuthUnavailableError();
   if (tab.closed_at_ms != null) throw new TabClosedError();
   const label = cleanLabel(myLabel);
   const currency = await vaultCurrency(target.vaultId);
@@ -555,10 +645,12 @@ export async function joinTabAsContact(
   if (currency !== tab.currency) throw new TabCurrencyMismatchError(currency, tab.currency);
   await assertVaultAction(target.vaultId, "entry.amend");
 
-  if (getActiveVaultIdSyncMaybe() !== target.vaultId) {
-    await setActiveVaultId(target.vaultId);
-    await applyVaultCurrency(target.vaultId);
-  }
+  await applyForCurrentSession(session, async () => {
+    if (getActiveVaultIdSyncMaybe() !== target.vaultId) {
+      await setActiveVaultId(target.vaultId);
+      await applyVaultCurrency(target.vaultId);
+    }
+  });
 
   let relId: string | null;
   // Set only when THIS call minted the contact, so a failed join can undo it.
@@ -566,39 +658,50 @@ export async function joinTabAsContact(
   if ("personId" in target) {
     relId = await relationshipInVault(target.personId, target.vaultId);
     if (!relId) throw new TabInputError("no_relationship");
-    // ANY tab, not just an open one: see getAnyTabLinkForRelationship. A
-    // second tab on a contact that already holds a frozen one would zero its
-    // balance without a word, because party b mints no opening entry.
+    // An open period already owns this contact. A closed period must finish
+    // its pending reviews before a fresh binding can be acknowledged.
     const existing = await getAnyTabLinkForRelationship(relId);
-    if (existing) throw new TabAlreadyLinkedError(existing.tab_id);
+    if (existing && existing.closed_at == null) throw new TabAlreadyLinkedError(existing.tab_id);
   } else {
-    const created = await createPerson(
-      target.newPerson.firstName,
-      target.newPerson.lastName,
-      target.newPerson.phone,
-      target.newPerson.countryCode,
-    );
+    const created = await applyForCurrentSession(session, async () => {
+      if (getActiveVaultIdSyncMaybe() !== target.vaultId) throw new TabAuthUnavailableError();
+      return createPerson(
+        target.newPerson.firstName,
+        target.newPerson.lastName,
+        target.newPerson.phone,
+        target.newPerson.countryCode,
+      );
+    });
     if (!created.ok) throw new TabCreatePersonError(created);
     createdPersonId = created.id;
     relId = await relationshipInVault(created.id, target.vaultId);
     if (!relId) throw new TabInputError("no_relationship");
   }
 
-  const signedIn = (await getSessionJWT().catch(() => null)) != null;
+  const failureScope = { session, vaultId: target.vaultId };
+  const historyReceipt = await prepareSharedHistory(relId, target.vaultId, currency).catch(
+    async (err) => {
+      throw await joinFailure(err, createdPersonId, currency, tab, false, failureScope);
+    },
+  );
   await resendSelfPhone();
+  await applyForCurrentSession(session, async () => {
+    if (getActiveVaultIdSyncMaybe() !== target.vaultId) throw new TabAuthUnavailableError();
+  });
   const now = Date.now();
   const req = {
+    ...historyReceipt,
     linked_at_ms: now,
     label,
-    vault_id: signedIn ? target.vaultId : null,
-    relationship_id: signedIn ? relId : null,
+    vault_id: target.vaultId,
+    relationship_id: relId,
   };
   let resp: TabResponse;
   try {
-    resp = await joinTab({ token }, tab.id, req);
+    resp = await joinTab({ token, jwt: session.jwt }, tab.id, req);
   } catch (err) {
     if (!(err instanceof TabApiError && err.code === "currency_mismatch")) {
-      throw await joinFailure(err, createdPersonId, currency, tab, false);
+      throw await joinFailure(err, createdPersonId, currency, tab, false, failureScope);
     }
     // The local check above passed, so the server's vaults.currency is behind
     // this device's: the vault_setting_set{currency} event that changed it has
@@ -610,9 +713,12 @@ export async function joinTabAsContact(
     // background and the retry's own answer says whether it landed.
     await pushVaultBestEffort(target.vaultId, { capMs: RETRY_PUSH_CAP_MS });
     try {
-      resp = await joinTab({ token }, tab.id, req);
+      await applyForCurrentSession(session, async () => {
+        if (getActiveVaultIdSyncMaybe() !== target.vaultId) throw new TabAuthUnavailableError();
+      });
+      resp = await joinTab({ token, jwt: session.jwt }, tab.id, req);
     } catch (retryErr) {
-      throw await joinFailure(retryErr, createdPersonId, currency, tab, true);
+      throw await joinFailure(retryErr, createdPersonId, currency, tab, true, failureScope);
     }
   }
   const me = resp.tab.you;
@@ -627,6 +733,7 @@ export async function joinTabAsContact(
     my_label: resp.tab.parties[me].label,
     other_label: resp.tab.parties[them].label,
     other_joined_at: resp.tab.parties[them].joined_at_ms,
+    history_order: resp.tab.parties[me].history_order ?? null,
     invite_url: null,
     rev: 0,
     closed_at: resp.tab.closed_at_ms,
@@ -634,8 +741,10 @@ export async function joinTabAsContact(
     last_synced_at: null,
     last_error: null,
   };
-  await upsertTabLink(link);
-  await upsertTabFromWire(link, resp, { origin: "local" });
+  await applyForCurrentSession(session, async () => {
+    await upsertTabLink(link);
+    await upsertTabFromWire(link, resp, { origin: "local" });
+  });
   askNotifyPermission();
   return (await getTabLink(link.tab_id)) ?? link;
 }
@@ -644,7 +753,7 @@ export async function joinTabAsContact(
 // Tallies
 
 /**
- * Add a tally to a linked contact's tab: optimistic row (counts at once),
+ * Add a tally to a linked contact's tab: optimistic pending row,
  * durable outbox op, immediate flush. Waits up to FIRST_FLUSH_WAIT_MS for the
  * server's answer so the caller can toast the D17 duplicate hint; offline, or
  * when the flush is slow, answers without it — the op is queued either way.
@@ -736,7 +845,7 @@ export async function addTabEntry(
  * entry form stand in. Fired after the op is durable and never awaited: a
  * mark can never fail or delay the review itself.
  */
-function markReviewed(link: TabLink, entryId: string): void {
+function markReviewed(link: TabLink, entryId: string, session: SessionSnapshot): void {
   void (async () => {
     let rev: number | null = null;
     try {
@@ -750,10 +859,12 @@ function markReviewed(link: TabLink, entryId: string): void {
     } catch {
       /* the entry form below still names the notice */
     }
-    await markInboxHandled(
-      rev != null
-        ? { tab_id: link.tab_id, rev, entry_id: entryId }
-        : { tab_id: link.tab_id, entry_id: entryId },
+    await applyForCurrentSession(session, () =>
+      markInboxHandled(
+        rev != null
+          ? { tab_id: link.tab_id, rev, entry_id: entryId }
+          : { tab_id: link.tab_id, entry_id: entryId },
+      ),
     );
   })().catch(() => undefined);
 }
@@ -787,39 +898,41 @@ async function finishSharedCreditMutation(link: TabLink, opId: string): Promise<
 
 /** Accept the other party's tally: optimistic unless a hard limit requires confirmation. */
 export async function acceptEntry(link: TabLink, entryId: string): Promise<void> {
-  requireOpen(link);
+  const session = await captureCurrentSession();
   await assertVaultAction(link.vault_id, "entry.amend");
   const deferred = await needsSharedCreditAdmission(link);
   const opId = await newOp(link, "accept", { entry_id: entryId }, undefined, {
     deferFinancial: deferred,
+    session,
   });
-  markReviewed(link, entryId);
+  markReviewed(link, entryId, session);
   if (deferred) return finishSharedCreditMutation(link, opId);
   void syncTab(link.tab_id);
 }
 
 /** Reject the other party's tally, with an optional reason (≤ 300 chars). */
 export async function disputeEntry(link: TabLink, entryId: string, reason: string): Promise<void> {
-  requireOpen(link);
+  const session = await captureCurrentSession();
   const clean = reason.trim();
   if (clean.length > REASON_MAX) throw new TabInputError("reason_too_long");
   await assertVaultAction(link.vault_id, "entry.amend");
   const deferred = await needsSharedCreditAdmission(link);
   const opId = await newOp(link, "dispute", { entry_id: entryId, reason: clean }, undefined, {
     deferFinancial: deferred,
+    session,
   });
-  markReviewed(link, entryId);
+  markReviewed(link, entryId, session);
   if (deferred) return finishSharedCreditMutation(link, opId);
   void syncTab(link.tab_id);
 }
 
 /** Cancel my pending tally. The cache and server both refuse reviewed rows. */
 export async function voidEntry(link: TabLink, entryId: string): Promise<void> {
-  requireOpen(link);
+  const session = await captureCurrentSession();
   await assertVaultAction(link.vault_id, "entry.amend");
   const opId = Crypto.randomUUID();
   const deferred = await needsSharedCreditAdmission(link);
-  await newOp(link, "void", { entry_id: entryId }, opId, { deferFinancial: deferred });
+  await newOp(link, "void", { entry_id: entryId }, opId, { deferFinancial: deferred, session });
   // No markReviewed: a party gets no notice about its OWN pending tally (the
   // creation notice went to the other side), so there is nothing to read
   // here — the server's void path marks nothing for the same reason, and the
@@ -865,22 +978,24 @@ export async function settleSharedTab(link: TabLink, requestId: string): Promise
 
 /** Rename how I appear to the other party. */
 export async function setMyLabel(link: TabLink, label: string): Promise<void> {
+  const session = await captureCurrentSession();
   requireOpen(link);
   const clean = cleanLabel(label);
   await assertVaultAction(link.vault_id, "entry.amend");
-  await newOp(link, "label", { label: clean });
+  await newOp(link, "label", { label: clean }, undefined, { session });
   void syncTab(link.tab_id);
 }
 
 /**
- * Unlink = close the tab (either party may). Closed locally first so the
- * shared period freezes while remaining in the balance; the server close
+ * Unlink stops new sharing (either party may), without settling the balance
+ * or preventing final review/withdrawal of existing pending tallies. The server close
  * rides the outbox and is flushed even though the link is no longer open
  * (syncAllTabs sweeps queued ops on closed links too).
  */
 export async function unlinkContact(link: TabLink): Promise<void> {
+  const session = await captureCurrentSession();
   await assertVaultAction(link.vault_id, "entry.amend");
-  await newOp(link, "close", {});
+  await newOp(link, "close", {}, undefined, { session });
   void syncTab(link.tab_id);
 }
 

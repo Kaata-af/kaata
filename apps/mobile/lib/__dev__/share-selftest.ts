@@ -79,6 +79,7 @@ const meta = {
 const entries = [
   tally("accepted", "Whole statement, even while a note filter is visible"),
   tally("pending", "Awaiting review", { ...meta, status: "pending" }),
+  tally("unsynced-accept", "Acceptance awaiting sync", { ...meta, local_pending: true }),
   tally("voided", "Cancelled", { ...meta, voided: true }),
   tally("rejected", "Rejected", { ...meta, status: "disputed" }),
 ];
@@ -113,7 +114,8 @@ async function main() {
   assert.equal("qamari_offset" in snapshot!, false, "no adjustment field off Qamari");
   assert.deepEqual(
     snapshot!.entries.map((entry: any) => entry.note),
-    entries.slice(0, 2).map((e) => e.note),
+    entries.slice(0, 1).map((e) => e.note),
+    "a public bill lists confirmed amounts; pending reviews cannot masquerade as ordinary payments",
   );
   assert.equal(snapshot!.balance, 10);
   completeUpload(

@@ -763,7 +763,7 @@ async function main(): Promise<void> {
       tab: { ...reviewed.tab!, status: "disputed", dispute_reason: "Wrong amount" },
     });
     const sharedStatement = (await buildPersonStatement("person", "en", "USD", "$", 7000))!;
-    assert.equal(sharedStatement.balance, 82);
+    assert.equal(sharedStatement.balance, 100);
     assert.deepEqual(sharedStatement.sharedTotals, { acknowledged: 100, pending: -18, private: 0 });
     const sharedCsv = csv.buildPersonCsv(sharedStatement);
     assert.ok(sharedCsv.includes("Acknowledged net balance"));
@@ -812,7 +812,11 @@ async function main(): Promise<void> {
       sharedTable.rows.every((r) => r.length === sharedTable.header.length),
       "every shared row fills every column",
     );
-    assert.equal(sharedTable.net("USD"), 82, "SUM(Gave) - SUM(Received) is the statement balance");
+    assert.equal(
+      sharedTable.net("USD"),
+      100,
+      "SUM(Gave) - SUM(Received) is the confirmed statement balance",
+    );
     for (const [id, recorded] of [
       ["rejected-history", "2000"],
       ["voided", "100"],
@@ -828,8 +832,8 @@ async function main(): Promise<void> {
     const pendingPayment = sharedTable.row("pending-payment");
     assert.deepEqual(
       [pendingPayment[3], sharedTable.cell(pendingPayment, "Recorded amount")],
-      ["25", "-25"],
-      "a counted payment stays in Received; its recorded amount is signed like the balance",
+      ["", "-25"],
+      "an unconfirmed payment stays recorded without reducing the amount owed",
     );
     const reviewedRow = sharedTable.row("reviewed");
     assert.deepEqual(
@@ -871,7 +875,7 @@ async function main(): Promise<void> {
       assert.ok(!html[2].includes(`<span dir="auto">${raw}</span>`), `the raw ${raw} never prints`);
     }
     const sharedReport = await buildVaultReport("vault", "Fixture", "USD", "en", 7000);
-    assert.equal(sharedReport.totals.net, 82);
+    assert.equal(sharedReport.totals.net, 100);
     assert.ok(csv.buildVaultCsv(sharedReport).includes("deleted-reviewer"));
     const vaultTable = csvTable(csv.buildVaultCsv(sharedReport));
     assert.deepEqual(
@@ -880,7 +884,11 @@ async function main(): Promise<void> {
       "a shared kaata CSV keeps its leading columns; the recorded amount comes first after them",
     );
     assert.equal(vaultTable.header.at(-1), "Entry ID", "the entry id stays the last column");
-    assert.equal(vaultTable.net("USD"), 82, "SUM(Gave) - SUM(Received) is the kaata's net");
+    assert.equal(
+      vaultTable.net("USD"),
+      100,
+      "SUM(Gave) - SUM(Received) is the kaata's confirmed net",
+    );
     const vaultRejected = vaultTable.row("rejected-history");
     assert.deepEqual(
       [vaultRejected[4], vaultRejected[5], vaultTable.cell(vaultRejected, "Recorded amount (USD)")],
@@ -924,7 +932,11 @@ async function main(): Promise<void> {
       },
     );
     const relinked = (await buildPersonStatement("person", "en", "USD", "$", 9000))!;
-    assert.equal(relinked.balance, 60, "old 50 is counted only via the new opening");
+    assert.equal(
+      relinked.balance,
+      50,
+      "old accepted 50 is counted only via the accepted new opening",
+    );
     assert.deepEqual(relinked.sharedTotals, { acknowledged: 50, pending: 10, private: 0 });
     assert.equal(relinked.archivedSharedPeriods?.[0].entries[0].id, "old-period-evidence");
     const archivedTable = csvTable(csv.buildPersonCsv(relinked));
@@ -947,14 +959,14 @@ async function main(): Promise<void> {
     );
     assert.equal(
       archivedTable.net("USD"),
-      60,
+      50,
       "the carried-over 50 is counted once, via the opening",
     );
     assert.ok(archivedRow.includes("deleted-reviewer"));
     await pdf.renderPersonStatementPdf(relinked, "fixture-archive.pdf");
     assert.ok(html[3].includes("Earlier shared period"));
     assert.ok(html[3].includes("old-period-evidence"));
-    assert.ok(html[3].includes("60 $</div>"));
+    assert.ok(html[3].includes("50 $</div>"));
     // The earlier period's table reads like the main one: direction colours,
     // a centred Type column, and a meta line whose items are each isolated.
     const archivedSection = html[3].slice(html[3].indexOf(">Earlier shared period — "));
@@ -1059,8 +1071,8 @@ async function main(): Promise<void> {
     );
     assert.equal(
       chapterStatement.balance,
-      0.5,
-      "boundaries never change the pending-inclusive amount",
+      0.2,
+      "boundaries preserve the confirmed amount while unsent entries stay pending",
     );
     assert.deepEqual(chapterStatement.sharedTotals, {
       acknowledged: 0.2,
@@ -1095,7 +1107,11 @@ async function main(): Promise<void> {
       [`Cleared by Archived clearer on ${day(20_000)}`, "1970-01-01T00:00:20.000Z", ""],
       "an earlier clearance reads the same and never enters today's balance",
     );
-    assert.equal(chapterTable.net("USD"), 0.5, "SUM(Gave) - SUM(Received) is the balance");
+    assert.equal(
+      chapterTable.net("USD"),
+      0.2,
+      "SUM(Gave) - SUM(Received) is the confirmed balance",
+    );
     await pdf.renderPersonStatementPdf(chapterStatement, "fixture-shared-chapters.pdf");
     // Each value in the sentence is its own isolate; the UTC time is a
     // separate LTR number; no rule-off row carries the UI chip's dot.

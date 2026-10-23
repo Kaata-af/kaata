@@ -1,5 +1,28 @@
 # Next release: user-feedback refinements
 
+October 22 shared-account safety work is saved for review, without a deployment or
+store release. Confirmed shared balances now exclude pending proposals, unlinking
+preserves debt/history and final pending reviews while stopping new sharing and
+alerts, and relinking checks fresh previous history before carrying a balance.
+See [the current contract](mutual-tab-design.md#october-22-confirmed-balances-and-safe-unlinking)
+for migrations, compatibility, evidence limits and required two-party phone QA.
+
+October 23 Xiaomi checks use a separately installed, release-runtime
+`af.kaata.sharedtest` app and disposable accounts on a loopback-only backend.
+The installed production app (2.2.4/code 73) and its ledger are untouched.
+Native restore, confirmed/pending balances, unlinking with retained history,
+accept/reject after closure, accidental pending-tally cancellation, accepted
+tally finality, and safe relinking passed. Peer-account API reads independently
+confirmed the phone's decisions. The harness and credentials remain ignored in
+`build/shared-close-safety/`; this is not a store build or release. Real FCM
+delivery is outside this isolated package's checks.
+
+Rollout note: `main` pushes automatically deploy the backend. Store code 73
+cannot send the new history receipts required to relink previously shared
+contacts, even when their confirmed balance is zero. First-time sharing and
+ordinary existing-account tally entry remain compatible. Coordinate that
+temporary relinking restriction with the next mobile release before deployment.
+
 Initial work began on `codex/next-release-refinements`, following the 2.1.1 submission.
 The development batches below initially stayed local, with signed builds and
 store distribution deferred until the user requested release preparation.

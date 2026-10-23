@@ -51,32 +51,35 @@ var (
 	// One sentinel on purpose — a caller must not be able to tell "no such
 	// tab" from "a tab that is not yours" by status, code, message or side
 	// effect (the vaults.ErrInviteNotFound discipline).
-	ErrNotFound          = errors.New("tab not found")
-	ErrTabClosed         = errors.New("tab is closed")
-	ErrNotAuthor         = errors.New("only the author can void an entry")
-	ErrOwnEntry          = errors.New("cannot accept or dispute your own entry")
-	ErrAuthRequired      = errors.New("authentication required")
-	ErrStaleReview       = errors.New("tally has changed; review its latest state")
-	ErrReviewFinal       = errors.New("tally already reviewed; send a new tally instead")
-	ErrAlreadyVoided     = errors.New("entry is already voided")
-	ErrIDTaken           = errors.New("entry id belongs to another tab or author")
-	ErrInvalidAmount     = errors.New("amount must be a decimal string with up to two decimals, above 0 and at most 9999999999.99")
-	ErrInvalidDirection  = errors.New("direction must be a_to_b or b_to_a")
-	ErrLabelRequired     = errors.New("label is required")
-	ErrInvalidLabel      = errors.New("label must be at most 80 characters")
-	ErrInvalidNote       = errors.New("note must be at most 500 characters")
-	ErrReasonRequired    = errors.New("reason is required")
-	ErrInvalidReason     = errors.New("reason must be at most 300 characters")
-	ErrInvalidCurrency   = errors.New("currency is required")
-	ErrInvalidOccurredAt = errors.New("occurred_at_ms must be a positive epoch-ms integer")
-	ErrSameKaata         = errors.New("both parties cannot be the same kaata")
-	ErrSameAccount       = errors.New("one account cannot see both sides of a shared account")
-	ErrRoleInsufficient  = errors.New("your role in this kaata does not allow that")
-	ErrNotPartyA         = errors.New("only the party that created the tab can do that")
-	ErrNotVaultMember    = errors.New("caller is not an active member of vault_id")
-	ErrEntryNotFound     = errors.New("entry not found")
-	ErrAlreadyLinked     = errors.New("contact already has a shared account")
-	ErrCurrencyMismatch  = errors.New("kaata and shared account currencies must match")
+	ErrNotFound                     = errors.New("tab not found")
+	ErrTabClosed                    = errors.New("tab is closed")
+	ErrSharedHistoryPending         = errors.New("review or cancel pending tallies in the previous shared account before linking again")
+	ErrSharedHistoryChanged         = errors.New("shared account history changed; refresh the previous account before linking again")
+	ErrSharedHistoryOpeningRequired = errors.New("an opening tally is required to carry the previously accepted shared balance")
+	ErrNotAuthor                    = errors.New("only the author can void an entry")
+	ErrOwnEntry                     = errors.New("cannot accept or dispute your own entry")
+	ErrAuthRequired                 = errors.New("authentication required")
+	ErrStaleReview                  = errors.New("tally has changed; review its latest state")
+	ErrReviewFinal                  = errors.New("tally already reviewed; send a new tally instead")
+	ErrAlreadyVoided                = errors.New("entry is already voided")
+	ErrIDTaken                      = errors.New("entry id belongs to another tab or author")
+	ErrInvalidAmount                = errors.New("amount must be a decimal string with up to two decimals, above 0 and at most 9999999999.99")
+	ErrInvalidDirection             = errors.New("direction must be a_to_b or b_to_a")
+	ErrLabelRequired                = errors.New("label is required")
+	ErrInvalidLabel                 = errors.New("label must be at most 80 characters")
+	ErrInvalidNote                  = errors.New("note must be at most 500 characters")
+	ErrReasonRequired               = errors.New("reason is required")
+	ErrInvalidReason                = errors.New("reason must be at most 300 characters")
+	ErrInvalidCurrency              = errors.New("currency is required")
+	ErrInvalidOccurredAt            = errors.New("occurred_at_ms must be a positive epoch-ms integer")
+	ErrSameKaata                    = errors.New("both parties cannot be the same kaata")
+	ErrSameAccount                  = errors.New("one account cannot see both sides of a shared account")
+	ErrRoleInsufficient             = errors.New("your role in this kaata does not allow that")
+	ErrNotPartyA                    = errors.New("only the party that created the tab can do that")
+	ErrNotVaultMember               = errors.New("caller is not an active member of vault_id")
+	ErrEntryNotFound                = errors.New("entry not found")
+	ErrAlreadyLinked                = errors.New("contact already has a shared account")
+	ErrCurrencyMismatch             = errors.New("kaata and shared account currencies must match")
 )
 
 const (
@@ -190,6 +193,8 @@ type PartyMeta struct {
 	AccountName string `json:"account_name"`
 	Label       string `json:"label"`
 	JoinedAtMS  *int64 `json:"joined_at_ms"`
+	// Decimal string preserves BIGINT ordering on JavaScript clients.
+	HistoryOrder *string `json:"history_order"`
 	// Bound is true when a session account is attached — the phone can
 	// recover this tab through GET /v1/tabs/mine after a reinstall.
 	Bound bool `json:"bound"`
@@ -202,21 +207,25 @@ type PartyMeta struct {
 	Phone string `json:"phone"`
 }
 
-// Tab is the meta block: identity, both parties, the balance from EACH view
-// (signed strings, "0" when settled) and how many of the other party's
-// tallies await the caller's review.
+// Tab is the meta block: identity, both parties, signed totals from EACH view
+// and how many of the other party's tallies await the caller's review.
+// A zero recorded balance alone does not mean the account was settled.
 type Tab struct {
-	ID            string               `json:"id"`
-	Currency      string               `json:"currency"`
-	Rev           int64                `json:"rev"`
-	CreatedAtMS   int64                `json:"created_at_ms"`
-	ClosedAtMS    *int64               `json:"closed_at_ms"`
-	ClosedBy      *string              `json:"closed_by"`
-	ClosedReason  *string              `json:"closed_reason"`
-	You           string               `json:"you"`
-	Parties       map[string]PartyMeta `json:"parties"`
-	Balance       map[string]string    `json:"balance"`
-	PendingForYou int                  `json:"pending_for_you"`
+	ID           string               `json:"id"`
+	Currency     string               `json:"currency"`
+	Rev          int64                `json:"rev"`
+	CreatedAtMS  int64                `json:"created_at_ms"`
+	ClosedAtMS   *int64               `json:"closed_at_ms"`
+	ClosedBy     *string              `json:"closed_by"`
+	ClosedReason *string              `json:"closed_reason"`
+	You          string               `json:"you"`
+	Parties      map[string]PartyMeta `json:"parties"`
+	Balance      map[string]string    `json:"balance"`
+	// Balance remains the recorded total for older clients. New clients show
+	// the accepted amount separately from proposals that await a final review.
+	ConfirmedBalance map[string]string `json:"confirmed_balance"`
+	PendingBalance   map[string]string `json:"pending_balance"`
+	PendingForYou    int               `json:"pending_for_you"`
 }
 
 // TabResponse carries entries and chapter markers with rev > after_rev.
@@ -258,6 +267,7 @@ type MineItem struct {
 	VaultID        *string `json:"vault_id"`
 	RelationshipID *string `json:"relationship_id"`
 	LinkedAtMS     *int64  `json:"linked_at_ms"`
+	HistoryOrder   *string `json:"history_order"`
 }
 
 // MineResponse lists every open or closed tab the account is a party of.
@@ -281,14 +291,17 @@ type OpeningInput struct {
 // CreateInput — POST /v1/tabs. AccountID / InstallID come from the session
 // claims when present (nil for a web creator).
 type CreateInput struct {
-	LinkedAtMS     *int64
-	Currency       string
-	Label          string
-	VaultID        *string
-	RelationshipID *string
-	AccountID      *string
-	InstallID      *string
-	Opening        *OpeningInput
+	ExpectedHistoryRevisions map[string]int64
+	ExpectedPreviousTabID    *string
+	ExpectedPreviousRev      *int64
+	LinkedAtMS               *int64
+	Currency                 string
+	Label                    string
+	VaultID                  *string
+	RelationshipID           *string
+	AccountID                *string
+	InstallID                *string
+	Opening                  *OpeningInput
 }
 
 // CreateResult returns both plaintext tokens exactly once; the handler turns
@@ -304,22 +317,28 @@ type CreateResult struct {
 // JoinInput — POST /v1/tabs/{id}/join. A join by a party that already joined
 // is idempotent (label updated); a JWT on the request binds the account.
 type JoinInput struct {
-	LinkedAtMS     *int64
-	Label          string
-	VaultID        *string
-	RelationshipID *string
-	AccountID      *string
-	InstallID      *string
+	ExpectedHistoryRevisions map[string]int64
+	ExpectedPreviousTabID    *string
+	ExpectedPreviousRev      *int64
+	LinkedAtMS               *int64
+	Label                    string
+	VaultID                  *string
+	RelationshipID           *string
+	AccountID                *string
+	InstallID                *string
 }
 
 // BindInput — POST /v1/tabs/{id}/bind: attach the session account (and,
 // optionally, the kaata + contact) to the resolved party.
 type BindInput struct {
-	LinkedAtMS     *int64
-	AccountID      string
-	InstallID      *string
-	VaultID        *string
-	RelationshipID *string
+	ExpectedHistoryRevisions map[string]int64
+	ExpectedPreviousTabID    *string
+	ExpectedPreviousRev      *int64
+	LinkedAtMS               *int64
+	AccountID                string
+	InstallID                *string
+	VaultID                  *string
+	RelationshipID           *string
 }
 
 // AppendInput — POST /v1/tabs/{id}/entries. ID is client-minted for
@@ -646,28 +665,36 @@ func loadEntryForUpdate(ctx context.Context, tx pgx.Tx, tabID, entryID string) (
 // loadTab builds the Tab meta from `you`'s point of view: balance from BOTH
 // views (b is the negation of a), pending_for_you = the other party's
 // pending, non-voided tallies. Balance excludes void rows and voided
-// originals and rejected (wire: disputed) tallies.
+// originals and rejected (wire: disputed) tallies. Pending proposals remain
+// in legacy Balance but are separated from ConfirmedBalance for new clients.
 func loadTab(ctx context.Context, q querier, tabID, you string) (Tab, error) {
 	var (
-		t                Tab
-		createdAt        time.Time
-		closedAt         *time.Time
-		aLabel, bLabel   string
-		aName, bName     string
-		aPhone, bPhone   string
-		aJoined, bJoined *time.Time
-		aBound, bBound   bool
-		balanceA         int64
-		pending          int
-		closedBy         *string
+		t                              Tab
+		createdAt                      time.Time
+		closedAt                       *time.Time
+		aLabel, bLabel                 string
+		aName, bName                   string
+		aPhone, bPhone                 string
+		aJoined, bJoined               *time.Time
+		aHistoryOrder, bHistoryOrder   *string
+		aBound, bBound                 bool
+		balanceA, confirmedA, pendingA int64
+		pending                        int
+		closedBy                       *string
 	)
 	err := q.QueryRow(ctx, `
 		SELECT t.currency, t.rev, t.created_at, t.closed_at, t.closed_by, t.closed_reason,
-		       pa.label, pa.joined_at, pa.account_id IS NOT NULL, COALESCE(aa.display_name, aa.name, ''), COALESCE(aa.phone_e164, ''),
-		       pb.label, pb.joined_at, pb.account_id IS NOT NULL, COALESCE(ab.display_name, ab.name, ''), COALESCE(ab.phone_e164, ''),
+		       pa.label, pa.joined_at, pa.history_order::text, pa.account_id IS NOT NULL, COALESCE(aa.display_name, aa.name, ''), COALESCE(aa.phone_e164, ''),
+		       pb.label, pb.joined_at, pb.history_order::text, pb.account_id IS NOT NULL, COALESCE(ab.display_name, ab.name, ''), COALESCE(ab.phone_e164, ''),
 		       COALESCE((SELECT SUM(CASE WHEN e.direction = 'a_to_b' THEN e.amount_minor ELSE -e.amount_minor END)
 		                   FROM tab_entries e
 		                  WHERE e.tab_id = t.id AND e.kind <> 'void' AND e.voided_by_entry_id IS NULL AND e.status <> 'disputed'), 0)::BIGINT,
+		       COALESCE((SELECT SUM(CASE WHEN e.direction = 'a_to_b' THEN e.amount_minor ELSE -e.amount_minor END)
+		                   FROM tab_entries e
+		                  WHERE e.tab_id = t.id AND e.kind <> 'void' AND e.voided_by_entry_id IS NULL AND e.status = 'accepted'), 0)::BIGINT,
+		       COALESCE((SELECT SUM(CASE WHEN e.direction = 'a_to_b' THEN e.amount_minor ELSE -e.amount_minor END)
+		                   FROM tab_entries e
+		                  WHERE e.tab_id = t.id AND e.kind <> 'void' AND e.voided_by_entry_id IS NULL AND e.status = 'pending'), 0)::BIGINT,
 		       (SELECT COUNT(*) FROM tab_entries e
 		         WHERE e.tab_id = t.id AND e.created_by <> $2 AND e.status = 'pending'
 		           AND e.kind <> 'void' AND e.voided_by_entry_id IS NULL)::INT
@@ -678,7 +705,7 @@ func loadTab(ctx context.Context, q querier, tabID, you string) (Tab, error) {
 		  LEFT JOIN accounts ab ON ab.id=pb.account_id
 		 WHERE t.id = $1::uuid
 	`, tabID, you).Scan(&t.Currency, &t.Rev, &createdAt, &closedAt, &closedBy, &t.ClosedReason,
-		&aLabel, &aJoined, &aBound, &aName, &aPhone, &bLabel, &bJoined, &bBound, &bName, &bPhone, &balanceA, &pending)
+		&aLabel, &aJoined, &aHistoryOrder, &aBound, &aName, &aPhone, &bLabel, &bJoined, &bHistoryOrder, &bBound, &bName, &bPhone, &balanceA, &confirmedA, &pendingA, &pending)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
 		return Tab{}, ErrNotFound
@@ -691,13 +718,15 @@ func loadTab(ctx context.Context, q querier, tabID, you string) (Tab, error) {
 	t.ClosedBy = closedBy
 	t.You = you
 	t.Parties = map[string]PartyMeta{
-		"a": {Label: aLabel, AccountName: aName, JoinedAtMS: msPtr(aJoined), Bound: aBound, Phone: aPhone},
-		"b": {Label: bLabel, AccountName: bName, JoinedAtMS: msPtr(bJoined), Bound: bBound, Phone: bPhone},
+		"a": {Label: aLabel, AccountName: aName, JoinedAtMS: msPtr(aJoined), HistoryOrder: aHistoryOrder, Bound: aBound, Phone: aPhone},
+		"b": {Label: bLabel, AccountName: bName, JoinedAtMS: msPtr(bJoined), HistoryOrder: bHistoryOrder, Bound: bBound, Phone: bPhone},
 	}
 	t.Balance = map[string]string{
 		"a": formatMinor(balanceA),
 		"b": formatMinor(-balanceA),
 	}
+	t.ConfirmedBalance = map[string]string{"a": formatMinor(confirmedA), "b": formatMinor(-confirmedA)}
+	t.PendingBalance = map[string]string{"a": formatMinor(pendingA), "b": formatMinor(-pendingA)}
 	t.PendingForYou = pending
 	return t, nil
 }
@@ -824,14 +853,17 @@ func setLinkBoundary(ctx context.Context, tx pgx.Tx, tabID, role string, at *int
 		return ErrInvalidOccurredAt
 	}
 	_, err := tx.Exec(ctx, `UPDATE tab_parties
-	 SET linked_at_ms = COALESCE(linked_at_ms, $3::bigint, (EXTRACT(EPOCH FROM NOW()) * 1000)::bigint)
+	 SET linked_at_ms = COALESCE(linked_at_ms, $3::bigint, (EXTRACT(EPOCH FROM NOW()) * 1000)::bigint),
+	     history_order = CASE WHEN vault_id IS NOT NULL THEN
+	       COALESCE(history_order, nextval('tab_party_history_order_seq')) ELSE history_order END
 	 WHERE tab_id=$1::uuid AND role=$2 AND relationship_id IS NOT NULL`, tabID, role, at)
 	return err
 }
 
 // Serialize linking the same contact across phones. The mobile partial
 // unique index protects one device only; it cannot arbitrate cloud writers.
-func checkContactBinding(ctx context.Context, tx pgx.Tx, tabID, role, currency string, vaultID, relID *string) error {
+func checkContactBinding(ctx context.Context, tx pgx.Tx, tabID, role, currency string, vaultID, relID, previousTabID *string, previousRev *int64, hasOpening bool, expectedHistory map[string]int64) error {
+	alreadyScoped := false
 	// Partial binding requests must not bypass the established-history guard.
 	if tabID != "" {
 		var moved bool
@@ -844,6 +876,21 @@ func checkContactBinding(ctx context.Context, tx pgx.Tx, tabID, role, currency s
 		if moved {
 			return ErrAlreadyLinked
 		}
+		// Bind/Join may omit an unchanged half of the scope. Check the actual
+		// destination so a partial request cannot skip unresolved older history.
+		var storedVault, storedRel *string
+		if err := tx.QueryRow(ctx, `SELECT vault_id::text, relationship_id::text FROM tab_parties
+		 WHERE tab_id=$1::uuid AND role=$2`, tabID, role).Scan(&storedVault, &storedRel); err != nil {
+			return err
+		}
+		if vaultID == nil {
+			vaultID = storedVault
+		}
+		if relID == nil {
+			relID = storedRel
+		}
+		alreadyScoped = storedVault != nil && storedRel != nil && vaultID != nil && relID != nil &&
+			*storedVault == *vaultID && *storedRel == *relID
 	}
 	if vaultID == nil {
 		return nil
@@ -870,7 +917,128 @@ func checkContactBinding(ctx context.Context, tx pgx.Tx, tabID, role, currency s
 	if conflict {
 		return ErrAlreadyLinked
 	}
+	// Recovery of an existing binding never creates a new checkpoint, so it
+	// remains compatible with old clients and does not need a history receipt.
+	if alreadyScoped {
+		return nil
+	}
+	// A book may have changed currency since a prior shared period. Its
+	// outstanding history cannot be silently carried into another currency.
+	var currencyChanged bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM tab_parties p JOIN tabs t ON t.id=p.tab_id
+	 WHERE p.vault_id=$1::uuid AND p.relationship_id=$2::uuid AND t.closed_at IS NOT NULL
+	 AND p.tab_id::text<>$3 AND t.currency<>$4)`, *vaultID, *relID, tabID, currency).Scan(&currencyChanged); err != nil {
+		return err
+	}
+	if currencyChanged {
+		return ErrCurrencyMismatch
+	}
+	// A new opening carries the previous period's total. Once that happens,
+	// later resolution of an older proposal would invalidate the carry-over.
+	// Closing never strands a review, so finish that finite history first.
+	var unresolved bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM tab_parties p JOIN tabs t ON t.id=p.tab_id
+	 WHERE p.vault_id=$1::uuid AND p.relationship_id=$2::uuid AND t.closed_at IS NOT NULL
+	 AND p.tab_id::text<>$3 AND EXISTS (SELECT 1 FROM tab_entries e WHERE e.tab_id=t.id
+	   AND e.kind<>'void' AND e.voided_by_entry_id IS NULL AND e.status='pending'))`,
+		*vaultID, *relID, tabID).Scan(&unresolved); err != nil {
+		return err
+	}
+	if unresolved {
+		return ErrSharedHistoryPending
+	}
+	// Lock and validate the complete source snapshot: legacy older proposals
+	// can change an effective carry-over without changing the latest tab rev.
+	var latestID string
+	var latestRev int64
+	rows, err := tx.Query(ctx, `SELECT t.id::text, t.rev FROM tab_parties p JOIN tabs t ON t.id=p.tab_id
+	 WHERE p.vault_id=$1::uuid AND p.relationship_id=$2::uuid AND t.closed_at IS NOT NULL
+	 AND p.tab_id::text<>$3 ORDER BY p.history_order ASC NULLS FIRST, t.created_at ASC, t.id ASC
+	 FOR UPDATE OF t`, *vaultID, *relID, tabID)
+	if err != nil {
+		return err
+	}
+	actualHistory := map[string]int64{}
+	for rows.Next() {
+		if err := rows.Scan(&latestID, &latestRev); err != nil {
+			rows.Close()
+			return err
+		}
+		actualHistory[latestID] = latestRev
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if len(actualHistory) == 0 {
+		if previousTabID != nil || previousRev != nil || len(expectedHistory) != 0 {
+			return ErrSharedHistoryChanged
+		}
+		return nil
+	}
+	if previousTabID == nil || previousRev == nil || *previousTabID != latestID || *previousRev != latestRev {
+		return ErrSharedHistoryChanged
+	}
+	if len(actualHistory) > 1 || expectedHistory != nil {
+		if len(expectedHistory) != len(actualHistory) {
+			return ErrSharedHistoryChanged
+		}
+		for id, rev := range actualHistory {
+			if expected, ok := expectedHistory[id]; !ok || expected != rev {
+				return ErrSharedHistoryChanged
+			}
+		}
+	}
+	if tabID != "" {
+		// The candidate tab is locked by Join/Bind. A rejected/cancelled
+		// opening cannot stand in for a reviewable carry-over proposal.
+		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM tab_entries WHERE tab_id=$1::uuid
+		 AND kind='opening' AND voided_by_entry_id IS NULL AND status IN ('pending','accepted'))`, tabID).Scan(&hasOpening); err != nil {
+			return err
+		}
+	}
+	if !hasOpening {
+		// Private post-close offsets have no counterparty review. A new zero
+		// period must not silently absorb a nonzero accepted shared balance.
+		// An accepted opening is a checkpoint; pending/rejected openings do
+		// not replace earlier acknowledgements. Sign every period from this
+		// book's own party role, which may differ across periods.
+		nonzero, _, err := sharedAcceptedHistory(ctx, tx, *vaultID, *relID, tabID)
+		if err != nil {
+			return err
+		}
+		if nonzero {
+			return ErrSharedHistoryOpeningRequired
+		}
+	}
 	return nil
+}
+
+// A counterparty-confirmed opening replaces earlier accepted periods. A
+// proposal/rejection/cancellation is never a replacement acknowledgement.
+// Pending reports cover every period, including absorbed legacy proposals.
+func sharedAcceptedHistory(ctx context.Context, q querier, vaultID, relationshipID, exceptTabID string) (nonzero, pending bool, err error) {
+	var mixedCurrency bool
+	err = q.QueryRow(ctx, `WITH periods AS (
+	 SELECT p.tab_id,p.role,p.history_order,t.currency FROM tab_parties p JOIN tabs t ON t.id=p.tab_id
+	 WHERE p.vault_id=$1::uuid AND p.relationship_id=$2::uuid AND p.tab_id::text<>$3
+	), checkpoint AS (
+	 SELECT MAX(p.history_order) AS history_order FROM periods p JOIN tab_entries e ON e.tab_id=p.tab_id
+	 WHERE e.kind='opening' AND e.status='accepted' AND e.voided_by_entry_id IS NULL
+	)
+	 SELECT COALESCE(SUM(CASE WHEN (p.role='a' AND e.direction='a_to_b') OR (p.role='b' AND e.direction='b_to_a')
+	   THEN e.amount_minor ELSE -e.amount_minor END),0)<>0,
+	 EXISTS(SELECT 1 FROM periods pp JOIN tab_entries pe ON pe.tab_id=pp.tab_id
+	   WHERE pe.kind<>'void' AND pe.voided_by_entry_id IS NULL AND pe.status='pending'),
+	 (SELECT COUNT(DISTINCT currency)>1 FROM periods) OR EXISTS(
+	   SELECT 1 FROM periods pc JOIN vaults v ON v.vault_id=$1::uuid WHERE pc.currency<>v.currency)
+	 FROM periods p JOIN tab_entries e ON e.tab_id=p.tab_id CROSS JOIN checkpoint c
+	 WHERE p.history_order>=COALESCE(c.history_order,0) AND e.kind<>'void'
+	   AND e.status='accepted' AND e.voided_by_entry_id IS NULL`, vaultID, relationshipID, exceptTabID).Scan(&nonzero, &pending, &mixedCurrency)
+	if err == nil && mixedCurrency {
+		return false, false, ErrCurrencyMismatch
+	}
+	return
 }
 
 // insertEntry writes one tab_entries row under the held lock and returns it
@@ -1010,7 +1178,7 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (CreateResult, err
 		return CreateResult{}, err
 	}
 	var tabID string
-	if err := checkContactBinding(ctx, tx, "", "a", currency, in.VaultID, in.RelationshipID); err != nil {
+	if err := checkContactBinding(ctx, tx, "", "a", currency, in.VaultID, in.RelationshipID, in.ExpectedPreviousTabID, in.ExpectedPreviousRev, in.Opening != nil, in.ExpectedHistoryRevisions); err != nil {
 		return CreateResult{}, err
 	}
 	if err := tx.QueryRow(ctx, `
@@ -1071,7 +1239,7 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (CreateResult, err
 // recovery path (D10). Newest first.
 func (s *Service) Mine(ctx context.Context, accountID string) (MineResponse, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT DISTINCT ON (t.id) t.id::text, p.role, p.vault_id::text, p.relationship_id::text, t.created_at, p.linked_at_ms
+		SELECT DISTINCT ON (t.id) t.id::text, p.role, p.vault_id::text, p.relationship_id::text, t.created_at, p.linked_at_ms, p.history_order::text
 		  FROM tabs t
 		  JOIN tab_parties p ON p.tab_id = t.id
 		  LEFT JOIN vault_members vm
@@ -1089,11 +1257,12 @@ func (s *Service) Mine(ctx context.Context, accountID string) (MineResponse, err
 		relationship *string
 		createdAt    time.Time
 		linkedAt     *int64
+		historyOrder *string
 	}
 	var hits []hit
 	for rows.Next() {
 		var h hit
-		if err := rows.Scan(&h.tabID, &h.role, &h.vaultID, &h.relationship, &h.createdAt, &h.linkedAt); err != nil {
+		if err := rows.Scan(&h.tabID, &h.role, &h.vaultID, &h.relationship, &h.createdAt, &h.linkedAt, &h.historyOrder); err != nil {
 			rows.Close()
 			return MineResponse{}, fmt.Errorf("scan mine: %w", err)
 		}
@@ -1111,7 +1280,7 @@ func (s *Service) Mine(ctx context.Context, accountID string) (MineResponse, err
 		if err != nil {
 			return MineResponse{}, err
 		}
-		out.Tabs = append(out.Tabs, MineItem{Tab: tab, Role: h.role, VaultID: h.vaultID, RelationshipID: h.relationship, LinkedAtMS: h.linkedAt})
+		out.Tabs = append(out.Tabs, MineItem{Tab: tab, Role: h.role, VaultID: h.vaultID, RelationshipID: h.relationship, LinkedAtMS: h.linkedAt, HistoryOrder: h.historyOrder})
 	}
 	return out, nil
 }
@@ -1189,7 +1358,7 @@ func (s *Service) Join(ctx context.Context, p Party, in JoinInput) (TabResponse,
 	if err := checkPartyClaim(ctx, tx, p, in.AccountID); err != nil {
 		return TabResponse{}, err
 	}
-	if err := checkContactBinding(ctx, tx, p.TabID, p.Role, locked.Currency, in.VaultID, in.RelationshipID); err != nil {
+	if err := checkContactBinding(ctx, tx, p.TabID, p.Role, locked.Currency, in.VaultID, in.RelationshipID, in.ExpectedPreviousTabID, in.ExpectedPreviousRev, false, in.ExpectedHistoryRevisions); err != nil {
 		return TabResponse{}, err
 	}
 	if err := checkSameKaata(ctx, tx, p.TabID, p.Role, in.VaultID); err != nil {
@@ -1269,7 +1438,7 @@ func (s *Service) Bind(ctx context.Context, p Party, in BindInput) (TabResponse,
 	if err := checkPartyClaim(ctx, tx, p, &in.AccountID); err != nil {
 		return TabResponse{}, err
 	}
-	if err := checkContactBinding(ctx, tx, p.TabID, p.Role, locked.Currency, in.VaultID, in.RelationshipID); err != nil {
+	if err := checkContactBinding(ctx, tx, p.TabID, p.Role, locked.Currency, in.VaultID, in.RelationshipID, in.ExpectedPreviousTabID, in.ExpectedPreviousRev, false, in.ExpectedHistoryRevisions); err != nil {
 		return TabResponse{}, err
 	}
 	if err := checkSameKaata(ctx, tx, p.TabID, p.Role, in.VaultID); err != nil {
@@ -1511,35 +1680,49 @@ func partyCreditDelta(p Party, direction string, minor int64) int64 {
 	return minor
 }
 
-// admitCreditDelta is shared by new tallies and review/cancellation. Removing
-// an opposite-direction tally can increase exposure just as an append can.
-// Callers hold the kaata credit lock before taking the tab/entry row locks.
+// New entries are appended to the latest open period, so their amount is the
+// recorded exposure delta. Review/cancellation instead compare actual source
+// balances: removing an opening can reveal a different historical checkpoint.
 func (s *Service) admitCreditDelta(ctx context.Context, tx pgx.Tx, p Party, delta int64) error {
-	if delta == 0 || p.VaultID == nil || p.RelationshipID == nil || (p.effectiveRole() != "clerk" && p.effectiveRole() != "editor") {
+	if delta == 0 {
 		return nil
 	}
-	policy, err := credit.Effective(ctx, tx, *p.VaultID, *p.RelationshipID)
-	if err != nil || policy == nil {
+	admission, err := s.beginPartyCredit(ctx, tx, p)
+	if err != nil || admission == nil {
 		return err
 	}
-	override, err := credit.MemberOverride(ctx, tx, *p.VaultID, p.ActorAccountID)
-	if err != nil {
-		return err
-	}
-	if !policy.Restricts(p.effectiveRole(), override) {
-		return nil
-	}
-	if s.creditBalance == nil {
-		return fmt.Errorf("credit admission unavailable")
-	}
-	before, err := s.creditBalance(ctx, tx, *p.VaultID, *p.RelationshipID)
-	if err != nil {
-		return err
-	}
-	if (delta > 0 && before > 9223372036854775807-delta) || (delta < 0 && before < (-9223372036854775807-1)-delta) || policy.Exceeded(before, before+delta) {
+	before := admission.before
+	if (delta > 0 && before > 9223372036854775807-delta) || (delta < 0 && before < (-9223372036854775807-1)-delta) || admission.policy.Exceeded(before, before+delta) {
 		return credit.ErrLimit
 	}
 	return nil
+}
+
+// Call after the selected party's credit lock and authorization recheck.
+// Delegated and bound account roles/overrides retain the existing policy.
+func (s *Service) beginPartyCredit(ctx context.Context, tx pgx.Tx, p Party) (*linkCreditAdmission, error) {
+	if p.VaultID == nil || p.RelationshipID == nil || (p.effectiveRole() != "clerk" && p.effectiveRole() != "editor") {
+		return nil, nil
+	}
+	policy, err := credit.Effective(ctx, tx, *p.VaultID, *p.RelationshipID)
+	if err != nil || policy == nil {
+		return nil, err
+	}
+	override, err := credit.MemberOverride(ctx, tx, *p.VaultID, p.ActorAccountID)
+	if err != nil {
+		return nil, err
+	}
+	if !policy.Restricts(p.effectiveRole(), override) {
+		return nil, nil
+	}
+	if s.creditBalance == nil {
+		return nil, fmt.Errorf("credit admission unavailable")
+	}
+	before, err := s.creditBalance(ctx, tx, *p.VaultID, *p.RelationshipID)
+	if err != nil {
+		return nil, err
+	}
+	return &linkCreditAdmission{vaultID: *p.VaultID, relationshipID: *p.RelationshipID, policy: policy, before: before}, nil
 }
 
 // lockPartyCredit precedes every balance-changing tab mutation. Rechecking
@@ -1683,7 +1866,7 @@ func (s *Service) setStatus(ctx context.Context, p Party, entryID, status string
 	if err := lockPartyCredit(ctx, tx, p); err != nil {
 		return EntryResponse{}, err
 	}
-	if _, err := lockOpenTab(ctx, tx, p.TabID); err != nil {
+	if _, err := lockTab(ctx, tx, p.TabID); err != nil {
 		return EntryResponse{}, err
 	}
 	p, err = recheckParty(ctx, tx, p, rankEditor, false)
@@ -1718,10 +1901,9 @@ func (s *Service) setStatus(ctx context.Context, p Party, entryID, status string
 	if len(expectedRev) > 0 && expectedRev[0] > 0 && e.Rev != expectedRev[0] {
 		return EntryResponse{}, ErrStaleReview
 	}
-	if status == "disputed" {
-		if err := s.admitCreditDelta(ctx, tx, p, -partyCreditDelta(p, e.Direction, e.amountMinor)); err != nil {
-			return EntryResponse{}, err
-		}
+	admission, err := s.beginPartyCredit(ctx, tx, p)
+	if err != nil {
+		return EntryResponse{}, err
 	}
 	kind := "entry_accepted"
 	if status == "disputed" {
@@ -1745,6 +1927,9 @@ func (s *Service) setStatus(ctx context.Context, p Party, entryID, status string
 		return EntryResponse{}, fmt.Errorf("update status: %w", err)
 	}
 	if err := markEntryNoticesRead(ctx, tx, p, entryID); err != nil {
+		return EntryResponse{}, err
+	}
+	if err := s.finishLinkCredit(ctx, tx, admission); err != nil {
 		return EntryResponse{}, err
 	}
 	tab, err := loadTab(ctx, tx, p.TabID, p.Role)
@@ -1797,7 +1982,7 @@ func (s *Service) Void(ctx context.Context, p Party, entryID string) (VoidRespon
 	if err := lockPartyCredit(ctx, tx, p); err != nil {
 		return VoidResponse{}, err
 	}
-	if _, err := lockOpenTab(ctx, tx, p.TabID); err != nil {
+	if _, err := lockTab(ctx, tx, p.TabID); err != nil {
 		return VoidResponse{}, err
 	}
 	p, err = recheckParty(ctx, tx, p, rankEditor, false)
@@ -1820,7 +2005,8 @@ func (s *Service) Void(ctx context.Context, p Party, entryID string) (VoidRespon
 	if orig.Status != "pending" {
 		return VoidResponse{}, ErrReviewFinal
 	}
-	if err := s.admitCreditDelta(ctx, tx, p, -partyCreditDelta(p, orig.Direction, orig.amountMinor)); err != nil {
+	admission, err := s.beginPartyCredit(ctx, tx, p)
+	if err != nil {
 		return VoidResponse{}, err
 	}
 	rev, err := bumpRev(ctx, tx, p.TabID, p.Role, p.pushEvent("entry_voided", entryID))
@@ -1848,6 +2034,9 @@ func (s *Service) Void(ctx context.Context, p Party, entryID string) (VoidRespon
 	if err := markEntryNoticesRead(ctx, tx, p, orig.ID); err != nil {
 		return VoidResponse{}, err
 	}
+	if err := s.finishLinkCredit(ctx, tx, admission); err != nil {
+		return VoidResponse{}, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return VoidResponse{}, fmt.Errorf("commit tx: %w", err)
 	}
@@ -1855,7 +2044,9 @@ func (s *Service) Void(ctx context.Context, p Party, entryID string) (VoidRespon
 	return VoidResponse{Voided: voided, Void: void}, nil
 }
 
-// Close ends the tab: every later write is ErrTabClosed, reads keep working.
+// Close stops new shared tallies and linking changes. Existing pending rows
+// remain reviewable/withdrawable so either party can leave without trapping
+// an unconfirmed claim in the other party's balance. Final decisions stay final.
 // Idempotent — closing a closed tab returns its current state unchanged, so
 // a phone's retried outbox op lands cleanly.
 func (s *Service) Close(ctx context.Context, p Party) (TabResponse, error) {
@@ -1887,19 +2078,12 @@ func (s *Service) Close(ctx context.Context, p Party) (TabResponse, error) {
 	if t.ClosedAt != nil {
 		return fullResponse(ctx, tx, p.TabID, p.Role)
 	}
-	// Normally closing preserves the latest period. A backdated link boundary
-	// can instead reveal an older closed period, so compare the actual balance.
-	linkCredit, err := s.beginLinkCredit(ctx, tx, p.VaultID, p.RelationshipID, p.actorAccount())
-	if err != nil {
-		return TabResponse{}, err
-	}
+	// Leaving does not create or erase money. Credit limits must never force
+	// either party to keep sharing; existing proposals remain resolvable.
 	if _, err := tx.Exec(ctx, `
 		UPDATE tabs SET closed_at = NOW(), closed_by = $2 WHERE id = $1::uuid
 	`, p.TabID, p.Role); err != nil {
 		return TabResponse{}, fmt.Errorf("close tab: %w", err)
-	}
-	if err := s.finishLinkCredit(ctx, tx, linkCredit); err != nil {
-		return TabResponse{}, err
 	}
 	if _, err := bumpRev(ctx, tx, p.TabID, p.Role, p.pushEvent("updated", "")); err != nil {
 		return TabResponse{}, err
