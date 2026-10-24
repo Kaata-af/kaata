@@ -413,6 +413,12 @@ after its TestFlight upload; keep closed testing unchanged unless requested.
 Pushing `main` automatically redeploys the backend and web in Dokploy. No release
 database writes or repository tags are required.
 
+Before preparing the next release, complete the shared-account merge gate in
+[`docs/next-release-refinements.md`](docs/next-release-refinements.md#before-the-next-release).
+`codex/shared-account-safety` is deliberately unmerged; coordinate its backend
+deployment with the updated mobile apps so the current store app's relinking
+restriction is accounted for.
+
 **Store reviewers need a way to sign in. Play reviews closed-testing releases too.**
 
 - **What happened.** On 2026-10-02 Google rejected 2.1.0's alpha release (46) with "Login credentials are missing". Shared accounts, backup and account deletion sit behind Google/Apple sign-in, even though the ledger itself works offline.

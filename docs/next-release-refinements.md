@@ -1,5 +1,19 @@
 # Next release: user-feedback refinements
 
+## Before the next release
+
+- [ ] **Merge shared-account safety when ready to ship:** merge
+  [`codex/shared-account-safety`](https://github.com/Kaata-af/kaata/tree/codex/shared-account-safety)
+  into `main`, including Xiaomi-tested commit `20216a3` and subsequent fixes,
+  and include the updated mobile code in both store builds. Coordinate the
+  merge/push with the app rollout: pushing `main` automatically deploys the
+  backend, and current store code 73 cannot relink previously shared contacts
+  against its new history checks. Keep the branch unmerged until this rollout
+  is authorized. Recheck confirmed/pending balances, unlinking, final reviews
+  and relinking on the release candidate; see the QA record below.
+
+## Shared-account safety status
+
 October 22 shared-account safety work is saved for review, without a deployment or
 store release. Confirmed shared balances now exclude pending proposals, unlinking
 preserves debt/history and final pending reviews while stopping new sharing and
