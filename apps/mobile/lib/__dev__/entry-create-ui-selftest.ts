@@ -54,6 +54,23 @@ const words = (node: any): string =>
         ? words(node.props.children)
         : "";
 
+function currencyFixture(code: string) {
+  const currency = compileUI("../currency", {
+    "./db": { getAppMeta: async () => null, setAppMeta: async () => {} },
+    "./db-tx": { getDb: async () => null },
+    "./i18n": { getLocale: () => "en" },
+    "./currency-catalog": {
+      CURRENCIES: [
+        { code: "AFN", symbol: "AFN", minorUnits: 2 },
+        { code: "KWD", symbol: "KWD", minorUnits: 3 },
+      ],
+      getCurrencyNameForLocale: (value: string) => value,
+    },
+  }) as typeof import("../currency");
+  currency.setCurrentCurrency(code);
+  return currency;
+}
+
 function fixture({
   os = "android",
   rtl = false,
@@ -62,6 +79,7 @@ function fixture({
   width = 390,
   height = 844,
   fontScale = 1,
+  currencyCode = "AFN",
 }: {
   os?: PlatformOS;
   rtl?: boolean;
@@ -70,6 +88,7 @@ function fixture({
   width?: number;
   height?: number;
   fontScale?: number;
+  currencyCode?: string;
 } = {}) {
   const screenId = `entry-fixture-${++fixtureSequence}`;
   const hooks = uiHooks(),
@@ -196,7 +215,7 @@ function fixture({
         getActiveVaultIdSyncMaybe: () => vault,
         getInstallIdSync: () => install,
       },
-      "../../lib/currency": { getCurrentCurrencySymbol: () => "AFN" },
+      "../../lib/currency": currencyFixture(currencyCode),
       "../../lib/db": {
         getActiveVaultArchivedState: async () => {
           const gate = guardGate;
@@ -447,7 +466,7 @@ function fixture({
 
 // The edit screen has a different storage edge, but uses the same real form
 // controls. Keep this fixture limited to loading and saving an editable entry.
-function editFixture(os: PlatformOS, rtl: boolean, initialNote: string) {
+function editFixture(os: PlatformOS, rtl: boolean, initialNote: string, currencyCode = "AFN") {
   const hooks = uiHooks(),
     routes: string[] = [],
     writes: any[] = [];
@@ -476,7 +495,7 @@ function editFixture(os: PlatformOS, rtl: boolean, initialNote: string) {
       "../../../components/Toast": { useToast: () => ({ push: () => {} }) },
       "../../../lib/colors": { colors: require("../colors").colors },
       "../../../lib/credit-limits": { creditWarningForEdit: async () => false },
-      "../../../lib/currency": { getCurrentCurrencySymbol: () => "AFN" },
+      "../../../lib/currency": currencyFixture(currencyCode),
       "../../../lib/db": {
         getEntry: async () => ({
           id: "entry",
@@ -619,6 +638,48 @@ const layoutEvent = (height: number, width = 390) => ({
 const savedNotes: [string, string][] = [];
 async function main() {
   let cases = 0;
+  for (const os of ["android", "ios"] as const)
+    for (const currencyCode of ["AFN", "KWD"])
+      for (const mode of ["create", "edit"] as const) {
+        const f =
+          mode === "create"
+            ? fixture({ os, currencyCode })
+            : editFixture(os, false, "", currencyCode);
+        await f.ready();
+        const precisionNotes = () =>
+          nodes(f.hooks.tree).filter(
+            (node) => node.type === "Text" && words(node) === "currency.precisionHint",
+          );
+        assert.equal(
+          precisionNotes().length,
+          currencyCode === "KWD" ? 1 : 0,
+          `${mode}/${os}: the precision limit is explained for KWD without adding a note to AFN`,
+        );
+        f.input().props.onChangeText("1.234");
+        f.render();
+        assert.equal(f.input().props.value, "1.234", "input retains the original precision");
+        await f.button().props.onPress();
+        await settleUI();
+        f.render();
+        if (mode === "create") {
+          assert.ok(words(f.hooks.tree).includes("calculator.rounded"));
+          assert.equal(f.writes[0][2], 1.23, "calculator applies its displayed two-decimal result");
+        } else {
+          assert.equal(
+            f.writes.length,
+            0,
+            "direct editing rejects excess precision without a write",
+          );
+          assert.ok(words(f.hooks.tree).includes("entry.invalidAmount"));
+          assert.equal(precisionNotes().length, currencyCode === "KWD" ? 1 : 0);
+          f.input().props.onChangeText("1.23");
+          f.render();
+          await f.button().props.onPress();
+          assert.equal(f.writes[0][1], 1.23, "valid major units are saved without changing scale");
+        }
+        f.hooks.unmount();
+        cases++;
+      }
   for (const rtl of [false, true]) {
     const f = fixture({ os: "ios", rtl, width: 440, height: 956 });
     await f.ready();

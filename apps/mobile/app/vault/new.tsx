@@ -31,11 +31,16 @@ import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } fr
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "../../components/Button";
 import { FormField } from "../../components/FormField";
-import { OptionSheet } from "../../components/OptionSheet";
+import { CurrencyPickerSheet } from "../../components/CurrencyPickerSheet";
 import { NavRow, ScreenHeader } from "../../components/SettingsScreen";
 import { useToast } from "../../components/Toast";
 import { colors } from "../../lib/colors";
-import { CURRENCIES, DEFAULT_CURRENCY, getCurrencyName } from "../../lib/currency";
+import {
+  CURRENCIES,
+  DEFAULT_CURRENCY,
+  currencyNeedsPrecisionHint,
+  getCurrencyName,
+} from "../../lib/currency";
 import {
   ACTIVE_VAULT_META_KEY,
   getDb,
@@ -491,6 +496,9 @@ export default function VaultNewScreen() {
                 ? t("tab.join.currencyPreset", { currency: bidiIsolate(presetCurrency) })
                 : t("vaultNew.currency.hint")}
             </Text>
+            {currencyNeedsPrecisionHint(currency) ? (
+              <Text style={[styles.fieldHint, textDir(isRTL)]}>{t("currency.precisionHint")}</Text>
+            ) : null}
 
             {/* Local-only disclosure sits ABOVE the Create button so users
                 see it BEFORE they tap. Snapshotted at mount so it doesn't
@@ -523,22 +531,15 @@ export default function VaultNewScreen() {
 
       {/* Per-kaata currency picker — same sheet, same option list and same
           selection tick as vault/settings.tsx. */}
-      <OptionSheet
+      <CurrencyPickerSheet
         visible={currencySheetVisible}
-        title={t("vaultNew.currency.label")}
-        options={CURRENCIES.map((c) => ({
-          key: c.code,
-          label: getCurrencyName(c.code),
-          leading: c.symbol,
-        }))}
-        selected={currency}
+        selectedCode={currency}
         onSelect={(code) => {
           setCurrencySheetVisible(false);
           currencyDirtyRef.current = true;
           setCurrency(code);
         }}
         onDismiss={() => setCurrencySheetVisible(false)}
-        isRTL={isRTL}
       />
     </SafeAreaView>
   );

@@ -31,7 +31,7 @@ import {
   type SessionSnapshot,
 } from "../../lib/auth";
 import { getAccountIdSync, getActiveVaultIdSyncMaybe, getInstallIdSync } from "../../lib/db-tx";
-import { getCurrentCurrencySymbol } from "../../lib/currency";
+import { currencyNeedsPrecisionHint, getCurrentCurrencySymbol } from "../../lib/currency";
 import { createEntryDetailed, getActiveVaultArchivedState, getPerson } from "../../lib/db";
 import { textDir, trackingSafe, useIsRTL } from "../../lib/direction";
 import { EventSigningUnavailableError, RoleGateRejectionError } from "../../lib/event-log";
@@ -801,6 +801,11 @@ export default function NewEntryScreen() {
                     </Text>
                   </View>
                 </View>
+                {currencyNeedsPrecisionHint() ? (
+                  <Text style={[styles.calculationHint, textDir(isRTL)]}>
+                    {t("currency.precisionHint")}
+                  </Text>
+                ) : null}
                 {calculationHint && !amountError ? (
                   <Text
                     style={[

@@ -216,7 +216,7 @@ function kaataFixture() {
     "react-native-safe-area-context": { SafeAreaView: "SafeArea" },
     "../../components/Onboarding": ui,
     "../../components/FormField": { FormField: "FormField" },
-    "../../components/OptionSheet": { OptionSheet: "OptionSheet" },
+    "../../components/CurrencyPickerSheet": { CurrencyPickerSheet: "CurrencyPickerSheet" },
     "../../lib/colors": { colors },
     "../../lib/direction": { ...direction, bidiIsolate: (value: string) => value },
     "../../lib/i18n": i18n,
@@ -229,6 +229,7 @@ function kaataFixture() {
       ],
       DEFAULT_CURRENCY: "AFN",
       getCurrencyName: (code: string) => code,
+      currencyNeedsPrecisionHint: () => false,
     },
     "../../lib/db": {
       getAppMeta: async (key: string) => meta.get(key) ?? null,

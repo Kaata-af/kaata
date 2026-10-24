@@ -58,6 +58,7 @@ assert.equal(phone.getCountryName("DE", "en"), "Germany");
 assert.equal(phone.normalizePhone("۰۷۰۰۱۲۳۴۵۶", "AF"), "+93700123456");
 
 const currency = compileUI("../currency", {
+  "./currency-catalog": require("../currency-catalog"),
   "./db": {},
   "./db-tx": {},
   "./i18n": i18n,

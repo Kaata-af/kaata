@@ -875,3 +875,42 @@ restored; changing solo-mode configuration alone is insufficient.
     on iOS and Android 12+, plus the dim fallback on older Android. Try opening
     while another modal closes, rapid close/reopen, native Back, Reduce Motion and
     Reduce Transparency. Confirm scrolling and tap dismissal still work in EN/Dari.
+
+## October 24, 2026 — all currencies (next release)
+
+Prepared on `codex/all-currencies`, independently of the phone-code and shared
+account safety branches. This branch is for the upcoming release batch; it does
+not authorize a release, a main-branch push or a backend deployment.
+
+- Currency selection covers all 155 current monetary currencies in the pinned
+  ISO 4217 list, excluding fund/accounting units, metals and testing codes.
+- Onboarding, new kaatas and kaata settings use one searchable, virtualized
+  picker. Names are available in English, Dari and Pashto; search also accepts
+  ISO codes and symbols. Existing nine choices keep their labels and symbols.
+- Saved preferences, restored vaults, active-vault amounts, exports and sharing
+  use the expanded catalog. Unknown currency names show their original code.
+- Money remains in major units with up to two decimal places. Changing a kaata's
+  currency relabels amounts without converting them. The picker, currency fields,
+  tally forms and credit limits explain the limit for currencies that normally
+  use three decimals. Full third-decimal arithmetic/storage/sync is separate work.
+
+Automated verification covers all catalog names/codes/country aliases,
+preference restore and vault switching, picker behavior in six platform/language
+combinations, onboarding, tally creation/editing and credit-limit guidance,
+money/SQL/export regressions, calculator behavior, sharing and shared-account
+currency locks. Mobile typechecking and Android/iOS production bundle exports
+also pass. These are local checks; device review remains below.
+
+Before the next release:
+
+- [ ] Merge `codex/all-currencies` together with `codex/all-country-phone-codes`
+      and `codex/shared-account-safety` when release preparation is authorized.
+      The safety branch's backend and mobile changes must ship together; preserve
+      its existing rollout safeguards and tests.
+- [ ] On iOS and Android, review currency search/selection in EN/Dari/Pashto,
+      long names and large text, keyboard-open search, swipe-down dismissal,
+      selected states, onboarding and new/existing kaatas. Try INR, CNY, SAR,
+      CAD, JPY, XOF and KWD; restart, switch kaatas and inspect exports/sharing.
+- [ ] Confirm existing AFN/USD amounts and shared-account currency locks remain
+      intact, the three-decimal limitation is clear, and third-decimal pasted
+      amounts cannot silently become a different stored direct-entry value.

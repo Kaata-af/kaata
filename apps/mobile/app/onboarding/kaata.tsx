@@ -21,10 +21,15 @@ import {
   OnboardingIntro,
   onboardingStyles,
 } from "../../components/Onboarding";
-import { OptionSheet } from "../../components/OptionSheet";
+import { CurrencyPickerSheet } from "../../components/CurrencyPickerSheet";
 import { getSessionJWT, updateAccountPhone } from "../../lib/auth";
 import { colors } from "../../lib/colors";
-import { CURRENCIES, DEFAULT_CURRENCY, getCurrencyName } from "../../lib/currency";
+import {
+  CURRENCIES,
+  DEFAULT_CURRENCY,
+  currencyNeedsPrecisionHint,
+  getCurrencyName,
+} from "../../lib/currency";
 import { createSelfProfile, getAppMeta, setAppMeta } from "../../lib/db";
 import { bidiIsolate, rowDir, textDir, useIsRTL } from "../../lib/direction";
 import { EventSigningUnavailableError } from "../../lib/event-log";
@@ -319,6 +324,9 @@ export default function OnboardingKaataScreen() {
                 ? t("tab.join.currencyPreset", { currency: bidiIsolate(presetCurrency) })
                 : t("onboardingKaata.currency.hint")}
             </Text>
+            {currencyNeedsPrecisionHint(currency) ? (
+              <Text style={[styles.fieldHint, textDir(isRTL)]}>{t("currency.precisionHint")}</Text>
+            ) : null}
           </View>
 
           {submitError ? (
@@ -339,15 +347,9 @@ export default function OnboardingKaataScreen() {
 
       {/* Currency picker — same sheet, same option list and same selection tick
           as /vault/new and vault/settings. */}
-      <OptionSheet
+      <CurrencyPickerSheet
         visible={currencySheetVisible}
-        title={t("onboardingKaata.currency.label")}
-        options={CURRENCIES.map((c) => ({
-          key: c.code,
-          label: getCurrencyName(c.code),
-          leading: c.symbol,
-        }))}
-        selected={currency}
+        selectedCode={currency}
         onSelect={(code) => {
           if (savingRef.current) return;
           setCurrencySheetVisible(false);
@@ -355,7 +357,6 @@ export default function OnboardingKaataScreen() {
           setCurrency(code);
         }}
         onDismiss={() => setCurrencySheetVisible(false)}
-        isRTL={isRTL}
       />
     </SafeAreaView>
   );

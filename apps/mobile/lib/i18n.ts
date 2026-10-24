@@ -776,6 +776,10 @@ const en = {
 
   // Country picker
   "country.title": "Choose country",
+  "currency.title": "Choose currency",
+  "currency.search": "Search by name, code or symbol",
+  "currency.noMatch": "No matching currency.",
+  "currency.precisionHint": "Kaata currently supports up to 2 decimal places for this currency.",
   "country.search": "Search by name or code",
   "country.noMatch": "No match.",
 
@@ -2873,6 +2877,10 @@ const fa: Partial<Record<Key, string>> = {
 
   // Country picker
   "country.title": "انتخاب کشور",
+  "currency.title": "انتخاب ارز",
+  "currency.search": "جستجو با نام، کد یا نماد ارز",
+  "currency.noMatch": "ارزی پیدا نشد.",
+  "currency.precisionHint": "کاتا فعلاً برای این ارز تا ۲ رقم اعشار را پشتیبانی می‌کند.",
   "country.search": "جستجو بر اساس نام یا کد",
   "country.noMatch": "موردی پیدا نشد.",
 
@@ -4265,6 +4273,10 @@ const ps: Record<Key, string> = {
     "دا یوازې د مبلغونو د ښودلو د پیسې نوم بدلوي. پخوانۍ راکړې ورکړې بلې پیسې ته نه اړوي.",
   "settings.currency.changed": "پیسه بدله شوه.",
   "country.title": "هېواد وټاکئ",
+  "currency.title": "د پیسو واحد وټاکئ",
+  "currency.search": "په نوم، کوډ یا نښه یې ولټوئ",
+  "currency.noMatch": "د پیسو واحد ونه موندل شو.",
+  "currency.precisionHint": "کاتا اوس د دې پیسو واحد لپاره تر ۲ اعشاري ځایونو پورې ملاتړ کوي.",
   "country.search": "په نوم یا کوډ یې ولټوئ",
   "country.noMatch": "پایله ونه موندل شوه.",
   "updatePrompt.title": "تازه کول اړین دي",

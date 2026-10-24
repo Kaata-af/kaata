@@ -2,82 +2,20 @@ import { getAppMeta, setAppMeta } from "./db";
 import { getDb } from "./db-tx";
 import { getLocale } from "./i18n";
 
-// Currency selection for entry amounts. Curated for the Afghan market:
-// AFN as the default, USD for parallel pricing (common in Afghan shops),
-// then the currencies of the diaspora and neighbouring countries.
-//
-// IMPORTANT data-integrity note: `amount_afn` keeps major-unit values with up
-// to two decimal places and no per-entry currency tagging. The active currency is a
-// DISPLAY label, not a math attribute — changing it relabels existing
-// amounts; it does not convert them. A shopkeeper who logs 500 entries in
-// AFN and then switches to USD now sees their numbers labeled with the new
-// symbol even though they were entered as AFN. We don't migrate.
-// Use lib/money.ts for arithmetic; never reinterpret old values as cents.
-//
-// True multi-currency (per-entry tagging + conversion) is a Phase 2
-// refactor: adds `currency TEXT NOT NULL` to entries, updates balance math
-// to be per-currency, may add exchange-rate handling. Out of scope for now.
+import { CURRENCIES, getCurrencyNameForLocale } from "./currency-catalog";
+export { CURRENCIES, type Currency } from "./currency-catalog";
 
-export type Currency = {
-  // ISO code (kept as the persistence key in app_meta + a stable picker id).
-  code: string;
-  // Locale-specific names. `name` is English; `nameFa` is Afghan Dari.
-  name: string;
-  nameFa: string;
-  namePs: string;
-  // Display symbol. Used everywhere amounts render — replaces the letter
-  // code (per the user request: ؋ instead of AFN, $ instead of USD, etc.).
-  symbol: string;
-};
-
-export const CURRENCIES: ReadonlyArray<Currency> = [
-  { code: "AFN", name: "Afghan Afghani", nameFa: "افغانی", namePs: "افغانۍ", symbol: "؋" },
-  { code: "USD", name: "US Dollar", nameFa: "دالر امریکا", namePs: "امریکایي ډالر", symbol: "$" },
-  { code: "EUR", name: "Euro", nameFa: "یورو", namePs: "یورو", symbol: "€" },
-  {
-    code: "AUD",
-    name: "Australian Dollar",
-    nameFa: "دالر آسترالیا",
-    namePs: "اسټرالیايي ډالر",
-    symbol: "A$",
-  },
-  {
-    code: "GBP",
-    name: "British Pound",
-    nameFa: "پوند انگلیس",
-    namePs: "برتانوي پونډ",
-    symbol: "£",
-  },
-  {
-    code: "PKR",
-    name: "Pakistani Rupee",
-    nameFa: "روپیه پاکستان",
-    namePs: "پاکستانۍ روپۍ",
-    symbol: "₨",
-  },
-  { code: "IRR", name: "Iranian Rial", nameFa: "ریال ایران", namePs: "ایراني ریال", symbol: "﷼" },
-  {
-    code: "AED",
-    name: "UAE Dirham",
-    nameFa: "درهم امارات",
-    namePs: "د متحده عربي اماراتو درهم",
-    symbol: "د.إ",
-  },
-  { code: "TRY", name: "Turkish Lira", nameFa: "لیره ترکیه", namePs: "ترکي لیره", symbol: "₺" },
-];
-
+// Every kaata has one display currency. Existing amount_afn values stay in
+// major units with at most two decimal places. Selecting another currency
+// relabels those amounts; it never converts or rescales stored money.
+// Third-decimal currency support needs a coordinated money/sync change.
 export const DEFAULT_CURRENCY = "AFN";
+const currenciesByCode = new Map(CURRENCIES.map((currency) => [currency.code, currency]));
 
 // Active currency code, set on app start via initCurrencyFromPref(). Lives
 // as a module-level mutable so callers can read it synchronously from any
 // render path without prop-drilling.
 let currentCurrency: string = DEFAULT_CURRENCY;
-
-// Picks an entry from CURRENCIES with a fallback to AFN if the code is
-// somehow unknown (defensive — picker should never let us into that state).
-function findCurrency(code: string): Currency {
-  return CURRENCIES.find((c) => c.code === code) ?? CURRENCIES[0];
-}
 
 export function getCurrentCurrencyCode(): string {
   return currentCurrency;
@@ -87,14 +25,19 @@ export function getCurrentCurrencyCode(): string {
 // UI renders next to — home total, balance row, list rows, entry-form
 // label, WhatsApp share body.
 export function getCurrentCurrencySymbol(): string {
-  return findCurrency(currentCurrency).symbol;
+  return getCurrencySymbol(currentCurrency);
 }
 
 // Locale-aware human name for the active currency. Used in the picker so
 // each row reads "؋  افغانی" in Dari and "؋  Afghan Afghani" in English.
 export function getCurrencyName(code: string): string {
-  const c = findCurrency(code);
-  return getLocale() === "ps" ? c.namePs : getLocale() === "fa" ? c.nameFa : c.name;
+  return getCurrencyNameForLocale(code, getLocale());
+}
+
+// Preserve the ledger's two-decimal contract even when an ISO currency uses
+// three. Entry screens explain the limit before an amount is entered.
+export function currencyNeedsPrecisionHint(code = currentCurrency): boolean {
+  return (currenciesByCode.get(code)?.minorUnits ?? 2) > 2;
 }
 
 // Display symbol for an arbitrary code (not the active one) — the vault
@@ -103,7 +46,7 @@ export function getCurrencyName(code: string): string {
 // raw code for an unknown currency rather than the AFN symbol: mislabeling
 // a foreign-currency book "؋" is worse than showing "XYZ".
 export function getCurrencySymbol(code: string): string {
-  return CURRENCIES.find((c) => c.code === code)?.symbol ?? code;
+  return currenciesByCode.get(code)?.symbol ?? code;
 }
 
 // Called by _layout.tsx during init alongside i18n. Reads from app_meta and
@@ -112,7 +55,7 @@ export function getCurrencySymbol(code: string): string {
 export async function initCurrencyFromPref(): Promise<void> {
   try {
     const stored = await getAppMeta("default_currency");
-    if (stored && CURRENCIES.some((c) => c.code === stored)) {
+    if (stored && currenciesByCode.has(stored)) {
       currentCurrency = stored;
     }
   } catch {
@@ -123,7 +66,7 @@ export async function initCurrencyFromPref(): Promise<void> {
 // Imperatively set the currency code. Caller is responsible for also
 // persisting via setAppMeta("default_currency", code).
 export function setCurrentCurrency(code: string): void {
-  if (CURRENCIES.some((c) => c.code === code)) {
+  if (currenciesByCode.has(code)) {
     currentCurrency = code;
   }
 }
@@ -148,7 +91,7 @@ export async function applyVaultCurrency(vaultId: string | null): Promise<void> 
       vaultId,
     );
     const code = row?.currency;
-    if (code && CURRENCIES.some((c) => c.code === code) && code !== currentCurrency) {
+    if (code && currenciesByCode.has(code) && code !== currentCurrency) {
       currentCurrency = code;
       await setAppMeta("default_currency", code).catch(() => {});
     }
