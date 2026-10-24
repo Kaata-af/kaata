@@ -1,6 +1,11 @@
 import { getAppMeta } from "./db";
 import type { LocaleCode } from "./i18n";
 import { toAsciiDigits } from "./digits";
+import { parsePhoneNumberFromString, type CountryCode } from "libphonenumber-js/core";
+import phoneMetadata from "libphonenumber-js/metadata.min.json";
+import { COUNTRIES, type Country } from "./phone-countries";
+
+export { COUNTRIES, type Country } from "./phone-countries";
 
 // Multi-country phone normalization. Both Afghan numbers and international
 // contacts (diaspora destinations, neighbours) are accepted with a permissive
@@ -20,83 +25,6 @@ import { toAsciiDigits } from "./digits";
 // persisted in app_meta under "default_country_code" and read into a
 // module-global on startup via initDefaultCountryFromPref(), same pattern
 // as currency in lib/currency.ts.
-
-export type Country = {
-  code: string; // ISO 3166 alpha-2
-  name: string;
-  nameFa: string;
-  namePs: string;
-  dialCode: string; // e.g., "+93"
-  flag: string;
-};
-
-// Curated list. Afghanistan first (default for the local market), then the
-// destinations Afghan shopkeepers most often have contacts in: neighbours
-// (PK, IR), Gulf (AE), diaspora hubs (DE, NL, SE, TR, GB, US), plus AU since
-// it came up. Order matters: AF is the default; otherwise alphabetical so
-// the picker reads naturally.
-export const COUNTRIES: Country[] = [
-  {
-    code: "AF",
-    name: "Afghanistan",
-    nameFa: "افغانستان",
-    namePs: "افغانستان",
-    dialCode: "+93",
-    flag: "🇦🇫",
-  },
-  {
-    code: "AU",
-    name: "Australia",
-    nameFa: "آسترالیا",
-    namePs: "اسټرالیا",
-    dialCode: "+61",
-    flag: "🇦🇺",
-  },
-  { code: "DE", name: "Germany", nameFa: "آلمان", namePs: "جرمني", dialCode: "+49", flag: "🇩🇪" },
-  { code: "IR", name: "Iran", nameFa: "ایران", namePs: "ایران", dialCode: "+98", flag: "🇮🇷" },
-  {
-    code: "NL",
-    name: "Netherlands",
-    nameFa: "هالند",
-    namePs: "هالنډ",
-    dialCode: "+31",
-    flag: "🇳🇱",
-  },
-  {
-    code: "PK",
-    name: "Pakistan",
-    nameFa: "پاکستان",
-    namePs: "پاکستان",
-    dialCode: "+92",
-    flag: "🇵🇰",
-  },
-  { code: "SE", name: "Sweden", nameFa: "سویدن", namePs: "سویډن", dialCode: "+46", flag: "🇸🇪" },
-  { code: "TR", name: "Turkey", nameFa: "ترکیه", namePs: "ترکیه", dialCode: "+90", flag: "🇹🇷" },
-  {
-    code: "AE",
-    name: "UAE",
-    nameFa: "امارات متحده عربی",
-    namePs: "متحده عربي امارات",
-    dialCode: "+971",
-    flag: "🇦🇪",
-  },
-  {
-    code: "GB",
-    name: "United Kingdom",
-    nameFa: "بریتانیا",
-    namePs: "بریتانیا",
-    dialCode: "+44",
-    flag: "🇬🇧",
-  },
-  {
-    code: "US",
-    name: "United States",
-    nameFa: "ایالات متحده امریکا",
-    namePs: "د امریکا متحده ایالات",
-    dialCode: "+1",
-    flag: "🇺🇸",
-  },
-];
 
 /** Localized picker label; stored country and dial codes are unchanged. */
 export function getCountryName(code: string, locale: LocaleCode): string {
@@ -148,29 +76,16 @@ export function getCountry(code: string): Country {
 
 const E164_AF_MOBILE = /^\+937\d{8}$/;
 const E164_GENERIC = /^\+\d{7,15}$/;
-
-// "+93 0700 123456" → "+93700123456". Writing the national trunk '0' AFTER an
-// explicit country code is extremely common (it's how the number is printed on
-// most Afghan shopfronts and business cards), and E.164 has no place for it.
-// Left in, it produces a DIFFERENT key for the same person than the same
-// number typed nationally — and since duplicate detection is exact-string,
-// both rows survive as two people with one real number.
-//
-// Only strips when the remainder still looks like a phone number, so a country
-// whose subscriber numbers legitimately begin with 0 can't be truncated into
-// nonsense.
-function stripTrunkZeroAfterDialCode(e164: string): string {
-  const sorted = [...COUNTRIES].sort((a, b) => b.dialCode.length - a.dialCode.length);
-  for (const c of sorted) {
-    if (!e164.startsWith(c.dialCode)) continue;
-    const rest = e164.slice(c.dialCode.length);
-    if (rest.startsWith("0") && rest.length > 1) {
-      return c.dialCode + rest.replace(/^0+/, "");
-    }
-    return e164;
-  }
-  return e164;
-}
+// Metadata orders the main region first for shared calling codes. Alphabetical
+// picker order must not turn an unrecognized +1 number into American Samoa.
+const CALLING_CODE_COUNTRIES = Object.entries(phoneMetadata.country_calling_codes)
+  .flatMap(([dialCode, countries]) => {
+    const code = countries.find((candidate) =>
+      COUNTRIES.some((country) => country.code === candidate),
+    );
+    return code ? [{ dialCode: "+" + dialCode, code }] : [];
+  })
+  .sort((a, b) => b.dialCode.length - a.dialCode.length);
 
 // Normalizes a user-typed phone number to E.164. The `countryCode` argument
 // is used only as a fallback when the input doesn't already include a country
@@ -193,36 +108,25 @@ export function normalizePhone(
   }
   if (!cleaned) return null;
 
-  // If the user wrote a country prefix themselves, trust it over the picker.
-  let e164: string;
-  if (cleaned.startsWith("+")) {
-    e164 = stripTrunkZeroAfterDialCode(cleaned);
-  } else if (cleaned.startsWith("00")) {
-    e164 = stripTrunkZeroAfterDialCode("+" + cleaned.slice(2));
-  } else {
-    // National number — prefix with the selected country's dial code.
-    // Strip a leading '0' (trunk prefix; common AF / European convention).
-    const hadTrunkZero = cleaned.startsWith("0");
-    const national = hadTrunkZero ? cleaned.slice(1) : cleaned;
-    const country = getCountry(countryCode);
-    // …unless the number ALREADY carries its own dial code, which people do
-    // write with the + omitted ("93 700 123 456"). Doubling it would give
-    // +9393700123456 — 13 digits, so the generic length gate accepts a number
-    // that can never be dialled.
-    //
-    // The trunk zero is what disambiguates: a leading 0 marks the input as
-    // unambiguously NATIONAL, so this branch must not touch it. Several
-    // supported countries have real area codes that begin with their own dial
-    // code — NL 0313-0318 (Ede, Wageningen…), DE 0491/0492x/0494x (East
-    // Frisia), PK 0922/0923/0928, SE 046 (Lund) — and without this gate an
-    // ordinary local number silently loses its area code AND still passes
-    // validation.
-    const bare = country.dialCode.slice(1);
-    e164 =
-      !hadTrunkZero && national.startsWith(bare) && national.length > bare.length
-        ? stripTrunkZeroAfterDialCode("+" + national)
-        : country.dialCode + national;
-  }
+  // Keep Kaata's existing convention that 00 explicitly starts an international
+  // number, even in countries whose telephone network uses a different IDD.
+  // An explicit international prefix always takes precedence over the picker.
+  const explicit = cleaned.startsWith("+") || cleaned.startsWith("00");
+  const number = cleaned.startsWith("00") ? "+" + cleaned.slice(2) : cleaned;
+  const country = getCountry(countryCode);
+  const parsed = parsePhoneNumberFromString(
+    number,
+    { defaultCountry: country.code as CountryCode, extract: false },
+    phoneMetadata,
+  );
+
+  // Numbering-plan metadata removes actual national prefixes (AF/AU/DE's 0,
+  // Russia's 8, Hungary's 06, etc.) while preserving significant digits such as
+  // Italy/Vatican's leading 0. It also disambiguates an omitted '+' against real
+  // national area codes, rather than blindly removing a matching calling code.
+  // Parsing is deliberately NOT a validity gate: unassigned numbers, landlines
+  // and newly allocated ranges still follow the same permissive shape policy.
+  const e164 = parsed?.number ?? (explicit ? number : country.dialCode + number);
 
   // Afghanistan: accept mobiles (+937XXXXXXXX) AND landlines / "digital" numbers
   // like Kabul 020-XXX-XXXX (-> +9320XXXXXXX). The old strict mobile-only regex
@@ -233,33 +137,35 @@ export function normalizePhone(
   return E164_GENERIC.test(e164) ? e164 : null;
 }
 
-// Best-effort reverse lookup: which country's dial code does this E.164 start
-// with? Used to pre-select the picker when editing an existing contact. We
-// scan in dial-code-length-descending order so longer prefixes win — without
-// this, "+1" would pre-empt a hypothetical "+1XXX" entry. Falls back to AF.
-//
-// Ambiguity caveat: when two countries share a dial code (e.g., +1 covers US
-// and CA), the first matching entry wins. The picker is for input convenience
-// only — the stored number is unambiguous either way.
+// Use numbering-plan prefixes to distinguish countries that share a calling
+// code (+1, +7, +44, +39, +262...). A calling code alone cannot distinguish
+// US from Canada or Italy from Vatican City. The fallback is only for a number
+// whose country metadata cannot identify; it never changes the stored number.
 export function inferCountryFromE164(e164: string | null | undefined): string {
   if (!e164) return DEFAULT_COUNTRY_CODE;
-  const sorted = [...COUNTRIES].sort((a, b) => b.dialCode.length - a.dialCode.length);
-  for (const c of sorted) {
+  const parsed = parsePhoneNumberFromString(e164, { extract: false }, phoneMetadata);
+  if (parsed?.country && COUNTRIES.some((country) => country.code === parsed.country)) {
+    return parsed.country;
+  }
+  for (const c of CALLING_CODE_COUNTRIES) {
     if (e164.startsWith(c.dialCode)) return c.code;
   }
   return DEFAULT_COUNTRY_CODE;
 }
 
 // Formats an E.164 number for human reading. AF gets the familiar 70 123 4567
-// grouping; everything else is shown as "+CC rest" (no per-country grouping
-// logic, which would require libphonenumber-sized rules we don't want yet).
+// grouping; everything else keeps the existing compact "+CC rest" presentation.
 export function formatPhoneForDisplay(e164: string): string {
   if (E164_AF_MOBILE.test(e164)) {
     const rest = e164.slice(3);
     return `+93 ${rest.slice(0, 2)} ${rest.slice(2, 5)} ${rest.slice(5)}`;
   }
-  const sorted = [...COUNTRIES].sort((a, b) => b.dialCode.length - a.dialCode.length);
-  for (const c of sorted) {
+  const parsed = parsePhoneNumberFromString(e164, { extract: false }, phoneMetadata);
+  if (parsed && e164.startsWith("+" + parsed.countryCallingCode)) {
+    const dialCode = "+" + parsed.countryCallingCode;
+    return `${dialCode} ${e164.slice(dialCode.length)}`;
+  }
+  for (const c of CALLING_CODE_COUNTRIES) {
     if (e164.startsWith(c.dialCode)) {
       const rest = e164.slice(c.dialCode.length);
       return `${c.dialCode} ${rest}`;

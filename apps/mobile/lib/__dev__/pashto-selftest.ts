@@ -7,6 +7,7 @@ import { compareCustomerNames } from "../customer-list";
 import { filterTallies, noteSearchTerms } from "../tally-search";
 import { formatMoneyAmount, parseAmountInput } from "../money";
 import type { LocaleCode } from "../i18n";
+import phoneMetadata from "libphonenumber-js/metadata.min.json";
 
 // Execute the real locale-sensitive utilities with synthetic native/storage
 // boundaries. No customer data, persisted preferences or network are used.
@@ -51,6 +52,9 @@ assert.equal(direction.getDirection(), "ltr");
 const phone = compileUI("../phone", {
   "./db": {},
   "./digits": require("../digits"),
+  "./phone-countries": require("../phone-countries"),
+  "libphonenumber-js/core": require("libphonenumber-js/core"),
+  "libphonenumber-js/metadata.min.json": phoneMetadata,
 });
 assert.equal(phone.getCountryName("DE", "ps"), "جرمني");
 assert.equal(phone.getCountryName("DE", "fa"), "آلمان");

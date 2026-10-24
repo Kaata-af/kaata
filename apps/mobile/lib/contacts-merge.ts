@@ -10,8 +10,9 @@
 // selftest:tab-join pins it against a verbatim copy of the old memo pair.
 //
 // Rules, in the order they apply:
-//   1. Dedup the phone book against the kaata by phoneKey (last 8 digits, so
-//      +93 / leading-0 / spacing variants collapse): a device contact whose
+//   1. Dedup the phone book against the kaata by complete phone identity, with
+//      national formats interpreted using an explicit counterpart's country:
+//      a device contact whose
 //      number is already a kaata person is never offered as "add".
 //      Phone-less device contacts cannot be deduped and pass through.
 //   2. A query (first / last / phone digits) filters BOTH halves through
@@ -23,7 +24,7 @@
 //   4. Section titles switch with the query: Recent / All contacts at rest,
 //      Matches / From your phone while searching. Keys only — no i18n here.
 
-import { phoneKey } from "./contacts-sync";
+import { PhoneMatchIndex } from "./phone-match";
 import { toAsciiDigits } from "./digits";
 import { PHONE_SEARCH_MIN_DIGITS, searchContacts } from "./search";
 
@@ -56,8 +57,8 @@ export type MergedSection<P, D> = {
  * caller, and it keeps a caller that hands over raw input on the same rules.
  */
 export function mergeContactSections<
-  P extends { name: string; phone: string | null },
-  D extends { name: string; phone: string | null },
+  P extends { name: string; phone: string | null; countryCode?: string },
+  D extends { name: string; phone: string | null; countryCode?: string },
 >(args: {
   people: P[];
   deviceContacts: D[];
@@ -75,14 +76,12 @@ export function mergeContactSections<
 
   // Phone keys of people already in this kaata, to dedup the device book
   // against the ledger (never offer to add someone you already have).
-  const appPhoneKeys = new Set<string>();
+  const appPhoneKeys = new PhoneMatchIndex<boolean>();
   for (const p of args.people) {
-    const k = phoneKey(p.phone);
-    if (k) appPhoneKeys.add(k);
+    appPhoneKeys.add(p.phone, true, p.countryCode);
   }
   const dedupedDevice = args.deviceContacts.filter((c) => {
-    const k = phoneKey(c.phone);
-    return !k || !appPhoneKeys.has(k);
+    return appPhoneKeys.find(c.phone, c.countryCode) !== true;
   });
 
   const sections: MergedSection<P, D>[] = [];

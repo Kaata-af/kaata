@@ -52,7 +52,10 @@ function compile(path: string, mocks: Record<string, any>) {
   }, exports);
   return exports;
 }
-const contacts = compile("../contacts-sync", { "expo-contacts/legacy": native });
+const contacts = compile("../contacts-sync", {
+  "expo-contacts/legacy": native,
+  "./phone-match": require("../phone-match"),
+});
 let slots: any[] = [],
   cursor = 0,
   effect: (() => () => void) | null = null;

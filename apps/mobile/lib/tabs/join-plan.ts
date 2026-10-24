@@ -24,6 +24,7 @@
 import { joinName, phoneKey, splitName } from "../contacts-sync";
 import { toAsciiDigits } from "../digits";
 import { inferCountryFromE164 } from "../phone";
+import { isInternationalPhone, samePhoneNumber } from "../phone-match";
 
 // ---------------------------------------------------------------------------
 // Currency (D9)
@@ -117,38 +118,28 @@ export type JoinSuggestion =
  *  person/new applies to a tapped phone-book contact. */
 function countryFor(phone: string | null): string | null {
   const p = (phone ?? "").trim();
-  return p.startsWith("+") ? inferCountryFromE164(toAsciiDigits(p)) : null;
-}
-
-/** ASCII digits only — the same extraction phoneKey (lib/contacts-sync) uses,
- *  so a Persian-digit phone-book number matches nowhere rather than here alone. */
-function asciiDigitsOf(phone: string): string {
-  return phone.replace(/\D/g, "");
+  const ascii = toAsciiDigits(p);
+  return isInternationalPhone(ascii)
+    ? inferCountryFromE164(ascii.startsWith("00") ? "+" + ascii.slice(2) : ascii)
+    : null;
 }
 
 /**
- * Two numbers are one person when both carry a dial code and EVERY digit
- * agrees — E.164 is exact, and "+61412345678" (Australia) and "+93712345678"
- * (Afghanistan) share their last 8 digits while being two people, which
- * matters here because a match on the preview stage is one tap from binding
- * the tab to that contact (D8: not undone without closing it). Only when one
- * side is national format ("0700123456" in the phone book against the
- * invitation's "+93700123456") does the last-8-digit phoneKey decide, as it
- * does for person/new's dedup.
+ * A match on this preview is one tap from binding the shared account. Compare
+ * complete normalized numbers, using an explicit number's country plan for a
+ * national-format counterpart; a common suffix alone never proves identity.
  */
-function sameNumber(candidate: string | null | undefined, other: string): boolean {
-  const c = (candidate ?? "").trim();
-  if (c.startsWith("+") && other.startsWith("+")) {
-    const dc = asciiDigitsOf(c);
-    return dc.length > 0 && dc === asciiDigitsOf(other);
-  }
-  const key = phoneKey(other);
-  return key !== "" && phoneKey(c) === key;
+function sameNumber(
+  candidate: string | null | undefined,
+  other: string,
+  countryCode?: string,
+): boolean {
+  return samePhoneNumber(candidate, other, countryCode);
 }
 
 /**
  * Who the invitation is from, as far as this device can tell. Matching is by
- * sameNumber: exact for two E.164 numbers, else by phoneKey (last 8 digits),
+ * sameNumber: complete international numbers or a country-aware national match,
  * so "0700123456", "+93700123456" and "0093 700 123 456" are one number. A
  * kaata contact wins over the phone book; a kaata contact with that number
  * that already holds a tab (`linked`, open or closed — party b mints no
@@ -172,11 +163,12 @@ export function suggestJoinContact(args: {
     lastName: string | null;
     name: string;
     phone: string | null;
+    countryCode?: string;
   }>;
 }): JoinSuggestion | null {
   const label = args.otherLabel.trim();
   const phone = (args.otherPhone ?? "").trim();
-  const key = phoneKey(phone);
+  const key = phoneKey(toAsciiDigits(phone));
   if (!key) {
     if (!label) return null;
     const { firstName, lastName } = splitName(label);
@@ -195,10 +187,11 @@ export function suggestJoinContact(args: {
   if (person) {
     return { source: "kaata", personId: person.id, name: person.name, phone: person.phone };
   }
-  const book = args.deviceContacts.find((c) => sameNumber(c.phone, phone));
+  const book = args.deviceContacts.find((c) => sameNumber(c.phone, phone, c.countryCode));
   if (book) {
     const bookPhone = (book.phone ?? "").trim();
-    const usePhone = bookPhone.startsWith("+") || !phone.startsWith("+") ? book.phone : phone;
+    const usePhone =
+      isInternationalPhone(bookPhone) || !isInternationalPhone(phone) ? book.phone : phone;
     return {
       source: "phone",
       firstName: book.firstName,

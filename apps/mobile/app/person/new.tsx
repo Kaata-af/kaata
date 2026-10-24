@@ -331,9 +331,14 @@ export default function PersonAddOrFindScreen() {
     // owns the parsing rules (lib/phone.ts); everyone else passes input
     // through untouched. The picker country is still inferred so the form
     // shows the right flag when the number carries its own code.
-    const cc = c.phone?.trim().startsWith("+")
-      ? inferCountryFromE164(toAsciiDigits(c.phone.trim()))
-      : countryCode;
+    const phoneInput = toAsciiDigits((c.phone ?? "").trim());
+    const nativeCountry = c.countryCode?.toUpperCase();
+    const cc =
+      phoneInput.startsWith("+") || phoneInput.startsWith("00")
+        ? inferCountryFromE164(phoneInput.replace(/^00/, "+"))
+        : nativeCountry && getCountry(nativeCountry).code === nativeCountry
+          ? nativeCountry
+          : countryCode;
     void runCreate(c.firstName, c.lastName, c.phone ?? "", cc);
   }
 

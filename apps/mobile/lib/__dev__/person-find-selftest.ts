@@ -103,6 +103,9 @@ const react = {
   useDeferredValue(value: any) {
     return react.useMemo(() => value, [value]);
   },
+  useLayoutEffect(fn: () => void | (() => void), deps?: unknown[]) {
+    react.useEffect(fn, deps);
+  },
   useEffect(fn: () => void | (() => void), deps?: unknown[]) {
     const i = cursor++;
     const before: Effect | undefined = slots[i];
@@ -307,10 +310,7 @@ const contactsHook = compile("../use-device-contacts", {
   },
 });
 const merge = compile("../contacts-merge", {
-  "./contacts-sync": {
-    phoneKey: (phone: string | null) =>
-      phone ? toAsciiDigits(phone).replace(/\D/g, "").slice(-8) : null,
-  },
+  "./phone-match": require("../phone-match"),
   "./digits": { toAsciiDigits },
   "./search": search,
 });
@@ -343,9 +343,11 @@ const sharedMocks: Record<string, any> = {
     useRouter: () => router,
     useLocalSearchParams: () => routeParams,
     Redirect: "Redirect",
-    useFocusEffect: (fn: any) => react.useEffect(
-      () => homeOwnerFocused ? fn() : undefined, [fn, focusEpoch, homeOwnerFocused],
-    ),
+    useFocusEffect: (fn: any) =>
+      react.useEffect(
+        () => (homeOwnerFocused ? fn() : undefined),
+        [fn, focusEpoch, homeOwnerFocused],
+      ),
   },
   "@expo/vector-icons": { Ionicons: "Icon" },
   "react-native-safe-area-context": {
@@ -461,6 +463,16 @@ const libMocks: Record<string, any> = {
   "trust/backfill": { ensureChainBackfill: async () => {} },
   "vault-api": { retryPendingVaultMaterialize: async () => {} },
   "contacts-merge": merge,
+  // This fixture tests contact/search behavior; native page motion has its
+  // own regression suite. Keep the selected page immediate at this boundary.
+  "use-home-page-transition": {
+    useHomePageTransition: (direction: string) => ({
+      renderedDirection: direction,
+      switching: false,
+      translateX: 0,
+      cancel: () => {},
+    }),
+  },
   "contacts-sync": {
     joinName: (first: string, last: string) => [first, last].filter(Boolean).join(" ").trim(),
   },
@@ -767,51 +779,59 @@ async function main() {
     return dialog;
   };
 
-  // Both real pages remain mounted, with separate native scroll owners. The
-  // off-screen page must not expose touch or accessibility targets.
+  // Only the selected page is mounted, reusing one native scroll owner while
+  // remembering the scroll position of each financial side.
+  // Callbacks captured before a tab change must remain unable to navigate.
   for (const nextRtl of [false, true]) {
     fixture(home, "owner", nextRtl);
     const payPerson = { ...people[0], id: "pay-person", balance: -200 };
     peopleByVault.set("kaata", [...people, payPerson]);
     await flush();
     const pages = homePages();
-    assert.deepEqual(pages.map((page) => page.props.direction), ["collect", "pay"]);
-    assert.notEqual(pages[0].props.scrollRef, pages[1].props.scrollRef,
-      "Each side retains its own native scroll owner");
-    const collectRef = pages[0].props.scrollRef, payRef = pages[1].props.scrollRef;
-    const hiddenPage = renderList(pages[1]);
-    assert.equal(hiddenPage.props.pointerEvents, "none");
-    assert.equal(hiddenPage.props.accessibilityElementsHidden, true);
-    assert.equal(hiddenPage.props.importantForAccessibility, "no-hide-descendants");
-    pages[1].props.onPersonPress(payPerson);
-    pages[1].props.onPersonLongPress(payPerson);
-    await flush();
-    assert.equal(routes.length, 0, "Inactive financial-side callbacks cannot navigate");
-    assert.equal(find("BottomSheet")!.props.visible, false);
+    assert.deepEqual(
+      pages.map((page) => page.props.direction),
+      ["collect"],
+    );
+    const collectRef = pages[0].props.scrollRef;
+    pages[0].props.onScrollOffset(120);
     const oldCollectRow = homeRow("ahmad");
     find("Tabs")!.props.onChange("pay");
     await flush();
-    assert.equal(homePages()[0].props.scrollRef, collectRef);
-    assert.equal(homePages()[1].props.scrollRef, payRef,
-      "Tab changes retain both independent native scroll owners");
+    assert.deepEqual(
+      homePages().map((page) => page.props.direction),
+      ["pay"],
+    );
+    const payRef = homePages()[0].props.scrollRef;
+    assert.equal(payRef, collectRef, "Tab switches reuse the native scroll owner");
+    assert.equal(homePages()[0].props.initialScrollY, 0, "Pay starts at its own position");
+    homePages()[0].props.onScrollOffset(240);
     oldCollectRow.props.onPress(people[0]);
     oldCollectRow.props.onLongPress(people[0]);
     await flush();
     assert.equal(routes.length, 0, "A queued Collect callback cannot navigate from Pay");
     assert.equal(find("BottomSheet")!.props.visible, false);
-    const activePage = renderList(homePages()[1]);
+    const activePage = renderList(homePages()[0]);
     assert.equal(activePage.props.pointerEvents, "auto");
     assert.equal(activePage.props.accessibilityElementsHidden, false);
     find("Tabs")!.props.onChange("collect");
     await flush();
+    assert.equal(homePages()[0].props.scrollRef, collectRef, "Collect restores its scroll owner");
+    assert.equal(
+      homePages()[0].props.initialScrollY,
+      120,
+      "Collect restores its remembered offset",
+    );
     const coveredRow = homeRow("ahmad");
     await openHomeSearch();
     coveredRow.props.onPress(people[0]);
     coveredRow.props.onLongPress(people[0]);
     await flush();
     assert.equal(routes.length, 0, "Covered Home rows cannot navigate while search is open");
-    assert.equal(find("BottomSheet")!.props.visible, false,
-      "Covered Home rows cannot open a second action sheet");
+    assert.equal(
+      find("BottomSheet")!.props.visible,
+      false,
+      "Covered Home rows cannot open a second action sheet",
+    );
   }
   for (const invalidation of ["vault", "account", "blur", "unmount"]) {
     fixture(home, "owner");
@@ -1252,14 +1272,14 @@ async function main() {
         const overviewScrolls = nodes(renderList(homePages())).filter(
           (node) => node.type === "ScrollView",
         );
-        assert.equal(overviewScrolls.length, 2);
+        assert.equal(overviewScrolls.length, 1);
         assert.ok(
           overviewScrolls.every(
             (node) =>
               node.props.refreshControl?.type === "RefreshControl" &&
               typeof node.props.refreshControl.props.onRefresh === "function",
           ),
-          "both homepage lists retain pull-to-refresh",
+          "the mounted homepage list retains pull-to-refresh",
         );
         const overviewBefore = homePages().map((page) => ({
           people: page.props.people.map((person: any) => person.id),
@@ -1863,8 +1883,8 @@ async function main() {
     ["ahmad-high", "ahmad", "ahmad-other", "ahmad-low"],
     "name sorting orders both money directions together during search",
   );
-  // Both previous pages survive a complete search session. A delayed swipe
-  // callback from the old rail must not change that remembered page.
+  // The previous side survives a complete search session. A delayed swipe
+  // callback must not change that remembered page.
   await closeHomeSearch();
   await flush();
   assert.equal(find("Tabs")!.props.value, "collect");
@@ -1880,7 +1900,7 @@ async function main() {
     await closeHomeSearch();
     await flush();
     assert.equal(find("Tabs")!.props.value, previousDirection);
-    assert.equal(springTargets.at(-1), previousDirection === "collect" ? 0 : -screenWidth);
+    assert.equal(homePages()[0].props.direction, previousDirection);
     oldGestureEnd({ translationX: previousDirection === "collect" ? -200 : 200, velocityX: 0 });
     await flush();
     assert.equal(
@@ -1889,10 +1909,8 @@ async function main() {
       "a pre-search swipe remains invalid even after the original tab is restored",
     );
     assert.equal(
-      homePages()
-        .find((page) => page.props.direction === "collect")!
-        .props.allPeople.reduce((sum: number, person: any) => sum + person.balance, 0),
-      1500,
+      homePages()[0].props.allPeople.reduce((sum: number, person: any) => sum + person.balance, 0),
+      previousDirection === "collect" ? 1500 : -700,
       "combined search never changes the normal overview totals",
     );
   }
@@ -2438,9 +2456,33 @@ async function main() {
   await flush();
   assert.equal(writes.length, 1, "authorized writable flow still creates");
   assert.deepEqual(routes.at(-1), { pathname: "/person/[id]", params: { id: "created" } });
+
+  // A malformed national number must keep its known native country even if
+  // the form's current default would make those digits usable elsewhere.
+  deviceContacts.push({
+    id: "native-country-short",
+    name: "Short AF",
+    firstName: "Short",
+    lastName: "AF",
+    phone: "1234",
+    countryCode: "AF",
+  } as (typeof deviceContacts)[number]);
+  fixture(addOrFind, "owner");
+  await flush();
+  find("CountryPicker")!.props.onSelect("AC");
+  await flush();
+  const shortNativeRow = nodes(tree).find(
+    (node) => node.type === "Pressable" && text(node).includes("Short AF"),
+  );
+  assert(shortNativeRow);
+  shortNativeRow.props.onPress();
+  await flush();
+  assert.equal(writes[0][2], "1234", "native phone text reaches validation unchanged");
+  assert.equal(writes[0][3], "AF", "a native AF number is not silently reinterpreted as AC");
+  deviceContacts.pop();
   unmount();
   console.log(
-    "PASS: contact action-sheet entry into combined-sheet multi-select, exact selected debt/credit totals and pending shared balances, visible-result select-all, search/group retention and remote pruning, role/account/vault clearing, modal dismissal/Done/cancel, guarded bulk removal and partial-failure retry; two real Home pages with independent retained scroll refs, inactive-page touch/accessibility guards, covered/search/scope/blur/unmount row guards; input-triggered search sheet, sheet-only groups/sort/query with unchanged home rows and totals, combined collect/pay results, remembered-tab/stale-swipe guards, EN/FA and 320px access, zero-tally/phone searches, multi-group/sort composition, scoped live/resume reloads, in-place role downgrades, late-read and unmount guards, no viewer phone-book reads/prompts or writes, stable writable tally refresh and authorized creation",
+    "PASS: contact action-sheet entry into combined-sheet multi-select, exact selected debt/credit totals and pending shared balances, visible-result select-all, search/group retention and remote pruning, role/account/vault clearing, modal dismissal/Done/cancel, guarded bulk removal and partial-failure retry; one mounted Home page with retained per-side offsets and a shared scroll ref, stale-side and active-page touch/accessibility guards, covered/search/scope/blur/unmount row guards; input-triggered search sheet, sheet-only groups/sort/query with unchanged home rows and totals, combined collect/pay results, remembered-tab/stale-swipe guards, EN/FA and 320px access, zero-tally/phone searches, multi-group/sort composition, scoped live/resume reloads, in-place role downgrades, late-read and unmount guards, no viewer phone-book reads/prompts or writes, stable writable tally refresh and authorized creation",
   );
 }
 void main().catch((error) => {

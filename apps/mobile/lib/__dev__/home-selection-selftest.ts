@@ -173,7 +173,7 @@ const pageTransition = compileUI("../use-home-page-transition", {
   "react-native": native,
 });
 const contactQueries = compileUI("../contacts-merge", {
-  "./contacts-sync": { phoneKey: (value: string) => value },
+  "./phone-match": require("../phone-match"),
   "./digits": digits,
   "./search": search,
 });
