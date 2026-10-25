@@ -93,6 +93,7 @@ const tabsDb = compile<typeof import("../tabs/db")>("../tabs/db", (name) => {
   if (name === "../projection") return { applyEventMutex };
   if (name === "../ledger-events") return { emitLedgerApplied() {} };
   if (name === "../money") return require("../money");
+  if (name === "../entry-date") return require("../entry-date");
   if (name === "./events")
     return { emitTabApplied: (event: TabAppliedEvent) => applied.push(event) };
   if (name.startsWith("./")) return require("../tabs/" + name.slice(2));

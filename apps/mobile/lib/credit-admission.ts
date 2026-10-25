@@ -96,8 +96,7 @@ export async function requiresCreditAdmission(
   if (
     event.event_type === "entry_amended" &&
     event.payload.changes.amount_afn === undefined &&
-    event.payload.changes.type === undefined &&
-    event.payload.changes.occurred_at_ms === undefined
+    event.payload.changes.type === undefined
   )
     return false;
   const relationshipId =
@@ -244,8 +243,9 @@ export async function revertRefusedClerkTally(
       ...names.map((name) => previous[name] as string | number | null),
     );
   }
-  const { applyEntryCreated, applyEntryAmended, applyEntryDeleted } =
-    await import("./projection/entries");
+  const { applyEntryCreated, applyEntryAmended, applyEntryDeleted } = await import(
+    "./projection/entries"
+  );
   for (const stored of row.event_type === "entry_created" ? [] : history) {
     const event = {
       ...stored,

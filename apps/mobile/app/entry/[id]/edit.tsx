@@ -1,6 +1,8 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import {
+  BackHandler,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -11,6 +13,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "../../../components/Button";
+import { EntryDateField } from "../../../components/EntryDateField";
 import { ScreenLoading } from "../../../components/ScreenLoading";
 import { ScreenHeader } from "../../../components/SettingsScreen";
 import { useToast } from "../../../components/Toast";
@@ -22,6 +25,7 @@ import { textDir, useIsRTL } from "../../../lib/direction";
 import { EventSigningUnavailableError, RoleGateRejectionError } from "../../../lib/event-log";
 import { fonts, sansLineHeight } from "../../../lib/fonts";
 import { t } from "../../../lib/i18n";
+import { withEntryDay } from "../../../lib/entry-date";
 import { normalizeAmountInput, parseAmountInput } from "../../../lib/money";
 import { getTabLinkForRelationship } from "../../../lib/tabs/db";
 import { radius } from "../../../lib/tokens";
@@ -43,6 +47,10 @@ export default function EditEntryScreen() {
   const [type, setType] = useState<EntryType>("debt");
   const [amount, setAmount] = useState("");
   const [note, setNote] = useState("");
+  const [entryDate, setEntryDate] = useState<number>(Date.now);
+  const [datePickerOpen, setDatePickerOpen] = useState(false);
+  const datePickerRef = useRef(false);
+  const initialFocusTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [busy, setBusy] = useState(false);
   // Inline errors — modal screen, toasts can't render above it (Toast.tsx).
   const [amountError, setAmountError] = useState<string | null>(null);
@@ -81,6 +89,20 @@ export default function EditEntryScreen() {
   // double-tap (setState is async); see entry/new.tsx.
   const savingRef = useRef(false);
 
+  function closeDatePicker() {
+    datePickerRef.current = false;
+    setDatePickerOpen(false);
+  }
+
+  useEffect(() => {
+    if (!datePickerOpen) return;
+    const back = BackHandler.addEventListener("hardwareBackPress", () => {
+      closeDatePicker();
+      return true;
+    });
+    return () => back.remove();
+  }, [datePickerOpen]);
+
   useEffect(() => {
     if (!id) {
       setLoaded(true);
@@ -92,6 +114,7 @@ export default function EditEntryScreen() {
           setType(e.type);
           setAmount(String(e.amount_afn));
           setNote(e.note ?? "");
+          setEntryDate(e.created_at);
           // Read-only probe; a failed lookup leaves the row editable and the
           // data-layer guard still has the last word on save.
           const link = await getTabLinkForRelationship(e.relationship_id).catch(() => null);
@@ -118,8 +141,15 @@ export default function EditEntryScreen() {
   useEffect(() => {
     // No keyboard for a locked row: there is nothing to type into.
     if (!loaded || !found || tabLocked) return;
-    const focusTimer = setTimeout(() => amountRef.current?.focus(), 280);
-    return () => clearTimeout(focusTimer);
+    const focusTimer = setTimeout(() => {
+      initialFocusTimer.current = null;
+      if (!datePickerRef.current) amountRef.current?.focus();
+    }, 280);
+    initialFocusTimer.current = focusTimer;
+    return () => {
+      clearTimeout(focusTimer);
+      initialFocusTimer.current = null;
+    };
   }, [loaded, found, tabLocked]);
 
   async function onSave() {
@@ -133,7 +163,12 @@ export default function EditEntryScreen() {
     setBusy(true);
     setSaveError(null);
     try {
-      await updateEntry(id, parsedAmount, note.trim().slice(0, ENTRY_NOTE_MAX_LENGTH) || null);
+      await updateEntry(
+        id,
+        parsedAmount,
+        note.trim().slice(0, ENTRY_NOTE_MAX_LENGTH) || null,
+        entryDate,
+      );
       toast.push(t("entry.updated"), "success");
       router.back();
     } catch (err) {
@@ -233,6 +268,7 @@ export default function EditEntryScreen() {
               ref={amountRef}
               style={[styles.amountInput, amountError ? styles.inputError : null]}
               value={amount}
+              onFocus={closeDatePicker}
               onChangeText={(raw) => {
                 setAmountError(null);
                 setAmount(normalizeAmountInput(raw));
@@ -262,11 +298,35 @@ export default function EditEntryScreen() {
             ) : null}
           </View>
           <View style={styles.field}>
+            <EntryDateField
+              value={entryDate}
+              expanded={datePickerOpen}
+              disabled={busy || tabLocked}
+              onToggle={() => {
+                if (savingRef.current || tabLocked) return;
+                if (initialFocusTimer.current !== null) {
+                  clearTimeout(initialFocusTimer.current);
+                  initialFocusTimer.current = null;
+                }
+                amountRef.current?.blur();
+                noteRef.current?.blur();
+                Keyboard.dismiss();
+                datePickerRef.current = !datePickerRef.current;
+                setDatePickerOpen(datePickerRef.current);
+              }}
+              onChange={(day) => {
+                if (savingRef.current || tabLocked || !datePickerRef.current) return;
+                setEntryDate((previous) => withEntryDay(previous, day));
+              }}
+            />
+          </View>
+          <View style={styles.field}>
             <Text style={[styles.label, textDir(isRTL)]}>{t("entry.note.label")}</Text>
             <TextInput
               ref={noteRef}
               style={[styles.noteInput, textDir(isRTL)]}
               value={note}
+              onFocus={closeDatePicker}
               onChangeText={setNote}
               placeholder={t("entry.note.placeholder")}
               placeholderTextColor={colors.textMuted}

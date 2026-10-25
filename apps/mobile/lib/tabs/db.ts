@@ -22,6 +22,7 @@
 //     react-native into a Node selftest that loads lib/db.ts.
 
 import { getAccountIdSync, getActiveVaultIdSyncMaybe, getDb } from "../db-tx";
+import { entryRecordedAtSql } from "../entry-date";
 import { fromMinorUnits, toMinorUnits } from "../money";
 import type { Entry, EntryType } from "../types";
 import { directionFor, entryTypeFor, otherRole } from "./direction";
@@ -759,8 +760,9 @@ export async function deleteOptimisticEntry(tabId: string, entryId: string): Pro
 /**
  * The contact's LOCAL rows from before the link, newest first — shown under
  * the collapsed "Before linking" fold and excluded from the balance, whose
- * sum the opening entry already carries (D8). created_at is the business
- * date: while the tab is OPEN no local row can be created (createEntry routes
+ * sum the opening entry already carries (D8). The immutable recording time
+ * determines the cutoff; a later local tally can have an earlier business
+ * date. While the tab is OPEN no local row can be created (createEntry routes
  * to the tab), so on an updated device this is every local row of the shared
  * period; an old-version member device could still author one, and it would
  * be hidden here AND excluded from the balance — the same "all editing
@@ -778,7 +780,7 @@ export async function listPreLinkEntries(link: TabLink): Promise<Entry[]> {
       WHERE e.relationship_id = ?
         AND e.vault_id = ?
         AND e.deleted_at IS NULL
-        AND e.created_at <= ?
+        AND ${entryRecordedAtSql("e")} <= ?
       ORDER BY e.created_at DESC`,
     link.relationship_id,
     link.vault_id,

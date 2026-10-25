@@ -171,6 +171,7 @@ function fixture({
       "react-native-safe-area-context": { SafeAreaView: "SafeAreaView" },
       "../../components/Button": { Button: "Button" },
       "../../components/EntryCalculator": { EntryCalculator: "EntryCalculator" },
+      "../../components/EntryDateField": { EntryDateField: "EntryDateField" },
       "../../components/ScreenLoading": { ScreenLoading: "ScreenLoading" },
       "../../components/SettingsScreen": { ScreenHeader: "ScreenHeader" },
       "../../components/Toast": {
@@ -215,6 +216,8 @@ function fixture({
       "../../lib/event-log": { EventSigningUnavailableError, RoleGateRejectionError },
       "../../lib/fonts": fontEdges[os],
       "../../lib/i18n": { t: (key: string) => key },
+      "../../lib/entry-date": require("../entry-date"),
+      "../../lib/tally-date-filter": require("../tally-date-filter"),
       "../../lib/money": { normalizeAmountInput, parseAmountInput },
       "../../lib/calculator": require("../calculator"),
       "../../lib/calculator-input": require("../calculator-input"),
@@ -461,6 +464,8 @@ function editFixture(os: PlatformOS, rtl: boolean, initialNote: string) {
         useLocalSearchParams: () => ({ id: "entry" }),
       },
       "react-native": {
+        BackHandler: { addEventListener: () => ({ remove: () => {} }) },
+        Keyboard: { dismiss: () => {} },
         KeyboardAvoidingView: "KeyboardAvoidingView",
         Platform: { OS: os },
         ScrollView: "ScrollView",
@@ -471,6 +476,7 @@ function editFixture(os: PlatformOS, rtl: boolean, initialNote: string) {
       },
       "react-native-safe-area-context": { SafeAreaView: "SafeAreaView" },
       "../../../components/Button": { Button: "Button" },
+      "../../../components/EntryDateField": { EntryDateField: "EntryDateField" },
       "../../../components/ScreenLoading": { ScreenLoading: "ScreenLoading" },
       "../../../components/SettingsScreen": { ScreenHeader: "ScreenHeader" },
       "../../../components/Toast": { useToast: () => ({ push: () => {} }) },
@@ -484,6 +490,7 @@ function editFixture(os: PlatformOS, rtl: boolean, initialNote: string) {
           type: "debt",
           amount_afn: 125.5,
           note: initialNote,
+          created_at: new Date(2025, 5, 20, 15, 7, 12, 345).getTime(),
         }),
         updateEntry: async (...args: any[]) => {
           writes.push(args);
@@ -495,6 +502,7 @@ function editFixture(os: PlatformOS, rtl: boolean, initialNote: string) {
       "../../../lib/event-log": { EventSigningUnavailableError, RoleGateRejectionError },
       "../../../lib/fonts": fontEdges[os],
       "../../../lib/i18n": { t: (key: string) => key },
+      "../../../lib/entry-date": require("../entry-date"),
       "../../../lib/money": { normalizeAmountInput, parseAmountInput },
       "../../../lib/tabs/db": { getTabLinkForRelationship: async () => null },
       "../../../lib/tokens": { radius: {} },
@@ -619,6 +627,92 @@ const layoutEvent = (height: number, width = 390) => ({
 const savedNotes: [string, string][] = [];
 async function main() {
   let cases = 0;
+  const dateField = (form: { hooks: ReturnType<typeof uiHooks> }) =>
+    nodes(form.hooks.tree).find((node) => node.type === "EntryDateField")!;
+  for (const os of ["android", "ios"] as const)
+    for (const rtl of [false, true]) {
+      const chosen = new Date(2024, 1, 29).getTime();
+      const f = fixture({ os, rtl });
+      await f.ready();
+      f.openCalculator();
+      dateField(f).props.onToggle();
+      f.render();
+      assert.equal(dateField(f).props.expanded, true);
+      assert.equal(f.calculator()!.props.visible, false, "date selection closes the calculator");
+      f.fireKeyboardTimers();
+      f.render();
+      assert.equal(f.calculator()!.props.visible, false, "autofocus cannot cover the date grid");
+      dateField(f).props.onChange(chosen);
+      dateField(f).props.onToggle();
+      f.render();
+      assert.equal(dateField(f).props.value, chosen);
+      assert.equal(dateField(f).props.expanded, false);
+      await f.button().props.onPress();
+      const savedDate = new Date(f.writes[0][4].occurredAtMs);
+      assert.deepEqual(
+        [savedDate.getFullYear(), savedDate.getMonth(), savedDate.getDate()],
+        [2024, 1, 29],
+        "the selected business day reaches the create API",
+      );
+      f.hooks.unmount();
+      cases++;
+
+      const edit = editFixture(os, rtl, "Original note");
+      await edit.ready();
+      const original = dateField(edit).props.value;
+      assert.equal(original, new Date(2025, 5, 20, 15, 7, 12, 345).getTime());
+      dateField(edit).props.onToggle();
+      edit.render();
+      dateField(edit).props.onChange(chosen);
+      dateField(edit).props.onToggle();
+      edit.render();
+      await edit.button().props.onPress();
+      assert.equal(
+        edit.writes[0][3],
+        new Date(2024, 1, 29, 15, 7, 12, 345).getTime(),
+        "editing a tally changes its day and preserves its clock time",
+      );
+      assert.deepEqual(edit.writes[0].slice(0, 3), ["entry", 125.5, "Original note"]);
+      edit.hooks.unmount();
+      cases++;
+    }
+  {
+    const f = fixture();
+    await f.ready();
+    dateField(f).props.onToggle();
+    f.render();
+    const stalePicker = dateField(f);
+    f.blur();
+    stalePicker.props.onChange(new Date(2020, 0, 1).getTime());
+    f.refocus();
+    await f.flush();
+    assert.equal(dateField(f).props.expanded, false);
+    await f.button().props.onPress();
+    assert.equal(
+      f.writes[0][4].occurredAtMs,
+      undefined,
+      "expired picker cannot change a tally date",
+    );
+    f.hooks.unmount();
+    cases++;
+  }
+  {
+    const f = fixture();
+    await f.ready();
+    dateField(f).props.onToggle();
+    f.render();
+    assert.equal(f.hardwareBack(), true);
+    f.render();
+    assert.equal(dateField(f).props.expanded, false, "Android back closes the calendar first");
+    await f.button().props.onPress();
+    assert.equal(
+      f.writes[0][4].occurredAtMs,
+      undefined,
+      "unchanged date retains save-time default",
+    );
+    f.hooks.unmount();
+    cases++;
+  }
   for (const rtl of [false, true]) {
     const f = fixture({ os: "ios", rtl, width: 440, height: 956 });
     await f.ready();

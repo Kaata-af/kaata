@@ -84,6 +84,8 @@
         "disputed_reason": null,
         "settled_at": null,
         "current_event_id": "22222222-2222-4222-8222-222222222222",
+        "recorded_at_ms": 1700000000500,
+        "occurred_at_hlc": {"pms":1700000000500,"l":0,"did":"device-a"},
         "is_deleted": false,
         "is_settled": false
       }

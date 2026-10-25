@@ -2683,6 +2683,41 @@ async function main(): Promise<void> {
     assert.equal((await db.getPerson(CONTACT))?.balance, 70);
   });
 
+  await test("private tally dates create/edit without changing shared-link ownership or balances", async () => {
+    await tabsDb.upsertTabLink(link());
+    await tabsDb.markTabClosedLocally(TAB, 9_000);
+    const result = await db.createEntryDetailed(CONTACT, "debt", 45, "dated", {
+      occurredAtMs: 1_000,
+    });
+    let entry = await db.getEntry(result.entry_id);
+    assert.equal(entry?.created_at, 1_000);
+    assert.equal(
+      (await db.getPerson(CONTACT))?.balance,
+      45,
+      "a new private tally predating the shared opening still counts",
+    );
+    assert.ok((await db.listEntries(CONTACT)).some((e) => e.id === result.entry_id));
+    assert.equal((await tabsDb.listPreLinkEntries(storedLink())).length, 0);
+    assert.ok((await db.listEntriesForExport(VAULT)).some((e) => e.id === result.entry_id));
+    const created = fixture
+      .prepare("SELECT * FROM event_log WHERE target_id=? AND event_type='entry_created'")
+      .get(result.entry_id) as any;
+    assert.equal(JSON.parse(created.payload_json).occurred_at_ms, 1_000);
+    assert.ok(created.hlc_physical_ms > 9_000, "business date never backdates the causal clock");
+    await db.updateEntry(result.entry_id, 46, "fixed date", 2_000);
+    entry = await db.getEntry(result.entry_id);
+    assert.equal(entry?.created_at, 2_000);
+    assert.equal((await db.getPerson(CONTACT))?.balance, 46);
+    assert.equal((await tabsDb.listPreLinkEntries(storedLink())).length, 0);
+    const countBefore = count("event_log");
+    await db.updateEntry(result.entry_id, 46, "fixed date", 2_000);
+    assert.equal(count("event_log"), countBefore, "unchanged date saves do not append events");
+    await assert.rejects(db.updateEntry(result.entry_id, 46, null, NaN), /Invalid entry date/);
+    await assert.rejects(db.createEntry(CONTACT, "debt", 1, null, Infinity), /Invalid entry date/);
+    await db.softDeleteEntry(result.entry_id);
+    assert.equal((await db.getPerson(CONTACT))?.balance, 0);
+  });
+
   await test("re-link: only the LATEST tab counts, and the journal agrees with the balance", async () => {
     // A contact can hold several tabs over time — idx_tab_links_open_rel only
     // forbids two OPEN ones, and the person screen re-offers linking once a

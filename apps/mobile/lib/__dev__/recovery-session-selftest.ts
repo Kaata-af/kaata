@@ -128,6 +128,7 @@ function fixture() {
     "./db-tx": dbTx,
     "./hlc": { compareHLC: () => 0, deserializeHLC: JSON.parse, serializeHLC: JSON.stringify },
     "./projection/field-hlc": { serializeFieldHLCs: JSON.stringify },
+    "./entry-date": require("../entry-date"),
     "./customer-group-restore": {
       seedSnapshotCustomerGroups: async () => write("groups"),
       restoredRelationshipFieldHLCs: () => "{}",

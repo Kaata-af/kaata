@@ -21,7 +21,15 @@ import type {
   EntrySettledEvent,
 } from "../events";
 import { MissingPrereqError } from "./errors";
-import { compareFieldHLC, parseFieldHLCs, serializeFieldHLCs, type FieldHLCMap } from "./field-hlc";
+import { isValidEntryDate } from "../entry-date";
+import { compareHLC } from "../hlc";
+import {
+  compareFieldHLC,
+  parseFieldHLCs,
+  readFieldHLC,
+  serializeFieldHLCs,
+  type FieldHLCMap,
+} from "./field-hlc";
 
 export async function applyEntryCreated(tx: SQLiteTx, event: EntryCreatedEvent): Promise<void> {
   // INSERT OR REPLACE so a projection rebuild (replayTest, future cross-device
@@ -32,6 +40,9 @@ export async function applyEntryCreated(tx: SQLiteTx, event: EntryCreatedEvent):
   // Phase 4: seed field_hlcs with the create event's HLC for every mutable
   // field. Subsequent amends compare against these floors via compareFieldHLC.
   const p = event.payload;
+  if (!isValidEntryDate(p.occurred_at_ms)) throw new Error("Invalid entry date");
+  if (p.recorded_at_ms != null && !isValidEntryDate(p.recorded_at_ms))
+    throw new Error("Invalid entry recording date");
   if (event.vault_id == null) {
     throw new Error(`entry_created event ${event.event_id} missing envelope vault_id`);
   }
@@ -41,6 +52,9 @@ export async function applyEntryCreated(tx: SQLiteTx, event: EntryCreatedEvent):
     note: event.hlc,
     type: event.hlc,
     occurred_at_ms: event.hlc,
+    // Shared-link cutoffs use wall time, while field winners use causal HLC.
+    // A received clock can advance HLC beyond the instant a tally was saved.
+    recorded_at_ms: { pms: p.recorded_at_ms ?? p.occurred_at_ms, l: 0, did: "" },
   };
 
   await tx.runAsync(
@@ -58,7 +72,7 @@ export async function applyEntryCreated(tx: SQLiteTx, event: EntryCreatedEvent):
     p.amount_afn,
     p.note,
     p.occurred_at_ms,
-    p.occurred_at_ms,
+    event.hlc.pms,
     // author_user_id_local_only is device-local and NEVER crosses the wire —
     // ingest forces it to "" for any replicated event. proposed_by_user_id has
     // a REFERENCES users(id) FK with PRAGMA foreign_keys=ON, and "" is non-null
@@ -82,8 +96,13 @@ export async function applyEntryCreated(tx: SQLiteTx, event: EntryCreatedEvent):
 export async function applyEntryAmended(tx: SQLiteTx, event: EntryAmendedEvent): Promise<void> {
   // Phase 4 per-field LWW. Snapshot current field_hlcs, decide per-field
   // whether to apply, write back the merged map.
-  const row = await tx.getFirstAsync<{ field_hlcs: string | null; is_deleted: number }>(
-    `SELECT field_hlcs, is_deleted FROM entries WHERE id = ?`,
+  const row = await tx.getFirstAsync<{
+    field_hlcs: string | null;
+    is_deleted: number;
+    created_at: number;
+    updated_at: number;
+  }>(
+    `SELECT field_hlcs, is_deleted, created_at, updated_at FROM entries WHERE id = ?`,
     event.target_id,
   );
   if (row == null) {
@@ -119,6 +138,8 @@ export async function applyEntryAmended(tx: SQLiteTx, event: EntryAmendedEvent):
   const sets: string[] = [];
   const args: Array<string | number | null> = [];
   const c = event.payload.changes;
+  if (c.occurred_at_ms != null && !isValidEntryDate(c.occurred_at_ms))
+    throw new Error("Invalid entry date");
   let anyFieldApplied = false;
 
   // M33: reject null (not just undefined) for the NOT NULL columns amount_afn
@@ -150,10 +171,13 @@ export async function applyEntryAmended(tx: SQLiteTx, event: EntryAmendedEvent):
       anyFieldApplied = true;
     }
   }
-  // occurred_at_ms is not projected onto a column in Phase 1 — created_at is
-  // the proxy. We still tick its field HLC here for future-proofing.
-  if ("occurred_at_ms" in c && c.occurred_at_ms !== undefined) {
+  // created_at is the legacy business-date column. Preserve the immutable
+  // authoring time before changing it, including rows from older app versions.
+  if ("occurred_at_ms" in c && c.occurred_at_ms != null) {
     if (compareFieldHLC(current, "occurred_at_ms", event.hlc) === "apply") {
+      sets.push("created_at = ?");
+      args.push(c.occurred_at_ms);
+      next["recorded_at_ms"] ??= { pms: row.created_at, l: 0, did: "" };
       next["occurred_at_ms"] = event.hlc;
       anyFieldApplied = true;
     }
@@ -165,10 +189,17 @@ export async function applyEntryAmended(tx: SQLiteTx, event: EntryAmendedEvent):
   // reflects the last WINNING event, not the last SEEN event.
   if (!anyFieldApplied) return;
 
-  sets.push("updated_at = ?");
-  args.push(event.hlc.pms);
-  sets.push("current_event_id = ?");
-  args.push(event.event_id);
+  // An older edit can still win an independent register. Keep the row's
+  // latest-writing event when its newer note/amount arrived before this date.
+  const latestWrite = ["amount_afn", "note", "type", "occurred_at_ms"].every(
+    (field) => compareHLC(event.hlc, readFieldHLC(current, field)) >= 0,
+  );
+  if (latestWrite && event.hlc.pms >= row.updated_at) {
+    sets.push("updated_at = ?");
+    args.push(event.hlc.pms);
+    sets.push("current_event_id = ?");
+    args.push(event.event_id);
+  }
   sets.push("field_hlcs = ?");
   args.push(serializeFieldHLCs(next));
 

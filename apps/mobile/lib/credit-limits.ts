@@ -23,6 +23,7 @@ import { getBackendUrl } from "./api";
 import { readVaultRole } from "./use-vault-role";
 import { fromMinorUnits, toMinorUnits } from "./money";
 import { signedEntryMinorSumSql } from "./money-sql";
+import { entryRecordedAtSql } from "./entry-date";
 import { emitCreditPoliciesChanged } from "./credit-policy-events";
 import { Mutex } from "./util/mutex";
 import { resolveAccountIdCandidates } from "./effective-account";
@@ -120,7 +121,7 @@ export async function creditBalanceInTx(
   if (!historyReady(links)) throw new Error("shared_history_refresh_required");
   const link = links[0];
   const local = await tx.getFirstAsync<{ balance: number }>(
-    `SELECT ${signedEntryMinorSumSql("e", "e.disputed_at IS NULL AND (? IS NULL OR e.created_at > ?)")} AS balance FROM entries e WHERE e.vault_id=? AND e.relationship_id=?`,
+    `SELECT ${signedEntryMinorSumSql("e", `e.disputed_at IS NULL AND (? IS NULL OR ${entryRecordedAtSql("e")} > ?)`)} AS balance FROM entries e WHERE e.vault_id=? AND e.relationship_id=?`,
     link?.linked_at ?? null,
     link?.linked_at ?? null,
     link?.linked_at ?? null,

@@ -57,6 +57,8 @@ export function formatRelative(
   now: number = Date.now(),
   options: { alwaysRelative?: boolean } = {},
 ): string {
+  // A user-selected future business day is a date, not a just-recorded tally.
+  if (ms > now) return formatDate(ms);
   const diff = Math.max(0, now - ms);
   const minutes = Math.floor(diff / 60_000);
   if (minutes < 1) return t("format.justNow");

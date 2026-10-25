@@ -39,6 +39,7 @@ import {
 } from "../db";
 import { getAccountIdSync, getActiveVaultIdSyncMaybe, getDb, setActiveVaultId } from "../db-tx";
 import { RoleGateRejectionError } from "../event-log";
+import { isValidEntryDate } from "../entry-date";
 import { parseAmountInput, toMinorUnits } from "../money";
 import { pushEvents } from "../sync/push";
 import { ENTRY_NOTE_MAX_LENGTH, type EntryType } from "../types";
@@ -767,7 +768,11 @@ export async function addTabEntry(
   type: EntryType,
   amount: number,
   note: string | null,
-  expected?: { session: import("../auth").SessionSnapshot; vaultId: string },
+  expected?: {
+    session: import("../auth").SessionSnapshot;
+    vaultId: string;
+    occurredAtMs?: number;
+  },
 ): Promise<{ entryId: string; duplicateHint: DuplicateHint | null; pendingAdmission?: boolean }> {
   const link = await getTabLinkForPerson(personId);
   if (!link) throw new TabInputError("not_linked");
@@ -781,7 +786,9 @@ export async function addTabEntry(
   const admission = await needsSharedCreditAdmission(link);
   const cleanNote = note?.trim().slice(0, ENTRY_NOTE_MAX_LENGTH) || null;
   const id = Crypto.randomUUID();
-  const occurredAt = Date.now();
+  const recordedAt = Date.now();
+  const occurredAt = expected?.occurredAtMs ?? recordedAt;
+  if (!isValidEntryDate(occurredAt)) throw new TabInputError("occurred_at_invalid");
 
   await applyForCurrentSession(session, async () => {
     if (getActiveVaultIdSyncMaybe() !== link.vault_id) throw new TabAuthUnavailableError();
@@ -798,7 +805,9 @@ export async function addTabEntry(
           note: cleanNote,
           occurred_at_ms: occurredAt,
         }),
-        created_at: occurredAt,
+        // Queue ordering and recorded-at evidence describe this save, even
+        // when the transfer happened on an earlier day.
+        created_at: recordedAt,
         attempts: 0,
         next_at: null,
         last_error: null,

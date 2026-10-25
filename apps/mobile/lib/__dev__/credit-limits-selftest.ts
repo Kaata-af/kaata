@@ -119,6 +119,8 @@ const fieldHLCs = compile<typeof import("../projection/field-hlc")>(
 const entryAppliers = compile<typeof import("../projection/entries")>(
   "../projection/entries",
   (name) => {
+    if (name === "../entry-date") return require("../entry-date");
+    if (name === "../hlc") return require("../hlc");
     if (name === "./field-hlc") return fieldHLCs;
     if (name === "./errors") return require("../projection/errors");
     throw Error(`unexpected entry applier import ${name}`);
@@ -167,6 +169,7 @@ const credit = compile<typeof import("../credit-limits")>("../credit-limits", (n
   if (name === "./effective-account") return { resolveAccountIdCandidates: async () => identities };
   if (name === "./money") return { toMinorUnits };
   if (name === "./money-sql") return { signedEntryMinorSumSql };
+  if (name === "./entry-date") return require("../entry-date");
   if (name === "./tabs/history") return require("../tabs/history");
   if (name === "./credit-policy-events")
     return {
@@ -201,6 +204,7 @@ const tabs = compile<typeof import("../tabs/db")>("../tabs/db", (name) => {
     };
   if (name === "./events") return { emitTabApplied: () => {} };
   if (name === "../money") return require("../money");
+  if (name === "../entry-date") return require("../entry-date");
   if (name === "./direction") return require("../tabs/direction");
   if (name === "./history") return require("../tabs/history");
   if (name === "./errors") return require("../tabs/errors");
@@ -500,6 +504,15 @@ async function editorLimitsAndRecovery() {
     await requiresCreditAdmission(db, noteEdit, "editor"),
     false,
     "note-only edits stay offline",
+  );
+  assert.equal(
+    await requiresCreditAdmission(
+      db,
+      amend("editor-date-only", base, { occurred_at_ms: 50 }, 212),
+      "editor",
+    ),
+    false,
+    "date-only edits stay offline because they do not move the recorded exposure boundary",
   );
   await store(moneyEdit, false);
   await deferCreditAdmission(db, moneyEdit);

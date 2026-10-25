@@ -32,6 +32,7 @@ import {
 import type { LedgerEvent } from "./events";
 import { compareHLC, deserializeHLC, serializeHLC, type HLC } from "./hlc";
 import { serializeFieldHLCs, type FieldHLCMap } from "./projection/field-hlc";
+import { restoredEntryDateHLCs } from "./entry-date";
 import {
   seedSnapshotCustomerGroups,
   restoredRelationshipFieldHLCs,
@@ -156,6 +157,8 @@ export type SnapshotEntry = {
   amount_afn: number;
   note: string | null;
   created_at: number;
+  recorded_at_ms?: number;
+  occurred_at_hlc?: HLC;
   updated_at: number;
   deleted_at: number | null;
   proposed_by_user_id: string | null;
@@ -526,7 +529,10 @@ export async function restoreFromSnapshot(
           e.disputed_at,
           e.disputed_reason,
           e.settled_at,
-          floorFieldHLCs(["amount_afn", "note", "type", "occurred_at_ms"], e.updated_at),
+          restoredEntryDateHLCs(
+            floorFieldHLCs(["amount_afn", "note", "type", "occurred_at_ms"], e.updated_at),
+            e,
+          ),
         );
       }
     } // end else — snapshot projection seed (fresh recovery only; see B9 guard)

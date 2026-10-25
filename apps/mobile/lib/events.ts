@@ -70,6 +70,9 @@ export type EntryCreatedEvent = EventEnvelope & {
     amount_afn: number; // Major units, up to two decimals; never rescale old events.
     note: string | null;
     occurred_at_ms: number;
+    // Immutable wall time of the save. Separate from the editable business
+    // date and from HLC physical time, which can advance after peer sync.
+    recorded_at_ms?: number;
     // Optional backfill flags carried by migration 006 so that replaying the
     // event log on a fresh device rebuilds the legacy timestamp columns
     // (accepted_at / disputed_at / settled_at). Applier projects them only

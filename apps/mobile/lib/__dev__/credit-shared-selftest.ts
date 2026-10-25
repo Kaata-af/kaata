@@ -21,6 +21,7 @@ let role: VaultRole = "editor";
 let online = false;
 let verdict: "offline" | "accept" | "refuse" = "offline";
 let synced = 0;
+let sentOps: TabOutboxRow[] = [];
 const session = { jwt: "fixture-jwt", accountId: ACCOUNT };
 const applyEventMutex = new Mutex();
 const db = {
@@ -59,6 +60,7 @@ const tabsDb = compile<typeof import("../tabs/db")>("../tabs/db", (name) => {
   if (name === "../projection") return { applyEventMutex };
   if (name === "../ledger-events") return { emitLedgerApplied: () => {} };
   if (name === "../money") return require("../money");
+  if (name === "../entry-date") return require("../entry-date");
   if (name.startsWith("./")) return require("../tabs/" + name.slice(2));
   throw new Error(`Unexpected shared-db dependency ${name}`);
 });
@@ -67,6 +69,7 @@ async function flush(): Promise<void> {
   synced++;
   if (verdict === "offline") return;
   for (const op of await tabsDb.listDueTabOps(TAB)) {
+    sentOps.push(op);
     if (verdict === "refuse") {
       await tabsDb.rejectTabOp(op, "credit_limit_exceeded");
       continue;
@@ -103,6 +106,7 @@ const flows = compile<typeof import("../tabs/link")>("../tabs/link", (name) => {
   if (name === "../credit-admission") return require("../credit-admission");
   if (name === "../money") return require("../money");
   if (name === "../types") return require("../types");
+  if (name === "../entry-date") return require("../entry-date");
   if (name === "../vault-roles") return require("../vault-roles");
   if (
     name === "../currency" ||
@@ -188,6 +192,7 @@ function reset(): void {
   online = false;
   verdict = "offline";
   synced = 0;
+  sentOps = [];
 }
 
 function policy(mode: "warn" | "clerk_block", restrictEditors: boolean): void {
@@ -234,6 +239,78 @@ function pending(error: unknown): boolean {
 }
 
 async function main(): Promise<void> {
+  // A chosen transfer date survives both immediate flush and durable offline
+  // retry. Queue/authoring time stays current, so backdating cannot reorder
+  // outbox work or make the optimistic tally look recorded in the past.
+  for (const connected of [false, true]) {
+    reset();
+    online = connected;
+    verdict = connected ? "accept" : "offline";
+    const occurredAtMs = new Date(2024, 1, 29, 13, 25, 40, 123).getTime();
+    const before = Date.now();
+    const result = await flows.addTabEntry(PERSON, "payment", 12.34, "Earlier transfer", {
+      session: session as import("../auth").SessionSnapshot,
+      vaultId: VAULT,
+      occurredAtMs,
+    });
+    const after = Date.now();
+    const row = fixture
+      .prepare("SELECT occurred_at,created_at FROM tab_entries WHERE id=?")
+      .get(result.entryId) as { occurred_at: number; created_at: number };
+    assert.equal(row.occurred_at, occurredAtMs, "optimistic row shows the chosen transfer date");
+    assert.ok(row.created_at >= before && row.created_at <= after, "recorded-at stays current");
+    if (!connected) {
+      const queued = fixture.prepare("SELECT * FROM tab_outbox").get() as TabOutboxRow;
+      assert.equal(
+        JSON.parse(queued.payload).occurred_at_ms,
+        occurredAtMs,
+        "offline date is durable",
+      );
+      assert.ok(queued.created_at >= before && queued.created_at <= after, "queue uses save time");
+      verdict = "accept";
+      await flush();
+    }
+    assert.equal(count("tab_outbox"), 0, "acknowledgment completes the date-bearing operation");
+    assert.equal(sentOps.length, 1, "one transfer is sent");
+    assert.equal(
+      JSON.parse(sentOps[0].payload).occurred_at_ms,
+      occurredAtMs,
+      "wire date survives flush",
+    );
+    assert.ok(sentOps[0].created_at >= before && sentOps[0].created_at <= after);
+  }
+
+  reset();
+  policy("clerk_block", true);
+  const deferredDate = new Date(2023, 5, 7, 9, 30).getTime();
+  const deferred = await flows.addTabEntry(PERSON, "debt", 20, null, {
+    session: session as import("../auth").SessionSnapshot,
+    vaultId: VAULT,
+    occurredAtMs: deferredDate,
+  });
+  assert.equal(deferred.pendingAdmission, true);
+  assert.equal(count("tab_entries"), 0, "a chosen date does not bypass admission");
+  const intent = fixture.prepare("SELECT * FROM tab_outbox").get() as TabOutboxRow;
+  assert.equal(
+    JSON.parse(intent.payload).occurred_at_ms,
+    deferredDate,
+    "waiting date remains durable",
+  );
+
+  reset();
+  for (const occurredAtMs of [NaN, Infinity, 0, -1, 1.5, 8_640_000_000_000_001]) {
+    await assert.rejects(
+      flows.addTabEntry(PERSON, "debt", 20, null, {
+        session: session as import("../auth").SessionSnapshot,
+        vaultId: VAULT,
+        occurredAtMs,
+      }),
+      (error: unknown) =>
+        error instanceof Error && "code" in error && error.code === "occurred_at_invalid",
+    );
+  }
+  assert.equal(count("tab_outbox"), 0, "invalid dates never enter the queue");
+
   for (const scenario of [
     { label: "unlimited clerk", role: "clerk", defer: false },
     { label: "unlimited editor", role: "editor", defer: false },

@@ -125,6 +125,7 @@ export type TabInputErrorCode =
   | "reason_required"
   | "reason_too_long"
   | "amount_invalid"
+  | "occurred_at_invalid"
   | "not_linked"
   | "no_active_vault"
   | "no_relationship"

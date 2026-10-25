@@ -56,6 +56,7 @@ import type { EntryType } from "./types";
 import { parseAmountInput } from "./money";
 import { signedEntryMinorSumSql } from "./money-sql";
 import { TabLinkedEntryError } from "./tabs/errors";
+import { isValidEntryDate } from "./entry-date";
 
 // Re-exported so existing callers that do `import { applyEvent,
 // _dispatchProjectionApplier } from "./event-log"` keep compiling. New code
@@ -159,7 +160,9 @@ export async function appendEntryCreated(args: {
   }
   const entryId = Crypto.randomUUID();
   const eventId = Crypto.randomUUID();
-  const occurredAtMs = args.occurredAtMs ?? Date.now();
+  const recordedAtMs = Date.now();
+  const occurredAtMs = args.occurredAtMs ?? recordedAtMs;
+  if (!isValidEntryDate(occurredAtMs)) throw new Error("Invalid entry date");
   const installId = getInstallIdSync();
   const authorUserId = requireLocalSelfUserId();
   // After migration 007 every entry belongs to a vault; the active vault is
@@ -193,6 +196,7 @@ export async function appendEntryCreated(args: {
       amount_afn: args.amountAfn,
       note: args.note,
       occurred_at_ms: occurredAtMs,
+      recorded_at_ms: recordedAtMs,
     },
   };
 
@@ -322,6 +326,8 @@ export async function appendEntryAmended(args: {
     occurred_at_ms: number;
   }>;
 }): Promise<{ event_id: string; pending_admission?: boolean } | null> {
+  if (args.changes.occurred_at_ms !== undefined && !isValidEntryDate(args.changes.occurred_at_ms))
+    throw new Error("Invalid entry date");
   if (
     args.changes.amount_afn !== undefined &&
     (typeof args.changes.amount_afn !== "number" ||

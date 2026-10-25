@@ -67,7 +67,11 @@ func creditBalanceWithProjection(ctx context.Context, tx pgx.Tx, vaultID, relati
 		}
 	}
 	for _, e := range p.Entries {
-		if e.RelationshipID != relationshipID || e.IsDeleted || e.DeletedAt != nil || e.DisputedAt != nil || (boundary != nil && e.CreatedAt <= *boundary) {
+		recordedAt := e.RecordedAtMS
+		if recordedAt == 0 {
+			recordedAt = e.CreatedAt // Older serialized projections predate custom dates.
+		}
+		if e.RelationshipID != relationshipID || e.IsDeleted || e.DeletedAt != nil || e.DisputedAt != nil || (boundary != nil && recordedAt <= *boundary) {
 			continue
 		}
 		n, err := credit.Minor(e.AmountAFN.String())

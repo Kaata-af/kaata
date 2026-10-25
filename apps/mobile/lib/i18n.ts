@@ -671,6 +671,7 @@ const en = {
   // Entry
   "entry.amount.label": "Amount (AFN)",
   "entry.note.label": "Note",
+  "entry.date.label": "Date",
   "entry.note.placeholder": "Flour and tea",
   "entry.save": "Save",
   "entry.saveChanges": "Save changes",
@@ -2775,6 +2776,7 @@ const fa: Partial<Record<Key, string>> = {
   // Entry
   "entry.amount.label": "مقدار (AFN)",
   "entry.note.label": "یادداشت",
+  "entry.date.label": "تاریخ",
   "entry.note.placeholder": "آرد و چای",
   "entry.save": "ذخیره",
   "entry.saveChanges": "ذخیره تغییرات",
@@ -4782,6 +4784,7 @@ const ps: Record<Key, string> = {
   "calculator.helper": "دلته محاسبه وکړئ، بیا مبلغ په خپله راکړه ورکړه کې وکاروئ.",
   "entry.amount.label": "مبلغ (AFN)",
   "entry.note.label": "یادښت",
+  "entry.date.label": "نېټه",
   "entry.note.placeholder": "اوړه او چای",
   "entry.save": "خوندي کړئ",
   "entry.saveChanges": "بدلونونه خوندي کړئ",

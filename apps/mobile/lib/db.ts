@@ -49,6 +49,7 @@ import { KAATA_UUID_NAMESPACE, uuidv5 } from "./uuid-v5";
 import { serializeHLC } from "./hlc";
 import { groupIdsFromPayload, storedGroupIds } from "./group-memberships";
 import { signedEntryMinorSumSql } from "./money-sql";
+import { entryRecordedAtSql, isValidEntryDate } from "./entry-date";
 import {
   getLatestTabLinkForPerson,
   getTabLink,
@@ -4329,7 +4330,7 @@ const TAB_PERSON_COLUMNS = `
 const PERSON_BALANCE_SQL = `
             CASE WHEN tl.tab_id IS NOT NULL THEN
               (${effectiveConfirmedBalanceSql()})
-              + ${signedEntryMinorSumSql("e", "e.created_at > tl.linked_at")}
+              + ${signedEntryMinorSumSql("e", `${entryRecordedAtSql("e")} > tl.linked_at`)}
             ELSE (${signedEntryMinorSumSql("e")}) END / 100.0 AS balance`;
 
 /**
@@ -4420,19 +4421,19 @@ async function selectAllPeopleRaw(
             ${PERSON_BALANCE_SQL},
             COALESCE(st.debt_count, 0)
               + SUM(CASE WHEN e.deleted_at IS NULL AND e.type = 'debt'
-                          AND (tl.tab_id IS NULL OR e.created_at > tl.linked_at)
+                          AND (tl.tab_id IS NULL OR ${entryRecordedAtSql("e")} > tl.linked_at)
                          THEN 1 ELSE 0 END) AS selection_debt_count,
             COALESCE(st.credit_count, 0)
               + SUM(CASE WHEN e.deleted_at IS NULL AND e.type = 'payment'
-                          AND (tl.tab_id IS NULL OR e.created_at > tl.linked_at)
+                          AND (tl.tab_id IS NULL OR ${entryRecordedAtSql("e")} > tl.linked_at)
                          THEN 1 ELSE 0 END) AS selection_credit_count,
             COALESCE(st.debt_minor, 0)
               + SUM(CASE WHEN e.deleted_at IS NULL AND e.type = 'debt'
-                          AND (tl.tab_id IS NULL OR e.created_at > tl.linked_at)
+                          AND (tl.tab_id IS NULL OR ${entryRecordedAtSql("e")} > tl.linked_at)
                          THEN CAST(ROUND(e.amount_afn * 100) AS INTEGER) ELSE 0 END) AS selection_debt_minor,
             COALESCE(st.credit_minor, 0)
               + SUM(CASE WHEN e.deleted_at IS NULL AND e.type = 'payment'
-                          AND (tl.tab_id IS NULL OR e.created_at > tl.linked_at)
+                          AND (tl.tab_id IS NULL OR ${entryRecordedAtSql("e")} > tl.linked_at)
                          THEN CAST(ROUND(e.amount_afn * 100) AS INTEGER) ELSE 0 END) AS selection_credit_minor,
             MAX(CASE WHEN e.deleted_at IS NULL THEN e.created_at END) AS last_entry_at,
             -- Type of the most-recent non-deleted entry. Only meaningful for a
@@ -4455,7 +4456,7 @@ async function selectAllPeopleRaw(
             CASE
               WHEN tl.tab_id IS NOT NULL
                AND ((${effectiveConfirmedBalanceSql()})
-                    + ${signedEntryMinorSumSql("e", "e.created_at > tl.linked_at")}) = 0
+                    + ${signedEntryMinorSumSql("e", `${entryRecordedAtSql("e")} > tl.linked_at`)}) = 0
                AND EXISTS (SELECT 1 FROM tab_settlements s WHERE s.tab_id = tl.tab_id
                     AND s.through_seq >= COALESCE((SELECT MAX(te.seq) FROM tab_entries te WHERE te.tab_id = tl.tab_id), 0))
                AND NOT EXISTS (SELECT 1 FROM tab_entries te WHERE te.tab_id = tl.tab_id
@@ -4463,7 +4464,7 @@ async function selectAllPeopleRaw(
                          OR (te.kind <> 'void' AND te.voided_by_entry_id IS NULL AND te.status = 'pending')))
                AND NOT EXISTS (SELECT 1 FROM tab_outbox o WHERE o.tab_id = tl.tab_id)
                AND NOT EXISTS (SELECT 1 FROM entries le WHERE le.relationship_id = r.id
-                    AND le.vault_id = r.vault_id AND le.deleted_at IS NULL AND le.created_at > tl.linked_at)
+                    AND le.vault_id = r.vault_id AND le.deleted_at IS NULL AND ${entryRecordedAtSql("le")} > tl.linked_at)
               THEN 1
               WHEN tl.tab_id IS NULL
                AND ${signedEntryMinorSumSql("e")} = 0
@@ -4841,7 +4842,7 @@ export async function listEntries(personId: string): Promise<Entry[]> {
          WHERE e.relationship_id = ?
            AND e.vault_id        = ?
            AND e.deleted_at IS NULL
-           AND e.created_at > ?`,
+           AND ${entryRecordedAtSql("e")} > ?`,
         link.relationship_id,
         vaultId,
         link.linked_at,
@@ -4975,7 +4976,7 @@ export async function listEntriesForExport(vaultId: string): Promise<ExportEntry
        AND r.vault_id   = ?
        AND r.archived_at IS NULL
        AND e.deleted_at IS NULL
-       AND (tl.tab_id IS NULL OR e.created_at > tl.linked_at)
+       AND (tl.tab_id IS NULL OR ${entryRecordedAtSql("e")} > tl.linked_at)
      UNION ALL
      SELECT te.id          AS id,
             CASE WHEN te.direction = CASE WHEN tl.role = 'a' THEN 'a_to_b' ELSE 'b_to_a' END
@@ -5079,8 +5080,9 @@ export async function createEntry(
   type: EntryType,
   amountAfn: number,
   note: string | null,
+  occurredAtMs?: number,
 ): Promise<string> {
-  return (await createEntryDetailed(personId, type, amountAfn, note)).entry_id;
+  return (await createEntryDetailed(personId, type, amountAfn, note, { occurredAtMs })).entry_id;
 }
 
 /**
@@ -5098,13 +5100,19 @@ export async function createEntryDetailed(
   type: EntryType,
   amountAfn: number,
   note: string | null,
-  expected?: { session: import("./auth").SessionSnapshot; vaultId: string },
+  expected?: {
+    session?: import("./auth").SessionSnapshot;
+    vaultId?: string;
+    occurredAtMs?: number;
+  },
 ): Promise<{
   entry_id: string;
   duplicate_hint: DuplicateHint | null;
   admission_status?: "pending" | "refused";
   credit_warning?: boolean;
 }> {
+  if (expected?.occurredAtMs !== undefined && !isValidEntryDate(expected.occurredAtMs))
+    throw new Error("Invalid entry date");
   const { captureCurrentSession, applyForUnchangedLocalSession, SessionChangedError } =
     await import("./auth");
   const session = expected?.session ?? (await captureCurrentSession());
@@ -5114,7 +5122,11 @@ export async function createEntryDetailed(
   const link = await getTabLinkForPerson(personId);
   if (link) {
     const { addTabEntry } = await import("./tabs/link");
-    const r = await addTabEntry(personId, type, amountAfn, note, { session, vaultId });
+    const r = await addTabEntry(personId, type, amountAfn, note, {
+      session,
+      vaultId,
+      occurredAtMs: expected?.occurredAtMs,
+    });
     await bumpUsageCounter("entries_created");
     return {
       entry_id: r.entryId,
@@ -5133,6 +5145,7 @@ export async function createEntryDetailed(
       type,
       amountAfn,
       note,
+      occurredAtMs: expected?.occurredAtMs,
     });
   });
   await bumpUsageCounter("entries_created");
@@ -5193,7 +5206,8 @@ async function assertNotInSettledChapter(
 // posture as assertNotInSettledChapter, and like it local-only: remote
 // events keep their own semantics.
 //
-// The pre-link cut is `created_at <= linked_at`, NOT "the link is open":
+// The pre-link cut uses immutable authoring time, rather than the editable
+// business date or whether the link is open:
 // those rows stay frozen out of the balance after the tab closes (they are
 // still inside the opening entry), so they must stay uneditable too — while
 // a tally written AFTER the tab closed is an ordinary local row again and
@@ -5204,7 +5218,7 @@ async function assertNotTabLinked(db: SQLite.SQLiteDatabase, entryId: string): P
      UNION ALL
      SELECT 1 AS one FROM entries e
        INNER JOIN tab_links tl ON tl.relationship_id = e.relationship_id
-      WHERE e.id = ? AND e.created_at <= tl.linked_at
+      WHERE e.id = ? AND ${entryRecordedAtSql("e")} <= tl.linked_at
      LIMIT 1`,
     entryId,
     entryId,
@@ -5216,7 +5230,10 @@ export async function updateEntry(
   id: string,
   amountAfn: number,
   note: string | null,
+  occurredAtMs?: number,
 ): Promise<void> {
+  if (occurredAtMs !== undefined && !isValidEntryDate(occurredAtMs))
+    throw new Error("Invalid entry date");
   const db = await getDb();
   const vaultId = getActiveVaultIdSync();
   await assertNotTabLinked(db, id);
@@ -5226,16 +5243,19 @@ export async function updateEntry(
   const current = await db.getFirstAsync<{
     amount_afn: number;
     note: string | null;
-  }>("SELECT amount_afn, note FROM entries WHERE id = ? AND vault_id = ?", id, vaultId);
+    created_at: number;
+  }>("SELECT amount_afn, note, created_at FROM entries WHERE id = ? AND vault_id = ?", id, vaultId);
   if (!current) {
     // Mirror the old behavior: silently no-op on missing id. The previous
     // UPDATE would simply affect 0 rows.
     return;
   }
-  const changes: { amount_afn?: number; note?: string | null } = {};
+  const changes: { amount_afn?: number; note?: string | null; occurred_at_ms?: number } = {};
   if (current.amount_afn !== amountAfn) changes.amount_afn = amountAfn;
   // Normalize undefined / "" vs null so a no-op round-trip doesn't emit an event.
   if ((current.note ?? null) !== (note ?? null)) changes.note = note;
+  if (occurredAtMs !== undefined && current.created_at !== occurredAtMs)
+    changes.occurred_at_ms = occurredAtMs;
   if (Object.keys(changes).length === 0) {
     // No-op: nothing actually changed. Do not append an empty amend event.
     return;

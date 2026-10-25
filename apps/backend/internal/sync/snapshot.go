@@ -134,6 +134,8 @@ type SnapshotEntry struct {
 	AmountAFN        json.Number `json:"amount_afn"`
 	Note             *string     `json:"note"`
 	CreatedAt        int64       `json:"created_at"`
+	RecordedAtMS     int64       `json:"recorded_at_ms,omitempty"`
+	OccurredAtHLC    *HLC        `json:"occurred_at_hlc,omitempty"`
 	UpdatedAt        int64       `json:"updated_at"`
 	DeletedAt        *int64      `json:"deleted_at"`
 	ProposedByUserID *string     `json:"proposed_by_user_id"`
@@ -358,6 +360,8 @@ func projectEntries(in map[string]*EntryProjection) []SnapshotEntry {
 			AmountAFN:        e.AmountAFN,
 			Note:             e.Note,
 			CreatedAt:        e.CreatedAt,
+			RecordedAtMS:     e.RecordedAtMS,
+			OccurredAtHLC:    e.OccurredAtHLC,
 			UpdatedAt:        e.UpdatedAt,
 			DeletedAt:        e.DeletedAt,
 			ProposedByUserID: proposedByUserID,
@@ -412,6 +416,9 @@ func snapshotMaxHLC(p *Projection, tail []PulledEvent) HLC {
 	for _, e := range p.Entries {
 		if e.UpdatedAt > max.PMS {
 			max = HLC{PMS: e.UpdatedAt}
+		}
+		if e.OccurredAtHLC != nil && CompareHLC(*e.OccurredAtHLC, max) > 0 {
+			max = *e.OccurredAtHLC
 		}
 	}
 	return max

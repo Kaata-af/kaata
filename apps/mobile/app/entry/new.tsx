@@ -20,6 +20,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "../../components/Button";
 import { EntryCalculator } from "../../components/EntryCalculator";
+import { EntryDateField } from "../../components/EntryDateField";
 import { ScreenLoading } from "../../components/ScreenLoading";
 import { ScreenHeader } from "../../components/SettingsScreen";
 import { queuePendingToast, useToast } from "../../components/Toast";
@@ -37,6 +38,8 @@ import { textDir, trackingSafe, useIsRTL } from "../../lib/direction";
 import { EventSigningUnavailableError, RoleGateRejectionError } from "../../lib/event-log";
 import { fonts, sansLineHeight } from "../../lib/fonts";
 import { t } from "../../lib/i18n";
+import { withEntryDay } from "../../lib/entry-date";
+import { localDayStart } from "../../lib/tally-date-filter";
 import { parseAmountInput } from "../../lib/money";
 import { evaluateCalculation } from "../../lib/calculator";
 import {
@@ -98,6 +101,10 @@ export default function NewEntryScreen() {
   const calculationResult = evaluateCalculation(calculation.expression);
   const amount = calculationResult.canApply ? calculationResult.amount : "";
   const [note, setNote] = useState("");
+  // Null keeps the usual save-time timestamp, even if this form stays open overnight.
+  const [entryDay, setEntryDay] = useState<number | null>(null);
+  const [datePickerOpen, setDatePickerOpen] = useState(false);
+  const datePickerRef = useRef(false);
   const [calculatorAttempt, setCalculatorAttempt] = useState<UIAttempt | null>(null);
   const calculatorRef = useRef<UIAttempt | null>(null);
   const [calculatorHistory, setCalculatorHistory] = useState<CalculatorRecord[]>([]);
@@ -249,6 +256,11 @@ export default function NewEntryScreen() {
       if (Platform.OS === "ios" && mounted.current && focused.current) setNativeKeyboardOpen(true);
     });
     const back = BackHandler.addEventListener("hardwareBackPress", () => {
+      if (focused.current && datePickerRef.current) {
+        datePickerRef.current = false;
+        setDatePickerOpen(false);
+        return true;
+      }
       if (!focused.current || !calculatorRef.current) return false;
       calculatorRef.current = null;
       activeField.current = null;
@@ -288,6 +300,8 @@ export default function NewEntryScreen() {
       amountSelectionIntent.current = false;
       setCalculatorAttempt(null);
       setCalculatorHistory([]);
+      datePickerRef.current = false;
+      setDatePickerOpen(false);
       void (async () => {
         try {
           const guard = await getActiveVaultArchivedState();
@@ -321,6 +335,8 @@ export default function NewEntryScreen() {
       return () => {
         focused.current = false;
         focusGeneration.current++;
+        datePickerRef.current = false;
+        if (mounted.current) setDatePickerOpen(false);
         calculatorRef.current = null;
         activeField.current = null;
         amountSelectionIntent.current = false;
@@ -341,7 +357,8 @@ export default function NewEntryScreen() {
     const focusTimer = setTimeout(() => {
       if (initialFocusTimer.current === focusTimer) initialFocusTimer.current = null;
       if (isCurrent(attempt)) measureKeyboardFrame();
-      if (isCurrent(attempt) && activeField.current === null) amountRef.current?.focus();
+      if (isCurrent(attempt) && activeField.current === null && !datePickerRef.current)
+        amountRef.current?.focus();
     }, 280);
     initialFocusTimer.current = focusTimer;
     return () => {
@@ -363,6 +380,7 @@ export default function NewEntryScreen() {
       return;
     }
     const savedNote = note.trim().slice(0, ENTRY_NOTE_MAX_LENGTH) || null;
+    const occurredAtMs = entryDay === null ? undefined : withEntryDay(Date.now(), entryDay);
     savingRef.current = true;
     setBusy(true);
     saveErrorField.current = null;
@@ -407,7 +425,7 @@ export default function NewEntryScreen() {
         attempt.type,
         parsedAmount,
         savedNote,
-        { session, vaultId },
+        { session, vaultId, occurredAtMs },
       );
       // A refused clerk tally is not in the ledger; anything else should be
       // visible when the customer's page comes back, filters or not.
@@ -514,6 +532,8 @@ export default function NewEntryScreen() {
     )
       return;
     calculatorRef.current = attempt;
+    datePickerRef.current = false;
+    setDatePickerOpen(false);
     activeField.current = "amount";
     noteRef.current?.blur();
     setCalculatorAttempt(attempt);
@@ -524,6 +544,8 @@ export default function NewEntryScreen() {
     const attempt = { ...scopeRef.current, focus: focusGeneration.current };
     if (savingRef.current || !isCurrent(attempt) || !isCurrent(renderAttempt)) return;
     activeField.current = "note";
+    datePickerRef.current = false;
+    setDatePickerOpen(false);
     amountSelectionIntent.current = false;
     calculatorRef.current = null;
     setCalculatorAttempt(null);
@@ -552,6 +574,23 @@ export default function NewEntryScreen() {
   }
 
   const renderAttempt = { ...scope, focus: focusGeneration.current };
+  function toggleDatePicker() {
+    if (savingRef.current || !isCurrent(renderAttempt)) return;
+    if (initialFocusTimer.current !== null) {
+      clearTimeout(initialFocusTimer.current);
+      initialFocusTimer.current = null;
+    }
+    calculatorRef.current = null;
+    setCalculatorAttempt(null);
+    activeField.current = null;
+    amountSelectionIntent.current = false;
+    amountRef.current?.blur();
+    noteRef.current?.blur();
+    Keyboard.dismiss();
+    datePickerRef.current = !datePickerRef.current;
+    setDatePickerOpen(datePickerRef.current);
+  }
+
   function armAmountSelection() {
     if (savingRef.current || !isCurrent(renderAttempt)) return;
     amountSelectionIntent.current = true;
@@ -829,6 +868,18 @@ export default function NewEntryScreen() {
                   </Text>
                 ) : null}
               </View>
+
+              <EntryDateField
+                value={entryDay ?? localDayStart(Date.now())}
+                expanded={datePickerOpen}
+                disabled={busy}
+                onToggle={toggleDatePicker}
+                onChange={(day) => {
+                  if (savingRef.current || !isCurrent(renderAttempt) || !datePickerRef.current)
+                    return;
+                  setEntryDay(day);
+                }}
+              />
 
               <View
                 onLayout={(event) => {

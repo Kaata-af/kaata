@@ -19,6 +19,7 @@ function fixture(status = 200) {
       "./db-tx": {},
       "./hlc": {},
       "./projection/field-hlc": {},
+      "./entry-date": require("../entry-date"),
       "./customer-group-restore": {},
       "./projection/ingest-row": {},
       "./projection/sweep": {},

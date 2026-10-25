@@ -120,6 +120,7 @@ type entryCreatedPayload struct {
 	AmountAFN              json.Number `json:"amount_afn"`
 	Note                   *string     `json:"note"`
 	OccurredAtMS           int64       `json:"occurred_at_ms"`
+	RecordedAtMS           *int64      `json:"recorded_at_ms,omitempty"`
 	BackfillSynthetic      *bool       `json:"backfill_synthetic,omitempty"`
 	BackfillAcceptedAt     *int64      `json:"backfill_accepted_at,omitempty"`
 	BackfillDisputedAt     *int64      `json:"backfill_disputed_at,omitempty"`
@@ -226,6 +227,8 @@ type EntryProjection struct {
 	AmountAFN        json.Number `json:"amount_afn"`
 	Note             *string     `json:"note"`
 	CreatedAt        int64       `json:"created_at"`
+	RecordedAtMS     int64       `json:"recorded_at_ms,omitempty"`
+	OccurredAtHLC    *HLC        `json:"occurred_at_hlc,omitempty"`
 	UpdatedAt        int64       `json:"updated_at"`
 	DeletedAt        *int64      `json:"deleted_at"`
 	ProposedByUserID string      `json:"proposed_by_user_id"`
@@ -394,6 +397,16 @@ func applyEntryCreated(p *Projection, e *LedgerEvent) error {
 	if err := json.Unmarshal(e.Payload, &payload); err != nil {
 		return fmt.Errorf("decode entry_created payload: %w", err)
 	}
+	if payload.OccurredAtMS <= 0 || payload.OccurredAtMS > 8_640_000_000_000_000 {
+		return errors.New("invalid entry date")
+	}
+	recordedAt := payload.OccurredAtMS // Legacy events predate editable business dates.
+	if payload.RecordedAtMS != nil {
+		if *payload.RecordedAtMS <= 0 || *payload.RecordedAtMS > 8_640_000_000_000_000 {
+			return errors.New("invalid entry recording date")
+		}
+		recordedAt = *payload.RecordedAtMS
+	}
 
 	entry := &EntryProjection{
 		ID:               payload.EntryID,
@@ -403,7 +416,9 @@ func applyEntryCreated(p *Projection, e *LedgerEvent) error {
 		AmountAFN:        payload.AmountAFN,
 		Note:             payload.Note,
 		CreatedAt:        payload.OccurredAtMS,
-		UpdatedAt:        payload.OccurredAtMS,
+		RecordedAtMS:     recordedAt,
+		OccurredAtHLC:    &HLC{PMS: e.HLC.PMS, L: e.HLC.L, DID: e.HLC.DID},
+		UpdatedAt:        e.HLC.PMS,
 		ProposedByUserID: e.AuthorUserIDLocalOnly,
 		CurrentEventID:   e.EventID,
 		IsDeleted:        false,
@@ -438,7 +453,16 @@ func applyEntryAmended(p *Projection, e *LedgerEvent) error {
 	}
 
 	c := &payload.Changes
+	if c.OccurredAtMS != nil && (*c.OccurredAtMS <= 0 || *c.OccurredAtMS > 8_640_000_000_000_000) {
+		return errors.New("invalid entry date")
+	}
 	wrote := false
+	latestWrite := e.HLC.PMS >= entry.UpdatedAt
+	for _, current := range []HLC{entry.hlcAmount, entry.hlcNote, entry.hlcType, entry.hlcOccurredAt} {
+		if CompareHLC(e.HLC, current) < 0 {
+			latestWrite = false
+		}
+	}
 
 	if c.AmountAFN != nil && CompareHLC(e.HLC, entry.hlcAmount) > 0 {
 		entry.AmountAFN = *c.AmountAFN
@@ -460,14 +484,19 @@ func applyEntryAmended(p *Projection, e *LedgerEvent) error {
 		wrote = true
 	}
 	if c.OccurredAtMS != nil && CompareHLC(e.HLC, entry.hlcOccurredAt) > 0 {
+		entry.CreatedAt = *c.OccurredAtMS
+		entry.OccurredAtHLC = &HLC{PMS: e.HLC.PMS, L: e.HLC.L, DID: e.HLC.DID}
 		entry.hlcOccurredAt = e.HLC
+		wrote = true
 	}
 
 	if !wrote {
 		return nil
 	}
-	entry.UpdatedAt = e.HLC.PMS
-	entry.CurrentEventID = e.EventID
+	if latestWrite {
+		entry.UpdatedAt = e.HLC.PMS
+		entry.CurrentEventID = e.EventID
+	}
 	return nil
 }
 
