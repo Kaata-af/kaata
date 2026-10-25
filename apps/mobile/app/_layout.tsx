@@ -35,6 +35,7 @@ import {
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { initialWindowMetrics, SafeAreaProvider } from "react-native-safe-area-context";
 import { AutoSync } from "../components/AutoSync";
+import { InitialRouteRedirect } from "../components/InitialRouteRedirect";
 import { TabSync } from "../components/TabSync";
 import { ReminderCoordinator } from "../components/ReminderCoordinator";
 import { MeshController } from "../components/MeshController";
@@ -48,6 +49,8 @@ import {
   pickInitialRoute,
   type OnboardingStep,
 } from "../lib/onboarding-route";
+
+export const unstable_settings = { anchor: "index" };
 
 // ============================================================================
 // I18nManager neutralization + one-shot migration. The architecture:
@@ -663,7 +666,7 @@ export default function RootLayout() {
 
     let last = AppState.currentState;
     const sub = AppState.addEventListener("change", (next) => {
-      const cameToForeground = last.match(/inactive|background/) != null && next === "active";
+      const cameToForeground = (last === "inactive" || last === "background") && next === "active";
       const wentToBackground = last === "active" && next.match(/inactive|background/) != null;
       last = next;
       if (cameToForeground) void sweepAllQuarantinedVaults();
@@ -696,7 +699,7 @@ export default function RootLayout() {
     resetBreaker(); // cold launch
     let last = AppState.currentState;
     const sub = AppState.addEventListener("change", (next) => {
-      const cameToForeground = last.match(/inactive|background/) != null && next === "active";
+      const cameToForeground = (last === "inactive" || last === "background") && next === "active";
       last = next;
       if (cameToForeground) resetBreaker();
     });
@@ -880,8 +883,8 @@ export default function RootLayout() {
                 explaining what happened. Mounted at root so the surface
                 works across every screen. */}
               <ProjectionConflictsListener />
-              <Stack
-                initialRouteName={pickInitialRoute({
+              <InitialRouteRedirect
+                route={pickInitialRoute({
                   hasOnboarded,
                   onboardingStep,
                   deviceIsPersian,
@@ -889,6 +892,8 @@ export default function RootLayout() {
                   restoreSkipped,
                   cancelledDeletionAccountId,
                 })}
+              />
+              <Stack
                 screenOptions={{
                   headerShown: false,
                   contentStyle: { backgroundColor: colors.bgDefault },
@@ -1923,7 +1928,8 @@ function BackgroundCheckIn() {
     // idempotent + best-effort.
     let lastState = AppState.currentState;
     const sub = AppState.addEventListener("change", (next) => {
-      const cameToForeground = lastState.match(/inactive|background/) != null && next === "active";
+      const cameToForeground =
+        (lastState === "inactive" || lastState === "background") && next === "active";
       lastState = next;
       if (cameToForeground && Date.now() - lastRunMs > FOREGROUND_THROTTLE_MS) {
         void run();

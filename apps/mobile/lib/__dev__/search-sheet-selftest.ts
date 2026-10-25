@@ -669,12 +669,12 @@ function host(
     getState: () => state,
     dispatch: (action: any) => {
       dispatched.push(action);
-      state =
-        stackRouter.getStateForAction(state, action, {
-          routeNames: state.routeNames,
-          routeParamList: {},
-          routeGetIdList: {},
-        }) ?? state;
+      const result = stackRouter.getStateForAction(state, action, {
+        routeNames: state.routeNames,
+        routeParamList: {},
+        routeGetIdList: {},
+      });
+      if (result && typeof result === "object") state = result.state;
     },
   };
   const router = { replace: (href: string) => replacements.push(href) };
@@ -704,11 +704,12 @@ function host(
       useIsFocused: () => navigation.isFocused(),
       useRoute: () => ({ key: "search-route" }),
       useRouter: () => router,
-    },
-    "expo-router/react-navigation": {
-      usePreventRemove: (prevent: boolean, callback: () => void) => {
+      usePreventRemove: (prevent: boolean, callback?: () => void) => {
         preventRemove = prevent;
-        preventedCallback = callback;
+        preventedCallback = callback ?? (() => {});
+        return () => {
+          preventRemove = false;
+        };
       },
     },
     "react-native": {

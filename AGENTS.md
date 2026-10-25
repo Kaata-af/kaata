@@ -1,8 +1,8 @@
 # Expo HAS CHANGED
 
-Read the exact versioned docs at https://docs.expo.dev/versions/v57.0.0/ before writing any code.
+Read the exact versioned docs at https://docs.expo.dev/versions/v58.0.0/ before writing any code.
 
-The app is on **Expo SDK 57 / React Native 0.86 / React 19.2**, and the **New
+The app is on **Expo SDK 58 / React Native 0.88 / React 19.3**, and the **New
 Architecture is mandatory** — SDK 54 was the last release that could run the
 legacy architecture, and `newArchEnabled` no longer exists as a config option.
 Anything written against the legacy architecture, or against SDK 54 and
@@ -19,6 +19,9 @@ fail at runtime. Do not undo either:
   function-style API moved to **`expo-contacts/legacy`**. The root still
   exports the old names with their old signatures, but the bodies throw. See
   `lib/contacts-sync.ts`.
+
+SDK 58 also makes `File.write()` async. Use `writeSync()` when callers need
+the file contents immediately, as in `apps/mobile/lib/export/data.ts`.
 
 Toolchain floors: **Node >= 22.13**, iOS >= 16.4, Xcode >= 26.4, Android 7+.
 

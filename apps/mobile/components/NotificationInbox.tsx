@@ -1,3 +1,4 @@
+import type { ViewInstance } from "react-native";
 import { SheetBackdrop } from "./SheetBackdrop";
 import { Ionicons } from "@expo/vector-icons";
 import { useRef, useState, useEffect } from "react";
@@ -218,7 +219,7 @@ export function NotificationBell() {
   const hasReminders = reminders.rows.length > 0;
   const badge = inbox.page.unread + dueReminders;
   const toast = useToast();
-  const anchor = useRef<View>(null);
+  const anchor = useRef<ViewInstance>(null);
   const [position, setPosition] = useState<{ y: number } | null>(null);
   const [visible, setVisible] = useState(false);
   const [closing, setClosing] = useState(false);

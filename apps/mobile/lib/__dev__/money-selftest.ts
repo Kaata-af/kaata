@@ -493,6 +493,39 @@ async function main(): Promise<void> {
     const sharedMarkers = new Map<string, import("../tabs/types").TabSettlement[]>();
     const { Mutex } = require("../util/mutex") as typeof import("../util/mutex");
     const exportMutex = new Mutex();
+    const exportedFiles = new Map<string, string>();
+    const deletedExports: string[] = [];
+    let exportWriteError: Error | null = null;
+    class ExportDirectory {
+      readonly uri: string;
+      constructor(root: string, name: string) {
+        this.uri = `${root}/${name}`;
+      }
+      create() {}
+    }
+    class ExportFile {
+      readonly uri: string;
+      constructor(directory: ExportDirectory, name: string) {
+        this.uri = `${directory.uri}/${name}`;
+      }
+      get exists() {
+        return exportedFiles.has(this.uri);
+      }
+      delete() {
+        deletedExports.push(this.uri);
+        exportedFiles.delete(this.uri);
+      }
+      writeSync(contents: string) {
+        if (exportWriteError) throw exportWriteError;
+        exportedFiles.set(this.uri, contents);
+      }
+      async write(contents: string) {
+        // SDK 58 writes complete later; returning a File before this await
+        // finishes leaves an immediate share/save without its bytes.
+        await Promise.resolve();
+        this.writeSync(contents);
+      }
+    }
     const fixture = [
       created("a", 0.1, "debt", 1000),
       created("b", 0.2, "debt", 2000),
@@ -508,7 +541,11 @@ async function main(): Promise<void> {
     const { buildPersonStatement, buildVaultReport, isoDate, qamariDate, shamsiDate } =
       withModuleStubs(
         {
-          "expo-file-system": {},
+          "expo-file-system": {
+            Directory: ExportDirectory,
+            File: ExportFile,
+            Paths: { cache: "file:///cache" },
+          },
           "expo-sharing": {},
           // data.ts now reaches react-native (Platform) and the kaata-save-file
           // native facade for save-to-phone; neither loads under Node (Flow
@@ -546,6 +583,24 @@ async function main(): Promise<void> {
         },
         () => require("../export/data") as typeof import("../export/data"),
       );
+    const { writeExportFile } = require("../export/data") as typeof import("../export/data");
+    const written = writeExportFile("statement.csv", "id,amount\nfirst,0.10");
+    assert.equal(
+      exportedFiles.get(written.uri),
+      "id,amount\nfirst,0.10",
+      "an exported file contains its bytes before the caller can share it",
+    );
+    const replaced = writeExportFile("statement.csv", "id,amount\nsecond,0.20");
+    assert.equal(replaced.uri, written.uri);
+    assert.equal(exportedFiles.get(replaced.uri), "id,amount\nsecond,0.20");
+    assert.deepEqual(deletedExports, [written.uri], "re-exporting replaces the existing file");
+    exportWriteError = new Error("Export storage is full");
+    assert.throws(
+      () => writeExportFile("failed.csv", "id,amount\nthird,0.30"),
+      (error) => error === exportWriteError,
+      "write failures reach the caller before it opens the share/save surface",
+    );
+    exportWriteError = null;
     const statement = await buildPersonStatement("person", "en", "USD", "$", 4000);
     assert.ok(statement);
     assert.equal(statement.balance, 0);

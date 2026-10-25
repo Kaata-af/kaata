@@ -17,7 +17,7 @@
 //   - PermissionRejectedError → log, treat as soft failure.
 //   - Anything else → log, treat as transient.
 
-import { AppState, type AppStateStatus } from "react-native";
+import { AppState } from "react-native";
 import * as Network from "expo-network";
 
 import { clearLocalSession, getSessionJWT } from "../auth";
@@ -228,7 +228,7 @@ export function startSyncScheduler(_opts: StartSyncSchedulerOpts): () => void {
   // Whether the previous tick failed — so we clear the persisted last-sync-error
   // exactly once on recovery instead of writing app_meta every successful tick.
   let lastTickFailed = false;
-  let currentAppState: AppStateStatus = AppState.currentState;
+  let currentAppState = AppState.currentState;
 
   // M2 membership chain: one-shot chain-genesis backfill (+ pending
   // witness emission retry) across ALL non-archived vaults — not just the

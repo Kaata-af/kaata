@@ -3235,27 +3235,29 @@ let savedNameBinding: import("../auth").SessionSnapshot | undefined;
 let accountDeleteHook: (() => Promise<void>) | null = null;
 let accountLocale: import("../i18n").LocaleCode = "en";
 let accountDefaultCountry = "AF";
-const accountNavigationListeners = new Set<(event: { preventDefault: () => void }) => void>();
+let accountRemovalPrevented = false;
+let accountDisablePreventionCalls = 0;
 const accountBackHandlers = new Set<() => boolean>();
-const accountNavigation = {
-  addListener: (_: string, listener: (event: { preventDefault: () => void }) => void) => {
-    accountNavigationListeners.add(listener);
-    return () => {
-      accountNavigationListeners.delete(listener);
-    };
-  },
-};
 const accountModule = load<{ default: () => unknown }>("../../app/account", {
   "react/jsx-runtime": jsxRuntime,
   react: accountHooks.react,
   "@expo/vector-icons": { Ionicons: "Icon" },
   "expo-router": {
     Stack: { Screen: "StackScreen" },
-    useNavigation: () => accountNavigation,
+    usePreventRemove: (prevent: boolean) => {
+      accountRemovalPrevented = prevent;
+      return () => {
+        accountRemovalPrevented = false;
+        accountDisablePreventionCalls++;
+      };
+    },
     useRouter: () => ({
       back: () => accountRoutes.push("back"),
       push: (r: unknown) => accountRoutes.push(r),
-      replace: (r: unknown) => accountRoutes.push(r),
+      replace: (r: unknown) => {
+        assert.equal(accountRemovalPrevented, false, "replacement releases the SDK 58 guard");
+        accountRoutes.push(r);
+      },
     }),
     useFocusEffect: (effect: () => void) => {
       accountFocus = effect;
@@ -3436,7 +3438,8 @@ async function openAccount(over: {
   accountSuccessBindings = [];
   savedNameBinding = undefined;
   accountDeleteHook = null;
-  accountNavigationListeners.clear();
+  accountRemovalPrevented = false;
+  accountDisablePreventionCalls = 0;
   accountBackHandlers.clear();
   renderAccount();
   for (let i = 0; i < 6; i++) {
@@ -3492,15 +3495,7 @@ test("account deletion: navigation/edit locks release into actionable sign-in fo
     );
     tree.find((node) => node.type === "ScreenHeader")?.props.onBack();
     assert.deepEqual(accountRoutes, []);
-    let blocked = false;
-    accountNavigationListeners.forEach((listener) =>
-      listener({
-        preventDefault: () => {
-          blocked = true;
-        },
-      }),
-    );
-    assert.ok(blocked && [...accountBackHandlers].some((back) => back()));
+    assert.ok(accountRemovalPrevented && [...accountBackHandlers].some((back) => back()));
     finish();
     await deleting;
     tree = renderAccount();
@@ -3520,6 +3515,18 @@ test("account deletion: navigation/edit locks release into actionable sign-in fo
   } finally {
     console.warn = warning;
   }
+});
+
+test("account deletion: successful cleanup disables the SDK 58 guard before replacement", async () => {
+  await openAccount({ me: accountMeOf(["google"]), session: "provider" });
+  const confirmation = renderAccount().find(
+    (node) => node.type === "Dialog" && node.props.title === "account.deleteAccount.confirm.title",
+  )!;
+  await confirmation.props.onConfirm();
+  assert.deepEqual(accountRoutes, ["/onboarding"]);
+  assert.equal(accountDisablePreventionCalls, 1);
+  renderAccount();
+  assert.equal(accountRemovalPrevented, false);
 });
 
 const accountMeOf = (providers: string[]) => ({

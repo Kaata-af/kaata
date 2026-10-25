@@ -1,3 +1,4 @@
+import type { TextInputInstance } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -81,7 +82,7 @@ export default function OnboardingKaataScreen() {
   const [selfPhone, setSelfPhone] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
 
-  const shopRef = useRef<TextInput>(null);
+  const shopRef = useRef<TextInputInstance>(null);
   const { scrollProps, focusInput, blurInput } = useOnboardingKeyboardScroll();
   // Synchronous re-entry guard — `busy` state can't stop a same-frame
   // double-tap (setState is async); see entry/new.tsx. Without it a

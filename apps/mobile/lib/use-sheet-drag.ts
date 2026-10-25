@@ -1,3 +1,4 @@
+import type { ScrollViewInstance } from "react-native";
 import { useEffect, useMemo, useRef } from "react";
 import {
   Animated,
@@ -6,7 +7,6 @@ import {
   type NativeScrollEvent,
   type NativeSyntheticEvent,
   type PanResponderGestureState,
-  type ScrollView,
 } from "react-native";
 import { useSheetMotionPreference } from "../components/SheetBackdrop";
 
@@ -27,7 +27,7 @@ export function useSheetDrag(visible: boolean, entrance: Animated.Value, onDismi
   const closing = useRef(!visible);
   const generation = useRef(0);
   const scrollOffset = useRef(0);
-  const scrollView = useRef<ScrollView | null>(null);
+  const scrollView = useRef<ScrollViewInstance | null>(null);
   type Stroke = {
     stateID: number;
     generation: number;
@@ -209,7 +209,7 @@ export function useSheetDrag(visible: boolean, entrance: Animated.Value, onDismi
         },
       },
       scrollProps: {
-        ref: (view: ScrollView | null) => {
+        ref: (view: ScrollViewInstance | null) => {
           // A newly mounted list starts at zero; a rapid reopen keeps the
           // actual position of its still-mounted list.
           if (scrollView.current !== view) {

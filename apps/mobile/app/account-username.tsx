@@ -1,3 +1,4 @@
+import type { TextInputInstance } from "react-native";
 // Account → Sign-in → Username (docs/kaata-accounts.md §6.10, §7).
 //
 // An optional, private sign-in handle: with the account's password it works in
@@ -54,7 +55,7 @@ export default function AccountUsernameScreen() {
   const [formError, setFormError] = useState<string | null>(null);
   const [busy, setBusy] = useState<null | "save" | "remove">(null);
   const busyRef = useRef(false);
-  const inputRef = useRef<TextInput>(null);
+  const inputRef = useRef<TextInputInstance>(null);
 
   async function load() {
     setLoadFailed(false);

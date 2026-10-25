@@ -3,10 +3,10 @@ import {
   useIsFocused,
   useLocalSearchParams,
   useNavigation,
+  usePreventRemove,
   useRoute,
   useRouter,
 } from "expo-router";
-import { usePreventRemove } from "expo-router/react-navigation";
 import { cloneElement, isValidElement, useEffect, useSyncExternalStore } from "react";
 import { BackHandler, View } from "react-native";
 import { ToastHost } from "../components/Toast";
@@ -37,7 +37,7 @@ export default function NativeSearchScreen() {
     session.ownerKey === ownerKey &&
     !!navigation.getState()?.routes.some((item) => item.key === ownerKey);
   const busy = valid && !session?.closing && !!session?.busy;
-  usePreventRemove(busy, () => {});
+  const disablePrevention = usePreventRemove(busy);
   useEffect(() => {
     const back = BackHandler.addEventListener("hardwareBackPress", () => {
       if (!navigation.isFocused()) return false;
@@ -50,9 +50,10 @@ export default function NativeSearchScreen() {
     if (valid && !session?.closing) return;
     const state = navigation.getState();
     if (!state?.key || !state.routes.some((item) => item.key === route.key)) return;
+    disablePrevention();
     if (state.routes.length > 1) navigation.dispatch(nativeSearchPopAction(state.key, route.key));
     else router.replace("/");
-  }, [valid, session?.closing, navigation, route.key, router]);
+  }, [valid, session?.closing, navigation, route.key, router, disablePrevention]);
   useEffect(
     () => () => {
       if (getNativeSearch(id)?.ownerKey === ownerKey) removeNativeSearch(id);

@@ -1,3 +1,4 @@
+import type { TextInputInstance } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, type TextInput, View } from "react-native";
@@ -85,8 +86,8 @@ export type EmailAuthFlowProps = {
   busy: boolean;
   /** Google sign-in works in this build: a Gmail address gets the shortcut. */
   googleAvailable: boolean;
-  focusInput: (input: TextInput | null) => void;
-  blurInput: (input: TextInput | null) => void;
+  focusInput: (input: TextInputInstance | null) => void;
+  blurInput: (input: TextInputInstance | null) => void;
   /** AuthScreen's busy wrapper: one request at a time across the whole screen. */
   run: (task: () => Promise<void>) => Promise<void>;
   /** A session is installed: AuthScreen's completeSignIn(user, "email"). */
@@ -143,11 +144,11 @@ export function EmailAuthFlow(props: EmailAuthFlowProps) {
   // The last verify of this step failed on the network, so it may have reached
   // the server: lib/auth then reads a spent code as our own success.
   const afterTimeout = useRef(false);
-  const emailRef = useRef<TextInput>(null);
-  const identifierRef = useRef<TextInput>(null);
-  const passwordRef = useRef<TextInput>(null);
-  const newPasswordRef = useRef<TextInput>(null);
-  const codeRef = useRef<TextInput>(null);
+  const emailRef = useRef<TextInputInstance>(null);
+  const identifierRef = useRef<TextInputInstance>(null);
+  const passwordRef = useRef<TextInputInstance>(null);
+  const newPasswordRef = useRef<TextInputInstance>(null);
+  const codeRef = useRef<TextInputInstance>(null);
 
   const disabled = props.busy;
   const remaining = Math.max(0, Math.ceil((resendAt - now) / 1000));
@@ -448,8 +449,9 @@ export function EmailAuthFlow(props: EmailAuthFlowProps) {
     setHistory(history[0] === "signin" ? ["signin"] : [history[0], "signin"]);
   }
 
-  const onFocus = (ref: { current: TextInput | null }) => () => props.focusInput(ref.current);
-  const onBlur = (ref: { current: TextInput | null }) => () => props.blurInput(ref.current);
+  const onFocus = (ref: { current: TextInputInstance | null }) => () =>
+    props.focusInput(ref.current);
+  const onBlur = (ref: { current: TextInputInstance | null }) => () => props.blurInput(ref.current);
 
   // ---- pieces ----
 

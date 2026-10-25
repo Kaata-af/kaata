@@ -1,3 +1,4 @@
+import type { ScrollViewInstance } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import {
@@ -885,8 +886,8 @@ export default function HomeScreen() {
       : selectedCustomerGroupIds(effectiveGroup).length;
   // A new order starts at its top; otherwise the first rows of a re-sorted
   // long list are scrolled off-screen.
-  const homeScrollRef = useRef<ScrollView>(null);
-  const searchScrollRef = useRef<ScrollView>(null);
+  const homeScrollRef = useRef<ScrollViewInstance>(null);
+  const searchScrollRef = useRef<ScrollViewInstance>(null);
   const homeScrollScope = JSON.stringify([activeAccountId, activeVaultId]);
   const homeScrollPositions = useRef({ scope: homeScrollScope, collect: 0, pay: 0 });
   if (homeScrollPositions.current.scope !== homeScrollScope)
@@ -2075,7 +2076,7 @@ type GroupFilterChipProps = {
 };
 
 type CustomerScrollProps = {
-  scrollRef: React.RefObject<ScrollView | null>;
+  scrollRef: React.RefObject<ScrollViewInstance | null>;
   paddingBottom: number;
 };
 

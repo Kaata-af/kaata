@@ -380,7 +380,7 @@ export async function customerGroupUIChecks() {
   const pendingSave = deferred<void>();
   let failSave = false;
   let preventRemove = false;
-  let preventCallback: ((options: { data: { action: unknown } }) => void) | null = null;
+  let preventCallback: ((options: { repeat: () => void }) => void) | null = null;
   const dispatched: unknown[] = [];
   const groupNavigation: unknown[] = [];
   const compilePersonGroup = (react: typeof personHooks.react) =>
@@ -392,13 +392,13 @@ export async function customerGroupUIChecks() {
           back: () => backCount++,
           push: (route: unknown) => groupNavigation.push(route),
         }),
-        useNavigation: () => ({ dispatch: (action: unknown) => dispatched.push(action) }),
         useLocalSearchParams: () => ({ id: personId, vaultId: "v" }),
-      },
-      "expo-router/react-navigation": {
         usePreventRemove: (prevent: boolean, callback: typeof preventCallback) => {
           preventRemove = prevent;
           preventCallback = callback;
+          return () => {
+            preventRemove = false;
+          };
         },
       },
       "@expo/vector-icons": { Ionicons: "Icon" },
@@ -538,10 +538,12 @@ export async function customerGroupUIChecks() {
   personRender();
   assert.equal(preventRemove, true, "unsaved checks intercept leaving");
   const writesBeforeBack = written.length;
-  preventCallback!({ data: { action: { type: "GO_BACK" } } });
+  preventCallback!({ repeat: () => dispatched.push({ type: "GO_BACK" }) });
   await settleUI();
   assert.deepEqual(written.slice(writesBeforeBack), [["g", "h"]], "Back saves the checked groups");
   assert.equal(dispatched.length, 1, "and then leaves");
+  personRender();
+  assert.equal(preventRemove, false, "SDK 58 repeat keeps the prevention condition released");
   mounted.unmount();
 
   // A group removed before Done drops out of the draft instead of sticking.
@@ -580,7 +582,7 @@ export async function customerGroupUIChecks() {
   personRender();
   personRow("Neighbors").props.onPress();
   personRender();
-  preventCallback!({ data: { action: { type: "GO_BACK" } } });
+  preventCallback!({ repeat: () => assert.fail("a failed save must not repeat navigation") });
   await settleUI();
   personRender();
   assert.ok(
@@ -610,7 +612,7 @@ export async function customerGroupUIChecks() {
     let canAmend = true;
     const assignments: [string, string[]][] = [];
     let membersPrevent = false;
-    let membersCallback: ((options: { data: { action: unknown } }) => void) | null = null;
+    let membersCallback: ((options: { repeat: () => void }) => void) | null = null;
     const membersDispatched: unknown[] = [];
     let membersBack = 0;
     const roster = [
@@ -633,14 +635,14 @@ export async function customerGroupUIChecks() {
       "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
       "expo-router": {
         useRouter: () => ({ back: () => membersBack++, push() {} }),
-        useNavigation: () => ({ dispatch: (action: unknown) => membersDispatched.push(action) }),
         useLocalSearchParams: () => ({ vaultId: "v", groupId: "g" }),
         useFocusEffect: (fn: () => void) => hooks.react.useEffect(fn, [fn]),
-      },
-      "expo-router/react-navigation": {
         usePreventRemove: (prevent: boolean, callback: typeof membersCallback) => {
           membersPrevent = prevent;
           membersCallback = callback;
+          return () => {
+            membersPrevent = false;
+          };
         },
       },
       "@expo/vector-icons": { Ionicons: "Icon" },
@@ -705,9 +707,7 @@ export async function customerGroupUIChecks() {
     renderMembers();
     assert.deepEqual(listed(), ["Zarif", "Ahmad 2", "Ahmad 10"], "ticking never reorders rows");
     assert.equal(membersPrevent, true, "unsaved ticks intercept leaving");
-    nodes(hooks.tree)
-      .find((n) => n.type === "Button")!
-      .props.onPress();
+    membersCallback!({ repeat: () => membersDispatched.push({ type: "GO_BACK" }) });
     await settleUI();
     assert.deepEqual(
       assignments.sort((a, b) => a[0].localeCompare(b[0])),
@@ -719,6 +719,8 @@ export async function customerGroupUIChecks() {
       "Done writes each changed customer's complete set, keeping their other groups",
     );
     assert.equal(membersBack + membersDispatched.length, 1, "and leaves once");
+    renderMembers();
+    assert.equal(membersPrevent, false, "successful save clears the prevention condition");
     nodes(hooks.tree)
       .find((n) => n.type === "TextInput")!
       .props.onChangeText("Ahmad");
@@ -733,11 +735,10 @@ export async function customerGroupUIChecks() {
       "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
       "expo-router": {
         useRouter: () => ({ back() {}, push() {} }),
-        useNavigation: () => ({ dispatch() {} }),
         useLocalSearchParams: () => ({ vaultId: "v", groupId: "g" }),
         useFocusEffect: (fn: () => void) => viewerHooks.react.useEffect(fn, [fn]),
+        usePreventRemove: () => () => {},
       },
-      "expo-router/react-navigation": { usePreventRemove() {} },
       "@expo/vector-icons": { Ionicons: "Icon" },
       "react-native": {
         ActivityIndicator: "Spinner",

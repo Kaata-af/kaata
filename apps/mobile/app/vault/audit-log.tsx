@@ -393,7 +393,7 @@ export default function VaultAuditLogScreen() {
               </View>
             ) : !hasMore && entries.length > 0 ? (
               <Text style={styles.endText}>{t("auditLog.endOfHistory")}</Text>
-            ) : null
+            ) : undefined
           }
         />
       )}

@@ -1,3 +1,4 @@
+import type { ScrollViewInstance, TextInputInstance, ViewInstance } from "react-native";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { Ionicons } from "@expo/vector-icons";
@@ -141,12 +142,12 @@ export default function NewEntryScreen() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const saveErrorRef = useRef(saveError);
   saveErrorRef.current = saveError;
-  const amountRef = useRef<TextInput>(null);
-  const noteRef = useRef<TextInput>(null);
+  const amountRef = useRef<TextInputInstance>(null);
+  const noteRef = useRef<TextInputInstance>(null);
   const initialFocusTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const noteAccessoryId = useId();
-  const scrollRef = useRef<ScrollView>(null);
-  const keyboardFrameRef = useRef<View>(null);
+  const scrollRef = useRef<ScrollViewInstance>(null);
+  const keyboardFrameRef = useRef<ViewInstance>(null);
   const keyboardMeasurement = useRef(0);
   const [keyboardOffset, setKeyboardOffset] = useState(0);
   const [availableHeight, setAvailableHeight] = useState<number | undefined>();

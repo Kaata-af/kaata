@@ -1,12 +1,13 @@
+import type { ScrollViewInstance, TextInputInstance } from "react-native";
 import { useCallback, useEffect, useRef } from "react";
-import { Keyboard, Platform, ScrollView, TextInput, type ScrollViewProps } from "react-native";
+import { Keyboard, Platform, type ScrollViewProps } from "react-native";
 
 // Onboarding keeps its own safe-area/header outside the form. Measure both
 // native views in window coordinates instead of assuming the scroll view starts
 // at screen y=0. Keyboard avoidance alone never reveals the next focused field.
 export function useOnboardingKeyboardScroll() {
-  const scrollRef = useRef<ScrollView>(null);
-  const focusedInput = useRef<TextInput | null>(null);
+  const scrollRef = useRef<ScrollViewInstance>(null);
+  const focusedInput = useRef<TextInputInstance | null>(null);
   const scrollY = useRef(0);
   const frame = useRef<number | null>(null);
 
@@ -57,14 +58,14 @@ export function useOnboardingKeyboardScroll() {
   }, [revealFocusedInput]);
 
   const focusInput = useCallback(
-    (input: TextInput | null) => {
+    (input: TextInputInstance | null) => {
       focusedInput.current = input;
       revealFocusedInput();
     },
     [revealFocusedInput],
   );
 
-  const blurInput = useCallback((input: TextInput | null) => {
+  const blurInput = useCallback((input: TextInputInstance | null) => {
     if (focusedInput.current === input) focusedInput.current = null;
   }, []);
 

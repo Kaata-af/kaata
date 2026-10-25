@@ -1,6 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useLocalSearchParams, useNavigation, useRouter } from "expo-router";
-import { usePreventRemove } from "expo-router/react-navigation";
+import { useLocalSearchParams, usePreventRemove, useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -19,7 +18,6 @@ import { icon } from "../../../lib/tokens";
 
 export default function PersonGroupScreen() {
   const router = useRouter(),
-    navigation = useNavigation(),
     isRTL = useIsRTL(),
     params = useLocalSearchParams<{ id: string; vaultId?: string }>();
   const [vaultId] = useState(() => params.vaultId ?? getActiveVaultIdSyncMaybe());
@@ -48,7 +46,6 @@ export default function PersonGroupScreen() {
     canManage &&
     (selection.length !== saved.length || selection.some((id) => !saved.includes(id)));
   const [discardAllowed, setDiscardAllowed] = useState(false);
-  const leaving = useRef(false);
   const mounted = useRef(true);
   useEffect(() => {
     if (found && dirty.current !== params.id)
@@ -73,7 +70,8 @@ export default function PersonGroupScreen() {
     try {
       await assignCustomerGroups(vaultId, params.id, selection);
       if (current() && getAccountIdSync() === account) {
-        leaving.current = true;
+        setDiscardAllowed(true);
+        disablePrevention();
         leave();
       }
     } catch (e) {
@@ -88,11 +86,9 @@ export default function PersonGroupScreen() {
       if (mounted.current) setBusy(false);
     }
   }
-  usePreventRemove(changed && !discardAllowed, ({ data }) => {
-    // The re-dispatched action is marked as already asked for this screen.
-    if (leaving.current) return navigation.dispatch(data.action);
+  const disablePrevention = usePreventRemove(changed && !discardAllowed, ({ repeat }) => {
     if (writing.current) return;
-    void save(() => navigation.dispatch(data.action));
+    void save(repeat);
   });
   return (
     <SafeAreaView edges={["top", "bottom"]} style={styles.page}>

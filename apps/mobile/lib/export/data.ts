@@ -381,7 +381,7 @@ export function writeExportFile(fileName: string, contents: string): File {
   dir.create({ idempotent: true });
   const file = new File(dir, fileName);
   if (file.exists) file.delete();
-  file.write(contents);
+  file.writeSync(contents);
   return file;
 }
 

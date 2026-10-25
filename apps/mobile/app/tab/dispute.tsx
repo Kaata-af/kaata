@@ -1,3 +1,4 @@
+import type { TextInputInstance } from "react-native";
 // Dispute a tally on a mutual tab (docs/mutual-tab-design.md §4.4, D6).
 //
 // Legacy deep-linkable reason form. Only the other party's pending tally can
@@ -58,7 +59,7 @@ export default function DisputeEntryScreen() {
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const reasonRef = useRef<TextInput>(null);
+  const reasonRef = useRef<TextInputInstance>(null);
   const savingRef = useRef(false);
 
   // Tab rows live in the tab cache, not in `entries`, so getEntry cannot see

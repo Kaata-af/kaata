@@ -1,3 +1,4 @@
+import type { ScrollViewInstance, TextInputInstance } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
@@ -49,8 +50,8 @@ export default function GroupsScreen() {
     [error, setError] = useState<string | null>(null);
   const writing = useRef(false);
   const mounted = useRef(true);
-  const nameRef = useRef<TextInput>(null);
-  const scrollRef = useRef<ScrollView>(null);
+  const nameRef = useRef<TextInputInstance>(null);
+  const scrollRef = useRef<ScrollViewInstance>(null);
   useEffect(() => {
     mounted.current = true;
     return () => {

@@ -1,6 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useFocusEffect, useLocalSearchParams, useNavigation, useRouter } from "expo-router";
-import { usePreventRemove } from "expo-router/react-navigation";
+import { useFocusEffect, useLocalSearchParams, usePreventRemove, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -39,7 +38,6 @@ import { useActiveVaultWriteCaps } from "../lib/use-vault-role";
 // like the customer's picker; a failed save lets the next Back discard.
 export default function GroupMembersScreen() {
   const router = useRouter(),
-    navigation = useNavigation(),
     isRTL = useIsRTL();
   const locale = getLocale();
   const params = useLocalSearchParams<{ vaultId?: string; groupId: string }>();
@@ -59,7 +57,6 @@ export default function GroupMembersScreen() {
     [error, setError] = useState<string | null>(null);
   const [discardAllowed, setDiscardAllowed] = useState(false);
   const writing = useRef(false),
-    leaving = useRef(false),
     mounted = useRef(true);
   useEffect(() => {
     mounted.current = true;
@@ -133,7 +130,8 @@ export default function GroupMembersScreen() {
         );
       }
       if (current() && getAccountIdSync() === account) {
-        leaving.current = true;
+        setDiscardAllowed(true);
+        disablePrevention();
         leave();
       }
     } catch (e) {
@@ -148,11 +146,9 @@ export default function GroupMembersScreen() {
       if (mounted.current) setBusy(false);
     }
   }
-  usePreventRemove(changed && !discardAllowed, ({ data }) => {
-    // The re-dispatched action is marked as already asked for this screen.
-    if (leaving.current) return navigation.dispatch(data.action);
+  const disablePrevention = usePreventRemove(changed && !discardAllowed, ({ repeat }) => {
     if (writing.current) return;
-    void save(() => navigation.dispatch(data.action));
+    void save(repeat);
   });
 
   return (

@@ -1,3 +1,4 @@
+import type { TextInputInstance } from "react-native";
 // Account → Sign-in → Password (docs/kaata-accounts.md §6.7-6.9, §7).
 //
 // "Set a password": a Google or Apple account's FIRST Kaata password, which
@@ -106,10 +107,10 @@ export default function AccountPasswordScreen() {
   const busyRef = useRef(false);
   const [resendAt, setResendAt] = useState(0);
   const [now, setNow] = useState(Date.now());
-  const emailRef = useRef<TextInput>(null);
-  const codeRef = useRef<TextInput>(null);
-  const currentRef = useRef<TextInput>(null);
-  const newPasswordRef = useRef<TextInput>(null);
+  const emailRef = useRef<TextInputInstance>(null);
+  const codeRef = useRef<TextInputInstance>(null);
+  const currentRef = useRef<TextInputInstance>(null);
+  const newPasswordRef = useRef<TextInputInstance>(null);
 
   const remaining = Math.max(0, Math.ceil((resendAt - now) / 1000));
 
@@ -308,7 +309,7 @@ export default function AccountPasswordScreen() {
     });
   }
 
-  const focusHandlers = (ref: { current: TextInput | null }) => ({
+  const focusHandlers = (ref: { current: TextInputInstance | null }) => ({
     onFocus: () => focusInput(ref.current),
     onBlur: () => blurInput(ref.current),
   });

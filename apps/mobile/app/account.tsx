@@ -1,3 +1,4 @@
+import type { TextInputInstance } from "react-native";
 // Account — the user's PERSONAL settings (one place, per Matee). Edits the
 // device identity (first/last name + phone) and folds in the personal
 // preferences (language + default country). Distinct from "Manage this Kaata"
@@ -9,7 +10,7 @@
 // Language + default country auto-commit (no Save) like the old Preferences.
 
 import { Ionicons } from "@expo/vector-icons";
-import { Stack, useFocusEffect, useNavigation, useRouter } from "expo-router";
+import { Stack, useFocusEffect, usePreventRemove, useRouter } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   KeyboardAvoidingView,
@@ -152,8 +153,8 @@ export default function AccountScreen() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
-  const lastNameRef = useRef<TextInput>(null);
-  const phoneRef = useRef<TextInput>(null);
+  const lastNameRef = useRef<TextInputInstance>(null);
+  const phoneRef = useRef<TextInputInstance>(null);
 
   // Preferences (auto-commit).
   const [localePref, setLocalePref] = useState<LocalePref>("system");
@@ -176,14 +177,7 @@ export default function AccountScreen() {
   // Guards BOTH erasing flows (deletion and the retired-install reset), so one
   // can never start while the other is still running.
   const deletingRef = useRef(false);
-  const navigation = useNavigation();
-  useEffect(
-    () =>
-      navigation.addListener("beforeRemove", (event) => {
-        if (deletingRef.current) event.preventDefault();
-      }),
-    [navigation],
-  );
+  const disableDeletionPrevention = usePreventRemove(deleting);
   useFocusEffect(
     useCallback(() => {
       const subscription = BackHandler.addEventListener(
@@ -312,6 +306,8 @@ export default function AccountScreen() {
       await deleteAccount();
       // The confirmed cleanup also rebuilt a fresh local schema.
       deletingRef.current = false;
+      setDeleting(false);
+      disableDeletionPrevention();
       router.replace("/onboarding");
     } catch (err) {
       console.warn("[account] deleteAccount failed", err);
@@ -343,15 +339,19 @@ export default function AccountScreen() {
   async function onConfirmReset() {
     if (deletingRef.current) return;
     deletingRef.current = true;
+    setDeleting(true);
     setResetConfirmVisible(false);
     try {
       await resetRetiredInstall();
+      setDeleting(false);
+      disableDeletionPrevention();
       router.replace("/onboarding");
     } catch (err) {
       console.warn("[account] resetRetiredInstall failed", err);
       toast.push(t("account.retired.failed"), "error");
     } finally {
       deletingRef.current = false;
+      setDeleting(false);
     }
   }
 

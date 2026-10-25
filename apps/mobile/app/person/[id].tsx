@@ -1,3 +1,4 @@
+import type { ScrollViewInstance, TextInputInstance } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as Crypto from "expo-crypto";
 import {
@@ -176,7 +177,7 @@ export default function PersonDetailScreen() {
   const [keyboardShown, setKeyboardShown] = useState(false);
   const keyboardShownRef = useRef(false);
   const [searchFocused, setSearchFocused] = useState(false);
-  const searchInputRef = useRef<TextInput>(null);
+  const searchInputRef = useRef<TextInputInstance>(null);
   const reducedMotion = useSheetMotionPreference();
   const keyboardRouteFocused = useRef(false);
   useRouteFocusEffect(
@@ -249,7 +250,7 @@ export default function PersonDetailScreen() {
     reminderActionKey?: string;
   }>();
   const flowScope = `${getAccountIdSync() ?? "local"}:${getActiveVaultIdSyncMaybe() ?? "none"}:${id}`;
-  const scrollRef = useRef<ScrollView>(null);
+  const scrollRef = useRef<ScrollViewInstance>(null);
   const entriesCardY = useRef<number | null>(null);
   const entryPositions = useRef(new Map<string, { y: number; height: number }>());
   const viewport = useRef({ offset: 0, height: 0, lift: 0 });
@@ -1080,7 +1081,8 @@ export default function PersonDetailScreen() {
   const seen = useCallback((tl: TabLink | null) => {
     // Filtered tallies are not read until the full ledger is visible again.
     if (searchingRef.current) return;
-    if (tl) markTabNoticesSeen(tl, { focused: focused.current, appState: AppState.currentState });
+    const appState = AppState.currentState;
+    if (tl && appState) markTabNoticesSeen(tl, { focused: focused.current, appState });
   }, []);
   useEffect(() => {
     if (!searching) seen(latestLink.current);

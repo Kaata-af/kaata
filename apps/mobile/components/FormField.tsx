@@ -1,3 +1,4 @@
+import type { TextInputInstance } from "react-native";
 import { forwardRef, type ReactNode, useEffect, useRef } from "react";
 import { Animated, StyleSheet, Text, TextInput, type TextInputProps, View } from "react-native";
 import { colors } from "../lib/colors";
@@ -35,7 +36,7 @@ export type FormFieldProps = TextInputProps & {
  */
 export const LTR_INPUT = { writingDirection: "ltr", textAlign: "left" } as const;
 
-export const FormField = forwardRef<TextInput, FormFieldProps>(function FormField(
+export const FormField = forwardRef<TextInputInstance, FormFieldProps>(function FormField(
   { label, required, error, style, onChangeText, value, accessory, ...inputProps },
   ref,
 ) {

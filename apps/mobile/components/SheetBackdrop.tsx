@@ -1,3 +1,4 @@
+import type { ViewInstance } from "react-native";
 import { BlurTargetView, BlurView } from "expo-blur";
 import {
   createContext,
@@ -13,7 +14,7 @@ import { SHEET_BLUR_METHOD } from "../lib/blur";
 import { t } from "../lib/i18n";
 
 type BackdropContext = {
-  target: RefObject<View | null> | undefined;
+  target: RefObject<ViewInstance | null> | undefined;
   reducedMotion: boolean;
   reducedTransparency: boolean;
 };
@@ -26,7 +27,7 @@ const Context = createContext<BackdropContext>({
 /** One native target for all overlays, mounted before any sheet. Native
  * Modal hosts are separate from this view, so the blur never captures itself. */
 export function SheetBlurProvider({ children }: PropsWithChildren) {
-  const target = useRef<View | null>(null);
+  const target = useRef<ViewInstance | null>(null);
   const [targetReady, setTargetReady] = useState(false);
   const [reducedMotion, setReducedMotion] = useState(false);
   const [reducedTransparency, setReducedTransparency] = useState(false);

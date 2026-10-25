@@ -1,3 +1,4 @@
+import type { TextInputInstance } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation, useRoute, useRouter, type NativeStackNavigationProp } from "expo-router";
 import {
@@ -146,7 +147,7 @@ export function SearchSheet(props: SearchSheetProps) {
 
 /** Matches Add Customer's SafeAreaView, shared header and native keyboard layout. */
 export function SearchSheetContent(props: SearchSheetProps & { active?: boolean }) {
-  const input = useRef<TextInput>(null);
+  const input = useRef<TextInputInstance>(null);
   const latest = useRef(props);
   latest.current = props;
   const session = useRef({ visible: props.visible, contextKey: props.contextKey, generation: 0 });

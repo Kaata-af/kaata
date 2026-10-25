@@ -44,7 +44,11 @@ function evaluateGesture(relative, requireDependency) {
   vm.runInNewContext(code, { module, exports: module.exports, require: requireDependency });
   return module.exports;
 }
+const callbackTypes = evaluateGesture('../../CallbackType.ts', (id) => {
+  assert.fail('Unexpected callback type dependency: ' + id);
+});
 const base = evaluateGesture('gesture.ts', (id) => {
+  if (id === '../../CallbackType') return callbackTypes;
   if (id === '../getNextHandlerTag') return { getNextHandlerTag: () => 1 };
   if (id === '../../utils') return { isRemoteDebuggingEnabled: () => false };
   assert.fail('Unexpected gesture dependency: ' + id);

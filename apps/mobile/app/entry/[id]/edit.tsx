@@ -1,3 +1,4 @@
+import type { TextInputInstance } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -83,8 +84,8 @@ export default function EditEntryScreen() {
   // letting the user type and then refusing. The data layer refuses too
   // (TabLinkedEntryError), which the catch below words the same way.
   const [tabLocked, setTabLocked] = useState(false);
-  const amountRef = useRef<TextInput>(null);
-  const noteRef = useRef<TextInput>(null);
+  const amountRef = useRef<TextInputInstance>(null);
+  const noteRef = useRef<TextInputInstance>(null);
   // Synchronous re-entry guard — `busy` state can't stop a same-frame
   // double-tap (setState is async); see entry/new.tsx.
   const savingRef = useRef(false);

@@ -1,4 +1,12 @@
 export type OnboardingStep = "language" | "calendar" | "auth" | "profile" | "kaata" | "done";
+export type InitialRoute =
+  | "index"
+  | "onboarding/restore"
+  | "onboarding/auth"
+  | "onboarding/profile"
+  | "onboarding/kaata"
+  | "onboarding/calendar"
+  | "onboarding/language";
 
 export function parseOnboardingStep(raw: string | null): OnboardingStep | null {
   return raw === "language" ||
@@ -20,7 +28,7 @@ export function pickInitialRoute(args: {
   accountId: string | null;
   restoreSkipped: boolean;
   cancelledDeletionAccountId?: string | null;
-}): string {
+}): InitialRoute {
   if (args.accountId && args.cancelledDeletionAccountId === args.accountId)
     return "onboarding/restore";
   if (args.hasOnboarded) return "index";

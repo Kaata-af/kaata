@@ -145,6 +145,11 @@ function printQR(url) {
 // shell in the middle would mangle forwarded arguments.
 const expoCli = require.resolve("expo/bin/cli");
 const forwardedArgs = process.argv.slice(2);
+// expo-dev-client changes Expo's implicit target. Keep this launcher aimed at
+// Expo Go unless the caller chooses a target explicitly.
+if (!forwardedArgs.includes("--go") && !forwardedArgs.includes("--dev-client")) {
+  forwardedArgs.unshift("--go");
+}
 
 // A real terminal goes straight to Expo: its own QR, its own interactive keys,
 // nothing from us. Only the piped case needs help.
