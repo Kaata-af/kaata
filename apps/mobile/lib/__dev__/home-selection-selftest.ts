@@ -497,6 +497,11 @@ const expectBottomDock = (selecting = false) => {
   const keyboard = homeNodes().find((node) => node.type === "SearchKeyboardFrame")!;
   assert.ok(keyboard, "native continuous keyboard movement owns the Home frame");
   assert.equal(
+    keyboard.props.avoidAndroidKeyboard,
+    true,
+    "Home opts into measured Android keyboard avoidance",
+  );
+  assert.equal(
     homeNodes().some((node) => node.type === "KeyboardAvoidingView"),
     false,
   );

@@ -1994,9 +1994,9 @@ export default function PersonDetailScreen() {
           ("the old one shows blank text after the second one is added, fixed
           by going back and returning"). A single uniform card has no per-row
           style flip, so it can't happen. */}
-      <SearchKeyboardFrame style={{ flex: 1 }}>
-        {/* iOS follows continuous native keyboard frames. Android's native
-            adjustResize owns its viewport with no second avoidance layer. */}
+      <SearchKeyboardFrame style={{ flex: 1 }} avoidAndroidKeyboard>
+        {/* The shared frame also handles Android hosts that overlay the IME
+            instead of resizing the viewport. */}
         <View style={{ flex: 1 }}>
           {selecting ? (
             <View

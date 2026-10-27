@@ -2546,6 +2546,11 @@ async function main() {
         "the customer has no competing JS keyboard avoider",
       );
       assert.equal(flattenStyle(find("SearchKeyboardFrame")!.props.style).flex, 1);
+      assert.equal(
+        find("SearchKeyboardFrame")!.props.avoidAndroidKeyboard,
+        true,
+        "customer search opts into measured Android keyboard avoidance",
+      );
       assert.ok(nodes(find("SearchKeyboardFrame")).includes(find("ScrollView")!));
       assert.equal(
         find("ScrollView")?.props.automaticallyAdjustKeyboardInsets,

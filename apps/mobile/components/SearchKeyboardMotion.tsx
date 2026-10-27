@@ -1,5 +1,23 @@
-import { createContext, useContext, useMemo, type ReactNode } from "react";
-import { Platform, View, type ViewProps } from "react-native";
+import { useFocusEffect } from "expo-router";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import {
+  Keyboard,
+  Platform,
+  StyleSheet,
+  TurboModuleRegistry,
+  View,
+  type KeyboardMetrics,
+  type ViewInstance,
+  type ViewProps,
+} from "react-native";
 import { KeyboardProvider, useGenericKeyboardHandler } from "react-native-keyboard-controller";
 import Reanimated, {
   useAnimatedStyle,
@@ -58,9 +76,94 @@ function NativeKeyboardFrame({ style, ...props }: ViewProps) {
   return <Reanimated.View {...props} style={[style, keyboardStyle]} />;
 }
 
-/** UI-thread layout follows actual keyboard frames, with no second animation. */
-export function SearchKeyboardFrame(props: ViewProps) {
-  return Platform.OS === "ios" ? <NativeKeyboardFrame {...props} /> : <View {...props} />;
+function AndroidKeyboardFrame({ style, onLayout, ...props }: ViewProps) {
+  const frame = useRef<ViewInstance>(null);
+  const focused = useRef(false);
+  const measurement = useRef(0);
+  const keyboard = useRef<KeyboardMetrics | undefined>(undefined);
+  const [overlap, setOverlap] = useState(0);
+  const basePadding = StyleSheet.flatten(style)?.paddingBottom;
+
+  const measure = useCallback(() => {
+    if (!focused.current) return;
+    const request = ++measurement.current;
+    const metrics = keyboard.current;
+    if (
+      !metrics ||
+      !Number.isFinite(metrics.height) ||
+      metrics.height <= 0 ||
+      !Number.isFinite(metrics.screenY)
+    ) {
+      setOverlap(0);
+      return;
+    }
+    frame.current?.measureInWindow((_x, y, _width, height) => {
+      if (!focused.current || request !== measurement.current) return;
+      if (!Number.isFinite(y) || !Number.isFinite(height) || height <= 0) return;
+      // Native resize may already have made room. Avoid only the remaining
+      // intersection, using window coordinates rather than a whole IME height.
+      setOverlap(Math.max(0, Math.min(height, y + height - metrics.screenY)));
+    });
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      let active = true;
+      focused.current = true;
+      keyboard.current = Keyboard.metrics() ?? undefined;
+      const show = Keyboard.addListener("keyboardDidShow", (event) => {
+        if (!active) return;
+        keyboard.current = event.endCoordinates;
+        measure();
+      });
+      const hide = Keyboard.addListener("keyboardDidHide", () => {
+        if (!active) return;
+        keyboard.current = undefined;
+        measure();
+      });
+      measure();
+      return () => {
+        active = false;
+        focused.current = false;
+        measurement.current++;
+        show.remove();
+        hide.remove();
+      };
+    }, [measure]),
+  );
+
+  return (
+    <View
+      {...props}
+      ref={frame}
+      collapsable={false}
+      style={[
+        style,
+        { paddingBottom: (typeof basePadding === "number" ? basePadding : 0) + overlap },
+      ]}
+      onLayout={(event) => {
+        onLayout?.(event);
+        measure();
+      }}
+    />
+  );
+}
+
+type FrameProps = ViewProps & { avoidAndroidKeyboard?: boolean };
+
+/** iOS follows native frames. Edge-to-edge Android screens avoid actual IME overlap. */
+export function SearchKeyboardFrame({ avoidAndroidKeyboard = false, ...props }: FrameProps) {
+  if (Platform.OS === "ios") return <NativeKeyboardFrame {...props} />;
+  const edgeToEdge =
+    Platform.OS === "android" &&
+    TurboModuleRegistry.get<{
+      getConstants(): { isEdgeToEdge?: boolean };
+    }>("DeviceInfo")?.getConstants().isEdgeToEdge !== false;
+  return avoidAndroidKeyboard && edgeToEdge ? (
+    <AndroidKeyboardFrame {...props} />
+  ) : (
+    <View {...props} />
+  );
 }
 
 type FooterProps = ViewProps & {

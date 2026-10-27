@@ -1592,8 +1592,8 @@ export default function HomeScreen() {
 
       <UpdateBanner />
 
-      {/* Native keyboard progress owns iOS movement; Android keeps native resize. */}
-      <SearchKeyboardFrame style={styles.body}>
+      {/* Each host avoids only the keyboard overlap its native window leaves. */}
+      <SearchKeyboardFrame style={styles.body} avoidAndroidKeyboard>
         <View ref={overlaySurfaceRef} style={styles.body} onLayout={updateFilterAnchor}>
           <BlurTargetView ref={filterBlurTargetRef} collapsable={false} style={styles.body}>
             <View style={styles.body}>
