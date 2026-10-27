@@ -12,6 +12,7 @@
 // the projection is unchanged.
 
 import { getBackendUrl } from "../api";
+import { currencyRequestHeaders } from "../currency-sync";
 import { applyForCurrentSession, getSessionJWT, type SessionSnapshot } from "../auth";
 import { healActiveVaultId } from "../db";
 import { getAccountIdSync, getDb } from "../db-tx";
@@ -141,6 +142,7 @@ async function fetchOnePage(
   limit: number,
   session?: SessionSnapshot,
 ): Promise<PullResponse> {
+  const currencyHeaders = await currencyRequestHeaders(await getDb(), vaultId);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), PULL_TIMEOUT_MS);
 
@@ -155,6 +157,7 @@ async function fetchOnePage(
     res = await fetch(url, {
       method: "GET",
       headers: {
+        ...currencyHeaders,
         Accept: "application/json",
         "Accept-Encoding": "gzip",
         Authorization: `Bearer ${jwt}`,

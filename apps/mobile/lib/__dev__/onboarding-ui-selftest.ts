@@ -179,15 +179,24 @@ function successFixture(
   };
 }
 
-function kaataFixture() {
+function kaataFixture(
+  options: {
+    rtl?: boolean;
+    pending?: string;
+    stashedCurrency?: string;
+    preview?: Promise<{ tab: { currency: string } }>;
+  } = {},
+) {
   const hooks = uiHooks();
-  const { ui, direction, i18n } = presentation(false);
+  const { ui, direction, i18n } = presentation(options.rtl ?? false);
   const handlers = new Set<() => boolean>();
   const routes: unknown[] = [];
   const creations: unknown[][] = [];
   const meta = new Map<string, string>([
     ["onboarding_self_name", "Ahmad"],
     ["onboarding_self_phone", "+93700000001"],
+    ["pending_tab_token", options.pending ?? ""],
+    ["pending_tab_currency", options.stashedCurrency ?? ""],
   ]);
   let createGate: Promise<void> | null = null;
   let failBack = false;
@@ -221,11 +230,15 @@ function kaataFixture() {
     "../../lib/direction": { ...direction, bidiIsolate: (value: string) => value },
     "../../lib/i18n": i18n,
     "../../lib/tokens": tokens,
-    "../../lib/auth": { getSessionJWT: async () => null, updateAccountPhone: async () => {} },
+    "../../lib/auth": {
+      getSessionJWT: async () => (options.pending ? "jwt" : null),
+      updateAccountPhone: async () => {},
+    },
     "../../lib/currency": {
       CURRENCIES: [
         { code: "AFN", symbol: "؋" },
         { code: "USD", symbol: "$" },
+        { code: "EUR", symbol: "€" },
       ],
       DEFAULT_CURRENCY: "AFN",
       getCurrencyName: (code: string) => code,
@@ -245,6 +258,7 @@ function kaataFixture() {
     "../../lib/event-log": { EventSigningUnavailableError: class extends Error {} },
     "../../lib/tabs/link": {
       fetchTabPreview: async () => {
+        if (options.preview) return options.preview;
         throw new Error("No invitation");
       },
     },
@@ -269,6 +283,13 @@ function kaataFixture() {
     create: () =>
       nodes(hooks.tree).find((node) => node.props.accessibilityLabel === "onboardingKaata.submit")!,
     field: () => nodes(hooks.tree).find((node) => node.type === "FormField")!,
+    defaultSheet: () => nodes(hooks.tree).find((node) => node.type === "OptionSheet")!,
+    defaultField: () =>
+      nodes(hooks.tree).find(
+        (node) =>
+          node.type === "Pressable" &&
+          node.props.accessibilityLabel?.startsWith("onboardingKaata.currency.label:"),
+      )!,
     gate: (promise: Promise<void>) => {
       createGate = promise;
     },
@@ -340,21 +361,140 @@ async function main() {
   );
   assert.equal(abandoned.hooks.lateWrites, 0);
 
+  for (const rtl of [false, true]) {
+    const draft = kaataFixture({ rtl });
+    await draft.flush();
+    assert.equal(draft.defaultSheet().props.title, "onboardingKaata.currency.label");
+    assert.deepEqual(
+      draft.defaultSheet().props.options.map((option: { key: string }) => option.key),
+      ["AFN", "USD", "EUR"],
+    );
+    assert.equal(
+      nodes(draft.hooks.tree).some((node) => node.type === "EnabledCurrenciesSheet"),
+      false,
+      "onboarding has no enabled-currencies sheet",
+    );
+    assert.equal(
+      nodes(draft.hooks.tree).some((node) =>
+        node.props.accessibilityLabel?.startsWith("vaultSettings.currencies.label:"),
+      ),
+      false,
+      "onboarding keeps only its single currency field",
+    );
+    draft.defaultField().props.onPress();
+    draft.render();
+    assert.equal(draft.defaultSheet().props.visible, true);
+    assert.equal(draft.defaultSheet().props.isRTL, rtl);
+    assert.equal(draft.defaultSheet().props.selected, "AFN");
+    draft.defaultSheet().props.onSelect("INVALID");
+    draft.render();
+    assert.equal(
+      draft.defaultSheet().props.selected,
+      "AFN",
+      "unknown currency choices are ignored",
+    );
+    const cancelledDraft = draft.defaultSheet().props;
+    cancelledDraft.onDismiss();
+    draft.render();
+    draft.defaultField().props.onPress();
+    draft.render();
+    cancelledDraft.onSelect("USD");
+    cancelledDraft.onDismiss();
+    draft.render();
+    assert.equal(
+      draft.defaultSheet().props.visible,
+      true,
+      "callbacks from an old sheet cannot close a new one",
+    );
+    assert.equal(
+      draft.defaultSheet().props.selected,
+      "AFN",
+      "stale picker callbacks cannot alter the current choice",
+    );
+    draft.defaultSheet().props.onSelect("USD");
+    draft.render();
+    assert.equal(draft.defaultSheet().props.visible, false);
+    assert.ok(draft.defaultField().props.accessibilityLabel.includes("USD"));
+    draft.defaultField().props.onPress();
+    draft.render();
+    assert.equal([...draft.handlers][0](), true);
+    draft.render();
+    assert.equal(draft.defaultSheet().props.visible, false);
+    assert.deepEqual(draft.routes, [], "Back dismisses the currency picker before leaving setup");
+    assert.equal(draft.defaultSheet().props.selected, "USD");
+    draft.hooks.unmount();
+  }
+
+  const preset = kaataFixture({
+    pending: "shared",
+    stashedCurrency: "USD",
+    preview: Promise.resolve({ tab: { currency: "EUR" } }),
+  });
+  await preset.flush();
+  await preset.flush();
+  assert.equal(preset.defaultSheet().props.selected, "EUR");
+  assert.ok(
+    preset.defaultField().props.accessibilityLabel.includes("EUR"),
+    "the pending link still presets the single currency field",
+  );
+  preset.hooks.unmount();
+  {
+    const latePreset = deferred<{ tab: { currency: string } }>();
+    const editing = kaataFixture({ pending: "shared", preview: latePreset.promise });
+    await editing.flush();
+    editing.defaultField().props.onPress();
+    editing.render();
+    latePreset.resolve({ tab: { currency: "USD" } });
+    await editing.flush();
+    assert.equal(
+      editing.defaultSheet().props.selected,
+      "AFN",
+      "opening the currency picker takes ownership before a late preset resolves",
+    );
+    assert.equal(editing.defaultSheet().props.visible, true);
+    editing.defaultSheet().props.onDismiss();
+    await editing.flush();
+    assert.equal(
+      editing.defaultSheet().props.selected,
+      "AFN",
+      "dismissing still preserves the user's currency intent",
+    );
+    editing.hooks.unmount();
+  }
+
   const saved = kaataFixture();
   await saved.flush();
+  saved.defaultField().props.onPress();
+  saved.render();
+  saved.defaultSheet().props.onSelect("USD");
+  saved.render();
   saved.field().props.onChangeText("  Family kaata  ");
   saved.render();
   const committing = deferred<void>();
   saved.gate(committing.promise);
   const create = saved.create(),
-    staleBack = saved.back();
+    staleBack = saved.back(),
+    staleDefaultField = saved.defaultField(),
+    staleDefaultSheet = saved.defaultSheet().props,
+    staleNameChange = saved.field().props.onChangeText;
   const created = create.props.onPress();
   create.props.onPress();
   await staleBack.props.onPress();
   assert.equal([...saved.handlers][0](), true);
   saved.render();
   assert.equal(saved.back().props.disabled, true);
-  assert.deepEqual(saved.creations, [["Ahmad", "Family kaata", "+93700000001", "AFN"]]);
+  staleDefaultSheet.onSelect("EUR");
+  staleDefaultField.props.onPress();
+  staleNameChange("Changed while saving");
+  saved.render();
+  assert.equal(saved.defaultSheet().props.visible, false);
+  assert.equal(saved.defaultField().props.disabled, true);
+  assert.equal(saved.field().props.value, "  Family kaata  ");
+  assert.deepEqual(
+    saved.creations,
+    [["Ahmad", "Family kaata", "+93700000001", "USD"]],
+    "onboarding creates with exactly four arguments and its selected single currency",
+  );
   assert.deepEqual(
     saved.routes,
     [],
@@ -366,6 +506,38 @@ async function main() {
     { pathname: "/onboarding/success", params: { name: "Family kaata" } },
   ]);
   assert.equal(saved.meta.get("onboarding_step"), "done");
+
+  const pendingSubmission = deferred<{ tab: { currency: string } }>();
+  const submittedPreset = kaataFixture({ pending: "shared", preview: pendingSubmission.promise });
+  await submittedPreset.flush();
+  submittedPreset.field().props.onChangeText("Frozen kaata");
+  submittedPreset.render();
+  const submission = deferred<void>();
+  submittedPreset.gate(submission.promise);
+  const pendingCreation = submittedPreset.create().props.onPress();
+  pendingSubmission.resolve({ tab: { currency: "USD" } });
+  await submittedPreset.flush();
+  assert.equal(
+    submittedPreset.defaultSheet().props.selected,
+    "AFN",
+    "a late preset cannot change a submitted form",
+  );
+  assert.deepEqual(submittedPreset.creations[0].slice(3), ["AFN"]);
+  const afterUnmountCreate = submittedPreset.create().props.onPress;
+  const afterUnmountSheet = submittedPreset.defaultSheet().props;
+  submittedPreset.hooks.unmount();
+  afterUnmountCreate();
+  afterUnmountSheet.onSelect("USD");
+  afterUnmountSheet.onDismiss();
+  submission.resolve();
+  await pendingCreation;
+  await settleUI();
+  assert.deepEqual(
+    submittedPreset.routes,
+    [],
+    "an unmounted creation cannot redirect another screen",
+  );
+  assert.equal(submittedPreset.hooks.lateWrites, 0);
 
   const retryBack = kaataFixture();
   await retryBack.flush();

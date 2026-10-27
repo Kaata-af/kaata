@@ -16,14 +16,16 @@ export async function openCustomerReminder(
   owner: string,
   notificationKey?: string,
   notificationFingerprint?: string,
+  canOpen: () => boolean = () => true,
 ): Promise<void> {
-  if (!UUID.test(id) || owner !== reminderOwnerScope()) return;
+  if (!canOpen() || !UUID.test(id) || owner !== reminderOwnerScope()) return;
   const tap = ++latestTap;
   let switched = false;
   const stop = onAccountIdentityChanged(() => {
     switched = true;
   });
-  const current = () => !switched && tap === latestTap && owner === reminderOwnerScope();
+  const current = () =>
+    canOpen() && !switched && tap === latestTap && owner === reminderOwnerScope();
   try {
     const reminder = (await listCustomerReminders()).find((r) => r.id === id);
     if (!reminder || !current()) return;
@@ -52,7 +54,9 @@ export async function openCustomerReminder(
             fingerprint,
           })
         : null;
-    if (notificationKey !== undefined && !stale && !actionKey) return;
+    // Draft consumption and navigation are separate: retrying a tap after a
+    // failed route must still open its customer, without preparing it twice.
+    if (!current()) return;
     router.push({
       pathname: "/person/[id]",
       params: {

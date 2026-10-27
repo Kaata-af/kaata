@@ -128,11 +128,20 @@ const styles = StyleSheet.create({
   icon: {
     minWidth: TOUCH_MIN,
     minHeight: TOUCH_MIN,
+    flexShrink: 0,
     alignItems: "center",
     justifyContent: "center",
   },
   month: { alignItems: "center", justifyContent: "space-between" },
-  monthText: { ...typography.body, fontFamily: fonts.sansSemi, color: colors.textEmphasis },
+  monthText: {
+    ...typography.body,
+    flex: 1,
+    flexShrink: 1,
+    minWidth: 0,
+    textAlign: "center",
+    fontFamily: fonts.sansSemi,
+    color: colors.textEmphasis,
+  },
   week: { flexDirection: "row", gap: 2 },
   weekday: {
     flex: 1,

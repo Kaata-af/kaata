@@ -33,6 +33,8 @@ import { getAppMeta, getDb, setAppMeta } from "../../lib/db";
 import { textDir, useIsRTL } from "../../lib/direction";
 import { fonts, sansLineHeight } from "../../lib/fonts";
 import { t } from "../../lib/i18n";
+import { isValidCurrencyCode } from "../../lib/currency-scope";
+import { applyVaultCurrency } from "../../lib/currency";
 import { decodePairQr, type PairQrPayload, type PairQrRole } from "../../lib/mesh/pair-qr";
 import { ensureDeviceKey, getDevicePubkey } from "../../lib/mesh/device-key";
 import { icon, radius, typography } from "../../lib/tokens";
@@ -134,10 +136,18 @@ export default function VaultPairScanScreen() {
       // pair_nonce. The OWNER matches the nonce to a live pair token and EMITS
       // the joiner's admission into the chain. A QR without an anchor pubkey
       // can't complete a chain join — refuse it.
-      if (!payload.vault_trust_anchor_pubkey) {
+      if (
+        !payload.vault_trust_anchor_pubkey ||
+        !isValidCurrencyCode(payload.currency) ||
+        !isValidCurrencyCode(payload.legacy_currency) ||
+        !isValidCurrencyCode(payload.default_entry_currency)
+      ) {
         setStep({ kind: "error", message: t("vaultPairScan.error.malformed") });
         return;
       }
+      const baseCurrency = payload.currency;
+      const legacyCurrency = payload.legacy_currency;
+      const defaultCurrency = payload.default_entry_currency;
 
       // The joining device's effective account_id. When signed in, that's the
       // real account; otherwise synthesize a stable local sentinel from the
@@ -173,14 +183,17 @@ export default function VaultPairScanScreen() {
         if (!existing) {
           await db.runAsync(
             `INSERT INTO vaults (
-               id, name, currency, created_at, updated_at,
+               id, name, currency,legacy_currency,default_entry_currency, created_at, updated_at,
                archived_at, is_default, account_id,
                registered_with_server_at, vault_epoch,
                hlc_logical, hlc_wall_ms,
                vault_trust_anchor_pubkey
-             ) VALUES (?, ?, 'AFN', ?, ?, NULL, 0, ?, ?, 0, 0, 0, ?)`,
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, 0, ?, ?, 0, 0, 0, ?)`,
             payload.vault_id,
             payload.vault_name,
+            baseCurrency,
+            legacyCurrency,
+            defaultCurrency,
             now,
             now,
             // account_id is left null when the scanner is signed out; sign-in
@@ -267,6 +280,7 @@ export default function VaultPairScanScreen() {
       }
 
       await setActiveVaultId(payload.vault_id);
+      await applyVaultCurrency(payload.vault_id);
 
       if (!mountedRef.current) return;
       void runDialLoop(payload);

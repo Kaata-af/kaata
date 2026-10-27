@@ -143,6 +143,7 @@ stub("../auth", {
   },
 });
 stub("../api", { getBackendUrl: async () => "http://tabs.fixture" });
+stub("../currency-sync", { ensureCurrencySyncSupported: async () => {} });
 stub("../ledger-events", {
   emitLedgerApplied: (vaultId: string, origin: string) => {
     ledgerEmits.push({ vaultId, origin });
@@ -306,11 +307,19 @@ function openFixture(): void {
     ${EDITOR_LIMIT_DDL!.replace("${table}", "kaata_credit_defaults")};
     ${CREDIT_BASELINES_DDL}
     ${MEMBER_CREDIT_DDL}
-    INSERT INTO vaults VALUES ('${VAULT}', 'AFN');
+    INSERT INTO vaults(id,currency) VALUES ('${VAULT}', 'AFN');
     INSERT INTO users VALUES ('${SELF}', '+93700111222', 'Synthetic Owner', 1, NULL, NULL, 1, 1, NULL, NULL);
     INSERT INTO users VALUES ('${CONTACT}', '+93700333444', 'Synthetic Contact', 0, NULL, NULL, 1, 1, NULL, NULL);
     INSERT INTO relationships VALUES ('${REL}', '${SELF}', '${CONTACT}', 'peer', '${VAULT}', 1, 1, NULL, NULL);
   `);
+  fixture.exec(`ALTER TABLE vaults ADD COLUMN legacy_currency TEXT DEFAULT 'AFN';
+    ALTER TABLE vaults ADD COLUMN default_entry_currency TEXT DEFAULT 'AFN';
+    ALTER TABLE entries ADD COLUMN currency TEXT DEFAULT 'AFN';
+    ALTER TABLE settlements ADD COLUMN currency TEXT DEFAULT 'AFN';
+    ALTER TABLE customer_credit_limits ADD COLUMN currency TEXT NOT NULL DEFAULT 'AFN';
+    ALTER TABLE kaata_credit_defaults ADD COLUMN currency TEXT NOT NULL DEFAULT 'AFN';
+    DROP INDEX idx_tab_links_open_rel;
+    CREATE UNIQUE INDEX idx_tab_links_open_rel ON tab_links(relationship_id,currency) WHERE closed_at IS NULL;`);
   dbTx._resetDbHandleForReset();
   dbTx.setInstallIdCache("fixture-device");
   dbTx.setLocalSelfUserIdCache(SELF);
@@ -3265,6 +3274,55 @@ async function main(): Promise<void> {
       "\u2068Other\u2069",
     );
     assert.equal(ltrIsolate("+93781696644"), "\u2066+93781696644\u2069");
+  });
+
+  await test("parallel currencies keep independent links, openings, receipts and balances", async () => {
+    const afn = link({ tab_id: "afn-tab", currency: "AFN", history_order: "1", linked_at: 2000 });
+    const usd = link({ tab_id: "usd-tab", currency: "USD", history_order: "2", linked_at: 3000 });
+    await tabsDb.upsertTabLink(afn);
+    await tabsDb.upsertTabLink(usd);
+    assert.equal((await tabsDb.getTabLinkForPerson(CONTACT, "AFN"))?.tab_id, "afn-tab");
+    assert.equal((await tabsDb.getTabLinkForPerson(CONTACT, "USD"))?.tab_id, "usd-tab");
+    assert.equal(await tabsDb.getTabLinkForPerson(CONTACT, "EUR"), null);
+    assert.equal((await tabsDb.getLatestTabLinkForPerson(CONTACT, "USD"))?.tab_id, "usd-tab");
+    assert.equal((await tabsDb.getAnyTabLinkForRelationship(REL, "AFN"))?.tab_id, "afn-tab");
+    await assert.rejects(tabsDb.upsertTabLink({ ...usd, tab_id: "duplicate-usd" }), /UNIQUE/);
+    fixture.exec(`INSERT INTO entries(id,vault_id,relationship_id,type,amount_afn,currency,created_at,updated_at)
+      VALUES ('afn-private','${VAULT}','${REL}','debt',100,'AFN',1000,1000),
+             ('usd-private','${VAULT}','${REL}','debt',70,'USD',1000,1000),
+             ('usd-post','${VAULT}','${REL}','debt',5,'USD',4000,4000);
+      INSERT INTO tab_entries(id,tab_id,seq,rev,created_by,direction,amount_minor,kind,occurred_at,created_at,status)
+      VALUES('afn-opening','afn-tab',1,1,'a','a_to_b',10000,'opening',2000,2000,'accepted'),
+            ('usd-opening','usd-tab',1,1,'a','a_to_b',7000,'opening',3000,3000,'accepted');`);
+    assert.equal((await db.getPerson(CONTACT, "AFN"))?.balance, 100);
+    assert.equal((await db.getPerson(CONTACT, "USD"))?.balance, 75);
+    assert.deepEqual(
+      (await tabsDb.listPreLinkEntries(usd)).map((e) => e.id),
+      ["usd-private"],
+    );
+    const usdRows = await db.listEntries(CONTACT, "USD");
+    assert.deepEqual(new Set(usdRows.map((e) => e.id)), new Set(["usd-opening", "usd-post"]));
+    assert.ok(usdRows.every((e) => e.currency === "USD"));
+    assert.deepEqual(
+      (await tabsDb.getSharedHistoryReceiptForRelationship(REL, VAULT, "USD"))?.revisions,
+      { "usd-tab": usd.rev },
+    );
+    assert.deepEqual(
+      (await tabsDb.getSharedHistoryReceiptForRelationship(REL, VAULT, "AFN"))?.revisions,
+      { "afn-tab": afn.rev },
+    );
+    await tabsDb.markTabClosedLocally("usd-tab", 5000);
+    assert.equal(await tabsDb.getTabLinkForPerson(CONTACT, "USD"), null);
+    assert.equal((await tabsDb.getTabLinkForPerson(CONTACT, "AFN"))?.tab_id, "afn-tab");
+    assert.equal(
+      (await db.getPerson(CONTACT, "USD"))?.balance,
+      75,
+      "closing USD keeps its history",
+    );
+    assert.equal(
+      (await db.listEntriesForExport(VAULT, "USD")).every((e) => e.currency === "USD"),
+      true,
+    );
   });
 
   console.log(`\n${passed} tab regressions passed; ${failed} failed.`);

@@ -1,6 +1,7 @@
 import { fromMinorUnits, toMinorUnits } from "./money";
 import type { Entry } from "./types";
 import { countsTowardBalance } from "./export/shared-record";
+import { assertSingleCurrency } from "./currency-totals";
 
 export type TallyFlowSummary = {
   gave: { count: number; amount: number };
@@ -11,6 +12,7 @@ export type TallyFlowSummary = {
  * folding. Opening balances carry a net amount, not a new give/receive; exclude
  * them while retaining actual pre-link handovers when this device has them. */
 export function summarizeTallyFlows(entries: readonly Entry[]): TallyFlowSummary {
+  assertSingleCurrency(entries);
   const totals = { debt: { count: 0, minor: 0 }, payment: { count: 0, minor: 0 } };
   const seen = new Set<string>();
   for (const entry of entries) {

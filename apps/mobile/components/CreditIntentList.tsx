@@ -10,7 +10,7 @@ import { fonts } from "../lib/fonts";
 import { getLocale, t } from "../lib/i18n";
 import { onLedgerApplied } from "../lib/ledger-events";
 import { formatMoneyAmount } from "../lib/money";
-import { getCurrentCurrencySymbol } from "../lib/currency";
+import { getCurrencyLabel, useCurrency } from "../lib/currency";
 import { formatRelative } from "../lib/format";
 import { useToast } from "./Toast";
 import { onTabApplied } from "../lib/tabs/events";
@@ -20,11 +20,23 @@ import { onTabApplied } from "../lib/tabs/events";
 export function CreditIntentList({
   personId,
   vaultId,
+  currency,
+  allCurrencies = false,
 }: {
   personId: string;
   vaultId: string | null;
+  currency?: string;
+  allCurrencies?: boolean;
 }) {
-  const [rows, setRows] = useState<CreditIntent[]>([]);
+  const selected = useCurrency();
+  const code = currency ?? selected;
+  const scopeCode = allCurrencies ? "*" : code;
+  const scope = JSON.stringify([personId, vaultId, scopeCode]);
+  const [snapshot, setSnapshot] = useState<{ scope: string; rows: CreditIntent[] }>({
+    scope: "",
+    rows: [],
+  });
+  const rows = snapshot.scope === scope ? snapshot.rows : [];
   // Signed out, a waiting attempt can never be sent: say so instead of
   // "Waiting for server confirmation" forever (audit #24).
   const [signedIn, setSignedIn] = useState(true);
@@ -39,13 +51,15 @@ export function CreditIntentList({
     useCallback(() => {
       let alive = true;
       let generation = 0;
-      setRows([]);
+      setSnapshot({ scope, rows: [] });
       statuses.current = new Map();
       async function load() {
         const request = ++generation;
         if (!vaultId || getActiveVaultIdSyncMaybe() !== vaultId) return;
         const session = await captureCurrentSession();
-        const next = await listCreditIntents(personId, vaultId).catch(() => []);
+        const next = await listCreditIntents(personId, vaultId, code, { allCurrencies }).catch(
+          () => [],
+        );
         await applyForUnchangedLocalSession(session, async () => {
           if (!alive || request !== generation || getActiveVaultIdSyncMaybe() !== vaultId) return;
           const refusedNow = next.filter(
@@ -55,7 +69,7 @@ export function CreditIntentList({
           statuses.current = new Map(next.map((row) => [row.id, row.admission_status]));
           setSignedIn(session.jwt != null);
           if (refusedNow.length > 0) toastRef.current.push(t("credit.blocked"), "error");
-          setRows(next);
+          setSnapshot({ scope, rows: next });
         }).catch(() => undefined);
       }
       void load();
@@ -75,7 +89,7 @@ export function CreditIntentList({
         tabs();
         app.remove();
       };
-    }, [personId, vaultId]),
+    }, [personId, vaultId, scopeCode, allCurrencies]),
   );
   if (!rows.length) return null;
   return (
@@ -101,7 +115,7 @@ export function CreditIntentList({
                 : r.type === "debt"
                   ? t("person.action.iGave")
                   : t("person.action.iReceived")}{" "}
-              · {formatMoneyAmount(r.amount_afn)} {getCurrentCurrencySymbol()}
+              · {formatMoneyAmount(r.amount_afn)} {getCurrencyLabel(r.currency ?? code)}
             </Text>
             {r.note ? <Text style={[styles.note, textDir(isRTL)]}>{r.note}</Text> : null}
             {/* Refused and waiting no longer look alike: a red or amber dot,

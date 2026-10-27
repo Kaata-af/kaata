@@ -57,7 +57,7 @@ func TestPreSignInFirstVaultDrainsAndRestores(t *testing.T) {
 		relID := relations[i%len(relations)]
 		entryID := uuid.NewString()
 		ev := f.membershipEvent("entry_created", f.anchorDeviceID, "", entryID, map[string]any{
-			"entry_id": entryID, "relationship_id": relID, "type": "debt", "amount_afn": 123.45, "note": "synthetic",
+			"entry_id": entryID, "relationship_id": relID, "type": "debt", "amount_afn": 123.45, "note": "synthetic", "occurred_at_ms": 1_756_000_000_000 + int64(i),
 		})
 		ev.RelationshipID = &relID
 		f.signEvent(t, &ev, f.anchorPriv)

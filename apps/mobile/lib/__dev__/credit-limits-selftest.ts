@@ -15,6 +15,7 @@ import { Mutex } from "../util/mutex";
 import { toMinorUnits } from "../money";
 import { signedEntryMinorSumSql } from "../money-sql";
 import type { SQLiteTx } from "../db-tx";
+import { applyCurrencyMigration } from "./currency-fixture";
 import type {
   EntryCreatedEvent,
   EntryAmendedEvent,
@@ -34,9 +35,12 @@ CREATE TABLE event_log(event_id TEXT PRIMARY KEY,vault_id TEXT,relationship_id T
 CREATE TABLE vault_members_mirror(vault_id TEXT,account_id TEXT,role TEXT,revoked_at INTEGER);
 CREATE TABLE vault_device_registry(vault_id TEXT,account_id TEXT,device_id TEXT,device_pubkey TEXT,removed_at_ms INTEGER,removed_at_l INTEGER,removed_at_did TEXT);
 CREATE TABLE vault_credentials(vault_id TEXT,account_id TEXT);
-INSERT INTO vaults VALUES('v1',NULL,NULL,NULL,'anchor'),('v2',NULL,NULL,NULL,'anchor');
+INSERT INTO vaults(id,account_id,archived_at,registered_with_server_at,vault_trust_anchor_pubkey) VALUES('v1',NULL,NULL,NULL,'anchor'),('v2',NULL,NULL,NULL,'anchor');
 INSERT INTO relationships VALUES('r1','v1','p1',1,NULL),('r2','v2','p2',1,NULL);
 INSERT INTO users VALUES('self',1,'Owner');`);
+fixture.exec(
+  "ALTER TABLE vaults ADD COLUMN currency TEXT DEFAULT 'AFN'; CREATE TABLE schema_migrations(name TEXT PRIMARY KEY,applied_at INTEGER); CREATE TABLE settlements(id TEXT PRIMARY KEY,vault_id TEXT,relationship_id TEXT,settled_at_ms INTEGER,created_at INTEGER);",
+);
 const dbSource = readFileSync(require.resolve("../db"), "utf8");
 for (const marker of [
   "customer_credit_limits",
@@ -120,6 +124,7 @@ const entryAppliers = compile<typeof import("../projection/entries")>(
   "../projection/entries",
   (name) => {
     if (name === "../entry-date") return require("../entry-date");
+    if (name === "../currency-scope") return require("../currency-scope");
     if (name === "../hlc") return require("../hlc");
     if (name === "./field-hlc") return fieldHLCs;
     if (name === "./errors") return require("../projection/errors");
@@ -135,6 +140,7 @@ const {
   CreditMutationAdmissionError,
   captureCreditMutationBaseline,
 } = compile<typeof import("../credit-admission")>("../credit-admission", (name) => {
+  if (name === "./currency-scope") return require("../currency-scope");
   if (name === "./projection/entries") return entryAppliers;
   throw Error(`unexpected credit admission import ${name}`);
 });
@@ -155,6 +161,9 @@ const roleGate = compile<typeof import("../projection/role-gate")>(
   },
 );
 const credit = compile<typeof import("../credit-limits")>("../credit-limits", (name) => {
+  if (name === "./currency-scope") return require("../currency-scope");
+  if (name === "./currency-sync")
+    return { ...require("../currency-sync"), ensureCurrencySyncSupported: async () => {} };
   if (name === "./credit-policy") return policyModule;
   if (name === "./credit-policy-cache") return cacheModule;
   if (name === "./db-tx") return { getDb: async () => db, getActiveVaultIdSyncMaybe: () => active };
@@ -189,6 +198,7 @@ const credit = compile<typeof import("../credit-limits")>("../credit-limits", (n
   throw Error(`unexpected import ${name}`);
 });
 const tabs = compile<typeof import("../tabs/db")>("../tabs/db", (name) => {
+  if (name === "../currency-scope") return require("../currency-scope");
   if (name === "../db-tx")
     return {
       getDb: async () => db,
@@ -877,6 +887,7 @@ async function unchangedPolicyRefreshes() {
       const stored = await credit.readCreditPolicy(rows[index].relationship_id, "v1");
       assert.deepEqual(stored, {
         ...rows[index],
+        currency: "AFN",
         restrict_editors: !!rows[index].restrict_editors,
       });
     }
@@ -924,6 +935,7 @@ async function unchangedPolicyRefreshes() {
 }
 
 async function run() {
+  await applyCurrencyMigration(fixture);
   await unchangedPolicyRefreshes();
   assert.equal(creditExceeded(policy(), 0, 10000), false);
   assert.equal(creditExceeded(policy(), 10000, 10001), true);
@@ -1081,11 +1093,11 @@ async function run() {
 
   // A rejected replacement opening cannot make earlier exposure disappear
   // from the real policy warning/admission input.
-  fixture.exec(`INSERT INTO vaults VALUES('v-check',NULL,NULL,NULL,'anchor');
+  fixture.exec(`INSERT INTO vaults(id,account_id,archived_at,registered_with_server_at,vault_trust_anchor_pubkey) VALUES('v-check',NULL,NULL,NULL,'anchor');
     INSERT INTO relationships VALUES('r-check','v-check','p-check',1,NULL);
     INSERT INTO users VALUES('p-check',0,'Checkpoint customer');
-    INSERT INTO customer_credit_limits(vault_id,relationship_id,max_collect_minor,max_pay_minor,mode,updated_at_ms)
-      VALUES('v-check','r-check',35000,35000,'clerk_block',1);
+    INSERT INTO customer_credit_limits(vault_id,relationship_id,currency,max_collect_minor,max_pay_minor,mode,updated_at_ms)
+      VALUES('v-check','r-check','AFN',35000,35000,'clerk_block',1);
     INSERT INTO tab_links(tab_id,vault_id,relationship_id,role,linked_at,currency,closed_at,history_order)
       VALUES('credit-old','v-check','r-check','a',100,'AFN',200,'10'),
             ('credit-new','v-check','r-check','b',300,'AFN',NULL,'11');
@@ -1490,7 +1502,7 @@ async function run() {
   );
   assert.deepEqual(
     await credit.readCreditPolicy(KAATA_DEFAULT_CREDIT_ID, "v1"),
-    { ...kaataDefault, restrict_editors: false },
+    { ...kaataDefault, currency: "AFN", restrict_editors: false },
     "the default is cached in its own table",
   );
   assert.equal(

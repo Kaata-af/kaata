@@ -25,6 +25,7 @@ import Constants from "expo-constants";
 import * as Crypto from "expo-crypto";
 
 import { checkIn } from "./api";
+import { assertLegacyCurrencyMatches } from "./currency-metadata";
 import {
   applyForCurrentSession,
   captureCurrentSession,
@@ -473,20 +474,25 @@ export async function seedJoinedVaultMinimal(
   vaultId: string,
   vaultName: string,
   role: string,
+  currencies: { currency?: string; legacy_currency?: string; default_entry_currency?: string } = {},
 ): Promise<void> {
   let accountId = getAccountIdSync();
   if (!accountId) accountId = await refreshAccountIdCache();
   if (!accountId) return; // accept requires sign-in; purely defensive
   const now = Date.now();
   const db = await getDb();
+  await assertLegacyCurrencyMatches(db, vaultId, currencies.legacy_currency);
   await db.runAsync(
     `INSERT OR IGNORE INTO vaults
-       (id, name, currency, created_at, updated_at, archived_at,
+       (id, name, currency, legacy_currency,default_entry_currency,created_at, updated_at, archived_at,
         is_default, account_id, registered_with_server_at,
         vault_epoch, hlc_logical, hlc_wall_ms, vault_trust_anchor_pubkey)
-     VALUES (?, ?, 'AFN', ?, ?, NULL, 0, ?, ?, 0, 0, 0, NULL)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, NULL, 0, ?, ?, 0, 0, 0, NULL)`,
     vaultId,
     vaultName,
+    currencies.currency ?? currencies.legacy_currency ?? "AFN",
+    currencies.legacy_currency ?? currencies.currency ?? "AFN",
+    currencies.default_entry_currency ?? currencies.currency ?? "AFN",
     now,
     now,
     accountId,
@@ -715,15 +721,18 @@ async function seedVaultFromListing(v: VaultListing): Promise<boolean> {
   // registered_with_server_at is set (the server already knows this vault — it
   // came back from GET /v1/vaults), so the reconcile loop won't re-POST it.
   const db = await getDb();
+  await assertLegacyCurrencyMatches(db, v.vault_id, v.legacy_currency);
   await db.runAsync(
     `INSERT OR IGNORE INTO vaults
-       (id, name, currency, created_at, updated_at, archived_at,
+       (id, name, currency,legacy_currency,default_entry_currency,created_at, updated_at, archived_at,
         is_default, account_id, registered_with_server_at,
         vault_epoch, hlc_logical, hlc_wall_ms, vault_trust_anchor_pubkey)
-     VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, 0, 0, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, 0, 0, ?)`,
     v.vault_id,
     v.name,
     v.currency ?? "AFN",
+    v.legacy_currency ?? v.currency ?? "AFN",
+    v.default_entry_currency ?? v.currency ?? "AFN",
     v.created_at_ms,
     v.created_at_ms,
     v.archived_at_ms ?? null,
@@ -750,9 +759,10 @@ export async function pinMissingVaultAnchorFromListing(
   v: VaultListing,
   accountId: string,
 ): Promise<boolean> {
+  const db = await getDb();
+  await assertLegacyCurrencyMatches(db, v.vault_id, v.legacy_currency);
   const anchor = v.vault_trust_anchor_pubkey;
   if (!accountId || !anchor || (v.archived_at_ms != null && v.role !== "owner")) return false;
-  const db = await getDb();
   const { applyEventMutex } = await import("./projection");
   let changed = false;
   await applyEventMutex.runExclusive(() =>

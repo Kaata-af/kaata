@@ -599,7 +599,10 @@ async function hookTests() {
 async function openTests() {
   let owner = "account:a",
     listed: any[] = [],
-    gate: Promise<void> | null = null;
+    gate: Promise<void> | null = null,
+    lookupGate: Promise<void> | null = null;
+  let lookupCalls = 0,
+    currencyCalls = 0;
   const routes: any[] = [],
     vaults: string[] = [],
     queued: any[] = [],
@@ -617,7 +620,12 @@ async function openTests() {
   const fingerprint = `${row.updated_at}:${row.schedule_json}:Asia/Kabul`;
   const { openCustomerReminder } = compileUI("../open-customer-reminder", {
     "expo-router": { router: { push: (r: any) => routes.push(r) } },
-    "./currency": { applyVaultCurrency: async () => duringCurrency?.() },
+    "./currency": {
+      applyVaultCurrency: async () => {
+        currencyCalls++;
+        duringCurrency?.();
+      },
+    },
     "./reminder-ping-intent": {
       queueReminderPing: (intent: any) => {
         queued.push(intent);
@@ -635,7 +643,11 @@ async function openTests() {
       },
     },
     "./customer-reminders": {
-      listCustomerReminders: async () => listed,
+      listCustomerReminders: async () => {
+        lookupCalls++;
+        if (lookupGate) await lookupGate;
+        return listed;
+      },
       reminderOwnerScope: () => owner,
       reminderTimezone: () => "Asia/Kabul",
     },
@@ -671,13 +683,18 @@ async function openTests() {
   await openCustomerReminder(id, owner, "duplicate-native-request");
   assert.equal(
     routes.length,
-    beforeRefused,
-    "a duplicate/refused native intent cannot cause duplicate navigation",
+    beforeRefused + 1,
+    "a deduplicated draft still permits navigation after a failed route",
+  );
+  assert.equal(
+    routes.at(-1).params.reminderActionKey,
+    undefined,
+    "a retry never authorizes another automatic draft",
   );
   const beforeStale = queued.length;
   await openCustomerReminder(id, owner, "stale-native-request", "old-fingerprint");
   assert.equal(queued.length, beforeStale, "an edited/completed occurrence never queues a draft");
-  assert.equal(routes.length, beforeRefused + 1, "a stale alert still opens its customer normally");
+  assert.equal(routes.length, beforeRefused + 2, "a stale alert still opens its customer normally");
   assert.equal(routes.at(-1).params.reminderActionKey, undefined);
   queueResult = "fresh-action";
   await openCustomerReminder(id, owner, "fresh-native-request", fingerprint);
@@ -755,6 +772,134 @@ async function openTests() {
   assert.equal(routes.length, goodRoutes);
   assert.equal(queued.length, goodQueues);
   assert.equal(listeners.size, 0);
+
+  listed = [row];
+  let allowed = false;
+  const beforeCanceled = {
+    routes: routes.length,
+    vaults: vaults.length,
+    queued: queued.length,
+    lookup: lookupCalls,
+    currency: currencyCalls,
+  };
+  await openCustomerReminder(id, owner, "inactive-before-read", fingerprint, () => allowed);
+  assert.equal(
+    lookupCalls,
+    beforeCanceled.lookup,
+    "inactive work never reads private reminder state",
+  );
+  assert.equal(vaults.length, beforeCanceled.vaults);
+  allowed = true;
+  const slowLookup = deferred<void>();
+  lookupGate = slowLookup.promise;
+  const canceledLookup = openCustomerReminder(
+    id,
+    owner,
+    "canceled-lookup",
+    fingerprint,
+    () => allowed,
+  );
+  await settleUI();
+  allowed = false;
+  slowLookup.resolve();
+  await canceledLookup;
+  lookupGate = null;
+  assert.equal(
+    vaults.length,
+    beforeCanceled.vaults,
+    "cancellation during lookup prevents the vault mutation",
+  );
+  assert.equal(currencyCalls, beforeCanceled.currency);
+
+  allowed = true;
+  const slowVault = deferred<void>();
+  gate = slowVault.promise;
+  const canceledVault = openCustomerReminder(
+    id,
+    owner,
+    "canceled-vault",
+    fingerprint,
+    () => allowed,
+  );
+  await settleUI();
+  allowed = false;
+  slowVault.resolve();
+  await canceledVault;
+  gate = null;
+  assert.equal(
+    currencyCalls,
+    beforeCanceled.currency,
+    "canceled vault work never changes currency or routes afterwards",
+  );
+
+  allowed = true;
+  const slowFinalLookup = deferred<void>();
+  duringCurrency = () => {
+    lookupGate = slowFinalLookup.promise;
+  };
+  const canceledFinalLookup = openCustomerReminder(
+    id,
+    owner,
+    "canceled-final-read",
+    fingerprint,
+    () => allowed,
+  );
+  await settleUI();
+  allowed = false;
+  slowFinalLookup.resolve();
+  await canceledFinalLookup;
+  lookupGate = null;
+  duringCurrency = null;
+  assert.equal(
+    routes.length,
+    beforeCanceled.routes,
+    "cancellation during the final access read prevents routing",
+  );
+  assert.equal(queued.length, beforeCanceled.queued, "canceled work never queues a trusted draft");
+  assert.equal(listeners.size, 0);
+
+  // Use the actual bounded, privacy-preserving draft queue for a route retry.
+  // The first push throws after claiming its native key; navigation can retry
+  // that key, but it must never receive a second automatic-draft capability.
+  let drafts = 0,
+    routeAttempts = 0;
+  const retryRoutes: any[] = [];
+  const intents = compileUI("../reminder-ping-intent", {
+    "expo-crypto": { randomUUID: () => `retry-action-${++drafts}` },
+  });
+  const retry = compileUI("../open-customer-reminder", {
+    "expo-router": {
+      router: {
+        push: (route: any) => {
+          routeAttempts++;
+          if (routeAttempts === 1) throw new Error("router not ready");
+          retryRoutes.push(route);
+        },
+      },
+    },
+    "./currency": { applyVaultCurrency: async () => {} },
+    "./reminder-ping-intent": intents,
+    "./db-tx": {
+      onAccountIdentityChanged: () => () => {},
+      setActiveVaultId: async () => {},
+    },
+    "./customer-reminders": {
+      listCustomerReminders: async () => [row],
+      reminderOwnerScope: () => owner,
+      reminderTimezone: () => "Asia/Kabul",
+    },
+  });
+  await assert.rejects(
+    retry.openCustomerReminder(id, owner, "same-native-tap", fingerprint),
+    /router not ready/,
+  );
+  assert.equal(drafts, 1);
+  await retry.openCustomerReminder(id, owner, "same-native-tap", fingerprint);
+  assert.equal(routeAttempts, 2);
+  assert.equal(drafts, 1, "retrying navigation cannot mint another trusted draft");
+  assert.deepEqual(retryRoutes, [
+    { pathname: "/person/[id]", params: { id: "customer", reminderId: id } },
+  ]);
 }
 
 // Audit #25/#29: reminder times use the app's 12-hour clock in both languages

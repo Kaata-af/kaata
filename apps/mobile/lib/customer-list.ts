@@ -14,12 +14,23 @@ export const CUSTOMER_SORTS = [
   "date_asc",
 ] as const;
 export type CustomerSort = (typeof CUSTOMER_SORTS)[number];
+export const CUSTOMER_BALANCE_FILTERS = ["all", "collect", "pay"] as const;
+export type CustomerBalanceFilter = (typeof CUSTOMER_BALANCE_FILTERS)[number];
 export type CustomerGroupFilter = "all" | "ungrouped" | string | string[];
-export type CustomerListPreference = { sort: CustomerSort; group: CustomerGroupFilter };
-export const DEFAULT_CUSTOMER_LIST: CustomerListPreference = { sort: "recent", group: "all" };
+export type CustomerListPreference = {
+  sort: CustomerSort;
+  group: CustomerGroupFilter;
+  direction?: CustomerBalanceFilter;
+};
+export const DEFAULT_CUSTOMER_LIST: CustomerListPreference = {
+  sort: "recent",
+  group: "all",
+  direction: "all",
+};
 export const DEFAULT_CUSTOMER_SEARCH: CustomerListPreference = {
   sort: "outstanding_name",
   group: "all",
+  direction: "all",
 };
 
 /** Empty selection means All. Selecting several groups matches any of them. */
@@ -58,6 +69,20 @@ export function parseCustomerSearchPreference(raw: string | null): CustomerListP
   return parsePreference(raw, DEFAULT_CUSTOMER_SEARCH);
 }
 
+/** The unified homepage starts with recent activity. Its old search preference
+ * could save the search default during an unrelated group change, so migrate
+ * that implicit order once while retaining groups and other chosen sorts. */
+export function parseHomeCustomerListPreference(
+  raw: string | null,
+  legacySearchRaw: string | null,
+): CustomerListPreference {
+  if (raw !== null) return parseCustomerListPreference(raw);
+  const preference = parseCustomerListPreference(legacySearchRaw);
+  return preference.sort === DEFAULT_CUSTOMER_SEARCH.sort
+    ? { ...preference, sort: DEFAULT_CUSTOMER_LIST.sort }
+    : preference;
+}
+
 function parsePreference(
   raw: string | null,
   fallback: CustomerListPreference,
@@ -78,6 +103,7 @@ function parsePreference(
       : null;
     return {
       sort: CUSTOMER_SORTS.includes(value?.sort) ? value.sort : fallback.sort,
+      direction: CUSTOMER_BALANCE_FILTERS.includes(value?.direction) ? value.direction : "all",
       group: groupIds
         ? groupIds.length
           ? groupIds
@@ -216,12 +242,36 @@ export function selectSearchCustomers<T extends PersonWithBalance>(
 }
 
 function outstandingTier(person: PersonWithBalance): number {
+  if (person.currency_balances?.length)
+    return Math.min(...person.currency_balances.map(outstandingTier));
   // A restored shared ledger's cached balance is unknown, whether it says 500
   // or zero. Keep it between verified balances and confirmed settled contacts.
   if (person.tab_unsynced === 1) return 1;
   return (person.tab_pending_count ?? 0) > 0 || (person.balance !== 0 && person.is_settled !== 1)
     ? 0
     : 2;
+}
+
+/** Each known denomination can qualify independently. Pending deltas and the
+ * merged parent's unknown flag do not replace a currency's confirmed balance. */
+function matchesBalanceFilter(
+  person: PersonWithBalance,
+  direction?: CustomerBalanceFilter,
+): boolean {
+  if (direction !== "collect" && direction !== "pay") return true;
+  const rows = person.currency_balances?.length ? person.currency_balances : [person];
+  return rows.some(
+    (row) =>
+      row.tab_unsynced !== 1 &&
+      row.is_settled !== 1 &&
+      Number.isFinite(row.balance) &&
+      (direction === "collect" ? row.balance > 0 : row.balance < 0),
+  );
+}
+
+function amountSortBalance(person: PersonWithBalance): number {
+  const rows = person.currency_balances;
+  return rows?.length === 1 ? rows[0].balance : person.balance;
 }
 
 function selectCustomerRows<T extends PersonWithBalance>(
@@ -244,6 +294,7 @@ function selectCustomerRows<T extends PersonWithBalance>(
     .filter(
       (p) =>
         matches(p) &&
+        matchesBalanceFilter(p, preference.direction) &&
         (preference.group === "all" ||
           (() => {
             const membership = groupByPerson[p.id];
@@ -264,9 +315,13 @@ function selectCustomerRows<T extends PersonWithBalance>(
         case "name_desc":
           return -byName(a, b);
         case "amount_desc":
-          return Math.abs(b.balance) - Math.abs(a.balance) || byName(a, b);
+          return Math.abs(amountSortBalance(b)) - Math.abs(amountSortBalance(a)) || byName(a, b);
         case "amount_asc":
-          return openFirst(a, b) || Math.abs(a.balance) - Math.abs(b.balance) || byName(a, b);
+          return (
+            openFirst(a, b) ||
+            Math.abs(amountSortBalance(a)) - Math.abs(amountSortBalance(b)) ||
+            byName(a, b)
+          );
         case "date_asc":
           return openFirst(a, b) || -byDate(a, b) || byName(a, b);
         default:

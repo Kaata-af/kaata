@@ -21,6 +21,8 @@ const SCROLL_TOP_SLOP = 1;
 export function useSheetDrag(visible: boolean, entrance: Animated.Value, onDismiss: () => void) {
   const reducedMotion = useSheetMotionPreference();
   const offset = useRef(new Animated.Value(0)).current;
+  const offsetPosition = useRef(0);
+  const restoring = useRef(false);
   const latest = useRef({ visible, onDismiss, reducedMotion });
   latest.current = { visible, onDismiss, reducedMotion };
   const mounted = useRef(false);
@@ -32,9 +34,7 @@ export function useSheetDrag(visible: boolean, entrance: Animated.Value, onDismi
     stateID: number;
     generation: number;
     base: number;
-    dy: number;
-    ready: boolean;
-    release?: { dy: number; vy: number };
+    dragging: boolean;
   };
   const active = useRef<Stroke | null>(null);
 
@@ -43,29 +43,51 @@ export function useSheetDrag(visible: boolean, entrance: Animated.Value, onDismi
     generation.current++;
     active.current = null;
     closing.current = !visible;
+    restoring.current = false;
     offset.stopAnimation();
     // Keep the released position while the overlay exits, so it doesn't jump
     // back to the top before closing. A reopened sheet starts cleanly.
-    if (visible) offset.setValue(0);
+    if (visible) {
+      offsetPosition.current = 0;
+      offset.setValue(0);
+    }
+    const presentation = generation.current;
+    const listener = offset.addListener(({ value }) => {
+      if (
+        mounted.current &&
+        generation.current === presentation &&
+        restoring.current &&
+        Number.isFinite(value)
+      )
+        offsetPosition.current = Math.max(0, value);
+    });
     return () => {
       mounted.current = false;
       generation.current++;
       active.current = null;
+      restoring.current = false;
+      offset.removeListener(listener);
       offset.stopAnimation();
     };
   }, [visible, offset]);
 
   const drag = useMemo(() => {
     const enabled = () => mounted.current && latest.current.visible && !closing.current;
+    const setOffset = (value: number) => {
+      offsetPosition.current = value;
+      offset.setValue(value);
+    };
     const currentGesture = (state: PanResponderGestureState) =>
       enabled() &&
       active.current?.generation === generation.current &&
       active.current?.stateID === state.stateID;
     const restore = () => {
       active.current = null;
+      restoring.current = false;
       offset.stopAnimation();
-      if (latest.current.reducedMotion) offset.setValue(0);
-      else
+      if (latest.current.reducedMotion) setOffset(0);
+      else {
+        restoring.current = true;
         Animated.spring(offset, {
           toValue: 0,
           friction: 11,
@@ -73,11 +95,13 @@ export function useSheetDrag(visible: boolean, entrance: Animated.Value, onDismi
           overshootClamping: true,
           useNativeDriver: true,
         }).start();
+      }
     };
     const dismiss = () => {
       if (!enabled()) return;
       closing.current = true;
       active.current = null;
+      restoring.current = false;
       offset.stopAnimation();
       Keyboard.dismiss();
       latest.current.onDismiss();
@@ -86,7 +110,7 @@ export function useSheetDrag(visible: boolean, entrance: Animated.Value, onDismi
       if (!enabled() || active.current !== stroke || stroke.generation !== generation.current)
         return;
       const releasedOffset = Math.max(0, stroke.base + end.dy);
-      offset.setValue(releasedOffset);
+      setOffset(releasedOffset);
       if (
         releasedOffset >= CLOSE_DISTANCE ||
         (end.dy >= FLICK_DISTANCE && end.vy >= FLICK_VELOCITY)
@@ -94,7 +118,7 @@ export function useSheetDrag(visible: boolean, entrance: Animated.Value, onDismi
         dismiss();
       else restore();
     };
-    let candidate: { stateID: number; generation: number } | null = null;
+    let candidate: { stateID: number; generation: number; dragging: boolean } | null = null;
     let surfaceStart: {
       stateID: number;
       generation: number;
@@ -108,7 +132,8 @@ export function useSheetDrag(visible: boolean, entrance: Animated.Value, onDismi
         state.numberActiveTouches === 1 &&
         state.dy > 6 &&
         state.dy > Math.abs(state.dx) * 1.2;
-      if (claimed) candidate = { stateID: state.stateID, generation: generation.current };
+      if (claimed)
+        candidate = { stateID: state.stateID, generation: generation.current, dragging: true };
       return claimed;
     };
     const callbacks = {
@@ -119,25 +144,19 @@ export function useSheetDrag(visible: boolean, entrance: Animated.Value, onDismi
           candidate.generation !== generation.current
         )
           return;
-        candidate = null;
         const stroke: Stroke = {
           stateID: state.stateID,
           generation: generation.current,
-          base: 0,
-          dy: 0,
-          ready: false,
+          base: offsetPosition.current,
+          dragging: candidate.dragging,
         };
+        candidate = null;
         active.current = stroke;
-        // Native spring values arrive asynchronously. Buffer this stroke until
-        // its starting position is known; a rapid re-grab never snaps to zero.
-        offset.stopAnimation((value) => {
-          if (!enabled() || active.current !== stroke || stroke.generation !== generation.current)
-            return;
-          stroke.base = Math.max(0, value);
-          stroke.ready = true;
-          offset.setValue(Math.max(0, stroke.base + stroke.dy));
-          if (stroke.release) finish(stroke, stroke.release);
-        });
+        // Native getValue callbacks can be absent on Android. Track the spring
+        // with its listener so a new drag never waits for that round trip.
+        restoring.current = false;
+        offset.stopAnimation();
+        setOffset(stroke.base);
         Keyboard.dismiss();
       },
       onPanResponderStart: (_event: unknown, state: PanResponderGestureState) => {
@@ -150,16 +169,17 @@ export function useSheetDrag(visible: boolean, entrance: Animated.Value, onDismi
           return;
         }
         const stroke = active.current!;
-        stroke.dy = state.dy;
-        if (stroke.ready) offset.setValue(Math.max(0, stroke.base + state.dy));
+        if (!stroke.dragging) {
+          if (!(state.dy > 6 && state.dy > Math.abs(state.dx) * 1.2)) return;
+          stroke.dragging = true;
+        }
+        setOffset(Math.max(0, stroke.base + state.dy));
       },
       onPanResponderRelease: (_event: unknown, state: PanResponderGestureState) => {
         if (!currentGesture(state)) return;
         const stroke = active.current!;
-        stroke.dy = state.dy;
-        const end = { dy: state.dy, vy: state.vy };
-        if (stroke.ready) finish(stroke, end);
-        else stroke.release = end;
+        if (stroke.dragging) finish(stroke, { dy: state.dy, vy: state.vy });
+        else restore();
       },
       onPanResponderTerminate: (_event: unknown, state: PanResponderGestureState) => {
         if (currentGesture(state)) restore();
@@ -168,7 +188,13 @@ export function useSheetDrag(visible: boolean, entrance: Animated.Value, onDismi
     };
     const responder = PanResponder.create({
       ...callbacks,
-      onStartShouldSetPanResponder: () => false,
+      // Plain Android header views need an initial responder to keep receiving
+      // moves. Bubble phase leaves child Pressables (including Close) first.
+      onStartShouldSetPanResponder: (_event, state) => {
+        if (!enabled() || state.numberActiveTouches !== 1) return false;
+        candidate = { stateID: state.stateID, generation: generation.current, dragging: false };
+        return true;
+      },
       onStartShouldSetPanResponderCapture: () => false,
       onMoveShouldSetPanResponder: shouldDrag,
       onMoveShouldSetPanResponderCapture: shouldDrag,

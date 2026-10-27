@@ -23,9 +23,14 @@ import { entryTypeFor } from "../tabs/direction";
 import { compileUI } from "./ui-fixture";
 
 const { summarizeSelectionEntries } = compileUI("../selection-summary", {
+  "./currency-totals": require("../currency-totals"),
   "./money": money,
   "./db-tx": { getDb: () => assert.fail("Tally selection totals are already loaded") },
 }) as typeof import("../selection-summary");
+const multiCurrencyView = compileUI("../multi-currency-view", {
+  "./money": money,
+  "./selection-summary": { summarizeSelectionEntries },
+});
 const translations = compileUI("../i18n", {
   "expo-localization": { getLocales: () => [{ languageCode: "en" }] },
   "./db": { getAppMeta: async () => null },
@@ -99,6 +104,7 @@ const tallies = () => nodes(tree).filter((n) => n.type === "EntryRow");
 const rowIds = () => tallies().map((n) => n.props.entry.id);
 const query = (value: string) => find("TextInput")!.props.onChangeText(value);
 const dateControl = () => find("TallyDateFilterSheet")!;
+const searchFooter = () => find("SearchKeyboardFooter")!;
 const pingButton = () => nodes(tree).find((n) => n.props.testID === "whatsapp-reminder")!;
 
 const flattenStyle = (value: any): any =>
@@ -117,6 +123,7 @@ function contrastOverWhite(foreground: string, background: string, opacity = 1):
 }
 
 let params: Record<string, string> = { id: "person" };
+let selectedCurrency = "AFN";
 let justSaved: string | null = null;
 let platform = "android",
   rtl = false,
@@ -130,6 +137,13 @@ let deleteEntryImpl: (id: string) => Promise<void> = async () => {};
 const backListeners = new Set<() => boolean>();
 let ledgerRefresh = async () => {};
 let person: any, entries: any[], preLink: any[], failed: any[], link: any;
+const currencyPeriods = new Map<
+  string,
+  { settlement?: any; boundaries?: number[]; tab?: any; markers?: any[]; preLink?: any[] }
+>();
+const personReads: any[][] = [],
+  entryReads: any[][] = [],
+  settledWrites: any[] = [];
 let priorPeriods: any[] = [],
   historyReadGate: Promise<any[]> | null = null;
 let accountId = "account",
@@ -191,6 +205,12 @@ const frame = (fn: () => void) => {
   frames.set(id, fn);
   return id;
 };
+function runFrames() {
+  for (const [id, work] of [...frames]) {
+    frames.delete(id);
+    work();
+  }
+}
 function advance(ms: number) {
   now += ms;
   for (const [id, timer] of timers)
@@ -267,6 +287,7 @@ const components = Object.fromEntries(
     "EmptyState",
     "TallyHighlight",
     "TallyFlowSummary",
+    "CustomerBalanceCarousel",
     "CreditIntentList",
     "CreditStatusBadge",
     "EntryRow",
@@ -279,6 +300,10 @@ const components = Object.fromEntries(
 );
 const mocks: Record<string, any> = {
   ...components,
+  "../../components/SearchKeyboardMotion": {
+    SearchKeyboardFrame: "SearchKeyboardFrame",
+    SearchKeyboardFooter: "SearchKeyboardFooter",
+  },
   "../../components/SheetBackdrop": { useSheetMotionPreference: () => reducedMotion },
   "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
   react,
@@ -312,14 +337,32 @@ const mocks: Record<string, any> = {
   },
   "../../lib/attribution": { loadRelationshipAttribution: async () => new Map() },
   "../../lib/colors": require("../colors"),
-  "../../lib/currency": { getCurrentCurrencySymbol: () => "AFN" },
+  "../../components/CurrencySelector": { CurrencySelector: "CurrencySelector" },
+  "../../lib/currency": {
+    getCurrentCurrencySymbol: () => "AFN",
+    getCurrentCurrencyCode: () => selectedCurrency,
+    getCurrencyLabel: (code: string) => code,
+    getCurrencySymbol: (code: string) => code,
+    useCurrency: () => selectedCurrency,
+    setCurrentCurrency: (code: string) => {
+      selectedCurrency = code;
+    },
+  },
   "../../lib/db": {
-    getPerson: async () => person,
-    listEntries: async () => [...entries],
+    getPerson: async (...args: any[]) => {
+      personReads.push(args);
+      return person;
+    },
+    listEntries: async (...args: any[]) => {
+      entryReads.push(args);
+      return [...entries];
+    },
     listArchivedSharedPeriodsForExport: async () => historyReadGate ?? priorPeriods,
     getLocalSelf: async () => ({ name: "Synthetic owner", shop_name: "Synthetic shop" }),
-    getSettlementSummary: async () => settlement,
-    listSettlementBoundaries: async () => boundaries,
+    getSettlementSummary: async (_: string, code: string) =>
+      currencyPeriods.get(code)?.settlement ?? settlement,
+    listSettlementBoundaries: async (_: string, code: string) =>
+      currencyPeriods.get(code)?.boundaries ?? boundaries,
     setAppMeta: async () => {},
     softDeleteEntry: async (id: string, scope?: unknown) => {
       deletedEntries.push(id);
@@ -339,7 +382,9 @@ const mocks: Record<string, any> = {
   },
   "../../lib/effective-account": { resolveAccountIdCandidates: async () => ["account"] },
   "../../lib/event-log": {
-    appendEntrySettled: async () => {},
+    appendEntrySettled: async (args: any) => {
+      settledWrites.push(args);
+    },
     RoleGateRejectionError: dummyError,
     SettleNotZeroError: dummyError,
   },
@@ -385,10 +430,10 @@ const mocks: Record<string, any> = {
   "../../lib/jalali": { formatSettlementDate: () => "fixture date" },
   "../../lib/calendar": { useCalendar: () => calendar },
   "../../lib/share": {
-    shareKaataViaWhatsApp: (...args: any[]) => {
+    shareKaataCurrenciesViaWhatsApp: (...args: any[]) => {
       const call: any = { args };
       shares.push(call);
-      args[6]?.("preparing");
+      args[4]?.("preparing");
       return new Promise<boolean>((resolve) => {
         call.resolve = resolve;
       });
@@ -398,6 +443,7 @@ const mocks: Record<string, any> = {
   "../../lib/tally-date-filter": { filterTalliesByDate, formatDateRangeLabel },
   "../../lib/tally-summary": { summarizeTallyFlows },
   "../../lib/selection-summary": { summarizeSelectionEntries },
+  "../../lib/multi-currency-view": multiCurrencyView,
   "../../lib/recent-entry": {
     takeSavedEntry: () => {
       const taken = justSaved;
@@ -419,10 +465,20 @@ const mocks: Record<string, any> = {
       const target = tabLinksById.get(id) ?? (link?.tab_id === id ? link : null);
       return target ? { ...target } : null;
     },
-    getLatestTabLinkForPerson: async () => (link ? { ...link } : null),
-    listPreLinkEntries: async () => [...preLink],
+    getLatestTabLinkForPerson: async (_: string, code: string) =>
+      currencyPeriods.has(code)
+        ? (currencyPeriods.get(code)!.tab ?? null)
+        : link && (link.currency ?? "AFN") === code
+          ? { ...link }
+          : null,
+    listPreLinkEntries: async (tab: any) => [
+      ...(currencyPeriods.get(tab.currency)?.preLink ?? preLink),
+    ],
     listFailedTabEntries: async () => [...failed],
-    listTabSettlements: async () => [...markers],
+    listTabSettlements: async (tabId: string) => [
+      ...([...currencyPeriods.values()].find((period) => period.tab?.tab_id === tabId)?.markers ??
+        markers),
+    ],
   },
   "../../lib/tabs/inbox-reads": {
     markTabNoticesSeen: (value: any, context: any) => seen.push({ rev: value.rev, ...context }),
@@ -572,6 +628,11 @@ const tally = (
   tab,
 });
 function fixture(shared = false) {
+  currencyPeriods.clear();
+  personReads.length = 0;
+  entryReads.length = 0;
+  settledWrites.length = 0;
+  selectedCurrency = "AFN";
   unmount();
   reminderRows = [];
   reminderReadGate = null;
@@ -631,6 +692,7 @@ function fixture(shared = false) {
       voided,
     });
     link = {
+      currency: "AFN",
       tab_id: "tab",
       relationship_id: "relationship",
       vault_id: "vault",
@@ -690,7 +752,7 @@ async function notificationReminderFlowTests() {
         "native reminder intent automatically starts the real WhatsApp flow",
       );
       assert.deepEqual(
-        shares[0].args[3].map((e: any) => e.id),
+        shares[0].args[2].flatMap((section: any) => section.entries.map((e: any) => e.id)),
         entries.map((e) => e.id),
       );
       assert.ok(nodes(pingButton()).some((n) => n.type === "Spinner"));
@@ -723,7 +785,7 @@ async function notificationReminderFlowTests() {
   advance(220);
   await flush();
   assert.equal(shares.length, 1);
-  assert.equal(shares[0].args[4], "fa");
+  assert.equal(shares[0].args[3], "fa");
   shares[0].resolve(true);
   await flush();
 
@@ -740,7 +802,7 @@ async function notificationReminderFlowTests() {
   assert.equal(shares.length, 1, "cold launch waits for foreground");
   appState = "background";
   appListeners.forEach((fn) => fn(appState));
-  assert.equal(shares[0].args[7].aborted, true, "leaving during automatic preparation aborts it");
+  assert.equal(shares[0].args[5].aborted, true, "leaving during automatic preparation aborts it");
   shares[0].resolve(false);
   await flush();
   appState = "active";
@@ -862,14 +924,96 @@ async function tallySelectionTests() {
       false,
     );
     assert.equal(words(tree).includes("selection.tallies"), false);
-    const selectionDock = nodes(tree).find(
-      (node) => node.type === "AnimatedView" && nodes(node).includes(toolbar()),
-    );
-    assert.ok(selectionDock, "The summary lives in the bottom dock");
-    assert.ok(find("TextInput"), "Search remains available while selecting tallies");
+    const selectionTop = nodes(tree).find(
+      (node) => node.props.testID === "customer-selection-controls",
+    )!;
+    assert.ok(selectionTop, "selection controls remain fixed over the scrolling list");
+    const screenChildren = kids(find("Safe"));
     assert.ok(
-      nodes(selectionDock).indexOf(toolbar()) < nodes(selectionDock).indexOf(find("TextInput")!),
-      "The selection summary sits above inline search",
+      nodes(screenChildren[0]).some((node) => node.props.accessibilityLabel === "common.back"),
+    );
+    assert.equal(
+      screenChildren[1].type,
+      "SearchKeyboardFrame",
+      "selection does not move the keyboard-aware viewport below the header",
+    );
+    const frameContent = kids(find("SearchKeyboardFrame"))[0];
+    assert.deepEqual(
+      kids(frameContent).slice(0, 2),
+      [selectionTop, find("ScrollView")],
+      "selection controls precede their scrolling sibling for accessibility",
+    );
+    assert.ok(kids(selectionTop).includes(toolbar()));
+    const overlayStyle = flattenStyle(selectionTop.props.style);
+    assert.equal(overlayStyle.position, "absolute");
+    assert.equal(overlayStyle.top, 0);
+    assert.equal(selectionTop.props.pointerEvents, "box-none");
+    assert.ok(overlayStyle.zIndex > 0);
+    assert.equal(overlayStyle.elevation, undefined, "the toolbar owns its existing shadow");
+    assert.equal(overlayStyle.overflow, "visible", "the card's shadow is not clipped");
+    assert.equal(overlayStyle.backgroundColor, undefined, "rounded margins reveal the list below");
+    assert.equal(nodes(tree).filter((node) => node.type === "SelectionToolbar").length, 1);
+    assert.equal(
+      nodes(find("SearchKeyboardFrame")).includes(toolbar()),
+      true,
+      "the overlay shares the list's stable keyboard-aware frame",
+    );
+    assert.equal(
+      nodes(find("ScrollView")).includes(toolbar()),
+      false,
+      "selection controls do not scroll away",
+    );
+    assert.ok(find("TextInput"), "Search remains available while selecting tallies");
+    assert.ok(nodes(searchFooter()).includes(find("TextInput")!));
+    assert.equal(
+      nodes(searchFooter()).includes(toolbar()),
+      false,
+      "bottom search has no duplicate selection toolbar",
+    );
+    const bottomInset = flattenStyle(find("ScrollView")!.props.contentContainerStyle).paddingBottom;
+    assert.equal(
+      flattenStyle(find("ScrollView")!.props.contentContainerStyle).paddingTop,
+      12,
+      "the initial gap belongs to scroll content, outside the floating panel",
+    );
+    const retainedSelectionLayout = selectionTop.props.onLayout;
+    retainedSelectionLayout({ nativeEvent: { layout: { height: 220 } } });
+    await flush();
+    assert.equal(
+      flattenStyle(find("ScrollView")!.props.contentContainerStyle).paddingTop,
+      232,
+      "the first tally starts below the measured controls plus breathing room",
+    );
+    find("ScrollView")!.props.onScroll({ nativeEvent: { contentOffset: { y: 300 } } });
+    retainedSelectionLayout({ nativeEvent: { layout: { height: 220 } } });
+    await flush();
+    assert.equal(flattenStyle(find("ScrollView")!.props.contentContainerStyle).paddingTop, 232);
+    assert.equal(
+      flattenStyle(find("ScrollView")!.props.contentContainerStyle).paddingBottom,
+      bottomInset,
+      "selection spacing leaves the search dock's bottom reservation unchanged",
+    );
+    const balances = nodes(tree).find((node) => node.props.testID === "customer-balances")!;
+    assert.equal(
+      flattenStyle(balances.props.style).display,
+      "none",
+      "selection removes the whole balance section from layout",
+    );
+    assert.equal(balances.props.pointerEvents, "none");
+    assert.equal(balances.props.accessibilityElementsHidden, true);
+    assert.equal(balances.props.importantForAccessibility, "no-hide-descendants");
+    assert.ok(
+      nodes(balances).includes(find("CustomerBalanceCarousel")!),
+      "the retained carousel preserves the visit's page and manual-stop state",
+    );
+    assert.equal(
+      find("CustomerBalanceCarousel")!.props.active,
+      false,
+      "hidden balance cards cannot advance automatically",
+    );
+    assert.ok(
+      nodes(balances).some((node) => flattenStyle(node.props.style)?.height === 16),
+      "the hidden section includes its leading spacer",
     );
     assert.equal(toolbar().props.actions[0].disabled, true);
     const first = tallies().find((row) => row.props.entry.id === "new-rice")!;
@@ -911,12 +1055,45 @@ async function tallySelectionTests() {
     );
     await flush();
     assert.equal(toolbar(), undefined);
+    assert.equal(
+      nodes(tree).find((node) => node.props.testID === "customer-selection-controls"),
+      undefined,
+    );
+    assert.equal(flattenStyle(find("ScrollView")!.props.contentContainerStyle).paddingTop, 0);
+    retainedSelectionLayout({ nativeEvent: { layout: { height: 480 } } });
+    await flush();
+    assert.equal(
+      flattenStyle(find("ScrollView")!.props.contentContainerStyle).paddingTop,
+      0,
+      "a late closed-panel measurement cannot retain blank space",
+    );
+    assert.equal(find("CustomerBalanceCarousel")!.props.active, true);
+    const restoredBalances = nodes(tree).find((node) => node.props.testID === "customer-balances")!;
+    assert.equal(flattenStyle(restoredBalances.props.style)?.display, undefined);
+    assert.equal(restoredBalances.props.pointerEvents, "auto");
+    assert.equal(restoredBalances.props.accessibilityElementsHidden, false);
     tallies()[0].props.onLongPress(tallies()[0].props.entry);
     await flush();
     const sheet = nodes(tree).find((node) => node.type === "BottomSheet" && node.props.visible)!;
     sheet.props.actions.find((action: any) => action.label === "selection.start").onPress();
     await flush();
     assert.equal(toolbar().props.count, 1, "selecting from a tally's options seeds that tally");
+    retainedSelectionLayout({ nativeEvent: { layout: { height: 480 } } });
+    await flush();
+    assert.equal(
+      flattenStyle(find("ScrollView")!.props.contentContainerStyle).paddingTop,
+      232,
+      "a reopened selection rejects the previous panel's late layout event",
+    );
+    nodes(tree)
+      .find((node) => node.props.testID === "customer-selection-controls")!
+      .props.onLayout({ nativeEvent: { layout: { height: 260 } } });
+    await flush();
+    assert.equal(
+      flattenStyle(find("ScrollView")!.props.contentContainerStyle).paddingTop,
+      272,
+      "current controls can grow for wrapping content without obscuring the first row",
+    );
     const selectedSummary = toolbar().props.financialSummary;
     const keyboardBeforeDelete = keyboardDismissals;
     await askDelete();
@@ -1451,7 +1628,257 @@ async function sharedClosureReviewTests() {
 }
 
 async function main() {
+  {
+    fixture();
+    const afn = { ...person, currency: "AFN", balance: 100 };
+    const usd = { ...person, currency: "USD", balance: -100 };
+    person = { ...afn, currency_balances: [afn, usd] };
+    entries = [
+      { ...tally("afn", "local", 100, 400), currency: "AFN" },
+      { ...tally("usd", "dollar", 100, 300, undefined, "payment"), currency: "USD" },
+    ];
+    settlement = { count: 0, lastSettledAtMs: null };
+    boundaries = [];
+    currencyPeriods.set("AFN", {
+      settlement: { count: 1, lastSettledAtMs: 350 },
+      boundaries: [350],
+    });
+    await flush();
+    assert.equal(personReads[0][2].allCurrencies, true);
+    assert.equal(entryReads[0][2].allCurrencies, true);
+    assert.equal(find("CurrencySelector"), undefined);
+    assert.deepEqual(
+      find("CustomerBalanceCarousel")!.props.currencies,
+      ["AFN", "USD"],
+      "Both independent balances share the horizontal carousel",
+    );
+    assert.deepEqual(
+      rowIds(),
+      ["afn", "usd"],
+      "A foreign entry is not hidden behind another currency's chapter boundary",
+    );
+    const flows = nodes(tree).filter((node) => node.type === "TallyFlowSummary");
+    assert.deepEqual(
+      flows.map((node) => [
+        node.props.currency,
+        node.props.summary.gave.amount,
+        node.props.summary.received.amount,
+      ]),
+      [
+        ["AFN", 100, 0],
+        ["USD", 0, 100],
+      ],
+      "Flows never add or net different currencies",
+    );
+    assert.equal(
+      nodes(tree).some((node) => node.props.accessibilityLabel?.startsWith("person.settle.row")),
+      false,
+      "Opposite foreign balances cannot create a false zero settle action",
+    );
+    find("OverflowMenu")!
+      .props.actions.find((action: any) => action.label === "selection.start")
+      .onPress();
+    await flush();
+    find("SelectionToolbar")!.props.onToggleAll();
+    await flush();
+    assert.deepEqual(
+      find("SelectionToolbar")!.props.financialSummaries.map((item: any) => [
+        item.currency,
+        item.summary.net,
+      ]),
+      [
+        ["AFN", 100],
+        ["USD", -100],
+      ],
+    );
+    assert.equal(find("SelectionToolbar")!.props.financialSummary, undefined);
+    find("SelectionToolbar")!.props.onClose();
+    await flush();
+    person = { ...afn, currency_balances: [afn, { ...usd, balance: 0 }] };
+    entries.push({ ...tally("usd-returned", "returned", 100, 500), currency: "USD" });
+    await ledgerRefresh!();
+    await flush();
+    assert.deepEqual(
+      find("CustomerBalanceCarousel")!.props.currencies,
+      ["AFN", "USD"],
+      "A zero balance stays reachable beside its currency's history and settlement state",
+    );
+    const settle = nodes(tree).filter((node) =>
+      node.props.accessibilityLabel?.startsWith("person.settle.row"),
+    );
+    assert.equal(settle.length, 1);
+    assert.ok(settle[0].props.accessibilityLabel.includes("USD"));
+    settle[0].props.onPress();
+    await flush();
+    const confirm = nodes(tree).find(
+      (node) =>
+        node.type === "ConfirmDialog" &&
+        node.props.visible &&
+        node.props.title === "person.settle.confirm.title",
+    )!;
+    await confirm.props.onConfirm();
+    await flush();
+    assert.equal(
+      settledWrites[0].currency,
+      "USD",
+      "A currency-specific ruling-off never settles the nonzero AFN account",
+    );
+    assert.ok(
+      nodes(tree)
+        .filter((node) => node.type === "TallyFlowSummary")
+        .some((node) => node.props.currency === "AFN" && node.props.summary.gave.amount === 100),
+    );
+    unmount();
+    console.log(
+      "PASS all-currency person: one timeline, separate balances/flows/selection, currency-scoped chapters and zero-only settlements",
+    );
+  }
   await sharedClosureReviewTests();
+  {
+    fixture(true);
+    const dollarTab = { ...link, tab_id: "usd-tab", currency: "USD", other_joined_at: 1 };
+    const incoming = {
+      ...entries[2],
+      id: "usd-incoming",
+      currency: "USD",
+      amount_afn: 50,
+      tab: {
+        ...entries[2].tab,
+        tab_id: "usd-tab",
+        by: "other",
+        status: "pending",
+        local_pending: false,
+      },
+    };
+    const afn = { ...person, currency: "AFN", balance: 100, tab_id: null };
+    const usd = { ...person, currency: "USD", balance: 0, tab_id: "usd-tab", tab_pending_count: 1 };
+    const aud = { ...person, currency: "AUD", balance: -25, tab_id: null };
+    person = { ...afn, currency_balances: [afn, usd, aud] };
+    entries = [
+      { ...tally("afn-local", "private", 100, 400), currency: "AFN" },
+      incoming,
+      { ...tally("aud-payment", "dollars", 25, 250, undefined, "payment"), currency: "AUD" },
+      { ...tally("afn-old-payment", "settled", 10, 150, undefined, "payment"), currency: "AFN" },
+      { ...tally("afn-old-debt", "settled", 10, 100), currency: "AFN" },
+    ];
+    settlement = { count: 0, lastSettledAtMs: null };
+    boundaries = [];
+    preLink = [];
+    markers = [];
+    link = null;
+    currencyPeriods.set("AFN", {
+      settlement: { count: 1, lastSettledAtMs: 200 },
+      boundaries: [200],
+    });
+    currencyPeriods.set("USD", { tab: dollarTab, settlement, boundaries: [], markers: [] });
+    tabLinksById.set("usd-tab", dollarTab);
+    await flush();
+    await flush();
+    assert.ok(
+      (watched.get("usd-tab") ?? 0) > 0,
+      "A foreign shared tab stays watched even when the primary account is private",
+    );
+    await tallies()
+      .find((node) => node.props.entry.id === "usd-incoming")!
+      .props.onAccept(incoming);
+    assert.equal(sharedActions.at(-1)?.link.currency, "USD");
+    assert.equal(sharedActions.at(-1)?.link.tab_id, "usd-tab");
+    query("no matching tally");
+    dateControl().props.onChange(dateRangeBetween(Date.UTC(2026, 9, 26), Date.UTC(2026, 9, 26)));
+    await flush();
+    assert.deepEqual(rowIds(), [], "The screen filters hide all tallies before sharing");
+    pingButton().props.onPress();
+    await flush();
+    const chooseCurrency = nodes(tree).find(
+      (node) =>
+        node.type === "OptionSheet" &&
+        node.props.visible &&
+        node.props.title === "entry.currency.label",
+    );
+    assert.equal(chooseCurrency, undefined, "A full bill never asks to narrow it to one currency");
+    assert.equal(shares.length, 1);
+    assert.deepEqual(
+      shares[0].args[2].map((section: any) => [section.currency, section.balance]),
+      [
+        ["AFN", 100],
+        ["USD", 0],
+        ["AUD", -25],
+      ],
+      "The full bill carries separate private and shared currency balances",
+    );
+    assert.deepEqual(
+      shares[0].args[2].map((section: any) => section.entries.map((entry: any) => entry.id)),
+      [["afn-local", "afn-old-payment", "afn-old-debt"], ["usd-incoming"], ["aud-payment"]],
+      "Every currency and folded chapter is shared even when search/date filters hide it",
+    );
+    assert.deepEqual(
+      shares[0].args[2][0].settled,
+      {
+        settledChapters: 1,
+        settledBoundaryMs: 200,
+        settledBoundaries: [200],
+      },
+      "A private statement retains its own settled chapters",
+    );
+    assert.deepEqual(
+      shares[0].args[2][1].settled,
+      {
+        settledChapters: 0,
+        settledBoundaryMs: null,
+        settledBoundaries: [],
+      },
+      "A shared statement never inherits private settlement boundaries",
+    );
+    shares[0].resolve(true);
+    await flush();
+    find("OverflowMenu")!
+      .props.actions.find((action: any) => action.icon === "link-outline")
+      .onPress();
+    await flush();
+    const linkChoice = nodes(tree).find(
+      (node) =>
+        node.type === "OptionSheet" &&
+        node.props.visible &&
+        node.props.title === "entry.currency.label",
+    )!;
+    linkChoice.props.onSelect("USD");
+    advance(220);
+    await flush();
+    const managed = nodes(tree).find(
+      (node) =>
+        node.type === "BottomSheet" && node.props.visible && node.props.title.includes("USD"),
+    )!;
+    managed.props.actions.find((action: any) => action.label === "tab.unlink").onPress();
+    await flush();
+    const confirm = nodes(tree).find(
+      (node) =>
+        node.type === "ConfirmDialog" &&
+        node.props.visible &&
+        node.props.title === "tab.unlink.title",
+    )!;
+    await confirm.props.onConfirm();
+    await flush();
+    assert.equal(sharedActions.at(-1)?.name, "unlinkContact");
+    assert.equal(
+      sharedActions.at(-1)?.link.currency,
+      "USD",
+      "Management actions never fall back to the global AFN view",
+    );
+    person = {
+      ...person,
+      currency_balances: [afn, { ...usd, tab_unsynced: 1 }, aud],
+    };
+    await ledgerRefresh();
+    await flush();
+    pingButton().props.onPress();
+    await flush();
+    assert.equal(shares.length, 1, "An unknown foreign balance blocks the entire bill");
+    assert.equal(toasts.at(-1)?.[0], "tab.notDownloaded");
+    unmount();
+    console.log(
+      "PASS all-currency shared person: foreign tab watch/review, complete bill, and exact shared-management target",
+    );
+  }
   await tallySelectionTests();
   await inlineSearchScopeTests();
   await notificationReminderFlowTests();
@@ -1528,19 +1955,88 @@ async function main() {
         "the dock's own background reaches past the full toast lift",
       );
       assert.equal(
-        dockStyle.paddingBottom + dockStyle.bottom,
+        searchFooter().props.closedPadding + dockStyle.bottom,
         20,
         "at rest the controls stay 20pt above the safe area",
       );
+      assert.equal(
+        dockStyle.paddingBottom,
+        undefined,
+        "only the native footer owns keyboard padding",
+      );
+      assert.equal(searchFooter().props.keyboardShown, false);
       assert.equal(dockStyle.transform[0].translateY, toastOffset, "toasts still lift the dock");
       assert.equal(
         nodes(tree).find((node) => node.props.accessibilityLabel === "common.hideKeyboard"),
         undefined,
       );
       assert.equal(find("TextInput")!.props.submitBehavior, "blurAndSubmit");
+      const keyboardSlot = nodes(tree).find(
+        (node) => node.type === "SearchControlSlot" && node.props.collapse,
+      )!;
+      assert.equal(
+        keyboardSlot.props.animate,
+        false,
+        "a hidden keyboard-dismiss slot has no independent width animation",
+      );
+      const clearSlot = nodes(tree).find(
+        (node) => node.type === "SearchControlSlot" && !node.props.collapse,
+      )!;
+      assert.equal(clearSlot.props.animate, undefined, "fixed Clear keeps its default animation");
       let inputBlurs = 0;
-      find("TextInput")!.props.ref.current = { blur: () => inputBlurs++ };
+      find("TextInput")!.props.ref.current = {
+        blur: () => inputBlurs++,
+        isFocused: () => false,
+      };
+      assert.equal(
+        typeof find("TextInput")!.props.onPress,
+        p === "android" ? "function" : "undefined",
+      );
+      find("TextInput")!.props.onPress?.();
+      await flush();
+      const pressedDock = nodes(tree).find(
+        (node) =>
+          node.type === "AnimatedView" && nodes(node).some((child) => child.type === "TextInput"),
+      )!;
+      assert.equal(
+        words(pressedDock).includes("person.action.iGave"),
+        p === "ios",
+        "Android press prepares the dock before native focus; iOS has no press-time layout change",
+      );
+      if (p === "android") {
+        assert.ok(
+          nodes(tree).find((node) => node.props.accessibilityLabel === "common.hideKeyboard"),
+          "Android press shows the immediate down arrow before onFocus or keyboard events",
+        );
+        assert.equal(scheduledKeyboardLayouts.length, 0);
+      }
       find("TextInput")!.props.onFocus();
+      await flush();
+      const openingSlot = nodes(tree).find(
+        (node) => node.type === "SearchControlSlot" && node.props.collapse,
+      )!;
+      assert.equal(openingSlot.props.visible, true);
+      assert.equal(
+        openingSlot.props.animate,
+        p === "ios",
+        "iOS preserves the existing opening motion while Android commits its slot immediately",
+      );
+      const focusedDock = nodes(tree).find(
+        (node) =>
+          node.type === "AnimatedView" && nodes(node).some((child) => child.type === "TextInput"),
+      )!;
+      const focusedDockStyle = flattenStyle(focusedDock.props.style);
+      assert.equal(
+        words(focusedDock).includes("person.action.iGave"),
+        p === "ios",
+        "Android prepares the compact dock before the IME arrives; iOS waits for its will event",
+      );
+      if (p === "android") {
+        assert.equal(searchFooter().props.openPadding + focusedDockStyle.bottom, 8);
+        assert.equal(searchFooter().props.keyboardShown, true);
+        assert.equal(focusedDockStyle.transform[0].translateY, 0);
+        assert.equal(scheduledKeyboardLayouts.length, 0);
+      }
       if (p === "ios") {
         keyboardEvent("keyboardWillShow");
         await flush();
@@ -1548,7 +2044,11 @@ async function main() {
           !words(tree).includes("person.action.iGave"),
           "the dock compacts when the keyboard begins moving, not afterward",
         );
-        assert.equal(scheduledKeyboardLayouts.length, 1);
+        assert.equal(
+          scheduledKeyboardLayouts.length,
+          0,
+          "native motion has no second layout clock",
+        );
         keyboardEvent("keyboardWillHide");
         await flush();
         assert.equal(inputBlurs, 0, "interactive closing does not blur before completion");
@@ -1577,8 +2077,8 @@ async function main() {
         await flush();
         assert.equal(
           scheduledKeyboardLayouts.length,
-          beforeLeavingRoute + 1,
-          "returning restores the route's keyboard synchronization",
+          beforeLeavingRoute,
+          "returning still delegates physical keyboard movement to the native frame",
         );
       }
       keyboardEvent("keyboardDidShow");
@@ -1589,8 +2089,30 @@ async function main() {
       )!;
       // Audit #31: typing a search leaves room for results above the keyboard.
       const typingStyle = Object.assign({}, ...[typingDock.props.style].flat(2).filter(Boolean));
+      if (p === "android") {
+        assert.deepEqual(
+          typingStyle,
+          focusedDockStyle,
+          "Android didShow does not change the dock a second time after native resize",
+        );
+        assert.equal(scheduledKeyboardLayouts.length, 0);
+        find("TextInput")!.props.onBlur();
+        await flush();
+        const blurredDock = nodes(tree).find(
+          (node) =>
+            node.type === "AnimatedView" && nodes(node).some((child) => child.type === "TextInput"),
+        )!;
+        assert.deepEqual(
+          flattenStyle(blurredDock.props.style),
+          typingStyle,
+          "Android blur does not expand the dock while the native keyboard is still visible",
+        );
+        assert.equal(words(blurredDock).includes("person.action.iGave"), false);
+        find("TextInput")!.props.onFocus();
+        await flush();
+      }
       assert.ok(
-        typingStyle.paddingBottom + typingStyle.bottom < 20,
+        searchFooter().props.openPadding + typingStyle.bottom < 20,
         "no safe-area band under the search while the keyboard covers it",
       );
       assert.equal(
@@ -1622,33 +2144,73 @@ async function main() {
       );
       const beforeEmptyClose = keyboardDismissals;
       const beforeCloseBlurs = inputBlurs;
+      const beforeCloseLayouts = scheduledKeyboardLayouts.length;
       closeEmptySearch.props.onPress();
       await flush();
       assert.equal(keyboardDismissals, beforeEmptyClose + 1);
       assert.equal(inputBlurs, beforeCloseBlurs + 1, "down releases the tally input itself");
       assert.equal(find("TextInput")!.props.value, "");
+      if (p === "ios") {
+        assert.ok(
+          nodes(tree).find((node) => node.props.accessibilityLabel === "common.hideKeyboard"),
+          "explicit blur retains the dismiss slot until native willHide starts the close",
+        );
+        assert.equal(
+          scheduledKeyboardLayouts.length,
+          beforeCloseLayouts,
+          "the button does not guess a keyboard animation before its native event",
+        );
+        assert.equal(
+          words(tree).includes("person.action.iGave"),
+          false,
+          "explicit blur keeps the compact dock until the keyboard begins hiding",
+        );
+        keyboardEvent("keyboardWillHide");
+        await flush();
+        assert.equal(scheduledKeyboardLayouts.length, beforeCloseLayouts);
+        assert.equal(searchFooter().props.keyboardShown, false);
+        const closingSlot = nodes(tree).find(
+          (node) => node.type === "SearchControlSlot" && node.props.collapse,
+        )!;
+        assert.equal(closingSlot.props.visible, false);
+        assert.equal(
+          closingSlot.props.animate,
+          false,
+          "willHide commits the collapsed width without an extra160ms JS animation",
+        );
+        assert.ok(
+          words(tree).includes("person.action.iGave"),
+          "the dock restores in that same close",
+        );
+      }
       assert.equal(
         nodes(tree).find((node) => node.props.accessibilityLabel === "common.hideKeyboard"),
         undefined,
       );
       keyboardEvent("keyboardDidHide");
       await flush();
+      assert.equal(
+        scheduledKeyboardLayouts.length,
+        beforeCloseLayouts,
+        "didHide adds no trailing keyboard layout animation",
+      );
       const dockNodes = nodes(dock);
       assert.ok(
         dockNodes.findIndex((node) => words(node) === "person.action.iReceived") <
           dockNodes.findIndex((node) => node.type === "TextInput"),
         "search appears below I received/I gave",
       );
-      const avoid = find("Keyboard")!;
       assert.equal(
-        avoid.props.behavior,
-        p === "android" ? "height" : "padding",
-        "lower search dock stays above keyboard on both platforms",
+        find("Keyboard"),
+        undefined,
+        "the customer has no competing JS keyboard avoider",
       );
+      assert.equal(flattenStyle(find("SearchKeyboardFrame")!.props.style).flex, 1);
+      assert.ok(nodes(find("SearchKeyboardFrame")).includes(find("ScrollView")!));
       assert.equal(
         find("ScrollView")?.props.automaticallyAdjustKeyboardInsets,
         false,
-        "KAV owns keyboard avoidance; do not add duplicate automatic scroll insets",
+        "native resize or the iOS native-motion frame owns avoidance without duplicate scroll insets",
       );
       assert.equal(
         find("ScrollView")!.props.keyboardDismissMode,
@@ -1680,19 +2242,42 @@ async function main() {
       assert.equal(find("TextInput")!.props.value, "rice", "Search return keeps tally search text");
       find("TextInput")!.props.onFocus();
       await flush();
+      keyboardEvent("keyboardDidShow");
+      await flush();
+      const beforeNativeHideBlurs = inputBlurs;
+      const beforeNativeHideDismissals = keyboardDismissals;
       keyboardEvent("keyboardDidHide");
       await flush();
       assert.equal(
         nodes(tree).find((node) => node.props.accessibilityLabel === "common.hideKeyboard"),
         undefined,
       );
+      if (p === "android") {
+        assert.equal(
+          inputBlurs,
+          beforeNativeHideBlurs + 1,
+          "native Back hide releases input focus",
+        );
+        assert.equal(
+          keyboardDismissals,
+          beforeNativeHideDismissals,
+          "Back-driven didHide does not need a second dismiss request",
+        );
+        const restoredDock = nodes(tree).find(
+          (node) =>
+            node.type === "AnimatedView" && nodes(node).some((child) => child.type === "TextInput"),
+        )!;
+        assert.ok(words(restoredDock).includes("person.action.iGave"));
+        assert.deepEqual(flattenStyle(restoredDock.props.style), dockStyle);
+        assert.equal(find("TextInput")!.props.value, "rice", "Back keeps the tally search query");
+      }
       // The dated settlement line stays between a current and a settled
       // result, so an old paid tally never reads as current (audit #3).
       assert.deepEqual(
         nodes(tree).flatMap((n) =>
           n.type === "EntryRow"
             ? [n.props.entry.id]
-            : n.props?.children === "person.history.settledOn"
+            : n.type === "Text" && words(n) === "person.history.settledOn"
               ? ["settled-line"]
               : [],
         ),
@@ -1738,11 +2323,11 @@ async function main() {
       assert.equal(shares.length, 1, "duplicate reminder taps share one preparation");
       assert.equal(preferenceReads, 1);
       assert.deepEqual(
-        shares[0].args[3].map((e: any) => e.id),
+        shares[0].args[2].flatMap((section: any) => section.entries.map((e: any) => e.id)),
         entries.map((e) => e.id),
         "reminder is not narrowed by search",
       );
-      assert.equal(shares[0].args[1], 3);
+      assert.equal(shares[0].args[2][0].balance, 3);
       assert.equal(pingButton().props.accessibilityLabel, "person.ping.preparing");
       assert.equal(
         words(tree).includes("person.ping.preparing"),
@@ -1753,7 +2338,7 @@ async function main() {
         nodes(pingButton()).some((n) => n.type === "Spinner"),
         "the reminder button shows its spinner",
       );
-      shares[0].args[6]("opening");
+      shares[0].args[4]("opening");
       await flush();
       assert.equal(pingButton().props.accessibilityLabel, "person.ping.opening");
       assert.equal(
@@ -1778,6 +2363,154 @@ async function main() {
     }
   console.log(
     "PASS: real person screen search spans settled history without narrowing balances/export/reminders; Android/iOS EN/FA keyboard gates and spinner-only reminder/duplicate guard",
+  );
+
+  fixture();
+  platform = "ios";
+  await flush();
+  runFrames();
+  runFrames();
+  await flush();
+  const nativeDock = () =>
+    nodes(tree).find(
+      (node) =>
+        node.type === "AnimatedView" && nodes(node).some((child) => child.type === "TextInput"),
+    )!;
+  const dockSkirt = -flattenStyle(nativeDock().props.style).bottom;
+  const measureDock = (height: number) =>
+    nativeDock().props.onLayout({ nativeEvent: { layout: { height: height + dockSkirt } } });
+  const listPadding = () =>
+    flattenStyle(find("ScrollView")!.props.contentContainerStyle).paddingBottom;
+  const stableInputRef = find("TextInput")!.props.ref;
+  measureDock(200);
+  await flush();
+  assert.equal(listPadding(), 224, "ordinary resting dock layout reserves visible controls");
+  keyboardEvent("keyboardWillShow");
+  await flush();
+  for (const height of [180, 156, 128]) {
+    measureDock(height);
+    await flush();
+    assert.equal(listPadding(), 224, "intermediate native motion does not rerender list spacing");
+  }
+  keyboardEvent("keyboardDidShow");
+  await flush();
+  measureDock(120);
+  await flush();
+  assert.equal(
+    listPadding(),
+    224,
+    "didShow waits for final native layout before publishing height",
+  );
+  runFrames();
+  await flush();
+  assert.equal(listPadding(), 224);
+  runFrames();
+  await flush();
+  assert.equal(listPadding(), 144, "one settled publication reserves the compact dock");
+  keyboardEvent("keyboardWillHide");
+  await flush();
+  for (const height of [145, 180]) {
+    measureDock(height);
+    await flush();
+    assert.equal(listPadding(), 144, "closing native frames do not feed back into React layout");
+  }
+  keyboardEvent("keyboardDidHide");
+  await flush();
+  measureDock(200);
+  runFrames();
+  runFrames();
+  await flush();
+  assert.equal(listPadding(), 224, "finished close restores resting list space once");
+  assert.equal(
+    find("TextInput")!.props.ref,
+    stableInputRef,
+    "keyboard motion never remounts search",
+  );
+  assert.equal(
+    scheduledKeyboardLayouts.length,
+    0,
+    "native motion never schedules a fixed JS clock",
+  );
+  keyboardEvent("keyboardWillShow");
+  measureDock(150);
+  keyboardEvent("keyboardDidShow");
+  const departedFrames = [...frames.values()];
+  assert.ok(departedFrames.length > 0);
+  blur();
+  await flush();
+  departedFrames.forEach((work) => work());
+  await flush();
+  assert.equal(
+    listPadding(),
+    224,
+    "retained stable-layout callbacks cannot repaint a hidden route",
+  );
+  refocus();
+  await flush();
+  measureDock(190);
+  await flush();
+  assert.equal(listPadding(), 214, "returning permits ordinary stable measurements again");
+  console.log(
+    "PASS: native keyboard dock frames do not rerender list padding until settled or repaint hidden routes",
+  );
+
+  fixture();
+  platform = "ios";
+  await flush();
+  let nativeSearchFocused = false,
+    nativeSearchBlurs = 0;
+  const reopeningInput = find("TextInput")!.props.ref;
+  reopeningInput.current = {
+    focus: () => {
+      nativeSearchFocused = true;
+    },
+    blur: () => {
+      nativeSearchFocused = false;
+      nativeSearchBlurs++;
+    },
+    isFocused: () => nativeSearchFocused,
+  };
+  reopeningInput.current.focus();
+  find("TextInput")!.props.onFocus();
+  keyboardEvent("keyboardWillShow");
+  keyboardEvent("keyboardDidShow");
+  query("rice");
+  await flush();
+  nodes(tree)
+    .find((node) => node.props.accessibilityLabel === "common.hideKeyboard")!
+    .props.onPress();
+  keyboardEvent("keyboardWillHide");
+  await flush();
+  assert.equal(nativeSearchFocused, false, "Down resigns the old native input focus");
+  const blursBeforeReopen = nativeSearchBlurs;
+  reopeningInput.current.focus();
+  // Native focus is synchronous, but the new onFocus/WillShow JS events can
+  // arrive after the old hide completion, exactly as on the physical iPhone.
+  keyboardEvent("keyboardDidHide");
+  await flush();
+  assert.equal(nativeSearchFocused, true, "old hide completion cannot resign a newer native focus");
+  assert.equal(nativeSearchBlurs, blursBeforeReopen);
+  keyboardEvent("keyboardWillShow");
+  keyboardEvent("keyboardDidShow");
+  find("TextInput")!.props.onFocus();
+  await flush();
+  assert.equal(find("TextInput")!.props.ref, reopeningInput);
+  assert.ok(nodes(tree).some((node) => node.props.accessibilityLabel === "common.hideKeyboard"));
+  assert.equal(searchFooter().props.keyboardShown, true);
+  assert.equal(find("TextInput")!.props.value, "rice");
+  assert.deepEqual(rowIds(), ["new-rice", "old-rice"]);
+  nativeSearchFocused = false;
+  keyboardEvent("keyboardWillHide");
+  keyboardEvent("keyboardDidHide");
+  await flush();
+  assert.equal(nativeSearchBlurs, blursBeforeReopen + 1, "a committed native hide still cleans up");
+  assert.equal(searchFooter().props.keyboardShown, false);
+  assert.equal(
+    nodes(tree).find((node) => node.props.accessibilityLabel === "common.hideKeyboard"),
+    undefined,
+  );
+  console.log(
+    "PASS: late iOS hide completion preserves native refocus before the new JS focus event",
   );
 
   fixture();
@@ -2168,7 +2901,7 @@ async function main() {
   advance(1);
   await flush();
   assert.equal(shares.length, 1);
-  assert.equal(shares[0].args[4], "fa", "the first language choice wins");
+  assert.equal(shares[0].args[3], "fa", "the first language choice wins");
   shares[0].resolve(true);
   await flush();
   picker.props.onSelect("en");
@@ -2186,8 +2919,23 @@ async function main() {
   advance(220);
   await Promise.resolve();
   assert.equal(shares.length, 0);
+  fixture();
+  preference = "ask";
+  await flush();
+  pingButton().props.onPress();
+  await flush();
+  find("OptionSheet")!.props.onSelect("fa");
+  await flush();
+  assert.equal(timers.size, 1);
+  selectedCurrency = "USD";
+  dirty = true;
+  await flush();
+  assert.equal(timers.size, 0, "switching ledger currency cancels a deferred language choice");
+  advance(220);
+  await flush();
+  assert.equal(shares.length, 0, "an AFN reminder cannot launch after switching to USD");
   console.log(
-    "PASS: real-screen language picker choice is single-use, deferred, guarded against duplicate taps and cancelled on unmount",
+    "PASS: real-screen language picker choice is single-use, deferred, guarded against duplicate taps and cancelled on unmount/currency change",
   );
 
   fixture();
@@ -2209,10 +2957,10 @@ async function main() {
   pingButton().props.onPress();
   await flush();
   const oldPing = shares[0];
-  assert.equal(oldPing.args[7].aborted, false);
+  assert.equal(oldPing.args[5].aborted, false);
   blur();
   await flush();
-  assert.equal(oldPing.args[7].aborted, true, "leaving focus aborts the in-flight reminder");
+  assert.equal(oldPing.args[5].aborted, true, "leaving focus aborts the in-flight reminder");
   assert.equal(pingButton().props.accessibilityLabel, "person.ping.button");
   refocus();
   await flush();
@@ -2220,8 +2968,8 @@ async function main() {
   await flush();
   assert.equal(shares.length, 2, "returning to the screen permits a new reminder");
   const newPing = shares[1];
-  assert.equal(newPing.args[7].aborted, false);
-  oldPing.args[6]("opening");
+  assert.equal(newPing.args[5].aborted, false);
+  oldPing.args[4]("opening");
   oldPing.resolve(false);
   await flush();
   assert.equal(toasts.length, 0, "an aborted reminder cannot show a late error toast");
@@ -2240,8 +2988,8 @@ async function main() {
   await flush();
   const leavingPing = shares[0];
   unmount();
-  assert.equal(leavingPing.args[7].aborted, true, "unmount aborts the snapshot preparation");
-  leavingPing.args[6]("opening");
+  assert.equal(leavingPing.args[5].aborted, true, "unmount aborts the snapshot preparation");
+  leavingPing.args[4]("opening");
   leavingPing.resolve(false);
   for (let i = 0; i < 4; i++) await Promise.resolve();
   assert.equal(
@@ -2337,7 +3085,7 @@ async function main() {
   await flush();
   assert.deepEqual(
     find("TallyFlowSummary")?.props.summary,
-    { gave: { count: 0, amount: 0 }, received: { count: 0, amount: 0 } },
+    undefined,
     "account switch immediately gates old summary",
   );
   accountId = "account";
@@ -2346,7 +3094,7 @@ async function main() {
   await flush();
   assert.deepEqual(
     find("TallyFlowSummary")?.props.summary,
-    { gave: { count: 0, amount: 0 }, received: { count: 0, amount: 0 } },
+    undefined,
     "kaata switch immediately gates old summary",
   );
   console.log(

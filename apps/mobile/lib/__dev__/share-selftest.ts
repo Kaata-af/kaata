@@ -24,14 +24,20 @@ stub("react-native", {
     },
   },
 });
-stub("../api", { getBackendUrl: async () => "https://example.invalid" });
+let backendWait: Promise<string> | null = null;
+stub("../api", { getBackendUrl: async () => backendWait ?? "https://example.invalid" });
 let selectedCalendar = "jalali";
 let qamariOffset = 0;
 stub("../calendar", {
   getEffectiveCalendar: () => selectedCalendar,
   getQamariOffset: () => qamariOffset,
 });
-stub("../currency", { getCurrentCurrencySymbol: () => "AFN" });
+let selectedCurrency = "AFN";
+stub("../currency", {
+  getCurrentCurrencyCode: () => selectedCurrency,
+  getCurrencySymbol: (code: string) =>
+    (({ USD: "$", AFN: "؋", AUD: "A$" }) as Record<string, string>)[code] ?? code,
+});
 stub("../db", {
   bumpUsageCounter: async () => {
     counters++;
@@ -85,7 +91,8 @@ const entries = [
 ];
 
 async function main() {
-  const { shareKaataViaWhatsApp } = require("../share") as typeof import("../share");
+  const { shareKaataViaWhatsApp, shareKaataCurrenciesViaWhatsApp } =
+    require("../share") as typeof import("../share");
   const person = { id: "synthetic", name: "Test person", phone: "+93 (700) 000 001" };
   const stages: string[] = [];
   let snapshot: Record<string, any> | undefined;
@@ -232,8 +239,346 @@ async function main() {
     ),
     false,
   );
+  selectedCurrency = "USD";
+  const usdEntries = entries.map((entry) => ({ ...entry, currency: "USD" }));
+  globalThis.fetch = (async (_url: unknown, init: RequestInit) => {
+    snapshot = JSON.parse(String(init.body));
+    selectedCurrency = "AFN";
+    return new Response(JSON.stringify({ url: "https://example.invalid/v/usd" }), { status: 201 });
+  }) as typeof fetch;
+  assert.equal(await shareKaataViaWhatsApp(person, 10, null, usdEntries, "en"), true);
+  assert.equal(snapshot!.currency_code, "USD");
+  assert.equal(snapshot!.currency, "$ USD", "issued currency is frozen despite a view change");
+  assert.match(new URL(opens.at(-1)!).searchParams.get("text")!, /USD/);
+  await assert.rejects(
+    shareKaataViaWhatsApp(
+      person,
+      10,
+      null,
+      [...usdEntries, { ...entries[0], currency: "AFN" }],
+      "en",
+    ),
+    /different currencies/,
+  );
+
+  const afnHistory = Array.from({ length: 140 }, (_, i) => ({
+    ...tally(
+      `afn-${i}`,
+      i === 0 ? "Old settled tally outside visible search/date filter" : `AFN tally ${i}`,
+    ),
+    currency: "AFN",
+    created_at: i + 1,
+  }));
+  const usdHistory = [
+    {
+      ...tally("usd-receipt", "Received in USD"),
+      currency: "USD",
+      type: "payment" as const,
+      amount_afn: 700,
+      created_at: 200,
+    },
+    {
+      ...tally("usd-pending", "Not acknowledged", { ...meta, status: "pending" }),
+      currency: "USD",
+      amount_afn: 50,
+    },
+  ];
+  const audHistory = [
+    { ...tally("aud-a", "AUD exact cents"), currency: "AUD", amount_afn: 0.1 },
+    { ...tally("aud-b", "AUD exact cents"), currency: "AUD", amount_afn: 0.2 },
+    {
+      ...tally("aud-paid", "AUD settled"),
+      currency: "AUD",
+      type: "payment" as const,
+      amount_afn: 0.3,
+    },
+  ];
+  const statements = [
+    {
+      currency: "AFN",
+      balance: 700,
+      entries: afnHistory,
+      settled: { settledChapters: 1, settledBoundaryMs: 70, settledBoundaries: [70] },
+    },
+    { currency: "USD", balance: -700, entries: usdHistory },
+    { currency: "AUD", balance: 0, entries: audHistory },
+  ];
+  const requests: string[] = [];
+  globalThis.fetch = (async (url: unknown, init?: RequestInit) => {
+    requests.push(String(url));
+    if (String(url).endsWith("/capabilities"))
+      return Response.json({ bill_versions: [1, 2], multi_currency: true });
+    snapshot = JSON.parse(String(init?.body));
+    selectedCurrency = "EUR";
+    return Response.json({ bill_version: 2, url: "https://example.invalid/v2/all-currencies" });
+  }) as typeof fetch;
+  const fullStages: string[] = [];
+  assert.equal(
+    await shareKaataCurrenciesViaWhatsApp(person, null, statements, "fa", (stage) =>
+      fullStages.push(stage),
+    ),
+    true,
+  );
+  assert.deepEqual(fullStages, ["preparing", "opening"]);
+  assert.ok(requests[0].endsWith("/v1/shared/capabilities"));
+  assert.ok(requests[1].endsWith("/v1/shared"));
+  assert.equal(snapshot!.v, 2);
+  assert.equal("balance" in snapshot!, false);
+  assert.equal("currency" in snapshot!, false);
+  assert.equal("entries" in snapshot!, false);
+  assert.deepEqual(
+    snapshot!.currencies.map((section: any) => [section.currency_code, section.balance]),
+    [
+      ["AFN", 700],
+      ["USD", -700],
+      ["AUD", 0],
+    ],
+  );
+  assert.equal(
+    snapshot!.currencies[0].entries.length,
+    140,
+    "full history is never silently truncated at100",
+  );
+  assert.equal(
+    snapshot!.currencies[0].entries[0].note,
+    afnHistory[0].note,
+    "folded/search/date-hidden history remains on the bill",
+  );
+  assert.deepEqual(snapshot!.currencies[0].settled_boundaries, [70]);
+  assert.deepEqual(
+    snapshot!.currencies[1].settled_boundaries,
+    [],
+    "settlement metadata never crosses currencies",
+  );
+  assert.equal(
+    snapshot!.currencies[1].entries.length,
+    1,
+    "unacknowledged rows never masquerade as billed money",
+  );
+  for (const section of snapshot!.currencies)
+    assert.ok(section.entries.every((entry: any) => entry.currency === section.currency_code));
+  const fullText = new URL(opens.at(-1)!).searchParams.get("text")!;
+  assert.match(fullText, /share.theyOwe.amount.*700.*AFN/);
+  assert.match(fullText, /share.youOwe.amount.*700.*USD/);
+  assert.match(fullText, /share.currencySettled.*AUD/);
+  assert.doesNotMatch(fullText, /share.settled.line/);
+  assert.match(fullText, /https:\/\/example.invalid\/v2\/all-currencies/);
+
+  let resolveBackend!: (value: string) => void;
+  backendWait = new Promise<string>((resolve) => {
+    resolveBackend = resolve;
+  });
+  const frozenPerson = { ...person };
+  const frozenEntry = { ...tally("frozen", "Original note"), currency: "AFN", amount_afn: 1 };
+  const frozenBoundaries = [1];
+  const frozenStatement = {
+    currency: "AFN",
+    balance: 1,
+    entries: [frozenEntry],
+    settled: { settledChapters: 1, settledBoundaryMs: 1, settledBoundaries: frozenBoundaries },
+  };
+  selectedCalendar = "qamari";
+  qamariOffset = -1;
+  const freeze = shareKaataCurrenciesViaWhatsApp(frozenPerson, null, [frozenStatement], "ps");
+  frozenEntry.amount_afn = 999;
+  frozenEntry.currency = "USD";
+  frozenEntry.note = "Changed while waiting";
+  frozenStatement.balance = 999;
+  frozenBoundaries.push(99);
+  frozenPerson.phone = "+61499999999";
+  selectedCalendar = "gregorian";
+  qamariOffset = 2;
+  resolveBackend("https://example.invalid");
+  await freeze;
+  backendWait = null;
+  assert.equal(snapshot!.calendar, "qamari");
+  assert.equal(snapshot!.qamari_offset, -1);
+  assert.equal(snapshot!.locale, "ps");
+  assert.equal(snapshot!.currencies[0].balance, 1);
+  assert.deepEqual(snapshot!.currencies[0].entries, [
+    { currency: "AFN", type: "debt", amount: 1, note: "Original note", date: 1 },
+  ]);
+  assert.deepEqual(snapshot!.currencies[0].settled_boundaries, [1]);
+  assert.equal(
+    new URL(opens.at(-1)!).searchParams.get("phone"),
+    "+93700000001",
+    "recipient and statement are frozen before any asynchronous preparation",
+  );
+  await shareKaataCurrenciesViaWhatsApp(
+    person,
+    null,
+    [{ currency: "AUD", balance: 0, entries: audHistory }],
+    "en",
+  );
+  assert.match(
+    new URL(opens.at(-1)!).searchParams.get("text")!,
+    /share.currencySettled.*AUD/,
+    "even a single settled currency keeps its label",
+  );
+  const capacity = Array.from({ length: 5000 }, (_, i) => ({
+    ...tally(`capacity-${i}`, "Complete maximum-size bill"),
+    currency: "AFN",
+    amount_afn: 1,
+  }));
+  await shareKaataCurrenciesViaWhatsApp(
+    person,
+    null,
+    [{ currency: "AFN", balance: 5000, entries: capacity }],
+    "en",
+  );
+  assert.equal(
+    snapshot!.currencies[0].entries.length,
+    5000,
+    "the complete accepted capacity reaches the server unchanged",
+  );
+
+  // The older explicit-row API remains scoped to exactly the supplied rows.
+  selectedCurrency = "USD";
+  globalThis.fetch = (async (_url: unknown, init?: RequestInit) => {
+    snapshot = JSON.parse(String(init?.body));
+    return Response.json({ url: "https://example.invalid/v/selected" });
+  }) as typeof fetch;
+  assert.equal(
+    await shareKaataViaWhatsApp(
+      person,
+      -700,
+      null,
+      [usdHistory[0]],
+      "en",
+      undefined,
+      undefined,
+      undefined,
+      "USD",
+    ),
+    true,
+  );
+  assert.equal(snapshot!.v, 1);
+  assert.equal(snapshot!.entries.length, 1);
+  assert.equal(snapshot!.entries[0].note, "Received in USD");
+  const selectedRows = afnHistory.slice(20, 121).map((entry) => ({ ...entry, currency: "USD" }));
+  await shareKaataViaWhatsApp(
+    person,
+    selectedRows.length * 5,
+    null,
+    selectedRows,
+    "en",
+    undefined,
+    undefined,
+    undefined,
+    "USD",
+  );
+  assert.equal(
+    snapshot!.entries.length,
+    101,
+    "an explicit selection over100 rows also stays complete",
+  );
+  assert.deepEqual(
+    snapshot!.entries.map((entry: any) => entry.note),
+    selectedRows.map((entry) => entry.note),
+    "scoped sharing never expands to hidden/unselected customer rows",
+  );
+
+  // An older backend must never get a v2 packet it would misrender as zero.
+  let posts = 0;
+  globalThis.fetch = (async (_url: unknown, init?: RequestInit) => {
+    if (init?.method === "POST") posts++;
+    return new Response(null, { status: 404 });
+  }) as typeof fetch;
+  assert.equal(await shareKaataCurrenciesViaWhatsApp(person, null, statements, "en"), true);
+  assert.equal(posts, 0);
+  let fallbackText = new URL(opens.at(-1)!).searchParams.get("text")!;
+  assert.match(fallbackText, /share.billUnavailable/);
+  assert.doesNotMatch(fallbackText, /share.fullLedger|https:\/\/example.invalid\/v/);
+  assert.match(fallbackText, /AFN/);
+  assert.match(fallbackText, /USD/);
+  assert.match(fallbackText, /AUD/);
+
+  // Probe may reach a new worker while POST reaches an old rolling worker.
+  globalThis.fetch = (async (url: unknown) =>
+    String(url).endsWith("/capabilities")
+      ? Response.json({ bill_versions: [1, 2] })
+      : Response.json({ url: "https://example.invalid/v/old-zero-renderer" })) as typeof fetch;
+  await shareKaataCurrenciesViaWhatsApp(person, null, statements, "en");
+  fallbackText = new URL(opens.at(-1)!).searchParams.get("text")!;
+  assert.match(fallbackText, /share.billUnavailable/);
+  assert.doesNotMatch(fallbackText, /old-zero-renderer|share.fullLedger/);
+
+  // Server body limit rejects the whole bill; no shortened link is substituted.
+  globalThis.fetch = (async (url: unknown) =>
+    String(url).endsWith("/capabilities")
+      ? Response.json({ bill_versions: [2] })
+      : new Response(null, { status: 413 })) as typeof fetch;
+  await shareKaataCurrenciesViaWhatsApp(person, null, statements, "en");
+  assert.match(new URL(opens.at(-1)!).searchParams.get("text")!, /share.billUnavailable/);
+  globalThis.fetch = (async () => {
+    throw new Error("synthetic offline");
+  }) as typeof fetch;
+  await shareKaataCurrenciesViaWhatsApp(person, null, statements, "en");
+  assert.match(new URL(opens.at(-1)!).searchParams.get("text")!, /share.billUnavailable/);
+
+  // Capacity is all-or-nothing, with no POST or partial public link.
+  let oversizeRequests = 0;
+  globalThis.fetch = (async () => {
+    oversizeRequests++;
+    throw new Error("must not upload an oversized bill");
+  }) as typeof fetch;
+  const tooMany = Array.from({ length: 5001 }, (_, i) => ({
+    ...tally(`large-${i}`, "Full history"),
+    currency: "AFN",
+    amount_afn: 1,
+  }));
+  await shareKaataCurrenciesViaWhatsApp(
+    person,
+    null,
+    [{ currency: "AFN", balance: 5001, entries: tooMany }],
+    "en",
+  );
+  assert.equal(oversizeRequests, 0);
+  assert.match(new URL(opens.at(-1)!).searchParams.get("text")!, /share.billUnavailable/);
+
+  const beforeInvalid = opens.length;
+  await assert.rejects(
+    shareKaataCurrenciesViaWhatsApp(person, null, [{ ...statements[0], pending: true }], "en"),
+    /not fully synced/,
+  );
+  await assert.rejects(
+    shareKaataCurrenciesViaWhatsApp(person, null, [{ ...statements[0], currency: "USD" }], "en"),
+    /different currencies/,
+  );
+  assert.equal(opens.length, beforeInvalid);
+
+  let finishBill!: (response: Response) => void;
+  let billSignal: AbortSignal | undefined;
+  globalThis.fetch = (async (url: unknown, init?: RequestInit) => {
+    if (String(url).endsWith("/capabilities")) return Response.json({ bill_versions: [2] });
+    billSignal = init?.signal as AbortSignal;
+    return new Promise<Response>((resolve) => {
+      finishBill = resolve;
+    });
+  }) as typeof fetch;
+  const billController = new AbortController();
+  const beforeCancel = opens.length;
+  const bill = shareKaataCurrenciesViaWhatsApp(
+    person,
+    null,
+    statements,
+    "en",
+    undefined,
+    billController.signal,
+  );
+  for (let i = 0; i < 20 && !finishBill; i++) await Promise.resolve();
+  assert.ok(finishBill);
+  billController.abort();
+  assert.equal(billSignal!.aborted, true);
+  finishBill(Response.json({ bill_version: 2, url: "https://example.invalid/v2/late" }));
+  assert.equal(await bill, false);
+  assert.equal(
+    opens.length,
+    beforeCancel,
+    "late all-currency uploads cannot open another app after leaving",
+  );
   console.log(
-    "PASS: WhatsApp preparation/opening progress, complete statement, plain-text fallback, recipient routing and best-effort counters",
+    "PASS: complete multi-currency WhatsApp bills, scoped selected rows, per-currency balances/chapters, no truncation, version/limit/offline fallback and abort guards",
   );
 }
 main()

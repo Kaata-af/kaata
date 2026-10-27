@@ -67,7 +67,7 @@ import {
   type MergedSection,
 } from "../../lib/contacts-merge";
 import { splitName, type DeviceContact } from "../../lib/contacts-sync";
-import { getCurrencySymbol, applyVaultCurrency } from "../../lib/currency";
+import { getCurrencySymbol, applyVaultCurrency, selectLedgerCurrency } from "../../lib/currency";
 import { getAppMeta, getLocalSelf, setAppMeta } from "../../lib/db";
 import { getActiveVaultIdSyncMaybe, setActiveVaultId } from "../../lib/db-tx";
 import { toAsciiDigits } from "../../lib/digits";
@@ -476,7 +476,11 @@ export default function TabJoinScreen() {
       await clearPendingStash();
       queuePendingToast(t("tab.join.done", { name: displayName }), "success");
       if (personId) {
-        router.replace({ pathname: "/person/[id]", params: { id: personId } });
+        await selectLedgerCurrency(tab.currency, target.vaultId);
+        router.replace({
+          pathname: "/person/[id]",
+          params: { id: personId, currency: tab.currency },
+        });
       } else {
         // The link committed but the contact could not be resolved (torn local
         // state). Home still shows it — never strand the user on this modal.

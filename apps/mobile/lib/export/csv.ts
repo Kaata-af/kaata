@@ -79,20 +79,44 @@ function clearanceEvidence(tabId: string, ms: number): string[] {
 }
 
 export function buildPersonCsv(st: PersonStatement): string {
+  return BOM + personCsvLines(st).join(CRLF) + CRLF;
+}
+
+/** A single table labels every amount's currency; running balances reset per code. */
+export function buildPersonCurrenciesCsv(statements: readonly PersonStatement[]): string {
+  if (statements.length === 0) throw new Error("No currency statements");
+  if (statements.length === 1) return buildPersonCsv(statements[0]);
+  const shared = statements.some(
+    (statement) =>
+      statement.rows.some((row) => (row.kind === "entry" ? row.entry.tab : row.shared)) ||
+      !!statement.archivedSharedPeriods?.length,
+  );
+  const tables = statements.map((statement) =>
+    personCsvLines(statement, { currency: true, shared }),
+  );
+  return BOM + [tables[0][0], ...tables.flatMap((rows) => rows.slice(1))].join(CRLF) + CRLF;
+}
+
+function personCsvLines(
+  st: PersonStatement,
+  options: { currency?: boolean; shared?: boolean } = {},
+): string[] {
   const { locale, calendar, currencyCode: code } = st;
   const qamari = calendar === "qamari";
   const shared =
-    st.rows.some((r) => (r.kind === "entry" ? r.entry.tab : r.shared)) ||
-    !!st.archivedSharedPeriods?.length;
+    options.shared ??
+    (st.rows.some((r) => (r.kind === "entry" ? r.entry.tab : r.shared)) ||
+      !!st.archivedSharedPeriods?.length);
   let totals: RecordTotals = { acknowledged: 0, pending: 0, private: 0 };
   const lines: string[] = [
     csvLine([
       tIn(locale, "export.col.date"),
       tIn(locale, "export.col.dateShamsi"),
-      `${tIn(locale, "export.col.gave")} (${code})`,
-      `${tIn(locale, "export.col.received")} (${code})`,
-      `${tIn(locale, "export.col.balance")} (${code})`,
+      `${tIn(locale, "export.col.gave")}${options.currency ? "" : ` (${code})`}`,
+      `${tIn(locale, "export.col.received")}${options.currency ? "" : ` (${code})`}`,
+      `${tIn(locale, "export.col.balance")}${options.currency ? "" : ` (${code})`}`,
       tIn(locale, "export.col.note"),
+      ...(options.currency && !shared ? [tIn(locale, "export.record.currency")] : []),
       ...(shared
         ? [
             tIn(locale, "export.record.scope"),
@@ -128,6 +152,7 @@ export function buildPersonCsv(st: PersonStatement): string {
               ? clearanceNote(row.shared.settlement.actor_name, date, locale)
               : tIn(locale, "person.history.settledOn", { date }),
           ),
+          ...(options.currency && !shared ? [code] : []),
           ...(shared
             ? [
                 tIn(locale, "export.record.current"),
@@ -158,6 +183,7 @@ export function buildPersonCsv(st: PersonStatement): string {
         ...countedCells(e),
         row.balanceAfter,
         guardText(noteFor(e.note, e.tab?.kind, locale)),
+        ...(options.currency && !shared ? [code] : []),
         ...(shared
           ? [
               tIn(locale, "export.record.current"),
@@ -235,13 +261,37 @@ export function buildPersonCsv(st: PersonStatement): string {
       );
     }
   }
-  return BOM + lines.join(CRLF) + CRLF;
+  return lines;
 }
 
 export function buildVaultCsv(report: VaultReport): string {
+  return BOM + vaultCsvLines(report).join(CRLF) + CRLF;
+}
+
+/** A single machine-readable table. The currency column identifies the
+ * currency of every amount and each person's running balance. */
+export function buildVaultCurrenciesCsv(reports: readonly VaultReport[]): string {
+  if (reports.length === 0) throw new Error("No currency reports");
+  if (reports.length === 1) return buildVaultCsv(reports[0]);
+  const shared = reports.some((report) => report.journal.some((row) => row.tab));
+  const tables = reports.map((report) => vaultCsvLines(report, { currency: true, shared }));
+  return BOM + [tables[0][0], ...tables.flatMap((table) => table.slice(1))].join(CRLF) + CRLF;
+}
+
+function vaultCsvLines(
+  report: VaultReport,
+  options: { currency?: boolean; shared?: boolean } = {},
+): string[] {
   const { locale, currencyCode: code } = report;
   const qamari = report.calendar === "qamari";
-  const shared = report.journal.some((r) => r.tab);
+  const shared = options.shared ?? report.journal.some((r) => r.tab);
+  const amountHeader = (
+    key:
+      | "export.col.gave"
+      | "export.col.received"
+      | "export.col.balance"
+      | "export.record.recordedAmount",
+  ) => `${tIn(locale, key)}${options.currency ? "" : ` (${code})`}`;
   const totalsByPerson = new Map<string, RecordTotals>();
   const lines: string[] = [
     csvLine([
@@ -249,15 +299,16 @@ export function buildVaultCsv(report: VaultReport): string {
       tIn(locale, "export.col.dateShamsi"),
       tIn(locale, "export.col.person"),
       tIn(locale, "export.col.phone"),
-      `${tIn(locale, "export.col.gave")} (${code})`,
-      `${tIn(locale, "export.col.received")} (${code})`,
-      `${tIn(locale, "export.col.balance")} (${code})`,
+      ...(options.currency ? [tIn(locale, "export.record.currency")] : []),
+      amountHeader("export.col.gave"),
+      amountHeader("export.col.received"),
+      amountHeader("export.col.balance"),
       tIn(locale, "export.col.note"),
       ...(shared
         ? [
             // One currency per kaata journal (no Currency column), so the
             // code is stated here like the leading amount columns.
-            `${tIn(locale, "export.record.recordedAmount")} (${code})`,
+            amountHeader("export.record.recordedAmount"),
             tIn(locale, "export.record.contribution"),
             tIn(locale, "export.record.acknowledgedBalance"),
             tIn(locale, "export.record.pendingBalance"),
@@ -281,6 +332,7 @@ export function buildVaultCsv(report: VaultReport): string {
         shamsiDate(row.created_at),
         guardText(row.person_name),
         guardText(row.person_phone),
+        ...(options.currency ? [code] : []),
         ...countedCells(row),
         row.balanceAfter,
         guardText(noteFor(row.note, row.kind, locale)),
@@ -299,5 +351,5 @@ export function buildVaultCsv(report: VaultReport): string {
       ]),
     );
   }
-  return BOM + lines.join(CRLF) + CRLF;
+  return lines;
 }

@@ -230,6 +230,11 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, http.StatusBadRequest, "invalid json body")
 		return
 	}
+	if req.Currency != nil && r.Header.Get("X-Kaata-Currencies") != "1" {
+		httpx.ErrorCode(w, http.StatusUpgradeRequired, "currency_upgrade_required",
+			"Update Kaata before changing currency. Existing tally denominations are kept separately.")
+		return
+	}
 
 	res, err := h.svc.Update(r.Context(), UpdateInput{
 		AccountID: claims.AccountID,

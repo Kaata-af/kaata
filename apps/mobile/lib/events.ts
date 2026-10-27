@@ -70,6 +70,8 @@ export type EntryCreatedEvent = EventEnvelope & {
     amount_afn: number; // Major units, up to two decimals; never rescale old events.
     note: string | null;
     occurred_at_ms: number;
+    /** Missing only on signed legacy history: use the vault's frozen currency. */
+    currency?: string;
     // Immutable wall time of the save. Separate from the editable business
     // date and from HLC physical time, which can advance after peer sync.
     recorded_at_ms?: number;
@@ -112,7 +114,7 @@ export type EntryDeletedEvent = EventEnvelope & {
 // Reserved for Phase 4 (customer-side ack).
 export type EntrySettledEvent = EventEnvelope & {
   event_type: "entry_settled";
-  payload: { settled_at_ms: number };
+  payload: { settled_at_ms: number; currency?: string };
 };
 
 // ---------- Person events (Phase 2/3) ----------

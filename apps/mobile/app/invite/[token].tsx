@@ -240,7 +240,7 @@ export default function InviteAcceptScreen() {
         try {
           const { seedJoinedVaultMinimal } = await import("../../lib/recovery");
           await applyForCurrentSession(session, () =>
-            seedJoinedVaultMinimal(result.vault_id, result.vault_name, result.role),
+            seedJoinedVaultMinimal(result.vault_id, result.vault_name, result.role, result),
           );
           assertRoute();
         } catch (err) {

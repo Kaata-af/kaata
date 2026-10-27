@@ -42,6 +42,7 @@ function authDeletionFixture() {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
   }).outputText;
   const mocks: Record<string, unknown> = {
+    expo: { isRunningInExpoGo: () => true },
     "expo-constants": { __esModule: true, default: { executionEnvironment: "storeClient" } },
     "expo-secure-store": {
       getItemAsync: async (key: string) => {
@@ -316,6 +317,7 @@ async function testCurrentSessionResponseGuard() {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
   }).outputText;
   const mocks: Record<string, unknown> = {
+    expo: { isRunningInExpoGo: () => true },
     "expo-constants": { __esModule: true, default: { executionEnvironment: "storeClient" } },
     "expo-secure-store": {
       getItemAsync: async (key: string) => store.get(key) ?? null,

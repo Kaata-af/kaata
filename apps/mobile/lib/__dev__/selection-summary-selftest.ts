@@ -3,15 +3,26 @@ import assert from "node:assert/strict";
 import Database from "better-sqlite3";
 import * as money from "../money";
 import { compileUI } from "./ui-fixture";
+import { applyCurrencyMigration } from "./currency-fixture";
 
 const sql = new Database(":memory:");
 sql.exec(`
+  CREATE TABLE schema_migrations(name TEXT PRIMARY KEY, applied_at INTEGER NOT NULL);
+  CREATE TABLE app_meta(key TEXT PRIMARY KEY, value TEXT NOT NULL);
+  CREATE TABLE vaults(id TEXT PRIMARY KEY, currency TEXT NOT NULL);
+  INSERT INTO vaults(id,currency) VALUES('book','AFN'),('other-book','AFN');
+  CREATE TABLE vault_settings(vault_id TEXT, key TEXT, value TEXT);
   CREATE TABLE users(id TEXT PRIMARY KEY, display_name TEXT, phone_e164 TEXT, created_at INTEGER);
   CREATE TABLE relationships(id TEXT PRIMARY KEY, vault_id TEXT, user_b_id TEXT, archived_at INTEGER);
   CREATE INDEX relationships_vault ON relationships(vault_id);
-  CREATE TABLE entries(id TEXT PRIMARY KEY, relationship_id TEXT, vault_id TEXT, type TEXT, amount_afn REAL, created_at INTEGER, deleted_at INTEGER);
+  CREATE TABLE entries(id TEXT PRIMARY KEY, relationship_id TEXT, vault_id TEXT, type TEXT, amount_afn REAL, created_at INTEGER, deleted_at INTEGER,
+    field_hlcs TEXT NOT NULL DEFAULT '{}');
   CREATE INDEX entries_relationship ON entries(relationship_id, created_at);
-  CREATE TABLE settlements(relationship_id TEXT, settled_at_ms INTEGER);
+  CREATE TABLE settlements(vault_id TEXT, relationship_id TEXT, settled_at_ms INTEGER);
+  CREATE TABLE customer_credit_limits(vault_id TEXT,relationship_id TEXT,max_collect_minor INTEGER,
+    max_pay_minor INTEGER,mode TEXT,sync_pending INTEGER,updated_at_ms INTEGER,restrict_editors INTEGER);
+  CREATE TABLE kaata_credit_defaults(vault_id TEXT,max_collect_minor INTEGER,max_pay_minor INTEGER,
+    mode TEXT,updated_at_ms INTEGER,restrict_editors INTEGER);
   CREATE TABLE tab_links(tab_id TEXT PRIMARY KEY, vault_id TEXT, relationship_id TEXT, role TEXT, linked_at INTEGER, closed_at INTEGER, last_synced_at INTEGER,
     other_account_name TEXT DEFAULT '', other_joined_at INTEGER, history_order TEXT, currency TEXT DEFAULT 'AFN');
   CREATE INDEX tab_links_relationship ON tab_links(relationship_id);
@@ -27,6 +38,7 @@ sql.exec(`
 let dbReads = 0;
 const { summarizeSelectionEntries, summarizeSelectedPeople } = compileUI("../selection-summary", {
   "./money": money,
+  "./currency-totals": require("../currency-totals"),
 }) as typeof import("../selection-summary");
 // Exercise the real list query, result mapping and pure selection aggregation.
 // Unrelated native/write dependencies are unavailable, so a selection that
@@ -59,6 +71,8 @@ const { listAllPeopleForSearch, getPerson } = compileUI("../db", {
   "./hlc": {},
   "./group-memberships": {},
   "./money-sql": require("../money-sql"),
+  "./entry-date": require("../entry-date"),
+  "./currency-scope": require("../currency-scope"),
   "./tabs/db": {},
   "./tabs/direction": require("../tabs/direction"),
   "./tabs/history": require("../tabs/history"),
@@ -116,7 +130,9 @@ function local(
   options: { at?: number; deleted?: number; vault?: string } = {},
 ) {
   sql
-    .prepare("INSERT INTO entries VALUES(?,?,?,?,?,?,?)")
+    .prepare(
+      "INSERT INTO entries(id,relationship_id,vault_id,type,amount_afn,created_at,deleted_at) VALUES(?,?,?,?,?,?,?)",
+    )
     .run(
       id,
       relationship,
@@ -176,6 +192,7 @@ function shared(
 }
 
 async function main() {
+  await applyCurrencyMigration(sql);
   assert.deepEqual(summarizeSelectionEntries([]), empty);
   assert.deepEqual(selected([]), empty);
   assert.equal(dbReads, 0, "empty selections do not open SQLite");
@@ -252,7 +269,11 @@ async function main() {
   tab("wrong-vault-alice", alice, { vault: "other-book" });
   shared("wrong-vault-amount", "wrong-vault-alice", "a_to_b", 999999);
 
-  sql.prepare("INSERT INTO settlements VALUES(?,?)").run(settled, 10);
+  sql
+    .prepare(
+      "INSERT INTO settlements(vault_id,relationship_id,settled_at_ms,currency) VALUES('book',?,?,'AFN')",
+    )
+    .run(settled, 10);
   await reload();
   assert.equal(peopleSnapshot.find((row) => row.id === "settled")?.is_settled, 1);
   assert.equal(

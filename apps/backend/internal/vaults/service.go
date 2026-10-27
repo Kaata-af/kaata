@@ -92,7 +92,9 @@ type CreateInput struct {
 }
 
 type CreateResult struct {
-	VaultID string `json:"vault_id"`
+	VaultID              string `json:"vault_id"`
+	LegacyCurrency       string `json:"legacy_currency"`
+	DefaultEntryCurrency string `json:"default_entry_currency"`
 }
 
 // Create registers a client-minted vault server-side and seeds the
@@ -160,7 +162,7 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (CreateResult, err
 	// after the UPDATE has already been applied, so without the in-SQL gate a
 	// stranger who guessed a vault UUID could stamp an anchor onto someone
 	// else's anchor-less vault before being rejected.
-	var existingOwner string
+	var existingOwner, legacyCurrency, defaultEntryCurrency string
 	err = tx.QueryRow(ctx, `
 		INSERT INTO vaults (vault_id, owner_account_id, name, currency, vault_epoch, created_at, vault_trust_anchor_pubkey)
 		VALUES ($1::uuid, $2::uuid, $3, $4, 0, $5, $6)
@@ -172,8 +174,8 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (CreateResult, err
 			THEN EXCLUDED.vault_trust_anchor_pubkey
 			ELSE vaults.vault_trust_anchor_pubkey
 		END
-		RETURNING owner_account_id::text
-	`, in.VaultID, in.AccountID, in.Name, currency, createdAt, in.VaultTrustAnchorPubkey).Scan(&existingOwner)
+		RETURNING owner_account_id::text, legacy_currency, default_entry_currency
+	`, in.VaultID, in.AccountID, in.Name, currency, createdAt, in.VaultTrustAnchorPubkey).Scan(&existingOwner, &legacyCurrency, &defaultEntryCurrency)
 	if err != nil {
 		return CreateResult{}, fmt.Errorf("insert vault: %w", err)
 	}
@@ -203,7 +205,7 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (CreateResult, err
 	if err := tx.Commit(ctx); err != nil {
 		return CreateResult{}, fmt.Errorf("commit tx: %w", err)
 	}
-	return CreateResult{VaultID: in.VaultID}, nil
+	return CreateResult{VaultID: in.VaultID, LegacyCurrency: legacyCurrency, DefaultEntryCurrency: defaultEntryCurrency}, nil
 }
 
 // ===========================================================================
@@ -273,14 +275,16 @@ const (
 
 // VaultListing is the shape returned by GET /v1/vaults.
 type VaultListing struct {
-	VaultID      string `json:"vault_id"`
-	Name         string `json:"name"`
-	Currency     string `json:"currency,omitempty"`
-	Role         string `json:"role"`
-	MembersCount int    `json:"members_count"`
-	CreatedAtMS  int64  `json:"created_at_ms"`
-	ArchivedAtMS *int64 `json:"archived_at_ms,omitempty"`
-	VaultEpoch   int64  `json:"vault_epoch"`
+	VaultID              string `json:"vault_id"`
+	Name                 string `json:"name"`
+	Currency             string `json:"currency,omitempty"`
+	LegacyCurrency       string `json:"legacy_currency"`
+	DefaultEntryCurrency string `json:"default_entry_currency"`
+	Role                 string `json:"role"`
+	MembersCount         int    `json:"members_count"`
+	CreatedAtMS          int64  `json:"created_at_ms"`
+	ArchivedAtMS         *int64 `json:"archived_at_ms,omitempty"`
+	VaultEpoch           int64  `json:"vault_epoch"`
 	// VaultTrustAnchorPubkey — Phase 7 local-CA mesh trust anchor.
 	//
 	// base64-encoded 32-byte Ed25519 pubkey when the vault is locally
@@ -321,6 +325,7 @@ func (s *Service) List(ctx context.Context, accountID string) ([]VaultListing, e
 		SELECT v.vault_id::text,
 		       v.name,
 		       COALESCE(v.currency, ''),
+		       v.legacy_currency, v.default_entry_currency,
 		       vm.role,
 		       (SELECT COUNT(*) FROM vault_members vm2
 		         WHERE vm2.vault_id = v.vault_id
@@ -351,7 +356,7 @@ func (s *Service) List(ctx context.Context, accountID string) ([]VaultListing, e
 			trustAnchorRaw []byte // nil for server-anchored vaults
 		)
 		if err := rows.Scan(
-			&vl.VaultID, &vl.Name, &vl.Currency, &vl.Role,
+			&vl.VaultID, &vl.Name, &vl.Currency, &vl.LegacyCurrency, &vl.DefaultEntryCurrency, &vl.Role,
 			&vl.MembersCount, &createdAt, &archivedAt, &vl.VaultEpoch,
 			&trustAnchorRaw,
 		); err != nil {
@@ -1436,9 +1441,12 @@ type AcceptInviteInput struct {
 }
 
 type AcceptInviteResult struct {
-	VaultID   string `json:"vault_id"`
-	VaultName string `json:"vault_name"`
-	Role      string `json:"role"`
+	VaultID              string `json:"vault_id"`
+	VaultName            string `json:"vault_name"`
+	Role                 string `json:"role"`
+	Currency             string `json:"currency"`
+	LegacyCurrency       string `json:"legacy_currency"`
+	DefaultEntryCurrency string `json:"default_entry_currency"`
 }
 
 func (s *Service) AcceptInvite(ctx context.Context, in AcceptInviteInput) (AcceptInviteResult, error) {
@@ -1530,13 +1538,13 @@ func (s *Service) AcceptInvite(ctx context.Context, in AcceptInviteInput) (Accep
 	// A DIFFERENT account still falls through to ErrInviteNotFound below, so
 	// we never reveal that the token was consumed by someone else.
 	if acceptedAt != nil && revokedAt == nil && acceptedBy != nil && *acceptedBy == in.AccountID {
-		var vaultName string
+		var vaultName, currency, legacyCurrency, defaultEntryCurrency string
 		if err := tx.QueryRow(ctx, `
-			SELECT name FROM vaults WHERE vault_id = $1::uuid
-		`, vaultID).Scan(&vaultName); err != nil {
+			SELECT name,currency,legacy_currency,default_entry_currency FROM vaults WHERE vault_id = $1::uuid
+		`, vaultID).Scan(&vaultName, &currency, &legacyCurrency, &defaultEntryCurrency); err != nil {
 			return AcceptInviteResult{}, fmt.Errorf("lookup vault name: %w", err)
 		}
-		return AcceptInviteResult{VaultID: vaultID, VaultName: vaultName, Role: role}, nil
+		return AcceptInviteResult{VaultID: vaultID, VaultName: vaultName, Role: role, Currency: currency, LegacyCurrency: legacyCurrency, DefaultEntryCurrency: defaultEntryCurrency}, nil
 	}
 	if acceptedAt != nil || revokedAt != nil || time.Now().After(expiresAt) {
 		return AcceptInviteResult{}, ErrInviteNotFound
@@ -1591,13 +1599,13 @@ func (s *Service) AcceptInvite(ctx context.Context, in AcceptInviteInput) (Accep
 	`, vaultID, in.AccountID).Scan(&existingRole)
 	switch {
 	case existErr == nil:
-		var vaultName string
+		var vaultName, currency, legacyCurrency, defaultEntryCurrency string
 		if err := tx.QueryRow(ctx, `
-			SELECT name FROM vaults WHERE vault_id = $1::uuid
-		`, vaultID).Scan(&vaultName); err != nil {
+			SELECT name,currency,legacy_currency,default_entry_currency FROM vaults WHERE vault_id = $1::uuid
+		`, vaultID).Scan(&vaultName, &currency, &legacyCurrency, &defaultEntryCurrency); err != nil {
 			return AcceptInviteResult{}, fmt.Errorf("lookup vault name: %w", err)
 		}
-		return AcceptInviteResult{VaultID: vaultID, VaultName: vaultName, Role: existingRole}, nil
+		return AcceptInviteResult{VaultID: vaultID, VaultName: vaultName, Role: existingRole, Currency: currency, LegacyCurrency: legacyCurrency, DefaultEntryCurrency: defaultEntryCurrency}, nil
 	case errors.Is(existErr, pgx.ErrNoRows):
 		// not a member yet — proceed with the accept
 	default:
@@ -1643,11 +1651,11 @@ func (s *Service) AcceptInvite(ctx context.Context, in AcceptInviteInput) (Accep
 		return AcceptInviteResult{}, fmt.Errorf("accept invite: %w", err)
 	}
 
-	var vaultName string
+	var vaultName, currency, legacyCurrency, defaultEntryCurrency string
 	if err := tx.QueryRow(ctx, `
 		UPDATE vaults SET vault_epoch = vault_epoch + 1
-		 WHERE vault_id = $1::uuid RETURNING name
-	`, vaultID).Scan(&vaultName); err != nil {
+		 WHERE vault_id = $1::uuid RETURNING name,currency,legacy_currency,default_entry_currency
+	`, vaultID).Scan(&vaultName, &currency, &legacyCurrency, &defaultEntryCurrency); err != nil {
 		return AcceptInviteResult{}, fmt.Errorf("bump vault_epoch: %w", err)
 	}
 
@@ -1673,7 +1681,7 @@ func (s *Service) AcceptInvite(ctx context.Context, in AcceptInviteInput) (Accep
 	// Purge any cached "not a member" denial so the invitee's first push
 	// doesn't 403 for up to 60s after accepting.
 	s.invalidateMembership(vaultID, in.AccountID)
-	return AcceptInviteResult{VaultID: vaultID, VaultName: vaultName, Role: role}, nil
+	return AcceptInviteResult{VaultID: vaultID, VaultName: vaultName, Role: role, Currency: currency, LegacyCurrency: legacyCurrency, DefaultEntryCurrency: defaultEntryCurrency}, nil
 }
 
 // PendingInvite intentionally omits the plaintext invite_token: after the

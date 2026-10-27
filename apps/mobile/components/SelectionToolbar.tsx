@@ -1,14 +1,23 @@
 import type { ComponentProps } from "react";
 import { Ionicons } from "@expo/vector-icons";
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
+import {
+  ActivityIndicator,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+  useWindowDimensions,
+} from "react-native";
 import { colors } from "../lib/colors";
-import { getCurrentCurrencySymbol } from "../lib/currency";
+import { getCurrentCurrencySymbol, getCurrencyLabel } from "../lib/currency";
 import { rowDir, textDir, useIsRTL } from "../lib/direction";
 import { formatAmount } from "../lib/format";
 import { fonts, monoLineHeight } from "../lib/fonts";
 import { t } from "../lib/i18n";
 import { lift, radius, space, TOUCH_MIN, typography } from "../lib/tokens";
 import type { SelectionFinancialSummary } from "../lib/selection-summary";
+import type { CurrencySelectionSummary } from "../lib/multi-currency-view";
 
 export type SelectionAction = {
   key: string;
@@ -29,6 +38,7 @@ export function SelectionToolbar({
   busy = false,
   summary,
   financialSummary,
+  financialSummaries,
   allSelected: allSelectedOverride,
 }: {
   count: number;
@@ -39,9 +49,11 @@ export function SelectionToolbar({
   busy?: boolean;
   summary?: string;
   financialSummary?: SelectionFinancialSummary;
+  financialSummaries?: readonly CurrencySelectionSummary[];
   allSelected?: boolean;
 }) {
   const isRTL = useIsRTL();
+  const { height } = useWindowDimensions();
   const allSelected = allSelectedOverride ?? (total > 0 && count === total);
   const toggleLabel = t(
     allSelectedOverride !== undefined
@@ -52,16 +64,21 @@ export function SelectionToolbar({
         ? "selection.clear"
         : "selection.all",
   );
-  const currency = financialSummary ? getCurrentCurrencySymbol() : "";
-  const unavailable = !!financialSummary?.pending;
   const unavailableLabel = t("selection.summary.unavailable");
-  const remainingKey =
-    unavailable || !financialSummary?.net
-      ? "selection.summary.remaining"
-      : financialSummary.net > 0
-        ? "selection.summary.collect"
-        : "selection.summary.pay";
-  const metric = (label: string, value: number, count: number, color: string, key: string) => {
+  const summaries =
+    financialSummaries ??
+    (financialSummary ? [{ currency: getCurrentCurrencySymbol(), summary: financialSummary }] : []);
+  const scrollMetrics = count > 0 && summaries.length > 0;
+  const MetricsContainer = scrollMetrics ? ScrollView : View;
+  const metric = (
+    label: string,
+    value: number,
+    count: number,
+    color: string,
+    key: string,
+    currency: string,
+    unavailable: boolean,
+  ) => {
     const countValue = unavailable ? "—" : count;
     const transactions = t(
       count === 1 && !unavailable
@@ -147,62 +164,92 @@ export function SelectionToolbar({
       {summary || count === 0 ? (
         <Text style={[styles.summary, textDir(isRTL)]}>{summary || t("selection.empty")}</Text>
       ) : null}
-      {count > 0 && financialSummary ? (
-        <>
-          <View style={[styles.totals, rowDir(isRTL)]}>
-            {metric(
-              t("selection.summary.debt"),
-              financialSummary.debt,
-              financialSummary.debtCount,
-              colors.collectStrong,
-              "debt",
-            )}
-            {metric(
-              t("selection.summary.credit"),
-              financialSummary.credit,
-              financialSummary.creditCount,
-              colors.payStrong,
-              "credit",
-            )}
-          </View>
-          <View
-            accessible
-            style={[styles.remaining, rowDir(isRTL)]}
-            accessibilityLiveRegion="polite"
-            accessibilityLabel={`${t(remainingKey)}, ${unavailable ? unavailableLabel : `${formatAmount(Math.abs(financialSummary.net))} ${currency}`}`}
-          >
-            <Text style={[styles.remainingLabel, textDir(isRTL)]}>{t(remainingKey)}</Text>
-            <View
-              style={[
-                styles.totalValue,
-                styles.remainingValue,
-                rowDir(isRTL),
-                isRTL ? { marginRight: "auto" } : { marginLeft: "auto" },
-              ]}
-            >
-              <Text
-                style={[
-                  styles.summaryAmount,
-                  {
-                    color:
-                      unavailable || financialSummary.net === 0
-                        ? colors.textSubtle
-                        : financialSummary.net > 0
-                          ? colors.collectStrong
-                          : colors.payStrong,
-                  },
-                ]}
-              >
-                {unavailable ? "—" : formatAmount(Math.abs(financialSummary.net))}
-              </Text>
-              <Text style={styles.currency}>{currency}</Text>
-            </View>
-          </View>
-          {unavailable ? (
-            <Text style={[styles.summary, textDir(isRTL)]}>{unavailableLabel}</Text>
-          ) : null}
-        </>
-      ) : null}
+      <MetricsContainer
+        style={scrollMetrics ? { maxHeight: Math.min(160, Math.max(64, height * 0.2)) } : undefined}
+        {...(scrollMetrics
+          ? {
+              nestedScrollEnabled: true,
+              alwaysBounceVertical: false,
+              keyboardShouldPersistTaps: "handled" as const,
+            }
+          : {})}
+      >
+        {count > 0
+          ? summaries.map(({ currency: code, summary: financialSummary }) => {
+              const currency = financialSummaries ? getCurrencyLabel(code) : code;
+              const unavailable = !!financialSummary.pending;
+              const remainingKey =
+                unavailable || !financialSummary.net
+                  ? "selection.summary.remaining"
+                  : financialSummary.net > 0
+                    ? "selection.summary.collect"
+                    : "selection.summary.pay";
+              return (
+                <View key={code}>
+                  {financialSummaries ? (
+                    <Text style={[styles.summary, textDir(isRTL)]}>{currency}</Text>
+                  ) : null}
+                  <View style={[styles.totals, rowDir(isRTL)]}>
+                    {metric(
+                      t("selection.summary.debt"),
+                      financialSummary.debt,
+                      financialSummary.debtCount,
+                      colors.collectStrong,
+                      "debt",
+                      currency,
+                      unavailable,
+                    )}
+                    {metric(
+                      t("selection.summary.credit"),
+                      financialSummary.credit,
+                      financialSummary.creditCount,
+                      colors.payStrong,
+                      "credit",
+                      currency,
+                      unavailable,
+                    )}
+                  </View>
+                  <View
+                    accessible
+                    style={[styles.remaining, rowDir(isRTL)]}
+                    accessibilityLiveRegion="polite"
+                    accessibilityLabel={`${t(remainingKey)}, ${unavailable ? unavailableLabel : `${formatAmount(Math.abs(financialSummary.net))} ${currency}`}`}
+                  >
+                    <Text style={[styles.remainingLabel, textDir(isRTL)]}>{t(remainingKey)}</Text>
+                    <View
+                      style={[
+                        styles.totalValue,
+                        styles.remainingValue,
+                        rowDir(isRTL),
+                        isRTL ? { marginRight: "auto" } : { marginLeft: "auto" },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.summaryAmount,
+                          {
+                            color:
+                              unavailable || financialSummary.net === 0
+                                ? colors.textSubtle
+                                : financialSummary.net > 0
+                                  ? colors.collectStrong
+                                  : colors.payStrong,
+                          },
+                        ]}
+                      >
+                        {unavailable ? "—" : formatAmount(Math.abs(financialSummary.net))}
+                      </Text>
+                      <Text style={styles.currency}>{currency}</Text>
+                    </View>
+                  </View>
+                  {unavailable ? (
+                    <Text style={[styles.summary, textDir(isRTL)]}>{unavailableLabel}</Text>
+                  ) : null}
+                </View>
+              );
+            })
+          : null}
+      </MetricsContainer>
       {actions.length > 0 ? (
         <View style={[styles.actions, rowDir(isRTL)]}>
           {actions.map((action) => {

@@ -13,7 +13,6 @@ import {
   Animated,
   AppState,
   BackHandler,
-  KeyboardAvoidingView,
   Keyboard,
   Platform,
   Pressable,
@@ -21,7 +20,6 @@ import {
   StyleSheet,
   Text,
   TextInput,
-  type KeyboardEvent,
   View,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
@@ -32,14 +30,15 @@ import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { EmptyState } from "../../components/EmptyState";
 import { TallyHighlight } from "../../components/TallyHighlight";
 import { TallyFlowSummary } from "../../components/TallyFlowSummary";
+import { CustomerBalanceCarousel } from "../../components/CustomerBalanceCarousel";
 import { CreditIntentList } from "../../components/CreditIntentList";
 import { CreditStatusBadge } from "../../components/CreditStatusBadge";
 import { EntryRow } from "../../components/EntryRow";
 import { SharedAccountBadge } from "../../components/SharedAccountBadge";
 import { SearchControlSlot } from "../../components/SearchControlSlot";
+import { SearchKeyboardFooter, SearchKeyboardFrame } from "../../components/SearchKeyboardMotion";
 import { SelectionToolbar } from "../../components/SelectionToolbar";
-import { summarizeSelectionEntries } from "../../lib/selection-summary";
-import { useSheetMotionPreference } from "../../components/SheetBackdrop";
+import { personCurrencyRows, selectedEntriesByCurrency } from "../../lib/multi-currency-view";
 import { useCustomerGroups } from "../../lib/use-customer-groups";
 import { LinkAccountDialog } from "../../components/LinkAccountDialog";
 import { OverflowMenu } from "../../components/OverflowMenu";
@@ -47,7 +46,13 @@ import { OptionSheet } from "../../components/OptionSheet";
 import { TOAST_LIFT, useToast, useToastOffset } from "../../components/Toast";
 import { loadRelationshipAttribution, type EntryAttribution } from "../../lib/attribution";
 import { colors } from "../../lib/colors";
-import { getCurrentCurrencySymbol } from "../../lib/currency";
+import {
+  getCurrentCurrencyCode,
+  getCurrentCurrencySymbol,
+  getCurrencyLabel,
+  setCurrentCurrency,
+  useCurrency,
+} from "../../lib/currency";
 import {
   getLocalSelf,
   setAppMeta,
@@ -88,7 +93,7 @@ import { sumAmounts } from "../../lib/money";
 import { getLocale, getShareLangPref, resolveShareLang, t, type LocaleCode } from "../../lib/i18n";
 import { formatSettlementDate } from "../../lib/jalali";
 import { useCalendar } from "../../lib/calendar";
-import { shareKaataViaWhatsApp, type WhatsAppShareStage } from "../../lib/share";
+import { shareKaataCurrenciesViaWhatsApp, type WhatsAppShareStage } from "../../lib/share";
 import { filterTallies, noteSearchTerms } from "../../lib/tally-search";
 import {
   filterTalliesByDate,
@@ -163,6 +168,53 @@ const EMPTY_ATTRIBUTION: Map<string, EntryAttribution> = new Map();
 // spring's settle.
 const DOCK_SKIRT = TOAST_LIFT + 12;
 
+type CurrencyPeriod = {
+  currency: string;
+  person: PersonWithBalance;
+  entries: Entry[];
+  settlement: { count: number; lastSettledAtMs: number | null };
+  boundaries: number[];
+  tab: TabLink | null;
+  sharedSettlements: TabSettlement[];
+};
+
+function currencyChapter(period: CurrencyPeriod): Entry[] {
+  const through = period.sharedSettlements.at(-1)?.through_seq ?? 0;
+  return period.entries
+    .filter(visibleTally)
+    .filter((entry) =>
+      period.tab
+        ? afterSharedSettlement(entry, through, period.tab.tab_id)
+        : period.settlement.lastSettledAtMs == null ||
+          entry.created_at > period.settlement.lastSettledAtMs,
+    );
+}
+
+function canSettlePeriod(period: CurrencyPeriod): boolean {
+  const chapter = currencyChapter(period);
+  return (
+    period.person.tab_unsynced !== 1 &&
+    period.person.balance === 0 &&
+    chapter.length > 0 &&
+    sumAmounts(chapter.map(balanceContribution)) === 0 &&
+    (!period.tab ||
+      (period.tab.closed_at == null &&
+        (period.person.tab_pending_count ?? 0) === 0 &&
+        !period.entries.some(
+          (entry) =>
+            entry.tab &&
+            (entry.tab.local_pending ||
+              (!entry.tab.voided && entry.tab.kind !== "void" && entry.tab.status === "pending")),
+        ))) &&
+    !period.entries.some(
+      (entry) =>
+        entry.tab?.tab_id &&
+        entry.tab.tab_id !== period.tab?.tab_id &&
+        balanceContribution(entry) !== 0,
+    )
+  );
+}
+
 function signedSharedAmount(amount: number): string {
   return ltrIsolate(`${amount > 0 ? "+" : amount < 0 ? "−" : ""}${formatAmount(amount)}`);
 }
@@ -172,19 +224,64 @@ export default function PersonDetailScreen() {
   const toast = useToast();
   const toastOffset = useToastOffset();
   const [actionsHeight, setActionsHeight] = useState(100);
+  const measuredActionsHeight = useRef(100);
+  const keyboardMoving = useRef(false);
+  const actionsHeightFrame = useRef<number | null>(null);
   // A toast sits behind the keyboard, so lifting the dock above an open
   // keyboard only made it jump while typing.
   const [keyboardShown, setKeyboardShown] = useState(false);
   const keyboardShownRef = useRef(false);
   const [searchFocused, setSearchFocused] = useState(false);
+  // Android reports keyboard visibility after adjustResize has already moved
+  // the dock. Prepare its compact layout on focus instead of jumping again
+  // at didShow, and retain it through blur until the native keyboard hides.
+  const compactDock = keyboardShown || (Platform.OS === "android" && searchFocused);
+  // On iOS an explicit blur precedes willHide. Keep this control in place
+  // until that event can collapse it with the native keyboard movement.
+  const dismissControlVisible = searchFocused || (Platform.OS === "ios" && keyboardShown);
+  keyboardShownRef.current = compactDock;
   const searchInputRef = useRef<TextInputInstance>(null);
-  const reducedMotion = useSheetMotionPreference();
   const keyboardRouteFocused = useRef(false);
+  function cancelActionsHeightFrame() {
+    if (actionsHeightFrame.current !== null) {
+      cancelAnimationFrame(actionsHeightFrame.current);
+      actionsHeightFrame.current = null;
+    }
+  }
+  function publishActionsHeight() {
+    if (keyboardRouteFocused.current) setActionsHeight(measuredActionsHeight.current);
+  }
+  function settleActionsHeight() {
+    cancelActionsHeightFrame();
+    if (Platform.OS !== "ios") {
+      publishActionsHeight();
+      return;
+    }
+    if (!keyboardRouteFocused.current) return;
+    // Native keyboard padding changes the dock every frame. Publish its final
+    // list reservation after those layouts, without rerendering the ledger
+    // for each intermediate height.
+    keyboardMoving.current = true;
+    const commitFrame = requestAnimationFrame(() => {
+      if (actionsHeightFrame.current !== commitFrame) return;
+      const layoutFrame = requestAnimationFrame(() => {
+        if (actionsHeightFrame.current !== layoutFrame) return;
+        actionsHeightFrame.current = null;
+        keyboardMoving.current = false;
+        publishActionsHeight();
+      });
+      actionsHeightFrame.current = layoutFrame;
+    });
+    actionsHeightFrame.current = commitFrame;
+  }
   useRouteFocusEffect(
     useCallback(() => {
       keyboardRouteFocused.current = true;
+      keyboardMoving.current = false;
       return () => {
         keyboardRouteFocused.current = false;
+        cancelActionsHeightFrame();
+        keyboardMoving.current = false;
       };
     }, []),
   );
@@ -194,34 +291,48 @@ export default function PersonDetailScreen() {
     Keyboard.dismiss();
   }, []);
   useEffect(() => {
-    const syncLayout = (shown: boolean, event?: KeyboardEvent) => {
-      // iOS KAV starts at the will event; waiting for didShow removed the
-      // action row only after the keyboard arrived, causing a second jump.
-      if (Platform.OS === "ios" && event && !reducedMotion && keyboardRouteFocused.current)
-        Keyboard.scheduleLayoutAnimation(event);
+    const syncLayout = (shown: boolean) => {
       keyboardShownRef.current = shown;
       setKeyboardShown(shown);
     };
     const finishHide = () => {
+      // A previous hide can finish after native focus has already reopened
+      // this input, before its new JS onFocus event has arrived.
+      if (Platform.OS === "ios" && searchInputRef.current?.isFocused()) return;
       searchInputRef.current?.blur();
       setSearchFocused(false);
       keyboardShownRef.current = false;
       setKeyboardShown(false);
+      settleActionsHeight();
     };
     const show = Keyboard.addListener(
       Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow",
-      (event) => syncLayout(true, event),
+      () => {
+        if (Platform.OS === "ios") {
+          keyboardMoving.current = true;
+          cancelActionsHeightFrame();
+        }
+        syncLayout(true);
+        if (Platform.OS !== "ios") settleActionsHeight();
+      },
     );
     const hide = Keyboard.addListener(
       Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide",
-      (event) => {
-        syncLayout(false, event);
+      () => {
+        if (Platform.OS === "ios") {
+          keyboardMoving.current = true;
+          cancelActionsHeightFrame();
+        }
+        syncLayout(false);
         if (Platform.OS !== "ios") finishHide();
       },
     );
     const didShow =
       Platform.OS === "ios"
-        ? Keyboard.addListener("keyboardDidShow", () => syncLayout(true))
+        ? Keyboard.addListener("keyboardDidShow", () => {
+            syncLayout(true);
+            settleActionsHeight();
+          })
         : null;
     // Do not blur at willHide: an interactive drag may still be cancelled.
     const didHide =
@@ -231,8 +342,9 @@ export default function PersonDetailScreen() {
       hide.remove();
       didShow?.remove();
       didHide?.remove();
+      cancelActionsHeightFrame();
     };
-  }, [reducedMotion]);
+  }, []);
   const insets = useSafeAreaInsets();
   // Clerks can add; only editors and above can amend/review/cancel.
   const {
@@ -242,14 +354,26 @@ export default function PersonDetailScreen() {
     resolved: roleResolved,
   } = useActiveVaultWriteCaps(getActiveVaultIdSyncMaybe());
   const canManageCredit = roleResolved && canConfigureCredit;
-  const { id, entryId, notificationKey, reminderId, reminderActionKey } = useLocalSearchParams<{
+  const {
+    id,
+    entryId,
+    notificationKey,
+    reminderId,
+    reminderActionKey,
+    currency: routeCurrency,
+  } = useLocalSearchParams<{
     id: string;
     entryId?: string;
     notificationKey?: string;
     reminderId?: string;
     reminderActionKey?: string;
+    currency?: string;
   }>();
-  const flowScope = `${getAccountIdSync() ?? "local"}:${getActiveVaultIdSyncMaybe() ?? "none"}:${id}`;
+  const selectedCurrency = useCurrency();
+  useEffect(() => {
+    if (typeof routeCurrency === "string") setCurrentCurrency(routeCurrency);
+  }, [routeCurrency]);
+  const flowScope = `${getAccountIdSync() ?? "local"}:${getActiveVaultIdSyncMaybe() ?? "none"}:${id}:${selectedCurrency}`;
   const scrollRef = useRef<ScrollViewInstance>(null);
   const entriesCardY = useRef<number | null>(null);
   const entryPositions = useRef(new Map<string, { y: number; height: number }>());
@@ -303,7 +427,9 @@ export default function PersonDetailScreen() {
   // ruled-off line with its settlement date, like a paper khata.
   const [boundaries, setBoundaries] = useState<number[]>([]);
   const [sharedSettlements, setSharedSettlements] = useState<TabSettlement[]>([]);
-  const settlementRequest = useRef<{ id: string; throughSeq: number } | null>(null);
+  const [currencyPeriods, setCurrencyPeriods] = useState<CurrencyPeriod[]>([]);
+  const [settleCurrency, setSettleCurrency] = useState<string | null>(null);
+  const settlementRequest = useRef<{ id: string; throughSeq: number; tabId: string } | null>(null);
   const [showFullHistory, setShowFullHistory] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [dateRange, setDateRange] = useState<TallyDateRange | null>(null);
@@ -311,6 +437,11 @@ export default function PersonDetailScreen() {
   const screenScope = useRef(flowScope);
   screenScope.current = flowScope;
   const [selectionScope, setSelectionScope] = useState<string | null>(null);
+  const [selectionMeasurement, setSelectionMeasurement] = useState<{
+    scope: string | null;
+    height: number;
+  }>({ scope: null, height: 0 });
+  const selectionMeasurementRef = useRef(selectionMeasurement);
   const [selectedEntryIds, setSelectedEntryIds] = useState<Set<string>>(new Set());
   const [confirmSelectionDelete, setConfirmSelectionDelete] = useState(false);
   const selectionConfirmationVersion = useRef(0);
@@ -322,6 +453,8 @@ export default function PersonDetailScreen() {
     setDateRange(null);
     setDateSheetVisible(false);
     setSheetFor(null);
+    setLinkCurrencyVisible(false);
+    setManagementCurrency(null);
     dismissSearchKeyboard();
   }, [flowScope, entryId, notificationKey, dismissSearchKeyboard]);
   useEffect(() => {
@@ -393,7 +526,7 @@ export default function PersonDetailScreen() {
     pingLanguageTimer.current = null;
     setPingStage(null);
   }, []);
-  useEffect(() => () => cancelPing(), [cancelPing]);
+  useEffect(() => () => cancelPing(), [cancelPing, selectedCurrency]);
   // Statement export. It used to live on the EDIT screen, behind the pencil —
   // which hid it twice over. Nobody looks for "give me a copy of this account"
   // inside a form for changing someone's name, and the pencil only renders
@@ -433,6 +566,13 @@ export default function PersonDetailScreen() {
   // without a saved number) delivery choices all stay on the same surface.
   const [inviteVisible, setInviteVisible] = useState(false);
   const [linkedSheetVisible, setLinkedSheetVisible] = useState(false);
+  const [managementCurrency, setManagementCurrency] = useState<string | null>(null);
+  const [linkCurrencyVisible, setLinkCurrencyVisible] = useState(false);
+  const linkCurrencyBusy = useRef(false);
+  const managementLink =
+    managementCurrency == null
+      ? link
+      : (currencyPeriods.find((period) => period.currency === managementCurrency)?.tab ?? null);
   const [confirmRegenerate, setConfirmRegenerate] = useState(false);
   const [confirmUnlink, setConfirmUnlink] = useState(false);
 
@@ -519,10 +659,16 @@ export default function PersonDetailScreen() {
   // Shared chapters use server sequence, so backdating a new tally can never
   // tuck it behind an old settlement. Local boundaries only apply locally.
   const displayedEntries = useMemo(() => entries.filter(visibleTally), [entries]);
-  const flowSummary = useMemo(
-    () => summarizeTallyFlows(flowHistory?.scope === flowScope ? flowHistory.entries : []),
-    [flowHistory, flowScope],
-  );
+  const flowSummaries = useMemo(() => {
+    const groups = new Map<string, Entry[]>();
+    for (const entry of flowHistory?.scope === flowScope ? flowHistory.entries : []) {
+      const code = entry.currency ?? person?.currency ?? selectedCurrency;
+      const group = groups.get(code) ?? [];
+      group.push(entry);
+      groups.set(code, group);
+    }
+    return new Map([...groups].map(([code, entries]) => [code, summarizeTallyFlows(entries)]));
+  }, [flowHistory, flowScope]);
   const searchTerms = useMemo(() => noteSearchTerms(searchQuery), [searchQuery]);
   const searching = searchTerms.length > 0 || dateRange != null;
   const searchingRef = useRef(searching);
@@ -543,18 +689,28 @@ export default function PersonDetailScreen() {
   const dateRangeLabel = formatDateRangeLabel(dateRange, locale, calendar);
   const searchResultCount =
     matchedEntries.length + matchedPreLink.length + matchedFailedTallies.length;
-  const sharedThroughSeq = sharedSettlements.at(-1)?.through_seq ?? 0;
-  const settledCount = tabHistory ? sharedSettlements.length : settlement.count;
+  const settledCount = currencyPeriods.reduce(
+    (count, period) =>
+      count + (period.tab ? period.sharedSettlements.length : period.settlement.count),
+    0,
+  );
   const chapterEntries = useMemo(
     () =>
-      tabHistory
-        ? displayedEntries.filter((e) =>
-            afterSharedSettlement(e, sharedThroughSeq, tabHistory.tab_id),
-          )
-        : settlement.lastSettledAtMs == null
-          ? displayedEntries
-          : displayedEntries.filter((e) => e.created_at > settlement.lastSettledAtMs!),
-    [displayedEntries, settlement.lastSettledAtMs, tabHistory, sharedThroughSeq],
+      displayedEntries.filter((entry) => {
+        const period = currencyPeriods.find(
+          (period) => period.currency === (entry.currency ?? person?.currency ?? selectedCurrency),
+        );
+        if (!period) return true;
+        return period.tab
+          ? afterSharedSettlement(
+              entry,
+              period.sharedSettlements.at(-1)?.through_seq ?? 0,
+              period.tab.tab_id,
+            )
+          : period.settlement.lastSettledAtMs == null ||
+              entry.created_at > period.settlement.lastSettledAtMs;
+      }),
+    [displayedEntries, currencyPeriods],
   );
   // COHERENCE RULE (review fix — the load-bearing safety property): the
   // collapse only engages while the current chapter's sum EXACTLY explains
@@ -564,11 +720,10 @@ export default function PersonDetailScreen() {
   // instead of hiding money. Nothing behind the fold can ever account for
   // the number in the header.
   // Rejected tallies remain visible but contribute nothing to the balance.
-  const chapterSum = useMemo(
-    () => sumAmounts(chapterEntries.map(balanceContribution)),
-    [chapterEntries],
+  const chapterCoherent = currencyPeriods.every(
+    (period) =>
+      sumAmounts(currencyChapter(period).map(balanceContribution)) === period.person.balance,
   );
-  const chapterCoherent = person == null || chapterSum === person.balance;
   const effectiveShowFull = showFullHistory || !chapterCoherent;
   const visibleEntries = effectiveShowFull ? displayedEntries : chapterEntries;
 
@@ -579,7 +734,7 @@ export default function PersonDetailScreen() {
   // have nothing to rule off and are dropped.
   type HistoryItem =
     | { kind: "entry"; entry: Entry }
-    | { kind: "marker"; ms: number; settlement?: TabSettlement };
+    | { kind: "marker"; ms: number; settlement?: TabSettlement; currency?: string };
   const withLocalMarkers = useCallback(
     (list: Entry[]): HistoryItem[] => {
       const items: HistoryItem[] = [];
@@ -601,6 +756,29 @@ export default function PersonDetailScreen() {
   // Searching spans the full ledger, including settled chapters. The normal
   // page retains its chapter fold once the filters are cleared.
   const historyItems = useMemo<HistoryItem[]>(() => {
+    if (currencyPeriods.length > 1) {
+      const list = searching ? matchedEntries : visibleEntries;
+      const items: HistoryItem[] = currencyPeriods.flatMap((period) => {
+        const rows = list.filter(
+          (entry) => (entry.currency ?? person?.currency ?? selectedCurrency) === period.currency,
+        );
+        if (period.tab && (searching || effectiveShowFull))
+          return sharedHistory(rows, period.sharedSettlements, period.tab.tab_id).map((item) =>
+            item.kind === "marker" ? { ...item, currency: period.currency } : item,
+          );
+        if (!(searching || effectiveShowFull))
+          return rows.map((entry) => ({ kind: "entry" as const, entry }));
+        const markers = period.boundaries
+          .filter((ms) => rows.some((entry) => entry.created_at <= ms))
+          .map((ms) => ({ kind: "marker" as const, ms, currency: period.currency }));
+        return [...rows.map((entry) => ({ kind: "entry" as const, entry })), ...markers];
+      });
+      return items.sort(
+        (a, b) =>
+          (b.kind === "entry" ? b.entry.created_at : b.ms) -
+          (a.kind === "entry" ? a.entry.created_at : a.ms),
+      );
+    }
     if (searching) {
       const items = tabHistory
         ? sharedHistory(matchedEntries, sharedSettlements, tabHistory.tab_id)
@@ -626,24 +804,28 @@ export default function PersonDetailScreen() {
     boundaries.length,
     visibleEntries,
     withLocalMarkers,
+    currencyPeriods,
   ]);
   // Shared and ruled-off tallies retain their existing individual workflows.
   // Eligibility spans this contact's full history. Search filters only decide
   // which eligible rows Select all toggles; already selected rows stay selected.
   const selecting =
-    selectionScope === flowScope &&
-    flowHistory?.scope === flowScope &&
-    roleResolved &&
-    canAmend &&
-    !tabHistory;
+    selectionScope === flowScope && flowHistory?.scope === flowScope && roleResolved && canAmend;
   const selectableEntries = useMemo(
     () =>
-      flowHistory?.scope === flowScope && roleResolved && canAmend && !tabHistory
-        ? displayedEntries.filter(
-            (entry) =>
+      flowHistory?.scope === flowScope && roleResolved && canAmend
+        ? displayedEntries.filter((entry) => {
+            const period = currencyPeriods.find(
+              (period) =>
+                period.currency === (entry.currency ?? person?.currency ?? selectedCurrency),
+            );
+            return (
               !entry.tab &&
-              (settlement.lastSettledAtMs == null || entry.created_at > settlement.lastSettledAtMs),
-          )
+              !period?.tab &&
+              (period?.settlement.lastSettledAtMs == null ||
+                entry.created_at > period.settlement.lastSettledAtMs)
+            );
+          })
         : [],
     [
       flowHistory?.scope,
@@ -653,6 +835,7 @@ export default function PersonDetailScreen() {
       canAmend,
       tabHistory,
       settlement.lastSettledAtMs,
+      currencyPeriods,
     ],
   );
   const selectableIds = useMemo(
@@ -668,11 +851,9 @@ export default function PersonDetailScreen() {
   const allVisibleSelected =
     visibleSelectableEntries.length > 0 &&
     visibleSelectableEntries.every((entry) => selectedEntryIds.has(entry.id));
-  const selectionSummary = summarizeSelectionEntries(
-    selectedEntries.map((entry) => ({
-      amount: entry.amount_afn,
-      direction: entry.type === "debt" ? "collect" : "pay",
-    })),
+  const selectionSummaries = selectedEntriesByCurrency(
+    selectedEntries,
+    person?.currency ?? selectedCurrency,
   );
   const selectionContext = useRef({ scope: flowScope, selecting, eligible: selectableIds });
   selectionContext.current = { scope: flowScope, selecting, eligible: selectableIds };
@@ -719,7 +900,7 @@ export default function PersonDetailScreen() {
       loadMounted.current &&
       keyboardRouteFocused.current &&
       screenScope.current === flowScope &&
-      `${getAccountIdSync() ?? "local"}:${getActiveVaultIdSyncMaybe() ?? "none"}:${id}` ===
+      `${getAccountIdSync() ?? "local"}:${getActiveVaultIdSyncMaybe() ?? "none"}:${id}:${getCurrentCurrencyCode()}` ===
         flowScope,
     [flowScope, id],
   );
@@ -781,47 +962,67 @@ export default function PersonDetailScreen() {
         (e.tab.local_pending ||
           (!e.tab.voided && e.tab.kind !== "void" && e.tab.status === "pending")),
     );
-  const unsettledOriginalCount = tabHistory
-    ? entries.filter(
-        (e) =>
-          e.tab?.kind !== "void" && afterSharedSettlement(e, sharedThroughSeq, tabHistory.tab_id),
-      ).length
-    : chapterEntries.length;
-  const canSettle =
-    canAmend &&
-    (!tabHistory || (!!link && !sharedReviewPending)) &&
-    !entries.some(
-      (e) => e.tab?.tab_id && e.tab.tab_id !== tabHistory?.tab_id && balanceContribution(e) !== 0,
-    ) &&
-    chapterCoherent &&
-    person != null &&
-    person.balance === 0 &&
-    unsettledOriginalCount > 0;
+  const unsettledOriginalCount = chapterEntries.length;
+  const settleablePeriods = canAmend ? currencyPeriods.filter(canSettlePeriod) : [];
+  const canSettle = settleablePeriods.length > 0;
+  const settlementTarget = currencyPeriods.find(
+    (period) => period.currency === (settleCurrency ?? person?.currency ?? selectedCurrency),
+  );
 
   async function onSettle() {
     setConfirmSettle(false);
-    if (!person || settlingRef.current || !canSettle) return;
+    if (
+      !person ||
+      settlingRef.current ||
+      !screenIsCurrent() ||
+      !canAmend ||
+      !settlementTarget ||
+      !canSettlePeriod(settlementTarget)
+    )
+      return;
+    const target = settlementTarget;
     settlingRef.current = true;
     try {
       // Both paths recheck the balance under their authoritative transaction.
       // Shared boundaries use sequence; local boundaries use the business date.
-      if (tabHistory) {
-        if (!link) throw new TabClosedError();
-        const throughSeq = Math.max(0, ...entries.map((e) => e.tab?.seq ?? 0));
-        if (!settlementRequest.current || settlementRequest.current.throughSeq !== throughSeq) {
-          settlementRequest.current = { id: Crypto.randomUUID(), throughSeq };
+      if (target.tab) {
+        if (target.tab.closed_at != null) throw new TabClosedError();
+        const throughSeq = Math.max(
+          0,
+          ...target.entries
+            .filter((entry) => entry.tab?.tab_id === target.tab!.tab_id)
+            .map((e) => e.tab?.seq ?? 0),
+        );
+        if (
+          !settlementRequest.current ||
+          settlementRequest.current.throughSeq !== throughSeq ||
+          settlementRequest.current.tabId !== target.tab.tab_id
+        ) {
+          settlementRequest.current = {
+            id: Crypto.randomUUID(),
+            throughSeq,
+            tabId: target.tab.tab_id,
+          };
         }
-        await settleSharedTab(link, settlementRequest.current.id);
+        await settleSharedTab(target.tab, settlementRequest.current.id);
         settlementRequest.current = null;
       } else {
-        const settledAtMs = Math.max(Date.now(), ...chapterEntries.map((e) => e.created_at + 1));
+        const chapter = currencyChapter(target);
+        const settledAtMs = Math.max(Date.now(), ...chapter.map((e) => e.created_at + 1));
         await appendEntrySettled({
-          relationshipId: chapterEntries[0].relationship_id,
+          relationshipId: chapter[0].relationship_id,
+          currency: target.currency,
           settledAtMs,
         });
       }
+      if (!screenIsCurrent()) return;
       setShowFullHistory(false);
-      toast.push(t("person.settle.done"), "success");
+      toast.push(
+        currencyPeriods.length > 1
+          ? `${t("person.settle.done")} · ${getCurrencyLabel(target.currency)}`
+          : t("person.settle.done"),
+        "success",
+      );
       await load();
     } catch (err) {
       if (err instanceof TabApiError || err instanceof TabInputError) {
@@ -838,7 +1039,7 @@ export default function PersonDetailScreen() {
           ),
           "error",
         );
-        if (tabHistory) requestTabSync(tabHistory.tab_id);
+        if (target.tab) requestTabSync(target.tab.tab_id);
         await load();
       } else if (err instanceof SettleNotZeroError) {
         toast.push(t("person.settle.notZero"), "error");
@@ -857,7 +1058,29 @@ export default function PersonDetailScreen() {
   // Send the WhatsApp ping in the given message language (already resolved
   // from share_lang_pref, or picked in the ask-sheet).
   const sendPing = async (lang?: LocaleCode) => {
-    if (!person || pingBusyRef.current || (lang == null && askLangVisible)) return;
+    if (!person || !screenIsCurrent() || pingBusyRef.current || (lang == null && askLangVisible))
+      return;
+    if (currencyPeriods.length === 0) return;
+    if (currencyPeriods.some((period) => period.person.tab_unsynced === 1)) {
+      toast.push(t("tab.notDownloaded"), "info");
+      return;
+    }
+    // Use the complete, coherent per-currency snapshot, including folded
+    // chapters. Search, date filters and selection only affect this screen.
+    const statements = currencyPeriods.map((period) => ({
+      currency: period.currency,
+      balance: period.person.balance,
+      entries: period.entries,
+      // A shared tab carries its own opening balance; the earlier private
+      // book's settlement lines do not belong on that statement.
+      settled: period.tab
+        ? { settledChapters: 0, settledBoundaryMs: null, settledBoundaries: [] }
+        : {
+            settledChapters: period.settlement.count,
+            settledBoundaryMs: period.settlement.lastSettledAtMs,
+            settledBoundaries: period.boundaries,
+          },
+    }));
     pingBusyRef.current = true;
     const controller = new AbortController();
     pingAbortRef.current = controller;
@@ -873,29 +1096,11 @@ export default function PersonDetailScreen() {
         }
         lang = resolveShareLang(pref);
       }
-      const ok = await shareKaataViaWhatsApp(
+      const ok = await shareKaataCurrenciesViaWhatsApp(
         { id: person.id, name: person.name, phone: person.phone },
-        person.balance,
         self,
-        // Full history on the wire (the web view collapses settled chapters
-        // itself); the boundary + count let both the message and the page
-        // carry the "N accounts settled together" trust line.
-        entries,
+        statements,
         lang,
-        // D8: once the contact is linked, `entries` above ARE the tab's rows
-        // and the settle-up boundaries below belong to the pre-link local
-        // book, which is not on this bill at all. Sending them would print a
-        // dated ruled-off line and an "N accounts settled together" trust
-        // line with no rows behind either — on a document the paper rule
-        // makes the recipient's permanent asset. lib/export/data.ts drops
-        // the same boundaries for the same reason.
-        tabHistory
-          ? { settledChapters: 0, settledBoundaryMs: null, settledBoundaries: [] }
-          : {
-              settledChapters: settlement.count,
-              settledBoundaryMs: settlement.lastSettledAtMs,
-              settledBoundaries: boundaries,
-            },
         (stage) => {
           if (pingAbortRef.current === controller && !controller.signal.aborted)
             setPingStage(stage);
@@ -941,6 +1146,7 @@ export default function PersonDetailScreen() {
   // The link load() last found (open OR closed), for the marks below that
   // must not wait on state.
   const latestLink = useRef<TabLink | null>(null);
+  const latestLinks = useRef<{ scope: string; links: TabLink[] }>({ scope: "", links: [] });
 
   // Returns the contact's latest tab link — open OR closed — so the focus
   // effect and the pull listener can ask for a sync and mark the tab's
@@ -949,10 +1155,12 @@ export default function PersonDetailScreen() {
     const generation = ++loadGeneration.current;
     const account = getAccountIdSync(),
       vault = getActiveVaultIdSyncMaybe();
-    const scope = `${account ?? "local"}:${vault ?? "none"}:${id}`;
+    const currency = getCurrentCurrencyCode();
+    const scope = `${account ?? "local"}:${vault ?? "none"}:${id}:${currency}`;
     const current = () =>
       loadMounted.current &&
       generation === loadGeneration.current &&
+      getCurrentCurrencyCode() === currency &&
       getAccountIdSync() === account &&
       getActiveVaultIdSyncMaybe() === vault;
     if (!id) {
@@ -969,26 +1177,74 @@ export default function PersonDetailScreen() {
       // Bind the displayed entries and settlement markers to one revision.
       // Tab pulls and local writers use this same lock; otherwise a newer
       // link revision could silently authorize clearing entries never shown.
-      const { p, list, s, settle, bounds, tl, before, refused, sharedMarkers, priorPeriods } =
-        await applyEventMutex.runExclusive(async () => {
-          const [p, list, s, settle, bounds, tl] = await Promise.all([
-            getPerson(id),
-            listEntries(id),
-            getLocalSelf(),
-            getSettlementSummary(id),
-            listSettlementBoundaries(id),
-            getLatestTabLinkForPerson(id),
-          ]);
-          const before = tl ? await listPreLinkEntries(tl) : [];
-          const refused = tl
-            ? await listFailedTabEntries(tl.relationship_id, {
-                excludeCreditRefused: true,
-              })
-            : [];
-          const sharedMarkers = tl ? await listTabSettlements(tl.tab_id) : [];
-          const priorPeriods = tl ? await listArchivedSharedPeriodsForExport(id) : [];
-          return { p, list, s, settle, bounds, tl, before, refused, sharedMarkers, priorPeriods };
-        });
+      const {
+        p,
+        list,
+        s,
+        settle,
+        bounds,
+        tl,
+        before,
+        refused,
+        sharedMarkers,
+        priorPeriods,
+        periods,
+      } = await applyEventMutex.runExclusive(async () => {
+        const [allPerson, list, s] = await Promise.all([
+          getPerson(id, currency, { allCurrencies: true }),
+          listEntries(id, currency, { allCurrencies: true }),
+          getLocalSelf(),
+        ]);
+        const rows = allPerson ? personCurrencyRows(allPerson) : [];
+        const details = await Promise.all(
+          rows.map(async (row) => {
+            const code = row.currency ?? currency;
+            const [settlement, boundaries, tab] = await Promise.all([
+              getSettlementSummary(id, code),
+              listSettlementBoundaries(id, code),
+              getLatestTabLinkForPerson(id, code),
+            ]);
+            const [before, refused, sharedSettlements, priorPeriods] = tab
+              ? await Promise.all([
+                  listPreLinkEntries(tab),
+                  listFailedTabEntries(tab.relationship_id, {
+                    excludeCreditRefused: true,
+                    currency: code,
+                  }),
+                  listTabSettlements(tab.tab_id),
+                  listArchivedSharedPeriodsForExport(id, code),
+                ])
+              : [[], [], [], []];
+            return {
+              currency: code,
+              person: row,
+              entries: list.filter((entry) => (entry.currency ?? currency) === code),
+              settlement,
+              boundaries,
+              tab,
+              before,
+              refused,
+              sharedSettlements,
+              priorPeriods,
+            };
+          }),
+        );
+        const primary = details.find((detail) => detail.currency === currency) ?? details[0];
+        const p = primary ? { ...primary.person, currency_balances: [...rows] } : allPerson;
+        return {
+          p,
+          list,
+          s,
+          settle: primary?.settlement ?? { count: 0, lastSettledAtMs: null },
+          bounds: primary?.boundaries ?? [],
+          tl: primary?.tab ?? null,
+          before: details.flatMap((detail) => detail.before),
+          refused: details.flatMap((detail) => detail.refused),
+          sharedMarkers: primary?.sharedSettlements ?? [],
+          priorPeriods: details.flatMap((detail) => detail.priorPeriods),
+          periods: details,
+        };
+      });
       if (!current()) return null;
       // Earlier closed tabs remain known handovers, even after a new opening
       // carries their net balance. Keep them out of current money and rows.
@@ -997,6 +1253,7 @@ export default function PersonDetailScreen() {
         entries: [...list, ...before, ...priorPeriods.flatMap((period) => period.entries)],
       });
       setPerson(p);
+      setCurrencyPeriods(periods);
       setEntries(list);
       // Reveal a newly saved tally even if the previous filter would hide it.
       if (takeSavedEntry(id)) {
@@ -1030,7 +1287,7 @@ export default function PersonDetailScreen() {
             visible.length === 1
               ? t(first.status === "accepted" ? "tab.feedback.accepted" : "tab.feedback.rejected", {
                   amount: bidiIsolate(
-                    `${formatAmount(first.entry.amount_afn)} ${getCurrentCurrencySymbol()}`,
+                    `${formatAmount(first.entry.amount_afn)} ${getCurrencyLabel(first.entry.currency ?? currency)}`,
                   ),
                 })
               : (() => {
@@ -1054,6 +1311,10 @@ export default function PersonDetailScreen() {
       setSharedSettlements(sharedMarkers);
       setTabHistory(tl);
       latestLink.current = tl;
+      latestLinks.current = {
+        scope,
+        links: periods.flatMap((period) => (period.tab ? [period.tab] : [])),
+      };
       setPreLink(before);
       setFailedTallies(refused);
       setLoadFailed(false);
@@ -1066,7 +1327,7 @@ export default function PersonDetailScreen() {
     } finally {
       if (current()) setLoaded(true);
     }
-  }, [id]);
+  }, [id, selectedCurrency]);
 
   // "Handled means read" (lib/tabs/inbox-reads.ts markTabNoticesSeen), this
   // screen's share of it: with a linked contact's rows on screen, its
@@ -1082,7 +1343,9 @@ export default function PersonDetailScreen() {
     // Filtered tallies are not read until the full ledger is visible again.
     if (searchingRef.current) return;
     const appState = AppState.currentState;
-    if (tl && appState) markTabNoticesSeen(tl, { focused: focused.current, appState });
+    if (appState && latestLinks.current.scope === screenScope.current)
+      for (const tab of latestLinks.current.links)
+        markTabNoticesSeen(tab, { focused: focused.current, appState });
   }, []);
   useEffect(() => {
     if (!searching) seen(latestLink.current);
@@ -1101,12 +1364,15 @@ export default function PersonDetailScreen() {
       // While this screen shows a shared account, the sync loop keeps it on
       // its 5 s backstop (other links wait for the minute sweep).
       let active = true;
-      let stopWatch: (() => void) | null = null;
+      let stopWatch: (() => void)[] = [];
       void load().then((tl) => {
-        if (!tl) return;
+        if (!tl && latestLinks.current.links.length === 0) return;
+        if (latestLinks.current.scope !== screenScope.current) return;
         // A closed period may still receive final decisions on pending rows.
-        requestTabSync(tl.tab_id);
-        if (active) stopWatch = watchTab(tl.tab_id);
+        for (const tab of latestLinks.current.links) {
+          requestTabSync(tab.tab_id);
+          if (active) stopWatch.push(watchTab(tab.tab_id));
+        }
         // Decision A4: the screen is up with the tab's rows on it, so its
         // notices up to the applied rev are handled — unless the user left
         // (or the app did) while the load was in flight.
@@ -1131,7 +1397,7 @@ export default function PersonDetailScreen() {
       });
       return () => {
         active = false;
-        stopWatch?.();
+        stopWatch.forEach((stop) => stop());
         focused.current = false;
         reviewEpoch.current++;
         reviewSnapshot.current = null;
@@ -1208,11 +1474,15 @@ export default function PersonDetailScreen() {
   // The tab's own refresh channel: upsertTabFromWire fires this after a pull
   // (or this device's optimistic write) committed. Matched on the relationship
   // rather than the tab id so a re-link under a new tab id keeps refreshing.
-  const linkRelationshipId = tabHistory?.relationship_id ?? null;
+  const linkRelationshipId = [
+    ...new Set(
+      currencyPeriods.flatMap((period) => (period.tab ? [period.tab.relationship_id] : [])),
+    ),
+  ].join("|");
   useEffect(() => {
     if (!linkRelationshipId) return;
     return onTabApplied((ev) => {
-      if (ev.relationshipId !== linkRelationshipId) return;
+      if (!linkRelationshipId.split("|").includes(ev.relationshipId)) return;
       void load().then((tl) => {
         // A pull that lands while the user is LOOKING at the contact is seen
         // the moment its rows render: mark through the NEW rev (the focus +
@@ -1239,12 +1509,14 @@ export default function PersonDetailScreen() {
   // new URL is what gets shared next, using the same invitation dialog.
   async function onRegenerate() {
     setConfirmRegenerate(false);
-    if (!link) return;
+    if (!managementLink || !screenIsCurrent()) return;
     try {
-      const inviteUrl = await regenerateInviteLink(link);
-      setTabHistory({ ...link, invite_url: inviteUrl });
+      await regenerateInviteLink(managementLink);
+      if (!screenIsCurrent()) return;
       await load();
-      setTimeout(() => setInviteVisible(true), 220);
+      setTimeout(() => {
+        if (screenIsCurrent()) setInviteVisible(true);
+      }, 220);
     } catch (err) {
       console.warn("[person] regenerateInviteLink failed", err);
       toast.push(
@@ -1263,9 +1535,10 @@ export default function PersonDetailScreen() {
   // so the reload already shows the contact back on its own book.
   async function onUnlink() {
     setConfirmUnlink(false);
-    if (!link) return;
+    if (!managementLink || !screenIsCurrent()) return;
     try {
-      await unlinkContact(link);
+      await unlinkContact(managementLink);
+      if (!screenIsCurrent()) return;
       toast.push(t("tab.unlinked"), "success");
       await load();
     } catch (err) {
@@ -1282,7 +1555,8 @@ export default function PersonDetailScreen() {
     if (
       !target ||
       target.vault_id !== activeVaultId ||
-      target.relationship_id !== entry.relationship_id
+      target.relationship_id !== entry.relationship_id ||
+      target.currency !== (entry.currency ?? person?.currency ?? selectedCurrency)
     )
       throw new TabPermissionError();
     return target;
@@ -1293,6 +1567,7 @@ export default function PersonDetailScreen() {
       const target = await reviewLinkFor(entry);
       if (!target) return;
       await acceptEntry(target, entry.id);
+      if (!screenIsCurrent()) return;
       // This queues an optimistic review. The live comparison announces it
       // only once the server confirms the decision.
       await load();
@@ -1307,6 +1582,7 @@ export default function PersonDetailScreen() {
       const target = await reviewLinkFor(entry);
       if (!target) return;
       await disputeEntry(target, entry.id, "");
+      if (!screenIsCurrent()) return;
       await load();
     } catch (err) {
       toast.push(tabErrorMessage(err), "error");
@@ -1320,6 +1596,7 @@ export default function PersonDetailScreen() {
       const reviewLink = await reviewLinkFor(target);
       if (!reviewLink) return;
       await voidEntry(reviewLink, target.id);
+      if (!screenIsCurrent()) return;
       toast.push(t("tab.voided"), "success");
       await load();
     } catch (err) {
@@ -1358,7 +1635,8 @@ export default function PersonDetailScreen() {
     return [];
   })();
 
-  if (!person) {
+  const changingCurrency = flowHistory != null && flowHistory.scope !== flowScope;
+  if (!person || changingCurrency) {
     // Pre-load: spinner. Post-load null (stale id, person archived remotely
     // via mesh): say so — and in both cases keep a working back button.
     // The old empty <View /> here was a dead end with no escape on iOS.
@@ -1380,7 +1658,7 @@ export default function PersonDetailScreen() {
           </Pressable>
         </View>
         <View style={styles.fillCenter}>
-          {loaded ? (
+          {loaded && !changingCurrency ? (
             // Distinguish "this person doesn't exist" from "the read
             // failed" — telling a shopkeeper a real person was not found
             // on a transient storage error is a false data-loss signal.
@@ -1419,6 +1697,7 @@ export default function PersonDetailScreen() {
                   date: formatSettlementDate(item.ms, getLocale(), calendar),
                   name: item.settlement?.actor_name || t("entry.by.someone"),
                 })}
+                {item.currency ? ` · ${getCurrencyLabel(item.currency)}` : ""}
               </Text>
               <View style={styles.settleRule} />
             </View>
@@ -1430,10 +1709,10 @@ export default function PersonDetailScreen() {
         // Remote edits can still arrive — the coherence rule above
         // handles those by falling open — but this device won't offer
         // the footgun.
-        const inSettledChapter =
-          !entry.tab &&
-          settlement.lastSettledAtMs != null &&
-          entry.created_at <= settlement.lastSettledAtMs;
+        const boundary = currencyPeriods.find(
+          (period) => period.currency === (entry.currency ?? person.currency ?? selectedCurrency),
+        )?.settlement.lastSettledAtMs;
+        const inSettledChapter = !entry.tab && boundary != null && entry.created_at <= boundary;
         const canOpenSheet = canAmend && !inSettledChapter && !entry.tab;
         return (
           <View
@@ -1495,7 +1774,8 @@ export default function PersonDetailScreen() {
       count={selectedEntries.length}
       total={visibleSelectableEntries.length}
       allSelected={allVisibleSelected}
-      financialSummary={selectionSummary}
+      financialSummaries={selectionSummaries}
+      financialSummary={selectionSummaries.length === 1 ? selectionSummaries[0].summary : undefined}
       busy={selectionBusy}
       onClose={closeSelection}
       onToggleAll={() => {
@@ -1526,27 +1806,7 @@ export default function PersonDetailScreen() {
       ]}
     />
   );
-  const abs = Math.abs(person.balance);
-  // Direction is derived from the running net — not from any URL param or
-  // person-level property. balance > 0 → they owe me; balance < 0 → I owe them.
-  const chipLabel =
-    person.balance > 0
-      ? t("person.balance.theyOwe")
-      : person.balance < 0
-        ? t("person.balance.youOwe")
-        : null;
-  const chipVariant: "collect" | "pay" | null =
-    person.balance > 0 ? "collect" : person.balance < 0 ? "pay" : null;
-  // The hero balance carries the direction cue: the collect color when they
-  // owe me (to collect), the pay color when I owe them (to pay), muted gray
-  // when settled.
-  const balanceColor =
-    person.balance > 0
-      ? colors.collectStrong
-      : person.balance < 0
-        ? colors.payStrong
-        : colors.textMuted;
-
+  const balanceRows = personCurrencyRows(person);
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
       <View style={[styles.headerNav, rowDir(isRTL)]}>
@@ -1611,8 +1871,15 @@ export default function PersonDetailScreen() {
                       {
                         label: link ? t("tab.join.title") : t("tab.link.title"),
                         icon: "link-outline" as const,
-                        onPress: () =>
-                          link ? setLinkedSheetVisible(true) : setInviteVisible(true),
+                        onPress: () => {
+                          if (currencyPeriods.length > 1) {
+                            linkCurrencyBusy.current = false;
+                            setLinkCurrencyVisible(true);
+                          } else {
+                            setManagementCurrency(person.currency ?? selectedCurrency);
+                            link ? setLinkedSheetVisible(true) : setInviteVisible(true);
+                          }
+                        },
                       },
                       {
                         label: t("groups.personAction"),
@@ -1640,12 +1907,20 @@ export default function PersonDetailScreen() {
                   : []),
                 {
                   label: t("reminders.title"),
-                  icon: "alarm-outline" as const,
-                  onPress: () =>
+                  icon: "alarm-outline",
+                  onPress: () => {
+                    if (
+                      !screenIsCurrent() ||
+                      selectionBusyRef.current ||
+                      selectionContext.current.selecting
+                    )
+                      return;
+                    dismissSearchKeyboard();
                     router.push({
                       pathname: "/person/[id]/reminders",
                       params: { id: person.id, vaultId: activeVaultId ?? "" },
-                    }),
+                    });
+                  },
                 },
                 {
                   label: t("personEdit.export"),
@@ -1666,13 +1941,35 @@ export default function PersonDetailScreen() {
           ("the old one shows blank text after the second one is added, fixed
           by going back and returning"). A single uniform card has no per-row
           style flip, so it can't happen. */}
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === "android" ? "height" : "padding"}
-      >
-        {/* iOS keyboard padding reduces this inner flex box. An absolute dock
-            directly on the KAV would still anchor to its full outer height. */}
+      <SearchKeyboardFrame style={{ flex: 1 }}>
+        {/* iOS follows continuous native keyboard frames. Android's native
+            adjustResize owns its viewport with no second avoidance layer. */}
         <View style={{ flex: 1 }}>
+          {selecting ? (
+            <View
+              testID="customer-selection-controls"
+              style={styles.selectionTop}
+              pointerEvents="box-none"
+              onLayout={(event) => {
+                if (
+                  !screenIsCurrent() ||
+                  !selectionContext.current.selecting ||
+                  selectionContext.current.scope !== flowScope ||
+                  confirmationVersion !== selectionConfirmationVersion.current
+                )
+                  return;
+                const { height } = event.nativeEvent.layout;
+                if (!Number.isFinite(height) || height <= 0) return;
+                const previous = selectionMeasurementRef.current;
+                if (previous.scope === flowScope && previous.height === height) return;
+                const measured = { scope: flowScope, height };
+                selectionMeasurementRef.current = measured;
+                setSelectionMeasurement(measured);
+              }}
+            >
+              {selectionToolbar}
+            </View>
+          ) : null}
           <ScrollView
             ref={scrollRef}
             onLayout={(event) => {
@@ -1689,6 +1986,9 @@ export default function PersonDetailScreen() {
             keyboardShouldPersistTaps="handled"
             automaticallyAdjustKeyboardInsets={false}
             contentContainerStyle={{
+              paddingTop: selecting
+                ? (selectionMeasurement.scope === flowScope ? selectionMeasurement.height : 0) + 12
+                : 0,
               paddingBottom: actionsHeight + 24,
             }}
           >
@@ -1737,122 +2037,201 @@ export default function PersonDetailScreen() {
                       : t("tab.closedNote", { date: formatDate(tabHistory!.closed_at!) })}
                   </Text>
                 ) : null}
-                <View style={{ height: 16 }} />
-                <View style={[styles.balanceOverview, rowDir(isRTL)]}>
-                  <View style={styles.balanceSide}>
-                    <View style={[styles.chipRow, rowDir(isRTL)]}>
-                      {chipLabel && chipVariant ? (
-                        <Chip label={chipLabel} variant={chipVariant} />
-                      ) : settledCount > 0 &&
-                        chapterCoherent &&
-                        !sharedReviewPending &&
-                        unsettledOriginalCount === 0 ? (
-                        // "SETTLED" only when the user actually drew the line and it
-                        // covers everything.
-                        <Chip label={t("person.balance.settled")} variant="neutral" />
-                      ) : displayedEntries.length > 0 ? (
-                        // A tally that merely SUMS to zero (or whose chapter no longer
-                        // adds up after a sync) is not a settled account — say so
-                        // rather than leaving the chip slot blank while every other
-                        // state labels itself. Hollow pill: true, but not an
-                        // achievement. The settle-row invitation sits below.
-                        // Contacts with no entries at all keep an empty slot — there
-                        // is no tally yet to have a state.
-                        <Chip label={t("person.balance.notSettled")} variant="outline" />
-                      ) : null}
-                      {link && link.other_joined_at == null ? (
-                        // Keep the invitation-waiting cue until the other side joins.
-                        // Once linked, the name badge is enough; no duplicate chip.
-                        <Pressable
-                          onPress={canAmend ? () => setLinkedSheetVisible(true) : undefined}
-                          disabled={!canAmend}
-                          accessibilityRole={canAmend ? "button" : "text"}
-                          style={({ pressed }) => [
-                            styles.readOnlyChip,
-                            pressed && { opacity: 0.5 },
-                          ]}
-                        >
-                          <Ionicons name="link-outline" size={14} color={colors.textSubtle} />
-                          <Text
-                            style={styles.readOnlyChipText}
-                            allowFontScaling={false}
-                            numberOfLines={1}
-                          >
-                            {t("tab.chip.waiting")}
-                          </Text>
-                        </Pressable>
-                      ) : null}
-                    </View>
-                    <View style={[styles.balanceRow, rowDir(isRTL)]}>
-                      <Text
-                        style={[
-                          styles.balance,
-                          {
-                            color: person.tab_unsynced === 1 ? colors.textMuted : balanceColor,
-                            flexShrink: 1,
-                          },
-                        ]}
-                        numberOfLines={1}
-                        adjustsFontSizeToFit
-                        minimumFontScale={0.5}
-                      >
-                        {person.tab_unsynced === 1 ? "…" : formatAmount(abs)}
-                      </Text>
-                      {person.tab_unsynced === 1 ? null : (
-                        <Text style={styles.balanceAfn}>{getCurrentCurrencySymbol()}</Text>
-                      )}
-                    </View>
-                    {/* A discovered shared account that has not been pulled yet
-                        has no known balance; the pull is already queued. */}
-                    {person.tab_unsynced === 1 ? (
-                      <Text style={[styles.unsyncedNote, textDir(isRTL)]}>
-                        {t("tab.notDownloaded")}
-                      </Text>
-                    ) : null}
-                    {tabHistory && person.tab_unsynced !== 1 ? (
-                      <Text style={[styles.unsyncedNote, textDir(isRTL)]}>
-                        {t("tab.balance.confirmed", {
-                          amount: signedSharedAmount(person.tab_confirmed_balance ?? 0),
-                          currency: getCurrentCurrencySymbol(),
-                        })}
-                      </Text>
-                    ) : null}
-                    {(person.tab_pending_count ?? 0) > 0 && person.tab_unsynced !== 1 ? (
-                      <Text style={[styles.unsyncedNote, textDir(isRTL)]}>
-                        {t("tab.balance.pending", {
-                          count: person.tab_pending_count ?? 0,
-                          amount: signedSharedAmount(person.tab_pending_balance ?? 0),
-                          currency: getCurrentCurrencySymbol(),
-                        })}
-                      </Text>
-                    ) : null}
-                    <CreditStatusBadge personId={person.id} vaultId={activeVaultId} />
-                  </View>
-                  <TallyFlowSummary summary={flowSummary} isRTL={isRTL} />
-                </View>
-                {reminderId ? (
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel={t("reminders.title")}
-                    onPress={() =>
-                      router.push({
-                        pathname: "/person/[id]/reminders",
-                        params: { id: person.id, vaultId: activeVaultId ?? "" },
-                      })
+                <View
+                  testID="customer-balances"
+                  accessible={false}
+                  style={selecting ? styles.hiddenBalances : undefined}
+                  pointerEvents={selecting ? "none" : "auto"}
+                  accessibilityElementsHidden={selecting}
+                  importantForAccessibility={selecting ? "no-hide-descendants" : "auto"}
+                >
+                  <View style={{ height: 16 }} />
+                  <CustomerBalanceCarousel
+                    key={JSON.stringify([getAccountIdSync(), activeVaultId, person.id])}
+                    currencies={balanceRows.map((row) => row.currency ?? selectedCurrency)}
+                    active={
+                      !compactDock &&
+                      !selecting &&
+                      !dateSheetVisible &&
+                      !sheetFor &&
+                      !askLangVisible &&
+                      !exportSheetVisible &&
+                      !inviteVisible &&
+                      !linkedSheetVisible &&
+                      !linkCurrencyVisible &&
+                      !confirmRegenerate &&
+                      !confirmUnlink &&
+                      !confirmSettle &&
+                      !confirmDeleteFor
                     }
-                    style={[rowDir(isRTL), { alignItems: "center", gap: 8, paddingVertical: 12 }]}
                   >
-                    <Ionicons name="alarm-outline" size={18} color={colors.textMuted} />
-                    <Text
-                      style={[
-                        textDir(isRTL),
-                        { fontFamily: fonts.sansMedium, color: colors.textDefault },
-                      ]}
-                    >
-                      {t("reminders.title")}
-                    </Text>
-                  </Pressable>
-                ) : null}
+                    {balanceRows.map((balancePerson) => {
+                      const code = balancePerson.currency ?? selectedCurrency;
+                      const person = balancePerson;
+                      const period = currencyPeriods.find((period) => period.currency === code);
+                      const tabHistory = period?.tab;
+                      const link = tabHistory?.closed_at == null ? tabHistory : null;
+                      const abs = Math.abs(person.balance);
+                      const chipLabel =
+                        person.balance > 0
+                          ? t("person.balance.theyOwe")
+                          : person.balance < 0
+                            ? t("person.balance.youOwe")
+                            : null;
+                      const chipVariant =
+                        person.balance > 0
+                          ? ("collect" as const)
+                          : person.balance < 0
+                            ? ("pay" as const)
+                            : null;
+                      const balanceColor =
+                        person.balance > 0
+                          ? colors.collectStrong
+                          : person.balance < 0
+                            ? colors.payStrong
+                            : colors.textEmphasis;
+                      const settledCount = period
+                        ? period.tab
+                          ? period.sharedSettlements.length
+                          : period.settlement.count
+                        : 0;
+                      const chapterCoherent =
+                        !period ||
+                        sumAmounts(currencyChapter(period).map(balanceContribution)) ===
+                          person.balance;
+                      const sharedReviewPending =
+                        (person.tab_pending_count ?? 0) > 0 ||
+                        (period?.entries ?? []).some(
+                          (entry) =>
+                            entry.tab &&
+                            (entry.tab.local_pending ||
+                              (!entry.tab.voided &&
+                                entry.tab.kind !== "void" &&
+                                entry.tab.status === "pending")),
+                        );
+                      const unsettledOriginalCount = period ? currencyChapter(period).length : 0;
+                      return (
+                        <View key={code} style={styles.balanceOverview}>
+                          <View style={styles.balanceHeader}>
+                            <Text style={styles.balanceCurrency}>{getCurrencyLabel(code)}</Text>
+                            <View
+                              style={[
+                                styles.chipRow,
+                                rowDir(isRTL),
+                                { justifyContent: isRTL ? "flex-start" : "flex-end" },
+                              ]}
+                            >
+                              {person.tab_unsynced === 1 ? null : chipLabel && chipVariant ? (
+                                <Chip label={chipLabel} variant={chipVariant} />
+                              ) : settledCount > 0 &&
+                                chapterCoherent &&
+                                !sharedReviewPending &&
+                                unsettledOriginalCount === 0 ? (
+                                // "SETTLED" only when the user actually drew the line and it
+                                // covers everything.
+                                <Chip label={t("person.balance.settled")} variant="neutral" />
+                              ) : displayedEntries.length > 0 ? (
+                                // A tally that merely SUMS to zero (or whose chapter no longer
+                                // adds up after a sync) is not a settled account — say so
+                                // rather than leaving the chip slot blank while every other
+                                // state labels itself. Hollow pill: true, but not an
+                                // achievement. The settle-row invitation sits below.
+                                // Contacts with no entries at all keep an empty slot — there
+                                // is no tally yet to have a state.
+                                <Chip label={t("person.balance.notSettled")} variant="outline" />
+                              ) : null}
+                              {link && link.other_joined_at == null ? (
+                                // Keep the invitation-waiting cue until the other side joins.
+                                // Once linked, the name badge is enough; no duplicate chip.
+                                <Pressable
+                                  onPress={
+                                    canAmend
+                                      ? () => {
+                                          setManagementCurrency(code);
+                                          setLinkedSheetVisible(true);
+                                        }
+                                      : undefined
+                                  }
+                                  disabled={!canAmend}
+                                  accessibilityRole={canAmend ? "button" : "text"}
+                                  style={({ pressed }) => [
+                                    styles.readOnlyChip,
+                                    pressed && { opacity: 0.5 },
+                                  ]}
+                                >
+                                  <Ionicons
+                                    name="link-outline"
+                                    size={14}
+                                    color={colors.textSubtle}
+                                  />
+                                  <Text
+                                    style={styles.readOnlyChipText}
+                                    allowFontScaling={false}
+                                    numberOfLines={1}
+                                  >
+                                    {t("tab.chip.waiting")}
+                                  </Text>
+                                </Pressable>
+                              ) : null}
+                            </View>
+                          </View>
+                          <View style={styles.balanceSide}>
+                            <Text
+                              style={[
+                                styles.balance,
+                                {
+                                  color:
+                                    person.tab_unsynced === 1 ? colors.textMuted : balanceColor,
+                                },
+                              ]}
+                              numberOfLines={1}
+                              adjustsFontSizeToFit
+                              minimumFontScale={0.1}
+                              maxFontSizeMultiplier={1.4}
+                            >
+                              {person.tab_unsynced === 1 ? "…" : formatAmount(abs)}
+                            </Text>
+                            {/* A discovered shared account that has not been pulled yet
+                        has no known balance; the pull is already queued. */}
+                            {person.tab_unsynced === 1 ? (
+                              <Text style={[styles.unsyncedNote, textDir(isRTL)]}>
+                                {t("tab.notDownloaded")}
+                              </Text>
+                            ) : null}
+                            {tabHistory && person.tab_unsynced !== 1 ? (
+                              <Text style={[styles.unsyncedNote, textDir(isRTL)]}>
+                                {t("tab.balance.confirmed", {
+                                  amount: signedSharedAmount(person.tab_confirmed_balance ?? 0),
+                                  currency: getCurrencyLabel(code),
+                                })}
+                              </Text>
+                            ) : null}
+                            {(person.tab_pending_count ?? 0) > 0 && person.tab_unsynced !== 1 ? (
+                              <Text style={[styles.unsyncedNote, textDir(isRTL)]}>
+                                {t("tab.balance.pending", {
+                                  count: person.tab_pending_count ?? 0,
+                                  amount: signedSharedAmount(person.tab_pending_balance ?? 0),
+                                  currency: getCurrencyLabel(code),
+                                })}
+                              </Text>
+                            ) : null}
+                            <CreditStatusBadge
+                              personId={person.id}
+                              vaultId={activeVaultId}
+                              currency={code}
+                            />
+                          </View>
+                          <TallyFlowSummary
+                            summary={flowSummaries.get(code) ?? summarizeTallyFlows([])}
+                            currency={code}
+                            isRTL={isRTL}
+                            variant="footer"
+                          />
+                        </View>
+                      );
+                    })}
+                  </CustomerBalanceCarousel>
+                </View>
                 {pingNudge && person.phone && !link && entries.length > 0 && !pinging ? (
                   <View style={[styles.pingNudge, rowDir(isRTL)]}>
                     <Ionicons name="logo-whatsapp" size={18} color={colors.textEmphasis} />
@@ -1890,28 +2269,38 @@ export default function PersonDetailScreen() {
             only exists in the exact moment it means something: balance is
             zero AND the current chapter has entries. Tapping it draws the
             line for real. */}
-            {canSettle && !searching && !selecting ? (
-              <Pressable
-                onPress={() => setConfirmSettle(true)}
-                accessibilityRole="button"
-                accessibilityLabel={t("person.settle.row")}
-                style={({ pressed }) => [
-                  styles.settleRow,
-                  rowDir(isRTL),
-                  pressed && { opacity: 0.5 },
-                ]}
-              >
-                <View style={styles.settleRule} />
-                <Text style={styles.settleRowText} allowFontScaling={false}>
-                  {t("person.settle.row")}
-                </Text>
-                <View style={styles.settleRule} />
-              </Pressable>
-            ) : null}
+            {canSettle && !searching && !selecting
+              ? settleablePeriods.map((period) => (
+                  <Pressable
+                    key={period.currency}
+                    onPress={() => {
+                      setSettleCurrency(period.currency);
+                      setConfirmSettle(true);
+                    }}
+                    accessibilityRole="button"
+                    accessibilityLabel={
+                      currencyPeriods.length > 1
+                        ? `${t("person.settle.row")} · ${getCurrencyLabel(period.currency)}`
+                        : t("person.settle.row")
+                    }
+                    style={({ pressed }) => [
+                      styles.settleRow,
+                      rowDir(isRTL),
+                      pressed && { opacity: 0.5 },
+                    ]}
+                  >
+                    <View style={styles.settleRule} />
+                    <Text style={styles.settleRowText} allowFontScaling={false}>
+                      {t("person.settle.row")} · {getCurrencyLabel(period.currency)}
+                    </Text>
+                    <View style={styles.settleRule} />
+                  </Pressable>
+                ))
+              : null}
 
             {/* Waiting and refused clerk attempts stay on the complete ledger. */}
             {!searching && !selecting ? (
-              <CreditIntentList personId={person.id} vaultId={activeVaultId} />
+              <CreditIntentList personId={person.id} vaultId={activeVaultId} allCurrencies />
             ) : null}
 
             {historyItems.length === 0 ? (
@@ -1997,7 +2386,7 @@ export default function PersonDetailScreen() {
             the account became shared, their sum is already the opening tally
             on the tab, and nothing here can be edited (TabLinkedEntryError).
             No long-press, no attribution: frozen pages. */}
-            {tabHistory && matchedPreLink.length > 0 ? (
+            {currencyPeriods.some((period) => period.tab) && matchedPreLink.length > 0 ? (
               <>
                 <Pressable
                   onPress={() => setPreLinkOpen((v) => !v)}
@@ -2060,226 +2449,254 @@ export default function PersonDetailScreen() {
           included. It still lifts above toasts, over its own DOCK_SKIRT, but not
           above an open keyboard. Received LEFT, gave RIGHT regardless of
           language. */}
-          {selecting || canCreate || hasTallies ? (
+          {canCreate || hasTallies ? (
             <Animated.View
-              onLayout={(event) =>
-                setActionsHeight(Math.max(0, event.nativeEvent.layout.height - DOCK_SKIRT))
-              }
+              onLayout={(event) => {
+                measuredActionsHeight.current = Math.max(
+                  0,
+                  event.nativeEvent.layout.height - DOCK_SKIRT,
+                );
+                if (Platform.OS !== "ios" || !keyboardMoving.current) publishActionsHeight();
+              }}
               style={[
                 styles.actions,
                 {
                   bottom: -DOCK_SKIRT,
-                  // Over an open keyboard the safe-area inset is covered: its
-                  // padding was an empty band that cost result rows (audit #31).
-                  paddingBottom: (keyboardShown ? 8 : 20 + insets.bottom) + DOCK_SKIRT,
-                  transform: [{ translateY: keyboardShown ? 0 : toastOffset }],
+                  transform: [{ translateY: compactDock ? 0 : toastOffset }],
                 },
               ]}
             >
-              {/* While typing a search the entry buttons step aside so the
+              <SearchKeyboardFooter
+                closedPadding={20 + insets.bottom + DOCK_SKIRT}
+                openPadding={8 + DOCK_SKIRT}
+                keyboardShown={compactDock}
+                style={styles.actionsContent}
+              >
+                {/* While typing a search the entry buttons step aside so the
                   results above the keyboard get their room (0-1 rows before,
                   audit #31); they return with the keyboard's close. */}
-              {selecting ? (
-                selectionToolbar
-              ) : canCreate && !keyboardShown ? (
-                <View style={styles.actionRow}>
-                  <View style={styles.actionBtnWrap}>
-                    <Pressable
-                      accessibilityRole="button"
-                      onPress={() =>
-                        router.push({
-                          pathname: "/entry/new",
-                          params: { personId: person.id, type: "payment" },
-                        })
-                      }
-                      style={({ pressed }) => [
-                        styles.actionBtn,
-                        styles.actionReceived,
-                        pressed && styles.actionBtnPressed,
-                      ]}
-                    >
-                      {/* 16 is composed INTO the fixed 26px coin (see
+                {!selecting && canCreate && !compactDock ? (
+                  <View style={styles.actionRow}>
+                    <View style={styles.actionBtnWrap}>
+                      <Pressable
+                        accessibilityRole="button"
+                        onPress={() =>
+                          router.push({
+                            pathname: "/entry/new",
+                            params: { personId: person.id, type: "payment" },
+                          })
+                        }
+                        style={({ pressed }) => [
+                          styles.actionBtn,
+                          styles.actionReceived,
+                          pressed && styles.actionBtnPressed,
+                        ]}
+                      >
+                        {/* 16 is composed INTO the fixed 26px coin (see
                       actionIconCoin), so the icon scale does not apply here —
                       icon.trailing/row would fill or overflow the well. */}
-                      <View style={[styles.actionIconCoin, styles.actionReceivedCoin]}>
-                        <Ionicons
-                          name="arrow-down-outline"
-                          size={16}
-                          color={colors.entryActionReceivedText}
-                        />
-                      </View>
-                      <Text
-                        style={[styles.actionText, styles.actionReceivedText, trackingSafe(isRTL)]}
-                      >
-                        {t("person.action.iReceived")}
-                      </Text>
-                    </Pressable>
-                  </View>
-                  <View style={styles.actionBtnWrap}>
-                    <Pressable
-                      accessibilityRole="button"
-                      onPress={() =>
-                        router.push({
-                          pathname: "/entry/new",
-                          params: { personId: person.id, type: "debt" },
-                        })
-                      }
-                      style={({ pressed }) => [
-                        styles.actionBtn,
-                        styles.actionGave,
-                        pressed && styles.actionBtnPressed,
-                      ]}
-                    >
-                      {/* 16, composed into the coin — same reason as "I received". */}
-                      <View style={[styles.actionIconCoin, styles.actionGaveCoin]}>
-                        <Ionicons
-                          name="arrow-up-outline"
-                          size={16}
-                          color={colors.entryActionGaveText}
-                        />
-                      </View>
-                      <Text style={[styles.actionText, styles.actionGaveText, trackingSafe(isRTL)]}>
-                        {t("person.action.iGave")}
-                      </Text>
-                    </Pressable>
-                  </View>
-                </View>
-              ) : null}
-              {hasTallies ? (
-                <View style={styles.searchArea}>
-                  <View style={[styles.searchControls, rowDir(isRTL)]}>
-                    <View style={[styles.searchBox, rowDir(isRTL)]}>
-                      <Ionicons
-                        name="search-outline"
-                        size={icon.trailing}
-                        color={colors.textSubtle}
-                      />
-                      <TextInput
-                        ref={searchInputRef}
-                        value={searchQuery}
-                        onChangeText={(value) => {
-                          if (searchIsCurrent()) setSearchQuery(value);
-                        }}
-                        onFocus={() => {
-                          if (searchIsCurrent()) setSearchFocused(true);
-                        }}
-                        onBlur={() => {
-                          if (screenIsCurrent()) setSearchFocused(false);
-                        }}
-                        placeholder={t("person.search.placeholder")}
-                        accessibilityLabel={t("person.search.placeholder")}
-                        placeholderTextColor={colors.textSubtle}
-                        style={[styles.searchInput, textDir(isRTL)]}
-                        returnKeyType="search"
-                        submitBehavior="blurAndSubmit"
-                        onSubmitEditing={dismissSearchKeyboard}
-                        autoCorrect={false}
-                        maxLength={500}
-                      />
-                      <SearchControlSlot
-                        visible={searchQuery.length > 0}
-                        width={TOUCH_MIN}
-                        height={TOUCH_MIN}
-                        style={isRTL ? styles.clearSearchRTL : styles.clearSearchLTR}
-                      >
-                        <Pressable
-                          onPress={() => {
-                            if (searchIsCurrent()) setSearchQuery("");
-                          }}
-                          accessibilityRole="button"
-                          accessibilityLabel={t("person.search.clear")}
-                          style={styles.clearSearch}
+                        <View style={[styles.actionIconCoin, styles.actionReceivedCoin]}>
+                          <Ionicons
+                            name="arrow-down-outline"
+                            size={16}
+                            color={colors.entryActionReceivedText}
+                          />
+                        </View>
+                        <Text
+                          style={[
+                            styles.actionText,
+                            styles.actionReceivedText,
+                            trackingSafe(isRTL),
+                          ]}
                         >
-                          <Ionicons name="close" size={icon.trailing} color={colors.textSubtle} />
-                        </Pressable>
-                      </SearchControlSlot>
-                    </View>
-                    <Pressable
-                      onPress={() => {
-                        if (!searchIsCurrent()) return;
-                        dismissSearchKeyboard();
-                        setDateSheetVisible(true);
-                      }}
-                      accessibilityRole="button"
-                      accessibilityLabel={
-                        dateRange
-                          ? t("person.date.active", { range: dateRangeLabel })
-                          : t("person.date.title")
-                      }
-                      accessibilityState={{ selected: dateRange != null }}
-                      style={[styles.dateButton, dateRange && styles.dateButtonActive]}
-                    >
-                      <Ionicons
-                        name="calendar-outline"
-                        size={icon.row}
-                        color={dateRange ? colors.textEmphasis : colors.textSubtle}
-                      />
-                    </Pressable>
-                    <SearchControlSlot
-                      visible={searchFocused}
-                      width={TOUCH_MIN}
-                      height={TOUCH_MIN}
-                      collapse
-                      gap={8}
-                      isRTL={isRTL}
-                    >
-                      <Pressable
-                        onPress={dismissSearchKeyboard}
-                        accessibilityRole="button"
-                        accessibilityLabel={t("common.hideKeyboard")}
-                        style={styles.dateButton}
-                      >
-                        <Ionicons name="chevron-down" size={icon.row} color={colors.textEmphasis} />
+                          {t("person.action.iReceived")}
+                        </Text>
                       </Pressable>
-                    </SearchControlSlot>
-                  </View>
-                  {dateRange ? (
-                    <View style={[styles.dateSummary, rowDir(isRTL)]}>
+                    </View>
+                    <View style={styles.actionBtnWrap}>
                       <Pressable
-                        style={styles.dateSummaryLabel}
+                        accessibilityRole="button"
+                        onPress={() =>
+                          router.push({
+                            pathname: "/entry/new",
+                            params: { personId: person.id, type: "debt" },
+                          })
+                        }
+                        style={({ pressed }) => [
+                          styles.actionBtn,
+                          styles.actionGave,
+                          pressed && styles.actionBtnPressed,
+                        ]}
+                      >
+                        {/* 16, composed into the coin — same reason as "I received". */}
+                        <View style={[styles.actionIconCoin, styles.actionGaveCoin]}>
+                          <Ionicons
+                            name="arrow-up-outline"
+                            size={16}
+                            color={colors.entryActionGaveText}
+                          />
+                        </View>
+                        <Text
+                          style={[styles.actionText, styles.actionGaveText, trackingSafe(isRTL)]}
+                        >
+                          {t("person.action.iGave")}
+                        </Text>
+                      </Pressable>
+                    </View>
+                  </View>
+                ) : null}
+                {hasTallies ? (
+                  <View style={styles.searchArea}>
+                    <View style={styles.searchControls}>
+                      <View style={styles.searchBox}>
+                        <Ionicons
+                          name="search-outline"
+                          size={icon.trailing}
+                          color={colors.textSubtle}
+                        />
+                        <TextInput
+                          ref={searchInputRef}
+                          value={searchQuery}
+                          onChangeText={(value) => {
+                            if (searchIsCurrent()) setSearchQuery(value);
+                          }}
+                          onPress={
+                            Platform.OS === "android"
+                              ? () => {
+                                  if (searchIsCurrent()) setSearchFocused(true);
+                                }
+                              : undefined
+                          }
+                          onFocus={() => {
+                            if (searchIsCurrent()) setSearchFocused(true);
+                          }}
+                          onBlur={() => {
+                            if (screenIsCurrent()) setSearchFocused(false);
+                          }}
+                          placeholder={t("person.search.placeholder")}
+                          accessibilityLabel={t("person.search.placeholder")}
+                          placeholderTextColor={colors.textSubtle}
+                          style={[styles.searchInput, textDir(isRTL)]}
+                          returnKeyType="search"
+                          submitBehavior="blurAndSubmit"
+                          onSubmitEditing={dismissSearchKeyboard}
+                          autoCorrect={false}
+                          maxLength={500}
+                        />
+                        <SearchControlSlot
+                          visible={searchQuery.length > 0}
+                          width={TOUCH_MIN}
+                          height={TOUCH_MIN}
+                          style={styles.clearSearchLTR}
+                        >
+                          <Pressable
+                            onPress={() => {
+                              if (searchIsCurrent()) setSearchQuery("");
+                            }}
+                            accessibilityRole="button"
+                            accessibilityLabel={t("person.search.clear")}
+                            style={styles.clearSearch}
+                          >
+                            <Ionicons name="close" size={icon.trailing} color={colors.textSubtle} />
+                          </Pressable>
+                        </SearchControlSlot>
+                      </View>
+                      <Pressable
                         onPress={() => {
                           if (!searchIsCurrent()) return;
                           dismissSearchKeyboard();
                           setDateSheetVisible(true);
                         }}
                         accessibilityRole="button"
-                        accessibilityLabel={t("person.date.active", { range: dateRangeLabel })}
+                        accessibilityLabel={
+                          dateRange
+                            ? t("person.date.active", { range: dateRangeLabel })
+                            : t("person.date.title")
+                        }
+                        accessibilityState={{ selected: dateRange != null }}
+                        style={[styles.dateButton, dateRange && styles.dateButtonActive]}
                       >
-                        <Text numberOfLines={2} style={[styles.searchSummary, textDir(isRTL)]}>
-                          {dateRangeLabel}
-                        </Text>
+                        <Ionicons
+                          name="calendar-outline"
+                          size={icon.row}
+                          color={dateRange ? colors.textEmphasis : colors.textSubtle}
+                        />
                       </Pressable>
-                      <Pressable
-                        style={styles.clearDate}
-                        onPress={() => {
-                          if (searchIsCurrent()) setDateRange(null);
-                        }}
-                        accessibilityRole="button"
-                        accessibilityLabel={t("person.date.clear")}
+                      <SearchControlSlot
+                        visible={dismissControlVisible}
+                        width={TOUCH_MIN}
+                        height={TOUCH_MIN}
+                        collapse
+                        // Opening keeps its existing motion. Closing commits a
+                        // numeric width with willHide, without a second JS tween.
+                        animate={Platform.OS === "ios" && dismissControlVisible}
+                        gap={8}
+                        isRTL={false}
                       >
-                        <Ionicons name="close" size={16} color={colors.textSubtle} />
-                      </Pressable>
+                        <Pressable
+                          onPress={dismissSearchKeyboard}
+                          accessibilityRole="button"
+                          accessibilityLabel={t("common.hideKeyboard")}
+                          style={styles.dateButton}
+                        >
+                          <Ionicons
+                            name="chevron-down"
+                            size={icon.row}
+                            color={colors.textEmphasis}
+                          />
+                        </Pressable>
+                      </SearchControlSlot>
                     </View>
-                  ) : null}
-                  {searching ? (
-                    <Text
-                      style={[styles.searchSummary, textDir(isRTL)]}
-                      accessibilityLiveRegion="polite"
-                    >
-                      {t(
-                        searchResultCount === 1 ? "person.search.result" : "person.search.results",
-                        {
-                          count: searchResultCount,
-                        },
-                      )}
-                    </Text>
-                  ) : null}
-                </View>
-              ) : null}
+                    {dateRange ? (
+                      <View style={[styles.dateSummary, rowDir(isRTL)]}>
+                        <Pressable
+                          style={styles.dateSummaryLabel}
+                          onPress={() => {
+                            if (!searchIsCurrent()) return;
+                            dismissSearchKeyboard();
+                            setDateSheetVisible(true);
+                          }}
+                          accessibilityRole="button"
+                          accessibilityLabel={t("person.date.active", { range: dateRangeLabel })}
+                        >
+                          <Text numberOfLines={2} style={[styles.searchSummary, textDir(isRTL)]}>
+                            {dateRangeLabel}
+                          </Text>
+                        </Pressable>
+                        <Pressable
+                          style={styles.clearDate}
+                          onPress={() => {
+                            if (searchIsCurrent()) setDateRange(null);
+                          }}
+                          accessibilityRole="button"
+                          accessibilityLabel={t("person.date.clear")}
+                        >
+                          <Ionicons name="close" size={16} color={colors.textSubtle} />
+                        </Pressable>
+                      </View>
+                    ) : null}
+                    {searching ? (
+                      <Text
+                        style={[styles.searchSummary, textDir(isRTL)]}
+                        accessibilityLiveRegion="polite"
+                      >
+                        {t(
+                          searchResultCount === 1
+                            ? "person.search.result"
+                            : "person.search.results",
+                          {
+                            count: searchResultCount,
+                          },
+                        )}
+                      </Text>
+                    ) : null}
+                  </View>
+                ) : null}
+              </SearchKeyboardFooter>
             </Animated.View>
           ) : null}
         </View>
-      </KeyboardAvoidingView>
+      </SearchKeyboardFrame>
       <TallyDateFilterSheet
         visible={dateSheetVisible}
         contextKey={flowScope}
@@ -2355,7 +2772,7 @@ export default function PersonDetailScreen() {
         visible={sheetFor !== null}
         title={
           sheetFor
-            ? `${formatAmount(sheetFor.amount_afn)} ${getCurrentCurrencySymbol()}`
+            ? `${formatAmount(sheetFor.amount_afn)} ${getCurrencyLabel(sheetFor.currency ?? person.currency ?? selectedCurrency)}`
             : undefined
         }
         onDismiss={() => setSheetFor(null)}
@@ -2369,9 +2786,9 @@ export default function PersonDetailScreen() {
         visible={inviteVisible}
         person={person}
         myLabel={myLabel}
-        link={link}
+        link={managementLink?.closed_at == null ? managementLink : null}
+        currency={managementCurrency ?? person.currency ?? selectedCurrency}
         onLinked={(created) => {
-          setTabHistory(created);
           void load();
         }}
         onDismiss={() => setInviteVisible(false)}
@@ -2388,10 +2805,10 @@ export default function PersonDetailScreen() {
           either side's right and closes the tab for both. */}
       <BottomSheet
         visible={linkedSheetVisible}
-        title={person.name}
+        title={`${person.name} · ${getCurrencyLabel(managementCurrency ?? person.currency ?? selectedCurrency)}`}
         onDismiss={() => setLinkedSheetVisible(false)}
         actions={[
-          ...(link?.role === "a" && link.invite_url
+          ...(managementLink?.role === "a" && managementLink.invite_url
             ? [
                 {
                   label: t("tab.share.again"),
@@ -2400,7 +2817,7 @@ export default function PersonDetailScreen() {
                 },
               ]
             : []),
-          ...(link?.role === "a"
+          ...(managementLink?.role === "a"
             ? [
                 {
                   label: t("tab.regenerate"),
@@ -2420,7 +2837,7 @@ export default function PersonDetailScreen() {
       <ConfirmDialog
         visible={confirmRegenerate}
         title={t("tab.regenerate.title")}
-        description={t("tab.regenerate.body", { name: person.name })}
+        description={`${getCurrencyLabel(managementCurrency ?? person.currency ?? selectedCurrency)} · ${t("tab.regenerate.body", { name: person.name })}`}
         confirmLabel={t("tab.regenerate.ok")}
         onConfirm={() => void onRegenerate()}
         onCancel={() => setConfirmRegenerate(false)}
@@ -2428,7 +2845,7 @@ export default function PersonDetailScreen() {
       <ConfirmDialog
         visible={confirmUnlink}
         title={t("tab.unlink.title", { name: person.name })}
-        description={t("tab.unlink.body")}
+        description={`${getCurrencyLabel(managementCurrency ?? person.currency ?? selectedCurrency)} · ${t("tab.unlink.body")}`}
         confirmLabel={t("tab.unlink")}
         destructive
         onConfirm={() => void onUnlink()}
@@ -2437,6 +2854,33 @@ export default function PersonDetailScreen() {
 
       {/* Per-send message-language picker (share_lang_pref = 'ask'). Dari
           first — the common pick. No persisted selection: it's per-send. */}
+      {linkCurrencyVisible ? (
+        <OptionSheet
+          visible={linkCurrencyVisible}
+          title={t("entry.currency.label")}
+          options={currencyPeriods.map((period) => ({
+            key: period.currency,
+            label: getCurrencyLabel(period.currency),
+          }))}
+          selected={managementCurrency ?? person.currency ?? selectedCurrency}
+          onSelect={(code) => {
+            if (!screenIsCurrent() || !canAmend || linkCurrencyBusy.current) return;
+            const target = currencyPeriods.find((period) => period.currency === code);
+            if (!target) return;
+            linkCurrencyBusy.current = true;
+            setLinkCurrencyVisible(false);
+            setManagementCurrency(code);
+            setTimeout(() => {
+              if (!screenIsCurrent()) return;
+              target.tab?.closed_at == null && target.tab
+                ? setLinkedSheetVisible(true)
+                : setInviteVisible(true);
+            }, 220);
+          }}
+          onDismiss={() => setLinkCurrencyVisible(false)}
+          isRTL={isRTL}
+        />
+      ) : null}
       <OptionSheet
         visible={askLangVisible}
         title={t("share.askLang.title")}
@@ -2471,9 +2915,12 @@ export default function PersonDetailScreen() {
       <ConfirmDialog
         visible={confirmSettle}
         title={t("person.settle.confirm.title")}
-        description={t(tabHistory ? "tab.settle.confirm" : "person.settle.confirm.body", {
-          name: person.name,
-        })}
+        description={`${getCurrencyLabel(settlementTarget?.currency ?? person.currency ?? selectedCurrency)} · ${t(
+          settlementTarget?.tab ? "tab.settle.confirm" : "person.settle.confirm.body",
+          {
+            name: person.name,
+          },
+        )}`}
         confirmLabel={t("person.settle.confirm.cta")}
         onConfirm={onSettle}
         onCancel={() => setConfirmSettle(false)}
@@ -2530,7 +2977,7 @@ const styles = StyleSheet.create({
   fillCenter: { flex: 1, alignItems: "center", justifyContent: "center" },
   notFoundText: { fontSize: 14, fontFamily: fonts.sansRegular, color: colors.textSubtle },
   // One compact action group with separate 44pt targets, mirrored in Dari.
-  // The 10pt between WhatsApp and the menu lives in the row's gap: a margin on
+  // The 10pt between header actions lives in the row's gap: a margin on
   // one side of the button landed on the outer edge in Dari's reversed row,
   // leaving 2pt between the icons (audit #11).
   headerActions: { flexDirection: "row", alignItems: "center", gap: 10 },
@@ -2548,6 +2995,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 4,
   },
+  selectionTop: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    zIndex: 5,
+    overflow: "visible",
+  },
+  hiddenBalances: { display: "none" },
   iconBtn: {
     // 40 + the hitSlop={8} on every consumer = a 56px target, so the visible
     // box stays 40 (growing it would push the header chrome down 4px).
@@ -2573,13 +3031,40 @@ const styles = StyleSheet.create({
     color: colors.textSubtle,
   },
   info: { paddingHorizontal: 16, paddingTop: 4, paddingBottom: 20 },
-  balanceOverview: { alignItems: "center", gap: 18 },
-  balanceSide: { flex: 1, minWidth: 0 },
-  // Direction chip + linked chip on one line. Chip's own alignSelf handles
-  // the script edge; this row just puts the two side by side. flexWrap so
-  // a long counterparty label drops the linked chip to a second line rather
-  // than squeezing the direction word.
-  chipRow: { flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" },
+  balanceOverview: {
+    borderWidth: 1,
+    borderColor: colors.borderDefault,
+    borderRadius: radius.lg,
+    backgroundColor: colors.bgDefault,
+    overflow: "hidden",
+  },
+  balanceHeader: {
+    direction: "ltr",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    backgroundColor: colors.bgMuted,
+  },
+  balanceCurrency: {
+    ...typography.bodySm,
+    fontFamily: fonts.sansSemi,
+    color: colors.textSubtle,
+    writingDirection: "ltr",
+    flexShrink: 0,
+  },
+  balanceSide: { minWidth: 0, paddingHorizontal: 14, paddingVertical: 10 },
+  // Keep the currency visible while long status labels wrap within their side.
+  chipRow: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    flexWrap: "wrap",
+  },
   // 22 → typography.heading (20): 22 was one of the scale's two orphan display
   // sizes and sat 2px from `heading`, which every other screen headline already
   // uses. The BOLD weight is kept (heading ships sansSemi) — this is a person's
@@ -2643,26 +3128,17 @@ const styles = StyleSheet.create({
     color: colors.textSubtle,
     marginTop: 6,
   },
-  balanceRow: { flexDirection: "row", alignItems: "baseline", marginTop: 10, gap: 6 },
-  // 40 → typography.numHero (36). This was the app's ONLY 40px value, and the
-  // home screen's total — the other hero balance — was already 36. The 4px gap
-  // was never the hierarchy signal between the two screens; the COLOUR is (both
-  // tint inline from the running net, and this one falls back to a muted grey
-  // when settled while home never renders a settled state). So the size
-  // collapses and the colour is left exactly as it was.
-  //
-  // letterSpacing STAYS: formatAmount() goes through lib/format.ts, which
-  // hardcodes toLocaleString("en-US"), so this string is Latin digits in both
-  // languages and tracking can't sever any Arabic-script joining. Deliberately
-  // NOT trackingSafe(isRTL) for the same reason.
+  // Amounts use Latin digits in every language and have the full card width.
   balance: {
     ...typography.numHero,
     color: colors.textEmphasis,
     letterSpacing: -0.5,
+    width: "100%",
+    writingDirection: "ltr",
+    textAlign: "left",
   },
-  balanceAfn: { fontSize: 15, fontFamily: fonts.sansMedium, color: colors.textMuted },
   searchArea: { gap: 4 },
-  searchControls: { alignItems: "center", gap: 8 },
+  searchControls: { flexDirection: "row", direction: "ltr", alignItems: "center", gap: 8 },
   dateButton: {
     minWidth: TOUCH_MIN,
     minHeight: TOUCH_MIN,
@@ -2715,7 +3191,6 @@ const styles = StyleSheet.create({
     // row.
     flexDirection: "column",
     paddingHorizontal: 16,
-    gap: 10,
     paddingTop: 12,
     backgroundColor: colors.bgDefault,
     borderTopWidth: StyleSheet.hairlineWidth,
@@ -2725,6 +3200,7 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
   },
+  actionsContent: { gap: 10 },
   actionRow: { flexDirection: "row", gap: 10 },
   // flex:1 keeps both action wrappers equal in width.
   actionBtnWrap: { flex: 1, minWidth: 0 },

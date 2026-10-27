@@ -1010,7 +1010,9 @@ async function handshake(conn: MeshConnection, opts: AntiEntropyOptions): Promis
   const hello: HelloMessage = {
     type: "hello",
     v: WIRE_VERSION,
-    capabilities: ["v1"],
+    // Older apps combine all amounts into one currency. Refuse that protocol
+    // before exchanging any ledger data; both phones need currency support.
+    capabilities: ["multi-currency-v1"],
     pop_nonce: ourNonceB64,
     ephemeral_x25519_pubkey: ourEphemeralPubB64,
     ...(ourPairNonce ? { pair_nonce: ourPairNonce } : {}),
@@ -1028,7 +1030,7 @@ async function handshake(conn: MeshConnection, opts: AntiEntropyOptions): Promis
   ]);
   console.log("[mesh.hs] peer hello received");
 
-  const sharedCaps = peerHello.capabilities.filter((c) => c === "v1");
+  const sharedCaps = peerHello.capabilities.filter((c) => c === "multi-currency-v1");
   if (sharedCaps.length === 0) {
     throw new MeshHandshakeError(
       `no shared capability with peer (peer offered: ${peerHello.capabilities.join(",")})`,

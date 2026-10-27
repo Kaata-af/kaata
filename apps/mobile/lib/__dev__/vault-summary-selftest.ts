@@ -260,6 +260,8 @@ function settingsVisibilityWiring() {
     "react-native": {
       Animated: { View: "AnimatedView" },
       Dimensions: { get: () => ({ height: 800 }) },
+      useWindowDimensions: () => ({ width: 390, height: 800 }),
+      Keyboard: { dismiss() {} },
       Modal: "Modal",
       Pressable: "Pressable",
       ScrollView: "ScrollView",
@@ -269,7 +271,7 @@ function settingsVisibilityWiring() {
     },
     "react-native-safe-area-context": { SafeAreaView: "Safe", useSafeAreaInsets: () => ({}) },
     "../lib/colors": { colors: {} },
-    "../lib/db-tx": { getAccountIdSync: () => null },
+    "../lib/db-tx": { getAccountIdSync: () => null, getActiveVaultIdSyncMaybe: () => null },
     "../lib/design-tokens": {},
     "../lib/currency": { getCurrencySymbol: () => "" },
     "../lib/direction": { useIsRTL: () => false, rowDir: () => ({}), textDir: () => ({}) },
@@ -283,7 +285,12 @@ function settingsVisibilityWiring() {
       },
     },
     "./InitialAvatar": { InitialAvatar: "Avatar" },
-    "./SettingsScreen": { NavRow: "NavRow", SectionGap: "Gap", SectionHeader: "Header" },
+    "./SettingsScreen": {
+      ScreenHeader: "ScreenHeader",
+      NavRow: "NavRow",
+      SectionGap: "Gap",
+      SectionHeader: "Header",
+    },
   });
   const props = { visible: false, activeVaultId: "vault-a", vaults: [], signedInUser: null };
   const render = () => hooks.render(() => sheet.ProfileSettingsSheet(props));
@@ -291,13 +298,13 @@ function settingsVisibilityWiring() {
   assert.deepEqual(reads.at(-1), ["vault-a", false]);
   props.visible = true;
   rendered = true;
-  assert.equal(render().type, "Modal");
+  assert.equal(render().type, "Safe");
   assert.deepEqual(reads.at(-1), ["vault-a", true]);
   props.visible = false;
   assert.equal(
-    render().type,
-    "Modal",
-    "closing keeps the existing Modal until its exit animation finishes",
+    render(),
+    null,
+    "native route blur hides profile content without a custom exit animation",
   );
   assert.deepEqual(
     reads.at(-1),

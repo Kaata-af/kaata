@@ -168,7 +168,7 @@ function openFixture(): void {
   // lets the projection rollback test catch partial user/relationship writes.
   fixture.exec(`
     CREATE TABLE app_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-    CREATE TABLE vaults (id TEXT PRIMARY KEY);
+    CREATE TABLE vaults (id TEXT PRIMARY KEY,currency TEXT DEFAULT 'AFN',legacy_currency TEXT DEFAULT 'AFN');
     CREATE TABLE users (
       id TEXT PRIMARY KEY, phone_e164 TEXT, display_name TEXT NOT NULL,
       is_local_self INTEGER NOT NULL, google_sub TEXT, account_id TEXT,
@@ -184,7 +184,7 @@ function openFixture(): void {
     CREATE TABLE entries (
       id TEXT PRIMARY KEY, vault_id TEXT NOT NULL REFERENCES vaults(id),
       relationship_id TEXT NOT NULL REFERENCES relationships(id),
-      type TEXT NOT NULL, amount_afn INTEGER NOT NULL, note TEXT,
+      type TEXT NOT NULL, amount_afn INTEGER NOT NULL, note TEXT,currency TEXT,
       created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
       proposed_by_user_id TEXT REFERENCES users(id), current_event_id TEXT,
       is_deleted INTEGER NOT NULL, is_settled INTEGER NOT NULL,
@@ -208,9 +208,9 @@ function openFixture(): void {
     -- columns that lookup reads. Nothing here ever inserts a link, so every
     -- save below takes the local path exactly as before migration 028.
     CREATE TABLE tab_links (
-      tab_id TEXT PRIMARY KEY, relationship_id TEXT NOT NULL, closed_at INTEGER
+      tab_id TEXT PRIMARY KEY, relationship_id TEXT NOT NULL, closed_at INTEGER,currency TEXT DEFAULT 'AFN'
     );
-    INSERT INTO vaults VALUES ('fixture-vault');
+    INSERT INTO vaults(id) VALUES ('fixture-vault');
     INSERT INTO users VALUES ('fixture-self', '+93700111222', 'Synthetic Owner', 1,
       NULL, NULL, 1, 1, NULL, NULL);
   `);
@@ -232,6 +232,7 @@ function openFixture(): void {
   assert.ok(editorLimitDDL, "shipped migration040 editor credit restriction");
   for (const table of ["customer_credit_limits", "kaata_credit_defaults"])
     fixture.exec(editorLimitDDL.replace("${table}", table));
+  fixture.exec("ALTER TABLE customer_credit_limits ADD COLUMN currency TEXT DEFAULT 'AFN';ALTER TABLE kaata_credit_defaults ADD COLUMN currency TEXT DEFAULT 'AFN';");
   failUsageKey = null;
   failedUsageWrites = 0;
   failEventType = null;

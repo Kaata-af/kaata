@@ -1,13 +1,13 @@
 # Container-internal Caddyfile. Dokploy's outer proxy handles the kaata.af
 # domain binding and TLS termination. This serves the static SPA on :80 AND
 # proxies the shared-ledger SSR to the Go backend, so WhatsApp link cards show
-# the per-customer balance instead of the generic site box-logo.
+# the per-customer balance and bill preview instead of the homepage preview.
 
 :80 {
 	encode gzip
 
 	# Security headers on every response. CSP is added per-handle below (the
-	# shared-ledger SSR at /v/* renders a backend inline script the SPA's
+	# shared-ledger SSR at /v/* and /v2/* renders a backend inline script the SPA's
 	# script-src 'self' would block, so it must not inherit the SPA CSP).
 	header {
 		X-Content-Type-Options "nosniff"
@@ -19,9 +19,9 @@
 		-Server
 	}
 
-	# Go-rendered token pages. The bill link is kaata.af/v/<token> and the
+	# Go-rendered token pages. Bill links use kaata.af/v2/<token> (legacy /v/), and the
 	# mutual-tab link kaata.af/t/<token>, but both per-link SSR shells (per-person
-	# og:title/og:description, NO box-logo image) are rendered by the Go backend —
+	# OG text, plus branded preview images on bills) are rendered by the Go backend —
 	# reachable publicly at api.kaata.af. Proxy each page AND the API its inline
 	# script fetches (/v1/shared/* for bills, /v1/tabs/* for tabs — the tab page
 	# fetches relatively when PUBLIC_API_BASE_URL is unset). The Host header is
@@ -30,10 +30,31 @@
 	# backend error, handle_errors below serves the SPA instead, so this can never
 	# hard-fail the page (worst case = today's generic preview; the SPA has no
 	# /t/ route, so a tab link then lands on its NotFound).
-	@sharessr path /v/* /v1/shared/* /t/* /v1/tabs/*
+	@sharessr path /v/* /v2/* /v1/shared/* /t/* /v1/tabs/*
 	handle @sharessr {
 		reverse_proxy https://api.kaata.af {
 			header_up Host api.kaata.af
+		}
+	}
+
+	# Public, versioned preview PNGs must never fall through to the SPA shell.
+	# Bump the filename when changing an image so long-lived crawler caches refresh.
+	handle /og/* {
+		root * /srv
+		@social_png {
+			path /og/*.png
+			file {path}
+		}
+		handle @social_png {
+			header {
+				Content-Type "image/png"
+				Content-Disposition "inline"
+				Cache-Control "public, max-age=31536000, immutable"
+			}
+			file_server
+		}
+		handle {
+			respond "Not found" 404
 		}
 	}
 
@@ -62,7 +83,7 @@
 	}
 
 	# Backend unreachable / 5xx → fall back to the SPA shell (its React
-	# /v/:token view still renders the ledger from the API directly).
+	# /v/:token and /v2/:token views still render the ledger from the API directly).
 	handle_errors {
 		root * /srv
 		rewrite * /index.html

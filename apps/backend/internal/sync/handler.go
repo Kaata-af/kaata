@@ -151,6 +151,24 @@ func (h *Handler) Push(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, http.StatusBadRequest, "device_id must be a uuid")
 		return
 	}
+	if !h.allowCurrencyClient(w, r, req.VaultID, claims.AccountID) {
+		return
+	}
+	if r.Header.Get("X-Kaata-Currencies") != "1" {
+		for _, event := range req.Events {
+			if event.EventType != EventVaultSettingSet {
+				continue
+			}
+			var setting struct {
+				Key string `json:"key"`
+			}
+			if json.Unmarshal(event.Payload, &setting) == nil && setting.Key == "currency" {
+				httpx.ErrorCode(w, http.StatusUpgradeRequired, "currency_upgrade_required",
+					"Update Kaata before changing currency. Existing tally denominations are kept separately.")
+				return
+			}
+		}
+	}
 	if len(req.Events) == 0 {
 		// Still run membership through the service so a non-member
 		// probing for vault existence gets a 403, not a 200 — closes
@@ -192,6 +210,10 @@ func (h *Handler) Push(w http.ResponseWriter, r *http.Request) {
 		}
 		if ev.SchemaVersion <= 0 {
 			httpx.Error(w, http.StatusBadRequest, "events["+strconv.Itoa(i)+"].schema_version must be >= 1")
+			return
+		}
+		if err := validateCurrencyPayload(ev); err != nil {
+			httpx.Error(w, http.StatusBadRequest, "events["+strconv.Itoa(i)+"]: "+err.Error())
 			return
 		}
 		if ev.AuthorSeq != nil && *ev.AuthorSeq < 1 {
@@ -415,6 +437,9 @@ func (h *Handler) Pull(w http.ResponseWriter, r *http.Request) {
 		limit = n
 	}
 
+	if !h.allowCurrencyClient(w, r, vaultID, claims.AccountID) {
+		return
+	}
 	res, err := h.svc.PullEvents(r.Context(), PullInput{
 		AccountID:      claims.AccountID,
 		VaultID:        vaultID,
@@ -472,6 +497,9 @@ func (h *Handler) Snapshot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !h.allowCurrencyClient(w, r, vaultID.String(), claims.AccountID) {
+		return
+	}
 	resp, err := h.svc.LatestSnapshot(r.Context(), vaultID.String())
 	if errors.Is(err, pgx.ErrNoRows) {
 		httpx.Error(w, http.StatusNotFound, "no snapshot available")

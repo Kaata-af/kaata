@@ -163,7 +163,7 @@ func (s *Service) Settle(ctx context.Context, p Party, in SettleInput) (Settleme
 		return SettlementResponse{}, err
 	}
 	for _, scope := range scopes {
-		nonzero, unresolved, err := sharedAcceptedHistory(ctx, tx, scope[0], scope[1], "")
+		nonzero, unresolved, err := sharedAcceptedHistory(ctx, tx, scope[0], scope[1], "", locked.Currency)
 		if err != nil {
 			return SettlementResponse{}, err
 		}

@@ -8,6 +8,7 @@ import { Mutex } from "../util/mutex";
 
 const fixture = new Database(":memory:");
 fixture.exec(`
+  CREATE TABLE vaults(id TEXT PRIMARY KEY, legacy_currency TEXT);
   CREATE TABLE event_log (
     event_id TEXT PRIMARY KEY, event_type TEXT, vault_id TEXT, target_id TEXT,
     relationship_id TEXT, hlc_physical_ms INTEGER, hlc_logical INTEGER,
@@ -349,6 +350,59 @@ async function run() {
       transferRequests[0].events.map((e: any) => e.payload.role),
       ["owner", "editor"],
     );
+    const enabledVault = randomUUID();
+    const enabledEvent = randomUUID();
+    insert.run(
+      enabledEvent,
+      "vault_setting_set",
+      enabledVault,
+      enabledVault,
+      500,
+      installId,
+      installId,
+      "self",
+      JSON.stringify({ key: "enabled_currencies", value: '["AFN","USD"]' }),
+      500,
+      1,
+      "signature",
+      "public-key",
+    );
+    let currencySupported = false,
+      probes = 0,
+      uploads = 0;
+    globalThis.fetch = async (url, init) => {
+      if (String(url).endsWith("/capabilities")) {
+        probes++;
+        return currencySupported
+          ? Response.json({ multi_currency: true })
+          : new Response(null, { status: 404 });
+      }
+      uploads++;
+      const body = JSON.parse(String(init?.body));
+      assert.deepEqual(body.events[0].payload, {
+        key: "enabled_currencies",
+        value: '["AFN","USD"]',
+      });
+      return Response.json({
+        accepted: [{ event_id: enabledEvent, server_seq: 1 }],
+        duplicates: [],
+        rejected: [],
+      });
+    };
+    await assert.rejects(pushEvents(enabledVault), /server needs an update/);
+    assert.equal(uploads, 0, "old backend never receives unsupported chooser settings");
+    assert.equal(
+      (
+        fixture
+          .prepare("SELECT server_acked_at FROM event_log WHERE event_id=?")
+          .get(enabledEvent) as any
+      ).server_acked_at,
+      null,
+    );
+    currencySupported = true;
+    assert.deepEqual(await pushEvents(enabledVault), { pushed: 1, duplicates: 0, rejected: 0 });
+    assert.equal(probes, 2);
+    assert.equal(uploads, 1);
   } finally {
     globalThis.fetch = realFetch;
     fixture.close();

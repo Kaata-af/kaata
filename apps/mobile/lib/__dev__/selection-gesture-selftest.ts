@@ -82,7 +82,11 @@ function rowFixture(kind: "contact" | "tally") {
     "../lib/attribution": { chipActorFor: () => null },
     "../lib/calendar": { useCalendar: () => undefined },
     "../lib/colors": { colors },
-    "../lib/currency": { getCurrentCurrencySymbol: () => "AFN" },
+    "../lib/currency": {
+      getCurrentCurrencySymbol: () => "AFN",
+      getCurrentCurrencyCode: () => "AFN",
+      getCurrencyLabel: (code: string) => code,
+    },
     "../lib/direction": {
       useIsRTL: () => false,
       rowDir: () => ({ flexDirection: "row" }),

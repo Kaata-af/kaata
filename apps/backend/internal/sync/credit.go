@@ -20,26 +20,25 @@ import (
 
 // CreditBalance uses the same current event projection and latest linked period
 // as mobile. A link permanently absorbs pre-link local rows, even after closing.
-func CreditBalance(ctx context.Context, tx pgx.Tx, vaultID, relationshipID string) (int64, error) {
+func CreditBalance(ctx context.Context, tx pgx.Tx, vaultID, relationshipID string, currency ...string) (int64, error) {
 	p, err := LoadVaultProjection(ctx, tx, vaultID)
 	if err != nil {
 		return 0, err
 	}
-	return creditBalanceWithProjection(ctx, tx, vaultID, relationshipID, p)
+	return creditBalanceWithProjection(ctx, tx, vaultID, relationshipID, p, currency...)
 }
 
-func creditBalanceWithProjection(ctx context.Context, tx pgx.Tx, vaultID, relationshipID string, p *Projection) (int64, error) {
-	var mixedCurrency bool
-	if err := tx.QueryRow(ctx, `SELECT COUNT(DISTINCT t.currency)>1 OR COALESCE(BOOL_OR(t.currency<>v.currency),FALSE)
-	 FROM tab_parties p JOIN tabs t ON t.id=p.tab_id JOIN vaults v ON v.vault_id=p.vault_id
-	 WHERE p.vault_id=$1::uuid AND p.relationship_id=$2::uuid`, vaultID, relationshipID).Scan(&mixedCurrency); err != nil {
+func creditBalanceWithProjection(ctx context.Context, tx pgx.Tx, vaultID, relationshipID string, p *Projection, currency ...string) (int64, error) {
+	code, err := credit.ResolveCurrency(ctx, tx, vaultID, currency...)
+	if err != nil {
 		return 0, err
 	}
-	if mixedCurrency {
-		return 0, fmt.Errorf("credit balance unavailable: shared history currency mismatch")
+	legacy, err := credit.ResolveCurrency(ctx, tx, vaultID)
+	if err != nil {
+		return 0, err
 	}
 	var boundary *int64
-	err := tx.QueryRow(ctx, `SELECT p.linked_at_ms FROM tab_parties p JOIN tabs t ON t.id=p.tab_id WHERE p.vault_id=$1::uuid AND p.relationship_id=$2::uuid ORDER BY p.history_order DESC NULLS LAST,t.created_at DESC,t.id DESC,p.role DESC LIMIT 1`, vaultID, relationshipID).Scan(&boundary)
+	err = tx.QueryRow(ctx, `SELECT p.linked_at_ms FROM tab_parties p JOIN tabs t ON t.id=p.tab_id WHERE p.vault_id=$1::uuid AND p.relationship_id=$2::uuid AND t.currency=$3 ORDER BY p.history_order DESC NULLS LAST,t.created_at DESC,t.id DESC,p.role DESC LIMIT 1`, vaultID, relationshipID, code).Scan(&boundary)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return 0, err
 	}
@@ -50,7 +49,7 @@ func creditBalanceWithProjection(ctx context.Context, tx pgx.Tx, vaultID, relati
 		// earlier periods, but rejecting/withdrawing it reveals that earlier
 		// exposure instead of turning a previously accepted loan into zero.
 		if err := tx.QueryRow(ctx, `WITH periods AS (
-		 SELECT tab_id,role,history_order FROM tab_parties WHERE vault_id=$1::uuid AND relationship_id=$2::uuid
+		 SELECT p.tab_id,p.role,p.history_order FROM tab_parties p JOIN tabs t ON t.id=p.tab_id WHERE p.vault_id=$1::uuid AND p.relationship_id=$2::uuid AND t.currency=$3
 		), checkpoint AS (
 		 SELECT MAX(p.history_order) AS history_order FROM periods p JOIN tab_entries e ON e.tab_id=p.tab_id
 		 WHERE e.kind='opening' AND e.voided_by_entry_id IS NULL AND e.status IN ('pending','accepted')
@@ -59,7 +58,7 @@ func creditBalanceWithProjection(ctx context.Context, tx pgx.Tx, vaultID, relati
 		   THEN e.amount_minor ELSE -e.amount_minor END),0)::text
 		 FROM periods p JOIN tab_entries e ON e.tab_id=p.tab_id CROSS JOIN checkpoint c
 		 WHERE p.history_order>=COALESCE(c.history_order,0) AND e.kind<>'void'
-		   AND e.voided_by_entry_id IS NULL AND e.status IN ('pending','accepted')`, vaultID, relationshipID).Scan(&tabSum); err != nil {
+		   AND e.voided_by_entry_id IS NULL AND e.status IN ('pending','accepted')`, vaultID, relationshipID, code).Scan(&tabSum); err != nil {
 			return 0, err
 		}
 		if _, ok := sum.SetString(tabSum, 10); !ok {
@@ -67,6 +66,13 @@ func creditBalanceWithProjection(ctx context.Context, tx pgx.Tx, vaultID, relati
 		}
 	}
 	for _, e := range p.Entries {
+		entryCurrency := e.Currency
+		if entryCurrency == "" {
+			entryCurrency = legacy
+		}
+		if entryCurrency != code {
+			continue
+		}
 		recordedAt := e.RecordedAtMS
 		if recordedAt == 0 {
 			recordedAt = e.CreatedAt // Older serialized projections predate custom dates.
@@ -208,6 +214,7 @@ func creditAdmit(ctx context.Context, tx pgx.Tx, vaultID string, ev PushEvent, a
 		return err
 	}
 	var relationshipID string
+	var currency string
 	var created entryCreatedPayload
 	if ev.EventType == EventEntryCreated {
 		if err := json.Unmarshal(ev.Payload, &created); err != nil {
@@ -224,6 +231,7 @@ func creditAdmit(ctx context.Context, tx pgx.Tx, vaultID string, ev PushEvent, a
 			}
 		}
 		relationshipID = created.RelationshipID
+		currency = created.Currency
 	} else {
 		if override == "bypass" {
 			return nil
@@ -247,11 +255,12 @@ func creditAdmit(ctx context.Context, tx pgx.Tx, vaultID string, ev PushEvent, a
 			return credit.ErrLimit
 		}
 		relationshipID = entry.RelationshipID
+		currency = entry.Currency
 	}
 	if _, err := uuid.Parse(relationshipID); err != nil {
 		return nil
 	}
-	policy, err := credit.Effective(ctx, tx, vaultID, relationshipID)
+	policy, err := credit.Effective(ctx, tx, vaultID, relationshipID, currency)
 	if err != nil {
 		return err
 	}
@@ -271,7 +280,7 @@ func creditAdmit(ctx context.Context, tx pgx.Tx, vaultID string, ev PushEvent, a
 	if err != nil {
 		return err
 	}
-	before, err := creditBalanceWithProjection(ctx, tx, vaultID, relationshipID, projection)
+	before, err := creditBalanceWithProjection(ctx, tx, vaultID, relationshipID, projection, currency)
 	if err != nil {
 		return err
 	}
@@ -279,7 +288,7 @@ func creditAdmit(ctx context.Context, tx pgx.Tx, vaultID string, ev PushEvent, a
 	if err != nil {
 		return credit.ErrLimit
 	}
-	after, err := creditBalanceWithProjection(ctx, tx, vaultID, relationshipID, candidate)
+	after, err := creditBalanceWithProjection(ctx, tx, vaultID, relationshipID, candidate, currency)
 	if err != nil {
 		return credit.ErrLimit
 	}
@@ -353,12 +362,17 @@ func recordCreditRefusal(ctx context.Context, tx pgx.Tx, vaultID string, ev Push
 			actor = &actorAccountID
 		}
 	}
-	_, err := tx.Exec(ctx, `INSERT INTO customer_credit_event_refusals(vault_id,event_id,relationship_id,entry_type,amount_minor,actor_account_id) SELECT $1::uuid,$2::uuid,$3::uuid,$4,$5,$6::uuid WHERE NOT EXISTS(SELECT 1 FROM events WHERE event_id=$2::uuid) ON CONFLICT DO NOTHING`, vaultID, ev.EventID, relationshipID, entryType, amountMinor, actor)
+	code, err := credit.ResolveCurrency(ctx, tx, vaultID, payload.Currency)
+	if err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx, `INSERT INTO customer_credit_event_refusals(vault_id,event_id,relationship_id,entry_type,amount_minor,actor_account_id,currency) SELECT $1::uuid,$2::uuid,$3::uuid,$4,$5,$6::uuid,$7 WHERE NOT EXISTS(SELECT 1 FROM events WHERE event_id=$2::uuid) ON CONFLICT DO NOTHING`, vaultID, ev.EventID, relationshipID, entryType, amountMinor, actor, code)
 	return err
 }
 
 // CreditRefusal is one clerk tally a limit stopped, for owners and managers.
 type CreditRefusal struct {
+	Currency       string `json:"currency"`
 	RelationshipID string `json:"relationship_id"`
 	Type           string `json:"type"`
 	AmountMinor    int64  `json:"amount_minor"`
@@ -382,6 +396,9 @@ func (h *Handler) CreditRefusals(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, 400, "invalid vault_id")
 		return
 	}
+	if !h.allowCurrencyClient(w, r, vaultID, claims.AccountID) {
+		return
+	}
 	var role string
 	err := h.svc.pool.QueryRow(r.Context(), `SELECT m.role FROM vault_members m JOIN vaults v ON v.vault_id=m.vault_id JOIN accounts a ON a.id=m.account_id WHERE m.vault_id=$1::uuid AND m.account_id=$2::uuid AND m.accepted_at IS NOT NULL AND m.revoked_at IS NULL AND a.pending_delete_at IS NULL AND (v.archived_at IS NULL OR m.role='owner')`, vaultID, claims.AccountID).Scan(&role)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -397,20 +414,20 @@ func (h *Handler) CreditRefusals(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rows, err := h.svc.pool.Query(r.Context(), `
-		SELECT r.relationship_id::text, r.entry_type, r.amount_minor,
+		SELECT r.currency,r.relationship_id::text, r.entry_type, r.amount_minor,
 		       COALESCE(r.actor_account_id::text, ''),
 		       COALESCE(NULLIF(a.display_name, ''), i.self_name, NULLIF(a.name, ''), ''),
 		       (EXTRACT(EPOCH FROM r.refused_at) * 1000)::bigint
 		  FROM (
-		        SELECT relationship_id, entry_type, amount_minor, actor_account_id, refused_at
+		        SELECT currency,relationship_id, entry_type, amount_minor, actor_account_id, refused_at
 		          FROM customer_credit_event_refusals
 		         WHERE vault_id = $1::uuid AND relationship_id IS NOT NULL
 		           AND refused_at > NOW() - INTERVAL '30 days'
 		        UNION ALL
-		        SELECT relationship_id, entry_type, amount_minor, actor_account_id, refused_at
-		          FROM customer_credit_tab_refusals
-		         WHERE vault_id = $1::uuid AND relationship_id IS NOT NULL
-		           AND refused_at > NOW() - INTERVAL '30 days'
+		        SELECT t.currency,f.relationship_id, f.entry_type, f.amount_minor, f.actor_account_id, f.refused_at
+		          FROM customer_credit_tab_refusals f JOIN tabs t ON t.id=f.tab_id
+		         WHERE f.vault_id = $1::uuid AND f.relationship_id IS NOT NULL
+		           AND f.refused_at > NOW() - INTERVAL '30 days'
 		  ) r
 		  LEFT JOIN accounts a ON a.id = r.actor_account_id
 		  LEFT JOIN LATERAL (
@@ -420,8 +437,9 @@ func (h *Handler) CreditRefusals(w http.ResponseWriter, r *http.Request) {
 		         ORDER BY last_seen_at DESC
 		         LIMIT 1
 		  ) i ON TRUE
+		 WHERE r.currency=COALESCE(NULLIF($2,''),(SELECT legacy_currency FROM vaults WHERE vault_id=$1::uuid))
 		 ORDER BY r.refused_at DESC
-		 LIMIT 50`, vaultID)
+		 LIMIT 50`, vaultID, r.URL.Query().Get("currency"))
 	if err != nil {
 		httpx.Error(w, 500, "storage unavailable")
 		return
@@ -430,7 +448,7 @@ func (h *Handler) CreditRefusals(w http.ResponseWriter, r *http.Request) {
 	out := []CreditRefusal{}
 	for rows.Next() {
 		var item CreditRefusal
-		if err := rows.Scan(&item.RelationshipID, &item.Type, &item.AmountMinor, &item.ActorAccountID, &item.ActorName, &item.RefusedAtMS); err != nil {
+		if err := rows.Scan(&item.Currency, &item.RelationshipID, &item.Type, &item.AmountMinor, &item.ActorAccountID, &item.ActorName, &item.RefusedAtMS); err != nil {
 			httpx.Error(w, 500, "storage unavailable")
 			return
 		}
@@ -454,6 +472,9 @@ func (h *Handler) CreditLimits(w http.ResponseWriter, r *http.Request) {
 	vaultID := r.URL.Query().Get("vault_id")
 	if _, err := uuid.Parse(vaultID); err != nil {
 		httpx.Error(w, 400, "invalid vault_id")
+		return
+	}
+	if !h.allowCurrencyClient(w, r, vaultID, claims.AccountID) {
 		return
 	}
 	tx, err := h.svc.pool.Begin(r.Context())
@@ -505,6 +526,11 @@ func (h *Handler) CreditLimits(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		p := input.Policy
+		p.Currency, err = credit.ResolveCurrency(r.Context(), tx, vaultID, p.Currency)
+		if err != nil {
+			httpx.Error(w, 400, "invalid currency")
+			return
+		}
 		if _, err := uuid.Parse(p.RelationshipID); err != nil {
 			httpx.Error(w, 400, "invalid relationship_id")
 			return
@@ -512,7 +538,7 @@ func (h *Handler) CreditLimits(w http.ResponseWriter, r *http.Request) {
 		if input.RestrictEditors != nil {
 			p.RestrictEditors = *input.RestrictEditors
 		} else {
-			previous, err := credit.Read(r.Context(), tx, vaultID, p.RelationshipID)
+			previous, err := credit.Read(r.Context(), tx, vaultID, p.RelationshipID, p.Currency)
 			if err != nil {
 				httpx.Error(w, 500, "storage unavailable")
 				return
@@ -547,7 +573,7 @@ func (h *Handler) CreditLimits(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		p.UpdatedAtMS = time.Now().UnixMilli()
-		_, err = tx.Exec(r.Context(), `INSERT INTO customer_credit_limits(vault_id,relationship_id,max_collect_minor,max_pay_minor,mode,restrict_editors,updated_at_ms) VALUES($1::uuid,$2::uuid,$3,$4,$5,$6,$7) ON CONFLICT(vault_id,relationship_id) DO UPDATE SET max_collect_minor=EXCLUDED.max_collect_minor,max_pay_minor=EXCLUDED.max_pay_minor,mode=EXCLUDED.mode,restrict_editors=EXCLUDED.restrict_editors,updated_at_ms=EXCLUDED.updated_at_ms`, vaultID, p.RelationshipID, p.MaxCollectMinor, p.MaxPayMinor, p.Mode, p.RestrictEditors, p.UpdatedAtMS)
+		_, err = tx.Exec(r.Context(), `INSERT INTO customer_credit_limits(vault_id,relationship_id,max_collect_minor,max_pay_minor,mode,restrict_editors,updated_at_ms,currency) VALUES($1::uuid,$2::uuid,$3,$4,$5,$6,$7,$8) ON CONFLICT(vault_id,relationship_id,currency) DO UPDATE SET max_collect_minor=EXCLUDED.max_collect_minor,max_pay_minor=EXCLUDED.max_pay_minor,mode=EXCLUDED.mode,restrict_editors=EXCLUDED.restrict_editors,updated_at_ms=EXCLUDED.updated_at_ms`, vaultID, p.RelationshipID, p.MaxCollectMinor, p.MaxPayMinor, p.Mode, p.RestrictEditors, p.UpdatedAtMS, p.Currency)
 		if err != nil || tx.Commit(r.Context()) != nil {
 			httpx.Error(w, 500, "storage unavailable")
 			return
@@ -556,7 +582,7 @@ func (h *Handler) CreditLimits(w http.ResponseWriter, r *http.Request) {
 		httpx.JSON(w, 200, p)
 		return
 	}
-	rows, err := tx.Query(r.Context(), `SELECT relationship_id::text,max_collect_minor,max_pay_minor,mode,restrict_editors,updated_at_ms FROM customer_credit_limits WHERE vault_id=$1::uuid ORDER BY relationship_id`, vaultID)
+	rows, err := tx.Query(r.Context(), `SELECT relationship_id::text,currency,max_collect_minor,max_pay_minor,mode,restrict_editors,updated_at_ms FROM customer_credit_limits WHERE vault_id=$1::uuid ORDER BY relationship_id,currency`, vaultID)
 	if err != nil {
 		httpx.Error(w, 500, "storage unavailable")
 		return
@@ -564,7 +590,7 @@ func (h *Handler) CreditLimits(w http.ResponseWriter, r *http.Request) {
 	out := []credit.Policy{}
 	for rows.Next() {
 		var p credit.Policy
-		if rows.Scan(&p.RelationshipID, &p.MaxCollectMinor, &p.MaxPayMinor, &p.Mode, &p.RestrictEditors, &p.UpdatedAtMS) != nil {
+		if rows.Scan(&p.RelationshipID, &p.Currency, &p.MaxCollectMinor, &p.MaxPayMinor, &p.Mode, &p.RestrictEditors, &p.UpdatedAtMS) != nil {
 			rows.Close()
 			httpx.Error(w, 500, "storage unavailable")
 			return

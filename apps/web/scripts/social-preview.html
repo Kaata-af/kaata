@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      {{FONTS}}
+      * { box-sizing: border-box; }
+      html, body { width: 1200px; height: 630px; margin: 0; overflow: hidden; }
+      body { font-family: Vazirmatn, sans-serif; color: {{INK}}; background: {{WHITE}}; }
+      .stage { width: 1200px; height: 630px; position: relative; overflow: hidden; }
+      .brand { position: absolute; right: 64px; top: 44px; display: flex; align-items: center; gap: 18px; }
+      .logo { width: 80px; height: 80px; border-radius: 21px; display: block; }
+      .wordmark { font-size: 48px; font-weight: 700; line-height: 1; letter-spacing: -1px; }
+      .forever { position: absolute; top: 57px; left: 64px; border-radius: 50px; padding: 10px 27px 12px; font-size: 31px; line-height: 1.5; font-weight: 700; background: {{YELLOW}}; color: {{INK}}; }
+      .copy { position: absolute; right: 64px; top: 190px; width: 590px; }
+      h1 { font-size: 76px; line-height: 1.38; font-weight: 700; margin: 0; letter-spacing: -2px; }
+      h1 span { display: block; }
+      h1 .accent { color: {{BLUE}}; }
+      .subtitle { margin: 20px 0 0; font-size: 25px; font-weight: 400; line-height: 1.65; color: {{MUTED}}; }
+      .bottom { position: absolute; bottom: 42px; left: 64px; right: 64px; display: flex; align-items: center; justify-content: space-between; }
+      .benefits { display: flex; gap: 12px; align-items: center; font-size: 22px; color: {{MUTED}}; }
+      .benefits i { display: block; width: 5px; height: 5px; background: #9aa0a6; border-radius: 50%; }
+      .domain { direction: ltr; font-family: Vazirmatn, sans-serif; font-size: 28px; font-weight: 700; color: {{BLUE}}; }
+      .art { position: absolute; left: 60px; top: 192px; width: 450px; height: 350px; direction: rtl; }
+      .back { position: absolute; top: 21px; left: 33px; width: 345px; height: 300px; border-radius: 24px; background: {{BLUE}}; transform: rotate(-8deg); }
+      .paper { position: absolute; top: 0; left: 66px; width: 345px; height: 323px; padding: 22px; border-radius: 22px; background: {{WHITE}}; border: 1px solid #e2e2e2; box-shadow: 0 19px 35px #17171714; transform: rotate(3deg); }
+      .paper-heading { display: flex; gap: 12px; align-items: center; }
+      .mini-logo { width: 44px; height: 44px; border-radius: 12px; }
+      .paper-title { font-size: 25px; line-height: 1.2; font-weight: 700; }
+      .short-line { display: block; height: 6px; width: 75px; margin-top: 9px; border-radius: 6px; background: #e2e2e2; }
+      .totals { margin-top: 23px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; direction: ltr; }
+      .total { height: 82px; border-radius: 12px; padding: 9px 12px; font-size: 18px; direction: rtl; }
+      .collect { background: #e8f4ef; color: #0c745a; }
+      .pay { background: #f8eaec; color: #a3203a; }
+      .total-bottom { display: flex; direction: ltr; align-items: center; justify-content: space-between; padding-top: 4px; }
+      .total-bottom svg { width: 21px; height: 21px; }
+      .amount-line { width: 54px; height: 9px; border-radius: 8px; background: currentColor; opacity: .35; }
+      .rows { margin-top: 14px; }
+      .row { height: 40px; display: flex; align-items: center; gap: 10px; border-bottom: 1px solid #f1f3f4; }
+      .avatar { width: 23px; height: 23px; border-radius: 50%; background: {{PALE_BLUE}}; flex-shrink: 0; }
+      .row-line { width: 89px; height: 7px; border-radius: 6px; background: #dadce0; }
+      .row-value { width: 45px; height: 7px; border-radius: 6px; margin-right: auto; background: #a7ccbb; }
+      .row:nth-child(2) .row-line { width: 110px; }
+      .row:nth-child(2) .row-value { background: #ddb0b9; }
+      .row:nth-child(3) .row-line { width: 72px; }
+      .bill-art { display: none; }
+      .bill .home-art { display: none; }
+      .bill .bill-art { display: block; }
+      .bill .paper { padding: 28px; height: 330px; transform: rotate(3deg); }
+      .bill .back { height: 308px; }
+      .bill .paper-title { font-size: 29px; }
+      .bill .copy { top: 189px; }
+      .bill h1 { font-size: 73px; }
+      .fold { position: absolute; top: 0; left: 0; width: 52px; height: 52px; background: linear-gradient(135deg, {{WHITE}} 48%, #d6e7f3 49%, {{PALE_BLUE}} 52%); border-bottom-right-radius: 10px; }
+      .receipt-rule { height: 1px; margin-top: 27px; background: #e2e2e2; }
+      .receipt-row { display: flex; align-items: center; justify-content: space-between; height: 44px; }
+      .receipt-row span { height: 8px; width: 117px; border-radius: 8px; background: #dcebf5; }
+      .receipt-row span + span { width: 47px; background: #b5d7ed; }
+      .receipt-row:nth-of-type(2) span:first-child { width: 88px; }
+      .receipt-total { border-top: 1px dashed #c4dced; margin-top: 4px; padding-top: 18px; display: flex; justify-content: space-between; }
+      .receipt-total span { width: 88px; height: 11px; border-radius: 8px; background: #83bce0; }
+      .receipt-total span + span { width: 61px; }
+      .link-mark { position: absolute; left: 29px; bottom: -2px; width: 79px; height: 79px; border: 7px solid {{WHITE}}; border-radius: 24px; background: {{YELLOW}}; display: flex; align-items: center; justify-content: center; transform: rotate(-5deg); }
+      .link-mark svg { width: 35px; height: 35px; color: {{INK}}; }
+      .campaign-footer { position: absolute; bottom: 0; left: 0; right: 0; height: 12px; display: flex; direction: ltr; }
+      .campaign-footer span { flex: 1; background: {{YELLOW}}; }
+      .campaign-footer span:nth-child(2) { background: {{BLUE}}; }
+      .campaign-footer span:nth-child(3) { background: {{RED}}; }
+    </style>
+  </head>
+  <body class="{{VARIANT}}">
+    <main class="stage" aria-label="{{ALT}}">
+      <div class="brand">
+        <img class="logo" src="{{LOGO}}" alt="" /><span class="wordmark">کاتا</span>
+      </div>
+      <div class="forever">برای همیشه رایگان</div>
+      <div class="copy">
+        <h1><span>{{HEADLINE_ONE}}</span><span class="accent">{{HEADLINE_TWO}}</span></h1>
+        <p class="subtitle">{{SUBTITLE}}</p>
+      </div>
+      <div class="art home-art" aria-hidden="true">
+        <div class="back"></div>
+        <div class="paper">
+          <div class="paper-heading">
+            <img class="mini-logo" src="{{LOGO}}" alt="" />
+            <div>
+              <div class="paper-title">کاتای من</div>
+              <span class="short-line"></span>
+            </div>
+          </div>
+          <div class="totals">
+            <div class="total collect">
+              قابل وصول
+              <div class="total-bottom">
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <path d="M12 4v16m-6-6 6 6 6-6" /></svg
+                ><span class="amount-line"></span>
+              </div>
+            </div>
+            <div class="total pay">
+              قابل پرداخت
+              <div class="total-bottom">
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <path d="M12 20V4m-6 6 6-6 6 6" /></svg
+                ><span class="amount-line"></span>
+              </div>
+            </div>
+          </div>
+          <div class="rows">
+            <div class="row">
+              <span class="avatar"></span><span class="row-line"></span
+              ><span class="row-value"></span>
+            </div>
+            <div class="row">
+              <span class="avatar"></span><span class="row-line"></span
+              ><span class="row-value"></span>
+            </div>
+            <div class="row">
+              <span class="avatar"></span><span class="row-line"></span
+              ><span class="row-value"></span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="art bill-art" aria-hidden="true">
+        <div class="back"></div>
+        <div class="paper">
+          <div class="fold"></div>
+          <div class="paper-heading">
+            <img class="mini-logo" src="{{LOGO}}" alt="" />
+            <div class="paper-title">صورت‌حساب</div>
+          </div>
+          <div class="receipt-rule"></div>
+          <div class="receipt-row"><span></span><span></span></div>
+          <div class="receipt-row"><span></span><span></span></div>
+          <div class="receipt-row"><span></span><span></span></div>
+          <div class="receipt-total"><span></span><span></span></div>
+        </div>
+        <div class="link-mark">
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path
+              d="m10 13 4-4m-6 5-2 2a3.5 3.5 0 0 0 5 5l4-4a3.5 3.5 0 0 0-1-5m-4 0a3.5 3.5 0 0 1-1-5l4-4a3.5 3.5 0 0 1 5 5l-2 2"
+            />
+          </svg>
+        </div>
+      </div>
+      <div class="bottom">
+        <div class="benefits"><span>{{FOOTER_ONE}}</span><i></i><span>{{FOOTER_TWO}}</span></div>
+        <span class="domain">kaata.af</span>
+      </div>
+      <div class="campaign-footer" aria-hidden="true"><span></span><span></span><span></span></div>
+    </main>
+  </body>
+</html>

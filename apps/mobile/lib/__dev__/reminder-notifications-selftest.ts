@@ -13,6 +13,8 @@ async function main() {
     requests = 0,
     nativeImports = 0;
   let scheduleGate: Promise<void> | null = null;
+  let permissionAfterRequest: any = null;
+  const handlers: { handleNotification: (notification: any) => Promise<any> }[] = [];
   const scheduled = new Map<string, any>(),
     presented = new Map<string, any>();
   const scheduledCalls: any[] = [],
@@ -36,6 +38,9 @@ async function main() {
     ...extra,
   });
   const n = {
+    setNotificationHandler: (handler: (typeof handlers)[number]) => {
+      handlers.push(handler);
+    },
     AndroidImportance: { DEFAULT: 3 },
     IosAuthorizationStatus: { PROVISIONAL: 3 },
     setNotificationChannelAsync: async (...args: any[]) => {
@@ -44,6 +49,7 @@ async function main() {
     getPermissionsAsync: async () => permission,
     requestPermissionsAsync: async () => {
       requests++;
+      if (permissionAfterRequest) permission = permissionAfterRequest;
       return permission;
     },
     getAllScheduledNotificationsAsync: async () => [...scheduled.values()],
@@ -103,9 +109,11 @@ async function main() {
     }),
   });
   expoGo = true;
+  assert.equal(await module.reminderNotificationStatus(), "unavailable");
   assert.equal(await module.requestReminderNotifications(), "unavailable");
   await module.reconcileReminderNotifications();
-  assert.equal(nativeImports, 0, "Expo Go never loads unsupported notifications native module");
+  assert.equal(nativeImports, 0, "Android Expo Go retains its native notifications guard");
+  assert.equal(handlers.length, 0);
   expoGo = false;
   permission = { granted: false, canAskAgain: false };
   assert.equal(await module.requestReminderNotifications(), "denied");
@@ -362,6 +370,99 @@ async function main() {
   owner = "account:b";
   await module.reconcileReminderNotifications();
   assert.equal(scheduled.size, 1, "account change clears every iOS calendar fragment");
+  assert.equal(
+    handlers.length,
+    0,
+    "signed Android/iOS paths preserve the app-wide notification policy",
+  );
+
+  // iOS Expo Go supports local permissions, schedules and foreground delivery.
+  // Its reminder-only handler is installed once, without remote setup APIs.
+  expoGo = true;
+  permission = { granted: false, canAskAgain: true };
+  const requestsBeforeGo = requests;
+  const channelsBeforeGo = channels.length;
+  assert.deepEqual(
+    await Promise.all([module.reminderNotificationStatus(), module.reminderNotificationStatus()]),
+    ["denied", "denied"],
+  );
+  assert.equal(requests, requestsBeforeGo, "reading iOS Go permission never prompts");
+  assert.equal(handlers.length, 1, "concurrent native access installs the Go-only handler once");
+  permissionAfterRequest = { granted: true, canAskAgain: true };
+  assert.equal(await module.requestReminderNotifications(), "granted");
+  permissionAfterRequest = null;
+  assert.equal(
+    requests,
+    requestsBeforeGo + 1,
+    "iOS Go can explicitly request local notification permission",
+  );
+  assert.equal(
+    channels.length,
+    channelsBeforeGo,
+    "iOS Go does not invoke Android notification channels",
+  );
+  permission = { granted: false, canAskAgain: false, ios: { status: 3 } };
+  assert.equal(await module.reminderNotificationStatus(), "granted");
+  assert.equal(
+    await module.requestReminderNotifications(),
+    "granted",
+    "iOS Go provisional permission remains usable",
+  );
+  assert.equal(requests, requestsBeforeGo + 1);
+  permission = { granted: true, canAskAgain: true };
+  owner = "account:a";
+  rows = [
+    make("go-once", { kind: "once", at: Date.now() + 3600_000 }),
+    make("go-daily", { kind: "daily", hour: 9, minute: 30 }),
+  ];
+  const scheduledBeforeGo = scheduledCalls.length;
+  await module.reconcileReminderNotifications();
+  assert.equal(
+    scheduledCalls.length,
+    scheduledBeforeGo + 2,
+    "iOS Go schedules real local reminder requests",
+  );
+  assert.ok(scheduled.has(prefix + "go-once") && scheduled.has(prefix + "go-daily"));
+  assert.ok(
+    scheduledCalls
+      .slice(scheduledBeforeGo)
+      .every(
+        (request) =>
+          request.content.data.kind === "customer_reminder" &&
+          request.content.data.owner_scope === owner,
+      ),
+  );
+  assert.equal(
+    requests,
+    requestsBeforeGo + 1,
+    "reconciliation remains permission-prompt free in Go",
+  );
+  assert.equal(handlers.length, 1);
+  assert.deepEqual(
+    await handlers[0].handleNotification({
+      request: { content: { data: { kind: "customer_reminder" } } },
+    }),
+    { shouldShowBanner: true, shouldShowList: true, shouldPlaySound: true, shouldSetBadge: false },
+  );
+  for (const data of [{ kind: "tab_notice", tab_id: "shared-tab" }, {}, null]) {
+    assert.deepEqual(
+      await handlers[0].handleNotification({ request: { content: { data } } }),
+      {
+        shouldShowBanner: false,
+        shouldShowList: false,
+        shouldPlaySound: false,
+        shouldSetBadge: false,
+      },
+      "the Go-only handler does not enable unrelated foreground notifications",
+    );
+  }
+  expoGo = false;
+  await module.reminderNotificationStatus();
+  assert.equal(
+    handlers.length,
+    1,
+    "native builds never replace their existing handler through reminder access",
+  );
 
   // The actual physical-device helper is single-flight, excludes transferable
   // keychain backups and retries rather than inventing a transient fallback.
@@ -401,7 +502,7 @@ async function main() {
   assert.equal(writes, 1);
   assert.equal(device.getReminderDeviceIdSync(), "physical-device-key");
   console.log(
-    "Reminder notifications: permission, native triggers, edit/remove/tray cleanup, account cancellation and private device storage passed.",
+    "Reminder notifications: signed and iOS Go permission/scheduling, Go-only reminder foreground policy, Android Go guard, native triggers, edit/remove/tray cleanup, account cancellation and private device storage passed.",
   );
 }
 void main().catch((e) => {

@@ -18,12 +18,29 @@ const CHANNEL = "customer-reminders";
 const PREFIX = "kaata-customer-reminder:";
 let generation = 0;
 let tail: Promise<unknown> = Promise.resolve();
+let expoGoHandlerInstalled = false;
 
 async function native() {
-  // Match app-wide bootstrap's native-module guard. In-app due reminders still
-  // work in Expo Go; delivery is checked in signed builds.
-  if (isRunningInExpoGo()) return null;
-  return import("expo-notifications");
+  const expoGo = isRunningInExpoGo();
+  if (expoGo && Platform.OS !== "ios") return null;
+  const notifications = await import("expo-notifications");
+  // iOS Expo Go supports local reminders, but skips the native app's shared
+  // notification bootstrap. Do not replace that handler in signed builds.
+  if (expoGo && !expoGoHandlerInstalled) {
+    notifications.setNotificationHandler({
+      handleNotification: async (notification) => {
+        const show = notification.request.content.data?.kind === "customer_reminder";
+        return {
+          shouldShowBanner: show,
+          shouldShowList: show,
+          shouldPlaySound: show,
+          shouldSetBadge: false,
+        };
+      },
+    });
+    expoGoHandlerInstalled = true;
+  }
+  return notifications;
 }
 
 export async function requestReminderNotifications(): Promise<

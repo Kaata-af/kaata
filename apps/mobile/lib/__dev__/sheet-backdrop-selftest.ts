@@ -53,7 +53,8 @@ async function main() {
   assert.equal(target.props.collapsable, false, "native target cannot be optimized away");
   target.props.ref.current = { nativeView: true };
   let dismisses = 0;
-  const backdrop = () => module.SheetBackdrop({ onDismiss: () => dismisses++ });
+  const backdrop = (props: { blurTarget?: { current: any }; disabled?: boolean } = {}) =>
+    module.SheetBackdrop({ onDismiss: () => dismisses++, ...props });
   let overlay = backdrop();
   const blur = nodes(overlay).find((node) => node.type === "BlurView")!;
   assert.equal(blur.props.blurTarget, target.props.ref, "Android blurs the actual root target");
@@ -65,6 +66,7 @@ async function main() {
   // target is a labelled button outside the hidden blur and tint.
   assert.equal(dismiss.props.accessibilityLabel, "common.close");
   assert.equal(dismiss.props.accessibilityRole, "button");
+  assert.equal(dismiss.props.disabled, false, "existing sheet dismiss targets remain enabled");
   assert.notEqual(overlay.props.accessibilityElementsHidden, true);
   const hidden = nodes(overlay).find((node) => node.props?.accessibilityElementsHidden)!;
   assert.ok(
@@ -76,11 +78,59 @@ async function main() {
     false,
     "the dismiss button is not inside the hidden layer",
   );
+  const localTarget: { current: any } = { current: { nativeView: "home body and footer" } };
+  const localBackdrop = backdrop({ blurTarget: localTarget, disabled: true });
+  const localBlur = nodes(localBackdrop).find((node) => node.type === "BlurView")!;
+  assert.equal(
+    localBlur.props.blurTarget,
+    localTarget,
+    "a local overlay blurs its supplied sibling",
+  );
+  assert.notEqual(
+    localBlur.props.blurTarget,
+    target.props.ref,
+    "the ancestor is never substituted",
+  );
+  assert.equal(localBlur.props.intensity, blur.props.intensity);
+  assert.equal(localBlur.props.tint, blur.props.tint);
+  assert.equal(localBlur.props.blurMethod, blur.props.blurMethod);
+  const blockedDismiss = nodes(localBackdrop).find((node) => node.type === "Pressable")!;
+  assert.equal(blockedDismiss.props.disabled, true, "busy popovers disable their outside target");
+  assert.deepEqual(blockedDismiss.props.accessibilityState, { disabled: true });
+  assert.equal(blockedDismiss.props.accessibilityLabel, "common.close");
+  localTarget.current = null;
+  const waitingForTarget = backdrop({ blurTarget: localTarget });
+  assert.equal(
+    nodes(waitingForTarget).some((node) => node.type === "BlurView"),
+    false,
+    "an unmounted local Android target falls back to tint despite an available ancestor",
+  );
+  const fallbackDismiss = nodes(waitingForTarget).find((node) => node.type === "Pressable")!;
+  assert.equal(fallbackDismiss.props.disabled, false);
+  fallbackDismiss.props.onPress();
+  assert.equal(dismisses, 2, "a target-not-ready fallback retains its accessible dismiss action");
+  localTarget.current = { nativeView: "mounted local target" };
+  assert.equal(
+    nodes(backdrop({ blurTarget: localTarget })).find((node) => node.type === "BlurView")!.props
+      .blurTarget,
+    localTarget,
+    "a later render can use the mounted local target without changing its ref identity",
+  );
+  assert.equal(
+    nodes(backdrop()).find((node) => node.type === "BlurView")!.props.blurTarget,
+    target.props.ref,
+    "omitting the override keeps other sheets on the global target",
+  );
   sdk = 30;
   assert.equal(
     nodes(backdrop()).some((node) => node.type === "BlurView"),
     false,
     "old Android has deliberate inexpensive fallback",
+  );
+  assert.equal(
+    nodes(backdrop({ blurTarget: localTarget })).some((node) => node.type === "BlurView"),
+    false,
+    "a local target does not bypass the older Android performance fallback",
   );
   listeners.get("reduceMotionChanged")!(false);
   provider();
@@ -133,12 +183,26 @@ async function main() {
   assert.ok(
     nodes(iosModule.SheetBackdrop({ onDismiss() {} })).some((node) => node.type === "BlurView"),
   );
+  assert.equal(
+    nodes(iosModule.SheetBackdrop({ onDismiss() {}, blurTarget: localTarget })).find(
+      (node) => node.type === "BlurView",
+    )!.props.blurTarget,
+    localTarget,
+    "iOS receives the local override without changing its blur presentation",
+  );
   transparency.resolve(true);
   await settleUI();
   iosProvider();
   assert.equal(
     nodes(iosModule.SheetBackdrop({ onDismiss() {} })).some((node) => node.type === "BlurView"),
     false,
+  );
+  assert.equal(
+    nodes(iosModule.SheetBackdrop({ onDismiss() {}, blurTarget: localTarget })).some(
+      (node) => node.type === "BlurView",
+    ),
+    false,
+    "Reduce Transparency also suppresses a supplied local blur target",
   );
   listeners.get("reduceTransparencyChanged")!(false);
   iosProvider();
@@ -169,20 +233,22 @@ async function main() {
       this.value = value;
     }
   }
-  const animation = (kind: string) => (...args: any[]) => {
-    const item = { kind, args, started: false, stopped: false } as (typeof animations)[number];
-    animations.push(item);
-    return {
-      start: (callback: any) => {
-        item.started = true;
-        item.callback = callback;
-      },
-      stop: () => {
-        item.stopped = true;
-        item.callback?.({ finished: false });
-      },
+  const animation =
+    (kind: string) =>
+    (...args: any[]) => {
+      const item = { kind, args, started: false, stopped: false } as (typeof animations)[number];
+      animations.push(item);
+      return {
+        start: (callback: any) => {
+          item.started = true;
+          item.callback = callback;
+        },
+        stop: () => {
+          item.stopped = true;
+          item.callback?.({ finished: false });
+        },
+      };
     };
-  };
   const hook = compileUI(
     "../use-overlay-animation",
     {
@@ -206,7 +272,8 @@ async function main() {
     },
   );
   const render = () =>
-    animated.render(() => ({ type: "Hook", props: hook.useOverlayAnimation(visible, from, scale) })).props;
+    animated.render(() => ({ type: "Hook", props: hook.useOverlayAnimation(visible, from, scale) }))
+      .props;
   const runFrames = () => {
     for (const [id, work] of [...frames]) {
       frames.delete(id);
@@ -233,15 +300,32 @@ async function main() {
   assert.equal(render().rendered, true);
   assert.equal(frames.size, 1);
   runFrames();
-  assert.equal(animations.at(-1)!.started, true, "a real entrance starts after its scheduled frame");
+  assert.equal(
+    animations.at(-1)!.started,
+    true,
+    "a real entrance starts after its scheduled frame",
+  );
   visible = false;
-  assert.equal(render().rendered, true, "an animated exit keeps its sheet mounted until completion");
+  assert.equal(
+    render().rendered,
+    true,
+    "an animated exit keeps its sheet mounted until completion",
+  );
   const completedClose = animations.at(-1)!;
   const closeTimings = animations.slice(-3, -1);
-  assert.deepEqual(closeTimings.map((item) => item.kind), ["timing", "timing"]);
-  assert.deepEqual(closeTimings.map((item) => item.args[1].duration), [140, 140],
-    "scale overlays preserve their real exit duration");
-  assert.deepEqual(closeTimings.map((item) => item.args[1].toValue), [0, 420]);
+  assert.deepEqual(
+    closeTimings.map((item) => item.kind),
+    ["timing", "timing"],
+  );
+  assert.deepEqual(
+    closeTimings.map((item) => item.args[1].duration),
+    [140, 140],
+    "scale overlays preserve their real exit duration",
+  );
+  assert.deepEqual(
+    closeTimings.map((item) => item.args[1].toValue),
+    [0, 420],
+  );
   assert.ok(closeTimings.every((item) => item.args[1].useNativeDriver === true));
   completedClose.callback?.({ finished: true });
   assert.equal(render().rendered, false);
@@ -254,8 +338,11 @@ async function main() {
   render();
   reduced = false;
   render();
-  assert.equal(animations.length, afterCompletedClose,
-    "an already completed exit is not restarted by offscreen geometry or preferences");
+  assert.equal(
+    animations.length,
+    afterCompletedClose,
+    "an already completed exit is not restarted by offscreen geometry or preferences",
+  );
 
   // Even an entrance canceled before its first frame counts as presented.
   visible = true;
@@ -264,8 +351,11 @@ async function main() {
   assert.equal(render().rendered, true);
   assert.equal(frames.size, 0, "closing before entrance cancels its queued frame");
   const close = animations.at(-1)!;
-  assert.deepEqual(animations.slice(-3, -1).map((item) => item.args[1].duration), [160, 180],
-    "ordinary sheets preserve both real exit durations");
+  assert.deepEqual(
+    animations.slice(-3, -1).map((item) => item.args[1].duration),
+    [160, 180],
+    "ordinary sheets preserve both real exit durations",
+  );
   visible = true;
   render();
   assert.equal(close.stopped, true, "reopening stops the prior native exit");
@@ -279,10 +369,18 @@ async function main() {
   const beforeReducedClose = animations.length;
   visible = false;
   assert.equal(render().rendered, false, "Reduce Motion dismisses immediately");
-  assert.equal(animations.length, beforeReducedClose, "Reduce Motion never constructs an exit animation");
+  assert.equal(
+    animations.length,
+    beforeReducedClose,
+    "Reduce Motion never constructs an exit animation",
+  );
   reduced = false;
   render();
-  assert.equal(animations.length, beforeReducedClose, "turning motion back on while closed does not animate");
+  assert.equal(
+    animations.length,
+    beforeReducedClose,
+    "turning motion back on while closed does not animate",
+  );
   visible = true;
   render();
   animated.unmount();
@@ -290,7 +388,7 @@ async function main() {
   close.callback?.({ finished: true });
   assert.equal(animated.lateWrites, 0);
   console.log(
-    "PASS: SDK57 native target, Android performance fallback, iOS Reduce Transparency, closed overlays schedule no animations, real exit completion, Reduce Motion, dismiss targets and canceled/reopened/unmounted overlay lifetimes",
+    "PASS: SDK58 global/local native targets, disabled dismiss, Android target-readiness/performance fallback, iOS Reduce Transparency, closed overlays schedule no animations, real exit completion, Reduce Motion, dismiss targets and canceled/reopened/unmounted overlay lifetimes",
   );
 }
 void main().catch((error) => {

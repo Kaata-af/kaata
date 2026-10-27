@@ -7,7 +7,7 @@ import { SelectionMark } from "./SelectionMark";
 import { chipActorFor, initialOf, memberTintFor, type EntryAttribution } from "../lib/attribution";
 import { colors } from "../lib/colors";
 import { useCalendar } from "../lib/calendar";
-import { getCurrentCurrencySymbol } from "../lib/currency";
+import { getCurrentCurrencyCode, getCurrencyLabel } from "../lib/currency";
 import { rowDir, textDir, trackingSafe, useIsRTL } from "../lib/direction";
 import { fonts, sansLineHeight } from "../lib/fonts";
 import { formatAmount, formatRelative, formatTimestamp } from "../lib/format";
@@ -334,7 +334,9 @@ export const EntryRow = memo(function EntryRow(props: {
                 <Text style={[styles.amount, excluded && styles.voidedAmount]}>
                   {formatAmount(entry.amount_afn)}
                 </Text>
-                <Text style={styles.afn}>{getCurrentCurrencySymbol()}</Text>
+                <Text style={styles.afn}>
+                  {getCurrencyLabel(entry.currency ?? getCurrentCurrencyCode())}
+                </Text>
               </View>
               {/* The date stays in its trailing slot in both states; it only
                 shrinks (never the amount) if the exact form needs the room. The

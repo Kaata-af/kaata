@@ -1,16 +1,19 @@
 import { Linking } from "react-native";
 import { getBackendUrl } from "./api";
 import { getEffectiveCalendar, getQamariOffset } from "./calendar";
-import { getCurrentCurrencySymbol } from "./currency";
+import { getCurrentCurrencyCode, getCurrencySymbol } from "./currency";
+import { assertSingleCurrency } from "./currency-totals";
 import { bumpUsageCounter } from "./db";
 import { formatAmount } from "./format";
 import { tIn, type LocaleCode } from "./i18n";
 import type { Entry, Self } from "./types";
 import { countsTowardBalance } from "./export/shared-record";
+import { requireCurrencyCode } from "./currency-scope";
+import { toMinorUnits } from "./money";
 
-// Max entries carried in a shared snapshot. The backend caps at 500; a customer
-// only needs the recent history, and it keeps the stored packet small.
-const MAX_SHARED_ENTRIES = 100;
+// The public endpoint rejects an oversized bill as a whole. Never publish a
+// shortened history behind a link described as the complete statement.
+const MAX_SHARED_BILL_ENTRIES = 5_000;
 const SHARE_UPLOAD_TIMEOUT_MS = 8_000;
 
 // Upload a small read-only snapshot of one person's ledger to the backend and
@@ -23,6 +26,8 @@ async function uploadSharedLedger(args: {
   entries: Entry[];
   self: Self | null;
   lang: LocaleCode;
+  currencyCode: string;
+  currencyLabel: string;
   settled?: SettledInfo;
   signal?: AbortSignal;
 }): Promise<string | null> {
@@ -30,7 +35,8 @@ async function uploadSharedLedger(args: {
     v: 1,
     shop: args.self?.shop_name ?? args.self?.name ?? "Kaata",
     person: args.person.name,
-    currency: getCurrentCurrencySymbol(),
+    currency: args.currencyLabel,
+    currency_code: args.currencyCode,
     balance: args.balance,
     // Message language, NOT the app UI language — the backend SSR shell and
     // the web CustomerView both render the /v/<token> page from this field,
@@ -58,20 +64,17 @@ async function uploadSharedLedger(args: {
     // originals (struck on screen). A bill is a statement of account, not an
     // audit trail: a voided tally is not part of the account, so it is left
     // out here — the same rule lib/export applies.
-    entries: args.entries
-      .filter(countsTowardBalance)
-      .slice(0, MAX_SHARED_ENTRIES)
-      .map((e) => ({
-        type: e.type,
-        amount: e.amount_afn,
-        // A tab's opening entry stores no note (each side labels it in its
-        // own language), but a bill is frozen and the recipient has none of
-        // our settings — so the label is baked in here, in the language this
-        // bill is being written in, or the biggest line on a permanent
-        // document would have no description at all.
-        note: e.note ?? (e.tab?.kind === "opening" ? tIn(args.lang, "tab.opening.note") : null),
-        date: e.created_at,
-      })),
+    entries: args.entries.filter(countsTowardBalance).map((e) => ({
+      type: e.type,
+      amount: e.amount_afn,
+      // A tab's opening entry stores no note (each side labels it in its
+      // own language), but a bill is frozen and the recipient has none of
+      // our settings — so the label is baked in here, in the language this
+      // bill is being written in, or the biggest line on a permanent
+      // document would have no description at all.
+      note: e.note ?? (e.tab?.kind === "opening" ? tIn(args.lang, "tab.opening.note") : null),
+      date: e.created_at,
+    })),
     // Settled-chapter structure (2026-07-27): the web view collapses entries
     // dated at/before the boundary behind an "N settled accounts" row — the
     // customer sees the current account, with history one tap away. The
@@ -83,17 +86,36 @@ async function uploadSharedLedger(args: {
     generated_at: Date.now(),
   };
 
+  return uploadSharedSnapshot(snapshot, args.signal);
+}
+
+async function uploadSharedSnapshot(
+  snapshot: object,
+  signal?: AbortSignal,
+  billVersion?: 2,
+): Promise<string | null> {
+  // Freeze the complete packet before awaiting the backend address/network.
+  const body = JSON.stringify(snapshot);
   const controller = new AbortController();
   const cancel = () => controller.abort();
-  if (args.signal?.aborted) cancel();
-  else args.signal?.addEventListener("abort", cancel, { once: true });
+  if (signal?.aborted) cancel();
+  else signal?.addEventListener("abort", cancel, { once: true });
   const timer = setTimeout(() => controller.abort(), SHARE_UPLOAD_TIMEOUT_MS);
   try {
     const baseUrl = await getBackendUrl();
+    if (billVersion === 2) {
+      const capability = await fetch(`${baseUrl}/v1/shared/capabilities`, {
+        signal: controller.signal,
+      });
+      if (!capability.ok) return null;
+      const supported = (await capability.json()) as { bill_versions?: unknown };
+      if (!Array.isArray(supported.bill_versions) || !supported.bill_versions.includes(2))
+        return null;
+    }
     const res = await fetch(`${baseUrl}/v1/shared`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(snapshot),
+      body,
       signal: controller.signal,
     });
     if (!res.ok) return null;
@@ -101,15 +123,16 @@ async function uploadSharedLedger(args: {
     // permanent and unrevocable, like a paper bill handed across the counter.
     // The 2026-07-26 revocation registry (shared_links table + revoke_secret)
     // was deliberately removed; migration 026 dropped the table.
-    const body = (await res.json()) as { url?: string };
-    if (typeof body.url !== "string" || body.url.length === 0) return null;
-    return body.url;
+    const response = (await res.json()) as { url?: string; bill_version?: number };
+    if (billVersion === 2 && response.bill_version !== 2) return null;
+    if (typeof response.url !== "string" || response.url.length === 0) return null;
+    return response.url;
   } catch (err) {
     if (__DEV__) console.warn("[share] uploadSharedLedger failed (sharing without link)", err);
     return null;
   } finally {
     clearTimeout(timer);
-    args.signal?.removeEventListener("abort", cancel);
+    signal?.removeEventListener("abort", cancel);
   }
 }
 
@@ -139,8 +162,159 @@ export type SettledInfo = {
 
 export type WhatsAppShareStage = "preparing" | "opening";
 
-export async function shareKaataViaWhatsApp(
+export type WhatsAppCurrencyStatement = {
+  currency: string;
+  balance: number;
+  /** Full per-currency history, unaffected by visible search/date filters. */
+  entries: readonly Entry[];
+  settled?: SettledInfo;
+  /** An unrestored shared cache cannot be published as a settled balance. */
+  pending?: boolean;
+};
+
+/** One permanent bill with independent balances and complete currency sections.
+ * The caller supplies one coherent customer snapshot; no implicit DB read can
+ * expand an explicitly selected/scoped share into another set of tallies. */
+export async function shareKaataCurrenciesViaWhatsApp(
   person: { id?: string; name: string; phone: string | null },
+  self: Self | null,
+  statements: readonly WhatsAppCurrencyStatement[],
+  lang: LocaleCode,
+  onStage?: (stage: WhatsAppShareStage) => void,
+  signal?: AbortSignal,
+): Promise<boolean> {
+  if (signal?.aborted) return false;
+  const recipient = { name: person.name, phone: person.phone };
+  if (statements.length === 0) throw new Error("No bill currencies");
+  const codes = new Set<string>();
+  const ids = new Set<string>();
+  const sections = statements.map((statement) => {
+    const code = requireCurrencyCode(statement.currency);
+    if (codes.has(code)) throw new Error("Duplicate bill currency");
+    codes.add(code);
+    if (statement.pending) throw new Error("Shared bill is not fully synced");
+    toMinorUnits(statement.balance);
+    assertSingleCurrency(statement.entries, code);
+    const symbol = getCurrencySymbol(code);
+    const currency = symbol === code ? code : `${symbol} ${code}`;
+    const entries = statement.entries.filter(countsTowardBalance).map((entry) => {
+      if (ids.has(entry.id)) throw new Error("Duplicate bill entry");
+      ids.add(entry.id);
+      toMinorUnits(entry.amount_afn);
+      return {
+        currency: code,
+        type: entry.type,
+        amount: entry.amount_afn,
+        note: entry.note ?? (entry.tab?.kind === "opening" ? tIn(lang, "tab.opening.note") : null),
+        date: entry.created_at,
+      };
+    });
+    return {
+      currency,
+      currency_code: code,
+      balance: statement.balance,
+      entries,
+      settled_chapters: statement.settled?.settledChapters ?? 0,
+      settled_boundary_ms: statement.settled?.settledBoundaryMs ?? null,
+      settled_boundaries: [...(statement.settled?.settledBoundaries ?? [])],
+    };
+  });
+  const calendar = getEffectiveCalendar();
+  const qamariOffset = getQamariOffset();
+  const accountWith = self?.shop_name ?? self?.name ?? "Kaata";
+  const snapshot = {
+    v: 2,
+    shop: accountWith,
+    person: person.name,
+    locale: lang,
+    calendar,
+    ...(calendar === "qamari" && qamariOffset !== 0 ? { qamari_offset: qamariOffset } : {}),
+    currencies: sections,
+    generated_at: Date.now(),
+  };
+  const lines = [tIn(lang, "share.greeting", { name: person.name }), ""];
+  if (sections.length === 1) {
+    // Keep the familiar single-currency reminder wording.
+    const section = sections[0];
+    if (section.balance > 0)
+      lines.push(
+        tIn(lang, "share.theyOwe.header", { accountWith }),
+        tIn(lang, "share.theyOwe.amount", {
+          amount: formatAmount(section.balance),
+          currency: section.currency,
+        }),
+        "",
+        tIn(lang, "share.theyOwe.cta"),
+      );
+    else if (section.balance < 0)
+      lines.push(
+        tIn(lang, "share.youOwe.header"),
+        tIn(lang, "share.youOwe.amount", {
+          amount: formatAmount(section.balance),
+          currency: section.currency,
+        }),
+        "",
+        tIn(lang, "share.youOwe.cta"),
+      );
+    else
+      lines.push(
+        tIn(lang, "share.currencySettled", { currency: section.currency }),
+        "",
+        tIn(lang, "share.settled.cta"),
+      );
+  } else {
+    lines.push(tIn(lang, "share.theyOwe.header", { accountWith }));
+    for (const section of sections)
+      lines.push(
+        section.balance === 0
+          ? tIn(lang, "share.currencySettled", { currency: section.currency })
+          : tIn(lang, section.balance > 0 ? "share.theyOwe.amount" : "share.youOwe.amount", {
+              amount: formatAmount(section.balance),
+              currency: section.currency,
+            }),
+      );
+    lines.push("");
+    if (sections.some((section) => section.balance > 0)) lines.push(tIn(lang, "share.theyOwe.cta"));
+    if (sections.some((section) => section.balance < 0)) lines.push(tIn(lang, "share.youOwe.cta"));
+    if (sections.every((section) => section.balance === 0))
+      lines.push(tIn(lang, "share.settled.cta"));
+  }
+  onStage?.("preparing");
+  const count = sections.reduce((count, section) => count + section.entries.length, 0);
+  const link =
+    count > MAX_SHARED_BILL_ENTRIES ? null : await uploadSharedSnapshot(snapshot, signal, 2);
+  if (signal?.aborted) return false;
+  lines.push("");
+  if (link) lines.push(tIn(lang, "share.fullLedger"), link);
+  else lines.push(tIn(lang, "share.billUnavailable"), tIn(lang, "share.footer"));
+  return openWhatsApp(recipient, lines, onStage, signal);
+}
+
+async function openWhatsApp(
+  person: { phone: string | null },
+  lines: readonly string[],
+  onStage?: (stage: WhatsAppShareStage) => void,
+  signal?: AbortSignal,
+): Promise<boolean> {
+  if (signal?.aborted) return false;
+  const text = lines.join("\n");
+  const phone = person.phone ? person.phone.replace(/[^0-9+]/g, "") : "";
+  const url = phone
+    ? `whatsapp://send?phone=${encodeURIComponent(phone)}&text=${encodeURIComponent(text)}`
+    : `whatsapp://send?text=${encodeURIComponent(text)}`;
+  onStage?.("opening");
+  try {
+    await Linking.openURL(url);
+  } catch (err) {
+    console.warn("[share] WhatsApp open failed", err);
+    return false;
+  }
+  await bumpUsageCounter("shares_sent").catch(() => undefined);
+  return true;
+}
+
+export async function shareKaataViaWhatsApp(
+  person: { id?: string; name: string; phone: string | null; currency?: string },
   balance: number,
   self: Self | null,
   entries: Entry[],
@@ -148,11 +322,16 @@ export async function shareKaataViaWhatsApp(
   settled?: SettledInfo,
   onStage?: (stage: WhatsAppShareStage) => void,
   signal?: AbortSignal,
+  currencyCode: string = getCurrentCurrencyCode(),
 ): Promise<boolean> {
   if (signal?.aborted) return false;
+  assertSingleCurrency([person, ...entries], currencyCode);
   onStage?.("preparing");
   const accountWith = self?.shop_name ?? self?.name ?? "Kaata";
-  const currency = getCurrentCurrencySymbol();
+  // Freeze the selected currency before upload; changing the view while the
+  // request is in flight must never relabel this permanent statement.
+  const symbol = getCurrencySymbol(currencyCode);
+  const currency = symbol === currencyCode ? currencyCode : `${symbol} ${currencyCode}`;
   const amount = formatAmount(balance);
   const lines: string[] = [tIn(lang, "share.greeting", { name: person.name }), ""];
 
@@ -178,7 +357,17 @@ export async function shareKaataViaWhatsApp(
 
   // "See the full ledger on kaata.af" + link. Falls back to the plain tagline
   // when the snapshot upload couldn't produce a link (offline / error).
-  const link = await uploadSharedLedger({ person, balance, entries, self, lang, settled, signal });
+  const link = await uploadSharedLedger({
+    person,
+    balance,
+    entries,
+    self,
+    lang,
+    settled,
+    signal,
+    currencyCode,
+    currencyLabel: currency,
+  });
   // Leaving the contact cancels its pending reminder. A late upload must not
   // launch another app from the screen the user navigated to in the meantime.
   if (signal?.aborted) return false;
@@ -190,20 +379,5 @@ export async function shareKaataViaWhatsApp(
     lines.push(tIn(lang, "share.footer"));
   }
 
-  const text = lines.join("\n");
-  const phone = person.phone ? person.phone.replace(/[^0-9+]/g, "") : "";
-  const url = phone
-    ? `whatsapp://send?phone=${encodeURIComponent(phone)}&text=${encodeURIComponent(text)}`
-    : `whatsapp://send?text=${encodeURIComponent(text)}`;
-  onStage?.("opening");
-  try {
-    await Linking.openURL(url);
-  } catch (err) {
-    console.warn("[share] WhatsApp open failed", err);
-    return false;
-  }
-  // Count only AFTER the open succeeded — bumping first inflated the
-  // shares_sent telemetry on every failed attempt.
-  await bumpUsageCounter("shares_sent").catch(() => undefined);
-  return true;
+  return openWhatsApp(person, lines, onStage, signal);
 }

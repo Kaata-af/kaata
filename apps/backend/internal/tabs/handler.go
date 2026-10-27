@@ -359,6 +359,25 @@ func (h *Handler) Mine(w http.ResponseWriter, r *http.Request) {
 		writeServiceError(w, err)
 		return
 	}
+	if r.Header.Get("X-Kaata-Currencies") != "1" {
+		// A previous app caches one shared link per customer and labels its
+		// whole book with one currency. Do not let discovery replace that
+		// cache with a different denomination or collapse parallel links.
+		for _, item := range res.Tabs {
+			if item.VaultID == nil {
+				continue
+			}
+			var legacy string
+			if err := h.svc.pool.QueryRow(r.Context(), `SELECT legacy_currency FROM vaults WHERE vault_id=$1::uuid`, *item.VaultID).Scan(&legacy); err != nil {
+				writeServiceError(w, err)
+				return
+			}
+			if item.Tab.Currency != legacy {
+				httpx.ErrorCode(w, http.StatusUpgradeRequired, "currency_upgrade_required", "Update Kaata to open separate currency balances")
+				return
+			}
+		}
+	}
 	httpx.JSON(w, http.StatusOK, res)
 }
 

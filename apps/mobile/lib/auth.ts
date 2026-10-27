@@ -1,4 +1,4 @@
-import Constants from "expo-constants";
+import { isRunningInExpoGo } from "expo";
 import * as SecureStore from "expo-secure-store";
 import { Platform } from "react-native";
 import { GOOGLE_IOS_CLIENT_ID, GOOGLE_WEB_CLIENT_ID } from "../constants/env";
@@ -37,7 +37,7 @@ import type { GoogleSignin as GoogleSigninType } from "@react-native-google-sign
 // only when we're not in Expo Go. That way the file is safe to import
 // anywhere and Settings / onboarding-mode can render in Expo Go even though
 // the sign-in buttons don't actually work there.
-const IS_EXPO_GO = Constants.executionEnvironment === "storeClient";
+const IS_EXPO_GO = isRunningInExpoGo();
 
 // google-signin's status codes for the "user cancelled" case. Hardcoded so
 // we don't have to load the module just to check an error code.
@@ -506,12 +506,12 @@ export function configureGoogleSignIn(): void {
   });
 }
 
-// Whether Google sign-in can work in THIS build: always on Android (the
+// Whether Google sign-in can work in THIS build: outside Expo Go, on Android (the
 // Play-Services client resolves from package name + SHA-1), on iOS only when
 // the iOS client id was baked in. UI surfaces gate the Google button on this
 // so an unconfigured build degrades to Apple-only instead of crashing.
 export function isGoogleSignInAvailable(): boolean {
-  return Platform.OS !== "ios" || GOOGLE_IOS_CLIENT_ID !== "";
+  return !IS_EXPO_GO && (Platform.OS !== "ios" || GOOGLE_IOS_CLIENT_ID !== "");
 }
 
 // Apple on Android is a web flow that works only where the server has a

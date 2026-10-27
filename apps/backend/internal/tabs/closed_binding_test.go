@@ -232,7 +232,7 @@ func TestClosedHistoryCannotBeCarriedIntoAnotherCurrency(t *testing.T) {
 					_, err = f.svc.Bind(ctx, p, binding)
 				}
 			}
-			if !errors.Is(err, ErrCurrencyMismatch) {
+			if !errors.Is(err, ErrSharedHistoryChanged) {
 				t.Fatalf("%s silently carried AFN history into USD: %v", route, err)
 			}
 			after, err := f.svc.Get(ctx, pa, 0)

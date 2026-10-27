@@ -72,113 +72,39 @@ function vault(over: Partial<VaultFacts> & { id: string }): VaultFacts {
 
 console.log("1. planCurrency");
 
-check("a kaata already in the tab's currency matches; the default stays create", () => {
-  const plan = planCurrency([vault({ id: "usd", currency: "USD" }), vault({ id: "afn" })], "USD");
+check("any kaata can host another currency without changing its default or legacy amounts", () => {
+  const inputs = [
+    vault({ id: "afn", currency: "AFN", liveEntries: 5 }),
+    vault({ id: "usd", currency: "USD" }),
+  ];
+  const before = JSON.stringify(inputs);
+  const plan = planCurrency(inputs, "EUR");
   assert.deepEqual(
     plan.matching.map((v) => v.id),
-    ["usd"],
+    ["afn", "usd"],
   );
-  assert.deepEqual(
-    plan.switchable.map((s) => s.vault.id),
-    ["afn"],
-  );
+  assert.deepEqual(plan.switchable, []);
   assert.deepEqual(plan.locked, []);
-  assert.equal(plan.primary, "create");
+  assert.equal(JSON.stringify(inputs), before, "joining never relabels old amounts");
 });
-
-check("one empty kaata and nothing else → primary switch, nothing to relabel", () => {
-  const plan = planCurrency([vault({ id: "afn" })], "USD");
-  assert.deepEqual(plan.matching, []);
-  assert.equal(plan.switchable.length, 1);
-  assert.equal(plan.switchable[0].vault.id, "afn");
-  assert.equal(plan.switchable[0].relabels, false);
-  assert.deepEqual(plan.locked, []);
-  assert.equal(plan.primary, "switch");
-});
-
-check("live tallies → the switch relabels and create is primary", () => {
-  const plan = planCurrency([vault({ id: "afn", liveEntries: 3 })], "USD");
-  assert.equal(plan.switchable[0].relabels, true);
-  assert.equal(plan.primary, "create");
-});
-
-check("a closed tab with zero live tallies still relabels", () => {
-  const plan = planCurrency([vault({ id: "afn", hasAnyTab: true })], "USD");
-  assert.equal(plan.switchable[0].relabels, true);
-  assert.equal(plan.primary, "create");
-});
-
-check("an open tab locks with reason open_tab, ahead of the role", () => {
+check("another currency's open shared tab and settings role do not require a new kaata", () => {
   const plan = planCurrency(
-    [vault({ id: "afn", hasAnyTab: true, hasOpenTab: true, canChangeCurrency: false })],
+    [vault({ id: "existing", hasOpenTab: true, hasAnyTab: true, canChangeCurrency: false })],
     "USD",
   );
-  assert.deepEqual(plan.switchable, []);
-  assert.equal(plan.locked.length, 1);
-  assert.equal(plan.locked[0].vault.id, "afn");
-  assert.equal(plan.locked[0].reason, "open_tab");
-  assert.equal(plan.primary, "create");
+  assert.deepEqual(
+    plan.matching.map((v) => v.id),
+    ["existing"],
+  );
+  assert.deepEqual(plan.locked, []);
 });
-
-check("a role that cannot change settings locks with reason role", () => {
-  const plan = planCurrency([vault({ id: "afn", canChangeCurrency: false })], "USD");
-  assert.deepEqual(plan.switchable, []);
-  assert.equal(plan.locked[0].reason, "role");
-  assert.equal(plan.primary, "create");
-});
-
-check("several empty switchable kaatas → create (no one-tap guess)", () => {
-  const plan = planCurrency([vault({ id: "a" }), vault({ id: "b" })], "USD");
-  assert.equal(plan.switchable.length, 2);
-  assert.equal(plan.primary, "create");
-});
-
-check("one empty switchable kaata plus a locked one → create", () => {
-  const plan = planCurrency([vault({ id: "a" }), vault({ id: "b", hasOpenTab: true })], "USD");
-  assert.equal(plan.switchable.length, 1);
-  assert.equal(plan.locked.length, 1);
-  assert.equal(plan.primary, "create");
-});
-
-check("a matching kaata beside an empty switchable one → create", () => {
-  const plan = planCurrency([vault({ id: "usd", currency: "USD" }), vault({ id: "a" })], "USD");
-  assert.equal(plan.matching.length, 1);
-  assert.equal(plan.switchable.length, 1);
-  assert.equal(plan.primary, "create");
-});
-
-check("no kaatas → every bucket empty, create", () => {
+check("no books retains the create option", () => {
   assert.deepEqual(planCurrency([], "USD"), {
     matching: [],
     switchable: [],
     locked: [],
     primary: "create",
   });
-});
-
-check("input order is preserved within each bucket", () => {
-  const plan = planCurrency(
-    [
-      vault({ id: "s2", liveEntries: 1 }),
-      vault({ id: "l1", hasOpenTab: true }),
-      vault({ id: "s1" }),
-      vault({ id: "m1", currency: "USD" }),
-      vault({ id: "l2", canChangeCurrency: false }),
-    ],
-    "USD",
-  );
-  assert.deepEqual(
-    plan.switchable.map((s) => s.vault.id),
-    ["s2", "s1"],
-  );
-  assert.deepEqual(
-    plan.locked.map((l) => l.vault.id),
-    ["l1", "l2"],
-  );
-  assert.deepEqual(
-    plan.matching.map((v) => v.id),
-    ["m1"],
-  );
 });
 
 // ---------------------------------------------------------------------------

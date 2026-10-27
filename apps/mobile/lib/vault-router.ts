@@ -30,7 +30,6 @@ import {
   transferOwnership as apiTransferOwnership,
 } from "./vault-api";
 import type { VaultRole } from "./events";
-import { vaultHasOpenTab } from "./tabs/db";
 import {
   ensureOwnershipTransferSignerReady,
   OwnershipSignerNotReadyError,
@@ -123,43 +122,87 @@ export async function changeVaultName(vaultId: string, newName: string): Promise
 
 // ---------- currency ----------
 
-/**
- * Routes a currency change through events for local-CA vaults; for
- * server-anchored vaults we keep the existing "PATCH then emit local
- * event" pattern (the server is authoritative; the event is the local
- * projection record).
- */
+/** Save a default for future tallies. Historical/base currency never changes. */
 export async function changeVaultCurrency(
   vaultId: string,
   newCurrency: string,
+  expected?: { session?: SessionSnapshot; shouldContinue?: () => boolean },
 ): Promise<VaultOpResult> {
-  // Before either routing branch: the refusal must hold whether the vault is
-  // local-CA or server-anchored, and before any event is appended.
-  if (await vaultHasOpenTab(vaultId)) throw new VaultHasOpenTabError(vaultId);
-  if (await isLocalCAVault(vaultId)) {
+  if (!/^[A-Z]{3}$/.test(newCurrency)) throw new Error("Invalid currency code");
+  const session = expected?.session ?? (await captureCurrentSession());
+  return applyForUnchangedLocalSession(session, async () => {
+    if (expected?.shouldContinue?.() === false) throw new Error("Currency settings changed scope");
+    const local = await isLocalCAVault(vaultId);
     const { event_id } = await appendVaultSettingSet({
       targetVaultId: vaultId,
-      key: "currency",
+      key: "default_entry_currency",
       value: newCurrency,
+      preflight: async () => {
+        if (expected?.shouldContinue?.() === false)
+          throw new Error("Currency settings changed scope");
+      },
     });
-    return { kind: "local", eventId: event_id };
-  }
-  // Engineering critique: emit the local event FIRST, PATCH second.
-  // Local-first invariant — every user-intent mutation must persist to
-  // the event log before we try to round-trip to the server. The
-  // previous order (PATCH then append) would leave state diverged when
-  // PATCH succeeded but the local append failed (server has new
-  // currency, local has no record). With append-first, a PATCH failure
-  // still records the user's intent in the log; AutoSync reconciles
-  // later. The applier mirrors to vaults.currency so the projection
-  // reflects the new value without waiting for the PATCH ack.
-  await appendVaultSettingSet({
-    targetVaultId: vaultId,
-    key: "currency",
-    value: newCurrency,
+    return local ? { kind: "local", eventId: event_id } : { kind: "server" };
   });
-  await apiPatchVault(vaultId, { currency: newCurrency });
-  return { kind: "server" };
+}
+
+/** Keep one synced chooser list for local-CA and server-backed books alike. */
+export class CurrencySettingsChangedError extends Error {
+  readonly kind = "currency_settings_changed" as const;
+  constructor() {
+    super("Currency settings changed while editing");
+    this.name = "CurrencySettingsChangedError";
+  }
+}
+
+export async function changeVaultEnabledCurrencies(
+  vaultId: string,
+  currencies: readonly string[],
+  expected?: {
+    session?: SessionSnapshot;
+    shouldContinue?: () => boolean;
+    previous?: { enabledValue: string | null; defaultCurrency: string };
+  },
+): Promise<VaultOpResult> {
+  const { requireEnabledCurrencies, settingCurrency } =
+    require("./currency-settings") as typeof import("./currency-settings");
+  const codes = requireEnabledCurrencies(currencies);
+  const session = expected?.session ?? (await captureCurrentSession());
+  return applyForUnchangedLocalSession(session, async () => {
+    if (expected?.shouldContinue?.() === false) throw new Error("Currency settings changed scope");
+    const local = await isLocalCAVault(vaultId);
+    const { event_id } = await appendVaultSettingSet({
+      targetVaultId: vaultId,
+      key: "enabled_currencies",
+      value: JSON.stringify(codes),
+      preflight: async (tx) => {
+        if (expected?.shouldContinue?.() === false)
+          throw new Error("Currency settings changed scope");
+        const row = await tx.getFirstAsync<{
+          value: string | null;
+          default_entry_currency: string | null;
+          currency: string | null;
+          enabled_value: string | null;
+        }>(
+          "SELECT currency,default_entry_currency,(SELECT value FROM vault_settings WHERE vault_id=v.id AND key='default_entry_currency') AS value,(SELECT value FROM vault_settings WHERE vault_id=v.id AND key='enabled_currencies') AS enabled_value FROM vaults v WHERE id=?",
+          vaultId,
+        );
+        const defaultCode =
+          settingCurrency(row?.value) ??
+          settingCurrency(row?.default_entry_currency) ??
+          settingCurrency(row?.currency) ??
+          "AFN";
+        if (
+          expected?.previous &&
+          ((row?.enabled_value ?? null) !== expected.previous.enabledValue ||
+            defaultCode !== expected.previous.defaultCurrency)
+        )
+          throw new CurrencySettingsChangedError();
+        if (!codes.includes(defaultCode)) throw new Error("The default currency must stay enabled");
+      },
+    });
+    return local ? { kind: "local", eventId: event_id } : { kind: "server" };
+  });
 }
 
 // ---------- archive ----------

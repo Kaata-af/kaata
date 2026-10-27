@@ -1,26 +1,36 @@
 // Execute the real hook with controlled native animation replies. Actual finger
 // tracking/responder transfer and native keyboard pixels still need phones.
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { compileUI, flattenStyle, jsx, nodes, uiHooks } from "./ui-fixture";
 
 const hooks = uiHooks();
 let reducedMotion = false,
-  deferStop = false,
-  keyboardDismisses = 0;
-const nativeReplies: (() => void)[] = [];
+  keyboardDismisses = 0,
+  nativeReadRequests = 0;
 const springs: { toValue: number; useNativeDriver: boolean; stopped: boolean }[] = [];
 class Value {
   motion?: (typeof springs)[number];
+  listeners = new Map<string, (state: { value: number }) => void>();
+  listenerId = 0;
   constructor(public value: number) {}
   setValue(value: number) {
     this.value = value;
+    this.listeners.forEach((listener) => listener({ value }));
   }
   stopAnimation(callback?: (value: number) => void) {
     if (this.motion) this.motion.stopped = true;
-    if (!callback) return;
-    const stoppedAt = this.value;
-    if (deferStop) nativeReplies.push(() => callback(stoppedAt));
-    else callback(stoppedAt);
+    // Match the phone failure: native getValue never calls its callback.
+    if (callback) nativeReadRequests++;
+  }
+  addListener(listener: (state: { value: number }) => void) {
+    const id = String(++this.listenerId);
+    this.listeners.set(id, listener);
+    return id;
+  }
+  removeListener(id: string) {
+    this.listeners.delete(id);
   }
 }
 const module = compileUI("../use-sheet-drag", {
@@ -78,9 +88,18 @@ const reopen = () => {
   drag = render();
   assert.equal(offset.value, 0, "reopened sheets reset the drag offset");
 };
-const flushNative = () => nativeReplies.splice(0).forEach((reply) => reply());
 
-assert.equal(drag.panHandlers.onStartShouldSetPanResponder(), false, "taps remain Pressable taps");
+assert.equal(
+  drag.panHandlers.onStartShouldSetPanResponderCapture({}, state(1, 0)),
+  false,
+  "child Pressables keep first refusal of header taps",
+);
+assert.equal(drag.panHandlers.onStartShouldSetPanResponder({}, state(1, 0)), true);
+drag.panHandlers.onPanResponderGrant({}, state(1, 0));
+drag.panHandlers.onPanResponderMove({}, state(1, 3, 0, 40));
+drag.panHandlers.onPanResponderRelease({}, state(1, 90, 0, 300));
+assert.equal(offset.value, 0, "a plain header waits for vertical intent before following a finger");
+assert.equal(dismissed, 0, "a horizontal header stroke cannot dismiss");
 for (const gesture of [state(1, -30), state(1, 3), state(1, 10, 0, 30), state(1, 20, 0, 0, 2)])
   assert.equal(drag.panHandlers.onMoveShouldSetPanResponderCapture({}, gesture), false);
 begin(2);
@@ -134,45 +153,43 @@ begin(9);
 move(9, 20);
 release(9, 20);
 offset.setValue(16); // native spring is partway home when the user grabs again
-deferStop = true;
+const oldSpringListener = [...offset.listeners.values()][0];
 begin(10);
 move(10, 8);
-assert.equal(offset.value, 16, "buffer movement while reading the stopped native position");
-flushNative();
-assert.equal(offset.value, 24, "re-grabbing continues from the actual position without a jump");
+assert.equal(
+  offset.value,
+  24,
+  "re-grabbing immediately continues from the observed spring position",
+);
+oldSpringListener({ value: 80 });
+move(10, 9);
+assert.equal(offset.value, 25, "a queued spring update cannot move an active finger stroke");
 release(10, 8);
 offset.setValue(80);
 begin(16);
 move(16, -60);
-flushNative();
 release(16, -60);
 assert.equal(offset.value, 20, "a re-grab can pull an interrupted spring back toward open");
 assert.equal(dismissed, 2, "close distance uses the final position, not the old starting offset");
-deferStop = false;
 
 reopen();
-deferStop = true;
 begin(11);
 move(11, 80);
 release(11, 80);
-assert.equal(dismissed, 2, "a release can wait for an asynchronous native stop reply");
-flushNative();
-assert.equal(dismissed, 3, "that release commits exactly once after its reply");
-deferStop = false;
+assert.equal(dismissed, 3, "a drag releases immediately even when native value reads never reply");
 
 reopen();
-deferStop = true;
 begin(12);
 move(12, 80);
+const oldPresentationListener = [...offset.listeners.values()][0];
 reopen();
-deferStop = false;
 drag.panHandlers.onPanResponderGrant({}, state(12, 0)); // delayed grant from the old presentation
 move(12, 100);
 release(12, 100);
 begin(13);
 move(13, 15);
-flushNative();
-assert.equal(offset.value, 15, "old native replies don't overwrite a reopened sheet's new drag");
+oldPresentationListener({ value: 100 });
+assert.equal(offset.value, 15, "old native listeners don't overwrite a reopened sheet's new drag");
 assert.equal(dismissed, 3, "old gesture callbacks cannot dismiss a reopened sheet");
 props.onDismiss = () => freshDismissed++;
 drag = render();
@@ -281,15 +298,17 @@ touchSurface();
 reopen();
 assert.equal(claimSurface(), false, "a stale touch cannot claim a reopened panel");
 
-deferStop = true;
 begin(15);
 move(15, 100);
+const unmountedListener = [...offset.listeners.values()][0];
 hooks.unmount();
-flushNative();
+unmountedListener({ value: 80 });
 release(15, 100);
 drag.dismiss();
 assert.equal(freshDismissed, 1, "unmounted sheets ignore every delayed gesture/reply");
 assert.equal(hooks.lateWrites, 0);
+assert.equal(offset.listeners.size, 0, "unmounted sheets remove their native value listener");
+assert.equal(nativeReadRequests, 0, "gesture movement and release never wait for native getValue");
 
 let handleDismissed = 0;
 const handleModule = compileUI("../../components/SheetHandle", {
@@ -313,6 +332,130 @@ assert.equal(target.props.accessibilityRole, "button");
 assert.equal(target.props.accessibilityLabel, "common.close");
 target.props.onPress();
 assert.equal(handleDismissed, 1, "the handle also offers a tap/screen-reader close action");
+
+// Exercise the installed RN adapter too: the native responder names, separate
+// state IDs and grant-time dy reset are absent from the callback-only fixture.
+const interactionPath = join(
+  dirname(require.resolve("react-native/package.json")),
+  "Libraries/Interaction",
+);
+const interactionModules = new Map<string, any>();
+function loadInteraction(name: string): any {
+  if (interactionModules.has(name)) return interactionModules.get(name);
+  const exports = {};
+  const { code } = require("@babel/core").transformSync(
+    readFileSync(join(interactionPath, `${name}.js`), "utf8"),
+    {
+      configFile: false,
+      babelrc: false,
+      plugins: [
+        ["flow-parser/babel-plugin", { parseLangTypes: "flow" }],
+        "@babel/plugin-transform-flow-strip-types",
+        "@babel/plugin-transform-modules-commonjs",
+      ],
+    },
+  );
+  new Function("require", "exports", code)((dependency: string) => {
+    assert.equal(dependency, "./TouchHistoryMath");
+    return loadInteraction("TouchHistoryMath");
+  }, exports);
+  interactionModules.set(name, exports);
+  return exports;
+}
+const nativePanResponder = loadInteraction("PanResponder").default;
+for (const surface of ["handle", "header"] as const) {
+  const nativeHooks = uiHooks();
+  let nativeDismissed = 0;
+  const real = compileUI("../use-sheet-drag", {
+    react: nativeHooks.react,
+    "../components/SheetBackdrop": { useSheetMotionPreference: () => false },
+    "react-native": {
+      PanResponder: nativePanResponder,
+      Keyboard: { dismiss: () => {} },
+      Animated: {
+        Value,
+        add: (left: Value, right: Value) => ({ left, right }),
+        spring: () => ({ start: () => {} }),
+      },
+    },
+  });
+  const realDrag = nativeHooks.render(() => ({
+    type: "Hook",
+    props: real.useSheetDrag(true, new Value(0), () => nativeDismissed++),
+  })).props;
+  const handlers = realDrag.panHandlers;
+  const responder =
+    surface === "handle"
+      ? handleModule.SheetHandle({ panHandlers: handlers, onDismiss: realDrag.dismiss }).props
+      : handlers;
+  let previousY = 0,
+    previousX = 0;
+  const event = (y: number, time: number, active = true, x = 0) => {
+    const touch = {
+      touchActive: active,
+      startPageX: 0,
+      startPageY: 0,
+      startTimeStamp: 1,
+      currentPageX: x,
+      currentPageY: y,
+      currentTimeStamp: time,
+      previousPageX: previousX,
+      previousPageY: previousY,
+      previousTimeStamp: time - 16,
+    };
+    previousY = y;
+    previousX = x;
+    return {
+      nativeEvent: { touches: active ? [touch] : [] },
+      touchHistory: {
+        touchBank: [touch],
+        indexOfSingleActiveTouch: 0,
+        numberActiveTouches: active ? 1 : 0,
+        mostRecentTimeStamp: time,
+      },
+    };
+  };
+  if (surface === "header") {
+    const touch = event(0, 1);
+    assert.equal(responder.onStartShouldSetResponderCapture(touch), false);
+    assert.equal(responder.onStartShouldSetResponder(touch), true);
+    responder.onResponderGrant(touch);
+    responder.onResponderMove(event(2, 17, true, 50));
+    const end = event(2, 33, false, 50);
+    responder.onResponderEnd(end);
+    responder.onResponderRelease(end);
+    assert.equal(
+      realDrag.translateY.right.value,
+      0,
+      "a native horizontal title stroke stays still",
+    );
+    assert.equal(nativeDismissed, 0);
+  }
+  const start = event(0, 101);
+  assert.equal(responder.onStartShouldSetResponderCapture(start), false);
+  if (surface === "header") {
+    assert.equal(responder.onStartShouldSetResponder(start), true);
+    responder.onResponderGrant(start);
+    responder.onResponderMove(event(10, 117));
+  } else {
+    const threshold = event(10, 117);
+    assert.equal(responder.onMoveShouldSetResponderCapture(threshold), true);
+    responder.onResponderGrant(threshold);
+  }
+  responder.onResponderMove(event(60, 133));
+  assert.equal(
+    realDrag.translateY.right.value,
+    surface === "header" ? 60 : 50,
+    `${surface}: native moves immediately after grant`,
+  );
+  responder.onResponderMove(event(90, 149));
+  const end = event(90, 165, false);
+  responder.onResponderEnd(end);
+  responder.onResponderRelease(end);
+  assert.equal(nativeDismissed, 1, `${surface}: native release closes without a value-read reply`);
+  assert.equal(nativeReadRequests, 0);
+  nativeHooks.unmount();
+}
 console.log(
-  "PASS: sheet drag direction, cancellation, flicks, rapid re-grabs, native replies, lifetimes and accessible handle",
+  "PASS: sheet drag direction, cancellation, flicks, re-grabs, missing native replies, lifetimes, accessible handle and installed RN responder adapter",
 );

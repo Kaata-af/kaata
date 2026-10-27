@@ -27,10 +27,19 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Crypto from "expo-crypto";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } from "react-native";
+import {
+  Keyboard,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "../../components/Button";
 import { FormField } from "../../components/FormField";
+import { EnabledCurrenciesSheet } from "../../components/EnabledCurrenciesSheet";
 import { OptionSheet } from "../../components/OptionSheet";
 import { NavRow, ScreenHeader } from "../../components/SettingsScreen";
 import { useToast } from "../../components/Toast";
@@ -46,12 +55,16 @@ import {
 // Mythos Issue 1: owner display-name source for the mirror row.
 import { getAppMeta, getLocalSelf, setAppMeta } from "../../lib/db";
 import { bidiIsolate, rowDir, textDir, useIsRTL } from "../../lib/direction";
-import { appendShopProfileUpdated, appendVaultMemberAdded } from "../../lib/event-log";
+import { appendShopProfileUpdated } from "../../lib/event-log";
 import { t } from "../../lib/i18n";
 import { ensureDeviceKey, getDevicePubkey } from "../../lib/mesh/device-key";
 import { gutter, icon, radius, space, typography } from "../../lib/tokens";
 import { buildLocalAccountId } from "../../lib/trust/account-id";
 import { createVaultOnServer } from "../../lib/vault-api";
+import {
+  createVaultWithCurrencies,
+  validateInitialVaultCurrencies,
+} from "../../lib/vault-initial-currencies";
 
 const NAME_MAX = 50;
 
@@ -72,6 +85,14 @@ export default function VaultNewScreen() {
 
   const [shopName, setShopName] = useState("");
   const [currency, setCurrency] = useState<string>(DEFAULT_CURRENCY);
+  const [enabledCurrencies, setEnabledCurrencies] = useState<string[]>([DEFAULT_CURRENCY]);
+  const [enabledDraft, setEnabledDraft] = useState<string[] | null>(null);
+  const enabledDraftRef = useRef<string[] | null>(null);
+  const picker = useRef<{ kind: "default" | "enabled" | null; version: number }>({
+    kind: null,
+    version: 0,
+  });
+  const mounted = useRef(true);
   // Currency is picked through a row→sheet, not a chip grid — see the NavRow
   // in the form below. Only the CONTROL changed; `currency` / setCurrency are
   // still the single source of truth for the INSERT.
@@ -96,6 +117,38 @@ export default function VaultNewScreen() {
   // The Button's disabled-on-empty rule still guards the happy path; the
   // inline error is the "tell me why nothing happened" affordance.
   const [nameError, setNameError] = useState<string | null>(null);
+  const form = useRef({ shopName, currency, enabledCurrencies });
+  form.current = { shopName, currency, enabledCurrencies };
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      picker.current = { kind: null, version: picker.current.version + 1 };
+    };
+  }, []);
+
+  const canEdit = () => mounted.current && !creatingRef.current;
+  const pickerVersion = picker.current.version;
+  const isCurrentPicker = (kind: "default" | "enabled", version: number) =>
+    canEdit() && picker.current.kind === kind && picker.current.version === version;
+  const openPicker = (kind: "default" | "enabled") => {
+    if (!canEdit()) return;
+    Keyboard.dismiss();
+    currencyDirtyRef.current = true;
+    picker.current = { kind, version: picker.current.version + 1 };
+    const draft = kind === "enabled" ? [...form.current.enabledCurrencies] : null;
+    enabledDraftRef.current = draft;
+    setEnabledDraft(draft);
+    setCurrencySheetVisible(kind === "default");
+  };
+  const dismissPicker = (kind: "default" | "enabled", version: number) => {
+    if (!isCurrentPicker(kind, version)) return;
+    picker.current = { kind: null, version: picker.current.version + 1 };
+    enabledDraftRef.current = null;
+    setEnabledDraft(null);
+    setCurrencySheetVisible(false);
+  };
 
   // Snapshot account presence at mount-time so the local-only hint and the
   // server-POST gate don't flicker if a sign-in completes mid-form (vanishingly
@@ -115,7 +168,9 @@ export default function VaultNewScreen() {
         ]);
         if (cancelled || !pendingTab || !code || currencyDirtyRef.current) return;
         if (!CURRENCIES.some((c) => c.code === code)) return;
+        form.current = { ...form.current, currency: code, enabledCurrencies: [code] };
         setCurrency(code);
+        setEnabledCurrencies([code]);
         setPresetCurrency(code);
       } catch (err) {
         // Best effort: a failed read just keeps the default currency.
@@ -128,7 +183,9 @@ export default function VaultNewScreen() {
   }, []);
 
   async function onCreate() {
-    if (creatingRef.current) return;
+    if (!canEdit() || picker.current.kind !== null) return;
+    currencyDirtyRef.current = true;
+    const { shopName, currency, enabledCurrencies } = form.current;
     const trimmedShop = shopName.trim();
     // Phase 7 D-VAULT-NAME-REQUIRED: name is required. The Button is
     // disabled-on-empty (happy path), but if a future refactor drops
@@ -136,6 +193,13 @@ export default function VaultNewScreen() {
     // (DB schema is TEXT NOT NULL but accepts the empty string).
     if (!trimmedShop) {
       setNameError(t("vaultNew.name.required"));
+      return;
+    }
+    let initialCurrencies: string[];
+    try {
+      initialCurrencies = validateInitialVaultCurrencies(currency, enabledCurrencies);
+    } catch {
+      toast.push(t("vaultNew.failed"), "error");
       return;
     }
     setNameError(null);
@@ -185,82 +249,91 @@ export default function VaultNewScreen() {
     }
 
     try {
-      const db = await getDb();
-      await db.withTransactionAsync(async () => {
-        // 1) vaults row. is_default=0 — only the bootstrap vault from
-        //    migration 007 / createSelfProfile gets is_default=1.
-        //    registered_with_server_at stays NULL until the POST /v1/vaults
-        //    round-trip succeeds (the AutoSync reconcile pass stamps it).
-        //    vault_trust_anchor_pubkey set unconditionally — owner's
-        //    device is the root of mesh trust regardless of sign-in.
-        await db.runAsync(
-          `INSERT INTO vaults
+      await createVaultWithCurrencies(
+        {
+          vaultId,
+          currency,
+          enabledCurrencies: initialCurrencies,
+          expectedSignerPubkey: trustAnchorPubkey,
+          accountId,
+          ownerDisplayName,
+        },
+        async (db) => {
+          // 1) vaults row. is_default=0 — only the bootstrap vault from
+          //    migration 007 / createSelfProfile gets is_default=1.
+          //    registered_with_server_at stays NULL until the POST /v1/vaults
+          //    round-trip succeeds (the AutoSync reconcile pass stamps it).
+          //    vault_trust_anchor_pubkey set unconditionally — owner's
+          //    device is the root of mesh trust regardless of sign-in.
+          await db.runAsync(
+            `INSERT INTO vaults
              (id, name, currency, created_at, updated_at, archived_at,
               is_default, account_id, registered_with_server_at,
               vault_epoch, hlc_logical, hlc_wall_ms,
               vault_trust_anchor_pubkey)
            VALUES (?, ?, ?, ?, ?, NULL, 0, ?, NULL, 0, 0, 0, ?)`,
-          vaultId,
-          trimmedShop,
-          currency,
-          now,
-          now,
-          accountId, // nullable column; null on local-only installs
-          trustAnchorPubkey,
-        );
+            vaultId,
+            trimmedShop,
+            currency,
+            now,
+            now,
+            accountId, // nullable column; null on local-only installs
+            trustAnchorPubkey,
+          );
 
-        // 2) shop_profile row (per-vault, keyed by vault_id). owner_name
-        //    is nullable per the post-migration-007 schema; founder removed
-        //    the form field in Phase 5.3 after real-device testing (only
-        //    shop name + currency are collected). Projection-replay treats
-        //    NULL as "no owner name" and renders the shop name standalone.
-        await db.runAsync(
-          `INSERT INTO shop_profile
+          // 2) shop_profile row (per-vault, keyed by vault_id). owner_name
+          //    is nullable per the post-migration-007 schema; founder removed
+          //    the form field in Phase 5.3 after real-device testing (only
+          //    shop name + currency are collected). Projection-replay treats
+          //    NULL as "no owner name" and renders the shop name standalone.
+          await db.runAsync(
+            `INSERT INTO shop_profile
              (vault_id, owner_name, shop_name, created_at, updated_at)
            VALUES (?, ?, ?, ?, ?)`,
-          vaultId,
-          null,
-          trimmedShop,
-          now,
-          now,
-        );
+            vaultId,
+            null,
+            trimmedShop,
+            now,
+            now,
+          );
 
-        // 3) vault_members_mirror — ALWAYS insert, using the synthesized
-        //    local account id when the user isn't signed in. The
-        //    previous "if (accountId)" gate left local-only vaults with
-        //    NO mirror row, which:
-        //      (a) made vault/settings.tsx's COUNT(*) return 0 while
-        //          useMembersCount's floor returned 1 → UI inconsistency
-        //          (now both surfaces would read 1 from the real row).
-        //      (b) left role-gate.resolveRoleAt with no binding for the
-        //          OWNER's actor_account_id when remote events from
-        //          this owner reach a peer — peers would refuse the
-        //          owner's events because the owner isn't a member in
-        //          the peer's mirror. Combined with the missing
-        //          vault_member_added event for self (fixed below),
-        //          this is why peers never showed owner-authored
-        //          entries.
-        //    The mirror INSERT below is the LOCAL projection; the
-        //    appendVaultMemberAdded call after the txn emits the
-        //    corresponding event so peers learn the binding via mesh.
-        const ownerAccountId = accountId ?? buildLocalAccountId(trustAnchorPubkey);
-        await db.runAsync(
-          `INSERT INTO vault_members_mirror
+          // 3) vault_members_mirror — ALWAYS insert, using the synthesized
+          //    local account id when the user isn't signed in. The
+          //    previous "if (accountId)" gate left local-only vaults with
+          //    NO mirror row, which:
+          //      (a) made vault/settings.tsx's COUNT(*) return 0 while
+          //          useMembersCount's floor returned 1 → UI inconsistency
+          //          (now both surfaces would read 1 from the real row).
+          //      (b) left role-gate.resolveRoleAt with no binding for the
+          //          OWNER's actor_account_id when remote events from
+          //          this owner reach a peer — peers would refuse the
+          //          owner's events because the owner isn't a member in
+          //          the peer's mirror. Combined with the missing
+          //          vault_member_added event for self (fixed below),
+          //          this is why peers never showed owner-authored
+          //          entries.
+          //    The mirror INSERT below is the LOCAL projection; the
+          //    atomic creation helper emits the corresponding genesis event
+          //    before the currency settings so peers learn the trust binding.
+          const ownerAccountId = accountId ?? buildLocalAccountId(trustAnchorPubkey);
+          await db.runAsync(
+            `INSERT INTO vault_members_mirror
              (vault_id, account_id, role, accepted_at, revoked_at, display_name)
            VALUES (?, ?, 'owner', ?, NULL, ?)`,
-          vaultId,
-          ownerAccountId,
-          now,
-          ownerDisplayName,
-        );
+            vaultId,
+            ownerAccountId,
+            now,
+            ownerDisplayName,
+          );
 
-        // 4) Flip active_vault_id INSIDE the txn so a write failure here
-        //    rolls back the vault + shop_profile + mirror rows — no
-        //    "vault exists but isn't active" orphan state, and no
-        //    misleading "Failed to create" toast on the (rare) app_meta
-        //    write failure path. Cache flip happens after commit (below).
-        await setAppMetaInTx(db, ACTIVE_VAULT_META_KEY, vaultId);
-      });
+          // 4) Flip active_vault_id INSIDE the txn so a write failure here
+          //    rolls back the vault + shop_profile + mirror rows — no
+          //    "vault exists but isn't active" orphan state, and no
+          //    misleading "Failed to create" toast on the (rare) app_meta
+          //    write failure path. Cache flip happens after commit (below).
+          await setAppMetaInTx(db, ACTIVE_VAULT_META_KEY, vaultId);
+        },
+      );
 
       // Txn committed — sync the in-memory cache to match. Doing this
       // outside the txn keeps the cache in lockstep with the persisted
@@ -268,7 +341,7 @@ export default function VaultNewScreen() {
       setActiveVaultIdCache(vaultId);
 
       // M4: no self-VMC. The owner's trust authority comes from the
-      // genesis vault_member_added (emitted below), which the chain fold
+      // genesis vault_member_added (emitted atomically), which the chain fold
       // binds to this anchor device. The owner participates in the mesh
       // immediately via the chain handshake — no credential to mint.
 
@@ -292,30 +365,8 @@ export default function VaultNewScreen() {
         console.warn("[vault/new] shop_profile_updated emit failed", err);
       }
 
-      // Emit a vault_member_added event for SELF (the vault creator,
-      // who is the owner). M2 membership chain: this IS the genesis
-      // admission — the chain root (docs/m2-membership-chain.md §3.1).
-      // It is authored + signed by THIS device through the normal local
-      // append path, and the chain fold implicitly binds the anchor
-      // device from it, so NO vault_device_added is emitted for the
-      // creator. Pre-M2 rationale (still true): without this, peers
-      // receiving entry/person/relationship events from this owner via
-      // mesh would hit role-gate.resolveRoleAt finding no binding for
-      // the owner's account_id → refuse with unknown_actor → events
-      // silently dropped (Bug 3: joiner sees the vault but no entries).
-      // The local applier reaches role-gate's local-only fallback
-      // (origin='local' + actorAccountId=null → ok) so this is a no-op
-      // for the local mirror but materially fixes the mesh
-      // propagation path for both signed-in and local-CA owners.
-      try {
-        await appendVaultMemberAdded({
-          targetVaultId: vaultId,
-          accountId: accountId ?? buildLocalAccountId(trustAnchorPubkey),
-          role: "owner",
-        });
-      } catch (err) {
-        console.warn("[vault/new] vault_member_added emit failed", err);
-      }
+      // The creation transaction already signed the owner's genesis before
+      // the currency settings, so peers receive their trust basis first.
 
       // BUG-A: tell mesh the vault set changed so the new vault's
       // hash is added to BLE advertising AND so peers' advertisements
@@ -422,7 +473,7 @@ export default function VaultNewScreen() {
           forced
             ? null
             : () => {
-                if (!creating) router.back();
+                if (canEdit()) router.back();
               }
         }
         isRTL={isRTL}
@@ -447,11 +498,13 @@ export default function VaultNewScreen() {
               autoCapitalize="words"
               placeholder={t("vaultNew.name.placeholder")}
               onChangeText={(s) => {
+                if (!canEdit()) return;
+                form.current = { ...form.current, shopName: s };
                 setShopName(s);
                 if (nameError) setNameError(null);
               }}
               onBlur={() => {
-                if (!shopName.trim()) {
+                if (canEdit() && !form.current.shopName.trim()) {
                   setNameError(t("vaultNew.name.required"));
                 }
               }}
@@ -476,7 +529,16 @@ export default function VaultNewScreen() {
             // never the selected value sitting in `trailing`. A blind user could not
             // hear which currency their ledger was about to be created in.
             accessibilityLabel={`${t("vaultNew.currency.label")}: ${currencyValue}`}
-            onPress={() => setCurrencySheetVisible(true)}
+            onPress={() => openPicker("default")}
+            disabled={creating}
+            isRTL={isRTL}
+          />
+          <NavRow
+            icon="cash-outline"
+            label={t("vaultSettings.currencies.label")}
+            trailing={enabledCurrencies.map((code) => bidiIsolate(code)).join(" · ")}
+            accessibilityLabel={`${t("vaultSettings.currencies.label")}: ${enabledCurrencies.join(", ")}`}
+            onPress={() => openPicker("enabled")}
             disabled={creating}
             isRTL={isRTL}
             isLast
@@ -533,11 +595,61 @@ export default function VaultNewScreen() {
         }))}
         selected={currency}
         onSelect={(code) => {
-          setCurrencySheetVisible(false);
-          currencyDirtyRef.current = true;
+          if (
+            !isCurrentPicker("default", pickerVersion) ||
+            !CURRENCIES.some((item) => item.code === code)
+          )
+            return;
+          const previous = form.current;
+          const enabled =
+            previous.enabledCurrencies.length === 1 &&
+            previous.enabledCurrencies[0] === previous.currency
+              ? [code]
+              : [...new Set([...previous.enabledCurrencies, code])];
+          form.current = { ...previous, currency: code, enabledCurrencies: enabled };
           setCurrency(code);
+          setEnabledCurrencies(enabled);
+          dismissPicker("default", pickerVersion);
         }}
-        onDismiss={() => setCurrencySheetVisible(false)}
+        onDismiss={() => dismissPicker("default", pickerVersion)}
+        isRTL={isRTL}
+      />
+      <EnabledCurrenciesSheet
+        visible={enabledDraft !== null}
+        options={CURRENCIES.map((item) => ({
+          code: item.code,
+          label: getCurrencyName(item.code),
+          symbol: item.symbol,
+        }))}
+        selected={enabledDraft ?? enabledCurrencies}
+        defaultCurrency={currency}
+        onToggle={(code) => {
+          if (
+            !isCurrentPicker("enabled", pickerVersion) ||
+            code === form.current.currency ||
+            !CURRENCIES.some((item) => item.code === code)
+          )
+            return;
+          const draft = enabledDraftRef.current;
+          if (!draft) return;
+          const next = draft.includes(code)
+            ? draft.filter((item) => item !== code)
+            : [...draft, code];
+          enabledDraftRef.current = next;
+          setEnabledDraft(next);
+        }}
+        onSave={() => {
+          if (!isCurrentPicker("enabled", pickerVersion) || !enabledDraftRef.current) return;
+          const enabled = validateInitialVaultCurrencies(
+            form.current.currency,
+            enabledDraftRef.current,
+          );
+          form.current = { ...form.current, enabledCurrencies: enabled };
+          setEnabledCurrencies(enabled);
+          dismissPicker("enabled", pickerVersion);
+        }}
+        onDismiss={() => dismissPicker("enabled", pickerVersion)}
+        saving={creating}
         isRTL={isRTL}
       />
     </SafeAreaView>

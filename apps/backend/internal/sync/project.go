@@ -26,6 +26,7 @@ import (
 	"log"
 	"sort"
 
+	"github.com/matee/kaata-backend/internal/credit"
 	"github.com/matee/kaata-backend/internal/ownership"
 )
 
@@ -107,8 +108,9 @@ type LedgerEvent struct {
 	PayloadSchema         int             `json:"payload_schema"`
 	Payload               json.RawMessage `json:"payload"`
 	// Server-only metadata.
-	ServerSeq  int64 `json:"server_seq,omitempty"`
-	ReceivedAt int64 `json:"received_at,omitempty"`
+	LegacyCurrency string `json:"-"`
+	ServerSeq      int64  `json:"server_seq,omitempty"`
+	ReceivedAt     int64  `json:"received_at,omitempty"`
 }
 
 // ---------- Per-entity payload structs ----------
@@ -118,6 +120,7 @@ type entryCreatedPayload struct {
 	RelationshipID         string      `json:"relationship_id"`
 	Type                   string      `json:"type"`
 	AmountAFN              json.Number `json:"amount_afn"`
+	Currency               string      `json:"currency,omitempty"`
 	Note                   *string     `json:"note"`
 	OccurredAtMS           int64       `json:"occurred_at_ms"`
 	RecordedAtMS           *int64      `json:"recorded_at_ms,omitempty"`
@@ -136,6 +139,7 @@ type entryAmendedChanges struct {
 	Note         json.RawMessage `json:"note,omitempty"`
 	Type         *string         `json:"type,omitempty"`
 	OccurredAtMS *int64          `json:"occurred_at_ms,omitempty"`
+	Currency     json.RawMessage `json:"currency,omitempty"`
 }
 
 type entryAmendedPayload struct {
@@ -225,6 +229,7 @@ type EntryProjection struct {
 	// float rounding of old large integers and cent-scaling overflow. Signed
 	// event payloads are never rewritten. Money arithmetic belongs to clients.
 	AmountAFN        json.Number `json:"amount_afn"`
+	Currency         string      `json:"currency,omitempty"`
 	Note             *string     `json:"note"`
 	CreatedAt        int64       `json:"created_at"`
 	RecordedAtMS     int64       `json:"recorded_at_ms,omitempty"`
@@ -408,6 +413,12 @@ func applyEntryCreated(p *Projection, e *LedgerEvent) error {
 		recordedAt = *payload.RecordedAtMS
 	}
 
+	if payload.Currency != "" && !credit.ValidCurrency(payload.Currency) {
+		return errors.New("invalid entry currency")
+	}
+	if payload.Currency == "" {
+		payload.Currency = e.LegacyCurrency
+	}
 	entry := &EntryProjection{
 		ID:               payload.EntryID,
 		VaultID:          e.VaultID,
@@ -415,6 +426,7 @@ func applyEntryCreated(p *Projection, e *LedgerEvent) error {
 		Type:             payload.Type,
 		AmountAFN:        payload.AmountAFN,
 		Note:             payload.Note,
+		Currency:         payload.Currency,
 		CreatedAt:        payload.OccurredAtMS,
 		RecordedAtMS:     recordedAt,
 		OccurredAtHLC:    &HLC{PMS: e.HLC.PMS, L: e.HLC.L, DID: e.HLC.DID},
@@ -453,6 +465,9 @@ func applyEntryAmended(p *Projection, e *LedgerEvent) error {
 	}
 
 	c := &payload.Changes
+	if len(c.Currency) > 0 {
+		return errors.New("entry currency is immutable")
+	}
 	if c.OccurredAtMS != nil && (*c.OccurredAtMS <= 0 || *c.OccurredAtMS > 8_640_000_000_000_000) {
 		return errors.New("invalid entry date")
 	}
@@ -679,6 +694,11 @@ func applyVaultSettingSet(p *Projection, e *LedgerEvent) error {
 	var payload vaultSettingSetPayload
 	if err := json.Unmarshal(e.Payload, &payload); err != nil {
 		return fmt.Errorf("decode vault_setting_set payload: %w", err)
+	}
+	if payload.Key == "enabled_currencies" {
+		if err := validateEnabledCurrencies(payload.Value); err != nil {
+			return err
+		}
 	}
 	p.VaultSettings[payload.Key] = payload.Value
 

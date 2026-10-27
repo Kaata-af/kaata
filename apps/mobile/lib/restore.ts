@@ -21,6 +21,7 @@ import { cacheCreditPolicies } from "./credit-policy-cache";
 // as a synthetic event would be wrong).
 
 import { getBackendUrl } from "./api";
+import { currencyRequestHeaders } from "./currency-sync";
 import { applyForCurrentSession, getSessionJWT, type SessionSnapshot } from "./auth";
 import {
   ACTIVE_VAULT_META_KEY,
@@ -33,6 +34,7 @@ import type { LedgerEvent } from "./events";
 import { compareHLC, deserializeHLC, serializeHLC, type HLC } from "./hlc";
 import { serializeFieldHLCs, type FieldHLCMap } from "./projection/field-hlc";
 import { restoredEntryDateHLCs } from "./entry-date";
+import { assertLegacyCurrencyMatches } from "./currency-metadata";
 import {
   seedSnapshotCustomerGroups,
   restoredRelationshipFieldHLCs,
@@ -105,6 +107,8 @@ export type SnapshotVault = {
   id: string;
   name: string;
   currency: string;
+  legacy_currency?: string;
+  default_entry_currency?: string;
   created_at: number;
   updated_at: number;
   is_default: 0 | 1;
@@ -156,6 +160,7 @@ export type SnapshotEntry = {
   type: "debt" | "payment";
   amount_afn: number;
   note: string | null;
+  currency?: string;
   created_at: number;
   recorded_at_ms?: number;
   occurred_at_hlc?: HLC;
@@ -197,6 +202,7 @@ export async function fetchSnapshot(args: { defaultVaultId: string }): Promise<S
 
   const baseUrl = await getBackendUrl();
   const url = `${baseUrl}/v1/sync/snapshot?vault_id=${encodeURIComponent(args.defaultVaultId)}`;
+  const currencyHeaders = await currencyRequestHeaders(await getDb(), args.defaultVaultId);
 
   const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -216,6 +222,7 @@ export async function fetchSnapshot(args: { defaultVaultId: string }): Promise<S
         const res = await fetch(url, {
           method: "GET",
           headers: {
+            ...currencyHeaders,
             Authorization: `Bearer ${jwt}`,
             // Gzip both directions — Phase 3 transport contract.
             "Accept-Encoding": "gzip",
@@ -292,6 +299,7 @@ export async function restoreFromSnapshot(
   }
   const setActiveDefault = opts.setActiveDefault ?? true;
   const db = await getDb();
+  await assertLegacyCurrencyMatches(db, snapshot.vault.id, snapshot.vault.legacy_currency);
   let appliedEvents = 0;
 
   // Snapshot rows carry NO per-field HLCs (the backend projection tracks
@@ -401,13 +409,15 @@ export async function restoreFromSnapshot(
       //    or an offline-minted local vault on the same id gets overwritten.
       await db.runAsync(
         `INSERT OR REPLACE INTO vaults
-         (id, name, currency, created_at, updated_at, archived_at,
+         (id, name, currency, legacy_currency, default_entry_currency, created_at, updated_at, archived_at,
           is_default, account_id, registered_with_server_at,
           vault_epoch, hlc_logical, hlc_wall_ms, vault_trust_anchor_pubkey)
-       VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?, 0, 0, 0, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, 0, 0, 0, ?)`,
         v.id,
         v.name,
         v.currency,
+        v.legacy_currency ?? v.currency,
+        v.default_entry_currency ?? v.currency,
         v.created_at,
         v.updated_at,
         v.is_default,
@@ -504,17 +514,18 @@ export async function restoreFromSnapshot(
       for (const e of snapshot.entries) {
         await db.runAsync(
           `INSERT OR REPLACE INTO entries (
-           id, vault_id, relationship_id, type, amount_afn, note,
+           id, vault_id, relationship_id, type, amount_afn, note, currency,
            created_at, updated_at, deleted_at, proposed_by_user_id,
            current_event_id, is_deleted, is_settled,
            accepted_at, disputed_at, disputed_reason, settled_at, field_hlcs
-         ) VALUES (?, ?, ?, ?, ?, ?,  ?, ?, ?, ?,  ?, ?, ?,  ?, ?, ?, ?, ?)`,
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,  ?, ?, ?,  ?, ?, ?, ?, ?)`,
           e.id,
           e.vault_id,
           e.relationship_id,
           e.type,
           e.amount_afn,
           e.note,
+          e.currency ?? snapshot.vault.legacy_currency ?? snapshot.vault.currency,
           e.created_at,
           e.updated_at,
           e.deleted_at,

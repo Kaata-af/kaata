@@ -10,6 +10,7 @@
 
 import { getBackendUrl } from "../api";
 import { getSessionJWT } from "../auth";
+import { ensureCurrencySyncSupported } from "../currency-sync";
 import { TabApiError, TabAuthUnavailableError } from "./errors";
 import type {
   AppendRequest,
@@ -51,7 +52,7 @@ async function request<T>(
   body?: unknown,
 ): Promise<T> {
   const baseUrl = await getBackendUrl();
-  const headers: Record<string, string> = {};
+  const headers: Record<string, string> = { "X-Kaata-Currencies": "1" };
   if (body !== undefined) headers["Content-Type"] = "application/json";
   const authz = authorization(auth);
   if (authz) headers.Authorization = authz;
@@ -61,6 +62,10 @@ async function request<T>(
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   let res: Response;
   try {
+    // A previous server accepts this payload but treats every currency as
+    // the book's old default. Keep changes queued until support is known.
+    if (method === "POST" && auth?.jwt)
+      await ensureCurrencySyncSupported(baseUrl, auth.jwt, controller.signal);
     res = await fetch(`${baseUrl}${path}`, {
       method,
       headers,

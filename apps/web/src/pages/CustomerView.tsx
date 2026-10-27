@@ -1,9 +1,17 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { Link, useParams } from "react-router-dom";
 import { BACKEND_URL } from "../env";
 import { useI18n } from "../lib/i18n";
 import { isRtlLanguage, languageForLocale, type Lang } from "../lib/language";
 import { brand, ledger } from "../theme";
+import {
+  billCurrencyLabel,
+  parseSharedLedger,
+  type SharedEntry,
+  type SharedLedger,
+  type SingleCurrencyBill,
+} from "../lib/shared-ledger";
 import {
   formatBillDate as fmtDate,
   formatBillAmount as fmtAmount,
@@ -23,40 +31,6 @@ import {
 // compete. In production it's the fallback: when the share link resolves to the
 // backend SSR (for per-customer WhatsApp previews) the customer sees that
 // instead; the two are kept visually in sync.
-
-type SharedEntry = {
-  type: "debt" | "payment";
-  amount: number;
-  note: string | null;
-  date: number;
-};
-
-type SharedLedger = {
-  v: number;
-  shop: string;
-  person: string;
-  currency: string;
-  balance: number;
-  locale: string;
-  /** Calendar frozen at issue time: "gregorian" | "jalali" | "qamari". Optional — bills
-   *  cut before the calendar setting shipped lack it, and fall back to being
-   *  derived from `locale`, which is what they were rendered with originally.
-   *  Widened to string because this is untrusted JSON off the wire. */
-  calendar?: string;
-  /** Qamari adjustment in days, frozen like calendar (audit #15). Optional:
-   *  absent on other calendars and older bills, which means no adjustment. */
-  qamari_offset?: number;
-  entries: SharedEntry[];
-  // Settled-chapter structure (2026-07-27, optional — old snapshots lack it):
-  // entries dated <= settled_boundary_ms belong to settled (ruled-off)
-  // chapters and render collapsed; settled_chapters is the trust-line count.
-  settled_chapters?: number;
-  settled_boundary_ms?: number | null;
-  /** Every boundary (oldest→newest) — draws each dated ruled-off line in
-   *  the expanded history. Absent on older snapshots. */
-  settled_boundaries?: number[];
-  generated_at: number;
-};
 
 type Phase = { kind: "loading" } | { kind: "error" } | { kind: "ready"; data: SharedLedger };
 
@@ -350,7 +324,8 @@ export function CustomerView() {
       try {
         const res = await fetch(`${BACKEND_URL}/v1/shared/${encodeURIComponent(token)}`);
         if (!res.ok) throw new Error("not ok");
-        const data = (await res.json()) as SharedLedger;
+        const data = parseSharedLedger(await res.json());
+        if (!data) throw new Error("invalid bill");
         if (!cancelled) setPhase({ kind: "ready", data });
       } catch {
         if (!cancelled) setPhase({ kind: "error" });
@@ -376,7 +351,44 @@ export function CustomerView() {
   );
 }
 
-function Ledger({ data: d }: { data: SharedLedger }) {
+export function Ledger({ data }: { data: SharedLedger }) {
+  if (data.v !== 2) return <SingleLedger data={data} />;
+  return (
+    <>
+      {data.currencies.map((section, index) => (
+        <SingleLedger
+          key={section.currency_code}
+          data={{
+            ...section,
+            shop: data.shop,
+            person: data.person,
+            locale: data.locale,
+            calendar: data.calendar,
+            qamari_offset: data.qamari_offset,
+            generated_at: data.generated_at,
+            v: 1,
+            currency: billCurrencyLabel(section.currency_code, section.currency),
+          }}
+          header={index === 0}
+          footer={index === data.currencies.length - 1}
+          currencySection
+        />
+      ))}
+    </>
+  );
+}
+
+function SingleLedger({
+  data: d,
+  header = true,
+  footer = true,
+  currencySection = false,
+}: {
+  data: SingleCurrencyBill;
+  header?: boolean;
+  footer?: boolean;
+  currencySection?: boolean;
+}) {
   const lang = languageForLocale(d.locale) ?? "en";
   const rtl = isRtlLanguage(lang);
   // Explicit snapshot value wins; absent (a bill cut before the calendar
@@ -392,11 +404,17 @@ function Ledger({ data: d }: { data: SharedLedger }) {
   // COHERENCE RULE (parity with mobile): the collapse only engages while the
   // current chapter's sum exactly explains the balance — otherwise the view
   // falls open rather than hide entries that account for the number shown.
-  // (The payload caps at 100 entries, so a truncated snapshot also fails
-  // coherence and falls open — never a silently wrong "current account".)
+  // Legacy senders capped their snapshots at 100 entries. Such older partial
+  // histories also fall open when they fail coherence. V2 sends complete sections.
   const boundary = d.settled_boundary_ms ?? null;
   const chapters = d.settled_chapters ?? 0;
   const [showSettled, setShowSettled] = useState(false);
+  useEffect(() => {
+    if (!currencySection) return;
+    const before = () => flushSync(() => setShowSettled(true));
+    window.addEventListener("beforeprint", before);
+    return () => window.removeEventListener("beforeprint", before);
+  }, [currencySection]);
   const currentEntries = boundary == null ? d.entries : d.entries.filter((e) => e.date > boundary);
   const settledEntries = boundary == null ? [] : d.entries.filter((e) => e.date <= boundary);
   // Match the app and SSR renderer: sum integer hundredths, never binary
@@ -445,7 +463,7 @@ function Ledger({ data: d }: { data: SharedLedger }) {
       {/* Statement card — the shop name is the centered header; the counterparty
           + balance read as a plain "<person> owes <amount>" statement below it. */}
       <div className="rounded-2xl border bg-white px-6 py-[26px]" style={{ borderColor: C.line }}>
-        {d.shop ? (
+        {header && d.shop ? (
           <p
             className="text-center text-[17px] font-bold tracking-[-0.01em]"
             style={{ color: C.ink }}
@@ -459,7 +477,7 @@ function Ledger({ data: d }: { data: SharedLedger }) {
             dated X", never as the current balance. Outside the settled fork
             so both layouts carry it. Older snapshots lack generated_at → 0
             → hidden. Mirrors the SSR shell's .billdate pill. */}
-        {d.generated_at > 0 ? (
+        {header && d.generated_at > 0 ? (
           <div className="mt-3 flex justify-center">
             <span
               className="rounded-full border px-3 py-1 text-[12px] font-semibold"
@@ -470,6 +488,11 @@ function Ledger({ data: d }: { data: SharedLedger }) {
           </div>
         ) : null}
 
+        {currencySection ? (
+          <p className="mt-3 text-center text-[13px] font-semibold" dir="ltr">
+            {d.currency}
+          </p>
+        ) : null}
         {dir === "settled" ? (
           // SUCCESS state (operator feedback 2026-07-27): a settled account
           // is an achievement, not an empty ledger — a big "0 ؋" reads as
@@ -608,12 +631,14 @@ function Ledger({ data: d }: { data: SharedLedger }) {
           paragraph the bidi algorithm snaps the wordmark's trailing "." to
           the left edge (".Powered by kaata" artifact). Forcing the line LTR
           keeps "kaata." intact; centered text, so alignment is unaffected. */}
-      <p dir="ltr" className="mt-[26px] text-center text-[12px]" style={{ color: C.mut }}>
-        {L.tag}{" "}
-        <Link to="/" className="font-bold" style={{ color: brand.primary }}>
-          {L.wordmark}
-        </Link>
-      </p>
+      {footer ? (
+        <p dir="ltr" className="mt-[26px] text-center text-[12px]" style={{ color: C.mut }}>
+          {L.tag}{" "}
+          <Link to="/" className="font-bold" style={{ color: brand.primary }}>
+            {L.wordmark}
+          </Link>
+        </p>
+      ) : null}
     </section>
   );
 }

@@ -44,6 +44,8 @@ export type Relationship = {
 export type EntryType = "debt" | "payment";
 
 export type Entry = {
+  /** Immutable denomination; old fixtures may omit it, persisted reads resolve it. */
+  currency?: string;
   id: string;
   relationship_id: string;
   type: EntryType;
@@ -104,6 +106,9 @@ export type Person = {
 // `balance` is signed: positive = they owe me, negative = I owe them, zero = settled.
 // Consumers usually display `Math.abs(balance)` and infer direction from the sign.
 export type PersonWithBalance = Person & {
+  currency?: string;
+  /** Independent denominations shown together; never add these balances. */
+  currency_balances?: PersonWithBalance[];
   balance: number;
   /** Derived shared-only amounts; ordinary private tallies are not part of
    * these fields. The headline balance includes confirmed shared records and
@@ -120,6 +125,7 @@ export type PersonWithBalance = Person & {
    * SQLite snapshot. Selection sums these integer amounts directly in memory;
    * single-person reads do not need to compute them. */
   selection_totals?: {
+    currency?: string;
     debtCount: number;
     creditCount: number;
     debtMinor: number;

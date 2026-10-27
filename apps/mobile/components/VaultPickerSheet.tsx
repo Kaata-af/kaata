@@ -1,21 +1,12 @@
 import { SheetBackdrop } from "./SheetBackdrop";
 import { SheetHandle } from "./SheetHandle";
+import { SheetSurface } from "./SheetSurface";
 import { useOverlayAnimation } from "../lib/use-overlay-animation";
 import { useSheetDrag } from "../lib/use-sheet-drag";
 import { Ionicons } from "@expo/vector-icons";
 import { useEffect, useMemo, useRef } from "react";
 import type { ComponentProps } from "react";
-import {
-  Animated,
-  Dimensions,
-  Modal,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
-import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import { Animated, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { colors } from "../lib/colors";
 import { getCurrencySymbol } from "../lib/currency";
 import { rowDir, textDir, trackingSafe, useIsRTL } from "../lib/direction";
@@ -81,7 +72,6 @@ export function VaultPickerSheet(props: {
   const { rendered, opacity, position: translateY } = useOverlayAnimation(props.visible, OFFSCREEN);
   const drag = useSheetDrag(props.visible, translateY, props.onDismiss);
   const isRTL = useIsRTL();
-  const insets = useSafeAreaInsets();
   const actionQueued = useRef(false);
   const actionTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(
@@ -139,22 +129,9 @@ export function VaultPickerSheet(props: {
         style={[styles.sheetContainer, { transform: [{ translateY: drag.translateY }] }]}
         pointerEvents={props.visible ? "box-none" : "none"}
       >
-        {/* maxHeight on SafeAreaView is the load-bearing constraint that
-            keeps the inner ScrollView bounded. Without it, the sheet would
-            flood past the status bar on a device with many vaults. Same
-            trap fixed in HamburgerMenuSheet.tsx (the original Phase 5.1
-            "completely messed up slider" bug). */}
-        <SafeAreaView
-          {...drag.surfacePanHandlers}
-          edges={["bottom"]}
-          style={[
-            styles.sheetWrap,
-            // Numeric maxHeight — "75%" against position:absolute parent with
-            // no explicit height is undefined in RN. Dimensions gives a
-            // concrete pixel cap. Same fix as ProfileSettingsSheet.
-            { maxHeight: Dimensions.get("window").height * 0.75 },
-          ]}
-        >
+        {/* The surface supplies a concrete height cap so the inner
+            ScrollView stays bounded even with many vaults. */}
+        <SheetSurface {...drag.surfacePanHandlers} maxHeightRatio={0.75} style={styles.sheetWrap}>
           {/* No onStartShouldSetResponder — it was blocking ScrollView pans
               from gap areas. Modal backdrop already handles outside-taps. */}
           <View style={styles.sheet}>
@@ -168,7 +145,7 @@ export function VaultPickerSheet(props: {
               showsVerticalScrollIndicator={false}
               bounces={false}
               contentContainerStyle={{
-                paddingBottom: 12 + insets.bottom * 0.25,
+                paddingBottom: 12,
               }}
             >
               {activeVaults.length === 0 ? (
@@ -236,7 +213,7 @@ export function VaultPickerSheet(props: {
               ) : null}
             </ScrollView>
           </View>
-        </SafeAreaView>
+        </SheetSurface>
       </Animated.View>
     </Modal>
   );
@@ -322,7 +299,7 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: colors.borderDefault,
   },
-  // flexShrink so SafeAreaView's maxHeight propagates to the ScrollView.
+  // flexShrink so SheetSurface's height cap propagates to the ScrollView.
   sheet: { paddingTop: 8, paddingBottom: 0, flexShrink: 1 },
   title: {
     fontSize: 11,

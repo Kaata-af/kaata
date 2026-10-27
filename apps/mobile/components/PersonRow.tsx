@@ -4,7 +4,7 @@ import { CreditStatusBadge, type CreditStatus } from "./CreditStatusBadge";
 import { memo, useRef } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { colors } from "../lib/colors";
-import { getCurrentCurrencySymbol } from "../lib/currency";
+import { getCurrentCurrencyCode, getCurrencyLabel } from "../lib/currency";
 import { rowDir, textDir, useIsRTL } from "../lib/direction";
 import { fonts } from "../lib/fonts";
 import { formatAmount, formatRelative } from "../lib/format";
@@ -12,6 +12,7 @@ import { t } from "../lib/i18n";
 import { icon } from "../lib/tokens";
 import type { PersonWithBalance } from "../lib/types";
 import { SelectionMark } from "./SelectionMark";
+import { personCurrencyRows } from "../lib/multi-currency-view";
 
 // Stacked-card list row. Designed to live inside a rounded container with
 // borderWidth:1 and divider Views between rows.
@@ -36,11 +37,9 @@ export const PersonRow = memo(function PersonRow(props: {
   const isRTL = useIsRTL();
   const { person } = props;
   const activePress = useRef<{ personId: string } | null>(null);
-  const abs = Math.abs(person.balance);
   // Deliberately settled (user drew the line, balance zero, nothing since) —
   // NOT the same as a balance that merely sums to zero. Settled rows get a
   // check mark instead of "0 ؋"; zero-but-unsettled rows keep the muted 0.
-  const settled = person.is_settled === 1;
   // Every row reads as a plain timeline — no "settled X ago" wording
   // (operator decision 2026-07-27: the check mark carries the state).
   const timeline = !person.last_entry_at
@@ -55,9 +54,6 @@ export const PersonRow = memo(function PersonRow(props: {
   // A shared account found on this phone but not downloaded yet has no known
   // balance: say so rather than show a false 0.
   const unsynced = person.tab_unsynced === 1;
-  const showDirection = props.showDirection && !unsynced && !settled && person.balance !== 0;
-  const directionColor = person.balance > 0 ? colors.collectText : colors.payText;
-  const amount = formatAmount(abs);
   const subtitle = unsynced
     ? t("tab.row.notDownloaded")
     : person.tab_id && person.tab_pending > 0
@@ -145,52 +141,45 @@ export const PersonRow = memo(function PersonRow(props: {
         </Text>
       </View>
       <View style={{ alignItems: isRTL ? "flex-start" : "flex-end" }}>
-        <View style={[styles.right, rowDir(isRTL), settled && { alignItems: "center" }]}>
-          {unsynced ? (
-            <Text style={[styles.amount, { color: colors.textMuted }]} maxFontSizeMultiplier={1.5}>
-              …
-            </Text>
-          ) : settled ? (
-            // Cleared account: the mark, not a meaningless zero. Grey, not
-            // emerald — emerald/garnet are strictly directional (money toward
-            // you / away from you) and a settled account has no direction. Grey
-            // rather than the ink black used for live amounts, too: a settled
-            // row is finished business and shouldn't pull the eye harder than
-            // the balances that still need attention.
-            //
-            // Bare "checkmark", not "checkmark-circle": the tick alone is the
-            // tally mark a shopkeeper draws when an account is cleared, and the
-            // circle read as a status badge. Sized icon.row (22) rather than the
-            // 20 the circled version used — dropping the disc removes most of the
-            // glyph's ink, so at the same nominal size it reads visibly lighter
-            // than the 15px amount it replaces in this column.
-            <Ionicons name="checkmark" size={icon.row} color={colors.textSubtle} />
-          ) : (
-            <>
-              {/* L41: cap the amount's font scaling so it can't grow so wide at
-                large OS font that it crushes the flex:1 name column. */}
-              <Text
-                accessibilityLabel={
-                  showDirection
-                    ? `${t(person.balance > 0 ? "home.tab.collect" : "home.tab.pay")}, ${amount}`
-                    : undefined
-                }
-                style={[
-                  styles.amount,
-                  abs === 0 && { color: colors.textMuted },
-                  showDirection && { color: directionColor },
-                ]}
-                numberOfLines={1}
-                maxFontSizeMultiplier={1.5}
-              >
-                {showDirection ? `${person.balance > 0 ? "+" : "−"}${amount}` : amount}
-              </Text>
+        {personCurrencyRows(person).map((row) => {
+          const code = row.currency ?? getCurrentCurrencyCode();
+          const value = formatAmount(Math.abs(row.balance));
+          const tone =
+            row.balance > 0
+              ? colors.collectStrong
+              : row.balance < 0
+                ? colors.payStrong
+                : colors.textMuted;
+          return (
+            <View key={code} style={[styles.right, { direction: "ltr", marginTop: 3 }]}>
+              {row.is_settled === 1 ? (
+                <Ionicons name="checkmark" size={icon.row} color={colors.textSubtle} />
+              ) : (
+                <Text
+                  style={[styles.amount, { color: tone }]}
+                  numberOfLines={1}
+                  maxFontSizeMultiplier={1.5}
+                  accessibilityLabel={
+                    row.tab_unsynced === 1
+                      ? t("tab.notDownloaded")
+                      : `${row.balance === 0 ? "" : t(row.balance > 0 ? "home.tab.collect" : "home.tab.pay") + ", "}${value} ${getCurrencyLabel(code)}`
+                  }
+                >
+                  {row.tab_unsynced === 1
+                    ? "…"
+                    : (props.showDirection && row.balance !== 0
+                        ? row.balance > 0
+                          ? "+"
+                          : "−"
+                        : "") + value}
+                </Text>
+              )}
               <Text style={styles.afn} maxFontSizeMultiplier={1.5}>
-                {getCurrentCurrencySymbol()}
+                {getCurrencyLabel(code)}
               </Text>
-            </>
-          )}
-        </View>
+            </View>
+          );
+        })}
         <CreditStatusBadge status={props.creditStatus ?? "none"} />
       </View>
     </Pressable>

@@ -202,7 +202,7 @@ func TestCreditAcceptedOpeningAbsorbsOlderRowsAndOlderReviewsHaveZeroDelta(t *te
 	}
 }
 
-func TestLegacyMixedCurrencyHistoryFailsCreditAndSettlementClosed(t *testing.T) {
+func TestLegacyMixedCurrencyHistoryKeepsCreditAndSettlementSeparate(t *testing.T) {
 	f := newCheckpointCreditFixture(t)
 	ctx := context.Background()
 	if _, err := f.svc.Dispute(ctx, f.b, f.current.Entries[0].ID, "Not agreed"); err != nil {
@@ -241,16 +241,17 @@ func TestLegacyMixedCurrencyHistoryFailsCreditAndSettlementClosed(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, readErr := syncapi.CreditBalance(ctx, tx, f.vaultA, f.relA)
+	afnBalance, readErr := syncapi.CreditBalance(ctx, tx, f.vaultA, f.relA, "AFN")
+	usdBalance, usdErr := syncapi.CreditBalance(ctx, tx, f.vaultA, f.relA, "USD")
 	_ = tx.Rollback(ctx)
-	if readErr == nil {
-		t.Fatal("unlike currencies were summed into available credit")
+	if readErr != nil || usdErr != nil || afnBalance != 30000 || usdBalance != -30000 {
+		t.Fatalf("currencies must retain separate exposure: AFN=%d USD=%d %v %v", afnBalance, usdBalance, readErr, usdErr)
 	}
 	before, err := f.svc.Get(ctx, f.a, 0)
 	if err != nil || before.Tab.Balance["a"] != "0" {
 		t.Fatalf("fixture must have a current-tab raw zero: %+v %v", before.Tab, err)
 	}
-	if _, err := f.svc.Settle(ctx, f.b, SettleInput{ID: uuid.NewString(), ExpectedRev: before.Tab.Rev}); !errors.Is(err, ErrCurrencyMismatch) {
+	if _, err := f.svc.Settle(ctx, f.b, SettleInput{ID: uuid.NewString(), ExpectedRev: before.Tab.Rev}); !errors.Is(err, ErrSettlementNotZero) {
 		t.Fatalf("mixed accepted totals certified a false zero: %v", err)
 	}
 	after, err := f.svc.Get(ctx, f.a, 0)

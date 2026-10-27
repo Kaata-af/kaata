@@ -40,6 +40,9 @@ import { hostPairOverBtc, type HostPairHandle } from "../../lib/mesh/pair-btc";
 import { getLocalName, getLocalAddress } from "../../modules/kaata-bt-classic";
 
 type VaultLite = {
+  currency: string;
+  legacy_currency: string;
+  default_entry_currency: string;
   id: string;
   name: string;
   vault_trust_anchor_pubkey: string | null;
@@ -129,21 +132,17 @@ export default function VaultPairScreen() {
         // path. Null on devices that hide it; the scanner then falls back to
         // inquiry-by-UUID. Best-effort; omitted from the QR when null.
         const btMac = await getLocalAddress().catch(() => null);
-        // Schema version selection. The chain pair path REQUIRES the
-        // owner's trust anchor pubkey in the QR (the joiner pins it). We
-        // got the device pubkey above, so ship v=3 with the bidirectional
-        // pair fields. If we somehow STILL don't have one (ensureDeviceKey
-        // failed — extremely rare; the only realistic failure is the
-        // SecureStore being wiped mid-process), fall back to v=2 so the QR
-        // is at least a parseable payload rather than breaking the flow
-        // with "Couldn't read this code" — but a v=2 QR can't complete a
-        // chain join (no anchor to pin), so the user must re-issue once
-        // the key is available.
-        const qrVersion: 2 | 3 = devicePubkey ? 3 : 2;
+        // Currency-aware receivers need the original denomination before
+        // replay, so this QR must carry both identity and book metadata.
+        if (!devicePubkey) throw new Error("Device key unavailable");
+        const qrVersion = PAIR_QR_VERSION;
         const next: PairQrPayload = {
           v: qrVersion,
           vault_id: v.id,
           vault_name: v.name,
+          currency: v.currency,
+          legacy_currency: v.legacy_currency,
+          default_entry_currency: v.default_entry_currency,
           issuer_account_id: accId ?? localIssuerId,
           issuer_install_id: getInstallIdSync(),
           issued_at_ms: now,
@@ -158,9 +157,8 @@ export default function VaultPairScreen() {
           // The owner's pair-admission emission (verifyPeerChain) carries
           // it into the joiner's vault_member_added.
           role: chosenRole,
-          // v=3: bidirectional pair fields. Only set when devicePubkey
-          // is non-null AND we're emitting v=3.
-          ...(qrVersion === 3 && devicePubkey
+          // The issuer identity accompanies the currency-aware QR.
+          ...(devicePubkey
             ? {
                 issuer_device_pubkey: devicePubkey,
                 issuer_display_name: ownerDisplayName,
@@ -213,7 +211,7 @@ export default function VaultPairScreen() {
         }
         const db = await getDb();
         const row = await db.getFirstAsync<VaultLite>(
-          `SELECT id, name, vault_trust_anchor_pubkey
+          `SELECT id, name,currency,legacy_currency,default_entry_currency,vault_trust_anchor_pubkey
              FROM vaults WHERE id = ? LIMIT 1`,
           activeVaultId,
         );

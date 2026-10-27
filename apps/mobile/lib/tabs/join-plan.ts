@@ -4,12 +4,8 @@
 // before it asks the user anything, as pure functions over plain facts so
 // selftest:tab-join can pin them without a database or a device:
 //
-//   planCurrency       — D9: a tab lives only in a kaata of its currency, and
-//                        "you need a USD kaata" used to be a dead end (Matee:
-//                        "even if I change my vault to usd I still get
-//                        prompted"). Given every kaata's facts, sort them into
-//                        already-matching / switchable / locked and say whether
-//                        the one-tap default is a switch or a new kaata.
+//   planCurrency       � any kaata can host the invitation's denomination
+//                        without changing its default or older tallies.
 //   suggestJoinContact — the invitation comes from a phone number (the other
 //                        party's account phone, WireParty.phone), so "who is
 //                        this in your kaata?" usually has an answer before the
@@ -43,46 +39,20 @@ export type VaultFacts = {
 };
 
 export type CurrencyPlan = {
-  /** currency === the tab's: joinable as-is. */
+  /** All available kaatas: joining never changes their stored currency. */
   matching: VaultFacts[];
-  /** Could be switched to the tab's currency. `relabels` = the book is not
-   *  empty (live tallies or any tab), so a switch relabels existing amounts
-   *  without converting them and the screen must say so. */
+  /** Retained for older callers; new plans never require a currency switch. */
   switchable: Array<{ vault: VaultFacts; relabels: boolean }>;
-  /** Cannot be switched: an open tab pins it, or the role may not change settings. */
+  /** Empty: authorization remains the join service's responsibility. */
   locked: Array<{ vault: VaultFacts; reason: "open_tab" | "role" }>;
-  /** The one-tap default. 'switch' only when nothing matches, exactly ONE
-   *  kaata is switchable, it is empty (nothing to relabel) and nothing is
-   *  locked; every other shape defaults to creating a kaata in the tab's
-   *  currency, with the switch offered as a secondary row. */
+  /** New-book option when the user has no kaata yet. */
   primary: "switch" | "create";
 };
 
-export function planCurrency(vaults: VaultFacts[], tabCurrency: string): CurrencyPlan {
-  const matching: VaultFacts[] = [];
-  const switchable: CurrencyPlan["switchable"] = [];
-  const locked: CurrencyPlan["locked"] = [];
-  for (const vault of vaults) {
-    if (vault.currency === tabCurrency) {
-      matching.push(vault);
-    } else if (vault.hasOpenTab) {
-      // Checked before the role: even a manager cannot switch under an open
-      // tab, and "locked by a shared account" is the reason worth reading.
-      locked.push({ vault, reason: "open_tab" });
-    } else if (!vault.canChangeCurrency) {
-      locked.push({ vault, reason: "role" });
-    } else {
-      switchable.push({ vault, relabels: vault.liveEntries > 0 || vault.hasAnyTab });
-    }
-  }
-  const primary =
-    matching.length === 0 &&
-    switchable.length === 1 &&
-    !switchable[0].relabels &&
-    locked.length === 0
-      ? "switch"
-      : "create";
-  return { matching, switchable, locked, primary };
+export function planCurrency(vaults: VaultFacts[], _tabCurrency: string): CurrencyPlan {
+  // The invitation owns its denomination. Joining it never relabels a book
+  // and an unrelated currency's open tab does not block this contact.
+  return { matching: [...vaults], switchable: [], locked: [], primary: "create" };
 }
 
 // ---------------------------------------------------------------------------

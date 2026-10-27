@@ -2,11 +2,11 @@ import { SheetBackdrop } from "./SheetBackdrop";
 import { useOverlayAnimation } from "../lib/use-overlay-animation";
 import { useSheetDrag } from "../lib/use-sheet-drag";
 import { SheetHandle } from "./SheetHandle";
+import { SheetSurface } from "./SheetSurface";
 import { Ionicons } from "@expo/vector-icons";
 import { useEffect, useRef } from "react";
 import { Animated, Modal, Pressable, StyleSheet, Text, View } from "react-native";
 import type { ComponentProps } from "react";
-import { SafeAreaView } from "react-native-safe-area-context";
 import { colors } from "../lib/colors";
 import { rowDir, textDir, useIsRTL } from "../lib/direction";
 import { fonts } from "../lib/fonts";
@@ -72,7 +72,7 @@ export function BottomSheet(props: {
         style={[styles.sheetContainer, { transform: [{ translateY: drag.translateY }] }]}
         pointerEvents={props.visible ? "box-none" : "none"}
       >
-        <SafeAreaView {...drag.surfacePanHandlers} edges={["bottom"]} style={styles.sheetWrap}>
+        <SheetSurface {...drag.surfacePanHandlers} style={styles.sheetWrap}>
           <View style={styles.sheet}>
             <SheetHandle panHandlers={drag.panHandlers} onDismiss={drag.dismiss} />
             {props.title ? <Text style={[styles.title, textDir(isRTL)]}>{props.title}</Text> : null}
@@ -116,7 +116,7 @@ export function BottomSheet(props: {
               );
             })}
           </View>
-        </SafeAreaView>
+        </SheetSurface>
       </Animated.View>
     </Modal>
   );

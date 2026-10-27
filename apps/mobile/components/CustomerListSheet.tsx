@@ -1,9 +1,8 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   AccessibilityInfo,
   Animated,
-  Dimensions,
   Modal,
   Pressable,
   ScrollView,
@@ -11,12 +10,12 @@ import {
   Text,
   View,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
 import { colors } from "../lib/colors";
 import { fonts } from "../lib/fonts";
 import { rowDir, textDir } from "../lib/direction";
 import { t } from "../lib/i18n";
 import {
+  CUSTOMER_BALANCE_FILTERS,
   CUSTOMER_SORTS,
   selectedCustomerGroupIds,
   toggleCustomerGroupFilter,
@@ -27,6 +26,7 @@ import { radius, space, TOUCH_MIN, typography } from "../lib/tokens";
 import { Button } from "./Button";
 import { SheetBackdrop } from "./SheetBackdrop";
 import { SheetHandle } from "./SheetHandle";
+import { SheetSurface } from "./SheetSurface";
 import { useSheetDrag } from "../lib/use-sheet-drag";
 
 type CustomerListOptionsProps = {
@@ -34,6 +34,10 @@ type CustomerListOptionsProps = {
   groups: readonly CustomerGroup[];
   isRTL: boolean;
   onChange: (preference: CustomerListPreference) => void;
+  compact?: boolean;
+  amountSortAvailable?: boolean;
+  /** A parent popup already supplies the card and padding. */
+  embedded?: boolean;
 };
 
 /** Shared in-flow controls, including inside the search sheet's own scroll area. */
@@ -43,25 +47,28 @@ export function CustomerListOptions(props: CustomerListOptionsProps) {
     label: string,
     selected: boolean,
     onPress: () => void,
-    kind: "sort" | "group",
+    kind: "sort" | "balance" | "group",
   ) => (
     <Pressable
       key={key}
-      accessibilityRole={kind === "sort" ? "radio" : "checkbox"}
+      accessibilityRole={kind === "group" ? "checkbox" : "radio"}
       accessibilityLabel={label}
       accessibilityState={{ checked: selected, selected }}
       onPress={onPress}
       style={({ pressed }) => [
-        kind === "sort" ? styles.sortChoice : styles.groupChoice,
-        kind === "sort" && key === "outstanding_name" && styles.defaultSort,
+        kind === "group" ? styles.groupChoice : styles.sortChoice,
+        props.compact && styles.choiceCompact,
+        ((kind === "sort" && key === "outstanding_name") ||
+          (kind === "balance" && key === "all")) &&
+          styles.defaultSort,
         rowDir(props.isRTL),
-        selected && (kind === "sort" ? styles.sortSelected : styles.groupSelected),
+        selected && (kind === "group" ? styles.groupSelected : styles.sortSelected),
         pressed && styles.pressed,
       ]}
     >
       <Ionicons
         name={
-          kind === "sort"
+          kind !== "group"
             ? selected
               ? "radio-button-on"
               : "radio-button-off"
@@ -70,77 +77,144 @@ export function CustomerListOptions(props: CustomerListOptionsProps) {
               : "square-outline"
         }
         size={18}
-        color={selected && kind === "sort" ? colors.textInverted : colors.textSubtle}
+        color={selected && kind !== "group" ? colors.textInverted : colors.textSubtle}
       />
       <Text
         style={[
           styles.choiceLabel,
           textDir(props.isRTL),
           selected && styles.selectedLabel,
-          selected && kind === "sort" && styles.sortSelectedLabel,
+          selected && kind !== "group" && styles.sortSelectedLabel,
         ]}
       >
         {label}
       </Text>
     </Pressable>
   );
-  return (
-    <View style={styles.options}>
-      <View style={styles.optionsSection}>
-        <View style={[styles.sectionHeading, rowDir(props.isRTL)]}>
-          <Ionicons name="swap-vertical-outline" size={18} color={colors.textSubtle} />
-          <Text style={[styles.section, textDir(props.isRTL)]}>{t("customers.sort")}</Text>
-        </View>
-        <View style={[styles.sortChoices, rowDir(props.isRTL)]}>
-          {CUSTOMER_SORTS.map((sort) =>
-            choice(
-              sort,
-              t(`customers.sort.${sort}`),
-              props.preference.sort === sort,
-              () => props.onChange({ ...props.preference, sort }),
-              "sort",
-            ),
-          )}
-        </View>
+  const section = (children: ReactNode) =>
+    props.embedded ? (
+      children
+    ) : (
+      <View style={[styles.optionsSection, props.compact && styles.sectionCompact]}>
+        {children}
       </View>
-      {props.groups.length > 0 ? (
-        <View style={styles.optionsSection}>
+    );
+  return (
+    <View style={[styles.options, props.compact && styles.optionsCompact]}>
+      {section(
+        <>
           <View style={[styles.sectionHeading, rowDir(props.isRTL)]}>
-            <Ionicons name="people-outline" size={18} color={colors.textSubtle} />
-            <Text style={[styles.section, textDir(props.isRTL)]}>{t("groups.filter")}</Text>
+            <Ionicons name="wallet-outline" size={18} color={colors.textSubtle} />
+            <Text style={[styles.section, textDir(props.isRTL)]}>
+              {t("customers.balanceFilter")}
+            </Text>
           </View>
-          <Text style={[styles.help, textDir(props.isRTL)]}>{t("groups.filterHelp")}</Text>
-          <View style={[styles.groupChoices, rowDir(props.isRTL)]}>
-            {[
-              { id: "all", name: t("groups.all") },
-              { id: "ungrouped", name: t("groups.ungrouped") },
-              ...props.groups,
-            ].map((group) =>
+          <Text style={[styles.help, textDir(props.isRTL)]}>
+            {t("customers.balanceFilter.help")}
+          </Text>
+          <View
+            accessibilityRole="radiogroup"
+            accessibilityLabel={t("customers.balanceFilter")}
+            style={[
+              styles.sortChoices,
+              rowDir(props.isRTL),
+              props.compact && styles.choicesCompact,
+            ]}
+          >
+            {CUSTOMER_BALANCE_FILTERS.map((direction) =>
               choice(
-                group.id,
-                group.name,
-                group.id === "all" || group.id === "ungrouped"
-                  ? props.preference.group === group.id
-                  : selectedCustomerGroupIds(props.preference.group).includes(group.id),
-                () =>
-                  props.onChange({
-                    ...props.preference,
-                    group:
-                      group.id === "all" || group.id === "ungrouped"
-                        ? group.id
-                        : toggleCustomerGroupFilter(props.preference.group, group.id),
-                  }),
-                "group",
+                direction,
+                t(`customers.balanceFilter.${direction}`),
+                (props.preference.direction ?? "all") === direction,
+                () => props.onChange({ ...props.preference, direction }),
+                "balance",
               ),
             )}
           </View>
-        </View>
-      ) : null}
+        </>,
+      )}
+      {section(
+        <>
+          <View style={[styles.sectionHeading, rowDir(props.isRTL)]}>
+            <Ionicons name="swap-vertical-outline" size={18} color={colors.textSubtle} />
+            <Text style={[styles.section, textDir(props.isRTL)]}>{t("customers.sort")}</Text>
+          </View>
+          {props.amountSortAvailable === false ? (
+            <Text style={[styles.help, textDir(props.isRTL)]}>
+              {t("customers.sort.multiCurrencyHelp")}
+            </Text>
+          ) : null}
+          <View
+            accessibilityRole="radiogroup"
+            accessibilityLabel={t("customers.sort")}
+            style={[
+              styles.sortChoices,
+              rowDir(props.isRTL),
+              props.compact && styles.choicesCompact,
+            ]}
+          >
+            {CUSTOMER_SORTS.filter(
+              (sort) =>
+                props.amountSortAvailable !== false ||
+                (sort !== "amount_desc" && sort !== "amount_asc"),
+            ).map((sort) =>
+              choice(
+                sort,
+                t(`customers.sort.${sort}`),
+                props.preference.sort === sort,
+                () => props.onChange({ ...props.preference, sort }),
+                "sort",
+              ),
+            )}
+          </View>
+        </>,
+      )}
+      {props.groups.length > 0
+        ? section(
+            <>
+              <View style={[styles.sectionHeading, rowDir(props.isRTL)]}>
+                <Ionicons name="people-outline" size={18} color={colors.textSubtle} />
+                <Text style={[styles.section, textDir(props.isRTL)]}>{t("groups.filter")}</Text>
+              </View>
+              <Text style={[styles.help, textDir(props.isRTL)]}>{t("groups.filterHelp")}</Text>
+              <View
+                style={[
+                  styles.groupChoices,
+                  rowDir(props.isRTL),
+                  props.compact && styles.choicesCompact,
+                ]}
+              >
+                {[
+                  { id: "all", name: t("groups.all") },
+                  { id: "ungrouped", name: t("groups.ungrouped") },
+                  ...props.groups,
+                ].map((group) =>
+                  choice(
+                    group.id,
+                    group.name,
+                    group.id === "all" || group.id === "ungrouped"
+                      ? props.preference.group === group.id
+                      : selectedCustomerGroupIds(props.preference.group).includes(group.id),
+                    () =>
+                      props.onChange({
+                        ...props.preference,
+                        group:
+                          group.id === "all" || group.id === "ungrouped"
+                            ? group.id
+                            : toggleCustomerGroupFilter(props.preference.group, group.id),
+                      }),
+                    "group",
+                  ),
+                )}
+              </View>
+            </>,
+          )
+        : null}
     </View>
   );
 }
 
-/** One small entry point, two independent choices; no permanent filter bar. */
+/** One small entry point for balance, sort and group choices. */
 export function CustomerListSheet(props: {
   visible: boolean;
   preference: CustomerListPreference;
@@ -263,12 +337,11 @@ export function CustomerListSheet(props: {
           styles.container,
           {
             transform: [{ translateY: drag.translateY }],
-            maxHeight: Dimensions.get("window").height * 0.78,
           },
         ]}
         pointerEvents={props.visible ? "auto" : "none"}
       >
-        <SafeAreaView {...drag.surfacePanHandlers} edges={["bottom"]} style={styles.content}>
+        <SheetSurface {...drag.surfacePanHandlers} maxHeightRatio={0.78} style={styles.content}>
           <SheetHandle panHandlers={drag.panHandlers} onDismiss={drag.dismiss} />
           <Text style={[styles.title, textDir(props.isRTL)]}>{t("customers.listOptions")}</Text>
           <ScrollView {...drag.scrollProps} bounces={false} style={styles.optionsScroll}>
@@ -299,7 +372,7 @@ export function CustomerListSheet(props: {
               />
             </View>
           ) : null}
-        </SafeAreaView>
+        </SheetSurface>
       </Animated.View>
     </Modal>
   );
@@ -333,6 +406,10 @@ const styles = StyleSheet.create({
     paddingBottom: 4,
   },
   options: { padding: space.lg, gap: space.lg },
+  optionsCompact: { padding: 0, gap: space.sm },
+  sectionCompact: { padding: space.sm, gap: space.sm },
+  choicesCompact: { gap: space.xs },
+  choiceCompact: { paddingHorizontal: space.sm, paddingVertical: space.xs, gap: space.xs },
   optionsSection: {
     padding: space.md,
     borderRadius: radius.lg,

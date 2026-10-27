@@ -895,13 +895,6 @@ func checkContactBinding(ctx context.Context, tx pgx.Tx, tabID, role, currency s
 	if vaultID == nil {
 		return nil
 	}
-	var vaultCurrency string
-	if err := tx.QueryRow(ctx, `SELECT currency FROM vaults WHERE vault_id=$1::uuid`, *vaultID).Scan(&vaultCurrency); err != nil {
-		return err
-	}
-	if currency != vaultCurrency {
-		return ErrCurrencyMismatch
-	}
 	if relID == nil {
 		return nil
 	}
@@ -911,7 +904,7 @@ func checkContactBinding(ctx context.Context, tx pgx.Tx, tabID, role, currency s
 	var conflict bool
 	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM tab_parties p JOIN tabs t ON t.id=p.tab_id
 	 WHERE p.vault_id=$1::uuid AND p.relationship_id=$2::uuid AND t.closed_at IS NULL
-	 AND (p.tab_id::text<>$3 OR p.role<>$4))`, *vaultID, *relID, tabID, role).Scan(&conflict); err != nil {
+	 AND t.currency=$5 AND (p.tab_id::text<>$3 OR p.role<>$4))`, *vaultID, *relID, tabID, role, currency).Scan(&conflict); err != nil {
 		return err
 	}
 	if conflict {
@@ -922,26 +915,15 @@ func checkContactBinding(ctx context.Context, tx pgx.Tx, tabID, role, currency s
 	if alreadyScoped {
 		return nil
 	}
-	// A book may have changed currency since a prior shared period. Its
-	// outstanding history cannot be silently carried into another currency.
-	var currencyChanged bool
-	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM tab_parties p JOIN tabs t ON t.id=p.tab_id
-	 WHERE p.vault_id=$1::uuid AND p.relationship_id=$2::uuid AND t.closed_at IS NOT NULL
-	 AND p.tab_id::text<>$3 AND t.currency<>$4)`, *vaultID, *relID, tabID, currency).Scan(&currencyChanged); err != nil {
-		return err
-	}
-	if currencyChanged {
-		return ErrCurrencyMismatch
-	}
 	// A new opening carries the previous period's total. Once that happens,
 	// later resolution of an older proposal would invalidate the carry-over.
 	// Closing never strands a review, so finish that finite history first.
 	var unresolved bool
 	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM tab_parties p JOIN tabs t ON t.id=p.tab_id
 	 WHERE p.vault_id=$1::uuid AND p.relationship_id=$2::uuid AND t.closed_at IS NOT NULL
-	 AND p.tab_id::text<>$3 AND EXISTS (SELECT 1 FROM tab_entries e WHERE e.tab_id=t.id
+	 AND p.tab_id::text<>$3 AND t.currency=$4 AND EXISTS (SELECT 1 FROM tab_entries e WHERE e.tab_id=t.id
 	   AND e.kind<>'void' AND e.voided_by_entry_id IS NULL AND e.status='pending'))`,
-		*vaultID, *relID, tabID).Scan(&unresolved); err != nil {
+		*vaultID, *relID, tabID, currency).Scan(&unresolved); err != nil {
 		return err
 	}
 	if unresolved {
@@ -953,8 +935,8 @@ func checkContactBinding(ctx context.Context, tx pgx.Tx, tabID, role, currency s
 	var latestRev int64
 	rows, err := tx.Query(ctx, `SELECT t.id::text, t.rev FROM tab_parties p JOIN tabs t ON t.id=p.tab_id
 	 WHERE p.vault_id=$1::uuid AND p.relationship_id=$2::uuid AND t.closed_at IS NOT NULL
-	 AND p.tab_id::text<>$3 ORDER BY p.history_order ASC NULLS FIRST, t.created_at ASC, t.id ASC
-	 FOR UPDATE OF t`, *vaultID, *relID, tabID)
+	 AND p.tab_id::text<>$3 AND t.currency=$4 ORDER BY p.history_order ASC NULLS FIRST, t.created_at ASC, t.id ASC
+	 FOR UPDATE OF t`, *vaultID, *relID, tabID, currency)
 	if err != nil {
 		return err
 	}
@@ -1003,7 +985,7 @@ func checkContactBinding(ctx context.Context, tx pgx.Tx, tabID, role, currency s
 		// An accepted opening is a checkpoint; pending/rejected openings do
 		// not replace earlier acknowledgements. Sign every period from this
 		// book's own party role, which may differ across periods.
-		nonzero, _, err := sharedAcceptedHistory(ctx, tx, *vaultID, *relID, tabID)
+		nonzero, _, err := sharedAcceptedHistory(ctx, tx, *vaultID, *relID, tabID, currency)
 		if err != nil {
 			return err
 		}
@@ -1017,28 +999,24 @@ func checkContactBinding(ctx context.Context, tx pgx.Tx, tabID, role, currency s
 // A counterparty-confirmed opening replaces earlier accepted periods. A
 // proposal/rejection/cancellation is never a replacement acknowledgement.
 // Pending reports cover every period, including absorbed legacy proposals.
-func sharedAcceptedHistory(ctx context.Context, q querier, vaultID, relationshipID, exceptTabID string) (nonzero, pending bool, err error) {
-	var mixedCurrency bool
+func sharedAcceptedHistory(ctx context.Context, q querier, vaultID, relationshipID, exceptTabID, currency string) (nonzero, pending bool, err error) {
 	err = q.QueryRow(ctx, `WITH periods AS (
-	 SELECT p.tab_id,p.role,p.history_order,t.currency FROM tab_parties p JOIN tabs t ON t.id=p.tab_id
-	 WHERE p.vault_id=$1::uuid AND p.relationship_id=$2::uuid AND p.tab_id::text<>$3
-	), checkpoint AS (
-	 SELECT MAX(p.history_order) AS history_order FROM periods p JOIN tab_entries e ON e.tab_id=p.tab_id
-	 WHERE e.kind='opening' AND e.status='accepted' AND e.voided_by_entry_id IS NULL
-	)
-	 SELECT COALESCE(SUM(CASE WHEN (p.role='a' AND e.direction='a_to_b') OR (p.role='b' AND e.direction='b_to_a')
-	   THEN e.amount_minor ELSE -e.amount_minor END),0)<>0,
-	 EXISTS(SELECT 1 FROM periods pp JOIN tab_entries pe ON pe.tab_id=pp.tab_id
-	   WHERE pe.kind<>'void' AND pe.voided_by_entry_id IS NULL AND pe.status='pending'),
-	 (SELECT COUNT(DISTINCT currency)>1 FROM periods) OR EXISTS(
-	   SELECT 1 FROM periods pc JOIN vaults v ON v.vault_id=$1::uuid WHERE pc.currency<>v.currency)
-	 FROM periods p JOIN tab_entries e ON e.tab_id=p.tab_id CROSS JOIN checkpoint c
-	 WHERE p.history_order>=COALESCE(c.history_order,0) AND e.kind<>'void'
-	   AND e.status='accepted' AND e.voided_by_entry_id IS NULL`, vaultID, relationshipID, exceptTabID).Scan(&nonzero, &pending, &mixedCurrency)
-	if err == nil && mixedCurrency {
-		return false, false, ErrCurrencyMismatch
-	}
+ SELECT p.tab_id,p.role,p.history_order FROM tab_parties p JOIN tabs t ON t.id=p.tab_id
+ WHERE p.vault_id=$1::uuid AND p.relationship_id=$2::uuid AND p.tab_id::text<>$3 AND t.currency=$4
+ ), checkpoint AS (
+ SELECT MAX(p.history_order) AS history_order FROM periods p JOIN tab_entries e ON e.tab_id=p.tab_id
+ WHERE e.kind='opening' AND e.status='accepted' AND e.voided_by_entry_id IS NULL
+ ) SELECT COALESCE(SUM(CASE WHEN (p.role='a' AND e.direction='a_to_b') OR (p.role='b' AND e.direction='b_to_a') THEN e.amount_minor ELSE -e.amount_minor END),0)<>0,
+ EXISTS(SELECT 1 FROM periods pp JOIN tab_entries pe ON pe.tab_id=pp.tab_id WHERE pe.kind<>'void' AND pe.voided_by_entry_id IS NULL AND pe.status='pending')
+ FROM periods p JOIN tab_entries e ON e.tab_id=p.tab_id CROSS JOIN checkpoint c
+ WHERE p.history_order>=COALESCE(c.history_order,0) AND e.kind<>'void' AND e.status='accepted' AND e.voided_by_entry_id IS NULL`, vaultID, relationshipID, exceptTabID, currency).Scan(&nonzero, &pending)
 	return
+}
+
+func tabCurrency(ctx context.Context, q querier, tabID string) (string, error) {
+	var code string
+	err := q.QueryRow(ctx, `SELECT currency FROM tabs WHERE id=$1::uuid`, tabID).Scan(&code)
+	return code, err
 }
 
 // insertEntry writes one tab_entries row under the held lock and returns it
@@ -1131,7 +1109,7 @@ func (s *Service) poke(ctx context.Context, tabID string) {
 // carried over — never a silent history merge.
 func (s *Service) Create(ctx context.Context, in CreateInput) (CreateResult, error) {
 	currency := strings.TrimSpace(in.Currency)
-	if currency == "" || utf8.RuneCountInString(currency) > maxCurrencyRunes {
+	if !credit.ValidCurrency(currency) {
 		return CreateResult{}, ErrInvalidCurrency
 	}
 	label, err := validLabel(in.Label)
@@ -1173,7 +1151,7 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (CreateResult, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	linkCredit, err := s.beginLinkCredit(ctx, tx, in.VaultID, in.RelationshipID, in.AccountID)
+	linkCredit, err := s.beginLinkCredit(ctx, tx, in.VaultID, in.RelationshipID, in.AccountID, currency)
 	if err != nil {
 		return CreateResult{}, err
 	}
@@ -1339,7 +1317,11 @@ func (s *Service) Join(ctx context.Context, p Party, in JoinInput) (TabResponse,
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	linkVault, linkRelationship := creditLinkDestination(p, in.VaultID, in.RelationshipID)
-	linkCredit, err := s.beginLinkCredit(ctx, tx, linkVault, linkRelationship, in.AccountID)
+	code, err := tabCurrency(ctx, tx, p.TabID)
+	if err != nil {
+		return TabResponse{}, err
+	}
+	linkCredit, err := s.beginLinkCredit(ctx, tx, linkVault, linkRelationship, in.AccountID, code)
 	if err != nil {
 		return TabResponse{}, err
 	}
@@ -1419,7 +1401,11 @@ func (s *Service) Bind(ctx context.Context, p Party, in BindInput) (TabResponse,
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	linkVault, linkRelationship := creditLinkDestination(p, in.VaultID, in.RelationshipID)
-	linkCredit, err := s.beginLinkCredit(ctx, tx, linkVault, linkRelationship, &in.AccountID)
+	code, err := tabCurrency(ctx, tx, p.TabID)
+	if err != nil {
+		return TabResponse{}, err
+	}
+	linkCredit, err := s.beginLinkCredit(ctx, tx, linkVault, linkRelationship, &in.AccountID, code)
 	if err != nil {
 		return TabResponse{}, err
 	}
@@ -1704,7 +1690,11 @@ func (s *Service) beginPartyCredit(ctx context.Context, tx pgx.Tx, p Party) (*li
 	if p.VaultID == nil || p.RelationshipID == nil || (p.effectiveRole() != "clerk" && p.effectiveRole() != "editor") {
 		return nil, nil
 	}
-	policy, err := credit.Effective(ctx, tx, *p.VaultID, *p.RelationshipID)
+	code, err := tabCurrency(ctx, tx, p.TabID)
+	if err != nil {
+		return nil, err
+	}
+	policy, err := credit.Effective(ctx, tx, *p.VaultID, *p.RelationshipID, code)
 	if err != nil || policy == nil {
 		return nil, err
 	}
@@ -1718,11 +1708,11 @@ func (s *Service) beginPartyCredit(ctx context.Context, tx pgx.Tx, p Party) (*li
 	if s.creditBalance == nil {
 		return nil, fmt.Errorf("credit admission unavailable")
 	}
-	before, err := s.creditBalance(ctx, tx, *p.VaultID, *p.RelationshipID)
+	before, err := s.creditBalance(ctx, tx, *p.VaultID, *p.RelationshipID, code)
 	if err != nil {
 		return nil, err
 	}
-	return &linkCreditAdmission{vaultID: *p.VaultID, relationshipID: *p.RelationshipID, policy: policy, before: before}, nil
+	return &linkCreditAdmission{vaultID: *p.VaultID, relationshipID: *p.RelationshipID, policy: policy, before: before, currency: code}, nil
 }
 
 // lockPartyCredit precedes every balance-changing tab mutation. Rechecking
@@ -1752,6 +1742,7 @@ func creditLinkDestination(p Party, vaultID, relationshipID *string) (*string, *
 
 type linkCreditAdmission struct {
 	vaultID, relationshipID string
+	currency                string
 	policy                  *credit.Policy
 	before                  int64
 }
@@ -1759,7 +1750,7 @@ type linkCreditAdmission struct {
 // Linking may replace local history with a shared opening. Compare the full
 // source balance before and after, so preserving an existing over-cap balance
 // remains lawful while fabricating a larger opening cannot bypass the limit.
-func (s *Service) beginLinkCredit(ctx context.Context, tx pgx.Tx, vaultID, relationshipID, accountID *string) (*linkCreditAdmission, error) {
+func (s *Service) beginLinkCredit(ctx context.Context, tx pgx.Tx, vaultID, relationshipID, accountID *string, currency string) (*linkCreditAdmission, error) {
 	if vaultID == nil {
 		return nil, nil
 	}
@@ -1776,7 +1767,7 @@ func (s *Service) beginLinkCredit(ctx context.Context, tx pgx.Tx, vaultID, relat
 	if err := tx.QueryRow(ctx, `SELECT role FROM vault_members WHERE vault_id=$1::uuid AND account_id=$2::uuid AND accepted_at IS NOT NULL AND revoked_at IS NULL`, *vaultID, *accountID).Scan(&role); err != nil {
 		return nil, err
 	}
-	policy, err := credit.Effective(ctx, tx, *vaultID, *relationshipID)
+	policy, err := credit.Effective(ctx, tx, *vaultID, *relationshipID, currency)
 	if err != nil || policy == nil {
 		return nil, err
 	}
@@ -1790,18 +1781,18 @@ func (s *Service) beginLinkCredit(ctx context.Context, tx pgx.Tx, vaultID, relat
 	if s.creditBalance == nil {
 		return nil, fmt.Errorf("credit admission unavailable")
 	}
-	before, err := s.creditBalance(ctx, tx, *vaultID, *relationshipID)
+	before, err := s.creditBalance(ctx, tx, *vaultID, *relationshipID, currency)
 	if err != nil {
 		return nil, err
 	}
-	return &linkCreditAdmission{vaultID: *vaultID, relationshipID: *relationshipID, policy: policy, before: before}, nil
+	return &linkCreditAdmission{vaultID: *vaultID, relationshipID: *relationshipID, policy: policy, before: before, currency: currency}, nil
 }
 
 func (s *Service) finishLinkCredit(ctx context.Context, tx pgx.Tx, admission *linkCreditAdmission) error {
 	if admission == nil {
 		return nil
 	}
-	after, err := s.creditBalance(ctx, tx, admission.vaultID, admission.relationshipID)
+	after, err := s.creditBalance(ctx, tx, admission.vaultID, admission.relationshipID, admission.currency)
 	if err != nil {
 		return err
 	}

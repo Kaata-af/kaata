@@ -8,7 +8,7 @@ import { MEMBERSHIP_EVENT_TYPES } from "../trust/chain";
 function fixture() {
   const storage = new Database(":memory:");
   storage.exec(`
-    CREATE TABLE vaults(id TEXT PRIMARY KEY,name TEXT,currency TEXT,created_at INTEGER,
+    CREATE TABLE vaults(id TEXT PRIMARY KEY,name TEXT,currency TEXT,legacy_currency TEXT,default_entry_currency TEXT,created_at INTEGER,
       updated_at INTEGER,archived_at INTEGER,is_default INTEGER,account_id TEXT,
       registered_with_server_at INTEGER,vault_epoch INTEGER,hlc_logical INTEGER,
       hlc_wall_ms INTEGER,vault_trust_anchor_pubkey TEXT);
@@ -148,6 +148,7 @@ function fixture() {
     },
   };
   const recovery = compileUI("../recovery", {
+    "./currency-metadata": require("../currency-metadata"),
     "react-native": { Platform: { OS: "android" } },
     "expo-constants": { default: { expoConfig: { version: "2.2.0" } } },
     "expo-crypto": { randomUUID: () => "self" },

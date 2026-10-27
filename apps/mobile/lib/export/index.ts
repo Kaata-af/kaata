@@ -6,11 +6,11 @@
 // language at the moment of export (the artifact is the shopkeeper's own
 // paper, unlike WhatsApp messages which have their separate share-language
 // preference).
-import { getCurrentCurrencyCode, getCurrentCurrencySymbol } from "../currency";
+import { getAccountIdSync, getActiveVaultIdSyncMaybe } from "../db-tx";
 import { getLocale } from "../i18n";
 import {
-  buildPersonStatement,
-  buildVaultReport,
+  buildPersonStatements,
+  buildVaultReports,
   exportFileName,
   saveExportFile,
   shareExportFile,
@@ -36,8 +36,8 @@ export function savedMessage(
     ? t("export.savedDownloads", { name })
     : t("export.saved", { name });
 }
-import { buildPersonCsv, buildVaultCsv } from "./csv";
-import { renderPersonStatementPdf, renderVaultReportPdf } from "./pdf";
+import { buildPersonCurrenciesCsv, buildVaultCurrenciesCsv } from "./csv";
+import { renderPersonCurrenciesPdf, renderVaultCurrenciesPdf } from "./pdf";
 
 export type ExportFormat = "csv" | "pdf";
 /** Where the finished file goes: the OS share sheet, or a folder on the phone. */
@@ -50,33 +50,35 @@ export type ExportDestination = "share" | "save";
  */
 export type ExportResult = SaveOutcome | null;
 
-/** Person statements always run on the active vault (person screens only
- *  exist there), so the active currency getters are correct here. */
+/** Customer statements include all currencies in the current Kaata. */
 export async function exportPersonStatement(
   personId: string,
   format: ExportFormat,
   destination: ExportDestination,
 ): Promise<ExportResult> {
   const now = Date.now();
-  const statement = await buildPersonStatement(
-    personId,
-    getLocale(),
-    getCurrentCurrencyCode(),
-    getCurrentCurrencySymbol(),
-    now,
-  );
-  if (!statement) throw new Error("export: person not found");
-  const fileName = exportFileName(statement.person.name, now, format);
+  const vaultId = getActiveVaultIdSyncMaybe();
+  const accountId = getAccountIdSync();
+  if (!vaultId) throw new Error("export: no active Kaata");
+  const assertCurrent = () => {
+    if (getActiveVaultIdSyncMaybe() !== vaultId || getAccountIdSync() !== accountId)
+      throw new Error("export: active Kaata changed");
+  };
+  const statements = await buildPersonStatements(personId, vaultId, getLocale(), now);
+  assertCurrent();
+  if (statements.length === 0) throw new Error("export: person not found");
+  const fileName = exportFileName(statements[0].person.name, now, format);
 
   if (format === "csv") {
-    const csv = buildPersonCsv(statement);
+    const csv = buildPersonCurrenciesCsv(statements);
     if (destination === "save") return saveExportFile({ fileName, kind: "csv", contents: csv });
     const file = writeExportFile(fileName, csv);
     await shareExportFile(file.uri, "csv");
     return null;
   }
 
-  const file = await renderPersonStatementPdf(statement, fileName);
+  const file = await renderPersonCurrenciesPdf(statements, fileName);
+  assertCurrent();
   if (destination === "save") return saveExportFile({ fileName, kind: "pdf", source: file });
   await shareExportFile(file.uri, "pdf");
   return null;
@@ -91,18 +93,18 @@ export async function exportVaultReport(
   destination: ExportDestination,
 ): Promise<ExportResult> {
   const now = Date.now();
-  const report = await buildVaultReport(vault.id, vault.name, vault.currency, getLocale(), now);
+  const reports = await buildVaultReports(vault.id, vault.name, vault.currency, getLocale(), now);
   const fileName = exportFileName(vault.name, now, format);
 
   if (format === "csv") {
-    const csv = buildVaultCsv(report);
+    const csv = buildVaultCurrenciesCsv(reports);
     if (destination === "save") return saveExportFile({ fileName, kind: "csv", contents: csv });
     const file = writeExportFile(fileName, csv);
     await shareExportFile(file.uri, "csv");
     return null;
   }
 
-  const file = await renderVaultReportPdf(report, fileName);
+  const file = await renderVaultCurrenciesPdf(reports, fileName);
   if (destination === "save") return saveExportFile({ fileName, kind: "pdf", source: file });
   await shareExportFile(file.uri, "pdf");
   return null;

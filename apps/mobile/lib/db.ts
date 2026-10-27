@@ -26,14 +26,12 @@ import {
   appendPersonUnarchived,
   appendPersonRenamed,
   appendShopProfileUpdated,
-  appendVaultMemberAdded,
   findPhoneConflictInVault,
   RoleGateRejectionError,
 } from "./event-log";
 import { requestImmediateCheckIn } from "./checkin-trigger";
 import { assertLedgerReadable } from "./db-health";
 import { deleteLocalBackups } from "./db-backup";
-import { buildLocalAccountId } from "./trust/account-id";
 import { resolveAccountIdCandidates } from "./effective-account";
 import { normalizePhone } from "./phone";
 import { joinName, upsertPersonInPhoneBook } from "./contacts-sync";
@@ -50,6 +48,18 @@ import { serializeHLC } from "./hlc";
 import { groupIdsFromPayload, storedGroupIds } from "./group-memberships";
 import { signedEntryMinorSumSql } from "./money-sql";
 import { entryRecordedAtSql, isValidEntryDate } from "./entry-date";
+import {
+  createVaultWithCurrencies,
+  validateInitialVaultCurrencies,
+} from "./vault-initial-currencies";
+import {
+  currencySqlLiteral,
+  effectiveEntryCurrencySql,
+  entryCurrencyMatchesSql,
+  getLedgerCurrencyCode,
+  isValidCurrencyCode,
+  requireCurrencyCode,
+} from "./currency-scope";
 import {
   getLatestTabLinkForPerson,
   getTabLink,
@@ -120,6 +130,7 @@ const MIGRATION_038 = "038_kaata_credit_defaults";
 const MIGRATION_039 = "039_customer_groups_from_payloads";
 const MIGRATION_040 = "040_member_credit_permissions";
 const MIGRATION_041 = "041_shared_history_order";
+const MIGRATION_042 = "042_ledger_currencies";
 
 // Phase 5 mesh: app_meta keys used by the lib/mesh package. They are NOT
 // referenced from db.ts directly — the table itself is the generic key/value
@@ -550,6 +561,9 @@ export async function initDb(opts: { installId?: string } = {}): Promise<void> {
   }
   if (!(await hasRunMigration(db, MIGRATION_041))) {
     await runMigration041(db);
+  }
+  if (!(await hasRunMigration(db, MIGRATION_042))) {
+    await runMigration042(db);
   }
 }
 
@@ -3600,6 +3614,64 @@ async function runMigration041(db: SQLite.SQLiteDatabase): Promise<void> {
   });
 }
 
+async function runMigration042(db: SQLite.SQLiteDatabase): Promise<void> {
+  await db.withTransactionAsync(async () => {
+    if (!(await columnExists(db, "vaults", "legacy_currency")))
+      await db.execAsync("ALTER TABLE vaults ADD COLUMN legacy_currency TEXT");
+    if (!(await columnExists(db, "vaults", "default_entry_currency")))
+      await db.execAsync("ALTER TABLE vaults ADD COLUMN default_entry_currency TEXT");
+    if (!(await columnExists(db, "entries", "currency")))
+      await db.execAsync("ALTER TABLE entries ADD COLUMN currency TEXT");
+    if (!(await columnExists(db, "settlements", "currency")))
+      await db.execAsync("ALTER TABLE settlements ADD COLUMN currency TEXT");
+    await db.execAsync(`UPDATE vaults SET legacy_currency=COALESCE(NULLIF(currency,''),'AFN') WHERE legacy_currency IS NULL;
+      UPDATE vaults SET default_entry_currency=COALESCE(NULLIF(currency,''),'AFN') WHERE default_entry_currency IS NULL;
+      UPDATE entries SET currency=(SELECT legacy_currency FROM vaults v WHERE v.id=entries.vault_id) WHERE currency IS NULL;
+      UPDATE settlements SET currency=(SELECT legacy_currency FROM vaults v WHERE v.id=settlements.vault_id) WHERE currency IS NULL;
+      CREATE TRIGGER IF NOT EXISTS vaults_freeze_legacy_currency AFTER INSERT ON vaults
+        WHEN NEW.legacy_currency IS NULL OR NEW.default_entry_currency IS NULL BEGIN
+          UPDATE vaults SET legacy_currency=COALESCE(NEW.legacy_currency,NULLIF(NEW.currency,''),'AFN'),
+            default_entry_currency=COALESCE(NEW.default_entry_currency,NULLIF(NEW.currency,''),'AFN') WHERE id=NEW.id;
+        END;
+      CREATE INDEX IF NOT EXISTS idx_entries_currency ON entries(vault_id,currency,relationship_id,created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_settlements_currency ON settlements(vault_id,relationship_id,currency,settled_at_ms);
+      DROP INDEX IF EXISTS idx_tab_links_open_rel;
+      CREATE UNIQUE INDEX idx_tab_links_open_rel ON tab_links(relationship_id,currency) WHERE closed_at IS NULL;`);
+    if (!(await columnExists(db, "customer_credit_limits", "currency"))) {
+      await db.execAsync(`CREATE TABLE customer_credit_limits_currency (
+        vault_id TEXT NOT NULL REFERENCES vaults(id) ON DELETE CASCADE,
+        relationship_id TEXT NOT NULL REFERENCES relationships(id) ON DELETE CASCADE,
+        currency TEXT NOT NULL, max_collect_minor INTEGER, max_pay_minor INTEGER,
+        mode TEXT NOT NULL CHECK(mode IN ('warn','clerk_block')),
+        sync_pending INTEGER NOT NULL DEFAULT 0, updated_at_ms INTEGER NOT NULL,
+        restrict_editors INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY(vault_id,relationship_id,currency));
+      INSERT INTO customer_credit_limits_currency SELECT p.vault_id,p.relationship_id,
+        COALESCE(v.legacy_currency,v.currency,'AFN'),p.max_collect_minor,p.max_pay_minor,p.mode,
+        p.sync_pending,p.updated_at_ms,p.restrict_editors FROM customer_credit_limits p JOIN vaults v ON v.id=p.vault_id;
+      DROP TABLE customer_credit_limits;
+      ALTER TABLE customer_credit_limits_currency RENAME TO customer_credit_limits;`);
+    }
+    if (!(await columnExists(db, "kaata_credit_defaults", "currency"))) {
+      await db.execAsync(`CREATE TABLE kaata_credit_defaults_currency (
+        vault_id TEXT NOT NULL REFERENCES vaults(id) ON DELETE CASCADE,
+        currency TEXT NOT NULL,max_collect_minor INTEGER,max_pay_minor INTEGER,
+        mode TEXT NOT NULL CHECK(mode IN ('warn','clerk_block')),updated_at_ms INTEGER NOT NULL,
+        restrict_editors INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(vault_id,currency));
+      INSERT INTO kaata_credit_defaults_currency SELECT p.vault_id,COALESCE(v.legacy_currency,v.currency,'AFN'),
+        p.max_collect_minor,p.max_pay_minor,p.mode,p.updated_at_ms,p.restrict_editors
+        FROM kaata_credit_defaults p JOIN vaults v ON v.id=p.vault_id;
+      DROP TABLE kaata_credit_defaults;
+      ALTER TABLE kaata_credit_defaults_currency RENAME TO kaata_credit_defaults;`);
+    }
+    await db.runAsync(
+      "INSERT INTO schema_migrations(name,applied_at) VALUES (?,?)",
+      MIGRATION_042,
+      Date.now(),
+    );
+  });
+}
+
 // --- v0 row shapes (used only during migration) ---
 type V0Shopkeeper = {
   id: number;
@@ -3850,13 +3922,15 @@ export async function createSelfProfile(
   shopName: string,
   phone?: string | null,
   currency?: string | null,
+  enabledCurrencies?: readonly string[],
 ): Promise<void> {
   // Creates the local-self user and, when a kaata name is supplied, mints the
   // shopkeeper's first vault in the SAME transaction. The onboarding kaata
   // step (app/onboarding/kaata.tsx) is the caller that passes a non-empty
   // shopName + currency; a vault is minted ONLY then (see shouldMintVault
   // below). Callers that pass "" create just the local-self user (e.g. a
-  // pair/restore flow that mints its own vaults). currency defaults to AFN.
+  // pair/restore flow that mints its own vaults). Currency defaults to AFN;
+  // omitted enabledCurrencies keeps that single denomination enabled.
   //
   // Phone is OPTIONAL — no OTP gate, no verification. It's stored in
   // users.phone_e164 for future "search your contacts to add a person"
@@ -3878,6 +3952,8 @@ export async function createSelfProfile(
   // Only used when shouldMintVault (i.e. a non-empty shopName was supplied).
   const effectiveShopName = trimmedShop || "My kaata";
   const effectiveCurrency = (currency ?? "").trim() || "AFN";
+  const initialCurrencies = validateInitialVaultCurrencies(effectiveCurrency, enabledCurrencies);
+  const creatingAccountId = getAccountIdSync();
   const db = await getDb();
   const now = Date.now();
   const userId = Crypto.randomUUID();
@@ -3889,14 +3965,9 @@ export async function createSelfProfile(
   const existingVaultId = await getActiveVaultId();
   let vaultId = existingVaultId;
 
-  // Onboarding NO LONGER creates a kaata. We mint a vault here ONLY when a
-  // kaata name is explicitly supplied — and the onboarding screen no longer
-  // collects one, so a fresh account passes "" and gets NO vault. A fresh
-  // account therefore lands on the "no kaatas yet" home screen and creates /
-  // pairs / restores its first kaata deliberately (no silent auto-create).
-  // Mid-onboarding upgraders (existingVaultId set by migration 007) keep their
-  // vault and only get the trust-anchor backfill below. (Matee: "remove the
-  // store name field ... don't auto-create a kaata called Main".)
+  // Only an explicitly supplied kaata name mints a book. Identity-only and
+  // pair/restore callers pass "" and keep no book; returning onboarding users
+  // preserve an existing active vault and its settings.
   const shouldMintVault = !existingVaultId && trimmedShop.length > 0;
 
   // M4: the owner's device pubkey is the mesh trust anchor for every vault.
@@ -3928,7 +3999,14 @@ export async function createSelfProfile(
     trustAnchorPubkey = pk;
   }
 
-  await db.withTransactionAsync(async () => {
+  const priorSelf = shouldMintVault
+    ? await db.getFirstAsync<{ id: string }>("SELECT id FROM users WHERE is_local_self=1 LIMIT 1")
+    : null;
+  const authorUserId = priorSelf?.id ?? userId;
+  if (shouldMintVault) vaultId = Crypto.randomUUID();
+  const writeProfile = async () => {
+    if (shouldMintVault && (await getAppMetaInTx(db, "active_vault_id")))
+      throw new Error("An active Kaata was created before this save");
     // Idempotent self: a prior flow may have already created the local-self row —
     // notably a cloud restore that minted it (lib/recovery.ts ensureLocalSelfForRestore)
     // before the user backed out via "Start fresh". Reuse + update that row rather
@@ -3936,6 +4014,8 @@ export async function createSelfProfile(
     const existingSelf = await db.getFirstAsync<{ id: string }>(
       "SELECT id FROM users WHERE is_local_self = 1 LIMIT 1",
     );
+    if (shouldMintVault && (existingSelf?.id ?? userId) !== authorUserId)
+      throw new Error("Local self changed before creating Kaata");
     if (existingSelf) {
       await db.runAsync(
         "UPDATE users SET display_name = ?, phone_e164 = ?, updated_at = ? WHERE id = ?",
@@ -3956,7 +4036,7 @@ export async function createSelfProfile(
     }
 
     if (shouldMintVault) {
-      vaultId = Crypto.randomUUID();
+      if (!vaultId) throw new Error("New Kaata identity is unavailable");
       await db.runAsync(
         `INSERT INTO vaults
            (id, name, currency, created_at, updated_at, archived_at,
@@ -4001,10 +4081,27 @@ export async function createSelfProfile(
     }
     // Fresh account with no kaata name: only the local-self user row is
     // written — no vault, no shop_profile. (The user creates a kaata later.)
-  });
+  };
+  if (shouldMintVault) {
+    if (!vaultId || !trustAnchorPubkey) throw new Error("New Kaata identity is unavailable");
+    await createVaultWithCurrencies(
+      {
+        vaultId,
+        currency: effectiveCurrency,
+        enabledCurrencies: initialCurrencies,
+        expectedSignerPubkey: trustAnchorPubkey,
+        authorUserId,
+        accountId: creatingAccountId,
+        ownerDisplayName: trimmedName,
+      },
+      writeProfile,
+    );
+  } else {
+    await db.withTransactionAsync(writeProfile);
+  }
 
-  // M4: no self-VMC issuance. Trust comes from the genesis
-  // vault_member_added emitted below — the chain fold implicitly binds
+  // M4: no self-VMC issuance. Trust comes from the atomic genesis
+  // vault_member_added above — the chain fold implicitly binds
   // this anchor device from it. The owner participates in the mesh
   // immediately via the chain handshake.
 
@@ -4042,28 +4139,8 @@ export async function createSelfProfile(
     }
   }
 
-  // M4: emit the genesis vault_member_added{owner} INLINE (matching
-  // vault/new.tsx). This IS the membership-chain root
-  // (docs/m2-membership-chain.md §3.1): it's authored + signed by THIS
-  // device, and the chain fold implicitly binds the anchor device from
-  // it, so no vault_device_added is emitted for the creator. The applier
-  // (applyVaultMemberAdded) writes the owner's vault_members_mirror row,
-  // so the owner's own Members tab + role-gate binding are correct
-  // immediately, and the event propagates to peers via mesh so they can
-  // authenticate the owner's ledger events. Best-effort: a transient
-  // failure leaves the local user/vault intact; runGenesisBackfill is the
-  // self-heal safety net that re-emits on a later launch.
-  if (shouldMintVault && vaultId && trustAnchorPubkey) {
-    try {
-      await appendVaultMemberAdded({
-        targetVaultId: vaultId,
-        accountId: getAccountIdSync() ?? buildLocalAccountId(trustAnchorPubkey),
-        role: "owner",
-      });
-    } catch (err) {
-      console.warn("[db] createSelfProfile: genesis vault_member_added emit failed", err);
-    }
-  }
+  // New-vault owner genesis and initial currency settings were signed and
+  // committed with the profile above, before any post-commit work can run.
 
   // Push the freshly-created identity to the backend right now. The only other
   // check-in triggers are cold launch + throttled foreground, so without this an
@@ -4296,7 +4373,7 @@ const TAB_PERSON_COLUMNS = `
             END AS tab_pending,
             (SELECT COUNT(*) FROM tab_entries tp
               JOIN tab_links pl ON pl.tab_id=tp.tab_id
-              WHERE pl.vault_id=tl.vault_id AND pl.relationship_id=tl.relationship_id AND tp.kind <> 'void'
+              WHERE pl.vault_id=tl.vault_id AND pl.relationship_id=tl.relationship_id AND pl.currency=tl.currency AND tp.kind <> 'void'
                 AND tp.voided_by_entry_id IS NULL
                 AND (tp.status = 'pending' OR tp.local_pending <> 0
                   OR COALESCE(tp.local_action_pending, 0) <> 0)) AS tab_pending_count,
@@ -4340,9 +4417,9 @@ const PERSON_BALANCE_SQL = `
  * index guarantees at most one), else the most recently linked closed one.
  * `(x IS NULL)` is 1/0 in SQLite, so DESC sorts the open link first.
  */
-const TAB_LINK_JOIN = `LEFT JOIN tab_links tl ON tl.tab_id = (
+const tabLinkJoin = (currencyCode: string) => `LEFT JOIN tab_links tl ON tl.tab_id = (
        SELECT t2.tab_id FROM tab_links t2
-        WHERE t2.relationship_id = r.id AND t2.vault_id = r.vault_id
+        WHERE t2.relationship_id = r.id AND t2.vault_id = r.vault_id AND t2.currency=${currencySqlLiteral(currencyCode)}
         ORDER BY (t2.closed_at IS NULL) DESC, CAST(t2.history_order AS INTEGER) DESC, t2.linked_at DESC
         LIMIT 1)`;
 
@@ -4367,6 +4444,7 @@ function finishTabColumns(row: RawPersonRow): PersonWithBalance {
   } = row;
   if (selection_debt_count != null && selection_credit_count != null) {
     person.selection_totals = {
+      currency: person.currency,
       debtCount: selection_debt_count,
       creditCount: selection_credit_count,
       debtMinor: selection_debt_minor!,
@@ -4388,6 +4466,7 @@ function finishTabColumns(row: RawPersonRow): PersonWithBalance {
 async function selectAllPeopleRaw(
   db: SQLite.SQLiteDatabase,
   vaultId = getActiveVaultIdSyncMaybe(),
+  currencyCode = getLedgerCurrencyCode(),
 ): Promise<PersonWithBalance[]> {
   // Vault filter on BOTH relationships and the LEFT-JOINed entries. The
   // entries filter goes in the ON clause (not WHERE) because this is a
@@ -4410,7 +4489,7 @@ async function selectAllPeopleRaw(
                        THEN te.amount_minor ELSE 0 END) AS credit_minor
          FROM tab_links stl INNER JOIN tab_links hl ON hl.vault_id=stl.vault_id AND hl.relationship_id=stl.relationship_id
          INNER JOIN tab_entries te ON te.tab_id = hl.tab_id
-        WHERE stl.vault_id = ? AND ${effectiveConfirmedSql("te", "hl", "stl")}
+        WHERE stl.vault_id = ? AND stl.currency=${currencySqlLiteral(currencyCode)} AND ${effectiveConfirmedSql("te", "hl", "stl")}
         GROUP BY stl.tab_id
      )
      SELECT u.id            AS id,
@@ -4418,6 +4497,7 @@ async function selectAllPeopleRaw(
             u.phone_e164    AS phone,
             u.created_at    AS created_at,
             r.archived_at   AS archived_at,
+            ${currencySqlLiteral(currencyCode)} AS currency,
             ${PERSON_BALANCE_SQL},
             COALESCE(st.debt_count, 0)
               + SUM(CASE WHEN e.deleted_at IS NULL AND e.type = 'debt'
@@ -4445,6 +4525,7 @@ async function selectAllPeopleRaw(
               WHERE le.relationship_id = r.id
                 AND le.vault_id        = ?
                 AND le.deleted_at IS NULL
+                AND ${entryCurrencyMatchesSql("le", currencyCode)}
               ORDER BY le.created_at DESC, le.id DESC
               LIMIT 1) AS last_entry_type,
             -- Deliberately settled (2026-07-27): balance zero AND the latest
@@ -4464,23 +4545,24 @@ async function selectAllPeopleRaw(
                          OR (te.kind <> 'void' AND te.voided_by_entry_id IS NULL AND te.status = 'pending')))
                AND NOT EXISTS (SELECT 1 FROM tab_outbox o WHERE o.tab_id = tl.tab_id)
                AND NOT EXISTS (SELECT 1 FROM entries le WHERE le.relationship_id = r.id
-                    AND le.vault_id = r.vault_id AND le.deleted_at IS NULL AND ${entryRecordedAtSql("le")} > tl.linked_at)
+                    AND le.vault_id = r.vault_id AND le.deleted_at IS NULL AND ${entryCurrencyMatchesSql("le", currencyCode)} AND ${entryRecordedAtSql("le")} > tl.linked_at)
               THEN 1
               WHEN tl.tab_id IS NULL
                AND ${signedEntryMinorSumSql("e")} = 0
                AND (SELECT MAX(s.settled_at_ms) FROM settlements s
-                     WHERE s.relationship_id = r.id)
+                     WHERE s.relationship_id = r.id AND ${entryCurrencyMatchesSql("s", currencyCode)})
                    >= COALESCE(MAX(CASE WHEN e.deleted_at IS NULL THEN e.created_at END), 0)
               THEN 1 ELSE 0
             END AS is_settled,
             ${TAB_PERSON_COLUMNS}
      FROM relationships r
      INNER JOIN users u ON u.id = r.user_b_id
-     ${TAB_LINK_JOIN}
+     ${tabLinkJoin(currencyCode)}
      LEFT JOIN selection_tab_totals st ON st.tab_id = tl.tab_id
      LEFT JOIN entries e
        ON e.relationship_id = r.id
       AND e.vault_id = ?
+      AND ${entryCurrencyMatchesSql("e", currencyCode)}
      WHERE r.vault_id   = ?
        AND r.archived_at IS NULL
      GROUP BY u.id`,
@@ -4497,9 +4579,10 @@ async function selectAllPeopleRaw(
 // customers without financial activity into its neutral section.
 export async function listAllPeople(
   vaultId = getActiveVaultIdSyncMaybe(),
+  currencyCode = getLedgerCurrencyCode(),
 ): Promise<PersonWithBalance[]> {
   const db = await getDb();
-  const rows = await selectAllPeopleRaw(db, vaultId);
+  const rows = await selectAllPeopleRaw(db, vaultId, currencyCode);
   // Retain the legacy activity-only contract for existing callers.
   return rows
     .filter((p) => p.last_entry_at != null)
@@ -4516,9 +4599,25 @@ export async function listAllPeople(
 // read separately by the add flow and are not automatically home customers.
 export async function listAllPeopleForSearch(
   vaultId = getActiveVaultIdSyncMaybe(),
+  currencyCode = getLedgerCurrencyCode(),
+  options?: { allCurrencies?: boolean },
 ): Promise<PersonWithBalance[]> {
   const db = await getDb();
-  const rows = await selectAllPeopleRaw(db, vaultId);
+  if (options?.allCurrencies && vaultId) {
+    const { applyEventMutex } = require("./projection") as typeof import("./projection");
+    const { mergeCurrencyPeople } =
+      require("./multi-currency-view") as typeof import("./multi-currency-view");
+    return applyEventMutex.runExclusive(async () => {
+      const currencies = await listLedgerCurrencies(vaultId);
+      const lists = await Promise.all(
+        currencies.map((code) => selectAllPeopleRaw(db, vaultId, code)),
+      );
+      return mergeCurrencyPeople(lists, currencyCode).sort(
+        (a, b) => (b.last_entry_at ?? 0) - (a.last_entry_at ?? 0) || a.name.localeCompare(b.name),
+      );
+    });
+  }
+  const rows = await selectAllPeopleRaw(db, vaultId, currencyCode);
   rows.sort((a, b) => {
     const at = a.last_entry_at ?? 0;
     const bt = b.last_entry_at ?? 0;
@@ -4528,10 +4627,35 @@ export async function listAllPeopleForSearch(
   return rows;
 }
 
-export async function getPerson(id: string): Promise<PersonWithBalance | null> {
+export async function getPerson(
+  id: string,
+  currencyCode = getLedgerCurrencyCode(),
+  options?: { allCurrencies?: boolean },
+): Promise<PersonWithBalance | null> {
   const db = await getDb();
   const vaultId = getActiveVaultIdSyncMaybe();
   if (!vaultId) return null;
+  if (options?.allCurrencies) {
+    const currencies = await listLedgerCurrencies(vaultId);
+    const rows = (await Promise.all(currencies.map((code) => getPerson(id, code)))).filter(
+      (row): row is PersonWithBalance => row !== null,
+    );
+    const base = rows.find((row) => row.currency === currencyCode) ?? rows[0];
+    if (!base) return null;
+    const active = rows.filter(
+      (row) =>
+        row.last_entry_at != null ||
+        row.balance !== 0 ||
+        row.tab_id ||
+        row.tab_unsynced === 1 ||
+        (row.tab_pending_count ?? 0) > 0,
+    );
+    return {
+      ...base,
+      last_entry_at: Math.max(...rows.map((row) => row.last_entry_at ?? 0)) || null,
+      currency_balances: active.length ? active : [base],
+    };
+  }
   const row = await db.getFirstAsync<RawPersonRow>(
     `SELECT u.id            AS id,
             u.display_name  AS name,
@@ -4540,13 +4664,15 @@ export async function getPerson(id: string): Promise<PersonWithBalance | null> {
             r.archived_at   AS archived_at,
             ${PERSON_BALANCE_SQL},
             MAX(CASE WHEN e.deleted_at IS NULL THEN e.created_at END) AS last_entry_at,
+            ${currencySqlLiteral(currencyCode)} AS currency,
             ${TAB_PERSON_COLUMNS}
      FROM relationships r
      INNER JOIN users u ON u.id = r.user_b_id
-     ${TAB_LINK_JOIN}
+     ${tabLinkJoin(currencyCode)}
      LEFT JOIN entries e
        ON e.relationship_id = r.id
       AND e.vault_id = ?
+      AND ${entryCurrencyMatchesSql("e", currencyCode)}
      WHERE u.id = ?
        AND r.vault_id = ?
        AND r.archived_at IS NULL
@@ -4584,7 +4710,10 @@ export type ArchivedPersonRow = {
  * number for a contact whose account was a shared one — the very number the
  * screen it was removed from had stopped showing.
  */
-export async function listArchivedPeople(vaultId: string): Promise<ArchivedPersonRow[]> {
+export async function listArchivedPeople(
+  vaultId: string,
+  currencyCode = getLedgerCurrencyCode(),
+): Promise<ArchivedPersonRow[]> {
   const db = await getDb();
   return db.getAllAsync<ArchivedPersonRow>(
     `SELECT u.id           AS id,
@@ -4597,7 +4726,8 @@ export async function listArchivedPeople(vaultId: string): Promise<ArchivedPerso
      LEFT JOIN entries e
        ON e.relationship_id = r.id
       AND e.vault_id = ?
-     ${TAB_LINK_JOIN}
+      AND ${entryCurrencyMatchesSql("e", currencyCode)}
+     ${tabLinkJoin(currencyCode)}
      WHERE r.vault_id = ?
        AND r.archived_at IS NOT NULL
        AND NOT EXISTS (
@@ -4757,6 +4887,7 @@ export async function archivePerson(
  */
 export async function getSettlementSummary(
   personId: string,
+  currencyCode = getLedgerCurrencyCode(),
 ): Promise<{ count: number; lastSettledAtMs: number | null }> {
   const db = await getDb();
   const vaultId = getActiveVaultIdSyncMaybe();
@@ -4777,19 +4908,22 @@ export async function getSettlementSummary(
         (SELECT COUNT(*) FROM settlements s
           INNER JOIN relationships r ON r.id = s.relationship_id
           WHERE r.user_b_id = ? AND r.vault_id = ? AND r.archived_at IS NULL
+            AND ${entryCurrencyMatchesSql("s", currencyCode)}
             AND EXISTS (
               SELECT 1 FROM entries e
                WHERE e.relationship_id = s.relationship_id
                  AND e.deleted_at IS NULL
+                 AND ${entryCurrencyMatchesSql("e", currencyCode)}
                  AND e.created_at <= s.settled_at_ms
                  AND e.created_at > COALESCE((
                    SELECT MAX(s2.settled_at_ms) FROM settlements s2
                     WHERE s2.relationship_id = s.relationship_id
+                      AND ${entryCurrencyMatchesSql("s2", currencyCode)}
                       AND s2.settled_at_ms < s.settled_at_ms), 0)
             )) AS n,
         (SELECT MAX(s.settled_at_ms) FROM settlements s
           INNER JOIN relationships r ON r.id = s.relationship_id
-          WHERE r.user_b_id = ? AND r.vault_id = ? AND r.archived_at IS NULL) AS last_ms`,
+          WHERE r.user_b_id = ? AND r.vault_id = ? AND r.archived_at IS NULL AND ${entryCurrencyMatchesSql("s", currencyCode)}) AS last_ms`,
     personId,
     vaultId,
     personId,
@@ -4803,7 +4937,10 @@ export async function getSettlementSummary(
  * Drives the ruled-off chapter lines in the full-history view — a paper
  * khata shows every line with its date, not one continuous list.
  */
-export async function listSettlementBoundaries(personId: string): Promise<number[]> {
+export async function listSettlementBoundaries(
+  personId: string,
+  currencyCode = getLedgerCurrencyCode(),
+): Promise<number[]> {
   const db = await getDb();
   const vaultId = getActiveVaultIdSyncMaybe();
   if (!vaultId) return [];
@@ -4811,7 +4948,7 @@ export async function listSettlementBoundaries(personId: string): Promise<number
     `SELECT s.settled_at_ms
        FROM settlements s
        INNER JOIN relationships r ON r.id = s.relationship_id
-      WHERE r.user_b_id = ? AND r.vault_id = ? AND r.archived_at IS NULL
+      WHERE r.user_b_id = ? AND r.vault_id = ? AND r.archived_at IS NULL AND ${entryCurrencyMatchesSql("s", currencyCode)}
       ORDER BY s.settled_at_ms ASC`,
     personId,
     vaultId,
@@ -4819,10 +4956,21 @@ export async function listSettlementBoundaries(personId: string): Promise<number
   return rows.map((r) => r.settled_at_ms);
 }
 
-export async function listEntries(personId: string): Promise<Entry[]> {
+export async function listEntries(
+  personId: string,
+  currencyCode = getLedgerCurrencyCode(),
+  options?: { allCurrencies?: boolean },
+): Promise<Entry[]> {
   const db = await getDb();
   const vaultId = getActiveVaultIdSyncMaybe();
   if (!vaultId) return [];
+  if (options?.allCurrencies) {
+    const currencies = await listLedgerCurrencies(vaultId);
+    const lists = await Promise.all(currencies.map((code) => listEntries(personId, code)));
+    return [...new Map(lists.flat().map((entry) => [entry.id, entry])).values()].sort(
+      (a, b) => b.created_at - a.created_at || b.id.localeCompare(a.id),
+    );
+  }
   // Linked contact: the tab IS the account (D8). Tab rows come back here
   // (voided originals flagged, void rows omitted) merged with any LOCAL
   // tallies written after the link — there are none while the tab is open,
@@ -4830,18 +4978,19 @@ export async function listEntries(personId: string): Promise<Entry[]> {
   // tallies are ordinary local rows again and belong on the same list. The
   // frozen pre-link rows are NOT here; the person screen folds them away
   // separately via listPreLinkEntries.
-  const link = await getLatestTabLinkForPerson(personId);
+  const link = await getLatestTabLinkForPerson(personId, currencyCode);
   if (link) {
     const [tabRows, afterLink] = await Promise.all([
       listEffectiveSharedEntries(link),
       db.getAllAsync<Entry>(
-        `SELECT e.id, e.relationship_id, e.type, e.amount_afn, e.note,
+        `SELECT e.id, e.relationship_id, e.type, e.amount_afn, e.note, ${effectiveEntryCurrencySql("e")} AS currency,
                 e.created_at, e.updated_at, e.deleted_at, e.proposed_by_user_id,
                 e.accepted_at, e.disputed_at, e.disputed_reason, e.settled_at
          FROM entries e
          WHERE e.relationship_id = ?
            AND e.vault_id        = ?
            AND e.deleted_at IS NULL
+           AND ${entryCurrencyMatchesSql("e", currencyCode)}
            AND ${entryRecordedAtSql("e")} > ?`,
         link.relationship_id,
         vaultId,
@@ -4854,7 +5003,7 @@ export async function listEntries(personId: string): Promise<Entry[]> {
     );
   }
   return db.getAllAsync<Entry>(
-    `SELECT e.id, e.relationship_id, e.type, e.amount_afn, e.note,
+    `SELECT e.id, e.relationship_id, e.type, e.amount_afn, e.note, ${effectiveEntryCurrencySql("e")} AS currency,
             e.created_at, e.updated_at, e.deleted_at, e.proposed_by_user_id,
             e.accepted_at, e.disputed_at, e.disputed_reason, e.settled_at
      FROM entries e
@@ -4864,6 +5013,7 @@ export async function listEntries(personId: string): Promise<Entry[]> {
        AND r.vault_id   = ?
        AND r.archived_at IS NULL
        AND e.deleted_at IS NULL
+       AND ${entryCurrencyMatchesSql("e", currencyCode)}
      ORDER BY e.created_at DESC`,
     personId,
     vaultId,
@@ -4875,12 +5025,13 @@ export async function listEntries(personId: string): Promise<Entry[]> {
  *  opening balance. Their amounts must never be added to that balance again. */
 export async function listArchivedSharedPeriodsForExport(
   personId: string,
+  currencyCode = getLedgerCurrencyCode(),
 ): Promise<Array<{ link: TabLink; entries: Entry[] }>> {
-  const current = await getLatestTabLinkForPerson(personId);
+  const current = await getLatestTabLinkForPerson(personId, currencyCode);
   if (!current) return [];
   const db = await getDb();
   const links = await db.getAllAsync<TabLink>(
-    `SELECT * FROM tab_links WHERE relationship_id = ? AND vault_id = ? AND tab_id <> ?
+    `SELECT * FROM tab_links WHERE relationship_id = ? AND vault_id = ? AND tab_id <> ? AND currency=${currencySqlLiteral(currencyCode)}
       ORDER BY linked_at ASC, tab_id ASC`,
     current.relationship_id,
     current.vault_id,
@@ -4903,9 +5054,10 @@ export async function listArchivedSharedPeriodsForExport(
 async function listEffectiveSharedEntries(current: TabLink): Promise<Entry[]> {
   const db = await getDb();
   const links = await db.getAllAsync<TabLink>(
-    "SELECT * FROM tab_links WHERE vault_id=? AND relationship_id=?",
+    "SELECT * FROM tab_links WHERE vault_id=? AND relationship_id=? AND currency=?",
     current.vault_id,
     current.relationship_id,
+    current.currency,
   );
   const periods = await Promise.all(
     links.map(async (link) => ({ link, entries: await listTabEntriesAsEntries(link) })),
@@ -4919,6 +5071,7 @@ export type ExportEntryRow = {
   type: EntryType;
   amount_afn: number;
   note: string | null;
+  currency?: string;
   created_at: number;
   person_id: string;
   person_name: string;
@@ -4937,7 +5090,10 @@ export type ExportEntryRow = {
  * `created_at` (entries can share a business date) break by id so repeated
  * exports of the same book order identically.
  */
-export async function listEntriesForExport(vaultId: string): Promise<ExportEntryRow[]> {
+export async function listEntriesForExport(
+  vaultId: string,
+  currencyCode = getLedgerCurrencyCode(),
+): Promise<ExportEntryRow[]> {
   const db = await getDb();
   // Linked contacts contribute their TAB rows (including rejected/cancelled
   // originals, never the separate void rows) and NOT their pre-link local rows
@@ -4962,6 +5118,7 @@ export async function listEntriesForExport(vaultId: string): Promise<ExportEntry
             e.type         AS type,
             e.amount_afn   AS amount_afn,
             e.note         AS note,
+            ${effectiveEntryCurrencySql("e")} AS currency,
             e.created_at   AS created_at,
             'entry'        AS kind,
             u.id           AS person_id,
@@ -4971,11 +5128,12 @@ export async function listEntriesForExport(vaultId: string): Promise<ExportEntry
      FROM entries e
      INNER JOIN relationships r ON r.id = e.relationship_id
      INNER JOIN users u ON u.id = r.user_b_id
-     ${TAB_LINK_JOIN}
+     ${tabLinkJoin(currencyCode)}
      WHERE e.vault_id   = ?
        AND r.vault_id   = ?
        AND r.archived_at IS NULL
        AND e.deleted_at IS NULL
+       AND ${entryCurrencyMatchesSql("e", currencyCode)}
        AND (tl.tab_id IS NULL OR ${entryRecordedAtSql("e")} > tl.linked_at)
      UNION ALL
      SELECT te.id          AS id,
@@ -4983,6 +5141,7 @@ export async function listEntriesForExport(vaultId: string): Promise<ExportEntry
                  THEN 'debt' ELSE 'payment' END AS type,
             te.amount_minor / 100.0 AS amount_afn,
             te.note        AS note,
+            tl.currency    AS currency,
             te.occurred_at AS created_at,
             te.kind        AS kind,
             u.id           AS person_id,
@@ -4993,6 +5152,7 @@ export async function listEntriesForExport(vaultId: string): Promise<ExportEntry
      INNER JOIN tab_links tl ON tl.tab_id = te.tab_id
        AND tl.tab_id = (SELECT t2.tab_id FROM tab_links t2
                          WHERE t2.relationship_id = tl.relationship_id
+                           AND t2.currency=tl.currency
                          ORDER BY (t2.closed_at IS NULL) DESC, CAST(t2.history_order AS INTEGER) DESC, t2.linked_at DESC
                          LIMIT 1)
      INNER JOIN relationships r ON r.id = tl.relationship_id
@@ -5001,6 +5161,7 @@ export async function listEntriesForExport(vaultId: string): Promise<ExportEntry
        AND r.vault_id   = ?
        AND r.archived_at IS NULL
        AND te.kind <> 'void'
+       AND tl.currency=${currencySqlLiteral(currencyCode)}
      ORDER BY created_at ASC, id ASC`,
     vaultId,
     vaultId,
@@ -5038,7 +5199,7 @@ export async function listEntriesForExport(vaultId: string): Promise<ExportEntry
     tab_id: string;
   }>(
     `SELECT u.id,u.display_name AS name,u.phone_e164 AS phone,tl.tab_id FROM relationships r
-     JOIN users u ON u.id=r.user_b_id ${TAB_LINK_JOIN}
+     JOIN users u ON u.id=r.user_b_id ${tabLinkJoin(currencyCode)}
      WHERE r.vault_id=? AND r.archived_at IS NULL AND tl.tab_id IS NOT NULL`,
     vaultId,
   );
@@ -5057,6 +5218,7 @@ export async function listEntriesForExport(vaultId: string): Promise<ExportEntry
         id: entry.id,
         type: entry.type,
         amount_afn: entry.amount_afn,
+        currency: entry.currency ?? currencyCode,
         note: entry.note,
         created_at: entry.created_at,
         kind: entry.tab?.kind ?? "entry",
@@ -5104,6 +5266,7 @@ export async function createEntryDetailed(
     session?: import("./auth").SessionSnapshot;
     vaultId?: string;
     occurredAtMs?: number;
+    currency?: string;
   },
 ): Promise<{
   entry_id: string;
@@ -5113,19 +5276,21 @@ export async function createEntryDetailed(
 }> {
   if (expected?.occurredAtMs !== undefined && !isValidEntryDate(expected.occurredAtMs))
     throw new Error("Invalid entry date");
+  const currency = requireCurrencyCode(expected?.currency ?? getLedgerCurrencyCode());
   const { captureCurrentSession, applyForUnchangedLocalSession, SessionChangedError } =
     await import("./auth");
   const session = expected?.session ?? (await captureCurrentSession());
   const vaultId = expected?.vaultId ?? getActiveVaultIdSync();
   const credit = await import("./credit-limits");
-  const warning = await credit.creditWarning(personId, type, amountAfn, vaultId);
-  const link = await getTabLinkForPerson(personId);
+  const warning = await credit.creditWarning(personId, type, amountAfn, vaultId, currency);
+  const link = await getTabLinkForPerson(personId, currency);
   if (link) {
     const { addTabEntry } = await import("./tabs/link");
     const r = await addTabEntry(personId, type, amountAfn, note, {
       session,
       vaultId,
       occurredAtMs: expected?.occurredAtMs,
+      currency,
     });
     await bumpUsageCounter("entries_created");
     return {
@@ -5146,6 +5311,7 @@ export async function createEntryDetailed(
       amountAfn,
       note,
       occurredAtMs: expected?.occurredAtMs,
+      currency,
     });
   });
   await bumpUsageCounter("entries_created");
@@ -5190,6 +5356,7 @@ async function assertNotInSettledChapter(
        FROM entries e
        INNER JOIN settlements s ON s.relationship_id = e.relationship_id
       WHERE e.id = ? AND s.settled_at_ms >= e.created_at
+        AND ${effectiveEntryCurrencySql("e")} = ${effectiveEntryCurrencySql("s")}
       LIMIT 1`,
     entryId,
   );
@@ -5219,6 +5386,7 @@ async function assertNotTabLinked(db: SQLite.SQLiteDatabase, entryId: string): P
      SELECT 1 AS one FROM entries e
        INNER JOIN tab_links tl ON tl.relationship_id = e.relationship_id
       WHERE e.id = ? AND ${entryRecordedAtSql("e")} <= tl.linked_at
+        AND ${effectiveEntryCurrencySql("e")} = tl.currency
      LIMIT 1`,
     entryId,
     entryId,
@@ -5282,7 +5450,7 @@ export async function getEntry(id: string): Promise<Entry | null> {
   const vaultId = getActiveVaultIdSyncMaybe();
   if (!vaultId) return null;
   const row = await db.getFirstAsync<Entry>(
-    `SELECT id, relationship_id, type, amount_afn, note,
+    `SELECT id, relationship_id, type, amount_afn, note, ${effectiveEntryCurrencySql("entries")} AS currency,
             created_at, updated_at, deleted_at, proposed_by_user_id,
             accepted_at, disputed_at, disputed_reason, settled_at
      FROM entries
@@ -5609,6 +5777,82 @@ export async function listAllVaultsIncludingArchived(): Promise<VaultListRow[]> 
     archived: r.archived_at != null,
     archived_at: r.archived_at,
   }));
+}
+
+/** Every denomination with ledger history, plus the book's current default. */
+export async function listLedgerCurrencies(vaultId: string): Promise<string[]> {
+  const db = await getDb();
+  const vault = await db.getFirstAsync<{
+    currency: string;
+    legacy_currency: string | null;
+    default_entry_currency: string | null;
+  }>("SELECT currency,legacy_currency,default_entry_currency FROM vaults WHERE id=?", vaultId);
+  if (!vault) return [];
+  const setting = await db.getFirstAsync<{ value: string }>(
+    "SELECT value FROM vault_settings WHERE vault_id=? AND key='default_entry_currency'",
+    vaultId,
+  );
+  let settingCurrency = setting?.value;
+  if (settingCurrency) {
+    try {
+      const parsed = JSON.parse(settingCurrency);
+      if (typeof parsed === "string") settingCurrency = parsed;
+    } catch {}
+  }
+  const preferred = [settingCurrency, vault.default_entry_currency, vault.currency, "AFN"].find(
+    isValidCurrencyCode,
+  )!;
+  const rows = await db.getAllAsync<{ currency: string }>(
+    `SELECT DISTINCT ${effectiveEntryCurrencySql("e")} AS currency FROM entries e WHERE e.vault_id=? AND e.deleted_at IS NULL
+    UNION SELECT currency FROM tab_links WHERE vault_id=?`,
+    vaultId,
+    vaultId,
+  );
+  const codes = new Set([
+    preferred,
+    vault.legacy_currency ?? vault.currency,
+    ...rows.map((row) => row.currency),
+  ]);
+  return [...codes]
+    .filter((code) => /^[A-Z]{3}$/.test(code))
+    .sort((a, b) => (a === preferred ? -1 : b === preferred ? 1 : a.localeCompare(b)));
+}
+
+export type CurrencyBalanceSummary = {
+  currency: string;
+  collect: number;
+  pay: number;
+  pending: boolean;
+};
+
+/** Whole-book balances in each denomination, independent of a visible search
+ * or selected currency. Opposing contacts remain separate collect/pay totals.
+ * Pending shared books have unknown amounts; callers must not present their
+ * partial figures as complete. Zero rows remain available for empty states. */
+export async function listCurrencyBalanceSummaries(
+  vaultId: string,
+): Promise<CurrencyBalanceSummary[]> {
+  const { applyEventMutex } = require("./projection") as typeof import("./projection");
+  const { sumAmounts } = require("./money") as typeof import("./money");
+  return applyEventMutex.runExclusive(async () => {
+    const currencies = await listLedgerCurrencies(vaultId);
+    return Promise.all(
+      currencies.map(async (currency) => {
+        const people = await listAllPeopleForSearch(vaultId, currency);
+        const known = people.filter((person) => person.tab_unsynced !== 1);
+        return {
+          currency,
+          collect: sumAmounts(
+            known.filter((person) => person.balance > 0).map((person) => person.balance),
+          ),
+          pay: sumAmounts(
+            known.filter((person) => person.balance < 0).map((person) => -person.balance),
+          ),
+          pending: known.length !== people.length,
+        };
+      }),
+    );
+  });
 }
 
 // D-ACTIVE-VAULT-REACTIVE: cheap 1-row read for the home-screen safety

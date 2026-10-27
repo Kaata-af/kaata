@@ -14,6 +14,7 @@ var ErrLimit = errors.New("credit_limit_exceeded")
 
 type Policy struct {
 	RelationshipID  string `json:"relationship_id"`
+	Currency        string `json:"currency"`
 	MaxCollectMinor *int64 `json:"max_collect_minor"`
 	MaxPayMinor     *int64 `json:"max_pay_minor"`
 	Mode            string `json:"mode"`
@@ -101,17 +102,21 @@ func Lock(ctx context.Context, tx pgx.Tx, vaultID string) error {
 const DefaultRelationshipID = "00000000-0000-0000-0000-000000000000"
 
 // Effective is the customer's own policy, else the kaata default, else nil.
-func Effective(ctx context.Context, tx pgx.Tx, vaultID, relationshipID string) (*Policy, error) {
-	p, err := Read(ctx, tx, vaultID, relationshipID)
+func Effective(ctx context.Context, tx pgx.Tx, vaultID, relationshipID string, currency ...string) (*Policy, error) {
+	p, err := Read(ctx, tx, vaultID, relationshipID, currency...)
 	if err != nil || p != nil || relationshipID == DefaultRelationshipID {
 		return p, err
 	}
-	return Read(ctx, tx, vaultID, DefaultRelationshipID)
+	return Read(ctx, tx, vaultID, DefaultRelationshipID, currency...)
 }
 
-func Read(ctx context.Context, tx pgx.Tx, vaultID, relationshipID string) (*Policy, error) {
+func Read(ctx context.Context, tx pgx.Tx, vaultID, relationshipID string, currency ...string) (*Policy, error) {
+	code, err := ResolveCurrency(ctx, tx, vaultID, currency...)
+	if err != nil {
+		return nil, err
+	}
 	var p Policy
-	err := tx.QueryRow(ctx, `SELECT relationship_id::text,max_collect_minor,max_pay_minor,mode,restrict_editors,updated_at_ms FROM customer_credit_limits WHERE vault_id=$1::uuid AND relationship_id=$2::uuid`, vaultID, relationshipID).Scan(&p.RelationshipID, &p.MaxCollectMinor, &p.MaxPayMinor, &p.Mode, &p.RestrictEditors, &p.UpdatedAtMS)
+	err = tx.QueryRow(ctx, `SELECT relationship_id::text,currency,max_collect_minor,max_pay_minor,mode,restrict_editors,updated_at_ms FROM customer_credit_limits WHERE vault_id=$1::uuid AND relationship_id=$2::uuid AND currency=$3`, vaultID, relationshipID, code).Scan(&p.RelationshipID, &p.Currency, &p.MaxCollectMinor, &p.MaxPayMinor, &p.Mode, &p.RestrictEditors, &p.UpdatedAtMS)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
@@ -121,4 +126,28 @@ func Read(ctx context.Context, tx pgx.Tx, vaultID, relationshipID string) (*Poli
 	return &p, nil
 }
 
-type BalanceReader func(context.Context, pgx.Tx, string, string) (int64, error)
+// Missing currency is a legacy client's frozen denomination, never the new default.
+func ResolveCurrency(ctx context.Context, tx pgx.Tx, vaultID string, currency ...string) (string, error) {
+	if len(currency) > 0 && currency[0] != "" {
+		if !ValidCurrency(currency[0]) {
+			return "", fmt.Errorf("invalid currency")
+		}
+		return currency[0], nil
+	}
+	var code string
+	err := tx.QueryRow(ctx, `SELECT legacy_currency FROM vaults WHERE vault_id=$1::uuid`, vaultID).Scan(&code)
+	return code, err
+}
+func ValidCurrency(code string) bool {
+	if len(code) != 3 {
+		return false
+	}
+	for _, c := range code {
+		if c < 'A' || c > 'Z' {
+			return false
+		}
+	}
+	return true
+}
+
+type BalanceReader func(context.Context, pgx.Tx, string, string, ...string) (int64, error)

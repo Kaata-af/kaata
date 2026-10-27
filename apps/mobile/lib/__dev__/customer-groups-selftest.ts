@@ -619,12 +619,13 @@ async function main() {
   assert.equal(availableCustomerGroupFilter(["missing"], [{ id: "g" }]), "all");
   assert.deepEqual(
     parseCustomerListPreference('{"sort":"recent","group":"g"}'),
-    { sort: "recent", group: "g" },
+    { sort: "recent", group: "g", direction: "all" },
     "legacy filter preference accepted",
   );
   assert.deepEqual(parseCustomerListPreference('{"sort":"recent","group":["h","g","h",7]}'), {
     sort: "recent",
     group: ["g", "h"],
+    direction: "all",
   });
   assert.deepEqual(groupIdsFromPayload({ group_id: "g", group_ids: ["h", "g", "h"] }), ["g", "h"]);
   assert.throws(() => groupIdsFromPayload({ group_id: "h", group_ids: ["g", "h"] }), /mirror/);
@@ -639,10 +640,15 @@ async function main() {
     -90,
     "filter did not mutate balances",
   );
-  assert.deepEqual(parseCustomerListPreference("invalid"), { sort: "recent", group: "all" });
+  assert.deepEqual(parseCustomerListPreference("invalid"), {
+    sort: "recent",
+    group: "all",
+    direction: "all",
+  });
   assert.deepEqual(parseCustomerListPreference('{"sort":"bad","group":4}'), {
     sort: "recent",
     group: "all",
+    direction: "all",
   });
   console.log(
     "PASS all sort directions, default settled-last, group filters, stable unmodified ledger totals",

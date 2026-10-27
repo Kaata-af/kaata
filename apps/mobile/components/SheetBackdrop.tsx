@@ -85,11 +85,23 @@ export const useSheetMotionPreference = () => useContext(Context).reducedMotion;
 
 /** The tint is always present: older Android and transparency preferences keep
  * a readable dim backdrop without changing sheet layout or hit testing. */
-export function SheetBackdrop({ onDismiss }: { onDismiss: () => void }) {
-  const { target, reducedTransparency } = useContext(Context);
+export function SheetBackdrop({
+  onDismiss,
+  blurTarget,
+  disabled = false,
+}: {
+  onDismiss: () => void;
+  /** A sibling target for overlays that live inside the app's root target. */
+  blurTarget?: RefObject<ViewInstance | null>;
+  disabled?: boolean;
+}) {
+  const { target: globalTarget, reducedTransparency } = useContext(Context);
+  // A supplied but unattached local target must not fall back to an ancestor
+  // that also contains this overlay and would capture the blur itself.
+  const target = blurTarget ?? globalTarget;
   const supportsBlur =
     !reducedTransparency &&
-    (Platform.OS !== "android" || (Number(Platform.Version) >= 31 && !!target));
+    (Platform.OS !== "android" || (Number(Platform.Version) >= 31 && !!target?.current));
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
       <View
@@ -122,8 +134,10 @@ export function SheetBackdrop({ onDismiss }: { onDismiss: () => void }) {
       <Pressable
         style={StyleSheet.absoluteFill}
         onPress={onDismiss}
+        disabled={disabled}
         accessibilityRole="button"
         accessibilityLabel={t("common.close")}
+        accessibilityState={{ disabled }}
       />
     </View>
   );

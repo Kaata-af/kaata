@@ -15,14 +15,15 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "../../../components/Button";
 import { EntryDateField } from "../../../components/EntryDateField";
+import { CurrencySelector } from "../../../components/CurrencySelector";
 import { ScreenLoading } from "../../../components/ScreenLoading";
 import { ScreenHeader } from "../../../components/SettingsScreen";
 import { useToast } from "../../../components/Toast";
 import { colors } from "../../../lib/colors";
 import { creditWarningForEdit } from "../../../lib/credit-limits";
-import { getCurrentCurrencySymbol } from "../../../lib/currency";
+import { getCurrentCurrencyCode, getCurrencyLabel } from "../../../lib/currency";
 import { getEntry, SettledChapterError, TabLinkedEntryError, updateEntry } from "../../../lib/db";
-import { textDir, useIsRTL } from "../../../lib/direction";
+import { rowDir, textDir, useIsRTL } from "../../../lib/direction";
 import { EventSigningUnavailableError, RoleGateRejectionError } from "../../../lib/event-log";
 import { fonts, sansLineHeight } from "../../../lib/fonts";
 import { t } from "../../../lib/i18n";
@@ -48,6 +49,7 @@ export default function EditEntryScreen() {
   const [type, setType] = useState<EntryType>("debt");
   const [amount, setAmount] = useState("");
   const [note, setNote] = useState("");
+  const [currency, setCurrency] = useState(getCurrentCurrencyCode);
   const [entryDate, setEntryDate] = useState<number>(Date.now);
   const [datePickerOpen, setDatePickerOpen] = useState(false);
   const datePickerRef = useRef(false);
@@ -115,10 +117,14 @@ export default function EditEntryScreen() {
           setType(e.type);
           setAmount(String(e.amount_afn));
           setNote(e.note ?? "");
+          setCurrency(e.currency ?? getCurrentCurrencyCode());
           setEntryDate(e.created_at);
           // Read-only probe; a failed lookup leaves the row editable and the
           // data-layer guard still has the last word on save.
-          const link = await getTabLinkForRelationship(e.relationship_id).catch(() => null);
+          const link = await getTabLinkForRelationship(
+            e.relationship_id,
+            e.currency ?? getCurrentCurrencyCode(),
+          ).catch(() => null);
           if (link) {
             setTabLocked(true);
             setSaveError(t("tab.editLocked"));
@@ -261,10 +267,12 @@ export default function EditEntryScreen() {
           <Text style={[styles.hint, textDir(isRTL)]}>{t("entry.edit.hint", { otherVerb })}</Text>
 
           <View style={styles.field}>
-            <Text style={[styles.label, textDir(isRTL)]}>
-              {t("entry.amount.labelTemplate", { code: getCurrentCurrencySymbol() })}{" "}
-              <Text style={styles.required}>*</Text>
-            </Text>
+            <View style={[styles.amountHeader, rowDir(isRTL)]}>
+              <Text style={[styles.label, { flex: 1, marginBottom: 0 }, textDir(isRTL)]}>
+                {t("entry.amount.labelTemplate", { code: getCurrencyLabel(currency) })}{" "}
+                <Text style={styles.required}>*</Text>
+              </Text>
+            </View>
             <TextInput
               ref={amountRef}
               style={[styles.amountInput, amountError ? styles.inputError : null]}
@@ -281,13 +289,16 @@ export default function EditEntryScreen() {
               // Keep over-precise pasted input intact so validation can reject
               // it rather than quietly saving a truncated amount.
               accessibilityLabel={t("entry.amount.labelTemplate", {
-                code: getCurrentCurrencySymbol(),
+                code: getCurrencyLabel(currency),
               })}
               selectTextOnFocus
               returnKeyType="next"
               onSubmitEditing={() => noteRef.current?.focus()}
               submitBehavior="submit"
             />
+            <View style={styles.currencyRow}>
+              <CurrencySelector compact symbolOnly value={currency} />
+            </View>
             {amountError ? (
               <Text style={[styles.fieldError, textDir(isRTL)]} accessibilityLiveRegion="polite">
                 {amountError}
@@ -298,12 +309,19 @@ export default function EditEntryScreen() {
               </Text>
             ) : null}
           </View>
+          <Text style={[styles.hint, { marginBottom: 16 }, textDir(isRTL)]}>
+            {t("entry.currency.fixed")}
+          </Text>
           <View style={styles.field}>
             <EntryDateField
               value={entryDate}
               expanded={datePickerOpen}
               disabled={busy || tabLocked}
               onToggle={() => {
+                if (datePickerRef.current) {
+                  closeDatePicker();
+                  return;
+                }
                 if (savingRef.current || tabLocked) return;
                 if (initialFocusTimer.current !== null) {
                   clearTimeout(initialFocusTimer.current);
@@ -359,6 +377,8 @@ export default function EditEntryScreen() {
 }
 
 const styles = StyleSheet.create({
+  amountHeader: { alignItems: "center", gap: 12, marginBottom: 8 },
+  currencyRow: { flexDirection: "row", direction: "ltr", justifyContent: "flex-end", marginTop: 8 },
   container: { flex: 1, backgroundColor: colors.bgDefault },
   keyboardAvoider: { flex: 1 },
   body: { flexGrow: 1, padding: 16, paddingTop: 20, paddingBottom: 24 },

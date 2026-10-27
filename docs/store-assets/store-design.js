@@ -1,6 +1,6 @@
-// Store campaign only. The reference is the founder's white/blue Persian
+// Store and share-preview campaign. The reference is the founder's white/blue Persian
 // Facebook artwork, with a yellow, blue, red footer and the original black K.
-// Do not propagate these accents into the product or the social/flyer palette.
+// Product UI and existing flyer/post templates keep their separate palettes.
 const palette = {
   white: "#FFFFFF",
   ink: "#171717",

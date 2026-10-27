@@ -18,7 +18,7 @@ import "../lib/mesh/foreground-bootstrap";
 import { isRunningInExpoGo } from "expo";
 import * as Application from "expo-application";
 import * as Network from "expo-network";
-import { router, Stack } from "expo-router";
+import { router, Stack, useRootNavigationState } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { setStatusBarStyle, StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
@@ -43,6 +43,7 @@ import { ProjectionConflictsListener } from "../components/ProjectionConflictsLi
 import { PendingEmailFlowResume } from "../components/PendingEmailFlowResume";
 import { ToastProvider } from "../components/Toast";
 import { SheetBlurProvider } from "../components/SheetBackdrop";
+import { SearchKeyboardProvider } from "../components/SearchKeyboardMotion";
 import { stopShopModeForegroundService } from "../lib/mesh/foreground";
 import {
   parseOnboardingStep,
@@ -108,6 +109,7 @@ if (NEEDS_RESTART_FOR_LTR) {
 import { checkIn } from "../lib/api";
 import { subscribeCheckInRequests } from "../lib/checkin-trigger";
 import { AppMetaProvider, useAppMeta } from "../lib/app-meta-context";
+import { ProfileSettingsProvider } from "../lib/profile-settings-context";
 import { colors } from "../lib/colors";
 import {
   decrementPendingUsage,
@@ -189,7 +191,12 @@ function notificationResponseKey(
  * layout and loops (the documented expo-router anti-pattern). push also leaves
  * the user a back button to whatever they were on.
  */
-function routeFromNotificationData(data: unknown, notificationKey?: string): void {
+async function routeFromNotificationData(
+  data: unknown,
+  notificationKey?: string,
+  canOpen: () => boolean = () => true,
+): Promise<void> {
+  if (!canOpen()) return;
   const reminder = data as {
     kind?: unknown;
     reminder_id?: unknown;
@@ -198,45 +205,43 @@ function routeFromNotificationData(data: unknown, notificationKey?: string): voi
   } | null;
   if (reminder?.kind === "customer_reminder") {
     if (typeof reminder.reminder_id === "string" && typeof reminder.owner_scope === "string") {
-      void import("../lib/open-customer-reminder")
-        .then(({ openCustomerReminder }) =>
-          openCustomerReminder(
-            reminder.reminder_id as string,
-            reminder.owner_scope as string,
-            notificationKey,
-            typeof reminder.reminder_fingerprint === "string"
-              ? reminder.reminder_fingerprint
-              : reminder.reminder_fingerprint === undefined
-                ? undefined
-                : "",
-          ),
-        )
-        .catch(() => undefined);
+      const { openCustomerReminder } = await import("../lib/open-customer-reminder");
+      if (!canOpen()) return;
+      await openCustomerReminder(
+        reminder.reminder_id,
+        reminder.owner_scope,
+        notificationKey,
+        typeof reminder.reminder_fingerprint === "string"
+          ? reminder.reminder_fingerprint
+          : reminder.reminder_fingerprint === undefined
+            ? undefined
+            : "",
+        canOpen,
+      );
     }
     return;
   }
   const tabId = (data as { tab_id?: unknown } | null)?.tab_id;
   if (typeof tabId === "string" && /^[0-9a-f-]{36}$/i.test(tabId)) {
-    void (async () => {
-      const { openTabNotification } = await import("../lib/tabs/open-notification");
-      const payload = data as { entry_id?: unknown; rev?: unknown };
-      const entryId = typeof payload.entry_id === "string" ? payload.entry_id : null;
-      // The tab revision the push announced rides along, so landing on the
-      // contact marks THAT notice read (lib/tabs/inbox-reads.ts, "handled
-      // means read") even when the payload names no tally, e.g. a label
-      // change. Untyped JSON, and FCM may stringify numbers: only a safe
-      // positive integer is a rev.
-      const rev = typeof payload.rev === "string" ? Number(payload.rev) : payload.rev;
-      const opts =
-        typeof rev === "number" && Number.isSafeInteger(rev) && rev > 0 ? { rev } : undefined;
-      await openTabNotification(tabId, entryId, opts);
-    })().catch(() => {});
+    const { openTabNotification } = await import("../lib/tabs/open-notification");
+    if (!canOpen()) return;
+    const payload = data as { entry_id?: unknown; rev?: unknown };
+    const entryId = typeof payload.entry_id === "string" ? payload.entry_id : null;
+    // The tab revision the push announced rides along, so landing on the
+    // contact marks THAT notice read (lib/tabs/inbox-reads.ts, "handled
+    // means read") even when the payload names no tally, e.g. a label
+    // change. Untyped JSON, and FCM may stringify numbers: only a safe
+    // positive integer is a rev.
+    const rev = typeof payload.rev === "string" ? Number(payload.rev) : payload.rev;
+    const opts =
+      typeof rev === "number" && Number.isSafeInteger(rev) && rev > 0 ? { rev } : undefined;
+    await openTabNotification(tabId, entryId, opts, canOpen);
     return;
   }
   const url = (data as { url?: unknown } | null | undefined)?.url;
   if (typeof url !== "string" || !url.startsWith(NOTIFICATION_PERSON_PREFIX)) return;
   const id = url.slice(NOTIFICATION_PERSON_PREFIX.length).split(/[?#]/)[0];
-  if (!id) return;
+  if (!id || !canOpen()) return;
   router.push({ pathname: "/person/[id]", params: { id } });
 }
 
@@ -253,6 +258,7 @@ export default function RootLayout() {
   }
 
   const [fontsReady, fontsError] = useAppFontsWithError();
+  const navigationReady = !!useRootNavigationState()?.key;
   const [appReady, setAppReady] = useState(false);
   // D-BOOT-CRASH-DEFENSE: fatal error captured by any boot step. Any
   // non-null value short-circuits the render gates below and shows
@@ -724,15 +730,22 @@ export default function RootLayout() {
   // Two deliveries, both needed: the listener covers a tap while the process
   // is alive (backgrounded), and getLastNotificationResponse covers the
   // tap that LAUNCHED the process, which happened before any listener existed.
-  // Gated on appReady so the Stack is mounted and there is a route to push
-  // onto; lazy import + the Expo Go skip for the reason in lib/tabs/notify.ts
-  // (a static expo-notifications import throws at module scope in Expo Go).
+  // Wait for the same gates that mount the Stack. On SDK 58 an early push can
+  // be drained before any navigator is registered, losing the destination.
+  // A lock-screen tap also waits for active so private reminder keys are
+  // available after unlock. iOS Expo Go supports local reminder responses;
+  // remote-push registration remains separately guarded in lib/tabs/notify.ts.
   useEffect(() => {
-    if (!appReady) return;
+    if (!appReady || !fontsReady || dbReady !== true || !navigationReady) return;
     let cancelled = false;
     let sub: { remove: () => void } | null = null;
+    let foregroundSub: { remove: () => void } | null = null;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    let latestResponseKey: string | null = null;
+    let retryFailures = 0;
+    const inFlight = new Set<string>();
     void (async () => {
-      if (isRunningInExpoGo()) return;
+      if (isRunningInExpoGo() && Platform.OS !== "ios") return;
       let notifications: typeof import("expo-notifications");
       try {
         notifications = await import("expo-notifications");
@@ -745,43 +758,80 @@ export default function RootLayout() {
         if (cancelled || response.actionIdentifier !== notifications.DEFAULT_ACTION_IDENTIFIER)
           return;
         const key = notificationResponseKey(response);
-        if (!key || handledNotificationResponses.has(key)) return;
-        handledNotificationResponses.add(key);
-        // Native retained responses are cleared below; keep only recent
-        // listener/launch duplicates, matching the draft handoff's bound.
-        while (handledNotificationResponses.size > 128)
-          handledNotificationResponses.delete(handledNotificationResponses.values().next().value!);
-        try {
-          // SDK 57's synchronous getter/clear avoid an async lookup racing the
-          // listener. Clear only THIS retained response, so an ordinary future
-          // launch cannot open the draft again or erase another native action.
-          const retained = notifications.getLastNotificationResponse();
-          if (
-            retained?.actionIdentifier === notifications.DEFAULT_ACTION_IDENTIFIER &&
-            notificationResponseKey(retained) === key
-          )
-            notifications.clearLastNotificationResponse();
-        } catch (err) {
-          if (__DEV__) console.warn("[layout] clearing notification response failed", err);
+        if (!key || handledNotificationResponses.has(key) || inFlight.has(key)) return;
+        if (latestResponseKey !== key) {
+          latestResponseKey = key;
+          retryFailures = 0;
+          if (retryTimer) clearTimeout(retryTimer);
+          retryTimer = null;
         }
         setLaunchNotificationOpened(true);
-        routeFromNotificationData(response.notification.request.content.data, key);
+        const canOpen = () =>
+          !cancelled && latestResponseKey === key && AppState.currentState === "active";
+        if (!canOpen()) return;
+        if (retryTimer) clearTimeout(retryTimer);
+        retryTimer = null;
+        inFlight.add(key);
+        void routeFromNotificationData(response.notification.request.content.data, key, canOpen)
+          .then(() => {
+            if (!canOpen()) return;
+            // Consume only after private state resolves and navigation dispatches.
+            // Failed or interrupted opens stay available on foreground/relaunch.
+            handledNotificationResponses.add(key);
+            while (handledNotificationResponses.size > 128)
+              handledNotificationResponses.delete(
+                handledNotificationResponses.values().next().value!,
+              );
+            try {
+              const retained = notifications.getLastNotificationResponse();
+              if (
+                retained?.actionIdentifier === notifications.DEFAULT_ACTION_IDENTIFIER &&
+                notificationResponseKey(retained) === key
+              )
+                notifications.clearLastNotificationResponse();
+            } catch (err) {
+              if (__DEV__) console.warn("[layout] clearing notification response failed", err);
+            }
+          })
+          .catch((err) => {
+            if (!canOpen()) return;
+            // Unlock/keychain availability can lag the active event briefly.
+            // Keep retries bounded; the retained tap survives another resume.
+            if (retryFailures < 2) {
+              const delay = [250, 750][retryFailures++];
+              retryTimer = setTimeout(() => {
+                retryTimer = null;
+                if (canOpen()) routeResponse(response);
+              }, delay);
+            }
+            if (__DEV__) console.warn("[layout] opening notification failed", err);
+          })
+          .finally(() => inFlight.delete(key));
       };
       sub = notifications.addNotificationResponseReceivedListener(routeResponse);
-      try {
-        const last = notifications.getLastNotificationResponse();
-        if (last) routeResponse(last);
-      } catch (err) {
-        if (__DEV__) console.warn("[layout] last notification response failed", err);
-      }
+      const openRetainedResponse = () => {
+        if (cancelled) return;
+        try {
+          const last = notifications.getLastNotificationResponse();
+          if (last) routeResponse(last);
+        } catch (err) {
+          if (__DEV__) console.warn("[layout] last notification response failed", err);
+        }
+      };
+      foregroundSub = AppState.addEventListener("change", (state) => {
+        if (state === "active") openRetainedResponse();
+      });
+      openRetainedResponse();
     })().finally(() => {
       if (!cancelled) setLaunchNotificationsReady(true);
     });
     return () => {
       cancelled = true;
       sub?.remove();
+      foregroundSub?.remove();
+      if (retryTimer) clearTimeout(retryTimer);
     };
-  }, [appReady]);
+  }, [appReady, fontsReady, dbReady, navigationReady]);
 
   // Hide the native splash once a REAL surface is about to render — the app, or
   // an error card. (The RTL restart prompt is an early return before this hook,
@@ -851,30 +901,31 @@ export default function RootLayout() {
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <SheetBlurProvider>
-        {/* initialMetrics is load-bearing, not an optimization: without it
+      <SearchKeyboardProvider>
+        <SheetBlurProvider>
+          {/* initialMetrics is load-bearing, not an optimization: without it
           SafeAreaProvider renders NOTHING until it asynchronously measures
           window insets, and on some Android ROMs (Xiaomi/MIUI) that measure
           callback is deferred until the first touch — so the whole app area is
           blank-white until you swipe (the reported bug; the system bars render
           fine, they're just white-on-white). Seeding initialWindowMetrics makes
           insets available synchronously on the first frame. */}
-        <SafeAreaProvider initialMetrics={initialWindowMetrics}>
-          <ToastProvider>
-            <AppMetaProvider currentVersion={currentVersion}>
-              <StatusBar style="dark" />
-              <ForceDarkStatusBar />
-              {installId ? <BackgroundCheckIn /> : null}
-              <AutoSync />
-              <TabSync />
-              <ReminderCoordinator />
-              {/* Phase 6: reactively starts mesh sync (BLE primary +
+          <SafeAreaProvider initialMetrics={initialWindowMetrics}>
+            <ToastProvider>
+              <AppMetaProvider currentVersion={currentVersion}>
+                <StatusBar style="dark" />
+                <ForceDarkStatusBar />
+                {installId ? <BackgroundCheckIn /> : null}
+                <AutoSync />
+                <TabSync />
+                <ReminderCoordinator />
+                {/* Phase 6: reactively starts mesh sync (BLE primary +
                 opportunistic wifi upgrade) when account_id and
                 shop_mode_enabled are both set. Also renders the BLE
                 permission rationale + wifi-upgrade prompt dialogs.
                 No-op otherwise, including in local-only mode. */}
-              <MeshController />
-              {/* Phase 8 D-PROJECTION-CONFLICTS-SURFACE: the role-gate writes
+                <MeshController />
+                {/* Phase 8 D-PROJECTION-CONFLICTS-SURFACE: the role-gate writes
                 projection_conflicts rows when an event (local or mesh) is
                 refused for role reasons. Without a visible UI surface,
                 shopkeepers whose role got demoted between launches saw
@@ -882,95 +933,97 @@ export default function RootLayout() {
                 to the projection-conflicts notifier and pushes a toast
                 explaining what happened. Mounted at root so the surface
                 works across every screen. */}
-              <ProjectionConflictsListener />
-              <InitialRouteRedirect
-                route={pickInitialRoute({
-                  hasOnboarded,
-                  onboardingStep,
-                  deviceIsPersian,
-                  accountId,
-                  restoreSkipped,
-                  cancelledDeletionAccountId,
-                })}
-              />
-              <Stack
-                screenOptions={{
-                  headerShown: false,
-                  contentStyle: { backgroundColor: colors.bgDefault },
-                }}
-              >
-                <Stack.Screen name="index" />
-                {/* Resumable onboarding stack. Each screen is registered as
+                <ProjectionConflictsListener />
+                <InitialRouteRedirect
+                  route={pickInitialRoute({
+                    hasOnboarded,
+                    onboardingStep,
+                    deviceIsPersian,
+                    accountId,
+                    restoreSkipped,
+                    cancelledDeletionAccountId,
+                  })}
+                />
+                <ProfileSettingsProvider>
+                  <Stack
+                    screenOptions={{
+                      headerShown: false,
+                      contentStyle: { backgroundColor: colors.bgDefault },
+                    }}
+                  >
+                    <Stack.Screen name="index" />
+                    {/* Resumable onboarding stack. Each screen is registered as
                   its own Stack screen so the resumed step doesn't push
                   the earlier ones into history (avoiding back-into-language
                   loops). Gestures off across the whole flow — users
                   navigate forward only, except via explicit on-screen Back
                   on the profile screen. */}
-                <Stack.Screen name="onboarding/language" options={{ gestureEnabled: false }} />
-                <Stack.Screen name="onboarding/calendar" options={{ gestureEnabled: false }} />
-                <Stack.Screen name="sign-in" />
-                {/* Email sits above its provider selector, making native Back
+                    <Stack.Screen name="onboarding/language" options={{ gestureEnabled: false }} />
+                    <Stack.Screen name="onboarding/calendar" options={{ gestureEnabled: false }} />
+                    <Stack.Screen name="sign-in" />
+                    {/* Email sits above its provider selector, making native Back
                   return to the choices. The form controls gestures while busy
                   or on a deeper code/reset step that must be cancelled first. */}
-                <Stack.Screen name="auth/email" />
-                <Stack.Screen name="onboarding/auth" options={{ gestureEnabled: false }} />
-                {/* Phase 3 restore probe. Sits between auth and profile —
+                    <Stack.Screen name="auth/email" />
+                    <Stack.Screen name="onboarding/auth" options={{ gestureEnabled: false }} />
+                    {/* Phase 3 restore probe. Sits between auth and profile —
                   the screen fetches the snapshot/v0.4-backup endpoints
                   on mount and either restores or forwards to profile.
                   Gestures off so the user can't swipe back into auth and
                   re-trigger sign-in mid-restore. */}
-                <Stack.Screen name="onboarding/restore" options={{ gestureEnabled: false }} />
-                <Stack.Screen name="onboarding/profile" options={{ gestureEnabled: false }} />
-                {/* Kaata step — collects the shop name + currency and mints the
+                    <Stack.Screen name="onboarding/restore" options={{ gestureEnabled: false }} />
+                    <Stack.Screen name="onboarding/profile" options={{ gestureEnabled: false }} />
+                    {/* Kaata step — collects the shop name + currency and mints the
                   shopkeeper's first vault. Gestures off (forward-only flow);
                   it has an explicit on-screen Back to the profile step. */}
-                <Stack.Screen name="onboarding/kaata" options={{ gestureEnabled: false }} />
-                {/* Completion ceremony after the kaata step. Pure celebration —
+                    <Stack.Screen name="onboarding/kaata" options={{ gestureEnabled: false }} />
+                    {/* Completion ceremony after the kaata step. Pure celebration —
                   onboarding_step is already 'done' when it mounts, so a
                   force-quit here just lands home on relaunch. */}
-                <Stack.Screen name="onboarding/success" options={{ gestureEnabled: false }} />
-                <Stack.Screen name="onboarding/index" />
-                <Stack.Screen
-                  name="update-prompt"
-                  options={{ presentation: "fullScreenModal", gestureEnabled: false }}
-                />
-                <Stack.Screen name="person/[id]" />
-                <Stack.Screen name="person/[id]/edit" options={{ presentation: "modal" }} />
-                {/* Opened from Edit customer too: a card pushed from a modal opens
+                    <Stack.Screen name="onboarding/success" options={{ gestureEnabled: false }} />
+                    <Stack.Screen name="onboarding/index" />
+                    <Stack.Screen
+                      name="update-prompt"
+                      options={{ presentation: "fullScreenModal", gestureEnabled: false }}
+                    />
+                    <Stack.Screen name="person/[id]" />
+                    <Stack.Screen name="person/[id]/edit" options={{ presentation: "modal" }} />
+                    {/* Opened from Edit customer too: a card pushed from a modal opens
                     BEHIND it on iOS, so the picker is a modal as well. */}
-                <Stack.Screen name="person/[id]/group" options={{ presentation: "modal" }} />
-                {/* Reachable from that modal ("Manage groups"), so these stack
+                    <Stack.Screen name="person/[id]/group" options={{ presentation: "modal" }} />
+                    {/* Reachable from that modal ("Manage groups"), so these stack
                     over it as modals instead of opening behind it. */}
-                <Stack.Screen name="groups" options={{ presentation: "modal" }} />
-                <Stack.Screen name="group-members" options={{ presentation: "modal" }} />
-                <Stack.Screen name="person/new" options={{ presentation: "modal" }} />
-                <Stack.Screen name="search" options={{ presentation: "modal" }} />
-                <Stack.Screen name="entry/new" options={{ presentation: "modal" }} />
-                <Stack.Screen name="entry/[id]/edit" options={{ presentation: "modal" }} />
-                <Stack.Screen name="tab/dispute" options={{ presentation: "modal" }} />
-                {/* Mutual-tab join deep link, kaata://t/<token> (D15). Modal so
+                    <Stack.Screen name="groups" options={{ presentation: "modal" }} />
+                    <Stack.Screen name="group-members" options={{ presentation: "modal" }} />
+                    <Stack.Screen name="person/new" options={{ presentation: "modal" }} />
+                    <Stack.Screen name="profile" options={{ presentation: "modal" }} />
+                    <Stack.Screen name="search" options={{ presentation: "modal" }} />
+                    <Stack.Screen name="entry/new" options={{ presentation: "modal" }} />
+                    <Stack.Screen name="entry/[id]/edit" options={{ presentation: "modal" }} />
+                    <Stack.Screen name="tab/dispute" options={{ presentation: "modal" }} />
+                    {/* Mutual-tab join deep link, kaata://t/<token> (D15). Modal so
                   it sits over whatever the user was doing and dismisses back
                   to it; signed-out visitors are allowed (D10). */}
-                <Stack.Screen name="t/[token]" options={{ presentation: "modal" }} />
-                {/* Phase 7 D-ACCOUNT-PAGE-ROLE: the /account screen was
+                    <Stack.Screen name="t/[token]" options={{ presentation: "modal" }} />
+                    {/* Phase 7 D-ACCOUNT-PAGE-ROLE: the /account screen was
                   killed. Sign-in / sign-out / switch-account all run
                   inline from ProfileSettingsSheet now — the screen had
                   become a redundant extra modal hop on top of the sheet
                   that already exposed every account action. */}
-                {/* Phase 7 settings-adjacent sub-pages — registered as Stack
+                    {/* Phase 7 settings-adjacent sub-pages — registered as Stack
                   cards (no presentation override) for a consistent push-pop
                   feel with a single back-arrow header per screen. (The old
                   /preferences card was folded into /vault/settings — language /
                   region / currency / diagnostics now live under "Manage this
                   Kaata".) */}
-                {/* Mythos crash-diagnosis screen — card presentation like
+                    {/* Mythos crash-diagnosis screen — card presentation like
                   the other settings sub-pages. */}
-                <Stack.Screen name="account" />
-                {/* "How kaata works" static guide — reachable from the settings
+                    <Stack.Screen name="account" />
+                    {/* "How kaata works" static guide — reachable from the settings
                   sheet's Help section. */}
-                <Stack.Screen name="guide" />
-                <Stack.Screen name="diagnostics" />
-                {/* D-BACKUP-RESTORE-FLOW: in-app "Restore from cloud"
+                    <Stack.Screen name="guide" />
+                    <Stack.Screen name="diagnostics" />
+                    {/* D-BACKUP-RESTORE-FLOW: in-app "Restore from cloud"
                   confirm. Distinct from onboarding/restore (no Start-
                   fresh path, no v0.4 bridge, lands on / on success).
                   Phase 7 coherence pass: card presentation (the
@@ -978,8 +1031,8 @@ export default function RootLayout() {
                   design-tokens.ts). Modal-as-sheet was inconsistent
                   with preferences/vault-* which are all cards reached
                   from the same ProfileSettingsSheet. */}
-                <Stack.Screen name="restore" />
-                {/* Phase 5.2: "Add a Kaata" — creates an additional vault local-
+                    <Stack.Screen name="restore" />
+                    {/* Phase 5.2: "Add a Kaata" — creates an additional vault local-
                   first. Registered as a regular card push (no presentation
                   override) to match every other vault/* screen (settings,
                   members, invite, pair) which rely on file-based routing
@@ -989,46 +1042,48 @@ export default function RootLayout() {
                   area, leaving the form half-cut at the top. The screen
                   still renders its own custom header (Cancel | title | spacer),
                   matching the vault/* convention. */}
-                <Stack.Screen name="vault/new" />
-                {/* Phase 7: vault/* sub-pages explicitly registered as
+                    <Stack.Screen name="vault/new" />
+                    {/* Phase 7: vault/* sub-pages explicitly registered as
                   Stack cards so their presentation matches /preferences
                   and /vault/new. File-based routing would default to
                   cards anyway, but the explicit registration is the
                   contract for the post-Phase-7 navigation graph and
                   makes it obvious these are NOT modal sheets. */}
-                <Stack.Screen name="vault/settings" />
-                <Stack.Screen name="vault/members" />
-                <Stack.Screen name="vault/invite" />
-                <Stack.Screen name="vault/audit-log" />
-                {/* Phase 7 D-ARCHIVED-SCREEN — dedicated list of archived
+                    <Stack.Screen name="vault/settings" />
+                    <Stack.Screen name="vault/members" />
+                    <Stack.Screen name="vault/invite" />
+                    <Stack.Screen name="vault/audit-log" />
+                    {/* Phase 7 D-ARCHIVED-SCREEN — dedicated list of archived
                   Kaatas reached from a small "Archived (N) >" row in
                   ProfileSettingsSheet and VaultPickerSheet. Card
                   presentation matches every other vault/* sub-page so
                   it shares the push/pop affordance of vault/settings,
                   vault/members, etc. */}
-                <Stack.Screen name="vault/archived" options={{ presentation: "card" }} />
-                {/* Removed people — archived contacts with their kept entries,
+                    <Stack.Screen name="vault/archived" options={{ presentation: "card" }} />
+                    {/* Removed people — archived contacts with their kept entries,
                   restorable. Reached from a "Removed people" row in vault
                   settings (rendered only when the active vault has any). */}
-                <Stack.Screen name="vault/removed-people" options={{ presentation: "card" }} />
-                <Stack.Screen name="vault/pair" />
-                <Stack.Screen name="vault/pair-scan" />
-                {/* DEV: Bluetooth Classic (RFCOMM) transport test — M-BTC-1.
+                    <Stack.Screen name="vault/removed-people" options={{ presentation: "card" }} />
+                    <Stack.Screen name="vault/pair" />
+                    <Stack.Screen name="vault/pair-scan" />
+                    {/* DEV: Bluetooth Classic (RFCOMM) transport test — M-BTC-1.
                   Temporary; remove once RFCOMM is wired into Shop Mode. */}
-                <Stack.Screen name="dev/btc-test" />
-                {/* Phase 5.1 deep-link handler for kaata://pair/<token>?p=...
+                    <Stack.Screen name="dev/btc-test" />
+                    {/* Phase 5.1 deep-link handler for kaata://pair/<token>?p=...
                   Reuses the same 5-step issuance as vault/pair-scan.tsx. */}
-                <Stack.Screen name="pair/[token]" options={{ presentation: "modal" }} />
-              </Stack>
-              <PendingEmailFlowResume
-                hasOnboarded={hasOnboarded}
-                launchNotificationsReady={launchNotificationsReady}
-                launchNotificationOpened={launchNotificationOpened}
-              />
-            </AppMetaProvider>
-          </ToastProvider>
-        </SafeAreaProvider>
-      </SheetBlurProvider>
+                    <Stack.Screen name="pair/[token]" options={{ presentation: "modal" }} />
+                  </Stack>
+                </ProfileSettingsProvider>
+                <PendingEmailFlowResume
+                  hasOnboarded={hasOnboarded}
+                  launchNotificationsReady={launchNotificationsReady}
+                  launchNotificationOpened={launchNotificationOpened}
+                />
+              </AppMetaProvider>
+            </ToastProvider>
+          </SafeAreaProvider>
+        </SheetBlurProvider>
+      </SearchKeyboardProvider>
     </GestureHandlerRootView>
   );
 }

@@ -81,7 +81,7 @@ function fixture(
       useToast: () => ({ push: (message: string) => notices.push(message) }),
     },
     "../../../lib/colors": { colors: require("../colors").colors },
-    "../../../lib/currency": { getCurrentCurrencySymbol: () => "AFN" },
+    "../../../lib/currency": { useCurrency: () => "AFN", getCurrencyLabel: (code: string) => code },
     "../../../lib/credit-policy": { KAATA_DEFAULT_ROUTE_ID: "kaata-default" },
     "../../../lib/credit-limits": {
       KAATA_DEFAULT_CREDIT_ID: "00000000-0000-0000-0000-000000000000",
@@ -220,6 +220,7 @@ async function run() {
       session: { jwt: "token", accountId: "account", bindingVersion: 1 },
       value: {
         relationship_id: "relationship",
+        currency: "AFN",
         max_collect_minor: 12345,
         max_pay_minor: 20000,
         mode: expectedMode,

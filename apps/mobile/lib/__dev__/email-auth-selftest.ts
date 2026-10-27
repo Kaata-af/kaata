@@ -259,7 +259,8 @@ const phoneLabels = load<typeof import("../phone")>("../phone", { "./db": {}, ".
 
 const rules = load<Rules>("../account-rules", { "./digits": digits, "./i18n": i18n });
 
-const auth = load<Auth>("../auth", {
+const authMocks = {
+  expo: { isRunningInExpoGo: () => false },
   "expo-constants": { __esModule: true, default: { executionEnvironment: "standalone" } },
   "expo-secure-store": {
     getItemAsync: async (key: string) => secure.get(key) ?? null,
@@ -337,7 +338,8 @@ const auth = load<Auth>("../auth", {
     AppleAuthenticationScope: { FULL_NAME: 0, EMAIL: 1 },
     signInAsync: async () => ({ identityToken: appleIdentityToken, fullName: null, user: "apple" }),
   },
-});
+};
+const auth = load<Auth>("../auth", authMocks);
 
 // The screens' copy of the rules, worded by KEY, so a case can name what is shown.
 const keyT = (key: string, vars?: Record<string, unknown>) =>
@@ -348,6 +350,91 @@ const keyRules = load<Rules>("../account-rules", { "./digits": digits, "./i18n":
 
 const cases: Array<[string, () => Promise<void>]> = [];
 const test = (name: string, run: () => Promise<void>) => cases.push([name, run]);
+
+test("Expo Go: Android and iOS never load native Google sign-in, regardless of Constants metadata", async () => {
+  for (const os of ["android", "ios"]) {
+    let googleRequires = 0;
+    const mocks = {
+      ...authMocks,
+      expo: { isRunningInExpoGo: () => true },
+      "expo-constants": { __esModule: true, default: { executionEnvironment: "standalone" } },
+      "react-native": { Platform: { OS: os } },
+      "../constants/env": {
+        GOOGLE_IOS_CLIENT_ID: "ios-client",
+        GOOGLE_WEB_CLIENT_ID: "web-client",
+      },
+    };
+    Object.defineProperty(mocks, "@react-native-google-signin/google-signin", {
+      get() {
+        googleRequires++;
+        throw new Error("RNGoogleSignin is unavailable in Expo Go");
+      },
+    });
+    const goAuth = load<Auth>("../auth", mocks);
+    goAuth.configureGoogleSignIn();
+    assert.equal(
+      goAuth.isGoogleSignInAvailable(),
+      false,
+      `${os} Go hides the unavailable provider`,
+    );
+    assert.match(String(await rejection(goAuth.signInWithGoogle())), /can't run in Expo Go/);
+    assert.equal(goAuth.isCancellation({ code: "SIGN_IN_CANCELLED" }), true);
+    assert.equal(googleRequires, 0, `${os} Go must never evaluate the missing native module`);
+  }
+});
+
+test("native builds: Android and configured iOS retain Google configuration and chooser flow", async () => {
+  for (const os of ["android", "ios"]) {
+    const configurations: Record<string, unknown>[] = [];
+    let googleRequires = 0,
+      chooserCalls = 0;
+    const mocks = {
+      ...authMocks,
+      expo: { isRunningInExpoGo: () => false },
+      "expo-constants": { __esModule: true, default: { executionEnvironment: "storeClient" } },
+      "react-native": { Platform: { OS: os } },
+      "../constants/env": {
+        GOOGLE_IOS_CLIENT_ID: "ios-client",
+        GOOGLE_WEB_CLIENT_ID: "web-client",
+      },
+    };
+    Object.defineProperty(mocks, "@react-native-google-signin/google-signin", {
+      get() {
+        googleRequires++;
+        return {
+          GoogleSignin: {
+            configure: (options: Record<string, unknown>) => configurations.push(options),
+            hasPlayServices: async () => true,
+            signOut: async () => {},
+            signIn: async () => {
+              chooserCalls++;
+              return { type: "cancelled", data: null };
+            },
+          },
+          isErrorWithCode: (error: unknown) =>
+            !!error && typeof error === "object" && "code" in error,
+          statusCodes: { SIGN_IN_CANCELLED: "SIGN_IN_CANCELLED" },
+        };
+      },
+    });
+    const nativeAuth = load<Auth>("../auth", mocks);
+    assert.equal(nativeAuth.isGoogleSignInAvailable(), true);
+    assert.equal(googleRequires, 0, "Checking provider availability keeps the module lazy");
+    nativeAuth.configureGoogleSignIn();
+    assert.deepEqual(configurations, [
+      {
+        webClientId: "web-client",
+        ...(os === "ios" ? { iosClientId: "ios-client" } : {}),
+        offlineAccess: false,
+      },
+    ]);
+    const cancelled = await rejection(nativeAuth.signInWithGoogle());
+    assert.ok(cancelled instanceof nativeAuth.SignInCancelledByUserError);
+    assert.equal(nativeAuth.isCancellation(cancelled), true);
+    assert.equal(chooserCalls, 1);
+    assert.equal(googleRequires, 1, "Configuration and sign-in share the lazily loaded module");
+  }
+});
 
 function refusal(err: unknown, reason: string, status: number) {
   assert.ok(err instanceof auth.EmailAuthError, `expected EmailAuthError ${reason}, got ${err}`);

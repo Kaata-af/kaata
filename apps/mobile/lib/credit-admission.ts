@@ -1,4 +1,5 @@
 import type { SQLiteTx } from "./db-tx";
+import { effectiveEntryCurrencySql, getLedgerCurrencyCode } from "./currency-scope";
 import type {
   EntryCreatedEvent,
   EntryAmendedEvent,
@@ -101,12 +102,32 @@ export async function requiresCreditAdmission(
     return false;
   const relationshipId =
     event.event_type === "entry_created" ? event.payload.relationship_id : event.relationship_id;
+  const storedCurrency =
+    event.event_type === "entry_created"
+      ? event.payload.currency
+      : (
+          await tx.getFirstAsync<{ currency: string }>(
+            `SELECT ${effectiveEntryCurrencySql("e")} AS currency FROM entries e WHERE id=? AND vault_id=?`,
+            event.target_id,
+            event.vault_id,
+          )
+        )?.currency;
+  const currency =
+    storedCurrency ??
+    (
+      await tx.getFirstAsync<{ currency: string }>(
+        "SELECT COALESCE(legacy_currency,currency,'AFN') AS currency FROM vaults WHERE id=?",
+        event.vault_id,
+      )
+    )?.currency ??
+    "AFN";
   return hardLimitApplies(
     tx,
     event.vault_id,
     relationshipId,
     lawfulRole,
     trustedAccountId ?? (event.origin === "local" ? event.actor_account_id : null),
+    currency,
   );
 }
 
@@ -118,19 +139,22 @@ export async function hardLimitApplies(
   relationshipId: string | null | undefined,
   role: VaultRole | undefined = "clerk",
   accountId?: string | null,
+  currencyCode = getLedgerCurrencyCode(),
 ): Promise<boolean> {
   if (!vaultId || !relationshipId) return false;
   if (role !== "clerk" && role !== "editor") return false;
   const own = await tx.getFirstAsync<{ mode: string; restrict_editors: number }>(
-    "SELECT mode,restrict_editors FROM customer_credit_limits WHERE vault_id=? AND relationship_id=?",
+    "SELECT mode,restrict_editors FROM customer_credit_limits WHERE vault_id=? AND relationship_id=? AND currency=?",
     vaultId,
     relationshipId,
+    currencyCode,
   );
   const policy =
     own ??
     (await tx.getFirstAsync<{ mode: string; restrict_editors: number }>(
-      "SELECT mode,restrict_editors FROM kaata_credit_defaults WHERE vault_id=?",
+      "SELECT mode,restrict_editors FROM kaata_credit_defaults WHERE vault_id=? AND currency=?",
       vaultId,
+      currencyCode,
     ));
   if (policy?.mode !== "clerk_block") return false;
   const override = accountId

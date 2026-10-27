@@ -77,13 +77,15 @@ type SnapshotResponse struct {
 
 // SnapshotVault mirrors the SQLite vaults row shape on mobile.
 type SnapshotVault struct {
-	ID        string  `json:"id"`
-	Name      string  `json:"name"`
-	Currency  string  `json:"currency"`
-	CreatedAt int64   `json:"created_at"`
-	UpdatedAt int64   `json:"updated_at"`
-	IsDefault int     `json:"is_default"`
-	AccountID *string `json:"account_id"`
+	ID                   string  `json:"id"`
+	Name                 string  `json:"name"`
+	Currency             string  `json:"currency"`
+	LegacyCurrency       string  `json:"legacy_currency"`
+	DefaultEntryCurrency string  `json:"default_entry_currency"`
+	CreatedAt            int64   `json:"created_at"`
+	UpdatedAt            int64   `json:"updated_at"`
+	IsDefault            int     `json:"is_default"`
+	AccountID            *string `json:"account_id"`
 	// VaultTrustAnchorPubkey (M5 recovery) — base64(std) of the vault's
 	// Phase 7 local-CA Ed25519 trust anchor (32 raw bytes). nil for
 	// server-anchored (Phase 5 back-compat) vaults. A recovering device
@@ -132,6 +134,7 @@ type SnapshotEntry struct {
 	RelationshipID   string      `json:"relationship_id"`
 	Type             string      `json:"type"`
 	AmountAFN        json.Number `json:"amount_afn"`
+	Currency         string      `json:"currency"`
 	Note             *string     `json:"note"`
 	CreatedAt        int64       `json:"created_at"`
 	RecordedAtMS     int64       `json:"recorded_at_ms,omitempty"`
@@ -181,16 +184,18 @@ func (s *Service) LatestSnapshot(ctx context.Context, vaultID string) (*Snapshot
 	var (
 		vaultName      string
 		vaultCurrency  string
+		vaultLegacy    string
+		vaultDefault   string
 		vaultCreated   time.Time
 		vaultUpdated   time.Time
 		vaultAccount   *string
 		trustAnchorRaw []byte // nil for server-anchored vaults
 	)
 	if err := s.pool.QueryRow(ctx, `
-		SELECT name, currency, created_at, COALESCE(updated_at, created_at), owner_account_id::text, vault_trust_anchor_pubkey
+		SELECT name, currency, legacy_currency, default_entry_currency, created_at, COALESCE(updated_at, created_at), owner_account_id::text, vault_trust_anchor_pubkey
 		FROM vaults
 		WHERE vault_id = $1::uuid
-	`, vaultID).Scan(&vaultName, &vaultCurrency, &vaultCreated, &vaultUpdated, &vaultAccount, &trustAnchorRaw); err != nil {
+	`, vaultID).Scan(&vaultName, &vaultCurrency, &vaultLegacy, &vaultDefault, &vaultCreated, &vaultUpdated, &vaultAccount, &trustAnchorRaw); err != nil {
 		return nil, fmt.Errorf("read vault row: %w", err)
 	}
 	// M5: surface the pinned trust anchor when populated. Same std-base64
@@ -201,6 +206,11 @@ func (s *Service) LatestSnapshot(ctx context.Context, vaultID string) (*Snapshot
 		trustAnchorB64 = &encoded
 	}
 
+	for _, e := range projection.Entries {
+		if e.Currency == "" {
+			e.Currency = vaultLegacy
+		}
+	}
 	// Drain the post-snapshot event tail in pulled-event shape.
 	tail, err := s.pullTail(ctx, vaultID, upTo)
 	if err != nil {
@@ -239,13 +249,13 @@ func (s *Service) LatestSnapshot(ctx context.Context, vaultID string) (*Snapshot
 	hlcLast := snapshotMaxHLC(&projection, tail)
 
 	creditLimits := []credit.Policy{}
-	creditRows, err := s.pool.Query(ctx, `SELECT relationship_id::text,max_collect_minor,max_pay_minor,mode,restrict_editors,updated_at_ms FROM customer_credit_limits WHERE vault_id=$1::uuid ORDER BY relationship_id`, vaultID)
+	creditRows, err := s.pool.Query(ctx, `SELECT relationship_id::text,currency,max_collect_minor,max_pay_minor,mode,restrict_editors,updated_at_ms FROM customer_credit_limits WHERE vault_id=$1::uuid ORDER BY relationship_id`, vaultID)
 	if err != nil {
 		return nil, err
 	}
 	for creditRows.Next() {
 		var p credit.Policy
-		if err := creditRows.Scan(&p.RelationshipID, &p.MaxCollectMinor, &p.MaxPayMinor, &p.Mode, &p.RestrictEditors, &p.UpdatedAtMS); err != nil {
+		if err := creditRows.Scan(&p.RelationshipID, &p.Currency, &p.MaxCollectMinor, &p.MaxPayMinor, &p.Mode, &p.RestrictEditors, &p.UpdatedAtMS); err != nil {
 			creditRows.Close()
 			return nil, err
 		}
@@ -265,6 +275,8 @@ func (s *Service) LatestSnapshot(ctx context.Context, vaultID string) (*Snapshot
 			ID:                     vaultID,
 			Name:                   vaultName,
 			Currency:               vaultCurrency,
+			LegacyCurrency:         vaultLegacy,
+			DefaultEntryCurrency:   vaultDefault,
 			CreatedAt:              vaultCreated.UnixMilli(),
 			UpdatedAt:              vaultUpdated.UnixMilli(),
 			IsDefault:              1,
@@ -358,6 +370,7 @@ func projectEntries(in map[string]*EntryProjection) []SnapshotEntry {
 			RelationshipID:   e.RelationshipID,
 			Type:             e.Type,
 			AmountAFN:        e.AmountAFN,
+			Currency:         e.Currency,
 			Note:             e.Note,
 			CreatedAt:        e.CreatedAt,
 			RecordedAtMS:     e.RecordedAtMS,
@@ -901,7 +914,8 @@ func loadVaultEvents(ctx context.Context, q EventQuerier, vaultID string) ([]Led
 			relationship_id::text,
 			payload,
 			server_seq,
-			schema_version
+			schema_version,
+			(SELECT legacy_currency FROM vaults WHERE vault_id=$1::uuid)
 		FROM events
 		WHERE vault_id = $1::uuid
 		  AND redacted_at IS NULL
@@ -937,6 +951,7 @@ func loadVaultEvents(ctx context.Context, q EventQuerier, vaultID string) ([]Led
 			&payload,
 			&ev.ServerSeq,
 			&schemaVersion,
+			&ev.LegacyCurrency,
 		); err != nil {
 			return nil, 0, fmt.Errorf("scan event: %w", err)
 		}

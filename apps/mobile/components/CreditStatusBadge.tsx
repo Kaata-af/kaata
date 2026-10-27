@@ -2,7 +2,7 @@ import { useFocusEffect } from "expo-router";
 import { useCallback, useState } from "react";
 import { AppState, Text } from "react-native";
 import { colors } from "../lib/colors";
-import { getCurrentCurrencySymbol } from "../lib/currency";
+import { getCurrencyLabel, useCurrency } from "../lib/currency";
 import { bidiIsolate, useIsRTL } from "../lib/direction";
 import { formatAmount, formatRelative } from "../lib/format";
 import { faDigits } from "../lib/jalali";
@@ -27,27 +27,36 @@ export type CreditStatus = "none" | "near" | "over";
 type CreditDetail = { status: CreditStatus; cap: number | null; exposure: number };
 const NO_DETAIL: CreditDetail = { status: "none", cap: null, exposure: 0 };
 
-export function useCreditStatus(personId: string, vaultId: string | null): CreditStatus {
-  return useCreditDetail(personId, vaultId).status;
+export function useCreditStatus(
+  personId: string,
+  vaultId: string | null,
+  currency?: string,
+): CreditStatus {
+  const selected = useCurrency();
+  return useCreditDetail(personId, vaultId, currency ?? selected).status;
 }
 
 /** The status plus the cap in force and the exposure against it (minor
  *  units), so every role, clerks included, can see how much credit is left. */
-function useCreditDetail(personId: string, vaultId: string | null): CreditDetail {
-  const [detail, setDetail] = useState<CreditDetail>(NO_DETAIL);
+function useCreditDetail(personId: string, vaultId: string | null, currency: string): CreditDetail {
+  const scope = JSON.stringify([personId, vaultId, currency]);
+  const [detail, setDetail] = useState<{ scope: string; value: CreditDetail }>({
+    scope: "",
+    value: NO_DETAIL,
+  });
   useFocusEffect(
     useCallback(() => {
       let alive = true;
       let generation = 0;
-      setDetail(NO_DETAIL);
+      setDetail({ scope, value: NO_DETAIL });
       async function load(refresh = false) {
         const request = ++generation;
         if (!vaultId || getActiveVaultIdSyncMaybe() !== vaultId) return;
         const session = await captureCurrentSession();
         if (refresh) await refreshCreditPolicies(vaultId, session).catch(() => undefined);
         const rel = await relationshipForCredit(personId, vaultId);
-        const p = await readEffectiveCreditPolicy(rel, vaultId);
-        const balance = await creditBalanceInTx(await getDb(), vaultId, rel);
+        const p = await readEffectiveCreditPolicy(rel, vaultId, currency);
+        const balance = await creditBalanceInTx(await getDb(), vaultId, rel, currency);
         // A zero balance shows the "they owe us" cap: that is the credit a
         // shopkeeper or clerk is about to give.
         const cap =
@@ -65,7 +74,7 @@ function useCreditDetail(personId: string, vaultId: string | null): CreditDetail
               : "none";
         await applyForUnchangedLocalSession(session, async () => {
           if (alive && request === generation && getActiveVaultIdSyncMaybe() === vaultId)
-            setDetail({ status: next, cap: cap ?? null, exposure });
+            setDetail({ scope, value: { status: next, cap: cap ?? null, exposure } });
         }).catch(() => undefined);
       }
       // Paint from this phone's cached policy first, then refresh it: the
@@ -94,9 +103,9 @@ function useCreditDetail(personId: string, vaultId: string | null): CreditDetail
         policies();
         app.remove();
       };
-    }, [personId, vaultId]),
+    }, [personId, vaultId, currency]),
   );
-  return detail;
+  return detail.scope === scope ? detail.value : NO_DETAIL;
 }
 function CreditStatusText({ status }: { status: CreditStatus }) {
   return status === "none" ? null : (
@@ -113,36 +122,57 @@ function CreditStatusText({ status }: { status: CreditStatus }) {
 }
 /** Owner/manager only (the server answers no one else): what the limit
  *  stopped for this customer in the last 30 days, newest first. */
-function useCustomerRefusals(personId: string, vaultId: string | null): CreditRefusal[] {
-  const [rows, setRows] = useState<CreditRefusal[]>([]);
+function useCustomerRefusals(
+  personId: string,
+  vaultId: string | null,
+  currency: string,
+): CreditRefusal[] {
+  const scope = JSON.stringify([personId, vaultId, currency]);
+  const [rows, setRows] = useState<{ scope: string; value: CreditRefusal[] }>({
+    scope: "",
+    value: [],
+  });
   useFocusEffect(
     useCallback(() => {
       let alive = true;
-      setRows([]);
+      setRows({ scope, value: [] });
       void (async () => {
         if (!vaultId || getActiveVaultIdSyncMaybe() !== vaultId) return;
         const session = await captureCurrentSession();
-        const all = await fetchCreditRefusals(vaultId, session);
+        const all = await fetchCreditRefusals(vaultId, session, currency);
         if (all.length === 0) return;
         const rel = await relationshipForCredit(personId, vaultId);
         await applyForUnchangedLocalSession(session, async () => {
           if (alive && getActiveVaultIdSyncMaybe() === vaultId)
-            setRows(all.filter((r) => r.relationship_id === rel));
+            setRows({
+              scope,
+              value: all.filter(
+                (r) => r.relationship_id === rel && (!r.currency || r.currency === currency),
+              ),
+            });
         });
       })().catch(() => undefined);
       return () => {
         alive = false;
       };
-    }, [personId, vaultId]),
+    }, [personId, vaultId, currency]),
   );
-  return rows;
+  return rows.scope === scope ? rows.value : [];
 }
-function CreditRefusalsText({ personId, vaultId }: { personId: string; vaultId: string | null }) {
-  const rows = useCustomerRefusals(personId, vaultId);
+function CreditRefusalsText({
+  personId,
+  vaultId,
+  currency,
+}: {
+  personId: string;
+  vaultId: string | null;
+  currency: string;
+}) {
+  const rows = useCustomerRefusals(personId, vaultId, currency);
   const isRTL = useIsRTL();
   if (rows.length === 0) return null;
   const latest = rows[0];
-  const amount = `${formatAmount(fromMinorUnits(latest.amount_minor))} ${getCurrentCurrencySymbol()}`;
+  const amount = `${formatAmount(fromMinorUnits(latest.amount_minor))} ${getCurrencyLabel(latest.currency ?? currency)}`;
   const params = {
     name: latest.actor_name.trim() || t("credit.refusalSomeone"),
     what: `${t(latest.type === "debt" ? "person.action.iGave" : "person.action.iReceived")} ${bidiIsolate(amount)}`,
@@ -162,16 +192,26 @@ function CreditRefusalsText({ personId, vaultId }: { personId: string; vaultId: 
     </Text>
   );
 }
-function PersonCreditStatus({ personId, vaultId }: { personId: string; vaultId: string | null }) {
-  const { status, cap, exposure } = useCreditDetail(personId, vaultId);
+function PersonCreditStatus({
+  personId,
+  vaultId,
+  currency,
+}: {
+  personId: string;
+  vaultId: string | null;
+  currency?: string;
+}) {
+  const selected = useCurrency();
+  const code = currency ?? selected;
+  const { status, cap, exposure } = useCreditDetail(personId, vaultId, code);
   if (cap == null)
     return (
       <>
         <CreditStatusText status={status} />
-        <CreditRefusalsText personId={personId} vaultId={vaultId} />
+        <CreditRefusalsText personId={personId} vaultId={vaultId} currency={code} />
       </>
     );
-  const symbol = getCurrentCurrencySymbol();
+  const symbol = getCurrencyLabel(code);
   const money = (minor: number) => `${formatAmount(fromMinorUnits(minor))} ${symbol}`;
   return (
     <>
@@ -190,12 +230,12 @@ function PersonCreditStatus({ personId, vaultId }: { personId: string; vaultId: 
           over: bidiIsolate(money(Math.max(0, exposure - cap))),
         })}
       </Text>
-      <CreditRefusalsText personId={personId} vaultId={vaultId} />
+      <CreditRefusalsText personId={personId} vaultId={vaultId} currency={code} />
     </>
   );
 }
 export function CreditStatusBadge(
-  props: { status: CreditStatus } | { personId: string; vaultId: string | null },
+  props: { status: CreditStatus } | { personId: string; vaultId: string | null; currency?: string },
 ) {
   return "status" in props ? (
     <CreditStatusText status={props.status} />

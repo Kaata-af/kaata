@@ -25,6 +25,8 @@ import {
 } from "../lib/tabs/errors";
 import type { TabLink } from "../lib/tabs/types";
 import { radius, TOUCH_MIN, typography } from "../lib/tokens";
+import { getCurrentCurrencyCode } from "../lib/currency";
+import { getAccountIdSync, getActiveVaultIdSyncMaybe } from "../lib/db-tx";
 
 /** One surface from confirmation through creation/sharing, including retries.
  * A saved phone goes straight to its WhatsApp compose window, never a chooser. */
@@ -33,6 +35,7 @@ export function LinkAccountDialog(props: {
   person: { id: string; name: string; phone: string | null };
   myLabel: string;
   link: TabLink | null;
+  currency?: string;
   onLinked: (link: TabLink) => void;
   onDismiss: () => void;
   onAuthRequired: () => void;
@@ -51,6 +54,12 @@ export function LinkAccountDialog(props: {
   const generation = useRef(0);
   const authTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasPhone = !!props.person.phone?.trim();
+  const currency = props.currency ?? getCurrentCurrencyCode();
+  const vaultId = getActiveVaultIdSyncMaybe(),
+    accountId = getAccountIdSync();
+  const context = JSON.stringify([vaultId, accountId, props.person.id, currency]);
+  const currentContext = useRef(context);
+  currentContext.current = context;
 
   useEffect(
     () => () => {
@@ -87,28 +96,40 @@ export function LinkAccountDialog(props: {
     // Snapshot the link when OPENED. onLinked changes the parent prop, but must
     // not reset this same dialog (or clear its in-flight sharing guard).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [props.visible, props.person.id]);
+  }, [props.visible, context]);
 
   const dismiss = () => {
     if (!busyRef.current) props.onDismiss();
   };
   async function run(action: "create" | "whatsapp" | "copy") {
-    if (busyRef.current || !languageReady) return;
+    if (
+      busyRef.current ||
+      !languageReady ||
+      !props.visible ||
+      currentContext.current !== context ||
+      getActiveVaultIdSyncMaybe() !== vaultId ||
+      getAccountIdSync() !== accountId
+    )
+      return;
     busyRef.current = true;
     setBusy(true);
     setError(null);
     const session = generation.current;
-    const active = () => session === generation.current;
+    const active = () =>
+      session === generation.current &&
+      currentContext.current === context &&
+      getActiveVaultIdSyncMaybe() === vaultId &&
+      getAccountIdSync() === accountId;
     try {
       let fresh = target.current;
       if (!fresh) {
         try {
-          fresh = (await linkContact(props.person.id, { myLabel: props.myLabel })).link;
+          fresh = (await linkContact(props.person.id, { myLabel: props.myLabel, currency })).link;
         } catch (err) {
           if (!(err instanceof TabAlreadyLinkedError)) throw err;
           // Another phone (or a lost create response) already linked it.
           // Reuse that invitation, never create a second opening balance.
-          fresh = await getTabLinkForPerson(props.person.id);
+          fresh = await getTabLinkForPerson(props.person.id, currency);
           if (!fresh) throw err;
         }
         if (!active()) return;

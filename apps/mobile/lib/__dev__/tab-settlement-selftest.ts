@@ -125,6 +125,7 @@ function harness(options: Options = {}) {
     "../db": {},
     "../event-log": {},
     "../entry-date": require("../entry-date"),
+    "../currency-scope": require("../currency-scope"),
     "../money": {},
     "../sync/push": {},
     "../types": {},

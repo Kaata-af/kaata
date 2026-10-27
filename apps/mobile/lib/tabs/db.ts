@@ -22,6 +22,7 @@
 //     react-native into a Node selftest that loads lib/db.ts.
 
 import { getAccountIdSync, getActiveVaultIdSyncMaybe, getDb } from "../db-tx";
+import { getLedgerCurrencyCode, effectiveEntryCurrencySql } from "../currency-scope";
 import { entryRecordedAtSql } from "../entry-date";
 import { fromMinorUnits, toMinorUnits } from "../money";
 import type { Entry, EntryType } from "../types";
@@ -81,11 +82,15 @@ function clampError(err: string): string {
 // tab_links
 
 /** The OPEN link on a relationship, if any (closed links are history). */
-export async function getTabLinkForRelationship(relationshipId: string): Promise<TabLink | null> {
+export async function getTabLinkForRelationship(
+  relationshipId: string,
+  currency = getLedgerCurrencyCode(),
+): Promise<TabLink | null> {
   const db = await getDb();
   const row = await db.getFirstAsync<TabLink>(
-    `SELECT * FROM tab_links WHERE relationship_id = ? AND closed_at IS NULL LIMIT 1`,
+    `SELECT * FROM tab_links WHERE relationship_id = ? AND currency = ? AND closed_at IS NULL LIMIT 1`,
     relationshipId,
+    currency,
   );
   return row ?? null;
 }
@@ -95,7 +100,10 @@ export async function getTabLinkForRelationship(relationshipId: string): Promise
  * the ACTIVE vault — the same resolution db.ts uses for every person read, so
  * a stale id from another kaata never surfaces another kaata's tab.
  */
-export async function getTabLinkForPerson(personId: string): Promise<TabLink | null> {
+export async function getTabLinkForPerson(
+  personId: string,
+  currency = getLedgerCurrencyCode(),
+): Promise<TabLink | null> {
   const vaultId = getActiveVaultIdSyncMaybe();
   if (!vaultId) return null;
   const db = await getDb();
@@ -106,11 +114,12 @@ export async function getTabLinkForPerson(personId: string): Promise<TabLink | n
       WHERE r.user_b_id = ?
         AND r.vault_id  = ?
         AND r.archived_at IS NULL
-        AND tl.closed_at IS NULL
+        AND tl.closed_at IS NULL AND tl.currency = ?
       ORDER BY r.created_at DESC
       LIMIT 1`,
     personId,
     vaultId,
+    currency,
   );
   return row ?? null;
 }
@@ -127,7 +136,10 @@ export async function getTabLinkForPerson(personId: string): Promise<TabLink | n
  * The open link wins when there is one (at most one, by
  * idx_tab_links_open_rel); otherwise the most recently linked closed one.
  */
-export async function getLatestTabLinkForPerson(personId: string): Promise<TabLink | null> {
+export async function getLatestTabLinkForPerson(
+  personId: string,
+  currency = getLedgerCurrencyCode(),
+): Promise<TabLink | null> {
   const vaultId = getActiveVaultIdSyncMaybe();
   if (!vaultId) return null;
   const db = await getDb();
@@ -137,11 +149,12 @@ export async function getLatestTabLinkForPerson(personId: string): Promise<TabLi
        INNER JOIN relationships r ON r.id = tl.relationship_id
       WHERE r.user_b_id = ?
         AND r.vault_id  = ?
-        AND r.archived_at IS NULL
+        AND r.archived_at IS NULL AND tl.currency = ?
       ORDER BY (tl.closed_at IS NULL) DESC, CAST(tl.history_order AS INTEGER) DESC, tl.linked_at DESC
       LIMIT 1`,
     personId,
     vaultId,
+    currency,
   );
   return row ?? null;
 }
@@ -157,12 +170,14 @@ export async function getLatestTabLinkForPerson(personId: string): Promise<TabLi
  */
 export async function getAnyTabLinkForRelationship(
   relationshipId: string,
+  currency = getLedgerCurrencyCode(),
 ): Promise<TabLink | null> {
   const db = await getDb();
   const row = await db.getFirstAsync<TabLink>(
-    `SELECT * FROM tab_links WHERE relationship_id = ?
+    `SELECT * FROM tab_links WHERE relationship_id = ? AND currency = ?
       ORDER BY (closed_at IS NULL) DESC, CAST(history_order AS INTEGER) DESC, linked_at DESC LIMIT 1`,
     relationshipId,
+    currency,
   );
   return row ?? null;
 }
@@ -177,6 +192,7 @@ export async function getTabLink(tabId: string): Promise<TabLink | null> {
 export async function getSharedHistoryReceiptForRelationship(
   relationshipId: string,
   vaultId: string,
+  currency = getLedgerCurrencyCode(),
 ): Promise<{
   tab_id: string;
   rev: number;
@@ -185,10 +201,11 @@ export async function getSharedHistoryReceiptForRelationship(
 } | null> {
   const db = await getDb();
   const links = await db.getAllAsync<TabLink>(
-    `SELECT * FROM tab_links WHERE relationship_id=? AND vault_id=?
+    `SELECT * FROM tab_links WHERE relationship_id=? AND vault_id=? AND currency=?
      ORDER BY CAST(history_order AS INTEGER) DESC`,
     relationshipId,
     vaultId,
+    currency,
   );
   if (!links.length) return null;
   if (!historyReady(links) || links.some((link) => !link.history_order))
@@ -203,7 +220,7 @@ export async function getSharedHistoryReceiptForRelationship(
 
 /** Every link, open ones by default; optionally one vault's only. */
 export async function listTabLinks(
-  opts: { vaultId?: string; includeClosed?: boolean } = {},
+  opts: { vaultId?: string; includeClosed?: boolean; currency?: string } = {},
 ): Promise<TabLink[]> {
   const db = await getDb();
   const where: string[] = [];
@@ -211,6 +228,10 @@ export async function listTabLinks(
   if (opts.vaultId) {
     where.push("vault_id = ?");
     args.push(opts.vaultId);
+  }
+  if (opts.currency) {
+    where.push("currency = ?");
+    args.push(opts.currency);
   }
   if (!opts.includeClosed) where.push("closed_at IS NULL");
   const sql = `SELECT * FROM tab_links${where.length ? ` WHERE ${where.join(" AND ")}` : ""} ORDER BY linked_at ASC`;
@@ -563,6 +584,7 @@ function rowToEntry(link: TabLink, r: TabEntryRow, cancellation?: TabEntryRow): 
     relationship_id: link.relationship_id,
     type: entryTypeFor(link.role, r.direction),
     amount_afn: fromMinorUnits(r.amount_minor),
+    currency: link.currency,
     note: r.note,
     // The business date is the sort key everywhere (listEntries ORDER BY
     // created_at), so the wire's occurred_at takes that slot.
@@ -773,18 +795,19 @@ export async function deleteOptimisticEntry(tabId: string, entryId: string): Pro
 export async function listPreLinkEntries(link: TabLink): Promise<Entry[]> {
   const db = await getDb();
   return db.getAllAsync<Entry>(
-    `SELECT e.id, e.relationship_id, e.type, e.amount_afn, e.note,
+    `SELECT e.id, e.relationship_id, e.type, e.amount_afn, e.note, ${effectiveEntryCurrencySql("e")} AS currency,
             e.created_at, e.updated_at, e.deleted_at, e.proposed_by_user_id,
             e.accepted_at, e.disputed_at, e.disputed_reason, e.settled_at
        FROM entries e
       WHERE e.relationship_id = ?
         AND e.vault_id = ?
         AND e.deleted_at IS NULL
-        AND ${entryRecordedAtSql("e")} <= ?
+        AND ${entryRecordedAtSql("e")} <= ? AND ${effectiveEntryCurrencySql("e")} = ?
       ORDER BY e.created_at DESC`,
     link.relationship_id,
     link.vault_id,
     link.linked_at,
+    link.currency,
   );
 }
 
@@ -824,7 +847,10 @@ export type TabJoinCandidate = {
  * Names and the open-link flag are all the picker shows, so this stays a
  * two-join read rather than paying for balances it would not render.
  */
-export async function listVaultContactsForJoin(vaultId: string): Promise<TabJoinCandidate[]> {
+export async function listVaultContactsForJoin(
+  vaultId: string,
+  currency = getLedgerCurrencyCode(),
+): Promise<TabJoinCandidate[]> {
   const db = await getDb();
   return db.getAllAsync<TabJoinCandidate>(
     `SELECT u.id                                              AS id,
@@ -836,11 +862,12 @@ export async function listVaultContactsForJoin(vaultId: string): Promise<TabJoin
        -- Closed periods remain selectable; prepareSharedHistory verifies their
        -- final reviews and server receipt before any new binding is written.
        LEFT JOIN tab_links tl
-         ON tl.relationship_id = r.id AND tl.vault_id = r.vault_id AND tl.closed_at IS NULL
+         ON tl.relationship_id = r.id AND tl.vault_id = r.vault_id AND tl.closed_at IS NULL AND tl.currency = ?
       WHERE r.vault_id = ?
         AND r.archived_at IS NULL
       GROUP BY u.id
       ORDER BY u.display_name COLLATE NOCASE`,
+    currency,
     vaultId,
   );
 }
@@ -950,19 +977,21 @@ export async function rejectTabOp(op: TabOutboxRow, reason = "refused"): Promise
 /** Refused tallies stay readable, but never contribute to balances/exports. */
 export async function listFailedTabEntries(
   relationshipId: string,
-  opts?: { excludeCreditRefused?: boolean },
+  opts?: { excludeCreditRefused?: boolean; currency?: string },
 ): Promise<Entry[]> {
   const db = await getDb();
   const rows = await db.getAllAsync<{
     id: string;
     payload: string;
     role: TabLink["role"];
+    currency: string;
     created_at: number;
   }>(
-    `SELECT f.id, f.payload, f.created_at, l.role FROM tab_failed_ops f
+    `SELECT f.id, f.payload, f.created_at, l.role,l.currency FROM tab_failed_ops f
      JOIN tab_links l ON l.tab_id=f.tab_id
-     WHERE l.relationship_id=? AND f.op='append' AND (?=0 OR f.reason<>'credit_limit_exceeded') ORDER BY f.created_at DESC`,
+     WHERE l.relationship_id=? AND l.currency=? AND f.op='append' AND (?=0 OR f.reason<>'credit_limit_exceeded') ORDER BY f.created_at DESC`,
     relationshipId,
+    opts?.currency ?? getLedgerCurrencyCode(),
     opts?.excludeCreditRefused ? 1 : 0,
   );
   return rows.map((r) => {
@@ -972,6 +1001,7 @@ export async function listFailedTabEntries(
       relationship_id: relationshipId,
       type: entryTypeFor(r.role, p.direction),
       amount_afn: fromMinorUnits(wireToMinor(p.amount)),
+      currency: r.currency,
       note: p.note ?? null,
       created_at: p.occurred_at_ms ?? r.created_at,
       updated_at: r.created_at,

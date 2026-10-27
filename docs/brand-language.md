@@ -57,6 +57,10 @@ white background, black K, blue (`#1683C5`) headlines, and thin yellow
 a Google affiliation. App interfaces inside the artwork keep product colors.
 All screenshot text is Persian, with English digits for amounts and counts.
 The campaign leaves app, website and existing social/flyer colors unchanged.
+On October 26, Matee also selected this white/blue campaign with its
+yellow/blue/red footer for the website and bill-link Open Graph images.
+Those previews use the slogan «برای همیشه رایگان»; product UI and existing
+flyer/social templates keep their separate palettes.
 On October 16, Google Play published the new images and accepted Android 2.2.0
 for production review. The App Store images are associated with the 2.2.0
 release. See [store-listing.md](store-listing.md) for the

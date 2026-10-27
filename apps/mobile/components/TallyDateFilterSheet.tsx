@@ -10,9 +10,7 @@ import {
   StyleSheet,
   Text,
   View,
-  useWindowDimensions,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "./Button";
 import { SheetBackdrop } from "./SheetBackdrop";
 import type { Calendar } from "../lib/calendar";
@@ -37,6 +35,7 @@ import {
 import { useOverlayAnimation } from "../lib/use-overlay-animation";
 import { useSheetDrag } from "../lib/use-sheet-drag";
 import { SheetHandle } from "./SheetHandle";
+import { SheetSurface } from "./SheetSurface";
 import { radius, space, TOUCH_MIN, typography } from "../lib/tokens";
 
 /** A single date button opens presets; the month grid appears only for custom.
@@ -73,7 +72,6 @@ export function TallyDateFilterSheet(props: DateFilterProps & { inline?: boolean
   visible.current = props.visible;
   const context = useRef(props.contextKey);
   context.current = props.contextKey;
-  const { height } = useWindowDimensions();
   const locale = getLocale();
   const cancelNativePicker = () => {
     pickerRequest.current++;
@@ -450,13 +448,10 @@ export function TallyDateFilterSheet(props: DateFilterProps & { inline?: boolean
         <SheetBackdrop onDismiss={drag.dismiss} />
       </Animated.View>
       <Animated.View
-        style={[
-          styles.container,
-          { maxHeight: height * 0.88, transform: [{ translateY: drag.translateY }] },
-        ]}
+        style={[styles.container, { transform: [{ translateY: drag.translateY }] }]}
         pointerEvents={props.visible ? "auto" : "none"}
       >
-        <SafeAreaView {...drag.surfacePanHandlers} edges={["bottom"]} style={{ flexShrink: 1 }}>
+        <SheetSurface {...drag.surfacePanHandlers} maxHeightRatio={0.88} style={{ flexShrink: 1 }}>
           <SheetHandle panHandlers={drag.panHandlers} onDismiss={drag.dismiss} />
           <View style={[styles.heading, rowDir(props.isRTL)]}>
             <Text accessibilityRole="header" style={[styles.title, textDir(props.isRTL)]}>
@@ -474,7 +469,7 @@ export function TallyDateFilterSheet(props: DateFilterProps & { inline?: boolean
           <ScrollView {...drag.scrollProps} bounces={false}>
             {content}
           </ScrollView>
-        </SafeAreaView>
+        </SheetSurface>
       </Animated.View>
     </Modal>
   );

@@ -1,6 +1,6 @@
 import { router } from "expo-router";
 import { getAccountIdSync, setActiveVaultId } from "../db-tx";
-import { applyVaultCurrency } from "../currency";
+import { applyVaultCurrency, selectLedgerCurrency } from "../currency";
 import { getTabLink, getPersonIdForRelationship } from "./db";
 import { markInboxHandled, type InboxReadSpec } from "./inbox-reads";
 import { reconcileTabsFromServer, syncTab } from "./sync";
@@ -40,25 +40,40 @@ export async function openTabNotification(
   tabId: string,
   entryId?: string | null,
   opts?: { notificationId?: string; rev?: number },
+  canOpen: () => boolean = () => true,
 ): Promise<void> {
+  if (!canOpen()) return;
   const account = getAccountIdSync();
   if (!account) throw new Error("Signed out");
   if (!UUID.test(tabId)) throw new Error("Invalid tab");
-  if (!(await getTabLink(tabId))) await reconcileTabsFromServer();
+  if (!(await getTabLink(tabId))) {
+    if (!canOpen()) return;
+    await reconcileTabsFromServer();
+  }
+  if (!canOpen()) return;
   const link = await getTabLink(tabId);
+  if (!canOpen()) return;
   if (!link || getAccountIdSync() !== account) throw new Error("Account unavailable");
   // Sync before routing checks current server access, including removed members.
   const synced = await syncTab(tabId);
+  if (!canOpen()) return;
   if (!synced.ok) throw new Error("Account unavailable");
   const personId = await getPersonIdForRelationship(link.relationship_id);
+  if (!canOpen()) return;
   if (!personId || getAccountIdSync() !== account) throw new Error("Contact unavailable");
   await setActiveVaultId(link.vault_id);
+  if (!canOpen()) return;
   await applyVaultCurrency(link.vault_id);
+  if (!canOpen()) return;
+  if (link.currency) await selectLedgerCurrency(link.currency, link.vault_id);
+  if (!canOpen()) return;
+  if (getAccountIdSync() !== account) throw new Error("Contact unavailable");
   const entry = entryId && UUID.test(entryId) ? entryId : undefined;
   router.push({
     pathname: "/person/[id]",
     params: {
       id: personId,
+      ...(link.currency ? { currency: link.currency } : {}),
       ...(entry ? { entryId: entry, notificationKey: `${Date.now()}:${++tapSequence}` } : {}),
     },
   });

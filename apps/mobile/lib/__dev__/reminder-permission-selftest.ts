@@ -74,7 +74,11 @@ async function main() {
   for (const listener of [...appListeners]) listener("active");
   await settleUI();
   render();
-  assert.equal(shown(), false, "Expo Go (no native notifications) shows nothing");
+  assert.equal(
+    shown(),
+    false,
+    "unavailable native notifications, including Android Go, show nothing",
+  );
   hooks.unmount();
   assert.equal(appListeners.size, 0, "leaving the screen stops listening");
   console.log(

@@ -70,8 +70,8 @@ func groupThousands(s string) string {
 }
 
 // viewHTML — the focused, self-contained shared-ledger page. The server paints
-// the summary + per-person OG meta (no image — the WhatsApp card is the balance,
-// not a logo) + a skeleton, so the link opens to a styled page instantly; the
+// the summary + per-person OG meta and generic bill artwork + a skeleton, so the
+// link opens to a styled page instantly; the
 // inline script then fetches the snapshot and fills in the transaction list.
 const viewHTML = `<!doctype html>
 <html lang="{{.Language}}" dir="{{if .RTL}}rtl{{else}}ltr{{end}}">
@@ -79,6 +79,7 @@ const viewHTML = `<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#FFFFFF">
+<meta name="robots" content="noindex, nofollow">
 <!-- "only light" disables Chrome's Auto Dark Theme on Android, which would
      otherwise darken this light page when the phone is in dark mode. -->
 <meta name="color-scheme" content="only light">
@@ -90,7 +91,17 @@ const viewHTML = `<!doctype html>
 <meta property="og:title" content="{{.OGTitle}}">
 <meta property="og:description" content="{{.OGDesc}}">
 <meta property="og:url" content="{{.ShareURL}}">
-<meta name="twitter:card" content="summary">
+{{if .OGImageURL}}
+<meta property="og:image" content="{{.OGImageURL}}">
+{{if .OGImageSecureURL}}<meta property="og:image:secure_url" content="{{.OGImageSecureURL}}">{{end}}
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="کاتا؛ حساب‌وکتاب شخصی، بدون انترنت، برای همیشه رایگان">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="{{.OGImageURL}}">
+<meta name="twitter:image:alt" content="کاتا؛ حساب‌وکتاب شخصی، بدون انترنت، برای همیشه رایگان">
+{{else}}<meta name="twitter:card" content="summary">{{end}}
 <meta name="twitter:title" content="{{.OGTitle}}">
 <meta name="twitter:description" content="{{.OGDesc}}">
 <style>
@@ -203,6 +214,14 @@ a{color:inherit;text-decoration:none;}
   <div class="card">
     {{if .Shop}}<div class="shophead">{{.Shop}}</div>{{end}}
     <div class="billdate" id="billDate" hidden></div>
+    {{if .Currencies}}
+    {{range .Currencies}}
+    <div class="statement {{.Direction}}">
+      <div class="stmt"><span class="who">{{$.Person}}</span> {{.Verb}}</div>
+      <div class="balance">{{.AbsBalance}}<span class="cur">{{.Currency}}</span></div>
+    </div>
+    {{end}}
+    {{else}}
     <div class="statement {{.Direction}}">
       {{if eq .Direction "settled"}}
       <!-- SUCCESS state: a settled account is an achievement, not an empty
@@ -217,6 +236,7 @@ a{color:inherit;text-decoration:none;}
       <div class="balance">{{.AbsBalance}}<span class="cur">{{.Currency}}</span></div>
       {{end}}
     </div>
+    {{end}}
   </div>
   <div class="sectionhead">
     <span class="sectiontitle" id="txTitle"></span>
@@ -353,10 +373,24 @@ a{color:inherit;text-decoration:none;}
   }
   fetch(apiBase + '/v1/shared/' + {{.Token}})
     .then(function(r){ if(!r.ok) throw 0; return r.json(); })
-    .then(function(p){
-      var el = document.getElementById('entries');
+    .then(function(payload){
+      var container = document.getElementById('entries');
+      var groups = payload && payload.v === 2 ? payload.currencies : [payload];
+      if(!Array.isArray(groups) || !groups.length) throw new Error('invalid bill');
+      var expandAll = [], counts = [];
+      if(payload.v === 2){ container.innerHTML = ''; container.className = ''; }
+      groups.forEach(function(p, index){
+        var el = container;
+        if(payload.v === 2){
+          var heading = document.createElement('div'); heading.className = 'sectionhead';
+          heading.textContent = p.currency_code + (p.currency.indexOf(p.currency_code) < 0 ? ' ' + p.currency : '');
+          if(p.currency.indexOf(p.currency_code) >= 0) heading.textContent = p.currency;
+          container.appendChild(heading);
+          el = document.createElement('div'); el.className = 'rows'; container.appendChild(el);
+        }
       var all = (p && p.entries) || [];
       var cur = (p && p.currency) || '';
+      if(payload.v === 2 && cur.indexOf(p.currency_code) < 0) cur = p.currency_code + ' ' + cur;
       // Settled-chapter collapse (parity with the app + SPA): entries dated
       // at/before the boundary are ruled-off history behind one collapsed row.
       // COHERENCE RULE: collapse only while the current chapter's sum
@@ -390,7 +424,9 @@ a{color:inherit;text-decoration:none;}
       var open = false;
       function render(){
         var list = open ? all : current;
-        document.getElementById('txCount').textContent = list.length ? fmtAmt(list.length) : '';
+        counts[index] = list.length;
+        var totalCount = counts.reduce(function(sum, count){ return sum + count; }, 0);
+        document.getElementById('txCount').textContent = totalCount ? fmtAmt(totalCount) : '';
         var html = '';
         // Fresh page right after settling: the statement card already says
         // "all settled" — no empty-state line here, just the history toggle.
@@ -410,16 +446,17 @@ a{color:inherit;text-decoration:none;}
         }
         else { for(var k2=0;k2<list.length;k2++){ html += rowHtml(list[k2], cur); } }
         if(settled.length){
-          html += '<button type="button" class="histbtn" id="histbtn" style="display:block'
+          html += '<button type="button" class="histbtn" style="display:block'
             + (list.length ? '' : ';border-top:0') + '">'
             + esc(open ? L.hhide : L.hshow.replace('{n}', fmtAmt(chapters))) + '</button>';
         }
         el.innerHTML = html;
         wireNotes(el);
-        var hb = document.getElementById('histbtn');
+        var hb = el.querySelector('.histbtn');
         if(hb){ hb.addEventListener('click', function(){ open = !open; render(); }); }
       }
       render();
+      expandAll.push(function(){ if(!open){ open = true; render(); } });
       // Save as PDF. Revealed only now, because until render() has run the
       // page is three skeleton bars and printing them would be worse than
       // offering nothing.
@@ -429,17 +466,6 @@ a{color:inherit;text-decoration:none;}
       // which under the paper rule is the one thing this document must never
       // be. So force it open, re-render, and print on the next frame once the
       // browser has laid the new rows out.
-      var db = document.getElementById('dlbtn');
-      if(db){
-        document.getElementById('dllabel').textContent = L.dl;
-        db.classList.add('on');
-        db.addEventListener('click', function(){
-          if(!open){ open = true; render(); }
-          requestAnimationFrame(function(){
-            requestAnimationFrame(function(){ window.print(); });
-          });
-        });
-      }
       el.addEventListener('click', function(ev){
         var r = ev.target.closest('.row[role="button"]'); if(!r) return;
         var o = r.classList.toggle('open');
@@ -452,6 +478,16 @@ a{color:inherit;text-decoration:none;}
         var o = r.classList.toggle('open');
         var m = r.querySelector('.rmore'); if(m){ m.textContent = o ? L.less : L.more; }
       });
+      });
+      var db = document.getElementById('dlbtn');
+      if(db){
+        document.getElementById('dllabel').textContent = L.dl;
+        db.classList.add('on');
+        db.addEventListener('click', function(){
+          expandAll.forEach(function(expand){ expand(); });
+          requestAnimationFrame(function(){ requestAnimationFrame(function(){ window.print(); }); });
+        });
+      }
     })
     .catch(function(){ document.getElementById('entries').innerHTML = '<div class="err">'+L.err+'</div>'; });
 })();

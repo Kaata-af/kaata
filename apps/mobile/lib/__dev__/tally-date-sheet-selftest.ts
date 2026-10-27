@@ -60,7 +60,7 @@ for (const calendar of ["gregorian", "jalali", "qamari"] as Calendar[])
             useWindowDimensions: () => ({ height: 844 }),
             StyleSheet: { absoluteFill: {}, hairlineWidth: 1, create: (style: any) => style },
           },
-          "react-native-safe-area-context": { SafeAreaView: "Safe" },
+          "./SheetSurface": { SheetSurface: "SheetSurface" },
           "@expo/vector-icons": { Ionicons: "Icon" },
           "./Button": { Button: "Button" },
           "./SheetBackdrop": { SheetBackdrop: "SheetBackdrop" },
@@ -172,6 +172,21 @@ for (const calendar of ["gregorian", "jalali", "qamari"] as Calendar[])
         }
       };
       render();
+      const surface = nodes(hooks.tree).find((node) => node.type === "SheetSurface")!;
+      assert.equal(
+        surface.props.maxHeightRatio,
+        0.88,
+        "the date surface owns the viewport height cap",
+      );
+      assert.equal(surface.props.edges, undefined);
+      assert.ok(
+        !nodes(hooks.tree).some(
+          (node) =>
+            node.type === "AnimatedView" && flattenStyle(node.props.style)?.maxHeight != null,
+        ),
+        "the moving date frame does not constrain safe-area height",
+      );
+      assert.equal(hooks.tree.props.navigationBarTranslucent, undefined);
       assert.ok(
         nodes(hooks.tree).some(
           (node) =>
@@ -420,6 +435,11 @@ for (const calendar of ["gregorian", "jalali", "qamari"] as Calendar[])
         false,
       );
       assert.equal(
+        nodes(hooks.tree).some((node) => node.type === "SheetSurface"),
+        false,
+        "inline date filters retain their parent's layout without sheet padding",
+      );
+      assert.equal(
         nodes(hooks.tree).some((node) => node.type === "ScrollView"),
         false,
         "inline filters use only the parent editor's scroll area",
@@ -545,6 +565,24 @@ for (const calendar of ["gregorian", "jalali", "qamari"] as Calendar[])
           n.type === "Pressable" && !String(n.props.accessibilityLabel).startsWith("person.date."),
       );
     const month = calendarMonthDays(now, calendar);
+    const monthHeader = hooks.tree.props.children[0];
+    const monthTitle = monthHeader.props.children[1];
+    const titleStyle = flattenStyle(monthTitle.props.style);
+    assert.equal(
+      monthTitle.props.children,
+      formatCalendarDate(month[0], locale, calendar).split(" ").slice(1).join(" "),
+      "the month title keeps its full localized name",
+    );
+    assert.equal(titleStyle.flex, 1, "the month title fits between both arrows");
+    assert.equal(titleStyle.flexShrink, 1, "large month text can wrap in a narrow popup");
+    assert.equal(titleStyle.minWidth, 0);
+    assert.equal(titleStyle.textAlign, "center");
+    assert.equal(monthTitle.props.numberOfLines, undefined, "long month names are not truncated");
+    for (const arrow of [monthHeader.props.children[0], monthHeader.props.children[2]]) {
+      const style = flattenStyle(arrow.props.style);
+      assert.ok(style.minWidth >= 44 && style.minHeight >= 44, "month arrows retain touch targets");
+      assert.equal(style.flexShrink, 0, "wrapping month text cannot shrink either arrow");
+    }
     assert.deepEqual(
       dayButtons().map((n: any) => n.props.accessibilityLabel),
       month.map((day) => formatCalendarDate(day, locale, calendar)),

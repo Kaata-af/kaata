@@ -57,6 +57,11 @@ import { parseAmountInput } from "./money";
 import { signedEntryMinorSumSql } from "./money-sql";
 import { TabLinkedEntryError } from "./tabs/errors";
 import { isValidEntryDate } from "./entry-date";
+import {
+  getLedgerCurrencyCode,
+  requireCurrencyCode,
+  entryCurrencyMatchesSql,
+} from "./currency-scope";
 
 // Re-exported so existing callers that do `import { applyEvent,
 // _dispatchProjectionApplier } from "./event-log"` keep compiling. New code
@@ -151,6 +156,7 @@ export async function appendEntryCreated(args: {
   amountAfn: number;
   note: string | null;
   occurredAtMs?: number;
+  currency?: string;
 }): Promise<{ event_id: string; entry_id: string; pending_admission?: boolean }> {
   if (
     typeof args.amountAfn !== "number" ||
@@ -161,6 +167,7 @@ export async function appendEntryCreated(args: {
   const entryId = Crypto.randomUUID();
   const eventId = Crypto.randomUUID();
   const recordedAtMs = Date.now();
+  const currency = requireCurrencyCode(args.currency ?? getLedgerCurrencyCode());
   const occurredAtMs = args.occurredAtMs ?? recordedAtMs;
   if (!isValidEntryDate(occurredAtMs)) throw new Error("Invalid entry date");
   const installId = getInstallIdSync();
@@ -197,6 +204,7 @@ export async function appendEntryCreated(args: {
       note: args.note,
       occurred_at_ms: occurredAtMs,
       recorded_at_ms: recordedAtMs,
+      currency,
     },
   };
 
@@ -229,6 +237,7 @@ export async function appendEntryCreated(args: {
  */
 export async function appendEntrySettled(args: {
   relationshipId: string;
+  currency?: string;
   /**
    * Chapter boundary. Callers pass max(now, newest chapter entry + 1) so a
    * device with a lagging clock can never rule a boundary that excludes
@@ -236,6 +245,7 @@ export async function appendEntrySettled(args: {
    */
   settledAtMs?: number;
 }): Promise<{ event_id: string }> {
+  const currency = requireCurrencyCode(args.currency ?? getLedgerCurrencyCode());
   // A linked contact's account IS its mutual tab (docs/mutual-tab-design.md
   // D8): the local rows are frozen and the tab has no settle ritual, so a
   // ruled-off line here would partition rows the balance no longer reads.
@@ -248,8 +258,9 @@ export async function appendEntrySettled(args: {
       // ANY link, open or frozen: after a close the contact's displayed
       // balance is the tab's (D8) while the zero-check below can only see
       // LOCAL rows, so allowing the act here would refuse every time.
-      `SELECT 1 AS one FROM tab_links WHERE relationship_id = ? LIMIT 1`,
+      `SELECT 1 AS one FROM tab_links WHERE relationship_id = ? AND currency=? LIMIT 1`,
       args.relationshipId,
+      currency,
     );
     if (linked) throw new TabLinkedEntryError();
   }
@@ -277,7 +288,7 @@ export async function appendEntrySettled(args: {
     server_acked_at: null,
     rejected_at: null,
     origin: "local",
-    payload: { settled_at_ms: args.settledAtMs ?? Date.now() },
+    payload: { settled_at_ms: args.settledAtMs ?? Date.now(), currency },
   };
 
   const result = await applyEvent(event, {
@@ -290,8 +301,8 @@ export async function appendEntrySettled(args: {
     // is enforced where it can't race.
     preflightAbort: async (tx) => {
       const row = await tx.getFirstAsync<{ bal: number }>(
-        `SELECT ${signedEntryMinorSumSql()} AS bal
-           FROM entries WHERE relationship_id = ?`,
+        `SELECT ${signedEntryMinorSumSql("e")} AS bal
+           FROM entries e WHERE relationship_id = ? AND ${entryCurrencyMatchesSql("e", currency)}`,
         args.relationshipId,
       );
       return (row?.bal ?? 0) !== 0;
@@ -846,7 +857,12 @@ export async function appendVaultSettingSet(args: {
   targetVaultId: string;
   key: string;
   value: string;
+  preflight?: (tx: SQLiteTx) => Promise<void>;
 }): Promise<{ event_id: string }> {
+  if (args.key === "enabled_currencies")
+    (
+      require("./currency-settings") as typeof import("./currency-settings")
+    ).requireEnabledCurrencies(args.value);
   const eventId = Crypto.randomUUID();
   const installId = getInstallIdSync();
   const authorUserId = requireLocalSelfUserId();
@@ -871,7 +887,15 @@ export async function appendVaultSettingSet(args: {
     payload: { key: args.key, value: args.value },
   };
 
-  const result = await applyEvent(event, { origin: "local" });
+  const result = await applyEvent(event, {
+    origin: "local",
+    preflightAbort: args.preflight
+      ? async (tx) => {
+          await args.preflight!(tx);
+          return false;
+        }
+      : undefined,
+  });
   if (!result.applied && result.reason === "role_gate" && result.role_gate) {
     throw new RoleGateRejectionError(result.role_gate);
   }

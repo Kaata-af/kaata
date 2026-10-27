@@ -136,14 +136,14 @@ function openFixture(): Database.Database {
   const db = new Database(":memory:");
   db.pragma("foreign_keys = ON");
   db.exec(`
-    CREATE TABLE vaults (id TEXT PRIMARY KEY);
+    CREATE TABLE vaults (id TEXT PRIMARY KEY,currency TEXT DEFAULT 'AFN',legacy_currency TEXT DEFAULT 'AFN');
     CREATE TABLE users (id TEXT PRIMARY KEY);
     CREATE TABLE relationships (id TEXT PRIMARY KEY, vault_id TEXT REFERENCES vaults(id));
     CREATE TABLE entries (
       id TEXT PRIMARY KEY, vault_id TEXT NOT NULL REFERENCES vaults(id),
       relationship_id TEXT NOT NULL REFERENCES relationships(id),
       type TEXT NOT NULL CHECK(type IN ('debt', 'payment')), amount_afn INTEGER NOT NULL,
-      note TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+      note TEXT, currency TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
       proposed_by_user_id TEXT REFERENCES users(id), current_event_id TEXT,
       is_deleted INTEGER NOT NULL DEFAULT 0, is_settled INTEGER NOT NULL DEFAULT 0,
       accepted_at INTEGER, disputed_at INTEGER, disputed_reason TEXT, settled_at INTEGER,
@@ -156,7 +156,7 @@ function openFixture(): Database.Database {
     );
     CREATE TABLE schema_migrations (version TEXT PRIMARY KEY);
     INSERT INTO schema_migrations VALUES ('027');
-    INSERT INTO vaults VALUES ('vault');
+    INSERT INTO vaults(id) VALUES ('vault');
     INSERT INTO users VALUES ('self');
     INSERT INTO relationships VALUES ('relationship', 'vault');
   `);

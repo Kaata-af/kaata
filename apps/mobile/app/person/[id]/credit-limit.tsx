@@ -17,7 +17,7 @@ import { SelectionMark } from "../../../components/SelectionMark";
 import { ScreenHeader } from "../../../components/SettingsScreen";
 import { useToast } from "../../../components/Toast";
 import { colors } from "../../../lib/colors";
-import { getCurrentCurrencySymbol } from "../../../lib/currency";
+import { getCurrencyLabel, useCurrency } from "../../../lib/currency";
 import {
   type CreditPolicy,
   KAATA_DEFAULT_CREDIT_ID,
@@ -57,7 +57,8 @@ export default function CreditLimitScreen() {
   const router = useRouter();
   const toast = useToast();
   const isRTL = useIsRTL();
-  const currency = getCurrentCurrencySymbol();
+  const currencyCode = useCurrency();
+  const currency = getCurrencyLabel(currencyCode);
   const [collect, setCollect] = useState("");
   const [pay, setPay] = useState("");
   const [mode, setMode] = useState<CreditPolicy["mode"]>("warn");
@@ -67,6 +68,7 @@ export default function CreditLimitScreen() {
     relationshipId: string;
     session: SessionSnapshot;
     lifetime: number;
+    currency: string;
   } | null>(null);
   const [canSave, setCanSave] = useState(false);
   // Whose limits these are: the screen used to name no one (audit #24).
@@ -82,6 +84,7 @@ export default function CreditLimitScreen() {
     canSave &&
     caps.resolved &&
     caps.canConfigureCredit &&
+    context.currency === currencyCode &&
     getActiveVaultIdSyncMaybe() === liveVaultId;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -102,16 +105,18 @@ export default function CreditLimitScreen() {
         const relationshipId = isDefault
           ? KAATA_DEFAULT_CREDIT_ID
           : await relationshipForCredit(id, vaultId);
-        const p = await readCreditPolicy(relationshipId, vaultId);
+        const p = await readCreditPolicy(relationshipId, vaultId, currencyCode);
         const covered =
-          !isDefault && !p && (await readCreditPolicy(KAATA_DEFAULT_CREDIT_ID, vaultId)) != null;
+          !isDefault &&
+          !p &&
+          (await readCreditPolicy(KAATA_DEFAULT_CREDIT_ID, vaultId, currencyCode)) != null;
         const role = await readVaultRole(vaultId, session.accountId);
         const customer = isDefault ? null : await getPerson(id);
         await applyForUnchangedLocalSession(session, async () => {
           if (!alive || lifetime.current !== focus || getActiveVaultIdSyncMaybe() !== vaultId)
             return;
           setCustomerName(customer?.name ?? null);
-          setContext({ vaultId, relationshipId, session, lifetime: focus });
+          setContext({ vaultId, relationshipId, session, lifetime: focus, currency: currencyCode });
           setCollect(
             p?.max_collect_minor == null ? "" : String(fromMinorUnits(p.max_collect_minor)),
           );
@@ -122,7 +127,7 @@ export default function CreditLimitScreen() {
           setCanSave(role === "owner" || role === "manager");
         });
         await refreshCreditPolicies(vaultId, session).catch(() => undefined);
-        const fresh = await readCreditPolicy(relationshipId, vaultId);
+        const fresh = await readCreditPolicy(relationshipId, vaultId, currencyCode);
         await applyForUnchangedLocalSession(session, async () => {
           if (
             !alive ||
@@ -147,7 +152,7 @@ export default function CreditLimitScreen() {
         alive = false;
         lifetime.current++;
       };
-    }, [id, routeVaultId, isDefault]),
+    }, [id, routeVaultId, isDefault, currencyCode]),
   );
   async function save() {
     if (!context || !editable || saving.current) return;
@@ -166,6 +171,7 @@ export default function CreditLimitScreen() {
         context.vaultId,
         {
           relationship_id: context.relationshipId,
+          currency: context.currency,
           max_collect_minor: maxCollect,
           max_pay_minor: maxPay,
           mode,

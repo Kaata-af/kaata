@@ -7,6 +7,7 @@ import { ENTRY_NOTE_MAX_LENGTH } from "../types";
 import { calculatorDraft, calculatorKey } from "../calculator-input";
 
 type PlatformOS = "android" | "ios";
+const safeAreaInsets = { top: 0, left: 0, right: 0, bottom: 34 };
 const fontEdges = Object.fromEntries(
   (["android", "ios"] as const).map((os) => [
     os,
@@ -62,6 +63,9 @@ function fixture({
   width = 390,
   height = 844,
   fontScale = 1,
+  initialLedgerCurrency = "AFN",
+  bookCurrency = "AFN",
+  enabledCurrencies = ["AFN", "USD", "EUR"],
 }: {
   os?: PlatformOS;
   rtl?: boolean;
@@ -70,8 +74,16 @@ function fixture({
   width?: number;
   height?: number;
   fontScale?: number;
+  initialLedgerCurrency?: string;
+  bookCurrency?: string;
+  enabledCurrencies?: string[];
 } = {}) {
   const screenId = `entry-fixture-${++fixtureSequence}`;
+  let selectedCurrency = initialLedgerCurrency;
+  let defaultCurrencyGate: ReturnType<typeof deferred<string>> | null = null;
+  let enabledCurrencyGate: ReturnType<typeof deferred<string[]>> | null = null;
+  const ledgerListeners = new Set<(vaultId: string) => void>();
+  const defaultCurrencyReads: (string | null)[] = [];
   const hooks = uiHooks(),
     routes: any[] = [],
     notices: any[] = [],
@@ -93,6 +105,8 @@ function fixture({
   let captureGate: ReturnType<typeof deferred<void>> | null = null;
   let duplicateGate: ReturnType<typeof deferred<any>> | null = null;
   const timers = new Map<number, () => void>();
+  const frames = new Map<number, () => void>();
+  let onEndScroll: (() => void) | undefined;
   const scrolls: any[] = [],
     endScrolls: any[] = [];
   const keyboardEvents = new Map<string, Set<() => void>>();
@@ -168,10 +182,14 @@ function fixture({
         useWindowDimensions: () => ({ width, height, fontScale, scale: 3 }),
       },
       "@expo/vector-icons": { Ionicons: "Ionicon" },
-      "react-native-safe-area-context": { SafeAreaView: "SafeAreaView" },
+      "react-native-safe-area-context": {
+        SafeAreaView: "SafeAreaView",
+        useSafeAreaInsets: () => safeAreaInsets,
+      },
       "../../components/Button": { Button: "Button" },
       "../../components/EntryCalculator": { EntryCalculator: "EntryCalculator" },
       "../../components/EntryDateField": { EntryDateField: "EntryDateField" },
+      "../../components/CurrencySelector": { CurrencySelector: "CurrencySelector" },
       "../../components/ScreenLoading": { ScreenLoading: "ScreenLoading" },
       "../../components/SettingsScreen": { ScreenHeader: "ScreenHeader" },
       "../../components/Toast": {
@@ -197,7 +215,31 @@ function fixture({
         getActiveVaultIdSyncMaybe: () => vault,
         getInstallIdSync: () => install,
       },
-      "../../lib/currency": { getCurrentCurrencySymbol: () => "AFN" },
+      "../../lib/currency": {
+        DEFAULT_CURRENCY: "AFN",
+        getCurrentCurrencyCode: () => selectedCurrency,
+        getDefaultEntryCurrency: async (vaultId: string) => {
+          defaultCurrencyReads.push(vaultId);
+          const gate = defaultCurrencyGate;
+          defaultCurrencyGate = null;
+          return gate ? gate.promise : bookCurrency;
+        },
+        getEnabledCurrencies: async () => {
+          const gate = enabledCurrencyGate;
+          enabledCurrencyGate = null;
+          return gate ? gate.promise : enabledCurrencies;
+        },
+        getCurrencyLabel: (code: string) => code,
+        setCurrentCurrency: (code: string) => {
+          selectedCurrency = code;
+        },
+      },
+      "../../lib/ledger-events": {
+        onLedgerApplied: (listener: (vaultId: string) => void) => {
+          ledgerListeners.add(listener);
+          return () => ledgerListeners.delete(listener);
+        },
+      },
       "../../lib/db": {
         getActiveVaultArchivedState: async () => {
           const gate = guardGate;
@@ -251,6 +293,12 @@ function fixture({
         return id;
       },
       clearTimeout: (id: number) => timers.delete(id),
+      requestAnimationFrame: (fn: () => void) => {
+        const id = ++timerID;
+        frames.set(id, fn);
+        return id;
+      },
+      cancelAnimationFrame: (id: number) => frames.delete(id),
     },
   ).default;
   const render = () => hooks.render(Screen);
@@ -269,9 +317,7 @@ function fixture({
     )!;
   const calculator = () => nodes(hooks.tree).find((n) => n.type === "EntryCalculator");
   const noteField = () =>
-    nodes(hooks.tree).find(
-      (n) => n.type === "View" && !n.props.ref && n.props.onLayout && nodes(n).includes(note()),
-    )!;
+    nodes(hooks.tree).find((n) => n.type === "View" && [n.props.children].flat().includes(note()))!;
   const keyboardFrame = () =>
     nodes(hooks.tree).find(
       (n) => n.type === "View" && n.props.ref && n.props.collapsable === false,
@@ -315,7 +361,10 @@ function fixture({
     };
     nodes(hooks.tree).find((n) => n.type === "ScrollView")!.props.ref.current = {
       scrollTo: (options: any) => scrolls.push(options),
-      scrollToEnd: (options: any) => endScrolls.push(options),
+      scrollToEnd: (options: any) => {
+        endScrolls.push(options);
+        onEndScroll?.();
+      },
     };
     nodes(hooks.tree)
       .find(
@@ -327,7 +376,7 @@ function fixture({
       .props.onLayout({
         nativeEvent: { layout: { x: 0, y: 0, width: 390, height: 500 } },
       });
-    noteField().props.onLayout({
+    noteField().props.onLayout?.({
       nativeEvent: { layout: { x: 0, y: 264, width: 358, height: 146 } },
     });
   }
@@ -382,6 +431,16 @@ function fixture({
     queued,
     writes,
     creditChecks,
+    defaultCurrencyReads,
+    delayedDefaultCurrency: () => (defaultCurrencyGate = deferred<string>()),
+    delayedEnabledCurrencies: () => (enabledCurrencyGate = deferred<string[]>()),
+    setEnabledCurrencies: (codes: string[]) => {
+      enabledCurrencies = codes;
+    },
+    emitLedger: (vaultId = vault ?? "") => ledgerListeners.forEach((listener) => listener(vaultId)),
+    get selectedCurrency() {
+      return selectedCurrency;
+    },
     render,
     flush,
     ready,
@@ -412,6 +471,16 @@ function fixture({
       saveError = next;
     },
     fireKeyboardTimers: () => [...timers.values()].forEach((fn) => fn()),
+    noteFrames: () => [...frames.values()],
+    fireNoteFrames: () => {
+      for (const [id, fn] of [...frames.entries()]) {
+        frames.delete(id);
+        fn();
+      }
+    },
+    onEndScroll: (callback: () => void) => {
+      onEndScroll = callback;
+    },
     emitKeyboard: (event: string) => keyboardEvents.get(event)?.forEach((handler) => handler()),
     hardwareBack: () => [...backHandlers].reverse().some((handler) => handler()),
     nativeHandlers: () => [...keyboardEvents.values()].flatMap((handlers) => [...handlers]),
@@ -450,7 +519,7 @@ function fixture({
 
 // The edit screen has a different storage edge, but uses the same real form
 // controls. Keep this fixture limited to loading and saving an editable entry.
-function editFixture(os: PlatformOS, rtl: boolean, initialNote: string) {
+function editFixture(os: PlatformOS, rtl: boolean, initialNote: string, entryCurrency = "AFN") {
   const hooks = uiHooks(),
     routes: string[] = [],
     writes: any[] = [];
@@ -477,18 +546,23 @@ function editFixture(os: PlatformOS, rtl: boolean, initialNote: string) {
       "react-native-safe-area-context": { SafeAreaView: "SafeAreaView" },
       "../../../components/Button": { Button: "Button" },
       "../../../components/EntryDateField": { EntryDateField: "EntryDateField" },
+      "../../../components/CurrencySelector": { CurrencySelector: "CurrencySelector" },
       "../../../components/ScreenLoading": { ScreenLoading: "ScreenLoading" },
       "../../../components/SettingsScreen": { ScreenHeader: "ScreenHeader" },
       "../../../components/Toast": { useToast: () => ({ push: () => {} }) },
       "../../../lib/colors": { colors: require("../colors").colors },
       "../../../lib/credit-limits": { creditWarningForEdit: async () => false },
-      "../../../lib/currency": { getCurrentCurrencySymbol: () => "AFN" },
+      "../../../lib/currency": {
+        getCurrentCurrencyCode: () => "AFN",
+        getCurrencyLabel: (code: string) => code,
+      },
       "../../../lib/db": {
         getEntry: async () => ({
           id: "entry",
           relationship_id: "relationship",
           type: "debt",
           amount_afn: 125.5,
+          currency: entryCurrency,
           note: initialNote,
           created_at: new Date(2025, 5, 20, 15, 7, 12, 345).getTime(),
         }),
@@ -627,14 +701,322 @@ const layoutEvent = (height: number, width = 390) => ({
 const savedNotes: [string, string][] = [];
 async function main() {
   let cases = 0;
+  {
+    const hooks = uiHooks(),
+      changes: string[] = [];
+    let allowed = ["AFN", "USD"],
+      disabled = false,
+      readOnly = false;
+    const symbols: Record<string, string> = { AFN: "؋", USD: "$", EUR: "€" };
+    const Picker = compileUI("../../components/CurrencySelector", {
+      react: hooks.react,
+      "react/jsx-runtime": { jsx, jsxs: jsx },
+      "react-native": {
+        View: "View",
+        Text: "Text",
+        Pressable: "Pressable",
+        StyleSheet: { create: (styles: any) => styles },
+      },
+      "@expo/vector-icons": { Ionicons: "Icon" },
+      "../lib/currency": {
+        CURRENCIES: Object.keys(symbols).map((code) => ({ code, symbol: symbols[code] })),
+        getCurrencySymbol: (code: string) => symbols[code] ?? code,
+        getCurrencyName: (code: string) => code,
+        getCurrencyLabel: (code: string) => `${code} ${symbols[code] ?? code}`,
+      },
+      "../lib/colors": { colors: require("../colors").colors },
+      "../lib/direction": directionEdges(true),
+      "../lib/fonts": {
+        fonts: { sansRegular: "Regular", sansMedium: "Medium" },
+        sansLineHeight: (_size: number, tight: number) => tight,
+      },
+      "../lib/i18n": { t: (key: string) => key },
+      "../lib/tokens": { radius: { sm: 8, pill: 20 }, TOUCH_MIN: 44, typography: {} },
+      "./OptionSheet": { OptionSheet: "OptionSheet" },
+    });
+    const render = () =>
+      hooks.render(() =>
+        Picker.CurrencySelector({
+          compact: true,
+          symbolOnly: true,
+          value: "USD",
+          allowedCurrencies: allowed,
+          disabled,
+          onChange: readOnly ? undefined : (code: string) => changes.push(code),
+        }),
+      );
+    const sheet = () => nodes(hooks.tree).find((node) => node.type === "OptionSheet")!;
+    render();
+    const trigger = nodes(hooks.tree).find((node) => node.type === "Pressable")!;
+    assert.equal(
+      words(trigger),
+      "$",
+      "Result control shows the selected sign without a separate field label",
+    );
+    assert.deepEqual(trigger.props.accessibilityValue, { text: "USD $" });
+    assert.equal(flattenStyle(trigger.props.style({ pressed: false })).direction, "ltr");
+    assert.equal(flattenStyle(trigger.props.style({ pressed: false })).minHeight, 44);
+    trigger.props.onPress();
+    render();
+    assert.equal(sheet().props.visible, true);
+    assert.deepEqual(
+      sheet().props.options.map((option: any) => option.key),
+      ["AFN", "USD"],
+      "Picker shows only this Kaata's enabled currencies",
+    );
+    const retainedSelect = sheet().props.onSelect;
+    allowed = ["AFN"];
+    render();
+    assert.deepEqual(
+      sheet().props.options.map((option: any) => option.key),
+      ["AFN"],
+      "A disabled current value is not reinserted into picker options",
+    );
+    retainedSelect("USD");
+    assert.deepEqual(changes, []);
+    sheet().props.onSelect("AFN");
+    assert.deepEqual(changes, ["AFN"]);
+    disabled = true;
+    render();
+    retainedSelect("AFN");
+    assert.deepEqual(changes, ["AFN"]);
+    readOnly = true;
+    disabled = false;
+    render();
+    assert.equal(sheet(), undefined, "Immutable saved currencies have no picker");
+    readOnly = false;
+    allowed = ["USD", "USD"];
+    render();
+    assert.equal(sheet(), undefined, "One distinct enabled currency has no picker");
+    assert.equal(
+      nodes(hooks.tree).some((node) => node.type === "Pressable"),
+      false,
+      "The sole currency is a static label instead of an inactive selector",
+    );
+    assert.ok(words(hooks.tree).includes("$"), "The sole currency sign remains visible");
+    trigger.props.onPress();
+    retainedSelect("USD");
+    render();
+    assert.equal(sheet(), undefined, "Retained callbacks cannot reopen a single-currency picker");
+    assert.deepEqual(
+      changes,
+      ["AFN"],
+      "Collapsing to one currency never changes the amount's denomination",
+    );
+    allowed = ["USD", "EUR"];
+    render();
+    nodes(hooks.tree)
+      .find((node) => node.type === "Pressable")!
+      .props.onPress();
+    render();
+    assert.equal(
+      sheet().props.visible,
+      true,
+      "The selector returns when another currency is enabled",
+    );
+    hooks.unmount();
+    cases++;
+  }
+  const currencyField = (form: { hooks: ReturnType<typeof uiHooks> }) =>
+    nodes(form.hooks.tree).find((node) => node.type === "CurrencySelector")!;
+  for (const os of ["android", "ios"] as const) {
+    const form = fixture({ os });
+    await form.ready();
+    assert.equal(
+      currencyField(form).props.value,
+      "AFN",
+      "new tally starts in the kaata's default currency",
+    );
+    form.openCalculator();
+    currencyField(form).props.onOpen();
+    form.render();
+    assert.equal(
+      form.calculator()!.props.visible,
+      false,
+      "currency selection releases the amount keypad",
+    );
+    currencyField(form).props.onChange("USD");
+    form.render();
+    assert.equal(currencyField(form).props.value, "USD");
+    assert.equal(
+      form.selectedCurrency,
+      "AFN",
+      "Choosing a tally currency does not change the ledger view",
+    );
+    assert.equal(currencyField(form).props.compact, true);
+    assert.equal(currencyField(form).props.symbolOnly, true);
+    assert.deepEqual(currencyField(form).props.allowedCurrencies, ["AFN", "USD", "EUR"]);
+    const result = nodes(form.hooks.tree).find(
+      (node) => node.props.accessibilityLabel === "calculator.result",
+    )!;
+    const resultRow = nodes(form.hooks.tree).find(
+      (node) => node.type === "View" && [node.props.children].flat().includes(result),
+    )!;
+    assert.ok(
+      [resultRow.props.children].flat().includes(currencyField(form)),
+      "The only currency control sits beside equals/result",
+    );
+    assert.equal(flattenStyle(resultRow.props.style).direction, "ltr");
+    assert.equal(flattenStyle(resultRow.props.style).justifyContent, "space-between");
+    assert.equal(
+      [resultRow.props.children].flat()[0],
+      currencyField(form),
+      "Currency stays at the physical left edge",
+    );
+    assert.equal(flattenStyle(result.props.style).flex, 1);
+    assert.equal(flattenStyle(result.props.style).minWidth, 0);
+    assert.equal(flattenStyle(result.props.style).textAlign, "right");
+    assert.equal(
+      nodes(form.hooks.tree).filter((node) => node.type === "CurrencySelector").length,
+      1,
+    );
+    await form.button().props.onPress();
+    assert.equal(
+      form.writes[0][4].currency,
+      "USD",
+      "saved denomination is explicit and independent of the book default",
+    );
+    assert.equal(form.selectedCurrency, "USD", "successful save opens the saved currency's ledger");
+    form.hooks.unmount();
+    const edit = editFixture(os, false, "Dollar tally", "USD");
+    await edit.ready();
+    assert.equal(
+      currencyField(edit).props.value,
+      "USD",
+      "edit displays the tally currency even when the view is AFN",
+    );
+    assert.equal(
+      currencyField(edit).props.onChange,
+      undefined,
+      "a saved tally's denomination cannot be edited",
+    );
+    assert.equal(currencyField(edit).props.compact, true);
+    assert.equal(currencyField(edit).props.symbolOnly, true);
+    edit.hooks.unmount();
+    cases += 2;
+  }
+  {
+    const f = fixture({ enabledCurrencies: ["AFN", "USD"] });
+    await f.ready();
+    const originalChoice = currencyField(f).props.onChange;
+    originalChoice("EUR");
+    f.render();
+    assert.equal(
+      currencyField(f).props.value,
+      "AFN",
+      "A disabled currency cannot enter a draft through a retained picker callback",
+    );
+    originalChoice("USD");
+    f.render();
+    f.setEnabledCurrencies(["AFN"]);
+    await f.button().props.onPress();
+    f.render();
+    assert.equal(
+      f.writes.length,
+      0,
+      "A currency disabled since opening the form cannot save a new tally",
+    );
+    assert.ok(words(f.hooks.tree).includes("entry.currency.disabled"));
+    assert.equal(
+      currencyField(f).props.value,
+      "USD",
+      "A failed save never silently relabels the entered amount",
+    );
+    assert.equal(f.input().props.value, "125.50");
+    assert.deepEqual(currencyField(f).props.allowedCurrencies, ["AFN"]);
+    currencyField(f).props.onChange("AFN");
+    f.render();
+    await f.button().props.onPress();
+    assert.equal(f.writes[0][4].currency, "AFN");
+    f.hooks.unmount();
+    cases++;
+  }
+  {
+    const f = fixture({ enabledCurrencies: ["AFN", "USD"] });
+    await f.ready();
+    const retained = currencyField(f);
+    f.setEnabledCurrencies(["AFN"]);
+    f.emitLedger("another-book");
+    await f.flush();
+    assert.deepEqual(currencyField(f).props.allowedCurrencies, ["AFN", "USD"]);
+    f.emitLedger();
+    await f.flush();
+    assert.deepEqual(currencyField(f).props.allowedCurrencies, ["AFN"]);
+    retained.props.onChange("USD");
+    f.render();
+    assert.equal(
+      currencyField(f).props.value,
+      "AFN",
+      "Synced enabled settings invalidate retained choices",
+    );
+    f.transitions.vault();
+    assert.equal(
+      retained.props.onOpen(),
+      false,
+      "An old-book control cannot open a new currency sheet",
+    );
+    f.hooks.unmount();
+    cases++;
+  }
+  {
+    const f = fixture({ enabledCurrencies: ["AFN", "USD"] });
+    const old = f.delayedEnabledCurrencies();
+    f.render();
+    await f.flush();
+    f.setEnabledCurrencies(["AFN"]);
+    f.transitions.vault();
+    await f.flush();
+    assert.deepEqual(currencyField(f).props.allowedCurrencies, ["AFN"]);
+    old.resolve(["USD"]);
+    await f.flush();
+    assert.deepEqual(
+      currencyField(f).props.allowedCurrencies,
+      ["AFN"],
+      "A late prior-book enabled list cannot replace the new one",
+    );
+    f.hooks.unmount();
+    cases++;
+  }
   const dateField = (form: { hooks: ReturnType<typeof uiHooks> }) =>
     nodes(form.hooks.tree).find((node) => node.type === "EntryDateField")!;
+  const moreOptions = (form: { hooks: ReturnType<typeof uiHooks> }) =>
+    nodes(form.hooks.tree).find((node) => node.props.testID === "entry-more-options")!;
+  const showDate = (form: { hooks: ReturnType<typeof uiHooks>; render: () => unknown }) => {
+    if (!dateField(form)) {
+      moreOptions(form).props.onPress();
+      form.render();
+    }
+    return dateField(form);
+  };
   for (const os of ["android", "ios"] as const)
     for (const rtl of [false, true]) {
       const chosen = new Date(2024, 1, 29).getTime();
       const f = fixture({ os, rtl });
       await f.ready();
+      assert.equal(dateField(f), undefined, "new tallies keep Date collapsed by default");
+      assert.equal(moreOptions(f).props.accessibilityRole, "button");
+      assert.equal(moreOptions(f).props.accessibilityLabel, "entry.more.show");
+      assert.equal(moreOptions(f).props.accessibilityState.expanded, false);
+      assert.ok(
+        nodes(f.hooks.tree).indexOf(f.input()) < nodes(f.hooks.tree).indexOf(f.note()) &&
+          nodes(f.hooks.tree).indexOf(f.note()) < nodes(f.hooks.tree).indexOf(moreOptions(f)),
+        "the basic form keeps Show more below Amount and Note",
+      );
       f.openCalculator();
+      moreOptions(f).props.onPress();
+      f.render();
+      assert.equal(f.calculator()!.props.visible, false, "Show more closes the amount keypad");
+      assert.equal(moreOptions(f).props.accessibilityLabel, "entry.more.hide");
+      assert.equal(moreOptions(f).props.accessibilityState.expanded, true);
+      const newFields = nodes(f.hooks.tree);
+      assert.ok(
+        newFields.indexOf(f.note()) < newFields.indexOf(moreOptions(f)) &&
+          newFields.indexOf(moreOptions(f)) < newFields.indexOf(dateField(f)),
+        "expanded Date follows Show more below Note",
+      );
+      f.fireKeyboardTimers();
+      f.render();
+      assert.equal(f.calculator()!.props.visible, false, "expansion does not autofocus the keypad");
       dateField(f).props.onToggle();
       f.render();
       assert.equal(dateField(f).props.expanded, true);
@@ -647,18 +1029,31 @@ async function main() {
       f.render();
       assert.equal(dateField(f).props.value, chosen);
       assert.equal(dateField(f).props.expanded, false);
+      moreOptions(f).props.onPress();
+      f.render();
+      assert.equal(dateField(f), undefined, "Show less removes the optional date field");
+      showDate(f);
+      assert.equal(dateField(f).props.value, chosen, "reopening options preserves the chosen day");
+      assert.equal(dateField(f).props.expanded, false, "reopening options leaves its popup closed");
+      moreOptions(f).props.onPress();
+      f.render();
       await f.button().props.onPress();
       const savedDate = new Date(f.writes[0][4].occurredAtMs);
       assert.deepEqual(
         [savedDate.getFullYear(), savedDate.getMonth(), savedDate.getDate()],
         [2024, 1, 29],
-        "the selected business day reaches the create API",
+        "the selected business day reaches the create API even with options collapsed",
       );
       f.hooks.unmount();
       cases++;
 
       const edit = editFixture(os, rtl, "Original note");
       await edit.ready();
+      const editFields = nodes(edit.hooks.tree);
+      assert.ok(
+        editFields.indexOf(dateField(edit)) < editFields.indexOf(edit.note()),
+        "The date field comes before Note when editing a tally",
+      );
       const original = dateField(edit).props.value;
       assert.equal(original, new Date(2025, 5, 20, 15, 7, 12, 345).getTime());
       dateField(edit).props.onToggle();
@@ -676,17 +1071,190 @@ async function main() {
       edit.hooks.unmount();
       cases++;
     }
+  for (const os of ["android", "ios"] as const) {
+    const f = fixture({ os });
+    await f.ready();
+    f.note().props.onChangeText("A draft\n\nیادداشت");
+    f.render();
+    showDate(f).props.onToggle();
+    f.render();
+    const stalePicker = dateField(f);
+    const originalDay = stalePicker.props.value;
+    moreOptions(f).props.onPress();
+    f.render();
+    stalePicker.props.onChange(new Date(2020, 0, 1).getTime());
+    stalePicker.props.onToggle();
+    f.render();
+    assert.equal(
+      dateField(f),
+      undefined,
+      "a collapsed picker cannot reopen itself through old callbacks",
+    );
+    assert.equal(moreOptions(f).props.accessibilityState.expanded, false);
+    showDate(f);
+    assert.equal(dateField(f).props.expanded, false, "collapse cancels the open date popup");
+    assert.equal(
+      dateField(f).props.value,
+      originalDay,
+      "collapsed date callbacks cannot change the day",
+    );
+    assert.equal(f.input().props.value, "125.50");
+    assert.equal(
+      f.note().props.value,
+      "A draft\n\nیادداشت",
+      "options preserve the complete Note draft",
+    );
+    assert.equal(f.writes.length + f.routes.length, 0);
+    f.hooks.unmount();
+    cases++;
+  }
+  for (const transition of ["account", "vault", "install", "person", "type", "refocus"] as const) {
+    const f = fixture();
+    await f.ready();
+    showDate(f).props.onToggle();
+    f.render();
+    const chosen = new Date(2024, 1, 29).getTime();
+    dateField(f).props.onChange(chosen);
+    f.render();
+    const staleMore = moreOptions(f),
+      stalePicker = dateField(f);
+    f.transitions[transition]();
+    await f.flush();
+    assert.equal(
+      dateField(f),
+      undefined,
+      `${transition} resets the optional date field to collapsed`,
+    );
+    assert.equal(moreOptions(f).props.accessibilityState.expanded, false);
+    staleMore.props.onPress();
+    stalePicker.props.onToggle();
+    stalePicker.props.onChange(new Date(2020, 0, 1).getTime());
+    f.render();
+    assert.equal(
+      dateField(f),
+      undefined,
+      `${transition} invalidates retained More and date actions`,
+    );
+    assert.equal(moreOptions(f).props.accessibilityState.expanded, false);
+    assert.equal(f.writes.length + f.routes.length, 0);
+    showDate(f);
+    if (transition === "refocus")
+      assert.equal(dateField(f).props.value, chosen, "same-draft refocus preserves its chosen day");
+    else
+      assert.notEqual(
+        dateField(f).props.value,
+        chosen,
+        `${transition} starts a new draft without the previous hidden past date`,
+      );
+    moreOptions(f).props.onPress();
+    f.render();
+    await f.button().props.onPress();
+    assert.equal(f.writes.length, 1);
+    const savedAt = f.writes[0][4].occurredAtMs;
+    if (transition === "refocus") {
+      const day = new Date(savedAt);
+      assert.deepEqual([day.getFullYear(), day.getMonth(), day.getDate()], [2024, 1, 29]);
+    } else
+      assert.equal(savedAt, undefined, `${transition} saves the new draft at its default time`);
+    f.hooks.unmount();
+    cases++;
+  }
   {
     const f = fixture();
     await f.ready();
-    dateField(f).props.onToggle();
+    showDate(f).props.onToggle();
+    f.render();
+    const retainedMore = moreOptions(f),
+      retainedDate = dateField(f);
+    const gate = f.delayedSave();
+    const saving = f.button().props.onPress();
+    await f.flush();
+    assert.equal(
+      moreOptions(f).props.disabled,
+      true,
+      "pending Save disables optional-field changes",
+    );
+    retainedMore.props.onPress();
+    retainedDate.props.onChange(new Date(2020, 0, 1).getTime());
+    f.render();
+    assert.equal(moreOptions(f).props.accessibilityState.expanded, true);
+    assert.equal(dateField(f).props.value, retainedDate.props.value);
+    gate.resolve(normal);
+    await saving;
+    assert.equal(f.writes.length, 1);
+    assert.equal(
+      f.writes[0][4].occurredAtMs,
+      undefined,
+      "busy callbacks cannot backdate the saved tally",
+    );
+    f.hooks.unmount();
+    cases++;
+  }
+  {
+    const f = fixture({ initialLedgerCurrency: "USD", bookCurrency: "AFN" });
+    await f.ready();
+    assert.deepEqual(f.defaultCurrencyReads, ["vault"]);
+    assert.equal(
+      currencyField(f).props.value,
+      "AFN",
+      "A rotating USD ledger view cannot change the new tally's AFN book default",
+    );
+    currencyField(f).props.onChange("EUR");
+    f.render();
+    assert.equal(f.selectedCurrency, "USD");
+    f.refocus();
+    await f.flush();
+    assert.equal(
+      currencyField(f).props.value,
+      "EUR",
+      "Refocusing the same form preserves its explicit currency choice",
+    );
+    await f.button().props.onPress();
+    assert.equal(f.writes[0][4].currency, "EUR");
+    f.hooks.unmount();
+    cases++;
+  }
+  {
+    const f = fixture({ initialLedgerCurrency: "USD", bookCurrency: "AFN" });
+    const oldDefault = f.delayedDefaultCurrency();
+    f.render();
+    await f.flush();
+    assert.deepEqual(f.defaultCurrencyReads, ["vault"]);
+    assert.equal(
+      currencyField(f),
+      undefined,
+      "The form waits for its own book default before showing amounts",
+    );
+    f.transitions.vault();
+    await f.flush();
+    assert.equal(currencyField(f).props.value, "AFN");
+    oldDefault.resolve("EUR");
+    await f.flush();
+    assert.equal(
+      currencyField(f).props.value,
+      "AFN",
+      "A late prior-book default cannot repaint the new form",
+    );
+    assert.deepEqual(f.defaultCurrencyReads, ["vault", "different-vault"]);
+    f.hooks.unmount();
+    cases++;
+  }
+  {
+    const f = fixture();
+    await f.ready();
+    showDate(f).props.onToggle();
     f.render();
     const stalePicker = dateField(f);
     f.blur();
     stalePicker.props.onChange(new Date(2020, 0, 1).getTime());
     f.refocus();
     await f.flush();
-    assert.equal(dateField(f).props.expanded, false);
+    assert.equal(
+      dateField(f),
+      undefined,
+      "returning to the route resets optional fields to collapsed",
+    );
+    assert.equal(moreOptions(f).props.accessibilityState.expanded, false);
     await f.button().props.onPress();
     assert.equal(
       f.writes[0][4].occurredAtMs,
@@ -699,7 +1267,7 @@ async function main() {
   {
     const f = fixture();
     await f.ready();
-    dateField(f).props.onToggle();
+    showDate(f).props.onToggle();
     f.render();
     assert.equal(f.hardwareBack(), true);
     f.render();
@@ -861,6 +1429,7 @@ async function main() {
     for (const rtl of [false, true])
       for (const { width, height, fontScale } of [
         { width: 320, height: 568, fontScale: 1 },
+        { width: 320, height: 568, fontScale: 2 },
         { width: 390, height: 844, fontScale: 1 },
         { width: 852, height: 393, fontScale: 1 },
         { width: 1024, height: 1366, fontScale: 1 },
@@ -868,6 +1437,37 @@ async function main() {
       ]) {
         const f = fixture({ os, rtl, width, height, fontScale });
         await f.ready();
+        f.input().props.onChangeText("1234567890.46+10");
+        f.render();
+        const result = nodes(f.hooks.tree).find(
+          (node) => node.props.accessibilityLabel === "calculator.result",
+        )!;
+        const resultRow = nodes(f.hooks.tree).find(
+          (node) => node.type === "View" && [node.props.children].flat().includes(result),
+        )!;
+        assert.equal(
+          [resultRow.props.children].flat()[0],
+          currencyField(f),
+          "Currency stays left in narrow, large-text and RTL layouts",
+        );
+        assert.equal(flattenStyle(resultRow.props.style).direction, "ltr");
+        assert.equal(flattenStyle(resultRow.props.style).flexDirection, "row");
+        assert.equal(flattenStyle(resultRow.props.style).justifyContent, "space-between");
+        assert.equal(flattenStyle(result.props.style).flex, 1);
+        assert.equal(
+          flattenStyle(result.props.style).minWidth,
+          0,
+          "Long totals can shrink within their own column without overlapping the currency control",
+        );
+        assert.equal(flattenStyle(result.props.style).textAlign, "right");
+        assert.equal(flattenStyle(result.props.style).writingDirection, "ltr");
+        assert.equal(result.props.numberOfLines, 1);
+        assert.equal(result.props.adjustsFontSizeToFit, true);
+        assert.equal(
+          words(result),
+          "= 1234567900.46",
+          "The full exact result remains available to the fitting text",
+        );
         const scroll = nodes(f.hooks.tree).find((node) => node.type === "ScrollView")!;
         const body = flattenStyle(scroll.props.contentContainerStyle);
         const noteStyle = () => flattenStyle(f.note().props.style);
@@ -937,7 +1537,10 @@ async function main() {
     saveBar.props.onLayout(layoutEvent(86));
     f.keyboardFrame().props.onLayout(layoutEvent(500));
     f.render();
-    assert.equal(f.calculator()!.props.availableHeight, 500);
+    assert.equal(
+      f.calculator()!.props.availableHeight,
+      500 - (os === "ios" ? safeAreaInsets.bottom : 0),
+    );
     assert.equal(
       f.calculator()!.props.footerHeight,
       86,
@@ -946,7 +1549,10 @@ async function main() {
     f.keyboardFrame().props.onLayout(layoutEvent(280, 852));
     saveBar.props.onLayout(layoutEvent(104));
     f.render();
-    assert.equal(f.calculator()!.props.availableHeight, 280);
+    assert.equal(
+      f.calculator()!.props.availableHeight,
+      280 - (os === "ios" ? safeAreaInsets.bottom : 0),
+    );
     assert.equal(
       f.calculator()!.props.footerHeight,
       104,
@@ -955,6 +1561,125 @@ async function main() {
     f.hooks.unmount();
     cases++;
   }
+  for (const os of ["ios", "android"] as const)
+    for (const rtl of [false, true]) {
+      const f = fixture({ os, rtl });
+      await f.ready();
+      const form = () => nodes(f.hooks.tree).find((node) => node.type === "ScrollView")!;
+      const avoider = () =>
+        nodes(f.hooks.tree).find((node) => node.type === "KeyboardAvoidingView")!;
+      const safeArea = () => nodes(f.hooks.tree).find((node) => node.type === "SafeAreaView")!;
+      const dock = () =>
+        nodes(f.hooks.tree).find(
+          (node) => node.type === "View" && [node.props.children].flat().includes(f.calculator()),
+        )!;
+      const viewportStyles = () => ({
+        scroll: flattenStyle(form().props.style),
+        avoider: flattenStyle(avoider().props.style),
+        frame: flattenStyle(f.keyboardFrame().props.style),
+      });
+      const originalViewport = viewportStyles();
+      const paddingBottom = () => {
+        const body = flattenStyle(form().props.contentContainerStyle);
+        return body.paddingBottom ?? body.padding;
+      };
+      const measureDock = (height: number) => {
+        dock().props.onLayout(layoutEvent(height));
+        f.render();
+      };
+      const bottomInset = os === "ios" ? safeAreaInsets.bottom : 0;
+      const saveHeight = 86,
+        calculatorHeight = 248;
+      assert.equal(
+        flattenStyle(dock().props.style).position,
+        "absolute",
+        "both platforms keep custom keys outside the form's viewport layout",
+      );
+      assert.ok([avoider().props.children].flat().includes(dock()), "the dock is a form sibling");
+      assert.equal(
+        nodes(form()).includes(dock()),
+        false,
+        "the fixed controls are outside form content",
+      );
+      assert.equal(avoider().props.enabled, os === "android");
+      assert.equal(avoider().props.behavior, "height");
+      if (os === "ios") {
+        assert.deepEqual(safeArea().props.edges, ["top", "left", "right"]);
+        const style = flattenStyle(dock().props.style);
+        assert.deepEqual([style.bottom, style.left, style.right], [0, 0, 0]);
+        assert.equal(style.paddingBottom, safeAreaInsets.bottom);
+      }
+      measureDock(saveHeight + bottomInset);
+      assert.equal(paddingBottom(), 16 + saveHeight + bottomInset);
+      f.openCalculator();
+      measureDock(saveHeight + calculatorHeight + bottomInset);
+      assert.equal(
+        paddingBottom(),
+        16 + saveHeight + calculatorHeight + bottomInset,
+        "the measured Save, keypad and safe-area height reserve content instead of shrinking its viewport",
+      );
+      assert.deepEqual(viewportStyles(), originalViewport);
+      assert.ok(f.scrolls.length > 0, "a measured overlay reveals an amount obscured by its keys");
+      if (os === "ios") {
+        assert.equal(flattenStyle(dock().props.style).paddingBottom, safeAreaInsets.bottom);
+        assert.deepEqual(safeArea().props.edges, ["top", "left", "right"]);
+      }
+      f.calculator()!.props.onNext();
+      f.render();
+      measureDock(saveHeight + bottomInset);
+      assert.deepEqual(
+        f.endScrolls,
+        [],
+        "closing custom keys does not scroll before native keyboard readiness",
+      );
+      f.emitKeyboard("keyboardWillShow");
+      f.render();
+      if (os === "ios") {
+        assert.equal(f.bodyButton(), undefined);
+        assert.equal(dock().props.pointerEvents, "none");
+        assert.equal(flattenStyle(dock().props.style).paddingBottom, 0);
+        measureDock(0);
+        assert.equal(
+          paddingBottom(),
+          16,
+          "the accessory replaces the body-dock content reservation",
+        );
+        assert.deepEqual(safeArea().props.edges, ["top", "left", "right"]);
+      } else {
+        assert.ok(f.bodyButton());
+        assert.equal(flattenStyle(dock().props.style).position, "absolute");
+        assert.equal(
+          paddingBottom(),
+          16 + saveHeight,
+          "Android keeps Save reserved above the native resized keyboard window",
+        );
+      }
+      assert.deepEqual(
+        viewportStyles(),
+        originalViewport,
+        "closing custom keys does not change either platform's form frame styles",
+      );
+      f.emitKeyboard("keyboardDidShow");
+      f.render();
+      f.fireNoteFrames();
+      f.fireNoteFrames();
+      assert.deepEqual(f.endScrolls, [{ animated: true }]);
+      assert.deepEqual(viewportStyles(), originalViewport);
+      f.emitKeyboard("keyboardDidHide");
+      f.render();
+      measureDock(saveHeight + bottomInset);
+      assert.ok(f.bodyButton());
+      assert.equal(paddingBottom(), 16 + saveHeight + bottomInset);
+      assert.deepEqual(viewportStyles(), originalViewport);
+      if (os === "ios") {
+        assert.deepEqual(safeArea().props.edges, ["top", "left", "right"]);
+        assert.equal(dock().props.pointerEvents, "auto");
+      } else assert.equal(safeArea().props.edges.includes("bottom"), true);
+      assert.equal(f.endScrolls.length, 1, "restoring body Save does not replay the Note scroll");
+      assert.equal(f.writes.length + f.routes.length, 0);
+      f.hooks.unmount();
+      cases++;
+    }
   for (const rtl of [false, true]) {
     const f = fixture({ os: "ios", rtl, nativeEdgeToEdge: false, statusBarHeight: 32 });
     f.render();
@@ -1010,66 +1735,305 @@ async function main() {
     f.hooks.unmount();
     cases++;
   }
-  for (const rtl of [false, true])
-    for (const focus of ["arrow", "touch"] as const) {
-      const f = fixture({ os: "ios", rtl });
-      await f.ready();
-      f.openCalculator();
-      const accessoryID = f.accessory()!.props.nativeID;
-      const form = () => nodes(f.hooks.tree).find((n) => n.type === "ScrollView")!;
-      const resize = (height: number) =>
-        form().props.onLayout({ nativeEvent: { layout: { x: 0, y: 0, width: 390, height } } });
-      f.scrolls.length = 0;
-      f.endScrolls.length = 0;
-      if (focus === "arrow") f.calculator()!.props.onNext();
-      else f.note().props.onFocus();
-      f.render();
-      resize(720);
-      f.emitKeyboard("keyboardWillShow");
-      f.render();
-      form().props.onScroll({
-        nativeEvent: {
-          contentOffset: { x: 0, y: 120 },
-          contentInset: { top: 0, bottom: 344, left: 0, right: 0 },
-        },
-      });
-      f.emitKeyboard("keyboardDidShow");
-      f.render();
-      resize(680);
-      assert.deepEqual(
-        f.scrolls,
-        [],
-        "focus, keyboard animation and unchanged layouts add no JS scroll",
-      );
-      f.note().props.onChangeText("First line\n\nدوهمه کرښه\nآخرین خط");
-      f.render();
-      f.noteField().props.onLayout({
-        nativeEvent: { layout: { x: 0, y: 264, width: 358, height: 212 } },
-      });
-      form().props.onContentSizeChange(390, 720);
-      f.emitKeyboard("keyboardDidShow");
-      f.render();
-      assert.deepEqual(
-        f.scrolls,
-        [],
-        "note editing and layout callbacks leave native caret scrolling in control",
-      );
-      assert.deepEqual(f.endScrolls, [], "iOS never jumps to the empty inset-expanded form end");
-      assert.equal(f.bodyButton(), undefined);
-      assert.equal(f.accessory()!.props.nativeID, accessoryID);
-      assert.equal(f.note().props.value, "First line\n\nدوهمه کرښه\nآخرین خط");
-      assert.equal(f.writes.length + f.routes.length, 0);
-      f.emitKeyboard("keyboardDidHide");
-      f.render();
-      assert.ok(f.bodyButton());
-      assert.equal(
-        f.scrolls.length + f.endScrolls.length,
-        0,
-        "hiding iOS keyboard adds no scroll reset",
-      );
-      f.hooks.unmount();
-      cases++;
-    }
+  for (const os of ["ios", "android"] as const)
+    for (const rtl of [false, true])
+      for (const focus of ["arrow", "touch"] as const) {
+        const f = fixture({ os, rtl });
+        await f.ready();
+        f.openCalculator();
+        const accessoryID = f.accessory()?.props.nativeID;
+        const form = () => nodes(f.hooks.tree).find((n) => n.type === "ScrollView")!;
+        const resize = (height: number) =>
+          form().props.onLayout({ nativeEvent: { layout: { x: 0, y: 0, width: 390, height } } });
+        f.scrolls.length = 0;
+        f.endScrolls.length = 0;
+        if (focus === "arrow") f.calculator()!.props.onNext();
+        else f.note().props.onFocus();
+        f.render();
+        assert.equal(
+          f.calculator()!.props.visible,
+          false,
+          "Note focus first closes the custom keypad",
+        );
+        assert.equal(f.noteFocuses, 1, "touch and keypad Next share one native Note focus");
+        assert.deepEqual(
+          f.endScrolls,
+          [],
+          "focus leaves the native caret/inset animation in control",
+        );
+        assert.equal(f.noteFrames().length, 0, "focus does not queue an early final reveal");
+        f.fireKeyboardTimers();
+        resize(720);
+        form().props.onContentSizeChange(390, 760);
+        f.emitKeyboard("keyboardWillShow");
+        f.render();
+        form().props.onScroll({
+          nativeEvent: {
+            contentOffset: { x: 0, y: 120 },
+            contentInset: { top: 0, bottom: 344, left: 0, right: 0 },
+          },
+        });
+        f.note().props.onFocus();
+        f.fireNoteFrames();
+        assert.deepEqual(
+          f.endScrolls,
+          [],
+          "timers, repeated focus, layout and content-size events never scroll during keyboard opening",
+        );
+        f.emitKeyboard("keyboardDidShow");
+        f.emitKeyboard("keyboardDidShow");
+        f.render();
+        resize(680);
+        form().props.onContentSizeChange(390, 740);
+        assert.deepEqual(f.endScrolls, [], "the final reveal waits for its post-keyboard frame");
+        assert.equal(
+          f.noteFrames().length,
+          1,
+          "duplicate ready events coalesce into one final frame",
+        );
+        f.onEndScroll(() => {
+          resize(680);
+          form().props.onContentSizeChange(390, 740);
+          f.emitKeyboard("keyboardDidShow");
+        });
+        f.fireNoteFrames();
+        assert.deepEqual(f.endScrolls, [], "the commit frame waits for native viewport layout");
+        assert.equal(f.noteFrames().length, 1, "one final native-layout frame remains");
+        f.emitKeyboard("keyboardDidShow");
+        assert.equal(
+          f.noteFrames().length,
+          1,
+          "another ready event does not duplicate the final frame",
+        );
+        f.fireNoteFrames();
+        f.render();
+        assert.deepEqual(
+          f.endScrolls,
+          [{ animated: true }],
+          "one settled frame reveals the bottom",
+        );
+        assert.equal(
+          f.noteFrames().length,
+          0,
+          "the request is consumed before native scroll callbacks can reenter keyboard/layout handlers",
+        );
+        resize(640);
+        form().props.onContentSizeChange(390, 760);
+        f.note().props.onFocus();
+        f.emitKeyboard("keyboardDidShow");
+        f.fireNoteFrames();
+        assert.equal(
+          f.endScrolls.length,
+          1,
+          "later layouts and focus echoes cannot bounce the page",
+        );
+        assert.deepEqual(
+          f.scrolls,
+          [],
+          "Note focus scrolls to the complete bottom rather than a partial field offset",
+        );
+        f.note().props.onChangeText("First line\n\nدوهمه کرښه\nآخرین خط");
+        f.render();
+        f.noteField().props.onLayout?.({
+          nativeEvent: { layout: { x: 0, y: 264, width: 358, height: 212 } },
+        });
+        form().props.onContentSizeChange(390, 720);
+        f.emitKeyboard("keyboardDidShow");
+        f.fireNoteFrames();
+        f.render();
+        assert.deepEqual(
+          f.scrolls,
+          [],
+          "note editing and layout callbacks leave native caret scrolling in control",
+        );
+        assert.equal(
+          f.endScrolls.length,
+          1,
+          "typing, native insets and later layouts leave the consumed focus request finished",
+        );
+        if (os === "ios") {
+          assert.equal(f.bodyButton(), undefined);
+          assert.equal(f.accessory()!.props.nativeID, accessoryID);
+        } else assert.ok(f.bodyButton(), "Android retains its native keyboard Save dock");
+        assert.equal(f.note().props.value, "First line\n\nدوهمه کرښه\nآخرین خط");
+        assert.equal(f.writes.length + f.routes.length, 0);
+        f.emitKeyboard("keyboardDidHide");
+        f.render();
+        assert.ok(f.bodyButton());
+        assert.equal(f.endScrolls.length, 1, "hiding the keyboard adds no scroll reset");
+        f.hooks.unmount();
+        cases++;
+      }
+  for (const os of ["ios", "android"] as const)
+    for (const phase of ["commit", "layout"] as const)
+      for (const cancel of [
+        "drag",
+        "typing",
+        "noteBlur",
+        "amount",
+        "date",
+        "more",
+        "currency",
+        "keyboardHide",
+        "account",
+        "vault",
+        "install",
+        "person",
+        "type",
+        "blur",
+        "unmount",
+      ] as const) {
+        const f = fixture({ os });
+        await f.ready();
+        if (cancel === "date") showDate(f);
+        f.note().props.onFocus();
+        f.render();
+        const form = nodes(f.hooks.tree).find((node) => node.type === "ScrollView")!;
+        const lateNoteLayout = f.noteField().props.onLayout;
+        f.emitKeyboard("keyboardDidShow");
+        form.props.onLayout(layoutEvent(280));
+        if (phase === "layout") f.fireNoteFrames();
+        const lateFrames = f.noteFrames();
+        assert.equal(lateFrames.length, 1, `the ready keyboard queues one ${phase} Note frame`);
+        if (cancel === "drag") form.props.onScrollBeginDrag();
+        else if (cancel === "typing") f.note().props.onChangeText("A draft\n\nیادداشت");
+        else if (cancel === "noteBlur") f.note().props.onBlur();
+        else if (cancel === "amount") f.input().props.onPressIn();
+        else if (cancel === "date") dateField(f).props.onToggle();
+        else if (cancel === "more") moreOptions(f).props.onPress();
+        else if (cancel === "currency") {
+          currencyField(f).props.onOpen();
+          currencyField(f).props.onChange("USD");
+        } else if (cancel === "keyboardHide") f.emitKeyboard("keyboardDidHide");
+        else f.transitions[cancel]();
+        if (cancel !== "unmount") f.render();
+        assert.equal(f.noteFrames().length, 0, `${cancel} cancels the queued ${phase} frame`);
+        f.scrolls.length = 0;
+        f.endScrolls.length = 0;
+        f.fireNoteFrames();
+        lateFrames.forEach((callback) => callback());
+        form.props.onLayout(layoutEvent(500));
+        form.props.onContentSizeChange(390, 760);
+        lateNoteLayout?.({ nativeEvent: { layout: { x: 0, y: 264, width: 358, height: 212 } } });
+        f.emitKeyboard("keyboardDidShow");
+        f.fireNoteFrames();
+        assert.deepEqual(
+          f.endScrolls,
+          [],
+          `${cancel} cancels bottom reveal and its late callbacks`,
+        );
+        assert.deepEqual(f.scrolls, [], `${cancel} leaves the chosen page offset alone`);
+        assert.equal(
+          f.writes.length + f.routes.length,
+          0,
+          "a focus reveal never saves or navigates",
+        );
+        if (cancel !== "unmount") f.hooks.unmount();
+        assert.equal(f.hooks.lateWrites, 0);
+        cases++;
+      }
+  for (const os of ["ios", "android"] as const) {
+    const f = fixture({ os });
+    await f.ready();
+    f.note().props.onFocus();
+    const form = nodes(f.hooks.tree).find((node) => node.type === "ScrollView")!;
+    f.emitKeyboard("keyboardDidShow");
+    form.props.onLayout(layoutEvent(280));
+    const staleReveal = f.noteFrames()[0];
+    assert.ok(staleReveal);
+    f.note().props.onBlur();
+    f.note().props.onFocus();
+    f.render();
+    staleReveal();
+    assert.deepEqual(f.endScrolls, [], "a canceled frame cannot act on a newer Note focus");
+    assert.equal(f.noteFrames().length, 1, "the newer already-shown focus owns one distinct frame");
+    f.fireNoteFrames();
+    assert.deepEqual(f.endScrolls, [], "refocus also waits through its commit frame");
+    f.fireNoteFrames();
+    assert.deepEqual(f.endScrolls, [{ animated: true }]);
+    f.emitKeyboard("keyboardDidShow");
+    f.render();
+    const initialReveals = f.endScrolls.length;
+    f.note().props.onBlur();
+    f.note().props.onFocus();
+    f.render();
+    assert.equal(f.noteFrames().length, 1);
+    f.fireNoteFrames();
+    const staleLayout = f.noteFrames()[0];
+    assert.ok(staleLayout);
+    f.note().props.onBlur();
+    f.note().props.onFocus();
+    f.render();
+    staleLayout();
+    assert.equal(f.noteFrames().length, 1, "an old layout frame cannot clear a new commit frame");
+    assert.equal(f.endScrolls.length, initialReveals);
+    f.fireNoteFrames();
+    f.fireNoteFrames();
+    assert.equal(
+      f.endScrolls.length,
+      initialReveals + 1,
+      "refocusing with an already-open keyboard completes one fresh bottom reveal",
+    );
+    form.props.onLayout(layoutEvent(280));
+    form.props.onContentSizeChange(390, 760);
+    f.emitKeyboard("keyboardDidShow");
+    f.fireNoteFrames();
+    assert.equal(
+      f.endScrolls.length,
+      initialReveals + 1,
+      "later layouts never replay the already-shown keyboard's consumed request",
+    );
+    const beforeDrag = f.endScrolls.length;
+    form.props.onScrollBeginDrag();
+    form.props.onLayout(layoutEvent(260));
+    form.props.onContentSizeChange(390, 780);
+    f.emitKeyboard("keyboardDidShow");
+    f.fireNoteFrames();
+    assert.equal(f.endScrolls.length, beforeDrag, "a manual drag ends all latest-focus retries");
+    assert.equal(f.writes.length + f.routes.length, 0);
+    f.hooks.unmount();
+    cases++;
+  }
+  {
+    const f = fixture({ os: "ios" });
+    await f.ready();
+    f.note().props.onFocus();
+    f.emitKeyboard("keyboardDidShow");
+    const oldCommit = f.noteFrames()[0];
+    assert.ok(oldCommit);
+    f.emitKeyboard("keyboardWillShow");
+    assert.equal(
+      f.noteFrames().length,
+      0,
+      "a new keyboard transition cancels an early queued frame",
+    );
+    oldCommit();
+    assert.deepEqual(f.endScrolls, [], "a stale did-show cannot scroll during a new will-show");
+    f.emitKeyboard("keyboardDidShow");
+    assert.equal(
+      f.noteFrames().length,
+      1,
+      "willShow retains the request for the next settled keyboard",
+    );
+    f.fireNoteFrames();
+    const oldLayout = f.noteFrames()[0];
+    assert.ok(oldLayout);
+    f.emitKeyboard("keyboardWillHide");
+    assert.equal(f.noteFrames().length, 0, "willHide cancels the final viewport-layout frame");
+    oldLayout();
+    f.emitKeyboard("keyboardDidHide");
+    f.emitKeyboard("keyboardDidShow");
+    f.fireNoteFrames();
+    assert.deepEqual(
+      f.endScrolls,
+      [],
+      "hide cancels the intent rather than postponing a stale jump",
+    );
+    assert.equal(f.noteFrames().length, 0);
+    assert.equal(f.writes.length + f.routes.length, 0);
+    f.hooks.unmount();
+    cases++;
+  }
   {
     const first = fixture({ os: "ios" }),
       second = fixture({ os: "ios" });
@@ -1152,6 +2116,9 @@ async function main() {
     f.emitKeyboard("keyboardDidShow");
     f.render();
     const form = () => nodes(f.hooks.tree).find((n) => n.type === "ScrollView")!;
+    // The user has chosen a scroll position; isolate later error visibility
+    // from the fresh-focus intent that otherwise follows keyboard layouts.
+    form().props.onScrollBeginDrag();
     f.endScrolls.length = 0;
     f.scrolls.length = 0;
     form().props.onLayout({
@@ -1565,13 +2532,15 @@ async function main() {
     f.scrolls.length = 0;
     f.emitKeyboard("keyboardDidShow");
     f.render();
+    f.fireNoteFrames();
+    f.fireNoteFrames();
     assert.equal(f.calculator()!.props.visible, false, "native Note keyboard replaces the keypad");
     assert.deepEqual(
       f.scrolls,
-      os === "android" ? [{ y: 130, animated: true }] : [],
-      "only Android manually reveals the clipped Note; iOS uses native caret reveal",
+      [],
+      "both platforms reveal the complete form bottom instead of a clipped Note edge",
     );
-    assert.equal(f.endScrolls.length, 0);
+    assert.deepEqual(f.endScrolls.at(-1), { animated: true });
     const safeArea = () => nodes(f.hooks.tree).find((node) => node.type === "SafeAreaView")!;
     assert.equal(
       safeArea().props.edges.includes("bottom"),
@@ -1580,7 +2549,11 @@ async function main() {
     );
     f.emitKeyboard("keyboardDidHide");
     f.render();
-    assert.equal(safeArea().props.edges.includes("bottom"), true);
+    assert.equal(
+      safeArea().props.edges.includes("bottom"),
+      os === "android",
+      "iOS retains its full-height safe-area frame while Android restores its existing bottom edge",
+    );
     assert.equal(
       f.calculator()!.props.visible,
       false,
@@ -1611,7 +2584,7 @@ async function main() {
     await f.flush();
     assert.deepEqual(
       f.creditChecks.at(-1),
-      ["customer", "debt", 150],
+      ["customer", "debt", 150, "vault", "AFN"],
       "credit warning uses the calculated amount",
     );
     assert.ok(words(f.hooks.tree).includes("credit.warning"));
@@ -1645,12 +2618,12 @@ async function main() {
     f.hooks.unmount();
     cases++;
   }
-  for (const { nativeEdgeToEdge, statusBarHeight, correction } of [
-    { nativeEdgeToEdge: false, statusBarHeight: 32, correction: 32 },
-    { nativeEdgeToEdge: false, statusBarHeight: 0, correction: 0 },
-    { nativeEdgeToEdge: false, statusBarHeight: null, correction: 0 },
-    { nativeEdgeToEdge: true, statusBarHeight: 32, correction: 0 },
-    { nativeEdgeToEdge: "unknown", statusBarHeight: 32, correction: 0 },
+  for (const { nativeEdgeToEdge, statusBarHeight } of [
+    { nativeEdgeToEdge: false, statusBarHeight: 32 },
+    { nativeEdgeToEdge: false, statusBarHeight: 0 },
+    { nativeEdgeToEdge: false, statusBarHeight: null },
+    { nativeEdgeToEdge: true, statusBarHeight: 32 },
+    { nativeEdgeToEdge: "unknown", statusBarHeight: 32 },
   ] as const) {
     const f = fixture({ os: "android", nativeEdgeToEdge, statusBarHeight });
     await f.ready();
@@ -1662,21 +2635,63 @@ async function main() {
       "KeyboardAvoidingView",
       "the measured wrapper has one avoider child at local y zero",
     );
+    const avoider = () => nodes(f.hooks.tree).find((n) => n.type === "KeyboardAvoidingView")!;
+    const offset = () => avoider().props.keyboardVerticalOffset;
+    assert.equal(
+      avoider().props.enabled,
+      nativeEdgeToEdge !== false,
+      "only a confirmed non-edge-to-edge Android host delegates all avoidance to native resize",
+    );
     wrapper.props.onLayout(layoutEvent(600));
+    if (nativeEdgeToEdge === false) {
+      f.render();
+      assert.equal(f.calculator()!.props.availableHeight, 600);
+      f.fireKeyboardTimers();
+      f.render();
+      assert.equal(measurements.length, 0, "native resize needs no origin/status-bar measurement");
+      assert.equal(offset(), 0);
+      f.note().props.onFocus();
+      f.emitKeyboard("keyboardDidShow");
+      wrapper.props.onLayout(layoutEvent(443));
+      nodes(f.hooks.tree)
+        .find((node) => node.type === "ScrollView")!
+        .props.onLayout(layoutEvent(443));
+      f.render();
+      assert.equal(
+        f.calculator()!.props.availableHeight,
+        443,
+        "native parent layout supplies IME bounds",
+      );
+      assert.equal(measurements.length, 0, "Note focus does not add a second resize measurement");
+      assert.equal(avoider().props.enabled, false);
+      assert.equal(offset(), 0, "status-bar variants cannot add a second keyboard offset");
+      f.fireNoteFrames();
+      f.fireNoteFrames();
+      assert.deepEqual(f.endScrolls, [{ animated: true }]);
+      f.emitKeyboard("keyboardDidHide");
+      wrapper.props.onLayout(layoutEvent(731));
+      f.render();
+      assert.equal(
+        f.calculator()!.props.availableHeight,
+        731,
+        "native parent restores its own height",
+      );
+      assert.equal(offset(), 0);
+      assert.equal(measurements.length, 0);
+      assert.equal(f.endScrolls.length, 1);
+      assert.equal(f.writes.length + f.routes.length, 0);
+      f.hooks.unmount();
+      cases++;
+      continue;
+    }
     assert.equal(measurements.length, 1);
     measurements[0](0, 120);
     f.render();
-    const offset = () =>
-      nodes(f.hooks.tree).find((n) => n.type === "KeyboardAvoidingView")!.props
-        .keyboardVerticalOffset;
     assert.equal(
       offset(),
-      120 + correction,
-      "only a confirmed non-edge-to-edge host adds the status/cutout inset removed by native measurement",
+      120,
+      "edge-to-edge and unknown hosts retain their measured keyboard origin",
     );
-    // A 600px wrapper at120 ends at720. On nonedge Android, its physical
-    // window origin also includes the top system inset removed by Fabric.
-    assert.equal(600 - (600 - offset()), 120 + correction);
     wrapper.props.onLayout(layoutEvent(600));
     wrapper.props.onLayout(layoutEvent(600));
     const previous = measurements.at(-2)!,
@@ -1684,57 +2699,56 @@ async function main() {
     latest(0, 136);
     previous(0, 999);
     f.render();
-    assert.equal(offset(), 136 + correction, "an older measurement cannot overwrite a newer frame");
+    assert.equal(offset(), 136, "an older measurement cannot overwrite a newer frame");
     f.fireKeyboardTimers();
     measurements.at(-1)!(0, 140);
     f.render();
-    assert.equal(
-      offset(),
-      140 + correction,
-      "the post-transition measurement replaces the initial frame",
-    );
+    assert.equal(offset(), 140, "the post-transition measurement replaces the initial frame");
     f.note().props.onFocus();
     measurements.at(-1)!(0, 144);
     f.render();
-    assert.equal(offset(), 144 + correction, "focusing Note remeasures the Android origin");
+    assert.equal(offset(), 144, "focusing Note remeasures the Android origin");
     f.hooks.unmount();
     cases++;
   }
-  for (const transition of [
-    "account",
-    "vault",
-    "person",
-    "type",
-    "install",
-    "blur",
-    "unmount",
-    "refocus",
-  ] as const) {
-    const f = fixture({ os: "android", nativeEdgeToEdge: false, statusBarHeight: 32 });
-    await f.ready();
-    const measurements: ((x: number, y: number) => void)[] = [];
-    const wrapper = f.keyboardFrame();
-    wrapper.props.ref.current = { measureInWindow: (callback: any) => measurements.push(callback) };
-    wrapper.props.onLayout(layoutEvent(600));
-    measurements.at(-1)!(0, 120);
-    f.render();
-    wrapper.props.onLayout(layoutEvent(600));
-    const delayed = measurements.at(-1)!;
-    f.transitions[transition]();
-    delayed(0, 999);
-    if (transition !== "unmount") {
-      await f.flush();
-      assert.equal(
-        nodes(f.hooks.tree).find((n) => n.type === "KeyboardAvoidingView")!.props
-          .keyboardVerticalOffset,
-        152,
-        `stale keyboard measurement ignored after ${transition}`,
-      );
-      f.hooks.unmount();
+  for (const nativeEdgeToEdge of [true, "unknown"] as const)
+    for (const transition of [
+      "account",
+      "vault",
+      "person",
+      "type",
+      "install",
+      "blur",
+      "unmount",
+      "refocus",
+    ] as const) {
+      const f = fixture({ os: "android", nativeEdgeToEdge, statusBarHeight: 32 });
+      await f.ready();
+      const measurements: ((x: number, y: number) => void)[] = [];
+      const wrapper = f.keyboardFrame();
+      wrapper.props.ref.current = {
+        measureInWindow: (callback: any) => measurements.push(callback),
+      };
+      wrapper.props.onLayout(layoutEvent(600));
+      measurements.at(-1)!(0, 120);
+      f.render();
+      wrapper.props.onLayout(layoutEvent(600));
+      const delayed = measurements.at(-1)!;
+      f.transitions[transition]();
+      delayed(0, 999);
+      if (transition !== "unmount") {
+        await f.flush();
+        assert.equal(
+          nodes(f.hooks.tree).find((n) => n.type === "KeyboardAvoidingView")!.props
+            .keyboardVerticalOffset,
+          120,
+          `stale keyboard measurement ignored after ${transition} with ${nativeEdgeToEdge} edge mode`,
+        );
+        f.hooks.unmount();
+      }
+      assert.equal(f.hooks.lateWrites, 0);
+      cases++;
     }
-    assert.equal(f.hooks.lateWrites, 0);
-    cases++;
-  }
   {
     const f = fixture();
     await f.ready();
@@ -1790,12 +2804,23 @@ async function main() {
     );
     f.calculator()!.props.onNext();
     f.render();
+    const amountScrolls = f.scrolls.length;
     resize(300);
+    assert.equal(f.scrolls.length, amountScrolls, "Note does not reuse the amount's field offsets");
     assert.deepEqual(
-      f.scrolls.at(-1),
-      { y: 110, animated: true },
-      "Android reveals only the clipped Note after the arrow",
+      f.endScrolls,
+      [],
+      "Next waits for the native keyboard rather than form layouts",
     );
+    f.emitKeyboard("keyboardDidShow");
+    f.fireNoteFrames();
+    f.fireNoteFrames();
+    assert.deepEqual(
+      f.endScrolls,
+      [{ animated: true }],
+      "one post-keyboard command reveals the bottom",
+    );
+    form.props.onScrollBeginDrag();
     form.props.onScroll({
       nativeEvent: {
         contentOffset: { x: 0, y: 350 },
@@ -1803,12 +2828,12 @@ async function main() {
       },
     });
     resize(300);
-    assert.deepEqual(
-      f.scrolls.at(-1),
-      { y: 252, animated: true },
-      "Android reveals Note's clipped top without moving it farther down the viewport",
+    assert.equal(
+      f.scrolls.length,
+      amountScrolls,
+      "manual Note scrolling retains the chosen offset",
     );
-    assert.equal(f.endScrolls.length, 0);
+    assert.equal(f.endScrolls.length, 1, "a manual drag cancels further bottom-focus retries");
     assert.equal(f.writes.length, 0);
     f.hooks.unmount();
     cases++;

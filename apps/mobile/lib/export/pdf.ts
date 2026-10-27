@@ -418,10 +418,7 @@ ${period.link.closed_reason === "account_deleted" ? `<p class="recordNotes" dir=
 </tr></thead><tbody>${rows}</tbody></table></section>`;
 }
 
-export async function renderPersonStatementPdf(
-  st: PersonStatement,
-  fileName: string,
-): Promise<File> {
+function personStatementBody(st: PersonStatement): string {
   const { locale, calendar, currencySymbol: sym } = st;
   const shopName = st.self?.shop_name ?? st.self?.name ?? "";
   const entries = st.rows.filter((r) => r.kind === "entry");
@@ -558,16 +555,46 @@ ${tableHtml}
 ${(st.archivedSharedPeriods ?? []).map((period) => archivedPeriodHtml(period, st)).join("")}
 </div>`;
 
+  return body;
+}
+
+export async function renderPersonStatementPdf(
+  st: PersonStatement,
+  fileName: string,
+): Promise<File> {
   const html = htmlShell({
-    locale,
+    locale: st.locale,
     fontCss: await vazirmatnCss(),
-    title: `${tIn(locale, "export.doc.statementTitle")} — ${st.person.name}`,
-    body,
+    title: `${tIn(st.locale, "export.doc.statementTitle")} — ${st.person.name}`,
+    body: personStatementBody(st),
   });
   return printToTarget(html, fileName);
 }
 
-export async function renderVaultReportPdf(report: VaultReport, fileName: string): Promise<File> {
+export async function renderPersonCurrenciesPdf(
+  statements: readonly PersonStatement[],
+  fileName: string,
+): Promise<File> {
+  if (statements.length === 0) throw new Error("No currency statements");
+  if (statements.length === 1) return renderPersonStatementPdf(statements[0], fileName);
+  const first = statements[0];
+  return printToTarget(
+    htmlShell({
+      locale: first.locale,
+      fontCss: await vazirmatnCss(),
+      title: `${tIn(first.locale, "export.doc.statementTitle")} — ${first.person.name}`,
+      body: statements
+        .map(
+          (statement, index) =>
+            `<article${index ? ' style="break-before: page; page-break-before: always"' : ""}>${personStatementBody(statement)}</article>`,
+        )
+        .join(""),
+    }),
+    fileName,
+  );
+}
+
+function vaultReportBody(report: VaultReport): string {
   const { locale, calendar, currencySymbol: sym } = report;
 
   const meta = [
@@ -673,12 +700,39 @@ ${summaryHtml}
 ${tableHtml}
 </section>
 </div>`;
+  return body;
+}
 
+export async function renderVaultReportPdf(report: VaultReport, fileName: string): Promise<File> {
+  const { locale } = report;
   const html = htmlShell({
     locale,
     fontCss: await vazirmatnCss(),
     title: `${tIn(locale, "export.doc.summaryTitle")} — ${report.vaultName}`,
-    body,
+    body: vaultReportBody(report),
   });
   return printToTarget(html, fileName);
+}
+
+export async function renderVaultCurrenciesPdf(
+  reports: readonly VaultReport[],
+  fileName: string,
+): Promise<File> {
+  if (reports.length === 0) throw new Error("No currency reports");
+  if (reports.length === 1) return renderVaultReportPdf(reports[0], fileName);
+  const first = reports[0];
+  return printToTarget(
+    htmlShell({
+      locale: first.locale,
+      fontCss: await vazirmatnCss(),
+      title: `${tIn(first.locale, "export.doc.summaryTitle")} — ${first.vaultName}`,
+      body: reports
+        .map(
+          (report, index) =>
+            `<article${index ? ' style="break-before: page; page-break-before: always"' : ""}>${vaultReportBody(report)}</article>`,
+        )
+        .join(""),
+    }),
+    fileName,
+  );
 }

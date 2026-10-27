@@ -12,18 +12,17 @@
 // mislead a member into thinking the vault has no owner-level affordances
 // at all.
 //
-// Currency changes emit a vault_setting_set event AFTER the server PATCH
-// returns 2xx so the local projection mirrors what the backend
-// authoritatively accepted; name changes go through PATCH only (the vault
-// name is not event-sourced — it lives in the vaults table directly,
-// mirrored to the server-side vaults row by the same PATCH).
+// Currency defaults and enabled choices use signed vault_setting_set events
+// for both local and server-backed books. Existing tally currencies stay
+// immutable; the enabled list only controls future choices.
 
 import { KAATA_DEFAULT_ROUTE_ID } from "../../lib/credit-policy";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -37,6 +36,7 @@ import { Button } from "../../components/Button";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { FormField } from "../../components/FormField";
 import { OptionSheet } from "../../components/OptionSheet";
+import { EnabledCurrenciesSheet } from "../../components/EnabledCurrenciesSheet";
 import { ScreenLoading } from "../../components/ScreenLoading";
 import {
   EmptyHint,
@@ -50,12 +50,12 @@ import { appendVaultSettingSet } from "../../lib/event-log";
 import {
   archiveVaultRouted,
   changeVaultCurrency,
+  changeVaultEnabledCurrencies,
+  CurrencySettingsChangedError,
   changeVaultName,
   isLocalCAVault,
   leaveVaultRouted,
-  VaultHasOpenTabError,
 } from "../../lib/vault-router";
-import { vaultHasOpenTab } from "../../lib/tabs/db";
 import { colors } from "../../lib/colors";
 import {
   clearActiveVaultId,
@@ -64,7 +64,14 @@ import {
   getDb,
   setActiveVaultId,
 } from "../../lib/db-tx";
-import { CURRENCIES, getCurrencyName, setCurrentCurrency } from "../../lib/currency";
+import {
+  CURRENCIES,
+  getCurrencyName,
+  getCurrencyLabel,
+  getDefaultEntryCurrency,
+  getEnabledCurrencies,
+} from "../../lib/currency";
+import { captureCurrentSession, type SessionSnapshot } from "../../lib/auth";
 import {
   countArchivedPeople,
   getAppMeta,
@@ -94,6 +101,16 @@ type VaultRow = {
   archived_at: number | null;
 };
 
+type CurrencyChoicesDraft = {
+  id: number;
+  vaultId: string;
+  selected: string[];
+  defaultCurrency: string;
+  enabledValue: string | null;
+  error: string | null;
+  conflicted: boolean;
+};
+
 /** Vault-summary glyph well. Named so its radius is size/2 rather than a
  *  literal 22 that can drift from the diameter (lib/tokens rule 3). */
 const AVATAR_SIZE = 44;
@@ -119,8 +136,8 @@ export default function VaultSettingsScreen() {
   // Owner-editable fields. The name saves via an EXPLICIT button (it used to
   // auto-commit on blur, which had no visible affordance and silently lost the
   // edit when Android's hardware back skipped the blur — Matee: "saving the
-  // kaata name doesn't have a button"). Currency still commits from its picker
-  // sheet on selection, like every picker in the app.
+  // kaata name doesn't have a button"). Currency choices have their own
+  // explicit Save inside the selection sheet.
   const [name, setName] = useState("");
   const [nameError, setNameError] = useState<string | null>(null);
   // True while the field holds an uncommitted edit. A ref, not derived state,
@@ -131,12 +148,20 @@ export default function VaultSettingsScreen() {
   // the field, committing the draft before navigation) and explicit save exposes.
   const nameDirtyRef = useRef(false);
   const [currency, setCurrency] = useState<string>("AFN");
+  const [enabledCurrencies, setEnabledCurrencies] = useState<string[]>(["AFN"]);
+  const [currencyChoicesDraft, setCurrencyChoicesDraft] = useState<CurrencyChoicesDraft | null>(
+    null,
+  );
+  const currencyChoicesRef = useRef<CurrencyChoicesDraft | null>(null);
+  const currencyChoicesSequence = useRef(0);
+  const currencyChoicesOpening = useRef(false);
+  const currencySavingRef = useRef(false);
+  const currencyOperation = useRef(0);
+  const currencyScopeVersion = useRef(0);
+  const currencyFocused = useRef(false);
+  const currencyLoadedVault = useRef<string | null>(null);
+  const currencySession = useRef<SessionSnapshot | null>(null);
   const [currencySheetVisible, setCurrencySheetVisible] = useState(false);
-  // Mutual tab, D9: a tab's currency is fixed at creation to its kaata's, so
-  // while this kaata has an open tab the currency row is locked with the
-  // reason spelled out. changeVaultCurrency refuses too (VaultHasOpenTabError)
-  // for the race where a link lands between this load and the pick.
-  const [hasOpenTab, setHasOpenTab] = useState(false);
   const [savingName, setSavingName] = useState(false);
   const [savingCurrency, setSavingCurrency] = useState(false);
 
@@ -153,6 +178,14 @@ export default function VaultSettingsScreen() {
   const vaultId = vault?.id ?? "";
   const role: VaultRole = useVaultRole(vaultId, accountId);
   const canRename = useVaultPermission(vaultId, accountId, "vault.rename");
+  const canEditCurrencies = useRef(canRename);
+  canEditCurrencies.current = canRename;
+  useEffect(() => {
+    if (!canRename && currencyChoicesRef.current) {
+      currencyChoicesRef.current = null;
+      setCurrencyChoicesDraft(null);
+    }
+  }, [canRename]);
   const canArchive = useVaultPermission(vaultId, accountId, "vault.archive");
   // Roles v2 review fix: consult the matrix, not a 'viewer' literal — a
   // clerk must not see the Activity row either (clerk: false in PERMISSIONS).
@@ -192,8 +225,20 @@ export default function VaultSettingsScreen() {
 
   useFocusEffect(
     useCallback(() => {
+      let cancelled = false;
+      currencyFocused.current = true;
+      currencyLoadedVault.current = null;
+      currencyChoicesRef.current = null;
+      currencyChoicesSequence.current++;
+      currencyChoicesOpening.current = false;
+      setCurrencyChoicesDraft(null);
+      const scopeVersion = ++currencyScopeVersion.current;
+      currencyOperation.current++;
+      currencySavingRef.current = false;
+      setSavingCurrency(false);
       void (async () => {
         try {
+          const session = await captureCurrentSession();
           // Prefer the explicit route param (archived-restore case) and
           // fall back to the active vault. The param is a single string from
           // expo-router's typed params (could be string | string[]); narrow
@@ -215,16 +260,27 @@ export default function VaultSettingsScreen() {
             router.back();
             return;
           }
+          const [defaultCode, enabled, accId] = await Promise.all([
+            getDefaultEntryCurrency(targetVaultId, row.currency || "AFN"),
+            getEnabledCurrencies(targetVaultId),
+            getAppMeta("account_id"),
+          ]);
+          if (
+            cancelled ||
+            scopeVersion !== currencyScopeVersion.current ||
+            accId !== session.accountId
+          )
+            return;
+          currencySession.current = session;
+          currencyLoadedVault.current = targetVaultId;
           setVault(row);
           // Keep an in-progress draft across a child-screen round trip
           // (Members, Invite): only sync the field to the row while clean.
           // A remote rename still lands the moment the draft is saved or
           // abandoned — vault.name (the summary row) updates regardless.
           if (!nameDirtyRef.current) setName(row.name);
-          setCurrency(row.currency || "AFN");
-          setHasOpenTab(await vaultHasOpenTab(targetVaultId));
-
-          const accId = await getAppMeta("account_id");
+          setCurrency(defaultCode);
+          setEnabledCurrencies(enabled);
           setAccountId(accId);
 
           const count = await db.getFirstAsync<{ n: number }>(
@@ -246,15 +302,24 @@ export default function VaultSettingsScreen() {
             activeId === targetVaultId ? await countArchivedPeople(targetVaultId) : 0,
           );
         } catch (err) {
+          if (cancelled || scopeVersion !== currencyScopeVersion.current) return;
           console.warn("[vault/settings] load failed", err);
           toast.push(t("vaultSettings.toast.loadFailed"), "error");
           // Leave like the noActive/notFound branches above do — loaded=true
           // with vault=null strands the user on a header-less spinner.
           router.back();
         } finally {
-          setLoaded(true);
+          if (!cancelled && scopeVersion === currencyScopeVersion.current) setLoaded(true);
         }
       })();
+      return () => {
+        cancelled = true;
+        currencyFocused.current = false;
+        currencyLoadedVault.current = null;
+        currencyChoicesRef.current = null;
+        currencyChoicesSequence.current++;
+        currencyScopeVersion.current++;
+      };
       // Re-runs on focus (not mount-only): popping back from members/
       // invite/pair must re-read role, member count and vault row, or a
       // transfer completed on the members screen leaves this screen
@@ -310,43 +375,205 @@ export default function VaultSettingsScreen() {
 
   async function commitCurrency(next: string) {
     if (!vault) return;
+    if (currencyLoadedVault.current !== vault.id) return;
     if (!canRename) return;
-    if (next === vault.currency) return;
+    if (
+      !currencyFocused.current ||
+      next === currency ||
+      currencySavingRef.current ||
+      !enabledCurrencies.includes(next)
+    )
+      return;
+    const scopeVersion = currencyScopeVersion.current;
+    const session = currencySession.current;
+    if (!session) return;
+    const operation = ++currencyOperation.current;
+    const current = () => currencyFocused.current && scopeVersion === currencyScopeVersion.current;
+    currencySavingRef.current = true;
     setSavingCurrency(true);
     try {
-      // changeVaultCurrency: local-CA emits one event (the applier mirrors
-      // to vaults.currency). Server-anchored does PATCH first then emits the
-      // event so the local projection records it.
-      await changeVaultCurrency(vault.id, next);
-      setVault({ ...vault, currency: next });
+      // This default applies to future tallies; existing amounts keep their currency.
+      await changeVaultCurrency(vault.id, next, { session, shouldContinue: current });
+      if (!current()) return;
       setCurrency(next);
-      // The active kaata's currency is also what amounts render in
-      // (getCurrentCurrencySymbol reads the global default). Mirror it so
-      // changing currency here actually changes what the shopkeeper sees —
-      // otherwise the per-vault picker silently had no visible effect. (Solo:
-      // one kaata = one display currency.) Guard on the ACTIVE vault: this
-      // screen can be opened for a non-active (e.g. archived) vault via the
-      // ?id= param, and editing THAT vault must not repaint the home screen's
-      // currency.
-      if (vault.id === getActiveVaultIdSyncMaybe()) {
-        setCurrentCurrency(next);
-        await setAppMeta("default_currency", next);
-      }
       toast.push(t("vaultSettings.toast.currencyUpdated"), "success");
     } catch (err) {
-      if (err instanceof VaultHasOpenTabError) {
-        // Not a failure of the save — a rule (D9). Lock the row so the
-        // second attempt is refused before the picker, not after.
-        setHasOpenTab(true);
-        toast.push(t("tab.currencyLocked"), "error");
-        setCurrency(vault.currency);
-        return;
-      }
+      if (!current()) return;
       console.warn("[vault/settings] patch currency failed", err);
       toast.push(t("vaultSettings.toast.currencyFailed"), "error");
-      setCurrency(vault.currency);
     } finally {
-      setSavingCurrency(false);
+      if (operation === currencyOperation.current) {
+        currencySavingRef.current = false;
+        if (current()) setSavingCurrency(false);
+      }
+    }
+  }
+
+  async function readCurrencyChoices(targetVaultId: string) {
+    const { applyEventMutex } =
+      require("../../lib/projection") as typeof import("../../lib/projection");
+    return applyEventMutex.runExclusive(async () => {
+      const db = await getDb();
+      const [selected, defaultCurrency, raw] = await Promise.all([
+        getEnabledCurrencies(targetVaultId),
+        getDefaultEntryCurrency(targetVaultId),
+        db.getFirstAsync<{ value: string }>(
+          "SELECT value FROM vault_settings WHERE vault_id=? AND key='enabled_currencies'",
+          targetVaultId,
+        ),
+      ]);
+      return {
+        selected: [...new Set([...selected, defaultCurrency])],
+        defaultCurrency,
+        enabledValue: raw?.value ?? null,
+      };
+    });
+  }
+
+  function updateCurrencyChoices(next: CurrencyChoicesDraft | null) {
+    currencyChoicesRef.current = next;
+    setCurrencyChoicesDraft(next);
+  }
+
+  async function openCurrencyChoices() {
+    if (
+      !currencyFocused.current ||
+      !vault ||
+      currencyLoadedVault.current !== vault.id ||
+      !canEditCurrencies.current ||
+      currencySavingRef.current ||
+      busy !== null ||
+      currencyChoicesOpening.current
+    )
+      return;
+    Keyboard.dismiss();
+    const targetVaultId = vault.id;
+    const scopeVersion = currencyScopeVersion.current;
+    const request = ++currencyChoicesSequence.current;
+    currencyChoicesOpening.current = true;
+    try {
+      const latest = await readCurrencyChoices(targetVaultId);
+      if (
+        !currencyFocused.current ||
+        scopeVersion !== currencyScopeVersion.current ||
+        currencyLoadedVault.current !== targetVaultId ||
+        request !== currencyChoicesSequence.current ||
+        !canEditCurrencies.current
+      )
+        return;
+      setEnabledCurrencies(latest.selected);
+      setCurrency(latest.defaultCurrency);
+      updateCurrencyChoices({
+        ...latest,
+        id: request,
+        vaultId: targetVaultId,
+        error: null,
+        conflicted: false,
+      });
+    } catch {
+      if (currencyFocused.current && scopeVersion === currencyScopeVersion.current)
+        toast.push(t("vaultSettings.toast.currencyFailed"), "error");
+    } finally {
+      if (request === currencyChoicesSequence.current) currencyChoicesOpening.current = false;
+    }
+  }
+
+  function dismissCurrencyChoices(id: number) {
+    if (
+      currencySavingRef.current ||
+      currencyChoicesRef.current?.id !== id ||
+      !currencyFocused.current
+    )
+      return;
+    updateCurrencyChoices(null);
+  }
+
+  function toggleCurrencyChoice(id: number, code: string) {
+    const draft = currencyChoicesRef.current;
+    if (
+      !draft ||
+      draft.id !== id ||
+      !currencyFocused.current ||
+      !canEditCurrencies.current ||
+      currencySavingRef.current ||
+      draft.conflicted ||
+      code === draft.defaultCurrency
+    )
+      return;
+    updateCurrencyChoices({
+      ...draft,
+      error: null,
+      selected: draft.selected.includes(code)
+        ? draft.selected.filter((item) => item !== code)
+        : [...draft.selected, code],
+    });
+  }
+
+  async function saveCurrencyChoices(id: number) {
+    const draft = currencyChoicesRef.current;
+    if (
+      !draft ||
+      draft.id !== id ||
+      !currencyFocused.current ||
+      currencyLoadedVault.current !== draft.vaultId ||
+      !canEditCurrencies.current ||
+      currencySavingRef.current ||
+      busy !== null ||
+      draft.conflicted
+    )
+      return;
+    const scopeVersion = currencyScopeVersion.current;
+    const session = currencySession.current;
+    if (!session) return;
+    const operation = ++currencyOperation.current;
+    currencySavingRef.current = true;
+    setSavingCurrency(true);
+    const scopeCurrent = () =>
+      currencyFocused.current &&
+      scopeVersion === currencyScopeVersion.current &&
+      currencyLoadedVault.current === draft.vaultId &&
+      canEditCurrencies.current;
+    const current = () => scopeCurrent() && currencyChoicesRef.current?.id === id;
+    try {
+      await changeVaultEnabledCurrencies(draft.vaultId, draft.selected, {
+        session,
+        shouldContinue: current,
+        previous: { enabledValue: draft.enabledValue, defaultCurrency: draft.defaultCurrency },
+      });
+      if (!current()) return;
+      updateCurrencyChoices(null);
+      const latest = await readCurrencyChoices(draft.vaultId);
+      if (scopeCurrent()) {
+        setEnabledCurrencies(latest.selected);
+        setCurrency(latest.defaultCurrency);
+        toast.push(t("vaultSettings.toast.currencyUpdated"), "success");
+      }
+    } catch (err) {
+      if (current()) {
+        const conflicted = err instanceof CurrencySettingsChangedError;
+        updateCurrencyChoices({
+          ...draft,
+          conflicted,
+          error: t(
+            conflicted ? "vaultSettings.currencies.changed" : "vaultSettings.toast.currencyFailed",
+          ),
+        });
+        if (conflicted) {
+          try {
+            const latest = await readCurrencyChoices(draft.vaultId);
+            if (scopeCurrent()) {
+              setEnabledCurrencies(latest.selected);
+              setCurrency(latest.defaultCurrency);
+            }
+          } catch {}
+        }
+      }
+    } finally {
+      if (operation === currencyOperation.current) {
+        currencySavingRef.current = false;
+        if (currencyFocused.current && scopeVersion === currencyScopeVersion.current)
+          setSavingCurrency(false);
+      }
     }
   }
 
@@ -705,12 +932,20 @@ export default function VaultSettingsScreen() {
           <NavRow
             icon="cash-outline"
             label={t("vaultSettings.currency.label")}
-            // The lock reason rides as the row hint (D9) so the disabled
-            // state explains itself instead of looking like a permissions bug.
-            hint={hasOpenTab ? t("tab.currencyLocked") : undefined}
+            hint={t("vaultSettings.currency.hint")}
             trailing={currencyValue}
             onPress={() => setCurrencySheetVisible(true)}
-            disabled={!canRename || savingCurrency || hasOpenTab}
+            disabled={!canRename || savingCurrency}
+            isRTL={isRTL}
+          />
+          <NavRow
+            icon="cash-outline"
+            label={t("vaultSettings.currencies.label")}
+            trailing={enabledCurrencies
+              .map((code) => bidiIsolate(getCurrencyLabel(code)))
+              .join(", ")}
+            onPress={() => void openCurrencyChoices()}
+            disabled={!canRename || savingCurrency || busy !== null}
             isRTL={isRTL}
             isLast
           />
@@ -928,10 +1163,10 @@ export default function VaultSettingsScreen() {
       <OptionSheet
         visible={currencySheetVisible}
         title={t("vaultSettings.currency.label")}
-        options={CURRENCIES.map((c) => ({
-          key: c.code,
-          label: getCurrencyName(c.code),
-          leading: c.symbol,
+        options={enabledCurrencies.map((code) => ({
+          key: code,
+          label: getCurrencyName(code),
+          leading: CURRENCIES.find((item) => item.code === code)?.symbol ?? code,
         }))}
         selected={currency}
         onSelect={(code) => {
@@ -939,6 +1174,36 @@ export default function VaultSettingsScreen() {
           void commitCurrency(code);
         }}
         onDismiss={() => setCurrencySheetVisible(false)}
+        isRTL={isRTL}
+      />
+      <EnabledCurrenciesSheet
+        visible={
+          !!currencyChoicesDraft &&
+          canRename &&
+          currencyFocused.current &&
+          currencyLoadedVault.current === currencyChoicesDraft.vaultId
+        }
+        options={[...new Set([...CURRENCIES.map((item) => item.code), ...enabledCurrencies])].map(
+          (code) => ({
+            code,
+            label: getCurrencyName(code),
+            symbol: CURRENCIES.find((item) => item.code === code)?.symbol ?? code,
+          }),
+        )}
+        selected={currencyChoicesDraft?.selected ?? enabledCurrencies}
+        defaultCurrency={currencyChoicesDraft?.defaultCurrency ?? currency}
+        saving={savingCurrency}
+        conflicted={currencyChoicesDraft?.conflicted}
+        error={currencyChoicesDraft?.error}
+        onToggle={(code) => {
+          if (currencyChoicesDraft) toggleCurrencyChoice(currencyChoicesDraft.id, code);
+        }}
+        onSave={() => {
+          if (currencyChoicesDraft) void saveCurrencyChoices(currencyChoicesDraft.id);
+        }}
+        onDismiss={() => {
+          if (currencyChoicesDraft) dismissCurrencyChoices(currencyChoicesDraft.id);
+        }}
         isRTL={isRTL}
       />
 

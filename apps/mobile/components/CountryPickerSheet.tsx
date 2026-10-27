@@ -1,12 +1,12 @@
 import { SheetBackdrop } from "./SheetBackdrop";
 import { SheetHandle } from "./SheetHandle";
+import { SheetSurface } from "./SheetSurface";
 import { useOverlayAnimation } from "../lib/use-overlay-animation";
 import { useSheetDrag } from "../lib/use-sheet-drag";
 import { Ionicons } from "@expo/vector-icons";
 import { useEffect, useState } from "react";
 import {
   Animated,
-  Dimensions,
   Modal,
   Pressable,
   ScrollView,
@@ -15,7 +15,6 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
 import { colors } from "../lib/colors";
 import { ltrIsolate, rowDir, textDir, trackingSafe, useIsRTL } from "../lib/direction";
 import { fonts } from "../lib/fonts";
@@ -76,11 +75,7 @@ export function CountryPickerSheet(props: {
         style={[styles.sheetContainer, { transform: [{ translateY: drag.translateY }] }]}
         pointerEvents={props.visible ? "box-none" : "none"}
       >
-        <SafeAreaView
-          {...drag.surfacePanHandlers}
-          edges={["bottom"]}
-          style={[styles.sheetWrap, { maxHeight: Dimensions.get("window").height * 0.75 }]}
-        >
+        <SheetSurface {...drag.surfacePanHandlers} maxHeightRatio={0.75} style={styles.sheetWrap}>
           {/* No onStartShouldSetResponder here — it swallowed the ScrollView's
               pan so the country list couldn't be scrolled. The backdrop Pressable
               above already handles outside-taps. */}
@@ -165,7 +160,7 @@ export function CountryPickerSheet(props: {
               )}
             </ScrollView>
           </View>
-        </SafeAreaView>
+        </SheetSurface>
       </Animated.View>
     </Modal>
   );
@@ -177,8 +172,8 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    // Height is capped on the SafeAreaView with a concrete pixel value
-    // (Dimensions * 0.75). A percentage maxHeight here didn't resolve — the
+    // SheetSurface supplies a concrete height cap from the current window.
+    // A percentage maxHeight here didn't resolve — the
     // absolute parent has no fixed height — so the inner ScrollView had no
     // bounded viewport and couldn't scroll.
   },

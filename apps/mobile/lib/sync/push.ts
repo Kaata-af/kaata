@@ -19,6 +19,7 @@
 // shared SQLite connection.
 
 import { getBackendUrl } from "../api";
+import { currencyRequestHeaders, ensureCurrencySyncSupported } from "../currency-sync";
 import { getSessionJWT } from "../auth";
 import { getAppMeta, setAppMeta } from "../db";
 import { getDb, getInstallIdSync } from "../db-tx";
@@ -245,6 +246,16 @@ export async function pushEvents(vaultId: string): Promise<PushResult> {
   }));
 
   const baseUrl = await getBackendUrl();
+  if (
+    events.some(
+      (event) =>
+        typeof (event.payload as { currency?: unknown })?.currency === "string" ||
+        (event.event_type === "vault_setting_set" &&
+          (event.payload as { key?: unknown })?.key === "enabled_currencies"),
+    )
+  )
+    await ensureCurrencySyncSupported(baseUrl, jwt);
+  const currencyHeaders = await currencyRequestHeaders(db, vaultId);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), PUSH_TIMEOUT_MS);
 
@@ -255,6 +266,7 @@ export async function pushEvents(vaultId: string): Promise<PushResult> {
       headers: {
         "Content-Type": "application/json",
         "Accept-Encoding": "gzip",
+        ...currencyHeaders,
         Authorization: `Bearer ${jwt}`,
       },
       body: JSON.stringify({

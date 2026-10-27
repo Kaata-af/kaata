@@ -61,6 +61,7 @@ const tabsDb = compile<typeof import("../tabs/db")>("../tabs/db", (name) => {
   if (name === "../ledger-events") return { emitLedgerApplied: () => {} };
   if (name === "../money") return require("../money");
   if (name === "../entry-date") return require("../entry-date");
+  if (name === "../currency-scope") return require("../currency-scope");
   if (name.startsWith("./")) return require("../tabs/" + name.slice(2));
   throw new Error(`Unexpected shared-db dependency ${name}`);
 });
@@ -107,6 +108,7 @@ const flows = compile<typeof import("../tabs/link")>("../tabs/link", (name) => {
   if (name === "../money") return require("../money");
   if (name === "../types") return require("../types");
   if (name === "../entry-date") return require("../entry-date");
+  if (name === "../currency-scope") return require("../currency-scope");
   if (name === "../vault-roles") return require("../vault-roles");
   if (
     name === "../currency" ||
@@ -161,12 +163,12 @@ function reset(): void {
   fixture?.close();
   fixture = new Database(":memory:");
   fixture.pragma("foreign_keys = ON");
-  fixture.exec(`CREATE TABLE vaults(id TEXT PRIMARY KEY);
+  fixture.exec(`CREATE TABLE vaults(id TEXT PRIMARY KEY,currency TEXT DEFAULT 'AFN',legacy_currency TEXT DEFAULT 'AFN');
     CREATE TABLE relationships(id TEXT PRIMARY KEY,vault_id TEXT,user_b_id TEXT,archived_at INTEGER,created_at INTEGER);
     CREATE TABLE users(id TEXT PRIMARY KEY,is_local_self INTEGER,display_name TEXT);
     CREATE TABLE event_log(event_id TEXT PRIMARY KEY,payload_json TEXT,event_type TEXT,appended_at INTEGER,vault_id TEXT,target_id TEXT,server_acked_at INTEGER);
-    CREATE TABLE entries(id TEXT PRIMARY KEY,vault_id TEXT,type TEXT,amount_afn NUMERIC,note TEXT);
-    INSERT INTO vaults VALUES('${VAULT}');
+    CREATE TABLE entries(id TEXT PRIMARY KEY,vault_id TEXT,type TEXT,amount_afn NUMERIC,note TEXT,currency TEXT DEFAULT 'AFN');
+    INSERT INTO vaults(id) VALUES('${VAULT}');
     INSERT INTO relationships VALUES('${REL}','${VAULT}','${PERSON}',NULL,1);
     INSERT INTO users VALUES('self',1,'Editor');`);
   for (const marker of [
@@ -181,7 +183,7 @@ function reset(): void {
   ])
     fixture.exec(ddl(marker));
   fixture.exec(
-    "ALTER TABLE customer_credit_limits ADD COLUMN restrict_editors INTEGER NOT NULL DEFAULT 0; ALTER TABLE kaata_credit_defaults ADD COLUMN restrict_editors INTEGER NOT NULL DEFAULT 0;",
+    "ALTER TABLE customer_credit_limits ADD COLUMN restrict_editors INTEGER NOT NULL DEFAULT 0; ALTER TABLE kaata_credit_defaults ADD COLUMN restrict_editors INTEGER NOT NULL DEFAULT 0; ALTER TABLE customer_credit_limits ADD COLUMN currency TEXT DEFAULT 'AFN'; ALTER TABLE kaata_credit_defaults ADD COLUMN currency TEXT DEFAULT 'AFN';",
   );
   fixture
     .prepare(

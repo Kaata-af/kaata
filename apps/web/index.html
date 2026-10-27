@@ -9,45 +9,44 @@
       content="Kaata is a digital kaata book. Track what people owe you and what you owe them. Send a friendly reminder over WhatsApp in two taps. Works offline."
     />
     <meta name="theme-color" content="#ffffff" />
+    <meta name="robots" content="index, follow, max-image-preview:large" />
     <!-- Force a light render even on dark-mode phones. The `only` keyword is
          what disables Chrome's Auto Dark Theme for Web Contents, which otherwise
          algorithmically darkens our light pages on Android dark mode.
          Plain `light` is not always enough — `only light` is the documented
          opt-out. Mirrored in CSS (globals.css) belt-and-suspenders. -->
     <meta name="color-scheme" content="only light" />
-    <!-- Open Graph — the kaata.af growth loop is people sharing the link on
-         WhatsApp; without these tags the preview card renders bare. og:image
-         must be an absolute URL or WhatsApp ignores it. -->
+    <!-- Persian share previews stay fixed across UI language changes. Social
+         crawlers read this static head without running the application. -->
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="Kaata" />
-    <meta
-      property="og:title"
-      content="Kaata — A personal ledger between you and the people you trust."
-    />
+    <meta property="og:title" content="کاتا — برای همیشه رایگان" />
     <meta
       property="og:description"
-      content="Track what people owe you and what you owe them. Send a friendly reminder over WhatsApp in two taps. Works offline. Free forever."
+      content="قرض و طلب خود را ثبت کنید و یادآوری دوستانه در واتساپ بفرستید. بدون انترنت هم کار می‌کند؛ برای همیشه رایگان."
     />
     <meta property="og:url" content="https://kaata.af/" />
-    <meta property="og:image" content="https://kaata.af/logo.png?v=original" />
-    <meta property="og:image:width" content="512" />
-    <meta property="og:image:height" content="512" />
+    <meta property="og:image" content="https://kaata.af/og/kaata-fa-v1.png" />
+    <meta property="og:image:secure_url" content="https://kaata.af/og/kaata-fa-v1.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
     <meta property="og:image:type" content="image/png" />
-    <meta property="og:image:alt" content="Kaata logo" />
+    <meta property="og:image:alt" content="کاتا؛ حساب‌وکتاب شخصی، بدون انترنت، برای همیشه رایگان" />
     <link rel="canonical" href="https://kaata.af/" />
-    <meta property="og:locale" content="en_US" />
-    <meta property="og:locale:alternate" content="fa_AF" />
+    <meta property="og:locale" content="fa_AF" />
+    <meta property="og:locale:alternate" content="en_US" />
     <meta property="og:locale:alternate" content="ps_AF" />
-    <meta name="twitter:card" content="summary" />
-    <meta
-      name="twitter:title"
-      content="Kaata — A personal ledger between you and the people you trust."
-    />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="کاتا — برای همیشه رایگان" />
     <meta
       name="twitter:description"
-      content="Track what people owe you and what you owe them. Works offline. Free forever."
+      content="قرض و طلب خود را ثبت کنید و یادآوری دوستانه در واتساپ بفرستید. بدون انترنت هم کار می‌کند؛ برای همیشه رایگان."
     />
-    <meta name="twitter:image" content="https://kaata.af/logo.png?v=original" />
+    <meta name="twitter:image" content="https://kaata.af/og/kaata-fa-v1.png" />
+    <meta
+      name="twitter:image:alt"
+      content="کاتا؛ حساب‌وکتاب شخصی، بدون انترنت، برای همیشه رایگان"
+    />
     <link rel="icon" type="image/png" href="/favicon.png?v=original" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=original" />
     <!-- Organization schema — the `sameAs` links tell search engines that these

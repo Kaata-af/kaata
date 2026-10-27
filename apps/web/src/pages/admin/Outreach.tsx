@@ -96,6 +96,8 @@ import {
   applySettingLocally,
   applyStateLocally,
   balanceSummary,
+  listingCurrencyBalances,
+  outreachCurrencyTotals,
   bookOwnerLabel,
   buildMessage,
   chunk,
@@ -3490,11 +3492,15 @@ function ShopkeeperBlock(props: {
             <DetailItem label="Tallies (synced)" value={fmtInt(s.tallies)} />
             <DetailItem
               label="Receivable"
-              value={`${formatMoney(parseMoney(s.receivable_total), true)} ${s.currency}`}
+              value={outreachCurrencyTotals(s)
+                .map((row) => `${formatMoney(parseMoney(row.receivable), true)} ${row.currency}`)
+                .join(" · ")}
             />
             <DetailItem
               label="Payable"
-              value={`${formatMoney(parseMoney(s.payable_total), true)} ${s.currency}`}
+              value={outreachCurrencyTotals(s)
+                .map((row) => `${formatMoney(parseMoney(row.payable), true)} ${row.currency}`)
+                .join(" · ")}
             />
             <DetailItem label="Last tally" value={fmtDateTime(s.last_tally_at)} />
           </dl>
@@ -3592,9 +3598,13 @@ function ShopkeeperBlock(props: {
                       {kaata.member_count} member{kaata.member_count === 1 ? "" : "s"}
                     </p>
                     <p className="text-xs leading-5 tabular-nums text-brand-muted">
-                      Receivable {formatMoney(parseMoney(kaata.receivable), true)} · Payable{" "}
-                      {formatMoney(parseMoney(kaata.payable), true)} · Last tally{" "}
-                      {fmtDateTime(kaata.last_tally_at)}
+                      {outreachCurrencyTotals(kaata)
+                        .map(
+                          (row) =>
+                            `Receivable ${formatMoney(parseMoney(row.receivable), true)} ${row.currency} · Payable ${formatMoney(parseMoney(row.payable), true)} ${row.currency}`,
+                        )
+                        .join(" / ")}{" "}
+                      · Last tally {fmtDateTime(kaata.last_tally_at)}
                     </p>
                   </div>
                 ))}
@@ -3655,7 +3665,7 @@ function CustomerBlock(props: {
               {/* Keyed by position too (2026-09-30): one book can list a
                   number twice, even under the same name. */}
               {c.listings.map((listing, index) => {
-                const balance = parseMoney(listing.balance);
+                const balances = listingCurrencyBalances(listing);
                 return (
                   <div
                     key={`${listing.vault_id}-${index}`}
@@ -3681,7 +3691,9 @@ function CustomerBlock(props: {
                           ? "Owes the shop"
                           : listing.role === "supplier"
                             ? "Shop owes them"
-                            : "Settled"}
+                            : listing.role === "mixed"
+                              ? "Owes in both directions"
+                              : "Settled"}
                       </Pill>
                       {listing.archived ? <Pill tone="amber">Archived</Pill> : null}
                       {listing.linked ? <Pill tone="blue">Shared account</Pill> : null}
@@ -3708,13 +3720,20 @@ function CustomerBlock(props: {
                     </p>
                     <p className="text-xs leading-5 tabular-nums text-brand-muted">
                       Balance{" "}
-                      <span
-                        className={
-                          balance > 0 ? "text-[#116b4f]" : balance < 0 ? "text-[#8c621a]" : ""
-                        }
-                      >
-                        {formatMoney(balance, true)} {listing.currency}
-                      </span>{" "}
+                      {balances.map((row, rowIndex) => {
+                        const balance = parseMoney(row.balance);
+                        return (
+                          <span
+                            key={row.currency}
+                            className={
+                              balance > 0 ? "text-[#116b4f]" : balance < 0 ? "text-[#8c621a]" : ""
+                            }
+                          >
+                            {rowIndex > 0 ? " / " : ""}
+                            {formatMoney(balance, true)} {row.currency}
+                          </span>
+                        );
+                      })}{" "}
                       · {fmtInt(listing.tallies)} tallies · added{" "}
                       {fmtDateTime(listing.first_added_at)} · last tally{" "}
                       {fmtDateTime(listing.last_tally_at)}

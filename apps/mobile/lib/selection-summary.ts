@@ -1,5 +1,6 @@
 import { fromMinorUnits, toMinorUnits } from "./money";
 import type { Direction, PersonWithBalance } from "./types";
+import { assertSingleCurrency } from "./currency-totals";
 
 /** Amounts use the current book, including its one carried opening balance.
  * Settled chapters still count; removed/rejected/cancelled records do not.
@@ -57,8 +58,9 @@ function financialSummary(totals: MinorTotals): SelectionFinancialSummary {
  * Callers supply only live financial records, with unsigned amounts. A shared
  * opening counts once as a record, as it does in the current ledger itself. */
 export function summarizeSelectionEntries(
-  rows: readonly { amount: number; direction: Direction }[],
+  rows: readonly { amount: number; direction: Direction; currency?: string }[],
 ): SelectionFinancialSummary {
+  assertSingleCurrency(rows);
   let debt = 0;
   let credit = 0;
   let debtCount = 0;
@@ -95,6 +97,7 @@ export function summarizeSelectionEntries(
 export function summarizeSelectedPeople(
   people: readonly PersonWithBalance[],
 ): SelectionFinancialSummary {
+  assertSingleCurrency(people);
   const totals: MinorTotals = {
     debtCount: 0,
     creditCount: 0,

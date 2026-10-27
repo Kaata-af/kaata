@@ -10,7 +10,6 @@ import {
   Platform,
   Pressable,
   ScrollView,
-  StatusBar,
   StyleSheet,
   Text,
   TextInput,
@@ -18,10 +17,11 @@ import {
   View,
   useWindowDimensions,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Button } from "../../components/Button";
 import { EntryCalculator } from "../../components/EntryCalculator";
 import { EntryDateField } from "../../components/EntryDateField";
+import { CurrencySelector } from "../../components/CurrencySelector";
 import { ScreenLoading } from "../../components/ScreenLoading";
 import { ScreenHeader } from "../../components/SettingsScreen";
 import { queuePendingToast, useToast } from "../../components/Toast";
@@ -33,14 +33,21 @@ import {
   type SessionSnapshot,
 } from "../../lib/auth";
 import { getAccountIdSync, getActiveVaultIdSyncMaybe, getInstallIdSync } from "../../lib/db-tx";
-import { getCurrentCurrencySymbol } from "../../lib/currency";
+import {
+  DEFAULT_CURRENCY,
+  getDefaultEntryCurrency,
+  getEnabledCurrencies,
+  getCurrencyLabel,
+  setCurrentCurrency,
+} from "../../lib/currency";
 import { createEntryDetailed, getActiveVaultArchivedState, getPerson } from "../../lib/db";
-import { textDir, trackingSafe, useIsRTL } from "../../lib/direction";
+import { rowDir, textDir, trackingSafe, useIsRTL } from "../../lib/direction";
 import { EventSigningUnavailableError, RoleGateRejectionError } from "../../lib/event-log";
 import { fonts, sansLineHeight } from "../../lib/fonts";
 import { t } from "../../lib/i18n";
 import { withEntryDay } from "../../lib/entry-date";
 import { localDayStart } from "../../lib/tally-date-filter";
+import { onLedgerApplied } from "../../lib/ledger-events";
 import { parseAmountInput } from "../../lib/money";
 import { evaluateCalculation } from "../../lib/calculator";
 import {
@@ -64,10 +71,8 @@ import {
 import { radius, TOUCH_MIN, typography } from "../../lib/tokens";
 import { ENTRY_NOTE_MAX_LENGTH, type EntryType, type PersonWithBalance } from "../../lib/types";
 
-// presentation:"modal" screen: the loaded branch is a bare <SafeAreaView>,
-// which insets all four edges. ScreenLoading defaults to ["top"] (the pushed-
-// screen case), so the pre-content branches have to spell this out or the
-// header shifts the moment the read resolves.
+// Loading branches need modal-safe edges too, so the header stays in place
+// when content arrives. The loaded iOS dock owns its bottom safe padding.
 const MODAL_EDGES = ["top", "bottom", "left", "right"] as const;
 type ScreenScope = {
   personId: string;
@@ -81,7 +86,16 @@ type UIAttempt = ScreenScope & { focus: number };
 export default function NewEntryScreen() {
   const router = useRouter();
   const isRTL = useIsRTL();
+  const safeArea = useSafeAreaInsets();
   const { height: windowHeight, fontScale } = useWindowDimensions();
+  // Non-edge-to-edge Android hosts already resize the window for the IME.
+  // A second height owner races that native resize. Edge-to-edge hosts still
+  // need explicit avoidance; retain it when the host capability is unknown.
+  const avoidAndroidKeyboard =
+    Platform.OS === "android" &&
+    TurboModuleRegistry.get<{
+      getConstants(): { isEdgeToEdge?: boolean };
+    }>("DeviceInfo")?.getConstants().isEdgeToEdge !== false;
   // iOS keeps one stable three-line viewport so UIKit can reveal the caret
   // without racing a growing field. Android grows to six lines, then scrolls.
   const noteLineHeight = sansLineHeight(15, 22) * Math.max(1, fontScale);
@@ -102,8 +116,15 @@ export default function NewEntryScreen() {
   const calculationResult = evaluateCalculation(calculation.expression);
   const amount = calculationResult.canApply ? calculationResult.amount : "";
   const [note, setNote] = useState("");
+  const [currency, setCurrency] = useState<string>(DEFAULT_CURRENCY);
+  const [enabledCurrencies, setEnabledCurrencies] = useState<readonly string[]>([]);
+  const enabledCurrencyRef = useRef<readonly string[]>([]);
+  const enabledCurrencyRead = useRef(0);
+  const currencyScope = useRef<string | null>(null);
   // Null keeps the usual save-time timestamp, even if this form stays open overnight.
   const [entryDay, setEntryDay] = useState<number | null>(null);
+  const [moreOptionsOpen, setMoreOptionsOpen] = useState(false);
+  const moreOptionsRef = useRef(false);
   const [datePickerOpen, setDatePickerOpen] = useState(false);
   const datePickerRef = useRef(false);
   const [calculatorAttempt, setCalculatorAttempt] = useState<UIAttempt | null>(null);
@@ -128,7 +149,7 @@ export default function NewEntryScreen() {
     }
     let alive = true;
     const timer = setTimeout(() => {
-      creditWarning(personId, type, parsed)
+      creditWarning(personId, type, parsed, getActiveVaultIdSyncMaybe() ?? undefined, currency)
         .then((over) => {
           if (alive) setOverLimit(over);
         })
@@ -138,7 +159,7 @@ export default function NewEntryScreen() {
       alive = false;
       clearTimeout(timer);
     };
-  }, [amount, personId, type]);
+  }, [amount, personId, type, currency]);
   const [saveError, setSaveError] = useState<string | null>(null);
   const saveErrorRef = useRef(saveError);
   saveErrorRef.current = saveError;
@@ -147,13 +168,17 @@ export default function NewEntryScreen() {
   const initialFocusTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const noteAccessoryId = useId();
   const scrollRef = useRef<ScrollViewInstance>(null);
+  const noteScrollRequest = useRef<UIAttempt | null>(null);
+  const noteScrollFrame = useRef<number | null>(null);
+  const nativeKeyboardReady = useRef(false);
   const keyboardFrameRef = useRef<ViewInstance>(null);
   const keyboardMeasurement = useRef(0);
   const [keyboardOffset, setKeyboardOffset] = useState(0);
   const [availableHeight, setAvailableHeight] = useState<number | undefined>();
   const [saveBarHeight, setSaveBarHeight] = useState<number | undefined>();
+  const [dockHeight, setDockHeight] = useState(0);
+  const dockHeightRef = useRef(0);
   const amountField = useRef({ y: 0, height: 0 });
-  const noteField = useRef({ y: 0, height: 0 });
   const saveErrorField = useRef<{ y: number; height: number } | null>(null);
   const formViewport = useRef(0);
   const formScrollY = useRef(0);
@@ -185,38 +210,40 @@ export default function NewEntryScreen() {
     getActiveVaultIdSyncMaybe() === attempt.vaultId &&
     getAccountIdSync() === attempt.accountId &&
     getInstallIdSync() === attempt.installId;
+  async function refreshEnabledCurrencies(attempt: UIAttempt) {
+    if (!attempt.vaultId) return;
+    const read = ++enabledCurrencyRead.current;
+    const codes = await getEnabledCurrencies(attempt.vaultId);
+    if (!isCurrent(attempt) || read !== enabledCurrencyRead.current) return;
+    enabledCurrencyRef.current = codes;
+    setEnabledCurrencies(codes);
+  }
   useEffect(() => {
     mounted.current = true;
     return () => {
       mounted.current = false;
       amountSelectionIntent.current = false;
+      cancelNoteReveal();
     };
   }, []);
 
-  // Android keeps its form/footer inside the resized keyboard avoider. iOS
-  // uses native scroll insets and a UIKit accessory for Save, so its sheet
-  // position never depends on an asynchronously measured keyboard offset.
+  // Android keeps its form/footer inside the resized window or avoider. iOS
+  // uses a stable viewport, native scroll insets and a UIKit accessory for
+  // Save. Its dock measurement only reserves room for our custom calculator.
   function measureKeyboardFrame() {
-    if (Platform.OS !== "android") return;
+    if (!avoidAndroidKeyboard) return;
     const attempt = { ...scopeRef.current, focus: focusGeneration.current };
     const measurement = ++keyboardMeasurement.current;
     keyboardFrameRef.current?.measureInWindow((_x, y) => {
       if (measurement !== keyboardMeasurement.current || !isCurrent(attempt)) return;
-      // RN subtracts the status/cutout inset from window measurements in a
-      // non-edge-to-edge host (including Expo Go), but keyboard screenY still
-      // includes it. Match those coordinates without double-counting that
-      // inset in the edge-to-edge production app.
-      const edgeToEdge = TurboModuleRegistry.get<{
-        getConstants(): { isEdgeToEdge?: boolean };
-      }>("DeviceInfo")?.getConstants().isEdgeToEdge;
-      const androidWindowTop = edgeToEdge === false ? (StatusBar.currentHeight ?? 0) : 0;
-      setKeyboardOffset(y + androidWindowTop);
+      setKeyboardOffset(y);
     });
   }
 
   function revealField({ y, height }: { y: number; height: number }) {
     const viewport = formViewport.current;
-    const { top, bottom } = formInsets.current;
+    const { top } = formInsets.current;
+    const bottom = Math.max(formInsets.current.bottom, dockHeightRef.current);
     if (!viewport || viewport <= top + bottom || !height) return;
     const clippedAbove = y < formScrollY.current + top;
     if (clippedAbove || y + height > formScrollY.current + viewport - bottom)
@@ -230,11 +257,44 @@ export default function NewEntryScreen() {
     revealField(amountField.current);
   }
 
-  function revealNote() {
-    // iOS already reveals the caret while animating its native keyboard inset.
-    // A second JS scroll (especially scrollToEnd) overshoots the note into the
-    // header because that end includes all of the newly added keyboard space.
-    if (Platform.OS === "android") revealField(noteField.current);
+  function cancelNoteScrollFrame() {
+    if (noteScrollFrame.current !== null) {
+      cancelAnimationFrame(noteScrollFrame.current);
+      noteScrollFrame.current = null;
+    }
+  }
+
+  function cancelNoteReveal() {
+    noteScrollRequest.current = null;
+    cancelNoteScrollFrame();
+  }
+
+  function queueNoteReveal() {
+    const request = noteScrollRequest.current;
+    const current = () =>
+      noteScrollRequest.current === request &&
+      request !== null &&
+      nativeKeyboardReady.current &&
+      activeField.current === "note" &&
+      isCurrent(request);
+    if (!current() || noteScrollFrame.current !== null) return;
+    // UIKit owns the keyboard/caret animation. Once it finishes, allow the
+    // React commit and native viewport layout to finish before one final move.
+    const commitFrame = requestAnimationFrame(() => {
+      if (noteScrollFrame.current !== commitFrame) return;
+      noteScrollFrame.current = null;
+      if (!current()) return;
+      const layoutFrame = requestAnimationFrame(() => {
+        if (noteScrollFrame.current !== layoutFrame) return;
+        noteScrollFrame.current = null;
+        if (!current()) return;
+        // Consume before dispatch: late keyboard/layout events cannot restart it.
+        noteScrollRequest.current = null;
+        scrollRef.current?.scrollToEnd({ animated: true });
+      });
+      noteScrollFrame.current = layoutFrame;
+    });
+    noteScrollFrame.current = commitFrame;
   }
 
   function revealSaveError() {
@@ -245,16 +305,27 @@ export default function NewEntryScreen() {
   useEffect(() => {
     const show = Keyboard.addListener("keyboardDidShow", () => {
       if (!mounted.current || !focused.current) return;
+      nativeKeyboardReady.current = true;
       setNativeKeyboardOpen(true);
-      if (activeField.current === "note") revealNote();
+      queueNoteReveal();
       revealSaveError();
     });
     const hide = Keyboard.addListener("keyboardDidHide", () => {
+      nativeKeyboardReady.current = false;
+      cancelNoteReveal();
       formInsets.current.bottom = 0;
       if (mounted.current) setNativeKeyboardOpen(false);
     });
     const willShow = Keyboard.addListener("keyboardWillShow", () => {
-      if (Platform.OS === "ios" && mounted.current && focused.current) setNativeKeyboardOpen(true);
+      if (Platform.OS !== "ios" || !mounted.current || !focused.current) return;
+      nativeKeyboardReady.current = false;
+      cancelNoteScrollFrame();
+      setNativeKeyboardOpen(true);
+    });
+    const willHide = Keyboard.addListener("keyboardWillHide", () => {
+      if (Platform.OS !== "ios") return;
+      nativeKeyboardReady.current = false;
+      cancelNoteReveal();
     });
     const back = BackHandler.addEventListener("hardwareBackPress", () => {
       if (focused.current && datePickerRef.current) {
@@ -274,6 +345,7 @@ export default function NewEntryScreen() {
       show.remove();
       hide.remove();
       willShow.remove();
+      willHide.remove();
       back.remove();
     };
   }, []);
@@ -288,6 +360,7 @@ export default function NewEntryScreen() {
   useFocusEffect(
     useCallback(() => {
       focused.current = true;
+      cancelNoteReveal();
       const focus = ++focusGeneration.current;
       const attempt = { ...scopeRef.current, focus };
       setFocusVersion(focus);
@@ -301,8 +374,14 @@ export default function NewEntryScreen() {
       amountSelectionIntent.current = false;
       setCalculatorAttempt(null);
       setCalculatorHistory([]);
+      moreOptionsRef.current = false;
+      setMoreOptionsOpen(false);
       datePickerRef.current = false;
       setDatePickerOpen(false);
+      const unsubscribe = onLedgerApplied((vaultId) => {
+        if (vaultId === attempt.vaultId && isCurrent(attempt))
+          void refreshEnabledCurrencies(attempt).catch(() => {});
+      });
       void (async () => {
         try {
           const guard = await getActiveVaultArchivedState();
@@ -321,6 +400,23 @@ export default function NewEntryScreen() {
             setLoading(false);
             return;
           }
+          const currencyKey = JSON.stringify([
+            attempt.vaultId,
+            attempt.accountId,
+            attempt.installId,
+            attempt.personId,
+            attempt.type,
+          ]);
+          if (attempt.vaultId && currencyScope.current !== currencyKey) {
+            setEntryDay(null);
+            const [defaultCurrency] = await Promise.all([
+              getDefaultEntryCurrency(attempt.vaultId),
+              refreshEnabledCurrencies(attempt),
+            ]);
+            if (!isCurrent(attempt)) return;
+            setCurrency(defaultCurrency);
+            currencyScope.current = currencyKey;
+          } else await refreshEnabledCurrencies(attempt);
           const p = await getPerson(attempt.personId);
           if (!isCurrent(attempt)) return;
           setPerson(p);
@@ -334,8 +430,12 @@ export default function NewEntryScreen() {
         }
       })();
       return () => {
+        unsubscribe();
         focused.current = false;
+        cancelNoteReveal();
         focusGeneration.current++;
+        moreOptionsRef.current = false;
+        if (mounted.current) setMoreOptionsOpen(false);
         datePickerRef.current = false;
         if (mounted.current) setDatePickerOpen(false);
         calculatorRef.current = null;
@@ -418,6 +518,14 @@ export default function NewEntryScreen() {
         });
         return;
       }
+      const enabled = await getEnabledCurrencies(vaultId);
+      if (!isCurrent(attempt)) return;
+      enabledCurrencyRef.current = enabled;
+      setEnabledCurrencies(enabled);
+      if (!enabled.includes(currency)) {
+        setSaveError(t("entry.currency.disabled"));
+        return;
+      }
       // createEntryDetailed routes a LINKED contact's tally to the mutual tab
       // (docs/mutual-tab-design.md §4.3) with no branching here; the only
       // extra it hands back is the D17 duplicate hint.
@@ -426,7 +534,7 @@ export default function NewEntryScreen() {
         attempt.type,
         parsedAmount,
         savedNote,
-        { session, vaultId, occurredAtMs },
+        { session, vaultId, occurredAtMs, currency },
       );
       // A refused clerk tally is not in the ledger; anything else should be
       // visible when the customer's page comes back, filters or not.
@@ -435,7 +543,7 @@ export default function NewEntryScreen() {
       // alone hid that it has not reached the other side (audit #24).
       const waitingLink =
         !session.jwt && saved.admission_status == null
-          ? await getTabLinkForPerson(attempt.personId).catch(() => null)
+          ? await getTabLinkForPerson(attempt.personId, currency).catch(() => null)
           : null;
       let duplicateName: string | null = null;
       if (saved.duplicate_hint && isCurrent(attempt)) {
@@ -443,10 +551,11 @@ export default function NewEntryScreen() {
         // not pushed: this modal is about to close, and a toast pushed from
         // under it would never be seen (Toast.tsx). It surfaces on the person
         // screen right after the save toast.
-        const link = await getTabLinkForPerson(attempt.personId).catch(() => null);
+        const link = await getTabLinkForPerson(attempt.personId, currency).catch(() => null);
         duplicateName = link?.other_label || t("tab.them");
       }
       await present(() => {
+        if (saved.admission_status !== "refused") setCurrentCurrency(currency);
         if (waitingLink)
           toast.push(
             t("tab.savedSignIn", { name: waitingLink.other_label || t("tab.them") }),
@@ -532,6 +641,7 @@ export default function NewEntryScreen() {
       !isCurrent(renderAttempt)
     )
       return;
+    cancelNoteReveal();
     calculatorRef.current = attempt;
     datePickerRef.current = false;
     setDatePickerOpen(false);
@@ -544,6 +654,15 @@ export default function NewEntryScreen() {
   function focusNote() {
     const attempt = { ...scopeRef.current, focus: focusGeneration.current };
     if (savingRef.current || !isCurrent(attempt) || !isCurrent(renderAttempt)) return;
+    // Keypad Next also triggers onFocus. One focus creates only one request,
+    // including after that request has already completed or been cancelled.
+    if (activeField.current === "note") return;
+    cancelNoteReveal();
+    if (initialFocusTimer.current !== null) {
+      clearTimeout(initialFocusTimer.current);
+      initialFocusTimer.current = null;
+    }
+    noteScrollRequest.current = attempt;
     activeField.current = "note";
     datePickerRef.current = false;
     setDatePickerOpen(false);
@@ -552,6 +671,8 @@ export default function NewEntryScreen() {
     setCalculatorAttempt(null);
     measureKeyboardFrame();
     noteRef.current?.focus();
+    // A still-visible keyboard needs no new did-show event on genuine refocus.
+    queueNoteReveal();
   }
 
   function dismissCalculator() {
@@ -563,6 +684,7 @@ export default function NewEntryScreen() {
       !isCurrent(renderAttempt)
     )
       return;
+    cancelNoteReveal();
     if (initialFocusTimer.current !== null) {
       clearTimeout(initialFocusTimer.current);
       initialFocusTimer.current = null;
@@ -575,8 +697,35 @@ export default function NewEntryScreen() {
   }
 
   const renderAttempt = { ...scope, focus: focusGeneration.current };
-  function toggleDatePicker() {
+  function toggleMoreOptions() {
     if (savingRef.current || !isCurrent(renderAttempt)) return;
+    cancelNoteReveal();
+    if (initialFocusTimer.current !== null) {
+      clearTimeout(initialFocusTimer.current);
+      initialFocusTimer.current = null;
+    }
+    calculatorRef.current = null;
+    setCalculatorAttempt(null);
+    activeField.current = null;
+    amountSelectionIntent.current = false;
+    amountRef.current?.blur();
+    noteRef.current?.blur();
+    Keyboard.dismiss();
+    datePickerRef.current = false;
+    setDatePickerOpen(false);
+    moreOptionsRef.current = !moreOptionsRef.current;
+    setMoreOptionsOpen(moreOptionsRef.current);
+  }
+
+  function toggleDatePicker() {
+    if (!isCurrent(renderAttempt) || !moreOptionsRef.current) return;
+    cancelNoteReveal();
+    if (datePickerRef.current) {
+      datePickerRef.current = false;
+      setDatePickerOpen(false);
+      return;
+    }
+    if (savingRef.current) return;
     if (initialFocusTimer.current !== null) {
       clearTimeout(initialFocusTimer.current);
       initialFocusTimer.current = null;
@@ -683,7 +832,7 @@ export default function NewEntryScreen() {
   return (
     <SafeAreaView
       style={styles.container}
-      edges={nativeKeyboardOpen ? ["top", "left", "right"] : MODAL_EDGES}
+      edges={Platform.OS === "ios" || nativeKeyboardOpen ? ["top", "left", "right"] : MODAL_EDGES}
     >
       {/* The "Cancel" word becomes the shared chevron; it survives as the a11y
           label so TalkBack still announces "Cancel", not "Back". */}
@@ -706,7 +855,7 @@ export default function NewEntryScreen() {
         <KeyboardAvoidingView
           style={styles.keyboardAvoider}
           behavior="height"
-          enabled={Platform.OS === "android"}
+          enabled={avoidAndroidKeyboard}
           keyboardVerticalOffset={keyboardOffset}
         >
           <Pressable
@@ -719,7 +868,10 @@ export default function NewEntryScreen() {
             <ScrollView
               ref={scrollRef}
               style={styles.form}
-              contentContainerStyle={styles.body}
+              contentContainerStyle={[
+                styles.body,
+                { paddingBottom: 16 + (noteKeyboardShown ? 0 : dockHeight) },
+              ]}
               // Native keyboard dismissal only knows about Note. Let blank
               // amount-keyboard taps reach the surrounding dismiss target.
               keyboardShouldPersistTaps={calculatorAttempt ? "always" : "handled"}
@@ -730,6 +882,7 @@ export default function NewEntryScreen() {
               onContentSizeChange={() => {
                 revealSaveError();
               }}
+              onScrollBeginDrag={cancelNoteReveal}
               onScroll={(event) => {
                 formScrollY.current = event.nativeEvent.contentOffset.y;
                 formInsets.current = {
@@ -740,8 +893,7 @@ export default function NewEntryScreen() {
               scrollEventThrottle={16}
               onLayout={(event) => {
                 formViewport.current = event.nativeEvent.layout.height;
-                if (activeField.current === "note") revealNote();
-                else if (activeField.current === "amount") revealAmount();
+                if (activeField.current === "amount") revealAmount();
                 revealSaveError();
               }}
             >
@@ -758,10 +910,12 @@ export default function NewEntryScreen() {
                   if (activeField.current === "amount") revealAmount();
                 }}
               >
-                <Text style={[styles.label, textDir(isRTL)]}>
-                  {t("entry.amount.labelTemplate", { code: getCurrentCurrencySymbol() })}{" "}
-                  <Text style={styles.required}>*</Text>
-                </Text>
+                <View style={[styles.amountHeader, rowDir(isRTL)]}>
+                  <Text style={[styles.label, { flex: 1, marginBottom: 0 }, textDir(isRTL)]}>
+                    {t("entry.amount.labelTemplate", { code: getCurrencyLabel(currency) })}{" "}
+                    <Text style={styles.required}>*</Text>
+                  </Text>
+                </View>
                 <View style={[styles.amountCard, amountError ? styles.inputError : null]}>
                   <View style={styles.expressionRow}>
                     <TextInput
@@ -808,7 +962,7 @@ export default function NewEntryScreen() {
                       // Validate the amount instead of truncating pasted extra digits
                       // with maxLength, which could silently change a financial value.
                       accessibilityLabel={t("entry.amount.labelTemplate", {
-                        code: getCurrentCurrencySymbol(),
+                        code: getCurrencyLabel(currency),
                       })}
                       returnKeyType="next"
                       onSubmitEditing={focusNote}
@@ -830,7 +984,41 @@ export default function NewEntryScreen() {
                     </Pressable>
                   </View>
                   <View style={styles.calculatedRow}>
-                    <Text style={styles.calculatedCurrency}>{getCurrentCurrencySymbol()}</Text>
+                    <CurrencySelector
+                      key={JSON.stringify(renderAttempt)}
+                      compact
+                      symbolOnly
+                      value={currency}
+                      allowedCurrencies={enabledCurrencies}
+                      disabled={busy || !isCurrent(renderAttempt) || enabledCurrencies.length === 0}
+                      onOpen={() => {
+                        if (savingRef.current || !isCurrent(renderAttempt)) return false;
+                        if (initialFocusTimer.current !== null) {
+                          clearTimeout(initialFocusTimer.current);
+                          initialFocusTimer.current = null;
+                        }
+                        calculatorRef.current = null;
+                        cancelNoteReveal();
+                        setCalculatorAttempt(null);
+                        datePickerRef.current = false;
+                        setDatePickerOpen(false);
+                        activeField.current = null;
+                        amountSelectionIntent.current = false;
+                        amountRef.current?.blur();
+                        noteRef.current?.blur();
+                        Keyboard.dismiss();
+                      }}
+                      onChange={(code) => {
+                        if (
+                          savingRef.current ||
+                          !isCurrent(renderAttempt) ||
+                          !enabledCurrencyRef.current.includes(code)
+                        )
+                          return;
+                        setSaveError(null);
+                        setCurrency(code);
+                      }}
+                    />
                     <Text
                       accessibilityLabel={t("calculator.result")}
                       style={styles.calculatedValue}
@@ -870,25 +1058,7 @@ export default function NewEntryScreen() {
                 ) : null}
               </View>
 
-              <EntryDateField
-                value={entryDay ?? localDayStart(Date.now())}
-                expanded={datePickerOpen}
-                disabled={busy}
-                onToggle={toggleDatePicker}
-                onChange={(day) => {
-                  if (savingRef.current || !isCurrent(renderAttempt) || !datePickerRef.current)
-                    return;
-                  setEntryDay(day);
-                }}
-              />
-
-              <View
-                onLayout={(event) => {
-                  if (Platform.OS === "ios" && !isCurrent(renderAttempt)) return;
-                  noteField.current = event.nativeEvent.layout;
-                  if (activeField.current === "note") revealNote();
-                }}
-              >
+              <View>
                 <Text style={[styles.label, textDir(isRTL)]}>{t("entry.note.label")}</Text>
                 <TextInput
                   ref={noteRef}
@@ -900,7 +1070,14 @@ export default function NewEntryScreen() {
                   ]}
                   value={note}
                   onFocus={focusNote}
-                  onChangeText={setNote}
+                  onBlur={() => {
+                    cancelNoteReveal();
+                    if (activeField.current === "note") activeField.current = null;
+                  }}
+                  onChangeText={(text) => {
+                    cancelNoteReveal();
+                    setNote(text);
+                  }}
                   placeholder={t("entry.note.placeholder")}
                   placeholderTextColor={colors.textMuted}
                   maxLength={ENTRY_NOTE_MAX_LENGTH}
@@ -913,6 +1090,47 @@ export default function NewEntryScreen() {
                   scrollEnabled
                 />
               </View>
+              <Pressable
+                testID="entry-more-options"
+                accessibilityRole="button"
+                accessibilityLabel={t(moreOptionsOpen ? "entry.more.hide" : "entry.more.show")}
+                accessibilityState={{ expanded: moreOptionsOpen, disabled: busy }}
+                disabled={busy}
+                onPress={toggleMoreOptions}
+                style={({ pressed }) => [
+                  styles.moreOptions,
+                  rowDir(isRTL),
+                  pressed && { opacity: 0.6 },
+                  busy && { opacity: 0.4 },
+                ]}
+              >
+                <Text style={[styles.moreOptionsText, textDir(isRTL)]}>
+                  {t(moreOptionsOpen ? "entry.more.hide" : "entry.more.show")}
+                </Text>
+                <Ionicons
+                  name={moreOptionsOpen ? "chevron-up" : "chevron-down"}
+                  size={16}
+                  color={colors.textSubtle}
+                />
+              </Pressable>
+              {moreOptionsOpen ? (
+                <EntryDateField
+                  value={entryDay ?? localDayStart(Date.now())}
+                  expanded={datePickerOpen}
+                  disabled={busy}
+                  onToggle={toggleDatePicker}
+                  onChange={(day) => {
+                    if (
+                      savingRef.current ||
+                      !isCurrent(renderAttempt) ||
+                      !moreOptionsRef.current ||
+                      !datePickerRef.current
+                    )
+                      return;
+                    setEntryDay(day);
+                  }}
+                />
+              ) : null}
               {saveError ? (
                 <Text
                   style={[styles.fieldError, textDir(isRTL)]}
@@ -928,7 +1146,25 @@ export default function NewEntryScreen() {
               ) : null}
             </ScrollView>
           </Pressable>
-          <View style={styles.dock}>
+          {/* Keep the calculator out of the viewport's layout. Native caret
+              scrolling and iOS keyboard insets must see the full frame when
+              Note receives focus, before React closes the calculator. */}
+          <View
+            style={[
+              styles.dock,
+              styles.dockOverlay,
+              Platform.OS === "ios" && {
+                paddingBottom: noteKeyboardShown ? 0 : safeArea.bottom,
+              },
+            ]}
+            pointerEvents={noteKeyboardShown ? "none" : "auto"}
+            onLayout={(event) => {
+              const { height } = event.nativeEvent.layout;
+              dockHeightRef.current = height;
+              setDockHeight(height);
+              if (activeField.current === "amount") revealAmount();
+            }}
+          >
             {noteKeyboardShown ? null : saveBar}
             <EntryCalculator
               key={focusVersion}
@@ -939,7 +1175,11 @@ export default function NewEntryScreen() {
                   changeCalculation(next);
               }}
               disabled={busy}
-              availableHeight={availableHeight}
+              availableHeight={
+                Platform.OS === "ios" && availableHeight !== undefined
+                  ? Math.max(0, availableHeight - safeArea.bottom)
+                  : availableHeight
+              }
               footerHeight={saveBarHeight}
               visible={Boolean(calculatorAttempt)}
               history={calculatorHistory}
@@ -981,10 +1221,12 @@ export default function NewEntryScreen() {
 }
 
 const styles = StyleSheet.create({
+  amountHeader: { alignItems: "center", gap: 12, marginBottom: 8 },
   container: { flex: 1, backgroundColor: colors.bgDefault },
   keyboardAvoider: { flex: 1 },
   form: { flex: 1 },
   dock: { flexShrink: 0, backgroundColor: colors.bgDefault },
+  dockOverlay: { position: "absolute", bottom: 0, left: 0, right: 0 },
   saveBar: {
     width: "100%",
     maxWidth: 640,
@@ -1026,6 +1268,19 @@ const styles = StyleSheet.create({
     color: colors.textDefault,
     marginBottom: 8,
   },
+  moreOptions: {
+    minHeight: TOUCH_MIN,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 8,
+  },
+  moreOptionsText: {
+    ...typography.bodySm,
+    fontFamily: fonts.sansMedium,
+    color: colors.textSubtle,
+    flexShrink: 1,
+  },
   required: { color: colors.danger },
   amountCard: {
     borderWidth: 1,
@@ -1054,13 +1309,9 @@ const styles = StyleSheet.create({
     marginHorizontal: 14,
     paddingVertical: 8,
   },
-  calculatedCurrency: {
-    fontFamily: fonts.sansRegular,
-    fontSize: 13,
-    lineHeight: sansLineHeight(13, 20),
-    color: colors.textSubtle,
-  },
   calculatedValue: {
+    flex: 1,
+    minWidth: 0,
     flexShrink: 1,
     fontFamily: fonts.monoMedium,
     fontSize: 17,

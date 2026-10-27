@@ -142,64 +142,78 @@ var outreachSettingKeyRe = regexp.MustCompile(`^[a-z_]{1,32}(\.[a-z_]{1,16}){0,2
 
 // ---------- wire types (docs: outreach contract §1.3–1.5) ----------
 
+type OutreachCurrencyTotals struct {
+	Currency   string `json:"currency"`
+	Receivable string `json:"receivable"`
+	Payable    string `json:"payable"`
+}
+
+type OutreachCurrencyBalance struct {
+	Currency string `json:"currency"`
+	Balance  string `json:"balance"`
+}
+
 type OutreachKaata struct {
-	VaultID     string `json:"vault_id"`
-	Name        string `json:"name"`
-	Currency    string `json:"currency"`
-	Role        string `json:"role"`
-	Archived    bool   `json:"archived"`
-	MemberCount int    `json:"member_count"`
-	People      int    `json:"people"`
-	Tallies     int    `json:"tallies"`
-	Receivable  string `json:"receivable"`    // "1234.50"
-	Payable     string `json:"payable"`       // "1234.50"
-	LastTallyAt string `json:"last_tally_at"` // RFC3339 UTC or ""
+	VaultID        string                   `json:"vault_id"`
+	Name           string                   `json:"name"`
+	Currency       string                   `json:"currency"`
+	Role           string                   `json:"role"`
+	Archived       bool                     `json:"archived"`
+	MemberCount    int                      `json:"member_count"`
+	People         int                      `json:"people"`
+	Tallies        int                      `json:"tallies"`
+	Receivable     string                   `json:"receivable"`    // "1234.50"
+	Payable        string                   `json:"payable"`       // "1234.50"
+	LastTallyAt    string                   `json:"last_tally_at"` // RFC3339 UTC or ""
+	CurrencyTotals []OutreachCurrencyTotals `json:"currency_totals,omitempty"`
 }
 
 type OutreachShopkeeper struct {
-	AccountID       string          `json:"account_id"`
-	Email           string          `json:"email"`
-	SignedIn        bool            `json:"signed_in"`
-	InstallCount    int             `json:"install_count"`
-	InstallIDs      []string        `json:"install_ids"` // never null; most recently seen first
-	Platform        string          `json:"platform"`
-	AppVersion      string          `json:"app_version"`
-	Locale          string          `json:"locale"`
-	Source          string          `json:"source"`
-	Attribution     string          `json:"attribution"`
-	InstalledAt     string          `json:"installed_at"`
-	FirstSeen       string          `json:"first_seen"`
-	LastSeen        string          `json:"last_seen"`
-	LastActivityAt  string          `json:"last_activity_at"`
-	HasOnboarded    bool            `json:"has_onboarded"`
-	CheckInCount    int             `json:"check_in_count"`
-	UsageEntries    int64           `json:"usage_entries"`
-	UsageCustomers  int64           `json:"usage_customers"`
-	UsageShares     int64           `json:"usage_shares"`
-	Kaatas          []OutreachKaata `json:"kaatas"` // never null
-	People          int             `json:"people"`
-	Tallies         int             `json:"tallies"`
-	ReceivableTotal string          `json:"receivable_total"`
-	PayableTotal    string          `json:"payable_total"`
-	Currency        string          `json:"currency"`
-	LastTallyAt     string          `json:"last_tally_at"`
+	AccountID       string                   `json:"account_id"`
+	Email           string                   `json:"email"`
+	SignedIn        bool                     `json:"signed_in"`
+	InstallCount    int                      `json:"install_count"`
+	InstallIDs      []string                 `json:"install_ids"` // never null; most recently seen first
+	Platform        string                   `json:"platform"`
+	AppVersion      string                   `json:"app_version"`
+	Locale          string                   `json:"locale"`
+	Source          string                   `json:"source"`
+	Attribution     string                   `json:"attribution"`
+	InstalledAt     string                   `json:"installed_at"`
+	FirstSeen       string                   `json:"first_seen"`
+	LastSeen        string                   `json:"last_seen"`
+	LastActivityAt  string                   `json:"last_activity_at"`
+	HasOnboarded    bool                     `json:"has_onboarded"`
+	CheckInCount    int                      `json:"check_in_count"`
+	UsageEntries    int64                    `json:"usage_entries"`
+	UsageCustomers  int64                    `json:"usage_customers"`
+	UsageShares     int64                    `json:"usage_shares"`
+	Kaatas          []OutreachKaata          `json:"kaatas"` // never null
+	People          int                      `json:"people"`
+	Tallies         int                      `json:"tallies"`
+	ReceivableTotal string                   `json:"receivable_total"`
+	PayableTotal    string                   `json:"payable_total"`
+	Currency        string                   `json:"currency"`
+	LastTallyAt     string                   `json:"last_tally_at"`
+	CurrencyTotals  []OutreachCurrencyTotals `json:"currency_totals,omitempty"`
 }
 
 type OutreachListing struct {
-	VaultID      string `json:"vault_id"`
-	VaultName    string `json:"vault_name"`
-	Currency     string `json:"currency"`
-	OwnerName    string `json:"owner_name"`
-	OwnerPhone   string `json:"owner_phone"`
-	PersonName   string `json:"person_name"`
-	Context      string `json:"context"`
-	Archived     bool   `json:"archived"`
-	FirstAddedAt string `json:"first_added_at"`
-	LastTallyAt  string `json:"last_tally_at"`
-	Tallies      int    `json:"tallies"`
-	Balance      string `json:"balance"` // signed "300.00"; positive = person owes the shop
-	Role         string `json:"role"`    // customer | supplier | settled
-	Linked       bool   `json:"linked"`  // bound to a mutual tab; balance is the local fold only
+	VaultID      string                    `json:"vault_id"`
+	VaultName    string                    `json:"vault_name"`
+	Currency     string                    `json:"currency"`
+	OwnerName    string                    `json:"owner_name"`
+	OwnerPhone   string                    `json:"owner_phone"`
+	PersonName   string                    `json:"person_name"`
+	Context      string                    `json:"context"`
+	Archived     bool                      `json:"archived"`
+	FirstAddedAt string                    `json:"first_added_at"`
+	LastTallyAt  string                    `json:"last_tally_at"`
+	Tallies      int                       `json:"tallies"`
+	Balance      string                    `json:"balance"` // signed "300.00"; positive = person owes the shop
+	Role         string                    `json:"role"`    // customer | supplier | settled
+	Linked       bool                      `json:"linked"`  // bound to a mutual tab; balance is the local fold only
+	Balances     []OutreachCurrencyBalance `json:"balances,omitempty"`
 }
 
 type OutreachCustomer struct {
@@ -525,10 +539,26 @@ type outreachMember struct{ vaultID, accountID, role string }
 
 // outreachFold is one vault's event log folded to what the report needs.
 type outreachFold struct {
-	people, tallies     int
-	receivable, payable int64 // hundredths
-	lastTallyMS         int64
-	listings            []outreachFoldListing
+	people, tallies int
+	totals          map[string]outreachMinorTotals
+	lastTallyMS     int64
+	listings        []outreachFoldListing
+}
+
+type outreachMinorTotals struct{ receivable, payable int64 }
+
+func outreachCurrencyTotals(totals map[string]outreachMinorTotals) []OutreachCurrencyTotals {
+	codes := make([]string, 0, len(totals))
+	for code := range totals {
+		codes = append(codes, code)
+	}
+	sort.Strings(codes)
+	rows := make([]OutreachCurrencyTotals, 0, len(codes))
+	for _, code := range codes {
+		t := totals[code]
+		rows = append(rows, OutreachCurrencyTotals{Currency: code, Receivable: formatHundredths(t.receivable), Payable: formatHundredths(t.payable)})
+	}
+	return rows
 }
 
 type outreachFoldListing struct {
@@ -545,31 +575,41 @@ type outreachFoldListing struct {
 // non-archived relationships. Listings need the projection's phone: the app
 // nulls it on archive when no active relationship remains, and an archived
 // person without a phone is not a contact.
-func foldOutreachVault(p *ksync.Projection) outreachFold {
+func foldOutreachVault(p *ksync.Projection, legacyCurrency string) outreachFold {
+	if legacyCurrency == "" {
+		legacyCurrency = "AFN"
+	}
 	type relStats struct {
-		tallies int
-		balance int64
-		lastMS  int64
+		tallies  int
+		balances map[string]int64
+		lastMS   int64
 	}
 	stats := map[string]*relStats{}
-	f := outreachFold{listings: []outreachFoldListing{}}
+	f := outreachFold{listings: []outreachFoldListing{}, totals: map[string]outreachMinorTotals{}}
 	for _, e := range p.Entries {
 		if e.IsDeleted {
 			continue
 		}
 		st := stats[e.RelationshipID]
 		if st == nil {
-			st = &relStats{}
+			st = &relStats{balances: map[string]int64{}}
 			stats[e.RelationshipID] = st
 		}
 		st.tallies++
 		f.tallies++
+		currency := e.Currency
+		if currency == "" {
+			currency = legacyCurrency
+		}
+		if _, ok := st.balances[currency]; !ok {
+			st.balances[currency] = 0
+		}
 		if v, ok := amountHundredths(e.AmountAFN); ok {
 			switch e.Type {
 			case "debt":
-				st.balance += v
+				st.balances[currency] += v
 			case "payment":
-				st.balance -= v
+				st.balances[currency] -= v
 			}
 		}
 		if e.CreatedAt > st.lastMS {
@@ -588,15 +628,44 @@ func foldOutreachVault(p *ksync.Projection) outreachFold {
 		rel := p.Relationships[id]
 		st := stats[id]
 		if st == nil {
-			st = &relStats{}
+			st = &relStats{balances: map[string]int64{legacyCurrency: 0}}
 		}
 		if rel.ArchivedAt == nil {
 			f.people++
 		}
-		if st.balance > 0 {
-			f.receivable += st.balance
-		} else if st.balance < 0 {
-			f.payable -= st.balance
+		codes := make([]string, 0, len(st.balances))
+		hasReceivable, hasPayable := false, false
+		for code, balance := range st.balances {
+			codes = append(codes, code)
+			total := f.totals[code]
+			if balance > 0 {
+				total.receivable += balance
+				hasReceivable = true
+			}
+			if balance < 0 {
+				total.payable -= balance
+				hasPayable = true
+			}
+			f.totals[code] = total
+		}
+		sort.Strings(codes)
+		balances := make([]OutreachCurrencyBalance, 0, len(codes))
+		for _, code := range codes {
+			balances = append(balances, OutreachCurrencyBalance{Currency: code, Balance: formatHundredths(st.balances[code])})
+		}
+		currency, balance, role := "", "", "settled"
+		if hasReceivable {
+			role = "customer"
+		}
+		if hasPayable {
+			role = "supplier"
+		}
+		if hasReceivable && hasPayable {
+			role = "mixed"
+		}
+		if len(balances) == 1 {
+			currency, balance = balances[0].Currency, balances[0].Balance
+			balances = nil
 		}
 		u := p.Users[rel.UserBID]
 		if u == nil || u.PhoneE164 == nil {
@@ -616,12 +685,17 @@ func foldOutreachVault(p *ksync.Projection) outreachFold {
 				FirstAddedAt: outreachMS(u.CreatedAt),
 				LastTallyAt:  outreachMS(st.lastMS),
 				Tallies:      st.tallies,
-				Balance:      formatHundredths(st.balance),
-				Role:         balanceRole(st.balance),
+				Balance:      balance,
+				Currency:     currency,
+				Balances:     balances,
+				Role:         role,
 			},
 			lastTallyMS:  st.lastMS,
 			firstAddedMS: u.CreatedAt,
 		})
+	}
+	if len(f.totals) == 0 {
+		f.totals[legacyCurrency] = outreachMinorTotals{}
 	}
 	return f
 }
@@ -1088,30 +1162,42 @@ func buildOutreachShopkeeper(g *outreachShopGroup, vaults map[string]*outreachVa
 	sk.LastSeen = outreachTime(b.lastSeen)
 	sk.LastActivityAt = outreachTime(lastActivity)
 
-	var receivable, payable, lastTally int64
+	var lastTally int64
+	totals := map[string]outreachMinorTotals{}
 	if g.account != nil {
 		for _, m := range membersByAccount[g.account.id] {
 			v := vaults[m.vaultID]
 			if v == nil || v.fold == nil {
 				continue // operator-owned, purged or excluded
 			}
+			money := outreachCurrencyTotals(v.fold.totals)
+			currency, receivable, payable := "", "", ""
+			if len(money) == 1 {
+				currency, receivable, payable = money[0].Currency, money[0].Receivable, money[0].Payable
+				money = nil
+			}
 			sk.Kaatas = append(sk.Kaatas, OutreachKaata{
-				VaultID:     v.id,
-				Name:        v.name,
-				Currency:    v.currency,
-				Role:        m.role,
-				Archived:    v.archived,
-				MemberCount: v.memberCount,
-				People:      v.fold.people,
-				Tallies:     v.fold.tallies,
-				Receivable:  formatHundredths(v.fold.receivable),
-				Payable:     formatHundredths(v.fold.payable),
-				LastTallyAt: outreachMS(v.fold.lastTallyMS),
+				VaultID:        v.id,
+				Name:           v.name,
+				Currency:       currency,
+				Role:           m.role,
+				Archived:       v.archived,
+				MemberCount:    v.memberCount,
+				People:         v.fold.people,
+				Tallies:        v.fold.tallies,
+				Receivable:     receivable,
+				Payable:        payable,
+				CurrencyTotals: money,
+				LastTallyAt:    outreachMS(v.fold.lastTallyMS),
 			})
 			sk.People += v.fold.people
 			sk.Tallies += v.fold.tallies
-			receivable += v.fold.receivable
-			payable += v.fold.payable
+			for code, amount := range v.fold.totals {
+				total := totals[code]
+				total.receivable += amount.receivable
+				total.payable += amount.payable
+				totals[code] = total
+			}
 			if v.fold.lastTallyMS > lastTally {
 				lastTally = v.fold.lastTallyMS
 			}
@@ -1123,11 +1209,14 @@ func buildOutreachShopkeeper(g *outreachShopGroup, vaults map[string]*outreachVa
 			return sk.Kaatas[i].VaultID < sk.Kaatas[j].VaultID
 		})
 	}
-	if len(sk.Kaatas) > 0 {
-		sk.Currency = sk.Kaatas[0].Currency
+	money := outreachCurrencyTotals(totals)
+	if len(money) == 1 {
+		sk.Currency, sk.ReceivableTotal, sk.PayableTotal = money[0].Currency, money[0].Receivable, money[0].Payable
+	} else if len(money) > 1 {
+		sk.CurrencyTotals = money
+	} else {
+		sk.ReceivableTotal, sk.PayableTotal = "0.00", "0.00"
 	}
-	sk.ReceivableTotal = formatHundredths(receivable)
-	sk.PayableTotal = formatHundredths(payable)
 	sk.LastTallyAt = outreachMS(lastTally)
 	return b
 }
@@ -1183,6 +1272,8 @@ func buildOutreachCustomer(g *outreachCustGroup) outreachCustBuilt {
 			cu.IsSupplierAnywhere = true
 		case "customer":
 			cu.IsCustomerAnywhere = true
+		case "mixed":
+			cu.IsCustomerAnywhere, cu.IsSupplierAnywhere = true, true
 		}
 		if l.lastTallyMS > b.lastTallyMS {
 			b.lastTallyMS = l.lastTallyMS
@@ -1313,7 +1404,7 @@ func (s *Service) GetOutreach(ctx context.Context) (OutreachResult, error) {
 		if err != nil {
 			return out, fmt.Errorf("fold vault %s: %w", vid, err)
 		}
-		f := foldOutreachVault(p)
+		f := foldOutreachVault(p, vaults[vid].currency)
 		vaults[vid].fold = &f
 	}
 
@@ -1402,7 +1493,9 @@ func (s *Service) GetOutreach(ctx context.Context) (OutreachResult, error) {
 			numbers[fl.phone] = true
 			fl.listing.VaultID = v.id
 			fl.listing.VaultName = v.name
-			fl.listing.Currency = v.currency
+			if fl.listing.Currency == "" && len(fl.listing.Balances) == 0 {
+				fl.listing.Currency = v.currency
+			}
 			fl.listing.OwnerName = ownerName
 			fl.listing.OwnerPhone = oPhone
 			fl.listing.Linked = linked[outreachVaultRel{vaultID: v.id, relID: fl.relID}]

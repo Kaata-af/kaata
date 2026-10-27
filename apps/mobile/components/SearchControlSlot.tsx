@@ -9,6 +9,7 @@ export function SearchControlSlot({
   width,
   height,
   collapse = false,
+  animate = true,
   gap = 0,
   isRTL = false,
   style,
@@ -18,6 +19,7 @@ export function SearchControlSlot({
   width: number;
   height: number;
   collapse?: boolean;
+  animate?: boolean;
   gap?: number;
   isRTL?: boolean;
   style?: StyleProp<ViewStyle>;
@@ -27,7 +29,7 @@ export function SearchControlSlot({
   const progress = useRef(new Animated.Value(visible ? 1 : 0)).current;
   useEffect(() => {
     const next = visible ? 1 : 0;
-    if (reducedMotion) {
+    if (!animate || reducedMotion) {
       progress.setValue(next);
       return;
     }
@@ -40,7 +42,7 @@ export function SearchControlSlot({
     });
     animation.start();
     return () => animation.stop();
-  }, [visible, reducedMotion, progress]);
+  }, [visible, animate, reducedMotion, progress]);
   return (
     <Animated.View
       pointerEvents={visible ? "auto" : "none"}
@@ -50,12 +52,18 @@ export function SearchControlSlot({
         style,
         {
           width: collapse
-            ? progress.interpolate({ inputRange: [0, 1], outputRange: [0, width + gap] })
+            ? animate
+              ? progress.interpolate({ inputRange: [0, 1], outputRange: [0, width + gap] })
+              : visible
+                ? width + gap
+                : 0
             : width,
           height,
           flexShrink: 0,
           overflow: "hidden",
-          opacity: progress,
+          // Android's keyboard already moves the row. Commit its dismiss
+          // control at full width instead of resizing the input on JS frames.
+          opacity: animate ? progress : visible ? 1 : 0,
           alignItems: isRTL ? "flex-start" : "flex-end",
         },
         // The surrounding row owns `gap`. Cancel it once, then reveal it as

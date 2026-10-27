@@ -97,6 +97,7 @@ const tabsDb = compile<typeof import("../tabs/db")>("../tabs/db", (name) => {
   if (name === "../ledger-events") return { emitLedgerApplied() {} };
   if (name === "../money") return require("../money");
   if (name === "../entry-date") return require("../entry-date");
+  if (name === "../currency-scope") return require("../currency-scope");
   if (name === "./events") return { emitTabApplied() {} };
   if (name.startsWith("./")) return require("../tabs/" + name.slice(2));
   throw new Error(`Unexpected tab-db dependency ${name}`);
@@ -144,6 +145,7 @@ const flows = compile<typeof import("../tabs/link")>("../tabs/link", (name) => {
     };
   if (name === "../credit-admission") return { hardLimitApplies: async () => false };
   if (name === "../entry-date") return require("../entry-date");
+  if (name === "../currency-scope") return require("../currency-scope");
   if (name === "../money" || name === "../types" || name === "../vault-roles")
     return require("../" + name.slice(3));
   if (name === "../currency") return { applyVaultCurrency: async () => {} };

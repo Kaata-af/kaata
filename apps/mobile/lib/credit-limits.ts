@@ -24,11 +24,19 @@ import { readVaultRole } from "./use-vault-role";
 import { fromMinorUnits, toMinorUnits } from "./money";
 import { signedEntryMinorSumSql } from "./money-sql";
 import { entryRecordedAtSql } from "./entry-date";
+import {
+  getLedgerCurrencyCode,
+  currencySqlLiteral,
+  effectiveEntryCurrencySql,
+  entryCurrencyMatchesSql,
+  requireCurrencyCode,
+} from "./currency-scope";
 import { emitCreditPoliciesChanged } from "./credit-policy-events";
 import { Mutex } from "./util/mutex";
 import { resolveAccountIdCandidates } from "./effective-account";
 import { effectiveRecordedBalanceSql, historyReady } from "./tabs/history";
 import type { TabLink } from "./tabs/types";
+import { currencyRequestHeaders, ensureCurrencySyncSupported } from "./currency-sync";
 
 export class ClerkCloudEnrollmentRequiredError extends Error {}
 export class CreditOnlineSaveRequiredError extends Error {}
@@ -76,21 +84,24 @@ export async function relationshipForCredit(
 export async function readCreditPolicy(
   relationshipId: string,
   vaultId = getActiveVaultIdSyncMaybe(),
+  currencyCode = getLedgerCurrencyCode(),
 ): Promise<CreditPolicy | null> {
   if (!vaultId) return null;
   const db = await getDb();
   if (relationshipId === KAATA_DEFAULT_CREDIT_ID) {
     const row = await db.getFirstAsync<CreditPolicy>(
-      "SELECT ? AS relationship_id,max_collect_minor,max_pay_minor,mode,updated_at_ms,restrict_editors FROM kaata_credit_defaults WHERE vault_id=?",
+      "SELECT ? AS relationship_id,currency,max_collect_minor,max_pay_minor,mode,updated_at_ms,restrict_editors FROM kaata_credit_defaults WHERE vault_id=? AND currency=?",
       KAATA_DEFAULT_CREDIT_ID,
       vaultId,
+      currencyCode,
     );
     return row ? { ...row, restrict_editors: !!row.restrict_editors } : null;
   }
   const row = await db.getFirstAsync<CreditPolicy>(
-    "SELECT relationship_id,max_collect_minor,max_pay_minor,mode,updated_at_ms,restrict_editors FROM customer_credit_limits WHERE vault_id=? AND relationship_id=?",
+    "SELECT relationship_id,currency,max_collect_minor,max_pay_minor,mode,updated_at_ms,restrict_editors FROM customer_credit_limits WHERE vault_id=? AND relationship_id=? AND currency=?",
     vaultId,
     relationshipId,
+    currencyCode,
   );
   return row ? { ...row, restrict_editors: !!row.restrict_editors } : null;
 }
@@ -99,12 +110,13 @@ export async function readCreditPolicy(
 export async function readEffectiveCreditPolicy(
   relationshipId: string,
   vaultId = getActiveVaultIdSyncMaybe(),
+  currencyCode = getLedgerCurrencyCode(),
 ): Promise<CreditPolicy | null> {
   return (
-    (await readCreditPolicy(relationshipId, vaultId)) ??
+    (await readCreditPolicy(relationshipId, vaultId, currencyCode)) ??
     (relationshipId === KAATA_DEFAULT_CREDIT_ID
       ? null
-      : await readCreditPolicy(KAATA_DEFAULT_CREDIT_ID, vaultId))
+      : await readCreditPolicy(KAATA_DEFAULT_CREDIT_ID, vaultId, currencyCode))
   );
 }
 
@@ -112,16 +124,18 @@ export async function creditBalanceInTx(
   tx: SQLiteTx,
   vaultId: string,
   relationshipId: string,
+  currencyCode = getLedgerCurrencyCode(),
 ): Promise<number> {
   const links = await tx.getAllAsync<TabLink>(
-    "SELECT * FROM tab_links WHERE vault_id=? AND relationship_id=? ORDER BY CAST(history_order AS INTEGER) DESC,linked_at DESC",
+    "SELECT * FROM tab_links WHERE vault_id=? AND relationship_id=? AND currency=? ORDER BY CAST(history_order AS INTEGER) DESC,linked_at DESC",
     vaultId,
     relationshipId,
+    currencyCode,
   );
   if (!historyReady(links)) throw new Error("shared_history_refresh_required");
   const link = links[0];
   const local = await tx.getFirstAsync<{ balance: number }>(
-    `SELECT ${signedEntryMinorSumSql("e", `e.disputed_at IS NULL AND (? IS NULL OR ${entryRecordedAtSql("e")} > ?)`)} AS balance FROM entries e WHERE e.vault_id=? AND e.relationship_id=?`,
+    `SELECT ${signedEntryMinorSumSql("e", `e.disputed_at IS NULL AND (? IS NULL OR ${entryRecordedAtSql("e")} > ?)`)} AS balance FROM entries e WHERE e.vault_id=? AND e.relationship_id=? AND ${entryCurrencyMatchesSql("e", currencyCode)}`,
     link?.linked_at ?? null,
     link?.linked_at ?? null,
     link?.linked_at ?? null,
@@ -163,7 +177,7 @@ async function uploadPendingCreditPoliciesInner(
   if (role !== "owner" && role !== "manager") return;
   const db = await getDb();
   const pending = await db.getAllAsync<CreditPolicy>(
-    "SELECT relationship_id,max_collect_minor,max_pay_minor,mode,updated_at_ms,restrict_editors FROM customer_credit_limits WHERE vault_id=? AND sync_pending=1",
+    "SELECT relationship_id,currency,max_collect_minor,max_pay_minor,mode,updated_at_ms,restrict_editors FROM customer_credit_limits WHERE vault_id=? AND sync_pending=1",
     vaultId,
   );
   if (!pending.length) return;
@@ -174,25 +188,35 @@ async function uploadPendingCreditPoliciesInner(
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 10000);
     try {
+      await ensureCurrencySyncSupported(base, session.jwt, controller.signal);
       const res = await fetch(
         `${base}/v1/sync/credit-limits?vault_id=${encodeURIComponent(vaultId)}`,
         {
           method: "PUT",
-          headers: { Authorization: `Bearer ${session.jwt}`, "Content-Type": "application/json" },
+          headers: {
+            ...(await currencyRequestHeaders(await getDb(), vaultId)),
+            Authorization: `Bearer ${session.jwt}`,
+            "Content-Type": "application/json",
+          },
           body: JSON.stringify({ ...p, restrict_editors: !!p.restrict_editors }),
           signal: controller.signal,
         },
       );
       await requirePolicyResponse(res, "publish");
       const saved = (await res.json()) as CreditPolicy;
-      if (!validCreditPolicy(saved) || saved.relationship_id !== p.relationship_id)
+      saved.currency ??= p.currency;
+      if (
+        !validCreditPolicy(saved) ||
+        saved.relationship_id !== p.relationship_id ||
+        saved.currency !== p.currency
+      )
         throw new Error("Invalid credit response");
       await applyForCurrentSession(session, async () => {
         const { applyEventMutex } = await import("./projection");
         await applyEventMutex.runExclusive(() =>
           db.withTransactionAsync(async () => {
             await db.runAsync(
-              "UPDATE customer_credit_limits SET max_collect_minor=?,max_pay_minor=?,mode=?,updated_at_ms=?,restrict_editors=?,sync_pending=0 WHERE vault_id=? AND relationship_id=? AND sync_pending=1 AND updated_at_ms=?",
+              "UPDATE customer_credit_limits SET max_collect_minor=?,max_pay_minor=?,mode=?,updated_at_ms=?,restrict_editors=?,sync_pending=0 WHERE vault_id=? AND relationship_id=? AND currency=? AND sync_pending=1 AND updated_at_ms=?",
               saved.max_collect_minor,
               saved.max_pay_minor,
               saved.mode,
@@ -200,6 +224,7 @@ async function uploadPendingCreditPoliciesInner(
               Number(!!saved.restrict_editors),
               vaultId,
               p.relationship_id,
+              p.currency!,
               p.updated_at_ms,
             );
           }),
@@ -227,7 +252,13 @@ export async function refreshCreditPolicies(
   try {
     const res = await fetch(
       `${base}/v1/sync/credit-limits?vault_id=${encodeURIComponent(vaultId)}`,
-      { headers: { Authorization: `Bearer ${session.jwt}` }, signal: controller.signal },
+      {
+        headers: {
+          ...(await currencyRequestHeaders(await getDb(), vaultId)),
+          Authorization: `Bearer ${session.jwt}`,
+        },
+        signal: controller.signal,
+      },
     );
     if (!res.ok) throw new Error(`Credit policy fetch ${res.status}`);
     const policies = (await res.json()) as CreditPolicy[];
@@ -251,6 +282,7 @@ export async function refreshCreditPolicies(
 
 /** A clerk tally a limit stopped, as the server recorded it. */
 export type CreditRefusal = {
+  currency?: string;
   relationship_id: string;
   type: "debt" | "payment";
   amount_minor: number;
@@ -267,19 +299,27 @@ const refusalCache = new Map<string, { at: number; jwt: string; rows: CreditRefu
 export async function fetchCreditRefusals(
   vaultId: string,
   expected?: SessionSnapshot,
+  currencyCode = getLedgerCurrencyCode(),
 ): Promise<CreditRefusal[]> {
   const session = expected ?? (await captureCurrentSession());
   if (!session.jwt) return [];
   const role = await readVaultRole(vaultId, session.accountId);
   if (role !== "owner" && role !== "manager") return [];
-  const cached = refusalCache.get(vaultId);
+  const cacheKey = `${vaultId}:${currencyCode}`;
+  const cached = refusalCache.get(cacheKey);
   if (cached && cached.jwt === session.jwt && Date.now() - cached.at < 60_000) return cached.rows;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 10000);
   try {
     const res = await fetch(
-      `${await getBackendUrl()}/v1/sync/credit-refusals?vault_id=${encodeURIComponent(vaultId)}`,
-      { headers: { Authorization: `Bearer ${session.jwt}` }, signal: controller.signal },
+      `${await getBackendUrl()}/v1/sync/credit-refusals?vault_id=${encodeURIComponent(vaultId)}&currency=${encodeURIComponent(currencyCode)}`,
+      {
+        headers: {
+          ...(await currencyRequestHeaders(await getDb(), vaultId)),
+          Authorization: `Bearer ${session.jwt}`,
+        },
+        signal: controller.signal,
+      },
     );
     if (!res.ok) return cached?.jwt === session.jwt ? cached.rows : [];
     const body = (await res.json()) as { refusals?: unknown };
@@ -293,8 +333,19 @@ export async function fetchCreditRefusals(
         typeof (r as CreditRefusal).actor_name === "string" &&
         Number.isSafeInteger((r as CreditRefusal).refused_at_ms),
     );
-    refusalCache.set(vaultId, { at: Date.now(), jwt: session.jwt, rows });
-    return rows;
+    const db = await getDb();
+    const legacy =
+      (
+        await db.getFirstAsync<{ currency: string }>(
+          "SELECT COALESCE(legacy_currency,currency,'AFN') AS currency FROM vaults WHERE id=?",
+          vaultId,
+        )
+      )?.currency ?? "AFN";
+    const scoped = rows
+      .map((row) => ({ ...row, currency: row.currency ?? legacy }))
+      .filter((row) => row.currency === currencyCode);
+    refusalCache.set(cacheKey, { at: Date.now(), jwt: session.jwt, rows: scoped });
+    return scoped;
   } catch {
     return cached?.jwt === session.jwt ? cached.rows : [];
   } finally {
@@ -306,7 +357,12 @@ export async function saveCreditPolicy(
   vaultId: string,
   p: CreditPolicy,
   expected?: SessionSnapshot,
+  currencyCode?: string,
 ): Promise<CreditPolicy> {
+  p = {
+    ...p,
+    currency: requireCurrencyCode(currencyCode ?? p.currency ?? getLedgerCurrencyCode()),
+  };
   const session = expected ?? (await captureCurrentSession());
   return policyMutex(vaultId).runExclusive(() => saveCreditPolicyInner(vaultId, p, session));
 }
@@ -360,18 +416,28 @@ async function saveCreditPolicyInner(
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 10000);
     try {
+      await ensureCurrencySyncSupported(base, session.jwt, controller.signal);
       const res = await fetch(
         `${base}/v1/sync/credit-limits?vault_id=${encodeURIComponent(vaultId)}`,
         {
           method: "PUT",
-          headers: { Authorization: `Bearer ${session.jwt}`, "Content-Type": "application/json" },
+          headers: {
+            ...(await currencyRequestHeaders(await getDb(), vaultId)),
+            Authorization: `Bearer ${session.jwt}`,
+            "Content-Type": "application/json",
+          },
           body: JSON.stringify(p),
           signal: controller.signal,
         },
       );
       await requirePolicyResponse(res, "save");
       saved = (await res.json()) as CreditPolicy;
-      if (!validCreditPolicy(saved) || saved.relationship_id !== p.relationship_id)
+      saved.currency ??= p.currency;
+      if (
+        !validCreditPolicy(saved) ||
+        saved.relationship_id !== p.relationship_id ||
+        saved.currency !== p.currency
+      )
         throw new Error("Invalid credit response");
     } finally {
       clearTimeout(timer);
@@ -384,8 +450,9 @@ async function saveCreditPolicyInner(
       db.withTransactionAsync(async () => {
         if (kaataDefault) {
           await db.runAsync(
-            "INSERT INTO kaata_credit_defaults(vault_id,max_collect_minor,max_pay_minor,mode,updated_at_ms,restrict_editors) VALUES(?,?,?,?,?,?) ON CONFLICT(vault_id) DO UPDATE SET max_collect_minor=excluded.max_collect_minor,max_pay_minor=excluded.max_pay_minor,mode=excluded.mode,updated_at_ms=excluded.updated_at_ms,restrict_editors=excluded.restrict_editors WHERE kaata_credit_defaults.updated_at_ms<=excluded.updated_at_ms",
+            "INSERT INTO kaata_credit_defaults(vault_id,currency,max_collect_minor,max_pay_minor,mode,updated_at_ms,restrict_editors) VALUES(?,?,?,?,?,?,?) ON CONFLICT(vault_id,currency) DO UPDATE SET max_collect_minor=excluded.max_collect_minor,max_pay_minor=excluded.max_pay_minor,mode=excluded.mode,updated_at_ms=excluded.updated_at_ms,restrict_editors=excluded.restrict_editors WHERE kaata_credit_defaults.updated_at_ms<=excluded.updated_at_ms",
             vaultId,
+            saved.currency!,
             saved.max_collect_minor,
             saved.max_pay_minor,
             saved.mode,
@@ -395,9 +462,10 @@ async function saveCreditPolicyInner(
           return;
         }
         await db.runAsync(
-          "INSERT INTO customer_credit_limits(vault_id,relationship_id,max_collect_minor,max_pay_minor,mode,updated_at_ms,restrict_editors,sync_pending) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(vault_id,relationship_id) DO UPDATE SET max_collect_minor=excluded.max_collect_minor,max_pay_minor=excluded.max_pay_minor,mode=excluded.mode,updated_at_ms=excluded.updated_at_ms,restrict_editors=excluded.restrict_editors,sync_pending=excluded.sync_pending WHERE customer_credit_limits.updated_at_ms<=excluded.updated_at_ms OR customer_credit_limits.sync_pending=1",
+          "INSERT INTO customer_credit_limits(vault_id,relationship_id,currency,max_collect_minor,max_pay_minor,mode,updated_at_ms,restrict_editors,sync_pending) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(vault_id,relationship_id,currency) DO UPDATE SET max_collect_minor=excluded.max_collect_minor,max_pay_minor=excluded.max_pay_minor,mode=excluded.mode,updated_at_ms=excluded.updated_at_ms,restrict_editors=excluded.restrict_editors,sync_pending=excluded.sync_pending WHERE customer_credit_limits.updated_at_ms<=excluded.updated_at_ms OR customer_credit_limits.sync_pending=1",
           vaultId,
           saved.relationship_id,
+          saved.currency!,
           saved.max_collect_minor,
           saved.max_pay_minor,
           saved.mode,
@@ -428,12 +496,13 @@ export function creditStatusForBalance(
 
 export async function readCreditPoliciesForPeople(
   vaultId: string,
+  currencyCode = getLedgerCurrencyCode(),
 ): Promise<Record<string, CreditPolicy>> {
   const db = await getDb();
   // Each customer's own limit, else the kaata default (so home colours a
   // customer the default covers too).
   const rows = await db.getAllAsync<CreditPolicy & { person_id: string }>(
-    `SELECT r.user_b_id AS person_id,
+    `SELECT r.user_b_id AS person_id,${currencySqlLiteral(currencyCode)} AS currency,
             CASE WHEN p.relationship_id IS NOT NULL THEN p.relationship_id ELSE ? END AS relationship_id,
             CASE WHEN p.relationship_id IS NOT NULL THEN p.max_collect_minor ELSE d.max_collect_minor END AS max_collect_minor,
             CASE WHEN p.relationship_id IS NOT NULL THEN p.max_pay_minor ELSE d.max_pay_minor END AS max_pay_minor,
@@ -441,8 +510,8 @@ export async function readCreditPoliciesForPeople(
             CASE WHEN p.relationship_id IS NOT NULL THEN p.updated_at_ms ELSE d.updated_at_ms END AS updated_at_ms,
             CASE WHEN p.relationship_id IS NOT NULL THEN p.restrict_editors ELSE d.restrict_editors END AS restrict_editors
        FROM relationships r
-       LEFT JOIN customer_credit_limits p ON p.vault_id=r.vault_id AND p.relationship_id=r.id
-       LEFT JOIN kaata_credit_defaults d ON d.vault_id=r.vault_id
+       LEFT JOIN customer_credit_limits p ON p.vault_id=r.vault_id AND p.relationship_id=r.id AND p.currency=${currencySqlLiteral(currencyCode)}
+       LEFT JOIN kaata_credit_defaults d ON d.vault_id=r.vault_id AND d.currency=${currencySqlLiteral(currencyCode)}
       WHERE r.vault_id=? AND r.archived_at IS NULL
         AND (p.relationship_id IS NOT NULL OR d.vault_id IS NOT NULL)`,
     KAATA_DEFAULT_CREDIT_ID,
@@ -458,13 +527,14 @@ export async function creditWarning(
   type: "debt" | "payment",
   amount: number,
   vaultId = getActiveVaultIdSyncMaybe(),
+  currencyCode = getLedgerCurrencyCode(),
 ): Promise<boolean> {
   if (!vaultId) return false;
   const relationshipId = await relationshipForCredit(personId, vaultId);
-  const policy = await readEffectiveCreditPolicy(relationshipId, vaultId);
+  const policy = await readEffectiveCreditPolicy(relationshipId, vaultId, currencyCode);
   if (!policy) return false;
   const db = await getDb();
-  const before = await creditBalanceInTx(db, vaultId, relationshipId);
+  const before = await creditBalanceInTx(db, vaultId, relationshipId, currencyCode);
   return creditExceeded(policy, before, before + (type === "debt" ? 1 : -1) * toMinorUnits(amount));
 }
 
@@ -483,20 +553,22 @@ export async function creditWarningForEdit(
     type: "debt" | "payment";
     amount_afn: number;
     disputed_at: number | null;
+    currency: string;
   }>(
-    "SELECT relationship_id,type,amount_afn,disputed_at FROM entries WHERE id=? AND vault_id=?",
+    `SELECT relationship_id,type,amount_afn,disputed_at,${effectiveEntryCurrencySql("entries")} AS currency FROM entries WHERE id=? AND vault_id=?`,
     entryId,
     vaultId,
   );
   if (!row || row.disputed_at != null) return false;
-  const policy = await readEffectiveCreditPolicy(row.relationship_id, vaultId);
+  const policy = await readEffectiveCreditPolicy(row.relationship_id, vaultId, row.currency);
   if (!policy) return false;
-  const before = await creditBalanceInTx(db, vaultId, row.relationship_id);
+  const before = await creditBalanceInTx(db, vaultId, row.relationship_id, row.currency);
   const change = toMinorUnits(amount) - toMinorUnits(row.amount_afn);
   return creditExceeded(policy, before, before + (row.type === "debt" ? 1 : -1) * change);
 }
 
 export type CreditIntent = {
+  currency?: string;
   id: string;
   type: "debt" | "payment";
   amount_afn: number;
@@ -508,11 +580,16 @@ export type CreditIntent = {
 export async function listCreditIntents(
   personId: string,
   vaultId = getActiveVaultIdSyncMaybe(),
+  currencyCode = getLedgerCurrencyCode(),
+  options?: { allCurrencies?: boolean },
 ): Promise<CreditIntent[]> {
   if (!vaultId) return [];
   const rel = await relationshipForCredit(personId, vaultId);
   const db = await getDb();
+  const entryCurrency =
+    "COALESCE(json_extract(e.payload_json,'$.currency'),x.currency,(SELECT COALESCE(v.legacy_currency,v.currency,'AFN') FROM vaults v WHERE v.id=e.vault_id),'AFN')";
   const rows = await db.getAllAsync<{
+    currency: string;
     event_id: string;
     payload_json: string;
     status: "pending" | "refused";
@@ -522,7 +599,7 @@ export async function listCreditIntents(
     entry_amount: number | null;
     entry_note: string | null;
   }>(
-    "SELECT i.event_id,e.payload_json,e.event_type,e.appended_at,i.status,x.type AS entry_type,x.amount_afn AS entry_amount,x.note AS entry_note FROM credit_admission_intents i JOIN event_log e ON e.event_id=i.event_id LEFT JOIN entries x ON x.id=e.target_id AND x.vault_id=e.vault_id WHERE i.vault_id=? AND i.relationship_id=? AND e.server_acked_at IS NULL ORDER BY e.appended_at DESC",
+    `SELECT ${entryCurrency} AS currency,i.event_id,e.payload_json,e.event_type,e.appended_at,i.status,x.type AS entry_type,x.amount_afn AS entry_amount,x.note AS entry_note FROM credit_admission_intents i JOIN event_log e ON e.event_id=i.event_id LEFT JOIN entries x ON x.id=e.target_id AND x.vault_id=e.vault_id WHERE i.vault_id=? AND i.relationship_id=? AND e.server_acked_at IS NULL ${options?.allCurrencies ? "" : `AND ${entryCurrency}=${currencySqlLiteral(currencyCode)}`} ORDER BY e.appended_at DESC`,
     vaultId,
     rel,
   );
@@ -530,6 +607,7 @@ export async function listCreditIntents(
     const p = JSON.parse(r.payload_json);
     return {
       id: r.event_id,
+      currency: r.currency,
       type: p.type ?? p.changes?.type ?? r.entry_type ?? "debt",
       amount_afn: p.amount_afn ?? p.changes?.amount_afn ?? r.entry_amount ?? 0,
       note: p.note ?? p.changes?.note ?? r.entry_note,
@@ -542,7 +620,10 @@ export async function listCreditIntents(
           : {}),
     };
   });
+  const tabCurrencyFilter = options?.allCurrencies ? "" : " AND l.currency=?";
+  const tabParams = options?.allCurrencies ? [vaultId, rel] : [vaultId, rel, currencyCode];
   const ops = await db.getAllAsync<{
+    currency: string;
     id: string;
     payload: string;
     role: "a" | "b";
@@ -553,17 +634,16 @@ export async function listCreditIntents(
     entry_amount_minor: number | null;
     entry_note: string | null;
   }>(
-    "SELECT o.id,o.payload,l.role,o.created_at,'pending' AS admission_status,o.op,x.direction AS entry_direction,x.amount_minor AS entry_amount_minor,x.note AS entry_note FROM tab_outbox o JOIN tab_links l ON l.tab_id=o.tab_id LEFT JOIN tab_entries x ON x.id=json_extract(o.payload,'$.entry_id') AND x.tab_id=o.tab_id WHERE l.vault_id=? AND l.relationship_id=? AND ((o.op='append' AND NOT EXISTS(SELECT 1 FROM tab_entries e WHERE e.id=o.id)) OR (o.op IN ('accept','dispute','void') AND COALESCE(x.local_action_pending,0)=0)) UNION ALL SELECT o.id,o.payload,l.role,o.created_at,'refused' AS admission_status,o.op,x.direction AS entry_direction,x.amount_minor AS entry_amount_minor,x.note AS entry_note FROM tab_failed_ops o JOIN tab_links l ON l.tab_id=o.tab_id LEFT JOIN tab_entries x ON x.id=json_extract(o.payload,'$.entry_id') AND x.tab_id=o.tab_id WHERE l.vault_id=? AND l.relationship_id=? AND o.op IN ('append','accept','dispute','void') AND o.reason='credit_limit_exceeded'",
-    vaultId,
-    rel,
-    vaultId,
-    rel,
+    `SELECT l.currency,o.id,o.payload,l.role,o.created_at,'pending' AS admission_status,o.op,x.direction AS entry_direction,x.amount_minor AS entry_amount_minor,x.note AS entry_note FROM tab_outbox o JOIN tab_links l ON l.tab_id=o.tab_id LEFT JOIN tab_entries x ON x.id=json_extract(o.payload,'$.entry_id') AND x.tab_id=o.tab_id WHERE l.vault_id=? AND l.relationship_id=?${tabCurrencyFilter} AND ((o.op='append' AND NOT EXISTS(SELECT 1 FROM tab_entries e WHERE e.id=o.id)) OR (o.op IN ('accept','dispute','void') AND COALESCE(x.local_action_pending,0)=0)) UNION ALL SELECT l.currency,o.id,o.payload,l.role,o.created_at,'refused' AS admission_status,o.op,x.direction AS entry_direction,x.amount_minor AS entry_amount_minor,x.note AS entry_note FROM tab_failed_ops o JOIN tab_links l ON l.tab_id=o.tab_id LEFT JOIN tab_entries x ON x.id=json_extract(o.payload,'$.entry_id') AND x.tab_id=o.tab_id WHERE l.vault_id=? AND l.relationship_id=?${tabCurrencyFilter} AND o.op IN ('append','accept','dispute','void') AND o.reason='credit_limit_exceeded'`,
+    ...tabParams,
+    ...tabParams,
   );
   for (const o of ops) {
     const p = JSON.parse(o.payload);
     const direction = p.direction ?? o.entry_direction;
     out.push({
       id: o.id,
+      currency: o.currency,
       type: (o.role === "a" ? direction === "a_to_b" : direction === "b_to_a") ? "debt" : "payment",
       amount_afn: p.amount == null ? fromMinorUnits(o.entry_amount_minor ?? 0) : Number(p.amount),
       note: p.note ?? o.entry_note,
@@ -572,7 +652,11 @@ export async function listCreditIntents(
       ...(o.op !== "append" ? { mutation: o.op } : {}),
     });
   }
-  return out;
+  return options?.allCurrencies
+    ? [...new Map(out.map((row) => [row.id, row])).values()].sort(
+        (a, b) => b.created_at - a.created_at || b.id.localeCompare(a.id),
+      )
+    : out;
 }
 
 export async function finishCreditAdmission(

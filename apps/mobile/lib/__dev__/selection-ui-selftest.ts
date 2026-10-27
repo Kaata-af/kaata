@@ -43,13 +43,19 @@ const native = {
   StyleSheet: { create: (styles: unknown) => styles, hairlineWidth: 1 },
   Text: "Text",
   View: "View",
+  ScrollView: "ScrollView",
+  useWindowDimensions: () => ({ width: 390, height: 844 }),
 };
 const shared = {
   "react/jsx-runtime": { jsx, jsxs: jsx },
   "react-native": native,
   "@expo/vector-icons": { Ionicons: "Icon" },
   "../lib/colors": { colors },
-  "../lib/currency": { getCurrentCurrencySymbol: () => "AFN" },
+  "../lib/currency": {
+    getCurrentCurrencySymbol: () => "AFN",
+    getCurrentCurrencyCode: () => "AFN",
+    getCurrencyLabel: (code: string) => code,
+  },
   "../lib/direction": direction,
   "../lib/format": { formatAmount: formatMoneyAmount },
   "../lib/i18n": i18n,
@@ -60,11 +66,14 @@ const { SelectionToolbar } = compileUI("../../components/SelectionToolbar", shar
 const { SelectionMark } = compileUI("../../components/SelectionMark", shared);
 const { PersonRow } = compileUI("../../components/PersonRow", {
   ...shared,
-  react: { memo: (component: unknown) => component },
+  react: { memo: (component: unknown) => component, useRef: (current: unknown) => ({ current }) },
   "./SharedAccountBadge": { SharedAccountBadge: "SharedAccountBadge" },
   "./CreditStatusBadge": { CreditStatusBadge: "CreditStatusBadge" },
   "./SelectionMark": { SelectionMark },
-  "../lib/currency": { getCurrentCurrencySymbol: () => "AFN" },
+  "../lib/currency": shared["../lib/currency"],
+  "../lib/multi-currency-view": {
+    personCurrencyRows: (person: any) => person.currency_balances ?? [person],
+  },
   "../lib/fonts": { fonts },
   "../lib/format": { formatAmount: String, formatRelative: () => "yesterday" },
 });
@@ -239,6 +248,26 @@ for (const locale of ["en", "fa", "ps"] as const) {
     ...props,
     financialSummary: { ...financialSummary, pending: true },
   });
+  const multi = SelectionToolbar({
+    ...props,
+    financialSummaries: [
+      { currency: "AFN", summary: financialSummary },
+      {
+        currency: "USD",
+        summary: { ...financialSummary, debt: 0, collect: 0, credit: 20.2, pay: 20.2, net: -20.2 },
+      },
+    ],
+  });
+  assert.ok(textContent(multi).includes("AFN") && textContent(multi).includes("USD"));
+  assert.ok(nodes(multi).some((node) => node.props.accessibilityLabel?.includes("20.20 USD")));
+  const metricScroll = nodes(multi).find((node) => node.type === "ScrollView")!;
+  assert.equal(styleOf(metricScroll).maxHeight, 160);
+  assert.equal(metricScroll.props.nestedScrollEnabled, true);
+  assert.equal(
+    nodes(metricScroll).some((node) => node.props.accessibilityLabel === i18n.t("selection.close")),
+    false,
+    "Summary scroll leaves controls fixed",
+  );
   assert.ok(visibleText(unavailable).includes(i18n.t("selection.summary.unavailable")));
   assert.ok(visibleText(unavailable).includes(i18n.t("selection.summary.remaining")));
   assert.equal(
@@ -402,11 +431,11 @@ for (const locale of ["en", "fa", "ps"] as const) {
   }
   assert.equal(PersonRow({ person, onPress: () => opened++ }).props.accessibilityRole, "button");
 
-  // Search uses a sign directly beside each known live balance. The homepage's
-  // single-direction tabs keep their neutral, unsigned amounts.
+  // Mixed home and search rows use a sign beside each known live balance.
+  // Callers that omit showDirection retain the component's unsigned option.
   for (const [balance, key, color] of [
-    [20, "home.tab.collect", colors.collectText],
-    [-20, "home.tab.pay", colors.payText],
+    [20, "home.tab.collect", colors.collectStrong],
+    [-20, "home.tab.pay", colors.payStrong],
   ] as const) {
     const row = PersonRow({
       person: { ...person, balance },
@@ -418,7 +447,7 @@ for (const locale of ["en", "fa", "ps"] as const) {
     assert.equal(
       rowNodes.some((node) => node.type === "Text" && textContent(node) === i18n.t(key)),
       false,
-      "Search does not repeat direction as a subtitle",
+      "Mixed rows do not repeat direction as a subtitle",
     );
     const signedAmount = balance > 0 ? "+20" : "−20";
     const amount = rowNodes.find(
@@ -427,25 +456,25 @@ for (const locale of ["en", "fa", "ps"] as const) {
     assert.ok(amount, "The sign and amount share one text node");
     assert.equal(styleOf(amount).color, color);
     assert.equal(styleOf(amount).writingDirection, "ltr", "The sign stays before the number");
-    assert.equal(amount.props.accessibilityLabel, `${i18n.t(key)}, 20`);
+    assert.equal(amount.props.accessibilityLabel, `${i18n.t(key)}, 20 AFN`);
     assert.ok(
       rowNodes.indexOf(amount) < rowNodes.findIndex((node) => node.type === "CreditStatusBadge"),
       "Credit-limit status stays below the signed amount",
     );
 
-    const home = PersonRow({ person: { ...person, balance }, onPress: () => undefined });
+    const unsigned = PersonRow({ person: { ...person, balance }, onPress: () => undefined });
     assert.equal(
-      nodes(home).some((node) => node.type === "Text" && textContent(node) === i18n.t(key)),
+      nodes(unsigned).some((node) => node.type === "Text" && textContent(node) === i18n.t(key)),
       false,
-      "Ordinary homepage rows do not repeat their containing tab's direction",
+      "Unsigned rows do not add a direction label",
     );
-    const homeAmount = nodes(home).find(
+    const unsignedAmount = nodes(unsigned).find(
       (node) => node.type === "Text" && textContent(node) === "20",
     )!;
-    assert.equal(styleOf(homeAmount).color, colors.textEmphasis);
-    assert.equal(homeAmount.props.accessibilityLabel, undefined);
+    assert.equal(styleOf(unsignedAmount).color, color);
+    assert.equal(unsignedAmount.props.accessibilityLabel, `${i18n.t(key)}, 20 AFN`);
     assert.equal(
-      nodes(home).some((node) => node.type === "Text" && textContent(node) === signedAmount),
+      nodes(unsigned).some((node) => node.type === "Text" && textContent(node) === signedAmount),
       false,
     );
   }

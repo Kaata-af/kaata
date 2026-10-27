@@ -1,33 +1,24 @@
-import type { ScrollViewInstance } from "react-native";
+import type { ScrollViewInstance, TextInputInstance, ViewInstance } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import {
-  Redirect,
-  useFocusEffect as useRouteFocusEffect,
-  useLocalSearchParams,
-  useRouter,
-} from "expo-router";
-import { useSearchFocusEffect as useFocusEffect } from "../lib/use-search-focus-effect";
+import { BlurTargetView } from "expo-blur";
+import { Redirect, useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   AppState,
-  Animated,
   BackHandler,
   Image,
   Keyboard,
-  KeyboardAvoidingView,
   Linking,
   Platform,
   Pressable,
-  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
-  useWindowDimensions,
+  TextInput,
   View,
 } from "react-native";
-import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { BottomSheet } from "../components/BottomSheet";
 import { CustomerListOptions } from "../components/CustomerListSheet";
@@ -37,20 +28,28 @@ import { EmptyState } from "../components/EmptyState";
 import { InitialAvatar } from "../components/InitialAvatar";
 import { NotificationBell } from "../components/NotificationInbox";
 import { PersonRow } from "../components/PersonRow";
-import { SearchFieldTrigger } from "../components/SearchFieldTrigger";
-import { SearchSheet } from "../components/SearchSheet";
-import { afterNativeSearchClosed } from "../lib/native-search";
+import { HomeBalanceSummary } from "../components/HomeBalanceSummary";
+import {
+  HomeFilterPopover,
+  type FilterAnchor,
+  type FilterViewport,
+} from "../components/HomeFilterPopover";
 import { SelectionToolbar } from "../components/SelectionToolbar";
-import { summarizeSelectedPeople } from "../lib/selection-summary";
-import { ProfileSettingsSheet, type VaultListItem } from "../components/ProfileSettingsSheet";
-import { Tabs } from "../components/Tabs";
-import { useToast, useToastOffset } from "../components/Toast";
+import { SearchKeyboardFrame, SearchKeyboardFooter } from "../components/SearchKeyboardMotion";
+import {
+  currencyBalances,
+  personCurrencyRows,
+  selectedPeopleByCurrency,
+} from "../lib/multi-currency-view";
+import type { VaultListItem } from "../components/ProfileSettingsSheet";
+import { ProfileSettingsSource } from "../lib/profile-settings-context";
+import { useToast } from "../components/Toast";
 import { UpdateBanner } from "../components/UpdateBanner";
 import { useAppMeta } from "../lib/app-meta-context";
 import { colors } from "../lib/colors";
 import { splitSearchQuery } from "../lib/contacts-merge";
 import { searchCustomerMatches } from "../lib/search";
-import { applyVaultCurrency, getCurrentCurrencySymbol } from "../lib/currency";
+import { applyVaultCurrency, getCurrentCurrencyCode, useCurrency } from "../lib/currency";
 import { VaultPickerSheet } from "../components/VaultPickerSheet";
 import { getSessionUser, type SessionUser, signOut } from "../lib/auth";
 import {
@@ -61,6 +60,7 @@ import {
   getLocalSelf,
   listActiveVaults,
   listAllPeopleForSearch,
+  type CurrencyBalanceSummary,
   listAllVaultsIncludingArchived,
   setAppMeta,
 } from "../lib/db";
@@ -74,14 +74,9 @@ import {
 } from "../lib/db-tx";
 import { readCustomerGroups, type CustomerGroup } from "../lib/customer-groups";
 import {
-  customerSide,
   availableCustomerGroupFilter,
   DEFAULT_CUSTOMER_LIST,
-  DEFAULT_CUSTOMER_SEARCH,
-  isNeverTalliedCustomer,
-  parseCustomerSearchPreference,
-  selectCustomers,
-  selectNeverTalliedCustomers,
+  parseHomeCustomerListPreference,
   selectSearchCustomers,
   selectedCustomerGroupIds,
   type CustomerListPreference,
@@ -95,13 +90,8 @@ import {
 import { onCreditPoliciesChanged } from "../lib/credit-policy-events";
 import type { CreditStatus } from "../components/CreditStatusBadge";
 import { useLedgerRefresh } from "../lib/ledger-events";
-import { useHomePageTransition } from "../lib/use-home-page-transition";
-import { syncActiveVaultNow } from "../lib/sync/scheduler";
-import { syncAllTabs } from "../lib/tabs/sync";
-import { bidiIsolate, rowDir, textDir, trackingSafe, useIsRTL } from "../lib/direction";
+import { rowDir, textDir, useIsRTL } from "../lib/direction";
 import { fonts, sansLineHeight } from "../lib/fonts";
-import { formatAmount } from "../lib/format";
-import { sumAmounts } from "../lib/money";
 import { getLocale, t } from "../lib/i18n";
 import { icon, typography } from "../lib/tokens";
 import { useActiveVaultWriteCaps } from "../lib/use-vault-role";
@@ -114,7 +104,7 @@ import {
   markOemAutostartPrompted,
   openOemAutostartSettings,
 } from "../lib/battery-exemption";
-import type { Direction, PersonWithBalance, Self } from "../lib/types";
+import type { PersonWithBalance, Self } from "../lib/types";
 
 // Header profile-slot diameter. One constant for ALL THREE variants (Google
 // photo, initial-letter chip, signed-out icon) so the top-right chrome never
@@ -123,29 +113,10 @@ import type { Direction, PersonWithBalance, Self } from "../lib/types";
 // Apple sign-in has no photo URL so the letter chip is the steady state.
 const PROFILE_SLOT_SIZE = 36;
 
-// Add button and search share the 52px action height used by the other docks.
+// Keep the add button at the 52px action height used by the other docks.
 const FAB_SIZE = 52;
 const EMPTY_PEOPLE: PersonWithBalance[] = [];
-const EMPTY_SEARCH_MATCHES = {
-  people: EMPTY_PEOPLE,
-  relevanceById: new Map<string, number>(),
-};
-
-// Tab labels are computed at render time so locale changes (after a hot reload
-// during dev) flow through. The keys remain stable identifiers.
-function buildTabs() {
-  return [
-    { key: "collect" as const, label: t("home.tab.collect") },
-    { key: "pay" as const, label: t("home.tab.pay") },
-  ];
-}
-
-// Velocity (px/s) at or above which a "flick" commits the tab switch even with
-// a small drag distance. Standard mobile UX values land around 400-600 px/s.
-const FLICK_VELOCITY = 500;
-// Drag distance (as a fraction of screen width) at or above which a slow drag
-// commits even without a flick. 30% is the common iOS/Material convention.
-const DRAG_COMMIT_FRACTION = 0.3;
+const EMPTY_SEARCH_RELEVANCE = new Map<string, number>();
 
 /**
  * ONE sync toggle: enabling Nearby sync also turns on the native background
@@ -182,43 +153,72 @@ export default function HomeScreen() {
   // to the Sync section — every section is on a single sheet, so opening
   // the sheet is enough.
   const params = useLocalSearchParams<{ menu?: string }>();
-  const toastOffset = useToastOffset();
   const insets = useSafeAreaInsets();
-  const { width: screenWidth } = useWindowDimensions();
   const { forceUpdate } = useAppMeta();
   // Subscribes to locale changes — flipping language in Settings re-renders
   // this screen (and all its children) without an app restart. Strings via
   // t() refresh on the same render.
   const isRTL = useIsRTL();
 
+  const selectedCurrency = useCurrency();
   const [self, setSelf] = useState<Self | null>(null);
-  const [direction, setDirection] = useState<Direction>("collect");
+  const [summarySnapshot, setSummarySnapshot] = useState<{
+    vaultId: string | null;
+    accountId: string | null;
+    balances: CurrencyBalanceSummary[];
+  } | null>(null);
+  const [keyboardShown, setKeyboardShown] = useState(false);
+  const [searchFocused, setSearchFocused] = useState(false);
+  // Android's native resize precedes did-show; prepare its controls on focus.
+  // iOS movement is driven by native keyboard progress, not these UI flags.
+  const keyboardLayoutShown = keyboardShown || (Platform.OS === "android" && searchFocused);
+  const searchInputRef = useRef<TextInputInstance>(null);
+  const overlaySurfaceRef = useRef<ViewInstance>(null);
+  const filterBlurTargetRef = useRef<ViewInstance>(null);
+  const filterTriggerRef = useRef<ViewInstance>(null);
+  const filterMeasureVersion = useRef(0);
+  const [filterAnchor, setFilterAnchor] = useState<FilterAnchor | null>(null);
+  const [filterViewport, setFilterViewport] = useState<FilterViewport>({ width: 0, height: 0 });
   const [allPeople, setAllPeople] = useState<PersonWithBalance[]>([]);
-  const [peopleForSearch, setPeopleForSearch] = useState<PersonWithBalance[]>([]);
   const [peopleScope, setPeopleScope] = useState<{
     vaultId: string | null;
     accountId: string | null;
+    currency: string;
   } | null>(null);
   const [customerQuery, setCustomerQuery] = useState("");
-  const [searchVisible, setSearchVisible] = useState(false);
-  const [searchAutoFocus, setSearchAutoFocus] = useState(true);
-  const searchGeneration = useRef(0);
-  const dismissSearchKeyboard = useCallback(() => {
+  const [filtersExpanded, setFiltersExpanded] = useState(false);
+  const filtersExpandedRef = useRef(filtersExpanded);
+  filtersExpandedRef.current = filtersExpanded;
+  const homeGeneration = useRef(0);
+  const homeRequest = homeGeneration.current;
+  useEffect(() => {
+    homeGeneration.current++;
+    setFiltersExpanded(false);
+    filterMeasureVersion.current++;
+    setFilterAnchor(null);
+  }, [selectedCurrency]);
+  const dismissKeyboard = useCallback(() => {
+    searchInputRef.current?.blur();
+    setSearchFocused(false);
     Keyboard.dismiss();
   }, []);
   const [customerGroups, setCustomerGroups] = useState<CustomerGroup[]>([]);
   const [groupByPerson, setGroupByPerson] = useState<Record<string, string[]>>({});
-  const [listPreference, setListPreference] =
-    useState<CustomerListPreference>(DEFAULT_CUSTOMER_SEARCH);
+  const [savedListPreference, setListPreference] =
+    useState<CustomerListPreference>(DEFAULT_CUSTOMER_LIST);
   const [creditByPerson, setCreditByPerson] = useState<Record<string, CreditStatus>>({});
   const preferenceVersion = useRef(0),
     loadGeneration = useRef(0);
   const locale = getLocale();
   const [sheetFor, setSheetFor] = useState<PersonWithBalance | null>(null);
   const [confirmDeleteFor, setConfirmDeleteFor] = useState<PersonWithBalance | null>(null);
+  const singleDeleteRef = useRef(confirmDeleteFor);
+  singleDeleteRef.current = confirmDeleteFor;
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedPersonIds, setSelectedPersonIds] = useState<string[]>([]);
   const [confirmRemoveIds, setConfirmRemoveIds] = useState<string[] | null>(null);
+  const confirmingIdsRef = useRef(confirmRemoveIds);
+  confirmingIdsRef.current = confirmRemoveIds;
   const selectionConfirmationVersion = useRef(0);
   const [selectionBusy, setSelectionBusy] = useState(false);
   const selectionBusyRef = useRef(false);
@@ -234,7 +234,6 @@ export default function HomeScreen() {
   }, []);
   const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
   // Phase 7: unified settings sheet — replaces the hamburger AND the
   // old ProfileMenuSheet. One state flag, one entry point on the profile
   // chip top-RIGHT. sessionUser is read on focus so it stays in sync with
@@ -242,6 +241,7 @@ export default function HomeScreen() {
   // is kept (not just the email) so the header icon can render the user's
   // actual Google avatar when picture_url is set.
   const [settingsVisible, setSettingsVisible] = useState(false);
+  const profileOpening = useRef(false);
   const [sessionUser, setSessionUser] = useState<SessionUser | null>(null);
   // Phase 7 D-TOP-LEFT-SWITCHER — VaultPickerSheet opens on shop-name tap
   // in the header. Mutually exclusive with menuVisible + profileMenuVisible
@@ -272,9 +272,13 @@ export default function HomeScreen() {
     };
   }, []);
   useEffect(() => {
-    searchGeneration.current++;
-    setSearchVisible(false);
+    homeGeneration.current++;
+    setFiltersExpanded(false);
+    filterMeasureVersion.current++;
+    setFilterAnchor(null);
     setCustomerQuery("");
+    setSheetFor(null);
+    setConfirmDeleteFor(null);
   }, [activeVaultId, activeAccountId]);
   // D-ARCHIVED-VAULT-FILTER: the picker and settings sheet consume only
   // non-archived vaults; the archived sub-section (toggle-revealed) reads
@@ -325,47 +329,72 @@ export default function HomeScreen() {
     const prefVersion = preferenceVersion.current;
     const requestedVault = getActiveVaultIdSyncMaybe();
     const requestedAccount = getAccountIdSync();
+    let requestedCurrency = getCurrentCurrencyCode();
     const current = () =>
+      mounted.current &&
       generation === loadGeneration.current &&
       getActiveVaultIdSyncMaybe() === requestedVault &&
-      getAccountIdSync() === requestedAccount;
+      getAccountIdSync() === requestedAccount &&
+      getCurrentCurrencyCode() === requestedCurrency;
     // The whole body is guarded: any rejection here (SQLite error,
     // SecureStore decrypt failure after a backup-restore to a new phone)
     // previously meant setLoaded(true) never ran — an infinite spinner on
     // the ROOT screen with no retry and no back.
     try {
-      const [s, searchList, user, vaultId, shopRaw] = await Promise.all([
+      await applyVaultCurrency(requestedVault);
+      if (
+        generation !== loadGeneration.current ||
+        getActiveVaultIdSyncMaybe() !== requestedVault ||
+        getAccountIdSync() !== requestedAccount
+      )
+        return;
+      requestedCurrency = getCurrentCurrencyCode();
+      const peopleRead = listAllPeopleForSearch(requestedVault, requestedCurrency, {
+        allCurrencies: true,
+      });
+      const [s, searchList, balances, user, vaultId, shopRaw] = await Promise.all([
         getLocalSelf(),
-        listAllPeopleForSearch(requestedVault),
+        peopleRead,
+        peopleRead.then((people) => currencyBalances(people, requestedCurrency)),
         getSessionUser(),
         getActiveVaultId(),
         getAppMeta("shop_mode_enabled"),
       ]);
-      const [groupState, prefRaw, creditPolicies] = await Promise.all([
+      const [groupState, prefRaw, legacySearchRaw, creditPolicies] = await Promise.all([
         vaultId
           ? readCustomerGroups(vaultId)
           : Promise.resolve({ groups: [], groupByPerson: {}, groupsByPerson: {} }),
         vaultId
+          ? getAppMeta(`customer_home:${requestedAccount ?? "local"}:${vaultId}`)
+          : Promise.resolve(null),
+        vaultId
           ? getAppMeta(`customer_search:${requestedAccount ?? "local"}:${vaultId}`)
           : Promise.resolve(null),
         vaultId
-          ? readCreditPoliciesForPeople(vaultId)
-          : Promise.resolve<Record<string, CreditPolicy>>({}),
+          ? Promise.all(
+              [
+                ...new Set(
+                  searchList.flatMap((person) =>
+                    personCurrencyRows(person).map((row) => row.currency ?? requestedCurrency),
+                  ),
+                ),
+              ].map(
+                async (code) => [code, await readCreditPoliciesForPeople(vaultId, code)] as const,
+              ),
+            ).then(Object.fromEntries)
+          : Promise.resolve<Record<string, Record<string, CreditPolicy>>>({}),
       ]);
       if (!current() || requestedVault !== vaultId) return;
-      // Make the display currency follow the active vault before amounts paint
-      // (currency is per-vault; the global symbol otherwise lags behind a
-      // switch/restore). Awaited so getCurrentCurrencySymbol() is correct on
-      // this render.
-      await applyVaultCurrency(vaultId);
-      if (!current()) return;
-
       setSelf(s);
       // Every saved active customer stays visible. Financial lists and the
       // neutral "No tallies yet" section split this full list at render time.
       setAllPeople(searchList);
-      setPeopleForSearch(searchList);
-      setPeopleScope({ vaultId: requestedVault, accountId: requestedAccount });
+      setPeopleScope({
+        vaultId: requestedVault,
+        accountId: requestedAccount,
+        currency: requestedCurrency,
+      });
+      setSummarySnapshot({ vaultId: requestedVault, accountId: requestedAccount, balances });
       setCustomerGroups(groupState.groups);
       setGroupByPerson(
         groupState.groupsByPerson ??
@@ -378,14 +407,22 @@ export default function HomeScreen() {
       );
       setCreditByPerson(
         Object.fromEntries(
-          searchList.map((person) => [
-            person.id,
-            creditStatusForBalance(creditPolicies[person.id] ?? null, person.balance),
-          ]),
+          searchList.map((person) => {
+            const statuses = personCurrencyRows(person).map((row) =>
+              creditStatusForBalance(
+                creditPolicies[row.currency ?? requestedCurrency]?.[person.id] ?? null,
+                row.balance,
+              ),
+            );
+            return [
+              person.id,
+              statuses.includes("over") ? "over" : statuses.includes("near") ? "near" : "none",
+            ];
+          }),
         ),
       );
       if (prefVersion === preferenceVersion.current) {
-        const preference = parseCustomerSearchPreference(prefRaw);
+        const preference = parseHomeCustomerListPreference(prefRaw, legacySearchRaw);
         preference.group = availableCustomerGroupFilter(preference.group, groupState.groups);
         setListPreference(preference);
       }
@@ -438,7 +475,6 @@ export default function HomeScreen() {
               return;
             setActiveVaultIdState(null);
             setAllPeople([]);
-            setPeopleForSearch([]);
             setPeopleScope(null);
             setCustomerGroups([]);
             setGroupByPerson({});
@@ -515,7 +551,7 @@ export default function HomeScreen() {
         policies();
         app.remove();
       };
-    }, [load]),
+    }, [load, selectedCurrency]),
   );
 
   // Live refresh: a mesh/cloud sync that applies events re-runs load(), so a
@@ -534,30 +570,6 @@ export default function HomeScreen() {
   // screen is scoped to. Reload so the add button and row taps follow it
   // without waiting for the next focus.
   useEffect(() => onAccountIdentityChanged(() => void load()), [load]);
-
-  // Pull-to-refresh — with mesh/vault sync now core, entries can land while
-  // the shopkeeper sits on this screen (the dominant shop-counter posture).
-  // useFocusEffect alone never picks those up.
-  const onRefresh = useCallback(async () => {
-    setRefreshing(true);
-    try {
-      const vaultId = getActiveVaultIdSyncMaybe();
-      // Fetch what other members and linked contacts wrote, not only re-read
-      // this phone: one sync cycle of the open kaata plus a shared-account
-      // sweep, each bounded so a bad connection cannot hold the spinner.
-      await Promise.all([
-        vaultId ? refreshCreditPolicies(vaultId).catch(() => undefined) : undefined,
-        syncActiveVaultNow(),
-        Promise.race([
-          syncAllTabs({ discover: true }),
-          new Promise<void>((resolve) => setTimeout(resolve, 8_000)),
-        ]),
-      ]);
-      await load();
-    } finally {
-      setRefreshing(false);
-    }
-  }, [load]);
 
   // D-ACTIVE-VAULT-REACTIVE safety net.
   //
@@ -612,15 +624,22 @@ export default function HomeScreen() {
     }, [activeVaultId, load, router]),
   );
 
-  // Phase 7: open the unified settings sheet when arriving with ?menu=sync
-  // (from the foreground-service notification tap). The URL param key
-  // stays "menu" so the foreground-service deep-link contract doesn't
-  // need an EAS rebuild — only the destination sheet changed.
+  // The existing notification intent also bootstraps a cold /profile link.
+  // Consume it only after Home has published its real current-scope actions.
   useEffect(() => {
-    if (params.menu === "sync") {
-      setSettingsVisible(true);
-    }
-  }, [params.menu]);
+    if (
+      (params.menu !== "sync" && params.menu !== "profile") ||
+      !loaded ||
+      activeAccountId !== getAccountIdSync() ||
+      activeVaultId !== getActiveVaultIdSyncMaybe() ||
+      profileOpening.current
+    )
+      return;
+    profileOpening.current = true;
+    router.setParams({ menu: undefined });
+    setSettingsVisible(true);
+    router.push("/profile");
+  }, [params.menu, loaded, activeAccountId, activeVaultId, router]);
 
   // Phase 6: subscribe to mesh status changes so the Sync toggle's
   // subtitle reflects live peer count only while its settings sheet is open.
@@ -656,9 +675,11 @@ export default function HomeScreen() {
   // tap doesn't immediately close the app. Requires two presses within 2s —
   // a familiar "press back again to exit" pattern. Only active while home is
   // focused; other screens get normal back behavior (pop the stack).
-  useRouteFocusEffect(
+  useFocusEffect(
     useCallback(() => {
       const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+        // The popup's own listener consumes Back; never exit behind it.
+        if (homeInteraction.current.filtersExpanded) return false;
         const now = Date.now();
         if (now - lastBackPressRef.current < 2000) {
           // Second press inside the window → let RN handle (exits the app).
@@ -672,63 +693,55 @@ export default function HomeScreen() {
     }, [toast]),
   );
 
-  // Home always shows the full default overview. Query, groups and sort belong
-  // only to the search sheet, including when its query is empty.
+  // Search, balance direction, groups and sort share the list; totals keep the full book snapshot.
   const currentPeopleScope =
     peopleScope?.vaultId === getActiveVaultIdSyncMaybe() &&
-    peopleScope?.accountId === getAccountIdSync();
+    peopleScope?.accountId === getAccountIdSync() &&
+    peopleScope?.currency === selectedCurrency &&
+    selectedCurrency === getCurrentCurrencyCode();
   const visibleAllPeople = currentPeopleScope ? allPeople : EMPTY_PEOPLE;
-  const visibleSearchPeople = currentPeopleScope ? peopleForSearch : EMPTY_PEOPLE;
-  const searching = searchVisible && currentPeopleScope && currentVaultScope;
-  // A swipe queued before search must never switch the remembered tab, even
-  // if its JS callback arrives after search is cleared and the page returns.
-  const searchGestureState = useRef({ active: searching, generation: 0 });
-  if (searchGestureState.current.active !== searching) {
-    searchGestureState.current.active = searching;
-    searchGestureState.current.generation++;
-  }
-  // A discarded concurrent search render can advance the ref even when the
-  // committed `searching` value stays false. Memoize by this generation too.
-  const searchGestureGeneration = searchGestureState.current.generation;
+  const amountSortAvailable = useMemo(
+    () =>
+      new Set(
+        visibleAllPeople.flatMap((person) =>
+          personCurrencyRows(person).map((row) => row.currency ?? selectedCurrency),
+        ),
+      ).size <= 1,
+    [visibleAllPeople, selectedCurrency],
+  );
+  // A saved amount sort can outlive a book's first additional currency. Use a
+  // valid order immediately, without comparing unlike amounts or saving on load.
+  const listPreference = useMemo<CustomerListPreference>(
+    () =>
+      !amountSortAvailable &&
+      (savedListPreference.sort === "amount_desc" || savedListPreference.sort === "amount_asc")
+        ? { ...savedListPreference, sort: DEFAULT_CUSTOMER_LIST.sort }
+        : savedListPreference,
+    [savedListPreference, amountSortAvailable],
+  );
   const searchMatches = useMemo(
     () =>
-      searching
-        ? searchCustomerMatches(splitSearchQuery(customerQuery), visibleSearchPeople)
-        : EMPTY_SEARCH_MATCHES,
-    [searching, visibleSearchPeople, customerQuery],
+      customerQuery.trim()
+        ? searchCustomerMatches(splitSearchQuery(customerQuery), visibleAllPeople)
+        : { people: visibleAllPeople, relevanceById: EMPTY_SEARCH_RELEVANCE },
+    [visibleAllPeople, customerQuery],
   );
-  const collectPeople = useMemo(
+  const homePeople = useMemo(
     () =>
-      selectCustomers(visibleAllPeople, "collect", DEFAULT_CUSTOMER_LIST, groupByPerson, locale),
-    [visibleAllPeople, groupByPerson, locale],
-  );
-  const payPeople = useMemo(
-    () => selectCustomers(visibleAllPeople, "pay", DEFAULT_CUSTOMER_LIST, groupByPerson, locale),
-    [visibleAllPeople, groupByPerson, locale],
-  );
-  const neverTalliedPeople = useMemo(
-    () =>
-      selectNeverTalliedCustomers(visibleAllPeople, DEFAULT_CUSTOMER_LIST, groupByPerson, locale),
-    [visibleAllPeople, groupByPerson, locale],
-  );
-  const searchPeople = useMemo(
-    () =>
-      searching
-        ? selectSearchCustomers(
-            searchMatches.people,
-            listPreference,
-            groupByPerson,
-            locale,
-            searchMatches.relevanceById,
-          )
-        : EMPTY_PEOPLE,
-    [searching, searchMatches, listPreference, groupByPerson, locale],
+      selectSearchCustomers(
+        searchMatches.people,
+        listPreference,
+        groupByPerson,
+        locale,
+        searchMatches.relevanceById,
+      ),
+    [searchMatches, listPreference, groupByPerson, locale],
   );
   const canSelect = caps.resolved && canAmend && currentVaultScope && currentPeopleScope;
-  const selecting = searching && selectionMode && canSelect;
+  const selecting = selectionMode && canSelect;
   const canSelectRef = useRef(canSelect);
   canSelectRef.current = canSelect;
-  const selectablePeople = searchPeople;
+  const selectablePeople = homePeople;
   const selectableIds = useMemo(
     () => new Set(selectablePeople.map((person) => person.id)),
     [selectablePeople],
@@ -740,7 +753,11 @@ export default function HomeScreen() {
   // The list already carries each account's totals from the same local read.
   // Selecting only adds those cached amounts; the count and figures change together.
   const financialSummary = useMemo(
-    () => summarizeSelectedPeople(visibleAllPeople.filter((person) => selectedIds.has(person.id))),
+    () =>
+      selectedPeopleByCurrency(
+        visibleAllPeople.filter((person) => selectedIds.has(person.id)),
+        selectedCurrency,
+      ),
     [visibleAllPeople, selectedIds],
   );
   const selectedIdsRef = useRef(selectedIds);
@@ -751,23 +768,36 @@ export default function HomeScreen() {
     setSelectionMode(false);
     setSelectedPersonIds([]);
     setConfirmRemoveIds(null);
-  }, [activeVaultId, activeAccountId, canSelect]);
+  }, [activeVaultId, activeAccountId, canSelect, selectedCurrency]);
+  useEffect(() => {
+    setSearchFocused(false);
+    setKeyboardShown(false);
+    searchInputRef.current?.blur();
+  }, [activeVaultId, activeAccountId, selectedCurrency]);
   useEffect(() => {
     const available = new Set(visibleAllPeople.map((person) => person.id));
     setSelectedPersonIds((ids) => {
       const next = ids.filter((id) => available.has(id));
       return next.length === ids.length ? ids : next;
     });
+    selectionConfirmationVersion.current++;
     setConfirmRemoveIds(null);
   }, [visibleAllPeople]);
-  useEffect(() => setConfirmRemoveIds(null), [selectableIds]);
+  useEffect(() => {
+    selectionConfirmationVersion.current++;
+    setConfirmRemoveIds(null);
+  }, [selectableIds]);
   useFocusEffect(
     useCallback(() => {
       selectionOwnerActive.current = true;
       return () => {
+        setKeyboardShown(false);
+        setSearchFocused(false);
+        searchInputRef.current?.blur();
         selectionOwnerActive.current = false;
-        searchGeneration.current++;
-        setSearchVisible(false);
+        homeGeneration.current++;
+        setFiltersExpanded(false);
+        filterMeasureVersion.current++;
         selectionGeneration.current++;
         setSelectionMode(false);
         setSelectedPersonIds([]);
@@ -780,21 +810,15 @@ export default function HomeScreen() {
       if (
         !mounted.current ||
         !selectionOwnerActive.current ||
-        !canSelect ||
+        !canSelectRef.current ||
         selectionBusyRef.current ||
         activeVaultId !== getActiveVaultIdSyncMaybe() ||
         activeAccountId !== getAccountIdSync()
       )
         return;
-      dismissSearchKeyboard();
-      if (!searching) {
-        searchGeneration.current++;
-        setCustomerQuery("");
-        preferenceVersion.current++;
-        setListPreference({ ...DEFAULT_CUSTOMER_SEARCH });
-        setSearchVisible(true);
-      }
-      setSearchAutoFocus(false);
+      if (!isCurrentHome() || homeInteraction.current.confirming) return;
+      if (person && !homeInteraction.current.people.has(person.id)) return;
+      dismissKeyboard();
       selectionGeneration.current++;
       setSelectedPersonIds(
         person && visibleAllPeople.some((row) => row.id === person.id) ? [person.id] : [],
@@ -802,7 +826,14 @@ export default function HomeScreen() {
       setSelectionMode(true);
       Haptics.selectionAsync().catch(() => undefined);
     },
-    [canSelect, dismissSearchKeyboard, visibleAllPeople, activeVaultId, activeAccountId, searching],
+    [
+      dismissKeyboard,
+      visibleAllPeople,
+      activeVaultId,
+      activeAccountId,
+      homeRequest,
+      selectedCurrency,
+    ],
   );
   const removeSelected = async () => {
     if (selectionBusyRef.current || !canSelectRef.current) return;
@@ -818,7 +849,8 @@ export default function HomeScreen() {
       canSelectRef.current &&
       generation === selectionGeneration.current &&
       getActiveVaultIdSyncMaybe() === vaultId &&
-      getAccountIdSync() === accountId;
+      getAccountIdSync() === accountId &&
+      getCurrentCurrencyCode() === selectedCurrency;
     if (!current()) return;
     selectionBusyRef.current = true;
     setSelectionBusy(true);
@@ -847,19 +879,10 @@ export default function HomeScreen() {
       if (mounted.current) setSelectionBusy(false);
     }
   };
-  const collectAll = useMemo(
-    () =>
-      visibleAllPeople.filter((p) => !isNeverTalliedCustomer(p) && customerSide(p) === "collect"),
-    [visibleAllPeople],
-  );
-  const payAll = useMemo(
-    () => visibleAllPeople.filter((p) => !isNeverTalliedCustomer(p) && customerSide(p) === "pay"),
-    [visibleAllPeople],
-  );
   // Read the live scope when a retained row callback eventually runs.
   const homePeopleById = useMemo(
-    () => new Map(visibleAllPeople.map((person) => [person.id, person])),
-    [visibleAllPeople],
+    () => new Map(homePeople.map((person) => [person.id, person])),
+    [homePeople],
   );
   const effectiveGroup = useMemo(
     () => availableCustomerGroupFilter(listPreference.group, customerGroups),
@@ -869,9 +892,12 @@ export default function HomeScreen() {
     if (JSON.stringify(listPreference.group) !== JSON.stringify(effectiveGroup))
       setListPreference((p) => ({ ...p, group: effectiveGroup }));
   }, [effectiveGroup, listPreference.group]);
+  const balanceFilter = listPreference.direction ?? "all";
   const listCustomized =
-    effectiveGroup !== "all" || listPreference.sort !== DEFAULT_CUSTOMER_SEARCH.sort;
-  // The active group is named only inside search; it never filters home.
+    balanceFilter !== "all" ||
+    effectiveGroup !== "all" ||
+    listPreference.sort !== DEFAULT_CUSTOMER_LIST.sort;
+  // Keep selected group names beside the list they filter.
   const groupFilterLabel = useMemo(() => {
     if (effectiveGroup === "all") return null;
     if (effectiveGroup === "ungrouped") return t("groups.ungrouped");
@@ -887,151 +913,158 @@ export default function HomeScreen() {
   // A new order starts at its top; otherwise the first rows of a re-sorted
   // long list are scrolled off-screen.
   const homeScrollRef = useRef<ScrollViewInstance>(null);
-  const searchScrollRef = useRef<ScrollViewInstance>(null);
-  const homeScrollScope = JSON.stringify([activeAccountId, activeVaultId]);
-  const homeScrollPositions = useRef({ scope: homeScrollScope, collect: 0, pay: 0 });
+  const summaryScopeKey = JSON.stringify([activeAccountId, activeVaultId]);
+  const homeScrollScope = JSON.stringify([activeAccountId, activeVaultId, selectedCurrency]);
+  const homeScrollPositions = useRef({ scope: homeScrollScope, offset: 0 });
   if (homeScrollPositions.current.scope !== homeScrollScope)
-    homeScrollPositions.current = { scope: homeScrollScope, collect: 0, pay: 0 };
+    homeScrollPositions.current = { scope: homeScrollScope, offset: 0 };
   // Retained callbacks write their own scope's record, including account ABA.
   const homeScrollPosition = homeScrollPositions.current;
-  const listOrderKey = `${listPreference.sort}|${JSON.stringify(effectiveGroup)}`;
+  const listOrderKey = `${listPreference.sort}|${balanceFilter}|${JSON.stringify(effectiveGroup)}`;
   const shownListOrderKey = useRef(listOrderKey);
   useEffect(() => {
     if (shownListOrderKey.current === listOrderKey) return;
     shownListOrderKey.current = listOrderKey;
-    searchScrollRef.current?.scrollTo({ y: 0, animated: false });
+    homeScrollRef.current?.scrollTo({ y: 0, animated: false });
   }, [listOrderKey]);
   useEffect(() => {
-    searchScrollRef.current?.scrollTo({ y: 0, animated: false });
+    homeScrollRef.current?.scrollTo({ y: 0, animated: false });
   }, [customerQuery]);
+  const isCurrentHome = () =>
+    mounted.current &&
+    selectionOwnerActive.current &&
+    homeInteraction.current.scoped &&
+    homeGeneration.current === homeRequest &&
+    activeVaultId === getActiveVaultIdSyncMaybe() &&
+    activeAccountId === getAccountIdSync() &&
+    selectedCurrency === getCurrentCurrencyCode();
   const changeListPreference = (preference: CustomerListPreference) => {
-    if (!isCurrentSearch() || selectionBusyRef.current) return;
+    if (!isCurrentHome() || selectionBusyRef.current || homeInteraction.current.confirming) return;
+    if (
+      !amountSortAvailable &&
+      (preference.sort === "amount_desc" || preference.sort === "amount_asc")
+    )
+      preference = { ...preference, sort: DEFAULT_CUSTOMER_LIST.sort };
     preferenceVersion.current++;
     setListPreference(preference);
     void setAppMeta(
-      `customer_search:${activeAccountId ?? "local"}:${activeVaultId}`,
+      `customer_home:${activeAccountId ?? "local"}:${activeVaultId}`,
       JSON.stringify(preference),
     ).catch(() => {
-      if (isCurrentSearch()) toast.push(t("entry.saveFailed"), "error");
+      if (isCurrentHome()) toast.push(t("entry.saveFailed"), "error");
     });
   };
-  const searchRequest = searchGeneration.current;
-  const isCurrentSearch = () =>
-    mounted.current &&
-    selectionOwnerActive.current &&
-    searching &&
-    searchGeneration.current === searchRequest &&
-    activeVaultId === getActiveVaultIdSyncMaybe() &&
-    activeAccountId === getAccountIdSync();
-  const closeSearch = () => {
-    if (!isCurrentSearch() || selectionBusyRef.current) return;
-    searchGeneration.current++;
-    closeSelection();
-    setSearchVisible(false);
-    dismissSearchKeyboard();
-  };
-  const openSearch = () => {
-    if (
-      !mounted.current ||
-      !selectionOwnerActive.current ||
-      !currentVaultScope ||
-      !currentPeopleScope ||
-      selectionBusyRef.current ||
-      activeVaultId !== getActiveVaultIdSyncMaybe() ||
-      activeAccountId !== getAccountIdSync()
-    )
-      return;
-    searchGeneration.current++;
-    closeSelection();
-    setSearchAutoFocus(true);
-    setSearchVisible(true);
-  };
-
-  const pageCurrent = () =>
-    mounted.current &&
-    selectionOwnerActive.current &&
-    activeVaultId === getActiveVaultIdSyncMaybe() &&
-    activeAccountId === getAccountIdSync() &&
-    !searchGestureState.current.active;
-  const {
-    renderedDirection,
-    switching: pageSwitching,
-    translateX,
-    cancel: cancelPageSwitch,
-  } = useHomePageTransition(
-    direction,
-    loaded && screenWidth > 0 && !searching,
-    JSON.stringify([activeAccountId, activeVaultId, screenWidth, searchGestureGeneration]),
-    pageCurrent,
-  );
-  const pageBusy = pageSwitching || direction !== renderedDirection;
   const homeInteraction = useRef({
-    direction: renderedDirection,
-    searching,
     people: homePeopleById,
-    busy: pageBusy,
+    selecting,
+    selectableIds,
+    scoped: currentPeopleScope && currentVaultScope,
+    confirming: confirmRemoveIds !== null,
+    filtersExpanded,
   });
   homeInteraction.current = {
-    direction: renderedDirection,
-    searching,
     people: homePeopleById,
-    busy: pageBusy,
+    selecting,
+    selectableIds,
+    scoped: currentPeopleScope && currentVaultScope,
+    confirming: confirmRemoveIds !== null,
+    filtersExpanded,
   };
-  useRouteFocusEffect(
-    useCallback(
-      () => () => {
-        if (mounted.current) cancelPageSwitch();
-      },
-      [cancelPageSwitch],
-    ),
-  );
-  useEffect(() => {
-    const subscription = AppState.addEventListener("change", (state) => {
-      if (state !== "active") cancelPageSwitch();
-    });
-    return () => subscription.remove();
-  }, [cancelPageSwitch]);
 
-  // Recognize the original horizontal thresholds without sending every drag
-  // frame through JS. The one-page slide runs natively after release.
-  const swipeGesture = useMemo(() => {
-    const generation = searchGestureGeneration;
-    const current = () =>
-      mounted.current &&
-      selectionOwnerActive.current &&
-      activeVaultId === getActiveVaultIdSyncMaybe() &&
-      activeAccountId === getAccountIdSync() &&
-      !homeInteraction.current.busy &&
-      !searchGestureState.current.active &&
-      searchGestureState.current.generation === generation;
-    return Gesture.Pan()
-      .activeOffsetX([-24, 24])
-      .failOffsetY([-16, 16])
-      .runOnJS(true)
-      .onEnd((e) => {
-        if (!current()) return;
-        const distance = e.translationX;
-        const velocity = e.velocityX;
-        // Velocity-aware commit: a flick beats a slow drag. Without a flick,
-        // the user must have dragged at least DRAG_COMMIT_FRACTION of the
-        // screen width in the right direction.
-        const flickLeft = velocity <= -FLICK_VELOCITY;
-        const flickRight = velocity >= FLICK_VELOCITY;
-        const dragLeft = distance <= -screenWidth * DRAG_COMMIT_FRACTION;
-        const dragRight = distance >= screenWidth * DRAG_COMMIT_FRACTION;
-
-        const commitToPay = direction === "collect" && (dragLeft || flickLeft);
-        const commitToCollect = direction === "pay" && (dragRight || flickRight);
-
-        if (commitToPay) {
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Soft).catch(() => undefined);
-          setDirection("pay");
-        } else if (commitToCollect) {
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Soft).catch(() => undefined);
-          setDirection("collect");
-        }
+  const updateFilterAnchor = useCallback(() => {
+    const surface = overlaySurfaceRef.current;
+    const trigger = filterTriggerRef.current;
+    if (
+      !filtersExpandedRef.current ||
+      !isCurrentHome() ||
+      !surface?.measureInWindow ||
+      !trigger?.measureInWindow
+    )
+      return;
+    const request = ++filterMeasureVersion.current;
+    surface.measureInWindow((surfaceX, surfaceY, width, height) => {
+      trigger.measureInWindow((x, y, triggerWidth, triggerHeight) => {
+        if (
+          !filtersExpandedRef.current ||
+          !isCurrentHome() ||
+          request !== filterMeasureVersion.current ||
+          overlaySurfaceRef.current !== surface ||
+          filterTriggerRef.current !== trigger
+        )
+          return;
+        setFilterViewport((previous) =>
+          previous.width === width && previous.height === height ? previous : { width, height },
+        );
+        const anchor = {
+          x: x - surfaceX,
+          y: y - surfaceY,
+          width: triggerWidth,
+          height: triggerHeight,
+        };
+        setFilterAnchor((previous) =>
+          previous?.x === anchor.x &&
+          previous.y === anchor.y &&
+          previous.width === anchor.width &&
+          previous.height === anchor.height
+            ? previous
+            : anchor,
+        );
       });
-  }, [direction, screenWidth, searching, searchGestureGeneration, activeVaultId, activeAccountId]);
+    });
+  }, [activeAccountId, activeVaultId, homeRequest, selectedCurrency]);
+  useLayoutEffect(() => {
+    // Opening measures after the expanded state commits. Closing invalidates
+    // in-flight native measurements so hidden filters cannot repaint Home.
+    filterMeasureVersion.current++;
+    if (filtersExpanded) updateFilterAnchor();
+  }, [filtersExpanded, updateFilterAnchor]);
+  useEffect(() => {
+    let alive = true;
+    const current = () => alive && isCurrentHome();
+    const syncLayout = (shown: boolean) => {
+      if (!current()) return;
+      setKeyboardShown(shown);
+    };
+    const finishHide = () => {
+      if (!current()) return;
+      // A completed old dismissal may arrive after native focus has restarted,
+      // before its onFocus or will-show events reach JavaScript.
+      if (Platform.OS === "ios" && searchInputRef.current?.isFocused()) return;
+      searchInputRef.current?.blur();
+      setSearchFocused(false);
+      setKeyboardShown(false);
+    };
+    const show = Keyboard.addListener(
+      Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow",
+      () => syncLayout(true),
+    );
+    const hide = Keyboard.addListener(
+      Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide",
+      () => {
+        if (Platform.OS === "ios") syncLayout(false);
+        else finishHide();
+      },
+    );
+    // An interactive iOS dismissal may be cancelled after its will-hide event.
+    const finishShow =
+      Platform.OS === "ios"
+        ? Keyboard.addListener("keyboardDidShow", () => syncLayout(true))
+        : null;
+    const didHide =
+      Platform.OS === "ios" ? Keyboard.addListener("keyboardDidHide", finishHide) : null;
+    return () => {
+      alive = false;
+      show.remove();
+      hide.remove();
+      finishShow?.remove();
+      didHide?.remove();
+    };
+  }, [activeAccountId, activeVaultId, homeRequest, selectedCurrency]);
+  const visibleBalances =
+    summarySnapshot?.vaultId === getActiveVaultIdSyncMaybe() &&
+    summarySnapshot?.accountId === getAccountIdSync()
+      ? summarySnapshot.balances
+      : undefined;
 
   // Stable row handlers — PersonRow is memoized, and these two props must
   // keep their identity across renders or every row re-renders on each
@@ -1045,44 +1078,21 @@ export default function HomeScreen() {
         activeAccountId !== getAccountIdSync()
       )
         return;
-      if (searching && !isCurrentSearch()) return;
-      if (selecting) {
-        if (selectionBusyRef.current || !selectableIds.has(p.id)) return;
+      if (selectionBusyRef.current || !isCurrentHome()) return;
+      const current = homeInteraction.current;
+      const person = current.people.get(p.id);
+      if (!person || current.confirming) return;
+      if (current.selecting) {
+        if (!canSelectRef.current) return;
         setSelectedPersonIds((ids) =>
-          ids.includes(p.id) ? ids.filter((id) => id !== p.id) : [...ids, p.id],
+          ids.includes(person.id) ? ids.filter((id) => id !== person.id) : [...ids, person.id],
         );
         return;
       }
-      if (searching) {
-        closeSearch();
-        const request = searchGeneration.current;
-        const open = () => {
-          if (
-            mounted.current &&
-            request === searchGeneration.current &&
-            activeVaultId === getActiveVaultIdSyncMaybe() &&
-            activeAccountId === getAccountIdSync()
-          )
-            router.push({ pathname: "/person/[id]", params: { id: p.id } });
-        };
-        if (
-          !afterNativeSearchClosed(`${activeAccountId ?? "local"}:${activeVaultId ?? "none"}`, open)
-        )
-          open();
-      } else {
-        const current = homeInteraction.current;
-        const person = current.people.get(p.id);
-        if (
-          current.searching ||
-          current.busy ||
-          !person ||
-          (!isNeverTalliedCustomer(person) && customerSide(person) !== current.direction)
-        )
-          return;
-        router.push({ pathname: "/person/[id]", params: { id: p.id } });
-      }
+      Keyboard.dismiss();
+      router.push({ pathname: "/person/[id]", params: { id: person.id } });
     },
-    [router, activeVaultId, activeAccountId, selecting, selectableIds, searching, searchRequest],
+    [router, activeVaultId, activeAccountId, homeRequest, selectedCurrency],
   );
   const openHomePersonActions = useCallback(
     (p: PersonWithBalance) => {
@@ -1092,17 +1102,17 @@ export default function HomeScreen() {
         !mounted.current ||
         !selectionOwnerActive.current ||
         !canSelectRef.current ||
-        current.searching ||
-        current.busy ||
+        selectionBusyRef.current ||
+        current.confirming ||
         activeVaultId !== getActiveVaultIdSyncMaybe() ||
         activeAccountId !== getAccountIdSync() ||
         !person ||
-        (!isNeverTalliedCustomer(person) && customerSide(person) !== current.direction)
+        !isCurrentHome()
       )
         return;
       setSheetFor(person);
     },
-    [activeVaultId, activeAccountId],
+    [activeVaultId, activeAccountId, homeRequest, selectedCurrency],
   );
 
   const confirmationVersion = selectionConfirmationVersion.current;
@@ -1110,13 +1120,13 @@ export default function HomeScreen() {
     <SelectionToolbar
       count={selectedIds.size}
       total={selectablePeople.length}
-      financialSummary={financialSummary}
+      financialSummaries={financialSummary}
       allSelected={selectableIds.size > 0 && [...selectableIds].every((id) => selectedIds.has(id))}
       onClose={() => {
         if (
           activeVaultId === getActiveVaultIdSyncMaybe() &&
           activeAccountId === getAccountIdSync() &&
-          (!searching || isCurrentSearch())
+          isCurrentHome()
         )
           closeSelection();
       }}
@@ -1128,10 +1138,12 @@ export default function HomeScreen() {
           activeAccountId !== getAccountIdSync()
         )
           return;
+        if (!isCurrentHome() || homeInteraction.current.confirming) return;
+        const currentIds = homeInteraction.current.selectableIds;
         setSelectedPersonIds((ids) =>
-          [...selectableIds].every((id) => selectedIds.has(id))
-            ? ids.filter((id) => !selectableIds.has(id))
-            : [...new Set([...ids, ...selectableIds])],
+          [...currentIds].every((id) => selectedIdsRef.current.has(id))
+            ? ids.filter((id) => !currentIds.has(id))
+            : [...new Set([...ids, ...currentIds])],
         );
       }}
       busy={selectionBusy}
@@ -1145,18 +1157,241 @@ export default function HomeScreen() {
             if (
               selectionBusyRef.current ||
               !canSelectRef.current ||
-              !isCurrentSearch() ||
-              selectedIds.size === 0
+              !isCurrentHome() ||
+              selectedIdsRef.current.size === 0
             )
               return;
-            dismissSearchKeyboard();
+            dismissKeyboard();
             selectionConfirmationVersion.current++;
-            setConfirmRemoveIds([...selectedIds]);
+            setConfirmRemoveIds([...selectedIdsRef.current]);
           },
         },
       ]}
     />
   ) : null;
+
+  const controlsDisabled =
+    selectionBusy || confirmRemoveIds !== null || !currentVaultScope || !currentPeopleScope;
+  const prepareSearchKeyboard = () => {
+    if (
+      Platform.OS === "android" &&
+      isCurrentHome() &&
+      !selectionBusyRef.current &&
+      !homeInteraction.current.confirming
+    ) {
+      setSearchFocused(true);
+    }
+  };
+  const searchDock = (
+    <View style={styles.searchRow}>
+      <View style={styles.searchField}>
+        <Ionicons name="search-outline" size={icon.row} color={colors.textSubtle} />
+        <TextInput
+          ref={searchInputRef}
+          accessibilityLabel={t("customers.search")}
+          placeholder={t("customers.search")}
+          placeholderTextColor={colors.textMuted}
+          value={customerQuery}
+          editable={!controlsDisabled}
+          onPress={prepareSearchKeyboard}
+          onFocus={prepareSearchKeyboard}
+          onBlur={() => {
+            if (isCurrentHome()) {
+              setSearchFocused(false);
+            }
+          }}
+          onChangeText={(query) => {
+            if (isCurrentHome() && !selectionBusyRef.current && !homeInteraction.current.confirming)
+              setCustomerQuery(query);
+          }}
+          style={[styles.searchInput, textDir(isRTL)]}
+          autoCorrect={false}
+          returnKeyType="search"
+          submitBehavior="blurAndSubmit"
+          onSubmitEditing={dismissKeyboard}
+          maxLength={500}
+        />
+        {customerQuery ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={t("search.clearQuery")}
+            disabled={controlsDisabled}
+            hitSlop={8}
+            onPress={() => {
+              if (
+                isCurrentHome() &&
+                !selectionBusyRef.current &&
+                !homeInteraction.current.confirming
+              )
+                setCustomerQuery("");
+            }}
+          >
+            <Ionicons name="close-circle" size={icon.trailing} color={colors.textMuted} />
+          </Pressable>
+        ) : null}
+      </View>
+      <Pressable
+        ref={filterTriggerRef}
+        onLayout={updateFilterAnchor}
+        accessibilityRole="button"
+        accessibilityLabel={t("customers.listOptions")}
+        accessibilityState={{
+          expanded: filtersExpanded,
+          selected: listCustomized,
+          disabled: controlsDisabled,
+        }}
+        disabled={controlsDisabled}
+        onPress={() => {
+          if (!isCurrentHome() || selectionBusyRef.current || homeInteraction.current.confirming)
+            return;
+          setFiltersExpanded(!filtersExpanded);
+          setFilterAnchor(null);
+        }}
+        style={[
+          styles.filterButton,
+          (filtersExpanded || listCustomized) && styles.filterButtonActive,
+        ]}
+      >
+        <Ionicons
+          name="options-outline"
+          size={icon.row}
+          color={filtersExpanded || listCustomized ? colors.textInverted : colors.textDefault}
+        />
+      </Pressable>
+      {keyboardLayoutShown ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={t("common.hideKeyboard")}
+          onPress={dismissKeyboard}
+          style={styles.keyboardDismiss}
+        >
+          <Ionicons name="chevron-down" size={icon.row} color={colors.textEmphasis} />
+        </Pressable>
+      ) : canCreate && !selecting ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={t("personAdd.new")}
+          // D-DEFENSIVE-ARCHIVED-GUARD: D-POST-ARCHIVE-SWITCH should
+          // normally keep the active vault writable, but a mesh-sourced
+          // archive event can race the FAB tap; refuse here and tell the
+          // user where to go instead. Cheap 1-row DB read; we don't
+          // memoize because the answer can change between renders and
+          // the UX cost of a stale "yes, write" is higher than a 1ms
+          // SELECT.
+          onPress={async () => {
+            const requestedVault = activeVaultId;
+            const requestedAccount = activeAccountId;
+            const current = () =>
+              mounted.current &&
+              canCreateRef.current &&
+              getActiveVaultIdSyncMaybe() === requestedVault &&
+              getAccountIdSync() === requestedAccount;
+            if (!current()) return;
+            const guard = await getActiveVaultArchivedState();
+            if (!current()) return;
+            if (guard.state === "archived") {
+              toast.push(t("home.fab.blockedArchived"), "error");
+              return;
+            }
+            if (guard.state === "none") {
+              toast.push(t("entry.noActiveVault"), "error");
+              return;
+            }
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined);
+            Keyboard.dismiss();
+            router.push({ pathname: "/person/new", params: { mode: "add" } });
+          }}
+          style={({ pressed }) => [styles.fabInner, pressed && { opacity: 0.85 }]}
+        >
+          <Ionicons name="add" size={28} color={colors.textInverted} />
+        </Pressable>
+      ) : null}
+    </View>
+  );
+  const inlineControls =
+    customerQuery.trim() || listCustomized || groupFilterLabel ? (
+      <View style={styles.inlineControls}>
+        {customerQuery.trim().length > 0 || listCustomized ? (
+          <View style={[styles.resultsHeading, rowDir(isRTL)]}>
+            {customerQuery.trim().length > 0 ? (
+              <Text style={[styles.resultCount, textDir(isRTL)]} accessibilityLiveRegion="polite">
+                {t(
+                  homePeople.length === 1 ? "customers.search.result" : "customers.search.results",
+                  {
+                    count: homePeople.length,
+                  },
+                )}
+              </Text>
+            ) : null}
+            {customerQuery || listCustomized ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={t("search.clearAll")}
+                disabled={controlsDisabled}
+                onPress={() => {
+                  if (
+                    !isCurrentHome() ||
+                    selectionBusyRef.current ||
+                    homeInteraction.current.confirming
+                  )
+                    return;
+                  setCustomerQuery("");
+                  changeListPreference({ ...DEFAULT_CUSTOMER_LIST });
+                }}
+              >
+                <Text style={styles.clearLabel}>{t("search.clearAll")}</Text>
+              </Pressable>
+            ) : null}
+          </View>
+        ) : null}
+        {balanceFilter !== "all" ? (
+          <CustomerFilterChip
+            label={t(`customers.balanceFilter.${balanceFilter}`)}
+            clearHint={t("customers.balanceFilter.clear")}
+            onClear={() => changeListPreference({ ...listPreference, direction: "all" })}
+          />
+        ) : null}
+        <GroupFilterChip
+          groupFilterLabel={groupFilterLabel}
+          groupFilterCount={groupFilterCount}
+          onClearGroupFilter={() => changeListPreference({ ...listPreference, group: "all" })}
+        />
+      </View>
+    ) : null;
+
+  const filterContent = (
+    <>
+      <CustomerListOptions
+        compact
+        embedded
+        amountSortAvailable={amountSortAvailable}
+        preference={listPreference}
+        groups={customerGroups}
+        isRTL={isRTL}
+        onChange={changeListPreference}
+      />
+      {canAmend ? (
+        <Button
+          label={t("groups.manage")}
+          icon="add-outline"
+          variant="secondary"
+          fullWidth
+          onPress={() => {
+            if (
+              !isCurrentHome() ||
+              selectionBusyRef.current ||
+              !canSelectRef.current ||
+              !activeVaultId ||
+              homeInteraction.current.confirming
+            )
+              return;
+            Keyboard.dismiss();
+            router.push({ pathname: "/groups", params: { vaultId: activeVaultId } });
+          }}
+        />
+      ) : null}
+    </>
+  );
 
   if (forceUpdate) return <Redirect href="/update-prompt" />;
   if (loaded && !self) return <Redirect href="/onboarding" />;
@@ -1207,26 +1442,24 @@ export default function HomeScreen() {
               // gesture makes the switcher correct independently of whether
               // the event plumbing fired.
               void load();
-              if (settingsVisible) {
-                setSettingsVisible(false);
-                setTimeout(() => setVaultPickerVisible(true), 220);
-              } else {
-                setVaultPickerVisible(true);
-              }
+              setVaultPickerVisible(true);
             }}
             hitSlop={8}
             accessibilityRole="button"
             accessibilityLabel={t("menu.title.vaultSwitcher")}
+            accessibilityValue={{ text: self?.shop_name ?? self?.name ?? "" }}
+            accessibilityState={{ expanded: vaultPickerVisible }}
             style={({ pressed }) => [
               styles.headerTitleBlock,
+              styles.kaataButton,
               rowDir(isRTL),
-              pressed && { opacity: 0.5 },
+              pressed && styles.kaataButtonPressed,
             ]}
           >
             <View style={styles.headerTitleTextCol}>
               {self ? (
                 <Text
-                  style={[styles.headerTitle, textDir(isRTL)]}
+                  style={[styles.headerTitle, styles.kaataButtonTitle, textDir(isRTL)]}
                   numberOfLines={1}
                   allowFontScaling={false}
                 >
@@ -1234,19 +1467,12 @@ export default function HomeScreen() {
                 </Text>
               ) : null}
             </View>
-            {/* Chevron hint — subtle, sits on the title's cap-height
-                optical center. The 16px glyph's geometric center is at
-                row-center; the 28px title's optical center sits ~2px
-                above its geometric center (Latin caps have descender
-                headroom they don't use), so a small marginTop:3 nudges
-                the chevron up onto the cap-height line. The chevron stays
-                on the trailing edge of the title in both LTR and RTL —
-                rowDir on the parent flips it. */}
+            {/* The chevron makes the kaata list action visible. */}
             <Ionicons
               name="chevron-down"
               size={icon.trailing}
               color={colors.textSubtle}
-              style={isRTL ? { marginRight: 4, marginTop: 3 } : { marginLeft: 4, marginTop: 3 }}
+              style={isRTL ? { marginRight: 4 } : { marginLeft: 4 }}
             />
           </Pressable>
         ) : (
@@ -1301,16 +1527,12 @@ export default function HomeScreen() {
             against the title. hitSlop:10 brings the tap area to ~52px. */}
         <Pressable
           onPress={() => {
-            // Mutual exclusion with VaultPickerSheet (see comment on the
-            // title Pressable above). 220ms defer mirrors the sheets'
-            // own EXIT_DURATION_MS — without it, both Modals stack on
-            // Android during the close animation.
-            if (vaultPickerVisible) {
-              setVaultPickerVisible(false);
-              setTimeout(() => setSettingsVisible(true), 220);
-            } else {
-              setSettingsVisible(true);
-            }
+            if (profileOpening.current) return;
+            profileOpening.current = true;
+            Keyboard.dismiss();
+            setVaultPickerVisible(false);
+            setSettingsVisible(true);
+            router.push("/profile");
           }}
           hitSlop={10}
           accessibilityRole="button"
@@ -1354,52 +1576,37 @@ export default function HomeScreen() {
 
       <UpdateBanner />
 
-      {/* Search overlays one combined list; the overview keeps its own tabs. */}
-      {activeVaultId ? (
-        <View style={[styles.tabsWrap, rowDir(isRTL)]}>
-          <View style={{ flex: 1 }}>
-            <Tabs<Direction>
-              tabs={buildTabs()}
-              value={direction}
-              onChange={(next) => {
-                if (pageCurrent()) setDirection(next);
-              }}
-            />
-          </View>
-        </View>
-      ) : null}
-
-      <KeyboardAvoidingView
-        style={styles.body}
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-      >
-        <View style={styles.body}>
-          {loaded && !activeVaultId ? (
-            // No kaatas yet — a fresh account that hasn't created one, or one where
-            // the last kaata was just left/archived. A DELIBERATE "create your
-            // first kaata" screen; the app never silently auto-creates a kaata.
-            // (Matee: "don't auto-create ... make a default screen for when there
-            // are no kaatas, like onboarding the user to make a kaata".)
-            <View style={styles.noKaataWrap}>
-              {/* Was a THIRD "there is nothing here" vocabulary: an 18/14 headline
+      {/* Native keyboard progress owns iOS movement; Android keeps native resize. */}
+      <SearchKeyboardFrame style={styles.body}>
+        <View ref={overlaySurfaceRef} style={styles.body} onLayout={updateFilterAnchor}>
+          <BlurTargetView ref={filterBlurTargetRef} collapsable={false} style={styles.body}>
+            <View style={styles.body}>
+              {loaded && !activeVaultId ? (
+                // No kaatas yet — a fresh account that hasn't created one, or one where
+                // the last kaata was just left/archived. A DELIBERATE "create your
+                // first kaata" screen; the app never silently auto-creates a kaata.
+                // (Matee: "don't auto-create ... make a default screen for when there
+                // are no kaatas, like onboarding the user to make a kaata".)
+                <View style={styles.noKaataWrap}>
+                  {/* Was a THIRD "there is nothing here" vocabulary: an 18/14 headline
               pair, a full step louder than the 15/13 every other empty moment in
-              the app uses (home's two tabs, person detail's fresh page). The
+              the app uses (home and person detail's fresh page). The
               shared atom now owns the glyph, the copy rhythm and the CTA slot.
               size="inline" (24px own air) rather than "page" (56): the wrapper's
               flex:1 centering already supplies the page air, and "page" would
               open a 56px hole between the icon and the title. */}
-              <EmptyState
-                size="inline"
-                icon="albums-outline"
-                title={t("home.noKaata.title")}
-                subtitle={t("home.noKaata.subtitle")}
-                action={
-                  <>
-                    <Button
-                      label={t("home.noKaata.create")}
-                      onPress={() => router.push("/vault/new")}
-                    />
-                    {/* PARKED (mesh): "Join an existing kaata" opened the offline QR scan
+                  <EmptyState
+                    size="inline"
+                    icon="albums-outline"
+                    title={t("home.noKaata.title")}
+                    subtitle={t("home.noKaata.subtitle")}
+                    action={
+                      <>
+                        <Button
+                          label={t("home.noKaata.create")}
+                          onPress={() => router.push("/vault/new")}
+                        />
+                        {/* PARKED (mesh): "Join an existing kaata" opened the offline QR scan
                     (vault/pair-scan), parked with the rest of mesh. Joining online
                     happens by opening an invite link (kaata://invite/<token>). Re-add
                     when mesh ships again.
@@ -1411,145 +1618,118 @@ export default function HomeScreen() {
                   <Text style={styles.noKaataLinkText}>{t("home.noKaata.join")}</Text>
                 </Pressable>
                 */}
-                    {/* The archived link rides in `action` WITH the button rather than
+                        {/* The archived link rides in `action` WITH the button rather than
                     after the atom, so the two stay one cluster — outside, the
                     atom's bottom padding would drop 24px between them. */}
-                    {archivedVaults.length > 0 ? (
-                      <Pressable
-                        onPress={() => router.push("/vault/archived")}
-                        accessibilityRole="button"
-                        style={({ pressed }) => [styles.noKaataLink, pressed && { opacity: 0.6 }]}
-                      >
-                        <Text style={styles.noKaataLinkText}>
-                          {t("home.noKaata.archived", { count: archivedVaults.length })}
-                        </Text>
-                      </Pressable>
-                    ) : null}
-                  </>
-                }
-                isRTL={isRTL}
-              />
-            </View>
-          ) : loaded && loadError && allPeople.length === 0 ? (
-            // Load failed with nothing cached to show. Rendering the page here
-            // would show "0" totals — the false data-loss signal this audience
-            // is most sensitive to. A later successful retry clears this.
-            <View style={styles.loadingFill}>
-              <Text style={styles.loadErrorText}>{t("home.loadFailed")}</Text>
-              <View style={{ height: 16 }} />
-              <Pressable
-                onPress={() => void load()}
-                accessibilityRole="button"
-                style={({ pressed }) => [styles.loadErrorRetry, pressed && { opacity: 0.85 }]}
-              >
-                <Text style={styles.loadErrorRetryText}>{t("common.tryAgain")}</Text>
-              </Pressable>
-            </View>
-          ) : loaded && screenWidth > 0 ? (
-            // A real positive width and resting transform0 keep the first page
-            // visible without waiting for a native animation to initialize.
-            <GestureDetector gesture={swipeGesture}>
-              <Animated.View
-                style={[styles.page, { width: screenWidth, transform: [{ translateX }] }]}
-              >
-                <TabPage
-                  key={homeScrollScope}
-                  direction={renderedDirection}
-                  active={!pageBusy}
-                  people={renderedDirection === "collect" ? collectPeople : payPeople}
-                  allPeople={renderedDirection === "collect" ? collectAll : payAll}
-                  neverTalliedPeople={neverTalliedPeople}
-                  filtered={false}
-                  filterTotal={renderedDirection === "collect" ? collectAll.length : payAll.length}
+                        {archivedVaults.length > 0 ? (
+                          <Pressable
+                            onPress={() => router.push("/vault/archived")}
+                            accessibilityRole="button"
+                            style={({ pressed }) => [
+                              styles.noKaataLink,
+                              pressed && { opacity: 0.6 },
+                            ]}
+                          >
+                            <Text style={styles.noKaataLinkText}>
+                              {t("home.noKaata.archived", { count: archivedVaults.length })}
+                            </Text>
+                          </Pressable>
+                        ) : null}
+                      </>
+                    }
+                    isRTL={isRTL}
+                  />
+                </View>
+              ) : loaded && loadError && allPeople.length === 0 ? (
+                // Load failed with nothing cached to show. Rendering the page here
+                // would show "0" totals — the false data-loss signal this audience
+                // is most sensitive to. A later successful retry clears this.
+                <View style={styles.loadingFill}>
+                  <Text style={styles.loadErrorText}>{t("home.loadFailed")}</Text>
+                  <View style={{ height: 16 }} />
+                  <Pressable
+                    onPress={() => void load()}
+                    accessibilityRole="button"
+                    style={({ pressed }) => [styles.loadErrorRetry, pressed && { opacity: 0.85 }]}
+                  >
+                    <Text style={styles.loadErrorRetryText}>{t("common.tryAgain")}</Text>
+                  </Pressable>
+                </View>
+              ) : loaded ? (
+                <HomePage
+                  key={summaryScopeKey}
+                  active={currentPeopleScope && currentVaultScope}
+                  people={homePeople}
+                  allPeople={visibleAllPeople}
+                  summary={
+                    <HomeBalanceSummary
+                      people={visibleAllPeople}
+                      balances={visibleBalances}
+                      currency={selectedCurrency}
+                      compact={keyboardLayoutShown}
+                      active={
+                        currentPeopleScope && currentVaultScope && !filtersExpanded && !selecting
+                      }
+                    />
+                  }
+                  filtered={
+                    customerQuery.trim().length > 0 ||
+                    effectiveGroup !== "all" ||
+                    balanceFilter !== "all"
+                  }
+                  controls={inlineControls}
+                  selectionControls={selectionToolbar}
+                  selecting={selecting}
+                  selectedIds={selectedIds}
+                  selectionBusy={selectionBusy}
                   scrollRef={homeScrollRef}
-                  initialScrollY={homeScrollPosition[renderedDirection]}
+                  scrollScope={homeScrollScope}
+                  initialScrollY={homeScrollPosition.offset}
                   onScrollOffset={(offset) => {
-                    homeScrollPosition[renderedDirection] = offset;
+                    homeScrollPosition.offset = offset;
                   }}
-                  groupFilterLabel={null}
-                  groupFilterCount={0}
-                  onClearGroupFilter={() => {}}
                   creditByPerson={creditByPerson}
-                  vaultId={activeVaultId}
-                  width={screenWidth}
-                  paddingBottom={96 + insets.bottom}
-                  refreshing={refreshing}
-                  onRefresh={onRefresh}
+                  paddingBottom={24}
                   onPersonPress={openPerson}
                   onPersonLongPress={canAmend ? openHomePersonActions : undefined}
                 />
-              </Animated.View>
-            </GestureDetector>
-          ) : (
-            // Pre-load: spinner instead of the page. Rendering the page before
-            // load() resolves flashed "0" totals + the first-run empty state at
-            // every cold launch — a false "my ledger is gone" signal for a
-            // shopkeeper with a full book.
-            <View style={styles.loadingFill}>
-              <ActivityIndicator color={colors.textDefault} />
+              ) : (
+                // Pre-load: spinner instead of the page. Rendering the page before
+                // load() resolves flashed "0" totals + the first-run empty state at
+                // every cold launch — a false "my ledger is gone" signal for a
+                // shopkeeper with a full book.
+                <View style={styles.loadingFill}>
+                  <ActivityIndicator color={colors.textDefault} />
+                </View>
+              )}
             </View>
-          )}
-
-          {/* The field opens search. Its filters never change this overview. */}
-          {activeVaultId ? (
-            <Animated.View
-              style={[
-                styles.dock,
-                {
-                  bottom: 20 + insets.bottom,
-                  transform: [{ translateY: toastOffset }],
-                },
-              ]}
-              pointerEvents="box-none"
-            >
-              <SearchFieldTrigger
-                placeholder={t("customers.search")}
-                onPress={openSearch}
-                isRTL={isRTL}
-              />
-              {canCreate ? (
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel={t("personAdd.new")}
-                  // D-DEFENSIVE-ARCHIVED-GUARD: D-POST-ARCHIVE-SWITCH should
-                  // normally keep the active vault writable, but a mesh-sourced
-                  // archive event can race the FAB tap; refuse here and tell the
-                  // user where to go instead. Cheap 1-row DB read; we don't
-                  // memoize because the answer can change between renders and
-                  // the UX cost of a stale "yes, write" is higher than a 1ms
-                  // SELECT.
-                  onPress={async () => {
-                    const requestedVault = activeVaultId;
-                    const requestedAccount = activeAccountId;
-                    const current = () =>
-                      mounted.current &&
-                      canCreateRef.current &&
-                      getActiveVaultIdSyncMaybe() === requestedVault &&
-                      getAccountIdSync() === requestedAccount;
-                    if (!current()) return;
-                    const guard = await getActiveVaultArchivedState();
-                    if (!current()) return;
-                    if (guard.state === "archived") {
-                      toast.push(t("home.fab.blockedArchived"), "error");
-                      return;
-                    }
-                    if (guard.state === "none") {
-                      toast.push(t("entry.noActiveVault"), "error");
-                      return;
-                    }
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined);
-                    Keyboard.dismiss();
-                    router.push({ pathname: "/person/new", params: { mode: "add" } });
-                  }}
-                  style={({ pressed }) => [styles.fabInner, pressed && { opacity: 0.85 }]}
-                >
-                  <Ionicons name="add" size={28} color={colors.textInverted} />
-                </Pressable>
-              ) : null}
-            </Animated.View>
-          ) : null}
+            {activeVaultId ? (
+              <SearchKeyboardFooter
+                style={styles.homeFooter}
+                closedPadding={12 + insets.bottom}
+                openPadding={8}
+                keyboardShown={keyboardLayoutShown}
+                onLayout={updateFilterAnchor}
+              >
+                {searchDock}
+              </SearchKeyboardFooter>
+            ) : null}
+          </BlurTargetView>
+          <HomeFilterPopover
+            visible={filtersExpanded && currentPeopleScope && currentVaultScope}
+            contextKey={homeScrollScope}
+            anchor={filterAnchor}
+            viewport={filterViewport}
+            blurTarget={filterBlurTargetRef}
+            disabled={controlsDisabled}
+            onDismiss={() => {
+              if (isCurrentHome() && !selectionBusyRef.current) setFiltersExpanded(false);
+            }}
+          >
+            {filterContent}
+          </HomeFilterPopover>
         </View>
-      </KeyboardAvoidingView>
+      </SearchKeyboardFrame>
 
       {/* Phase 7 — unified settings sheet replaces HamburgerMenuSheet +
           ProfileMenuSheet. Opens from the profile chip top-RIGHT. All
@@ -1566,29 +1746,32 @@ export default function HomeScreen() {
           lives inside startShopMode() (throws ShopModeNotAvailableError
           when the device has no vault with a trust anchor; caught
           below and surfaced as a toast). */}
-      <ProfileSettingsSheet
+      <ProfileSettingsSource
+        onPresent={() => {
+          profileOpening.current = true;
+          setSettingsVisible(true);
+        }}
+        ready={
+          loaded &&
+          activeAccountId === getAccountIdSync() &&
+          activeVaultId === getActiveVaultIdSyncMaybe()
+        }
         visible={settingsVisible}
         signedInUser={sessionUser}
         activeAccountId={activeAccountId}
         activeVaultId={activeVaultId}
         vaults={vaults}
         archivedCount={archivedVaults.length}
-        onOpenArchived={() => {
-          setSettingsVisible(false);
-          setTimeout(() => router.push("/vault/archived"), 220);
-        }}
+        onOpenArchived={() => router.push("/vault/archived")}
         shopModeEnabled={shopModeEnabled}
         shopModeBusy={shopModeBusy}
         activePeers={meshActivePeers}
-        onDismiss={() => setSettingsVisible(false)}
+        onDismiss={() => {
+          profileOpening.current = false;
+          setSettingsVisible(false);
+        }}
         onSignOut={() => {
-          // UX critique #6: open a ConfirmDialog before wiping the
-          // session. The sheet was already dismissed via chained()
-          // before this callback fired, so the dialog renders cleanly
-          // over the home surface. setTimeout aligns with the sheet's
-          // EXIT_DURATION_MS so the dialog opens after the sheet's
-          // Modal has fully unmounted (Android Modal-stacking).
-          setTimeout(() => setSignOutConfirm(true), 220);
+          setSignOutConfirm(true);
         }}
         onSelectVault={async (vaultId) => {
           try {
@@ -1700,139 +1883,43 @@ export default function HomeScreen() {
         }}
       />
 
-      <SearchSheet
-        visible={searching}
-        dismissDisabled={selectionBusy}
-        canDismiss={() => !selectionBusyRef.current}
-        contextKey={`${getAccountIdSync() ?? "local"}:${activeVaultId ?? "none"}`}
-        title={t(selecting ? "selection.contacts" : "customers.search.title")}
-        autoFocus={searchAutoFocus}
-        resultSummary={t(
-          searchPeople.length === 1 ? "customers.search.result" : "customers.search.results",
-          { count: searchPeople.length },
-        )}
-        query={customerQuery}
-        placeholder={t("customers.search")}
-        isRTL={isRTL}
-        onDismiss={closeSearch}
-        onChangeQuery={(query) => {
-          if (isCurrentSearch() && !selectionBusyRef.current) setCustomerQuery(query);
+      <ConfirmDialog
+        visible={selecting && confirmRemoveIds !== null}
+        title={t("selection.removeContactsTitle", { count: confirmRemoveIds?.length ?? 0 })}
+        description={t("selection.removeContactsDescription")}
+        confirmLabel={t("selection.remove")}
+        destructive
+        onCancel={() => {
+          if (
+            !isCurrentHome() ||
+            selectionBusyRef.current ||
+            confirmingIdsRef.current !== confirmRemoveIds ||
+            confirmationVersion !== selectionConfirmationVersion.current
+          )
+            return;
+          selectionConfirmationVersion.current++;
+          setConfirmRemoveIds(null);
         }}
-        filtersActive={listCustomized}
-        onClearAll={
-          customerQuery || listCustomized
-            ? () => {
-                if (!isCurrentSearch() || selectionBusyRef.current) return;
-                setCustomerQuery("");
-                changeListPreference({ ...DEFAULT_CUSTOMER_SEARCH });
-              }
-            : undefined
-        }
-        filters={
-          <>
-            <CustomerListOptions
-              preference={listPreference}
-              groups={customerGroups}
-              isRTL={isRTL}
-              onChange={changeListPreference}
-            />
-            {canAmend ? (
-              <View style={{ padding: 16 }}>
-                <Button
-                  label={t("groups.manage")}
-                  icon="add-outline"
-                  variant="secondary"
-                  fullWidth
-                  onPress={() => {
-                    if (!isCurrentSearch() || selectionBusyRef.current) return;
-                    const requestedVault = activeVaultId;
-                    const requestedAccount = activeAccountId;
-                    closeSearch();
-                    const request = searchGeneration.current;
-                    const open = () => {
-                      if (
-                        mounted.current &&
-                        request === searchGeneration.current &&
-                        requestedVault &&
-                        getActiveVaultIdSyncMaybe() === requestedVault &&
-                        getAccountIdSync() === requestedAccount &&
-                        canSelectRef.current
-                      )
-                        router.push({ pathname: "/groups", params: { vaultId: requestedVault } });
-                    };
-                    if (
-                      !afterNativeSearchClosed(
-                        `${requestedAccount ?? "local"}:${requestedVault ?? "none"}`,
-                        open,
-                      )
-                    )
-                      setTimeout(open, 240);
-                  }}
-                />
-              </View>
-            ) : null}
-          </>
-        }
-        footer={searching ? selectionToolbar : undefined}
-        confirmation={{
-          visible: searching && selecting && confirmRemoveIds !== null,
-          title: t("selection.removeContactsTitle", { count: confirmRemoveIds?.length ?? 0 }),
-          description: t("selection.removeContactsDescription"),
-          confirmLabel: t("selection.remove"),
-          destructive: true,
-          onCancel: () => {
-            if (
-              !isCurrentSearch() ||
-              selectionBusyRef.current ||
-              confirmationVersion !== selectionConfirmationVersion.current
-            )
-              return;
-            selectionConfirmationVersion.current++;
-            setConfirmRemoveIds(null);
-          },
-          onConfirm: () => {
-            if (
-              !isCurrentSearch() ||
-              selectionBusyRef.current ||
-              confirmRemoveIds === null ||
-              confirmationVersion !== selectionConfirmationVersion.current
-            )
-              return;
-            selectionConfirmationVersion.current++;
-            void removeSelected();
-          },
+        onConfirm={() => {
+          if (
+            !isCurrentHome() ||
+            selectionBusyRef.current ||
+            confirmRemoveIds === null ||
+            confirmingIdsRef.current !== confirmRemoveIds ||
+            confirmationVersion !== selectionConfirmationVersion.current
+          )
+            return;
+          selectionConfirmationVersion.current++;
+          void removeSelected();
         }}
-      >
-        {(footerInset) =>
-          searching ? (
-            <SearchResultsPage
-              people={searchPeople}
-              scrollRef={searchScrollRef}
-              groupFilterLabel={groupFilterLabel}
-              groupFilterCount={groupFilterCount}
-              onClearGroupFilter={() => changeListPreference({ ...listPreference, group: "all" })}
-              creditByPerson={creditByPerson}
-              paddingBottom={24 + footerInset}
-              onPersonPress={openPerson}
-              onPersonLongPress={
-                canSelect && !selecting
-                  ? (person) => {
-                      if (isCurrentSearch()) startSelection(person);
-                    }
-                  : undefined
-              }
-              selecting={selecting}
-              selectedIds={selectedIds}
-              selectionBusy={selectionBusy}
-            />
-          ) : null
-        }
-      </SearchSheet>
+      />
 
       <BottomSheet
         visible={sheetFor !== null}
         title={sheetFor?.name}
-        onDismiss={() => setSheetFor(null)}
+        onDismiss={() => {
+          if (isCurrentHome()) setSheetFor(null);
+        }}
         actions={[
           ...(canSelect
             ? [
@@ -1847,15 +1934,20 @@ export default function HomeScreen() {
             label: t("person.sheet.edit"),
             icon: "create-outline",
             onPress: () => {
-              const id = sheetFor?.id;
-              if (id) router.push({ pathname: "/person/[id]/edit", params: { id } });
+              if (!isCurrentHome() || !canSelectRef.current || selectionBusyRef.current) return;
+              const person = sheetFor && homeInteraction.current.people.get(sheetFor.id);
+              if (person) router.push({ pathname: "/person/[id]/edit", params: { id: person.id } });
             },
           },
           {
             label: t("common.remove"),
             icon: "trash-outline",
             destructive: true,
-            onPress: () => setConfirmDeleteFor(sheetFor),
+            onPress: () => {
+              if (!isCurrentHome() || !canSelectRef.current || selectionBusyRef.current) return;
+              const person = sheetFor && homeInteraction.current.people.get(sheetFor.id);
+              if (person) setConfirmDeleteFor(person);
+            },
           },
         ]}
       />
@@ -1872,18 +1964,32 @@ export default function HomeScreen() {
           // it open reads as "the tap did nothing" and invites a second
           // Confirm tap (re-running archivePerson).
           const target = confirmDeleteFor;
+          if (
+            !isCurrentHome() ||
+            !canSelectRef.current ||
+            !target ||
+            singleDeleteRef.current !== target ||
+            !homeInteraction.current.people.has(target.id) ||
+            !activeVaultId
+          )
+            return;
+          singleDeleteRef.current = null;
           setConfirmDeleteFor(null);
-          if (!target) return;
           try {
-            await archivePerson(target.id);
+            await archivePerson(target.id, { vaultId: activeVaultId, accountId: activeAccountId });
+            if (!isCurrentHome()) return;
             await load();
-            toast.push(t("common.removed", { name: target.name }), "success");
+            if (isCurrentHome()) toast.push(t("common.removed", { name: target.name }), "success");
           } catch (err) {
             console.warn("[home] archivePerson failed", err);
-            toast.push(t("entry.deleteFailed"), "error");
+            if (isCurrentHome()) toast.push(t("entry.deleteFailed"), "error");
           }
         }}
-        onCancel={() => setConfirmDeleteFor(null)}
+        onCancel={() => {
+          if (!isCurrentHome() || singleDeleteRef.current !== confirmDeleteFor) return;
+          singleDeleteRef.current = null;
+          setConfirmDeleteFor(null);
+        }}
       />
 
       {/* Phase 7 D-TOP-LEFT-SWITCHER — vault switcher sheet, opened by
@@ -2057,8 +2163,6 @@ export default function HomeScreen() {
 
 type CustomerRowsProps = {
   people: PersonWithBalance[];
-  /** Idle financial pages reuse stateless native row slots across directions. */
-  reuseSlots?: boolean;
   creditByPerson: Record<string, CreditStatus>;
   onPersonPress: (person: PersonWithBalance) => void;
   // Omitted for a viewer (read-only) — long-press opens the edit/delete sheet.
@@ -2080,11 +2184,6 @@ type CustomerScrollProps = {
   paddingBottom: number;
 };
 
-type RefreshableCustomerScrollProps = CustomerScrollProps & {
-  refreshing: boolean;
-  onRefresh: () => void;
-};
-
 /** One bordered card keeps the existing row behavior in idle and search. */
 function CustomerRows(props: CustomerRowsProps) {
   const {
@@ -2096,14 +2195,13 @@ function CustomerRows(props: CustomerRowsProps) {
     selectedIds,
     selectionBusy,
     showDirection,
-    reuseSlots,
   } = props;
   // Reuse the visible page's rows during unrelated Home updates. Rebuild only
   // when displayed data, selection or actions change.
   const rows = useMemo(
     () =>
       people.map((item, index) => (
-        <View key={reuseSlots ? index : item.id}>
+        <View key={item.id}>
           {index > 0 ? <View style={styles.divider} /> : null}
           <PersonRow
             person={item}
@@ -2126,35 +2224,32 @@ function CustomerRows(props: CustomerRowsProps) {
       selectedIds,
       selectionBusy,
       showDirection,
-      reuseSlots,
     ],
   );
   return <View style={styles.peopleCard}>{rows}</View>;
 }
 
-/** A customer has no money direction until there is a tally. Kept visible on
- * both idle pages without contributing to either total. */
-function NoTalliesSection(props: CustomerRowsProps) {
-  const isRTL = useIsRTL();
-  if (!props.people.length) return null;
+function GroupFilterChip(props: GroupFilterChipProps) {
+  if (!props.groupFilterLabel) return null;
   return (
-    <View style={styles.noTalliesSection}>
-      <Text style={[styles.searchSectionTitle, textDir(isRTL)]} accessibilityRole="header">
-        {t("customers.noTallies")}
-      </Text>
-      <CustomerRows {...props} />
-    </View>
+    <CustomerFilterChip
+      label={t(props.groupFilterCount > 1 ? "groups.viewMany" : "groups.view", {
+        name: props.groupFilterLabel,
+      })}
+      clearHint={t("groups.clearFilter")}
+      onClear={props.onClearGroupFilter}
+    />
   );
 }
 
-function GroupFilterChip(props: GroupFilterChipProps) {
+function CustomerFilterChip(props: { label: string; clearHint: string; onClear: () => void }) {
   const isRTL = useIsRTL();
-  if (!props.groupFilterLabel) return null;
   return (
     <Pressable
-      onPress={props.onClearGroupFilter}
+      onPress={props.onClear}
       accessibilityRole="button"
-      accessibilityHint={t("groups.clearFilter")}
+      accessibilityLabel={props.label}
+      accessibilityHint={props.clearHint}
       hitSlop={{ top: 6, bottom: 6 }}
       style={({ pressed }) => [
         styles.groupChip,
@@ -2163,208 +2258,122 @@ function GroupFilterChip(props: GroupFilterChipProps) {
       ]}
     >
       <Text style={[styles.groupChipText, textDir(isRTL)]} numberOfLines={1}>
-        {t(props.groupFilterCount > 1 ? "groups.viewMany" : "groups.view", {
-          name: props.groupFilterLabel,
-        })}
+        {props.label}
       </Text>
       <Ionicons name="close" size={14} color={colors.textSubtle} />
     </Pressable>
   );
 }
 
-/** Search is one ordered list; each nonzero amount carries its own direction. */
-function SearchResultsPage(props: CustomerRowsProps & GroupFilterChipProps & CustomerScrollProps) {
-  const isRTL = useIsRTL();
-  const count = props.people.length;
-  return (
-    <ScrollView
-      ref={props.scrollRef}
-      style={styles.body}
-      keyboardShouldPersistTaps="handled"
-      keyboardDismissMode="on-drag"
-      contentContainerStyle={{ paddingBottom: props.paddingBottom }}
-    >
-      <GroupFilterChip
-        groupFilterLabel={props.groupFilterLabel}
-        groupFilterCount={props.groupFilterCount}
-        onClearGroupFilter={props.onClearGroupFilter}
-      />
-      {count === 0 ? (
-        <EmptyState title={t("customers.noResults")} isRTL={isRTL} />
-      ) : (
-        <CustomerRows {...props} showDirection />
-      )}
-    </ScrollView>
-  );
-}
-
-function TabPage(
+function HomePage(
   props: CustomerRowsProps &
-    GroupFilterChipProps &
-    RefreshableCustomerScrollProps & {
-      direction: Direction;
+    CustomerScrollProps & {
       active: boolean;
       allPeople: PersonWithBalance[];
-      neverTalliedPeople: PersonWithBalance[];
       filtered: boolean;
-      filterTotal: number;
-      vaultId: string | null;
-      width: number;
+      controls: React.ReactNode;
+      selectionControls: React.ReactNode;
+      summary: React.ReactNode;
+      scrollScope: string;
       initialScrollY: number;
       onScrollOffset: (offset: number) => void;
     },
 ) {
   const isRTL = useIsRTL();
-  // Keep one native list. Replacing it on every tab switch remounts hundreds
-  // of rows; only the visible data and remembered position need to change.
+  const [selectionSize, setSelectionSize] = useState({ scope: props.scrollScope, height: 0 });
+  const selectionLayout = useRef({
+    scope: props.scrollScope,
+    active: Boolean(props.selecting),
+    version: 0,
+  });
+  if (
+    selectionLayout.current.scope !== props.scrollScope ||
+    selectionLayout.current.active !== Boolean(props.selecting)
+  ) {
+    selectionLayout.current = {
+      scope: props.scrollScope,
+      active: Boolean(props.selecting),
+      version: selectionLayout.current.version + 1,
+    };
+  }
+  const selectionVersion = selectionLayout.current.version;
+  const selectionHeight = selectionSize.scope === props.scrollScope ? selectionSize.height : 0;
   useLayoutEffect(() => {
     props.scrollRef.current?.scrollTo({ y: props.initialScrollY, animated: false });
-    // Ordinary scroll updates must never snap the page to a previous offset.
+    // Keep the customer scroll position scoped to the current book and account.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [props.direction, props.scrollRef]);
-  const { total, active } = useMemo(
-    () => ({
-      total: sumAmounts(props.allPeople.map((p) => Math.abs(p.balance))),
-      active: props.allPeople.filter((p) => p.balance !== 0).length,
-    }),
-    [props.allPeople],
-  );
-  const totalLabel =
-    props.direction === "collect" ? t("home.total.label.collect") : t("home.total.label.pay");
-  // The hero total is the main page's direction cue: the collect color when
-  // it's money to collect, the pay color when it's money to pay. (Matches the
-  // person balance number and the web ledger.)
-  const totalColor = props.direction === "collect" ? colors.collectStrong : colors.payStrong;
-
-  // Financial and neutral customer sections use ONE real bordered CARD each
-  // (ScrollView + map), not the
-  // old per-row border emulation. That emulation drew the card edges as ASYMMETRIC
-  // per-row borders (first row top-only, last row bottom-only), which Android RN
-  // renders wrong together with borderRadius — the first/last edges + corners
-  // vanished (the "edges of the whole div are missing" report, twice). A single
-  // View with uniform borderWidth + overflow:hidden has no asymmetry and clips the
-  // rounded corners cleanly. overflow:hidden is safe here (it wraps a normal View,
-  // not an intrinsic-height FlatList cell — that was the unrelated blank-row bug).
-  const { people, onPersonPress, onPersonLongPress } = props;
-
+  }, [props.scrollRef, props.scrollScope]);
   return (
     <View
-      style={{ flex: 1, width: props.width }}
+      style={styles.body}
       pointerEvents={props.active ? "auto" : "none"}
       accessibilityElementsHidden={!props.active}
       importantForAccessibility={props.active ? "auto" : "no-hide-descendants"}
     >
+      <View
+        testID="home-balance-section"
+        style={[styles.topSection, props.selecting && styles.hiddenBalanceSection]}
+        pointerEvents={props.selecting ? "none" : "auto"}
+        accessibilityElementsHidden={Boolean(props.selecting)}
+        importantForAccessibility={props.selecting ? "no-hide-descendants" : "auto"}
+      >
+        {props.summary}
+      </View>
+      {props.selecting && props.selectionControls ? (
+        <View
+          testID="home-selection-toolbar"
+          style={styles.selectionTop}
+          pointerEvents="box-none"
+          onLayout={(event) => {
+            const { height } = event.nativeEvent.layout;
+            if (
+              !selectionLayout.current.active ||
+              selectionLayout.current.scope !== props.scrollScope ||
+              selectionLayout.current.version !== selectionVersion ||
+              !Number.isFinite(height) ||
+              height <= 0
+            )
+              return;
+            setSelectionSize((previous) =>
+              previous.scope === props.scrollScope && previous.height === height
+                ? previous
+                : { scope: props.scrollScope, height },
+            );
+          }}
+        >
+          {props.selectionControls}
+        </View>
+      ) : null}
       <ScrollView
+        key={props.scrollScope}
         ref={props.scrollRef}
+        style={styles.body}
         scrollEnabled={props.active}
-        onContentSizeChange={() => {
-          // A longer destination can finish layout after the first scroll
-          // command. Restore again while the page is still entering.
-          if (!props.active)
-            props.scrollRef.current?.scrollTo({ y: props.initialScrollY, animated: false });
-        }}
+        bounces
+        alwaysBounceVertical
+        overScrollMode="always"
         onScroll={(event) => {
           if (props.active) props.onScrollOffset(Math.max(0, event.nativeEvent.contentOffset.y));
         }}
         scrollEventThrottle={64}
-        keyboardShouldPersistTaps="handled"
+        keyboardShouldPersistTaps="always"
         keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
-        contentContainerStyle={{ paddingBottom: props.paddingBottom }}
-        refreshControl={
-          <RefreshControl
-            refreshing={props.refreshing}
-            onRefresh={props.onRefresh}
-            colors={[colors.textEmphasis]}
-            tintColor={colors.textSubtle}
-          />
-        }
+        contentContainerStyle={{
+          paddingTop: props.selecting ? selectionHeight + 12 : 12,
+          paddingBottom: props.paddingBottom,
+          flexGrow: 1,
+        }}
       >
-        <View style={styles.totalBlock}>
-          <Text style={[styles.totalLabel, textDir(isRTL), trackingSafe(isRTL)]}>{totalLabel}</Text>
-          <View style={[styles.totalRow, rowDir(isRTL)]}>
-            <Text
-              style={[styles.totalAmount, { color: totalColor, flexShrink: 1 }]}
-              numberOfLines={1}
-              adjustsFontSizeToFit
-              minimumFontScale={0.5}
-            >
-              {formatAmount(total)}
-            </Text>
-            <Text style={styles.totalAfn}>{getCurrentCurrencySymbol()}</Text>
-          </View>
-          {/* Descriptor for a REAL total ("from 3 people"). At zero it used to
-              switch into empty-state vocabulary that the EmptyState two lines
-              below already says, louder and bigger: an empty tab read "no one
-              here yet" (13px grey) and then "Nothing to collect yet" (15px
-              semibold) — the same sentence twice, at two sizes. One grammar per
-              concept: the zero states belong to EmptyState (nobody on this
-              side) and to PersonRow's settled mark (everyone square), not under
-              the hero number. */}
-          {active > 0 ? (
-            <Text style={[styles.totalSub, textDir(isRTL)]}>
-              {t(active === 1 ? "home.from.someone" : "home.from.many", { count: active })}
-            </Text>
-          ) : null}
-        </View>
-
-        <GroupFilterChip
-          groupFilterLabel={props.groupFilterLabel}
-          groupFilterCount={props.groupFilterCount}
-          onClearGroupFilter={props.onClearGroupFilter}
-        />
-        {props.filtered ? (
-          <Text style={[styles.filterHint, textDir(isRTL)]}>
-            {/* The hero above stays the whole side (by design); what the
-                filtered customers come to was shown nowhere (audit #26). */}
-            {t("customers.filtered", {
-              direction: t(props.direction === "collect" ? "home.tab.collect" : "home.tab.pay"),
-              shown: people.length,
-              total: props.filterTotal,
-              amount: bidiIsolate(
-                `${formatAmount(sumAmounts(people.map((p) => Math.abs(p.balance))))} ${getCurrentCurrencySymbol()}`,
-              ),
-            })}
-          </Text>
-        ) : null}
-        {people.length === 0 && props.neverTalliedPeople.length === 0 ? (
+        {props.controls}
+        {props.people.length === 0 ? (
           <EmptyState
-            title={
-              props.filtered
-                ? t("customers.noGroupResults")
-                : props.direction === "collect"
-                  ? t("home.empty.collect.title")
-                  : t("home.empty.pay.title")
-            }
-            subtitle={
-              props.filtered
-                ? undefined
-                : props.direction === "collect"
-                  ? t("home.empty.collect.subtitle")
-                  : t("home.empty.pay.subtitle")
-            }
+            title={t(props.filtered ? "customers.noResults" : "home.empty.title")}
+            subtitle={props.filtered ? undefined : t("home.empty.subtitle")}
             isRTL={isRTL}
           />
-        ) : people.length > 0 ? (
-          <CustomerRows
-            reuseSlots={!props.selecting}
-            selecting={props.selecting}
-            selectedIds={props.selectedIds}
-            selectionBusy={props.selectionBusy}
-            people={people}
-            creditByPerson={props.creditByPerson}
-            onPersonPress={onPersonPress}
-            onPersonLongPress={onPersonLongPress}
-          />
-        ) : null}
-        <NoTalliesSection
-          selecting={props.selecting}
-          selectedIds={props.selectedIds}
-          selectionBusy={props.selectionBusy}
-          people={props.neverTalliedPeople}
-          creditByPerson={props.creditByPerson}
-          onPersonPress={onPersonPress}
-          onPersonLongPress={onPersonLongPress}
-        />
+        ) : (
+          <CustomerRows {...props} showDirection />
+        )}
       </ScrollView>
     </View>
   );
@@ -2372,7 +2381,13 @@ function TabPage(
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bgDefault },
-  body: { flex: 1 },
+  body: { flex: 1, minHeight: 0 },
+  topSection: {
+    flexShrink: 0,
+    backgroundColor: colors.bgDefault,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.borderDefault,
+  },
   authOverlay: {
     ...StyleSheet.absoluteFill,
     backgroundColor: "rgba(0,0,0,0.55)",
@@ -2388,20 +2403,12 @@ const styles = StyleSheet.create({
     textAlign: "center",
     paddingHorizontal: 32,
   },
-  // Header — D-HEADER-CLEANUP. iOS 17 "large title" pattern, borderless,
-  // typography-driven. Shop name is the visual anchor (28px display).
-  // After the user-name subtitle was removed, both clusters now center
-  // on a single row (alignItems:"center"), so title text optical center
-  // and avatar center share the same line — no marginTop hacks needed.
-  // paddingTop:18 / paddingBottom:14 give the row enough breathing room
-  // under the status bar without wasting space (the old 20/16 anticipated
-  // a two-line title block). paddingHorizontal:16 is matched on both
-  // sides; safe-area top is handled by SafeAreaView edges={["top"]} on
-  // the parent.
+  // The kaata button and profile actions share a compact header. The parent
+  // SafeAreaView owns the status-bar inset.
   header: {
     paddingHorizontal: 16,
-    paddingTop: 18,
-    paddingBottom: 14,
+    paddingTop: 12,
+    paddingBottom: 10,
     alignItems: "center",
   },
   // Title row — kaata name + chevron. flex:1 ensures very long shop
@@ -2430,6 +2437,26 @@ const styles = StyleSheet.create({
     // mounts. 40 = the avatar tap-target row, the Android-era minimum.
     minHeight: Math.max(40, sansLineHeight(28, 32)),
     alignItems: "center",
+  },
+  kaataButton: {
+    minHeight: Math.max(44, sansLineHeight(20, 26) + 14),
+    minWidth: 0,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderWidth: 1,
+    borderColor: colors.borderDefault,
+    borderRadius: 14,
+    backgroundColor: colors.bgDefault,
+  },
+  kaataButtonPressed: {
+    backgroundColor: colors.bgMuted,
+    borderColor: colors.borderEmphasis,
+  },
+  kaataButtonTitle: {
+    fontFamily: fonts.sansSemi,
+    fontSize: 18,
+    lineHeight: sansLineHeight(18, 24),
+    letterSpacing: 0,
   },
   // Inner column for title + subname. flexShrink:1 (NOT flex:1) so the
   // column takes its natural content width and the chevron sits IMMEDIATELY
@@ -2504,10 +2531,6 @@ const styles = StyleSheet.create({
     borderRadius: PROFILE_SLOT_SIZE / 2,
     backgroundColor: colors.bgMuted,
   },
-  // tabsWrap — gap above the page. marginTop:2 closes the gap a
-  // hair after the header's paddingBottom shrunk to 14 (was 16);
-  // marginBottom:16 keeps the page from feeling glued to the tab strip.
-  tabsWrap: { paddingHorizontal: 16, marginTop: 2, marginBottom: 16, gap: 8, alignItems: "center" },
   groupChip: {
     alignSelf: "flex-start",
     alignItems: "center",
@@ -2527,27 +2550,6 @@ const styles = StyleSheet.create({
     fontFamily: fonts.sansMedium,
     fontSize: 13,
     color: colors.textDefault,
-  },
-  searchTitle: {
-    fontFamily: fonts.sansSemi,
-    fontSize: 18,
-    color: colors.textEmphasis,
-  },
-  searchSectionTitle: {
-    fontFamily: fonts.sansSemi,
-    fontSize: 13,
-    color: colors.textEmphasis,
-    marginHorizontal: 16,
-    marginTop: 4,
-    marginBottom: 8,
-  },
-  noTalliesSection: { marginTop: 16 },
-  filterHint: {
-    fontFamily: fonts.sansRegular,
-    fontSize: 12,
-    color: colors.textSubtle,
-    marginHorizontal: 16,
-    marginBottom: 12,
   },
   loadingFill: { flex: 1, alignItems: "center", justifyContent: "center" },
   // No-kaatas empty state (fresh account / after leaving the last kaata).
@@ -2585,29 +2587,6 @@ const styles = StyleSheet.create({
     fontFamily: fonts.sansSemi,
     color: colors.textInverted,
   },
-  page: { flex: 1 },
-  totalBlock: { marginHorizontal: 16, marginBottom: 20 },
-  totalLabel: {
-    fontSize: 11,
-    fontFamily: fonts.sansSemi,
-    color: colors.textSubtle,
-    textTransform: "uppercase",
-    letterSpacing: 0.6,
-  },
-  totalRow: { flexDirection: "row", alignItems: "baseline", marginTop: 6, gap: 6 },
-  totalAmount: {
-    fontSize: 36,
-    fontFamily: fonts.monoBold,
-    color: colors.textEmphasis,
-    letterSpacing: -0.5,
-  },
-  totalAfn: { fontSize: 14, fontFamily: fonts.sansMedium, color: colors.textMuted },
-  totalSub: {
-    fontSize: 13,
-    fontFamily: fonts.sansRegular,
-    color: colors.textSubtle,
-    marginTop: 4,
-  },
   // The people list is ONE bordered card (uniform border on all 4 sides +
   // overflow:hidden to clip the rounded corners). overflow:hidden is safe on this
   // plain wrapper View (the old blank-row bug was overflow:hidden on intrinsic-
@@ -2622,13 +2601,77 @@ const styles = StyleSheet.create({
     backgroundColor: colors.bgDefault,
   },
   divider: { height: 1, backgroundColor: colors.borderDefault },
-  dock: {
-    position: "absolute",
+  homeFooter: {
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    backgroundColor: colors.bgDefault,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.borderDefault,
+  },
+  inlineControls: { marginHorizontal: 16, marginBottom: 12 },
+  searchRow: { flexDirection: "row", direction: "ltr", gap: 8, alignItems: "center" },
+  searchField: {
     flexDirection: "row",
-    left: 16,
-    right: 16,
-    alignItems: "center",
+    direction: "ltr",
+    flex: 1,
+    minWidth: 0,
+    minHeight: 52,
+    paddingHorizontal: 12,
     gap: 8,
+    borderWidth: 1,
+    borderColor: colors.borderDefault,
+    borderRadius: 12,
+    alignItems: "center",
+    backgroundColor: colors.bgDefault,
+  },
+  searchInput: {
+    flex: 1,
+    minWidth: 0,
+    minHeight: 50,
+    paddingVertical: 10,
+    fontSize: 15,
+    fontFamily: fonts.sansRegular,
+    color: colors.textDefault,
+  },
+  filterButton: {
+    width: 52,
+    height: 52,
+    borderWidth: 1,
+    borderColor: colors.borderDefault,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.bgDefault,
+  },
+  filterButtonActive: { backgroundColor: colors.actionPrimary, borderColor: colors.actionPrimary },
+  resultsHeading: { marginTop: 4, gap: 8, alignItems: "center", justifyContent: "space-between" },
+  resultCount: { flex: 1, fontSize: 13, fontFamily: fonts.sansRegular, color: colors.textSubtle },
+  clearLabel: {
+    fontSize: 13,
+    fontFamily: fonts.sansSemi,
+    color: colors.textDefault,
+    paddingVertical: 8,
+  },
+  selectionTop: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    zIndex: 5,
+    overflow: "visible",
+  },
+  hiddenBalanceSection: { display: "none" },
+  keyboardDismiss: {
+    width: FAB_SIZE,
+    height: FAB_SIZE,
+    borderRadius: FAB_SIZE / 2,
+    borderWidth: 1,
+    borderColor: colors.borderDefault,
+    backgroundColor: colors.bgDefault,
+    alignItems: "center",
+    justifyContent: "center",
   },
   fabInner: {
     width: FAB_SIZE,

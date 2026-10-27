@@ -7,6 +7,7 @@ export const KAATA_DEFAULT_ROUTE_ID = "kaata-default";
 
 export type CreditPolicy = {
   relationship_id: string;
+  currency?: string;
   max_collect_minor: number | null;
   max_pay_minor: number | null;
   mode: "warn" | "clerk_block";
@@ -27,6 +28,7 @@ export function creditExceeded(p: CreditPolicy | null, before: number, after: nu
 
 export function validCreditPolicy(p: CreditPolicy): boolean {
   return (
+    (p.currency === undefined || /^[A-Z]{3}$/.test(p.currency)) &&
     (p.mode === "warn" || p.mode === "clerk_block") &&
     (p.restrict_editors === undefined || typeof p.restrict_editors === "boolean") &&
     [p.max_collect_minor, p.max_pay_minor].every(

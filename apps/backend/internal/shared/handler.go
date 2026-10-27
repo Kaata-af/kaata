@@ -1,12 +1,14 @@
 package shared
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"html/template"
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -14,18 +16,23 @@ import (
 	"github.com/matee/kaata-backend/internal/locale"
 )
 
-// maxPayload caps a shared snapshot. A per-person ledger with up to ~100
-// entries is well under this; bigger means abuse or a bug.
-const maxPayload = 128 << 10 // 128 KiB
+// Complete bills are bounded, never truncated into a misleading partial bill.
+const maxPayload = 4 << 20 // 4 MiB
+const maxSharedEntries = 5000
+
+type snapshotStore interface {
+	Create(context.Context, []byte) (string, error)
+	Get(context.Context, string) ([]byte, error)
+}
 
 type Handler struct {
-	svc          *Service
+	svc          snapshotStore
 	webBaseURL   string // canonical site origin, e.g. https://kaata.af (chrome links)
 	shareBaseURL string // origin the share link + og:url resolve to (defaults to webBaseURL)
 	apiBaseURL   string // backend's own public origin, e.g. https://api.kaata.af; "" → relative fetch
 }
 
-func NewHandler(svc *Service, webBaseURL, shareLinkBaseURL, apiBaseURL string) *Handler {
+func NewHandler(svc snapshotStore, webBaseURL, shareLinkBaseURL, apiBaseURL string) *Handler {
 	web := strings.TrimRight(webBaseURL, "/")
 	share := strings.TrimRight(shareLinkBaseURL, "/")
 	if share == "" {
@@ -39,16 +46,23 @@ func NewHandler(svc *Service, webBaseURL, shareLinkBaseURL, apiBaseURL string) *
 	}
 }
 
+// Capabilities lets new senders avoid handing a v2 bill to an older renderer.
+func (h *Handler) Capabilities(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "public, max-age=300")
+	httpx.JSON(w, http.StatusOK, map[string]any{"bill_versions": []int{1, 2}, "multi_currency": true})
+}
+
 // sharePayload is the snapshot shape the mobile app sends and the SSR shell
 // reads. Only the summary fields are used server-side (for the OG preview); the
 // full `entries` list is rendered by the web client from GET /v1/shared/<token>.
 type sharePayload struct {
-	V        int     `json:"v"`
-	Shop     string  `json:"shop"`
-	Person   string  `json:"person"`
-	Currency string  `json:"currency"`
-	Balance  float64 `json:"balance"`
-	Locale   string  `json:"locale"`
+	V            int     `json:"v"`
+	Shop         string  `json:"shop"`
+	Person       string  `json:"person"`
+	Currency     string  `json:"currency"`
+	CurrencyCode string  `json:"currency_code"`
+	Balance      float64 `json:"balance"`
+	Locale       string  `json:"locale"`
 	// Calendar the shopkeeper had selected when this bill was cut:
 	// "gregorian" | "jalali" | "qamari". FROZEN at issue time under the paper rule — a
 	// bill is the recipient's permanent asset and must not change shape when
@@ -60,14 +74,10 @@ type sharePayload struct {
 	// #15): the tabular Qamari date can sit a day or two off the local moon
 	// sighting. Absent on other calendars and on older bills; see
 	// resolveQamariOffset.
-	QamariOffset *float64 `json:"qamari_offset"`
-	Entries      []struct {
-		Type   string  `json:"type"`
-		Amount float64 `json:"amount"`
-		Note   *string `json:"note"`
-		Date   int64   `json:"date"`
-	} `json:"entries"`
-	GeneratedAt int64 `json:"generated_at"`
+	QamariOffset *float64              `json:"qamari_offset"`
+	Entries      []shareEntry          `json:"entries"`
+	Currencies   []shareCurrencyLedger `json:"currencies"`
+	GeneratedAt  int64                 `json:"generated_at"`
 }
 
 // resolveCalendar resolves the frozen bill's calendar.
@@ -116,12 +126,8 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, http.StatusBadRequest, "invalid json body")
 		return
 	}
-	if strings.TrimSpace(p.Person) == "" {
-		httpx.Error(w, http.StatusBadRequest, "person is required")
-		return
-	}
-	if len(p.Entries) > 500 {
-		httpx.Error(w, http.StatusBadRequest, "too many entries")
+	if err := validateSharePayload(p); err != nil {
+		httpx.Error(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	token, err := h.svc.Create(r.Context(), raw)
@@ -133,10 +139,15 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	// PAPER RULE: no revoke_secret in the response. Bills are permanent —
 	// see the package comment. (1.0.5-and-earlier clients look for the field
 	// to register a revocable link; its absence simply skips that write.)
-	httpx.JSON(w, http.StatusOK, map[string]string{
+	response := map[string]any{
 		"token": token,
 		"url":   h.shareBaseURL + "/v/" + token,
-	})
+	}
+	if p.V == 2 {
+		response["bill_version"] = 2
+		response["url"] = h.shareBaseURL + "/v2/" + token
+	}
+	httpx.JSON(w, http.StatusOK, response)
 }
 
 // Get — GET /v1/shared/{token} (PUBLIC). Returns the stored snapshot JSON for
@@ -185,6 +196,12 @@ func (h *Handler) View(w http.ResponseWriter, r *http.Request) {
 	}
 	var p sharePayload
 	_ = json.Unmarshal(payload, &p) // payload was validated on create
+	if p.V == 2 {
+		if err := validateSharePayload(p); err != nil {
+			httpx.Error(w, http.StatusUnprocessableEntity, "invalid bill")
+			return
+		}
+	}
 
 	// Owed-direction copy from the RECEIVER's (customer's) perspective: a
 	// positive balance means the customer owes the shop.
@@ -229,8 +246,27 @@ func (h *Handler) View(w http.ResponseWriter, r *http.Request) {
 		// Solar Hijri for fa) at first paint; 0 (pre-date snapshots) hides it.
 		GeneratedAtMs: p.GeneratedAt,
 	}
+	if p.V == 2 {
+		data.ShareURL = h.shareBaseURL + "/v2/" + token
+		data.Currencies = currencyPreviews(p, lang)
+		data.Direction = "multi"
+		parts := make([]string, 0, len(data.Currencies))
+		for i, currency := range data.Currencies {
+			date := ""
+			if i == 0 {
+				date = billDateForLanguage(p.GeneratedAt, lang, calendar, qamariOffset)
+			}
+			description := ogDescForLanguage(currency.AbsBalance, currency.Currency, currency.Direction, lang, date)
+			if currency.Direction == "settled" {
+				description += " (" + currency.Currency + ")"
+			}
+			parts = append(parts, description)
+		}
+		data.OGDesc = strings.Join(parts, "; ")
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "public, max-age=300")
+	w.Header().Set("X-Robots-Tag", "noindex, nofollow")
 	if err := viewTmpl.Execute(w, data); err != nil {
 		log.Printf("shared: view render failed: %v", err)
 	}
@@ -253,6 +289,7 @@ type viewData struct {
 	OGTitle       string
 	OGDesc        string
 	GeneratedAtMs int64 // bill issue date (epoch ms); 0 hides the date line
+	Currencies    []currencyPreview
 }
 
 func ogTitle(p sharePayload) string {
@@ -263,7 +300,7 @@ func ogTitle(p sharePayload) string {
 }
 
 // ogDesc is the WhatsApp/social preview line — per-person and to-the-point so the
-// link card itself carries the balance (no image; the box logo is gone). Phrased
+// link card itself carries the balance. Phrased
 // from the RECEIVER's (customer's) view and localized to the shopkeeper's language.
 // absBal is the already-locale-formatted balance string (Persian digits for fa).
 //
@@ -340,4 +377,24 @@ func (v viewData) Language() string {
 		return "fa"
 	}
 	return "en"
+}
+
+// OGImageURL uses the configured public site, never the requesting bill host.
+// An unset or invalid origin must not produce a relative or unsafe image URL.
+func (v viewData) OGImageURL() string {
+	origin := strings.TrimRight(strings.TrimSpace(v.Origin), "/")
+	u, err := url.Parse(origin)
+	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" ||
+		u.User != nil || u.Path != "" || u.RawQuery != "" || u.ForceQuery || strings.Contains(origin, "#") {
+		return ""
+	}
+	return origin + "/og/kaata-fa-v1.png"
+}
+
+func (v viewData) OGImageSecureURL() string {
+	image := v.OGImageURL()
+	if strings.HasPrefix(image, "https://") {
+		return image
+	}
+	return ""
 }

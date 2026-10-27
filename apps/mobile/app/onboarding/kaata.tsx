@@ -37,7 +37,7 @@ import { useOnboardingKeyboardScroll } from "../../lib/use-onboarding-keyboard-s
 // Onboarding final step — create the shopkeeper's first kaata (their shop's
 // ledger book). The personal-profile step (name + phone) stashed those values
 // in app_meta and advanced onboarding_step to 'kaata'; here we collect the
-// SHOP name + currency and call createSelfProfile(name, shop, phone, currency),
+// SHOP name + currency and create the self and its first kaata together,
 // which atomically writes the local-self user AND mints the default vault.
 //
 // Why self-creation is DEFERRED to this screen (not done on the profile step):
@@ -61,6 +61,13 @@ export default function OnboardingKaataScreen() {
 
   const [shopName, setShopName] = useState("");
   const [currency, setCurrency] = useState<string>(DEFAULT_CURRENCY);
+  const currencyRef = useRef<string>(DEFAULT_CURRENCY);
+  const picker = useRef({
+    open: false,
+    version: 0,
+  });
+  const pickerRequest = picker.current.version;
+  const mounted = useRef(true);
   // The field opens the same picker used when editing a kaata.
   const [currencySheetVisible, setCurrencySheetVisible] = useState(false);
   // Mutual-tab handoff (docs/mutual-tab-design.md §4.4, D9): a link followed
@@ -88,17 +95,49 @@ export default function OnboardingKaataScreen() {
   // double-tap (setState is async); see entry/new.tsx. Without it a
   // double-tap mints two selves/vaults.
   const savingRef = useRef(false);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      picker.current = { open: false, version: picker.current.version + 1 };
+    };
+  }, []);
+  const commitCurrency = (code: string) => {
+    currencyRef.current = code;
+    setCurrency(code);
+  };
+  const closeCurrencyPicker = useCallback(() => {
+    picker.current = { open: false, version: picker.current.version + 1 };
+    setCurrencySheetVisible(false);
+  }, []);
+  const openCurrencyPicker = () => {
+    if (!mounted.current || savingRef.current) return;
+    currencyDirtyRef.current = true;
+    picker.current = { open: true, version: picker.current.version + 1 };
+    setCurrencySheetVisible(true);
+    Keyboard.dismiss();
+  };
+  const currentPicker = () =>
+    mounted.current &&
+    !savingRef.current &&
+    picker.current.open &&
+    picker.current.version === pickerRequest;
 
   useEffect(() => {
+    let alive = true;
     (async () => {
       const [name, phone] = await Promise.all([
         getAppMeta("onboarding_self_name"),
         getAppMeta("onboarding_self_phone"),
       ]);
+      if (!alive) return;
       setSelfName((name ?? "").trim() || null);
       setSelfPhone((phone ?? "").trim() || null);
       setLoaded(true);
     })();
+    return () => {
+      alive = false;
+    };
   }, []);
 
   // The pending tab's currency, in the background: never blocks the form and
@@ -109,24 +148,26 @@ export default function OnboardingKaataScreen() {
   // it without a second round trip.
   useEffect(() => {
     let cancelled = false;
+    const canPreset = () =>
+      !cancelled && mounted.current && !savingRef.current && !currencyDirtyRef.current;
     void (async () => {
       try {
         const token = await getAppMeta("pending_tab_token");
-        if (!token || cancelled) return;
+        if (!token || !canPreset()) return;
         const stashed = await getAppMeta("pending_tab_currency");
-        if (cancelled) return;
-        if (stashed && CURRENCIES.some((c) => c.code === stashed) && !currencyDirtyRef.current) {
-          setCurrency(stashed);
+        if (!canPreset()) return;
+        if (stashed && CURRENCIES.some((c) => c.code === stashed)) {
+          commitCurrency(stashed);
           setPresetCurrency(stashed);
         }
-        if (!(await getSessionJWT())) return;
+        if (!(await getSessionJWT()) || !canPreset()) return;
         const preview = await fetchTabPreview(token);
-        if (cancelled) return;
+        if (!canPreset()) return;
         const code = preview.tab.currency;
         if (!CURRENCIES.some((c) => c.code === code)) return;
         await setAppMeta("pending_tab_currency", code);
-        if (cancelled || currencyDirtyRef.current) return;
-        setCurrency(code);
+        if (!canPreset()) return;
+        commitCurrency(code);
         setPresetCurrency(code);
       } catch (err) {
         console.warn("[onboarding/kaata] pending tab preview failed", err);
@@ -155,7 +196,7 @@ export default function OnboardingKaataScreen() {
   // needs its few seconds of screen time before the naming happens.)
 
   async function onCreate() {
-    if (savingRef.current) return;
+    if (!mounted.current || savingRef.current) return;
     const trimmedShop = shopName.trim();
     if (!trimmedShop) {
       setNameError(t("onboardingKaata.name.required"));
@@ -167,7 +208,9 @@ export default function OnboardingKaataScreen() {
     if (!selfName) return;
     setNameError(null);
     savingRef.current = true;
-    setCurrencySheetVisible(false);
+    currencyDirtyRef.current = true;
+    closeCurrencyPicker();
+    const selectedCurrency = currencyRef.current;
     setSubmitError(null);
     setBusy(true);
     try {
@@ -175,7 +218,8 @@ export default function OnboardingKaataScreen() {
       // anchor, shop_profile, genesis vault_member_added event). This is what
       // flips hasOnboarded true, so it must succeed BEFORE we mark onboarding
       // done + navigate home.
-      await createSelfProfile(selfName, trimmedShop, selfPhone, currency);
+      await createSelfProfile(selfName, trimmedShop, selfPhone, selectedCurrency);
+      if (!mounted.current) return;
       // Best-effort: back the phone up to the account so it survives a
       // reinstall (signed-in only; no-op offline). Lives here, not on the
       // profile step, because the self is created here.
@@ -188,6 +232,7 @@ export default function OnboardingKaataScreen() {
       await setAppMeta("onboarding_pending_name", "");
       await setAppMeta("onboarding_pending_email", "");
       await setAppMeta("onboarding_pending_phone", "");
+      if (!mounted.current) return;
       // Confirm the kaata that was created. onboarding_step is already 'done', so a
       // force-quit on the success screen just lands home on relaunch.
       Keyboard.dismiss();
@@ -196,6 +241,7 @@ export default function OnboardingKaataScreen() {
         params: { name: trimmedShop },
       });
     } catch (err) {
+      if (!mounted.current) return;
       console.warn("[onboarding/kaata] createSelfProfile failed", err);
       // Mythos Fix Set C: signing-unavailable gets an actionable message.
       if (err instanceof EventSigningUnavailableError) {
@@ -209,24 +255,30 @@ export default function OnboardingKaataScreen() {
   }
 
   const onBack = useCallback(async () => {
-    if (savingRef.current) return;
+    if (!mounted.current || savingRef.current) return;
+    if (picker.current.open) {
+      closeCurrencyPicker();
+      return;
+    }
     savingRef.current = true;
     setBusy(true);
     setSubmitError(null);
-    setCurrencySheetVisible(false);
+    closeCurrencyPicker();
     Keyboard.dismiss();
     // Step back to the profile form. The stashed name/phone stay in app_meta
     // (harmless) and are overwritten when the user submits profile again.
     try {
       await setAppMeta("onboarding_step", "profile");
+      if (!mounted.current) return;
       router.replace("/onboarding/profile");
     } catch (err) {
+      if (!mounted.current) return;
       console.warn("[onboarding/kaata] returning to profile failed", err);
       savingRef.current = false;
       setBusy(false);
       setSubmitError(t("entry.saveFailed"));
     }
-  }, [router]);
+  }, [router, closeCurrencyPicker]);
 
   useFocusEffect(
     useCallback(() => {
@@ -282,6 +334,7 @@ export default function OnboardingKaataScreen() {
             placeholder={t("onboardingKaata.name.placeholder")}
             style={styles.input}
             onChangeText={(s) => {
+              if (!mounted.current || savingRef.current) return;
               setShopName(s);
               if (nameError) setNameError(null);
             }}
@@ -296,11 +349,7 @@ export default function OnboardingKaataScreen() {
               accessibilityRole="button"
               accessibilityLabel={`${t("onboardingKaata.currency.label")}: ${currencyValue}`}
               accessibilityState={{ disabled: busy, expanded: currencySheetVisible }}
-              onPress={() => {
-                if (savingRef.current) return;
-                Keyboard.dismiss();
-                setCurrencySheetVisible(true);
-              }}
+              onPress={openCurrencyPicker}
               disabled={busy}
               style={({ pressed }) => [
                 styles.currencyField,
@@ -350,12 +399,13 @@ export default function OnboardingKaataScreen() {
         }))}
         selected={currency}
         onSelect={(code) => {
-          if (savingRef.current) return;
-          setCurrencySheetVisible(false);
-          currencyDirtyRef.current = true;
-          setCurrency(code);
+          if (!currentPicker() || !CURRENCIES.some((option) => option.code === code)) return;
+          commitCurrency(code);
+          closeCurrencyPicker();
         }}
-        onDismiss={() => setCurrencySheetVisible(false)}
+        onDismiss={() => {
+          if (currentPicker()) closeCurrencyPicker();
+        }}
         isRTL={isRTL}
       />
     </SafeAreaView>

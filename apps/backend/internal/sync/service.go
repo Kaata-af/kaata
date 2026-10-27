@@ -350,6 +350,10 @@ func (s *Service) PushEvents(ctx context.Context, in PushInput) (*PushResponse, 
 
 	for i := range ordered {
 		ev := ordered[i]
+		if err := validateCurrencyPayload(ev); err != nil {
+			rejected = append(rejected, RejectedEvent{EventID: ev.EventID, Reason: "invalid_currency"})
+			continue
+		}
 		// HLC future-clamp: reject events dated implausibly far ahead of server
 		// time. Real device clocks drift by minutes/hours, never 2 days; this
 		// blocks an editor from FUTURE-dating events (to dominate last-write-wins
@@ -828,7 +832,7 @@ func (s *Service) PushEvents(ctx context.Context, in PushInput) (*PushResponse, 
 				`, in.VaultID); uerr != nil {
 					return nil, fmt.Errorf("mirror archived_at for vault %s: %w", in.VaultID, uerr)
 				}
-			case "name", "currency":
+			case "name", "currency", "default_entry_currency":
 				// Same S1 mirror for the RENAME and currency settings — found
 				// the hard way (2026-07-26): a local-CA rename is event-only,
 				// so vaults.name stayed at the creation-time value forever.
@@ -846,6 +850,9 @@ func (s *Service) PushEvents(ctx context.Context, in PushInput) (*PushResponse, 
 				col := "name"
 				if vss.Key == "currency" {
 					col = "currency"
+				}
+				if vss.Key == "default_entry_currency" {
+					col = "default_entry_currency"
 				}
 				if _, uerr := tx.Exec(ctx, `
 					UPDATE vaults v SET `+col+` = sub.val

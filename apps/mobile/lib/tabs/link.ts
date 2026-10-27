@@ -39,12 +39,16 @@ import {
 } from "../db";
 import { getAccountIdSync, getActiveVaultIdSyncMaybe, getDb, setActiveVaultId } from "../db-tx";
 import { RoleGateRejectionError } from "../event-log";
+import {
+  getLedgerCurrencyCode,
+  setLedgerCurrencyCode,
+  requireCurrencyCode,
+} from "../currency-scope";
 import { isValidEntryDate } from "../entry-date";
 import { parseAmountInput, toMinorUnits } from "../money";
 import { pushEvents } from "../sync/push";
 import { ENTRY_NOTE_MAX_LENGTH, type EntryType } from "../types";
 import { readVaultRole } from "../use-vault-role";
-import { changeVaultCurrency, VaultHasOpenTabError } from "../vault-router";
 import { canPerformAction, type VaultAction } from "../vault-roles";
 import {
   createTab,
@@ -142,15 +146,6 @@ function askNotifyPermission(): void {
 // ---------------------------------------------------------------------------
 // Helpers
 
-async function vaultCurrency(vaultId: string): Promise<string | null> {
-  const db = await getDb();
-  const row = await db.getFirstAsync<{ currency: string | null }>(
-    "SELECT currency FROM vaults WHERE id = ?",
-    vaultId,
-  );
-  return row?.currency && row.currency.length > 0 ? row.currency : null;
-}
-
 /** Refuse when the active user's vault role cannot perform `action`. A
  *  token-only (never signed in) install resolves to owner, as everywhere. */
 async function assertVaultAction(vaultId: string, action: VaultAction): Promise<void> {
@@ -184,20 +179,18 @@ function requireOpen(link: TabLink): void {
  * checks the receipt again under its contact lock, so a concurrent final review
  * cannot silently turn a stale opening into a new acknowledgement. */
 async function prepareSharedHistory(relationshipId: string, vaultId: string, currency: string) {
-  let previous = await getAnyTabLinkForRelationship(relationshipId);
+  let previous = await getAnyTabLinkForRelationship(relationshipId, currency);
   if (!previous) return {};
   // Another phone may have restored or closed a period this cache has never
   // seen. Refresh the whole binding set before collecting its revision map.
   await reconcileTabsFromServer();
-  previous = await getAnyTabLinkForRelationship(relationshipId);
+  previous = await getAnyTabLinkForRelationship(relationshipId, currency);
   if (!previous) throw new TabAuthUnavailableError();
   if (previous.vault_id !== vaultId) throw new TabPermissionError();
   if (previous.closed_at == null) throw new TabAlreadyLinkedError(previous.tab_id);
-  const history = (await listTabLinks({ vaultId, includeClosed: true })).filter(
-    (link) => link.relationship_id === relationshipId,
+  const history = (await listTabLinks({ vaultId, includeClosed: true, currency })).filter(
+    (link) => link.relationship_id === relationshipId && link.currency === currency,
   );
-  const otherCurrency = history.find((link) => link.currency !== currency)?.currency;
-  if (otherCurrency) throw new TabCurrencyMismatchError(currency, otherCurrency);
   for (const link of history) {
     const result = await syncTab(link.tab_id);
     if (!result.ok || result.error) throw new TabAuthUnavailableError();
@@ -206,27 +199,31 @@ async function prepareSharedHistory(relationshipId: string, vaultId: string, cur
   const unresolved = await db.getFirstAsync<{ pending: number }>(
     `SELECT EXISTS (
        SELECT 1 FROM tab_entries e JOIN tab_links l ON l.tab_id=e.tab_id
-        WHERE l.vault_id=? AND l.relationship_id=? AND e.kind<>'void'
+        WHERE l.vault_id=? AND l.relationship_id=? AND l.currency=? AND e.kind<>'void'
           AND e.voided_by_entry_id IS NULL
           AND (e.status='pending' OR e.local_pending=1 OR e.local_action_pending=1)
      ) OR EXISTS (
        SELECT 1 FROM tab_outbox o JOIN tab_links l ON l.tab_id=o.tab_id
-        WHERE l.vault_id=? AND l.relationship_id=?
+        WHERE l.vault_id=? AND l.relationship_id=? AND l.currency=?
      ) AS pending`,
     vaultId,
     relationshipId,
+    currency,
     vaultId,
     relationshipId,
+    currency,
   );
   if (unresolved?.pending)
     throw new TabApiError(409, "shared_history_pending", "Review and sync previous shared tallies");
-  const receipt = await getSharedHistoryReceiptForRelationship(relationshipId, vaultId).catch(
-    (err: unknown) => {
-      if (err instanceof Error && err.message === "shared_history_refresh_required")
-        throw new TabApiError(409, "shared_history_changed", "Refresh previous shared history");
-      throw err;
-    },
-  );
+  const receipt = await getSharedHistoryReceiptForRelationship(
+    relationshipId,
+    vaultId,
+    currency,
+  ).catch((err: unknown) => {
+    if (err instanceof Error && err.message === "shared_history_refresh_required")
+      throw new TabApiError(409, "shared_history_changed", "Refresh previous shared history");
+    throw err;
+  });
   if (!receipt || !receipt.history_order)
     throw new TabApiError(409, "shared_history_changed", "Refresh previous shared history");
   return {
@@ -402,7 +399,7 @@ async function joinFailure(
  */
 export async function linkContact(
   personId: string,
-  opts: { myLabel: string; openingNote?: string | null },
+  opts: { myLabel: string; openingNote?: string | null; currency?: string },
 ): Promise<{ link: TabLink; inviteUrl: string }> {
   const session = await captureCurrentSession();
   if (!session.jwt) throw new TabAuthUnavailableError();
@@ -412,10 +409,9 @@ export async function linkContact(
   await assertVaultAction(vaultId, "entry.amend");
   const relId = await getActiveRelationshipIdForPerson(personId);
   if (!relId) throw new TabInputError("no_relationship");
-  const existing = await getTabLinkForRelationship(relId);
+  const currency = requireCurrencyCode(opts.currency ?? getLedgerCurrencyCode());
+  const existing = await getTabLinkForRelationship(relId, currency);
   if (existing) throw new TabAlreadyLinkedError(existing.tab_id);
-  const currency = await vaultCurrency(vaultId);
-  if (!currency) throw new TabInputError("currency_unknown");
   const historyReceipt = await prepareSharedHistory(relId, vaultId, currency);
 
   // The opening entry carries the contact's balance AS THE SHOPKEEPER SEES IT
@@ -426,7 +422,7 @@ export async function linkContact(
   // would double-count the rows the previous tab's own opening entry already
   // absorbed. D7's promise is that the counterparty sees exactly what was
   // carried over, which means exactly what was displayed.
-  const current = await getPerson(personId);
+  const current = await getPerson(personId, currency);
   if (!current) throw new TabInputError("no_relationship");
   const balanceMinor = toMinorUnits(current.balance);
   if (balanceMinor === 0 && toMinorUnits(current.tab_confirmed_balance ?? 0) !== 0)
@@ -562,43 +558,9 @@ export async function listVaultFactsForJoin(): Promise<VaultFacts[]> {
   return out;
 }
 
-/**
- * Switch a kaata to the tab's currency from the join screen, so "no kaata in
- * USD" is never a dead end. Same rules as vault/settings' commitCurrency:
- * changeVaultCurrency refuses while the kaata holds an OPEN tab
- * (VaultHasOpenTabError, rethrown as-is → t('tab.join.lockedByTab')) and the
- * role gate refuses below manager (RoleGateRejectionError, mapped to
- * TabPermissionError → t('tab.join.lockedByRole')). When it is the active
- * kaata the display currency follows (applyVaultCurrency also mirrors
- * app_meta.default_currency, exactly what commitCurrency does by hand). The
- * vault's events are then pushed best-effort so the server's copy of
- * vaults.currency — what its join handler compares the tab against — catches
- * up before joinTabAsContact asks; a push failure is not an error here, the
- * join's own 409 retry reports it as tab.join.currencyNotSynced. The wait for
- * that push is capped (SWITCH_PUSH_CAP_MS): the switch itself is local and
- * instant, and the screen must not sit greyed for a 30 s network stall.
- *
- * A server-anchored (pre-local-CA) kaata is switched by changeVaultCurrency
- * as "append the event, THEN PATCH the server", and the local applier
- * mirrors vaults.currency on the append — so when the PATCH throws (offline)
- * the kaata IS already switched here. That is not a failed switch: reading
- * it as one left the screen listing the kaata under its old currency while
- * the DB said otherwise, so "Create a separate USD kaata" minted a second USD
- * kaata and a second tap appended a second identical event. Anything thrown
- * after the local currency already equals the target is therefore treated
- * as "switched locally, server behind", which the join's 409 path reports.
- */
-export async function switchVaultCurrencyForTab(vaultId: string, currency: string): Promise<void> {
-  try {
-    await changeVaultCurrency(vaultId, currency);
-  } catch (err) {
-    if (err instanceof RoleGateRejectionError) throw new TabPermissionError();
-    if (err instanceof VaultHasOpenTabError) throw err;
-    if ((await vaultCurrency(vaultId)) !== currency) throw err;
-    if (__DEV__) console.warn("[tabs.link] currency switched locally; server behind", err);
-  }
-  if (getActiveVaultIdSyncMaybe() === vaultId) await applyVaultCurrency(vaultId);
-  await pushVaultBestEffort(vaultId, { capMs: SWITCH_PUSH_CAP_MS });
+/** Select the invitation denomination without changing any stored amount. */
+export async function switchVaultCurrencyForTab(_vaultId: string, currency: string): Promise<void> {
+  setLedgerCurrencyCode(requireCurrencyCode(currency));
 }
 
 export type JoinTarget = { vaultId: string } & (
@@ -641,9 +603,7 @@ export async function joinTabAsContact(
   if (!session.jwt) throw new TabAuthUnavailableError();
   if (tab.closed_at_ms != null) throw new TabClosedError();
   const label = cleanLabel(myLabel);
-  const currency = await vaultCurrency(target.vaultId);
-  if (!currency) throw new TabInputError("currency_unknown");
-  if (currency !== tab.currency) throw new TabCurrencyMismatchError(currency, tab.currency);
+  const currency = requireCurrencyCode(tab.currency);
   await assertVaultAction(target.vaultId, "entry.amend");
 
   await applyForCurrentSession(session, async () => {
@@ -651,6 +611,7 @@ export async function joinTabAsContact(
       await setActiveVaultId(target.vaultId);
       await applyVaultCurrency(target.vaultId);
     }
+    setLedgerCurrencyCode(currency);
   });
 
   let relId: string | null;
@@ -661,7 +622,7 @@ export async function joinTabAsContact(
     if (!relId) throw new TabInputError("no_relationship");
     // An open period already owns this contact. A closed period must finish
     // its pending reviews before a fresh binding can be acknowledged.
-    const existing = await getAnyTabLinkForRelationship(relId);
+    const existing = await getAnyTabLinkForRelationship(relId, currency);
     if (existing && existing.closed_at == null) throw new TabAlreadyLinkedError(existing.tab_id);
   } else {
     const created = await applyForCurrentSession(session, async () => {
@@ -772,9 +733,11 @@ export async function addTabEntry(
     session: import("../auth").SessionSnapshot;
     vaultId: string;
     occurredAtMs?: number;
+    currency?: string;
   },
 ): Promise<{ entryId: string; duplicateHint: DuplicateHint | null; pendingAdmission?: boolean }> {
-  const link = await getTabLinkForPerson(personId);
+  const currency = requireCurrencyCode(expected?.currency ?? getLedgerCurrencyCode());
+  const link = await getTabLinkForPerson(personId, currency);
   if (!link) throw new TabInputError("not_linked");
   requireOpen(link);
   const session = expected?.session ?? (await captureCurrentSession());
@@ -887,6 +850,7 @@ async function needsSharedCreditAdmission(link: TabLink): Promise<boolean> {
     link.relationship_id,
     role,
     getAccountIdSync(),
+    link.currency,
   );
 }
 

@@ -491,19 +491,11 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     document.documentElement.lang = lang;
     document.documentElement.dir = isRtlLanguage(lang) ? "rtl" : "ltr";
     document.title = PAGE_TITLES[lang];
-    for (const selector of ['meta[property="og:title"]', 'meta[name="twitter:title"]']) {
-      document.querySelector(selector)?.setAttribute("content", PAGE_TITLES[lang]);
-    }
-    for (const selector of [
-      'meta[name="description"]',
-      'meta[property="og:description"]',
-      'meta[name="twitter:description"]',
-    ]) {
-      document.querySelector(selector)?.setAttribute("content", TABLES[lang]["hero.sub"]);
-    }
+    // Social previews intentionally keep the Persian copy/image in index.html.
+    // Page title and search description still follow the visitor's UI language.
     document
-      .querySelector('meta[property="og:locale"]')
-      ?.setAttribute("content", { en: "en_US", fa: "fa_AF", ps: "ps_AF" }[lang]);
+      .querySelector('meta[name="description"]')
+      ?.setAttribute("content", TABLES[lang]["hero.sub"]);
   }, [lang]);
 
   const setLang = useCallback((next: Lang) => {

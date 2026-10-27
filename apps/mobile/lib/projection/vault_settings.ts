@@ -19,7 +19,12 @@ import { compareHLC } from "../hlc";
 
 // Reserved keys that mirror onto the vaults row. Any other key is stored
 // only in vault_settings.
-const RESERVED_VAULTS_MIRROR_KEYS = new Set(["name", "currency", "archived_at"]);
+const RESERVED_VAULTS_MIRROR_KEYS = new Set([
+  "name",
+  "currency",
+  "default_entry_currency",
+  "archived_at",
+]);
 
 export async function applyVaultSettingSet(
   tx: SQLiteTx,
@@ -28,6 +33,10 @@ export async function applyVaultSettingSet(
   if (event.vault_id == null) {
     throw new Error(`vault_setting_set event ${event.event_id} missing envelope vault_id`);
   }
+  if (event.payload.key === "enabled_currencies")
+    (
+      require("../currency-settings") as typeof import("../currency-settings")
+    ).requireEnabledCurrencies(event.payload.value);
 
   const current = await tx.getFirstAsync<{
     hlc_pms: number;
@@ -124,6 +133,16 @@ export async function applyVaultSettingSet(
             `[vault_setting_set] mirror UPDATE vaults.currency affected 0 rows for vault_id=${event.vault_id}`,
           );
         }
+        break;
+      }
+      case "default_entry_currency": {
+        if (!/^[A-Z]{3}$/.test(event.payload.value)) throw new Error("Invalid default currency");
+        await tx.runAsync(
+          "UPDATE vaults SET default_entry_currency=?,updated_at=? WHERE id=?",
+          event.payload.value,
+          event.appended_at,
+          event.vault_id,
+        );
         break;
       }
       case "archived_at": {

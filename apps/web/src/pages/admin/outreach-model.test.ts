@@ -34,6 +34,8 @@ import {
   applySettingLocally,
   applyStateLocally,
   balanceSummary,
+  listingCurrencyBalances,
+  outreachCurrencyTotals,
   bookOwnerLabel,
   buildMessage,
   canOpen,
@@ -656,6 +658,43 @@ test("balance summary keeps currencies apart and splits owes from owed", () => {
     { currency: "USD", owes: 2025, owed: 0, listings: 1 },
   ]);
   assert.deepEqual(balanceSummary(null), []);
+});
+
+test("one multicurrency listing keeps independent balances without duplicating the contact", () => {
+  const row = listing({
+    currency: "",
+    balance: "",
+    role: "mixed",
+    balances: [
+      { currency: "AFN", balance: "75.00" },
+      { currency: "USD", balance: "-100.00" },
+    ],
+  });
+  const contact = customer({ listings: [row], mention_count: 1 });
+  assert.equal(contact.listings.length, 1);
+  assert.deepEqual(listingCurrencyBalances(row), row.balances);
+  assert.deepEqual(balanceSummary(contact), [
+    { currency: "AFN", owes: 7500, owed: 0, listings: 1 },
+    { currency: "USD", owes: 0, owed: 10000, listings: 1 },
+  ]);
+  const totals = [
+    { currency: "AFN", receivable: "75.00", payable: "0.00" },
+    { currency: "USD", receivable: "0.00", payable: "100.00" },
+  ];
+  assert.deepEqual(
+    outreachCurrencyTotals(
+      shopkeeper({
+        currency: "",
+        receivable_total: "",
+        payable_total: "",
+        currency_totals: totals,
+      }),
+    ),
+    totals,
+  );
+  assert.deepEqual(outreachCurrencyTotals(shopkeeper()), [
+    { currency: "AFN", receivable: "1200.50", payable: "0.00" },
+  ]);
 });
 
 test("each preset selects exactly its fixture rows", () => {

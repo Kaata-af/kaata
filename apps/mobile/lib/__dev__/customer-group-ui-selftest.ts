@@ -8,6 +8,7 @@ import { colors } from "../colors";
 import {
   compareCustomerNames,
   DEFAULT_CUSTOMER_LIST,
+  CUSTOMER_BALANCE_FILTERS,
   CUSTOMER_SORTS,
   selectedCustomerGroupIds,
   toggleCustomerGroupFilter,
@@ -15,6 +16,11 @@ import {
 } from "../customer-list";
 
 export async function customerGroupUIChecks() {
+  const language = compileUI("../i18n", {
+    "expo-localization": { getLocales: () => [{ languageCode: "en" }] },
+    "./db": { getAppMeta: async () => null },
+  }) as typeof import("../i18n");
+  let translate: typeof language.t = (key) => key;
   const hooks = uiHooks(),
     timers = new Map<number, () => void>(),
     frames = new Map<number, () => void>();
@@ -88,15 +94,16 @@ export async function customerGroupUIChecks() {
         View: "View",
         StyleSheet: { create: (s: any) => s, absoluteFill: {} },
       },
-      "react-native-safe-area-context": { SafeAreaView: "SafeAreaView" },
+      "./SheetSurface": { SheetSurface: "SheetSurface" },
       "../lib/colors": { colors },
       "../lib/fonts": { fonts: {} },
       "../lib/direction": {
         rowDir: (rtl: boolean) => ({ flexDirection: rtl ? "row-reverse" : "row" }),
         textDir: (rtl: boolean) => ({ textAlign: rtl ? "right" : "left" }),
       },
-      "../lib/i18n": { t: (key: string) => key },
+      "../lib/i18n": { t: (key: Parameters<typeof language.t>[0]) => translate(key) },
       "../lib/customer-list": {
+        CUSTOMER_BALANCE_FILTERS,
         CUSTOMER_SORTS,
         selectedCustomerGroupIds,
         toggleCustomerGroupFilter,
@@ -139,6 +146,7 @@ export async function customerGroupUIChecks() {
     let preference: CustomerListPreference = { sort: "outstanding_name", group: "all" };
     const longName = "مشتری‌های خانوادگی و همسایه‌های نزدیک خانه و دوستان قدیمی";
     const optionProps = () => ({
+      compact: true,
       preference,
       groups: [
         { id: "family", name: "Family", member_count: 1 },
@@ -160,8 +168,48 @@ export async function customerGroupUIChecks() {
     );
     assert.equal(
       nodes(options()).filter((node) => node.props.accessibilityRole === "radio").length,
-      7,
+      CUSTOMER_SORTS.length + CUSTOMER_BALANCE_FILTERS.length,
     );
+    const radioGroups = nodes(options()).filter(
+      (node) => node.props.accessibilityRole === "radiogroup",
+    );
+    assert.deepEqual(
+      radioGroups.map((node) => node.props.accessibilityLabel),
+      ["customers.balanceFilter", "customers.sort"],
+      "balance direction and sort use separate radio groups in that order",
+    );
+    assert.equal(
+      nodes(radioGroups[0]).filter((node) => node.props.accessibilityRole === "radio").length,
+      3,
+    );
+    for (const direction of CUSTOMER_BALANCE_FILTERS) {
+      const previous = { sort: preference.sort, group: preference.group };
+      const control = choice(`customers.balanceFilter.${direction}`);
+      assert.ok(style(control).minHeight >= 44);
+      assert.equal(style(control).flexDirection, isRTL ? "row-reverse" : "row");
+      control.props.onPress();
+      assert.deepEqual(
+        preference,
+        { ...previous, direction },
+        "direction changes preserve the sort and group choice",
+      );
+      assert.equal(
+        choice(`customers.balanceFilter.${direction}`).props.accessibilityState.checked,
+        true,
+      );
+      const balanceGroup = nodes(options()).find(
+        (node) =>
+          node.props.accessibilityRole === "radiogroup" &&
+          node.props.accessibilityLabel === "customers.balanceFilter",
+      )!;
+      assert.equal(
+        nodes(balanceGroup).filter(
+          (node) =>
+            node.props.accessibilityRole === "radio" && node.props.accessibilityState.checked,
+        ).length,
+        1,
+      );
+    }
     for (const sort of CUSTOMER_SORTS) {
       const control = choice(`customers.sort.${sort}`);
       assert.ok(style(control).minHeight >= 44);
@@ -175,7 +223,8 @@ export async function customerGroupUIChecks() {
           (node) =>
             node.props.accessibilityRole === "radio" && node.props.accessibilityState.checked,
         ).length,
-        1,
+        2,
+        "each independent radio group keeps one checked option",
       );
     }
     choice("Family").props.onPress();
@@ -198,7 +247,120 @@ export async function customerGroupUIChecks() {
     choice("groups.ungrouped").props.onPress();
     assert.equal(preference.group, "ungrouped");
     assert.equal(choice("Family").props.accessibilityState.checked, false);
+    assert.equal(
+      preference.direction,
+      "pay",
+      "sort and group changes preserve the chosen balance filter",
+    );
   }
+  for (const locale of ["en", "fa", "ps"] as const) {
+    language.setLocale(locale);
+    translate = language.t;
+    for (const embedded of [false, true]) {
+      let preference: CustomerListPreference = {
+        sort: "recent",
+        group: ["family"],
+        direction: "pay",
+      };
+      const renderOptions = (amountSortAvailable = true) =>
+        CustomerListOptions({
+          compact: true,
+          embedded,
+          amountSortAvailable,
+          isRTL: locale !== "en",
+          preference,
+          groups: [{ id: "family", name: "Family", member_count: 1 }],
+          onChange: (next: CustomerListPreference) => {
+            preference = next;
+          },
+        });
+      const tree = renderOptions();
+      const balanceGroup = nodes(tree).find(
+        (node) =>
+          node.props.accessibilityRole === "radiogroup" &&
+          node.props.accessibilityLabel === language.t("customers.balanceFilter"),
+      )!;
+      assert.ok(balanceGroup);
+      const radios = nodes(balanceGroup).filter((node) => node.props.accessibilityRole === "radio");
+      assert.deepEqual(
+        radios.map((node) => node.props.accessibilityLabel),
+        CUSTOMER_BALANCE_FILTERS.map((direction) =>
+          language.t(`customers.balanceFilter.${direction}`),
+        ),
+      );
+      assert.deepEqual(
+        radios.map((node) => node.props.accessibilityState.checked),
+        [false, false, true],
+      );
+      assert.ok(
+        nodes(tree).some(
+          (node) =>
+            node.type === "Text" &&
+            node.props.children === language.t("customers.balanceFilter.help"),
+        ),
+      );
+      assert.ok(
+        radios.every((node) => flattenStyle(node.props.style({ pressed: false })).minHeight >= 44),
+      );
+      radios[1].props.onPress();
+      assert.deepEqual(preference, { sort: "recent", group: ["family"], direction: "collect" });
+      const updated = nodes(renderOptions()).filter(
+        (node) =>
+          node.props.accessibilityRole === "radio" &&
+          node.props.accessibilityLabel === language.t("customers.balanceFilter.collect"),
+      );
+      assert.equal(updated[0].props.accessibilityState.checked, true);
+      assert.ok(!language.t("customers.balanceFilter.clear").startsWith("customers."));
+      const multipleCurrencies = renderOptions(false);
+      const sortGroup = nodes(multipleCurrencies).find(
+        (node) =>
+          node.props.accessibilityRole === "radiogroup" &&
+          node.props.accessibilityLabel === language.t("customers.sort"),
+      )!;
+      const availableSorts = nodes(sortGroup).filter(
+        (node) => node.props.accessibilityRole === "radio",
+      );
+      assert.deepEqual(
+        availableSorts.map((node) => node.props.accessibilityLabel),
+        CUSTOMER_SORTS.filter((sort) => sort !== "amount_asc" && sort !== "amount_desc").map(
+          (sort) => language.t(`customers.sort.${sort}`),
+        ),
+        "mixed-currency controls omit both amount orderings",
+      );
+      assert.ok(
+        availableSorts.every(
+          (node) => flattenStyle(node.props.style({ pressed: false })).minHeight >= 44,
+        ),
+      );
+      const hasAmountHelp = (tree: any) =>
+        nodes(tree).some(
+          (node) =>
+            node.type === "Text" &&
+            node.props.children === language.t("customers.sort.multiCurrencyHelp"),
+        );
+      assert.equal(hasAmountHelp(multipleCurrencies), true);
+      assert.equal(
+        hasAmountHelp(tree),
+        false,
+        "single-currency forms retain all sorts without extra help",
+      );
+      availableSorts
+        .find((node) => node.props.accessibilityLabel === language.t("customers.sort.name_desc"))!
+        .props.onPress();
+      assert.deepEqual(
+        preference,
+        { sort: "name_desc", group: ["family"], direction: "collect" },
+        "remaining sorts preserve both filters when amount ordering is unavailable",
+      );
+      const afterSort = nodes(renderOptions(false)).find(
+        (node) =>
+          node.props.accessibilityRole === "radio" &&
+          node.props.accessibilityLabel === language.t("customers.sort.name_desc"),
+      )!;
+      assert.equal(afterSort.props.accessibilityState.checked, true);
+    }
+  }
+  translate = (key: string) => key;
   const render = () => hooks.render(() => CustomerListSheet(props));
   const flushFrames = () => {
     const callbacks = [...frames.values()];
@@ -211,6 +373,20 @@ export async function customerGroupUIChecks() {
       .props.onPress();
   render();
   flushFrames();
+  const surface = nodes(hooks.tree).find((node) => node.type === "SheetSurface")!;
+  assert.equal(hooks.tree.props.navigationBarTranslucent, undefined);
+  assert.equal(
+    surface.props.maxHeightRatio,
+    0.78,
+    "the plain surface owns the viewport height cap",
+  );
+  assert.equal(surface.props.edges, undefined);
+  assert.ok(
+    !nodes(hooks.tree).some(
+      (node) => node.type === "AnimatedView" && flattenStyle(node.props.style)?.maxHeight != null,
+    ),
+    "the transformed frame has no percentage height cap",
+  );
   const rowLabels = () =>
     nodes(hooks.tree)
       .map((n) => n.props.accessibilityLabel)

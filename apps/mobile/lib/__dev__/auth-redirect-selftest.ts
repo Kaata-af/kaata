@@ -179,8 +179,7 @@ function reset() {
   rtl = false;
 }
 function settingsSignIn() {
-  // Exercise the real settings sheet: dismiss its native Modal first, then
-  // push the provider page once the existing exit delay has elapsed.
+  // Native profile routes replace themselves with the provider screen.
   const sheetMocks: Record<string, any> = {
     ...mocks,
     "./SheetBackdrop": { SheetBackdrop: "SheetBackdrop" },
@@ -202,6 +201,7 @@ function settingsSignIn() {
       Image: "Image",
       Switch: "Switch",
       Dimensions: { get: () => ({ height: 800 }) },
+      useWindowDimensions: () => ({ width: 390, height: 800 }),
       Animated: { View: "AnimatedView", Value: class {} },
     },
     "react-native-safe-area-context": {
@@ -211,7 +211,7 @@ function settingsSignIn() {
     "expo-blur": { BlurView: "Blur" },
     "../lib/colors": mocks["../../lib/colors"],
     "../lib/blur": { SHEET_BLUR_METHOD: "none" },
-    "../lib/db-tx": { getAccountIdSync: () => null },
+    "../lib/db-tx": { getAccountIdSync: () => null, getActiveVaultIdSyncMaybe: () => null },
     "../lib/design-tokens": {},
     "../lib/currency": { getCurrencySymbol: (code: string) => code },
     "../lib/direction": mocks["../../lib/direction"],
@@ -222,6 +222,7 @@ function settingsSignIn() {
     "../lib/use-vault-summary": { useMembersCount: () => 1 },
     "./InitialAvatar": { InitialAvatar: "Avatar" },
     "./SettingsScreen": {
+      ScreenHeader: "ScreenHeader",
       NavRow: "NavRow",
       SectionHeader: "SectionHeader",
       SectionGap: "SectionGap",
@@ -261,8 +262,7 @@ function settingsSignIn() {
     for (const isRTL of [false, true]) {
       reset();
       rtl = isRTL;
-      // The sheet is already mounted and visible; native animation isn't the
-      // behavior under test; the tested shared animation hook is stubbed here.
+      // The native route is mounted and visible.
       slots = [];
       cursor = 0;
       queued = null;
@@ -287,19 +287,15 @@ function settingsSignIn() {
       assert.equal(signInRows[0].props.icon, "log-in-outline");
       signInRows[0].props.onPress();
       signInRows[0].props.onPress();
-      assert.equal(dismissed, 1);
-      assert.equal(timers, 1, "a second tap during sheet exit never pushes a second page");
-      assert.deepEqual(routes, [], "no page opens while the native Modal is closing");
-      const scheduled = queued as { callback: () => void; delay: number } | null;
-      assert.equal(scheduled?.delay, 220);
-      scheduled?.callback();
+      assert.equal(dismissed, 0, "native route replacement owns dismissal");
+      assert.equal(timers, 0, "native navigation needs no animation timer");
       assert.deepEqual(routes, ["/sign-in"], "open all providers, not the email-only mode");
       assert.equal(authCalls, 0, "choosing Sign in does not start a provider handshake");
     }
   }
   mocks["react-native"].Platform.OS = "android";
   console.log(
-    "PASS: one settings Sign in row in EN/FA on Android/iOS; dismiss before provider page",
+    "PASS: one settings Sign in row in EN/FA on Android/iOS; single native replacement to provider page",
   );
 }
 async function signIn() {
@@ -417,7 +413,23 @@ async function main() {
       "build/react-navigation/routers/StackRouter.js",
     ),
   );
-  const stackRouter = StackRouter({ initialRouteName: "index" });
+  const installedStackRouter = StackRouter({ initialRouteName: "index" });
+  const stackRouter = {
+    // SDK 58's navigator creates the initial state; its router reduces actions.
+    getInitialState: (config: { routeNames: string[] }) => ({
+      stale: false,
+      type: "stack",
+      key: "fixture-stack",
+      routeKeySeq: 1,
+      index: 0,
+      routeNames: config.routeNames,
+      routes: [{ key: "index-0", name: "index" }],
+    }),
+    getStateForAction: (state: any, action: any, config: any) => {
+      const result = installedStackRouter.getStateForAction(state, action, config);
+      return result && typeof result === "object" ? result.state : state;
+    },
+  };
   const stackOptions = {
     routeNames: ["index", "sign-in", "onboarding/auth", "auth/email", "person/[id]"],
     routeParamList: {},

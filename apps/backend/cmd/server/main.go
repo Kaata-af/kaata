@@ -377,6 +377,7 @@ func main() {
 	// rate-limited per IP; GET-by-token + the SSR view are open (opaque tokens).
 	r.With(httpx.RateLimitPerIP(httpx.ShareCreateLimit, httpx.ShareCreateWindow)).
 		Post("/v1/shared", sharedH.Create)
+	r.Get("/v1/shared/capabilities", sharedH.Capabilities)
 	r.Get("/v1/shared/{token}", sharedH.Get)
 	// Revocation tombstone (paper rule 2026-08-07: bills are unrevocable, the
 	// real endpoint is gone). MUST return a status outside {204, 404}: shipped
@@ -391,6 +392,7 @@ func main() {
 	// SSR preview shell — see deploy note: kaata.af/v/* must route to the backend
 	// for the OG preview; otherwise the SPA's /v/:token fallback renders it.
 	r.Get("/v/{token}", sharedH.View)
+	r.Get("/v2/{token}", sharedH.View)
 	// Mutual tab page (kaata.af/t/<token>, Caddy @sharessr). The token in
 	// the path is an invitation, not read/write authority. The page only opens
 	// the app, and renders a uniform 404 for unknown/rotated links.
@@ -563,6 +565,7 @@ func main() {
 		pr.With(httpx.RateLimitPerAccount(httpx.SyncPushLimit, httpx.SyncPushWindow)).
 			Post("/v1/sync/push", syncH.Push)
 		pr.Get("/v1/sync/pull", syncH.Pull)
+		pr.Get("/v1/sync/capabilities", syncH.CurrencyCapabilities)
 		pr.Get("/v1/sync/snapshot", syncH.Snapshot)
 		pr.Get("/v1/sync/credit-limits", syncH.CreditLimits)
 		pr.Put("/v1/sync/credit-limits", syncH.CreditLimits)

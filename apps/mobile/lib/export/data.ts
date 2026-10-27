@@ -24,6 +24,7 @@ import {
   listEntriesForExport,
   listSettlementBoundaries,
   listArchivedSharedPeriodsForExport,
+  listLedgerCurrencies,
   type ExportEntryRow,
 } from "../db";
 import type { LocaleCode } from "../i18n";
@@ -35,6 +36,7 @@ import { listTabSettlements } from "../tabs/db";
 import { afterSharedSettlement } from "../tabs/chapters";
 import type { TabSettlement } from "../tabs/types";
 import { applyEventMutex } from "../projection";
+import { assertSingleCurrency } from "../currency-totals";
 
 export type StatementRow =
   | { kind: "entry"; entry: Entry; balanceAfter: number }
@@ -161,21 +163,58 @@ export async function buildPersonStatement(
   );
 }
 
+/** One read snapshot, with each denomination's history and balance separate. */
+export async function buildPersonStatements(
+  personId: string,
+  vaultId: string,
+  locale: LocaleCode,
+  generatedAtMs: number,
+): Promise<PersonStatement[]> {
+  return applyEventMutex.runExclusive(async () => {
+    const calendar = getEffectiveCalendar();
+    const codes = [...new Set(await listLedgerCurrencies(vaultId))];
+    const statements = (
+      await Promise.all(
+        codes.map((code) =>
+          buildPersonStatementSnapshot(
+            personId,
+            locale,
+            code,
+            getCurrencySymbol(code),
+            generatedAtMs,
+            calendar,
+          ),
+        ),
+      )
+    ).filter((statement): statement is PersonStatement => statement !== null);
+    const populated = statements.filter(
+      (statement) =>
+        statement.rows.length > 0 ||
+        !!statement.archivedSharedPeriods?.length ||
+        !!statement.person.tab_id ||
+        statement.person.tab_unsynced === 1,
+    );
+    return populated.length ? populated : statements.slice(0, 1);
+  });
+}
+
 async function buildPersonStatementSnapshot(
   personId: string,
   locale: LocaleCode,
   currencyCode: string,
   currencySymbol: string,
   generatedAtMs: number,
+  calendar = getEffectiveCalendar(),
 ): Promise<PersonStatement | null> {
   const [person, entries, boundaries, self, archivedSharedPeriods] = await Promise.all([
-    getPerson(personId),
-    listEntries(personId),
-    listSettlementBoundaries(personId),
+    getPerson(personId, currencyCode),
+    listEntries(personId, currencyCode),
+    listSettlementBoundaries(personId, currencyCode),
     getLocalSelf(),
-    listArchivedSharedPeriodsForExport(personId),
+    listArchivedSharedPeriodsForExport(personId, currencyCode),
   ]);
   if (!person) return null;
+  assertSingleCurrency(entries, currencyCode);
 
   // listEntries is newest-first with no tie-break; re-sort ascending with an
   // id tie-break so re-exporting the same book orders identically. A linked
@@ -247,11 +286,8 @@ async function buildPersonStatementSnapshot(
     currencyCode,
     currencySymbol,
     locale,
-    // Read from the global rather than threaded in as a parameter (unlike
-    // locale, which callers override because an export can be in the MESSAGE
-    // language). There is exactly one calendar setting, so a second source of
-    // truth here could only ever disagree with the app.
-    calendar: getEffectiveCalendar(),
+    // One captured app calendar keeps every currency's document columns equal.
+    calendar,
     generatedAtMs,
     ...(asc.some((e) => e.tab) ? { sharedTotals: recordTotals(asc) } : {}),
     ...(archivedPeriods.length ? { archivedSharedPeriods: archivedPeriods } : {}),
@@ -265,7 +301,11 @@ export async function buildVaultReport(
   locale: LocaleCode,
   generatedAtMs: number,
 ): Promise<VaultReport> {
-  const [entries, self] = await Promise.all([listEntriesForExport(vaultId), getLocalSelf()]);
+  const [entries, self] = await Promise.all([
+    listEntriesForExport(vaultId, currencyCode),
+    getLocalSelf(),
+  ]);
+  assertSingleCurrency(entries, currencyCode);
 
   const runningByPerson = new Map<string, number>();
   const peopleById = new Map<string, ReportPerson>();
@@ -321,6 +361,25 @@ export async function buildVaultReport(
     calendar: getEffectiveCalendar(),
     generatedAtMs,
   };
+}
+
+/** A whole Kaata report keeps each currency's people, running balances and
+ * totals in its own section. It never produces a combined monetary total. */
+export async function buildVaultReports(
+  vaultId: string,
+  vaultName: string,
+  defaultCurrency: string,
+  locale: LocaleCode,
+  generatedAtMs: number,
+): Promise<VaultReport[]> {
+  return applyEventMutex.runExclusive(async () => {
+    const codes = [...new Set([defaultCurrency, ...(await listLedgerCurrencies(vaultId))])];
+    const reports = await Promise.all(
+      codes.map((code) => buildVaultReport(vaultId, vaultName, code, locale, generatedAtMs)),
+    );
+    const populated = reports.filter((report) => report.journal.length > 0);
+    return populated.length ? populated : reports.slice(0, 1);
+  });
 }
 
 // ---------------------------------------------------------------------------

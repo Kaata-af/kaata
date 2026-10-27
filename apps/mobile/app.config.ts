@@ -22,6 +22,12 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     name: config.name ?? "Kaata",
     slug: config.slug ?? "kaata",
     plugins,
+    // SDK 58 defaults this fallback on. Windows uses the watched file map so
+    // HMR reuses eagerly computed metadata instead of reading files on demand.
+    experiments: {
+      ...config.experiments,
+      ...(process.platform === "win32" ? { onDemandFilesystem: false } : {}),
+    },
     android: {
       ...config.android,
       adaptiveIcon: {

@@ -410,6 +410,7 @@ export type OutreachNumber = {
   national: string; // "070 000 0001"; "" when unparsable
 };
 export type OutreachKaata = {
+  currency_totals?: { currency: string; receivable: string; payable: string }[];
   vault_id: string;
   name: string;
   currency: string;
@@ -423,6 +424,7 @@ export type OutreachKaata = {
   last_tally_at: string; // RFC3339 UTC or ""
 };
 export type OutreachShopkeeper = {
+  currency_totals?: { currency: string; receivable: string; payable: string }[];
   account_id: string;
   email: string;
   signed_in: boolean;
@@ -453,6 +455,7 @@ export type OutreachShopkeeper = {
   install_ids: string[];
 };
 export type OutreachListing = {
+  balances?: { currency: string; balance: string }[];
   vault_id: string;
   vault_name: string;
   currency: string;

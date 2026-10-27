@@ -30,12 +30,15 @@ const appliers = compile<typeof import("../projection/entries")>(
     if (name === "./field-hlc") return fields;
     if (name === "./errors") return require("../projection/errors");
     if (name === "../entry-date") return require("../entry-date");
+    if (name === "../currency-scope") return require("../currency-scope");
     if (name === "../hlc") return require("../hlc");
     throw new Error(`Unexpected date projection dependency ${name}`);
   },
 );
 const store = new Database(":memory:");
-store.exec(`CREATE TABLE entries(id TEXT PRIMARY KEY,vault_id TEXT,relationship_id TEXT,type TEXT,
+store.exec(`CREATE TABLE vaults(id TEXT PRIMARY KEY,currency TEXT,legacy_currency TEXT);
+  INSERT INTO vaults VALUES('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','AFN','AFN');
+  CREATE TABLE entries(id TEXT PRIMARY KEY,vault_id TEXT,relationship_id TEXT,type TEXT,currency TEXT,
   amount_afn NUMERIC,note TEXT,created_at INTEGER NOT NULL,updated_at INTEGER,
   proposed_by_user_id TEXT,current_event_id TEXT,is_deleted INTEGER,is_settled INTEGER,
   accepted_at INTEGER,disputed_at INTEGER,disputed_reason TEXT,settled_at INTEGER,

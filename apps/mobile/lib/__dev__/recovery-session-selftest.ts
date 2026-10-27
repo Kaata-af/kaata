@@ -129,6 +129,8 @@ function fixture() {
     "./hlc": { compareHLC: () => 0, deserializeHLC: JSON.parse, serializeHLC: JSON.stringify },
     "./projection/field-hlc": { serializeFieldHLCs: JSON.stringify },
     "./entry-date": require("../entry-date"),
+    "./currency-metadata": require("../currency-metadata"),
+    "./currency-sync": require("../currency-sync"),
     "./customer-group-restore": {
       seedSnapshotCustomerGroups: async () => write("groups"),
       restoredRelationshipFieldHLCs: () => "{}",
@@ -174,6 +176,7 @@ function fixture() {
       "./auth": auth,
       "./db": dbModule,
       "./db-tx": dbTx,
+      "./currency-metadata": require("../currency-metadata"),
       "./i18n": { t: (s: string) => s, isPlaceholderSelfName: () => false },
       "./install-id": { ensureInstallId: async () => "install" },
       "./restore": {
@@ -319,6 +322,7 @@ function pullFixture(f: ReturnType<typeof fixture>, response: Promise<any>) {
       "../auth": f.auth,
       "../db": f.dbModule,
       "../db-tx": f.dbTx,
+      "../currency-sync": require("../currency-sync"),
       "../effective-account": { resolveAccountIdCandidates: async (id: string) => [id] },
       "../projection/ingest-row": f.ingest,
       "../projection/sweep": f.sweep,
@@ -673,7 +677,7 @@ async function main() {
   );
   assert.ok(
     archivedMember.sqlWrites.some(
-      (row) => row.sql.includes("INSERT OR IGNORE INTO vaults") && row.args[5] === 123,
+      (row) => row.sql.includes("INSERT OR IGNORE INTO vaults") && row.args[7] === 123,
     ),
   );
   const archivedStale = fixture();

@@ -37,6 +37,7 @@ import type {
   OutreachCustomer,
   OutreachExclusion,
   OutreachLang,
+  OutreachListing,
   OutreachMarkBody,
   OutreachNumber,
   OutreachResult,
@@ -225,17 +226,44 @@ export function formatMoney(hundredths: number, grouped = false): string {
 // the shop (positive balances); `owed` = the shop owes the person. Mixed
 // currencies are never summed into one number.
 export type BalanceSummary = { currency: string; owes: number; owed: number; listings: number };
+export function listingCurrencyBalances(
+  listing: OutreachListing,
+): { currency: string; balance: string }[] {
+  return listing.balances?.length
+    ? listing.balances
+    : [{ currency: listing.currency, balance: listing.balance }];
+}
+export function outreachCurrencyTotals(source: {
+  currency: string;
+  currency_totals?: { currency: string; receivable: string; payable: string }[];
+  receivable?: string;
+  payable?: string;
+  receivable_total?: string;
+  payable_total?: string;
+}): { currency: string; receivable: string; payable: string }[] {
+  return source.currency_totals?.length
+    ? source.currency_totals
+    : [
+        {
+          currency: source.currency,
+          receivable: source.receivable ?? source.receivable_total ?? "0.00",
+          payable: source.payable ?? source.payable_total ?? "0.00",
+        },
+      ];
+}
 export function balanceSummary(customer: OutreachCustomer | null | undefined): BalanceSummary[] {
   if (!customer) return [];
   const byCurrency = new Map<string, BalanceSummary>();
   for (const listing of customer.listings) {
-    const currency = listing.currency || "";
-    const entry = byCurrency.get(currency) ?? { currency, owes: 0, owed: 0, listings: 0 };
-    const balance = parseMoney(listing.balance);
-    if (balance > 0) entry.owes += balance;
-    else if (balance < 0) entry.owed -= balance;
-    entry.listings += 1;
-    byCurrency.set(currency, entry);
+    for (const row of listingCurrencyBalances(listing)) {
+      const currency = row.currency || "";
+      const entry = byCurrency.get(currency) ?? { currency, owes: 0, owed: 0, listings: 0 };
+      const balance = parseMoney(row.balance);
+      if (balance > 0) entry.owes += balance;
+      else if (balance < 0) entry.owed -= balance;
+      entry.listings += 1;
+      byCurrency.set(currency, entry);
+    }
   }
   return [...byCurrency.values()];
 }
@@ -1096,7 +1124,9 @@ export function sortOutreach(
       case "tallies":
         return c.shopkeeper || c.customer ? totalTallies(c) : null;
       case "receivable":
-        return c.shopkeeper ? parseMoney(c.shopkeeper.receivable_total) : null;
+        return c.shopkeeper && !c.shopkeeper.currency_totals?.length
+          ? parseMoney(c.shopkeeper.receivable_total)
+          : null;
       case "installed":
         return parseTime(c.shopkeeper?.installed_at);
       case "first_added":
@@ -1181,6 +1211,15 @@ export const CSV_COLUMNS: [string, (c: OutreachContact) => string | number | boo
   ["receivable_total", (c) => c.shopkeeper?.receivable_total ?? ""],
   ["payable_total", (c) => c.shopkeeper?.payable_total ?? ""],
   ["currency", (c) => c.shopkeeper?.currency ?? ""],
+  [
+    "currency_totals",
+    (c) =>
+      c.shopkeeper
+        ? outreachCurrencyTotals(c.shopkeeper)
+            .map((row) => `${row.currency}: receivable ${row.receivable}, payable ${row.payable}`)
+            .join(" | ")
+        : "",
+  ],
   ["shopkeeper_last_tally_at", (c) => c.shopkeeper?.last_tally_at ?? ""],
   [
     "kaatas",

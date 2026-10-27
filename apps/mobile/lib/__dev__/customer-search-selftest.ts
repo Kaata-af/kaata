@@ -1,15 +1,19 @@
 import assert from "node:assert/strict";
 import {
   CUSTOMER_SORTS,
+  CUSTOMER_BALANCE_FILTERS,
   DEFAULT_CUSTOMER_LIST,
   DEFAULT_CUSTOMER_SEARCH,
   compareCustomerNames,
   customerSide,
   parseCustomerListPreference,
   parseCustomerSearchPreference,
+  parseHomeCustomerListPreference,
   selectCustomers,
+  selectNeverTalliedCustomers,
   selectSearchCustomers,
   type CustomerSort,
+  type CustomerBalanceFilter,
 } from "../customer-list";
 import type { PersonWithBalance } from "../types";
 
@@ -47,8 +51,37 @@ const originalPeople = JSON.stringify(people);
 const ids = (sort: CustomerSort) =>
   selectSearchCustomers(people, { sort, group: "all" }, {}, "en").map((p) => p.id);
 
-assert.deepEqual(DEFAULT_CUSTOMER_SEARCH, { sort: "outstanding_name", group: "all" });
-assert.deepEqual(DEFAULT_CUSTOMER_LIST, { sort: "recent", group: "all" });
+assert.deepEqual(DEFAULT_CUSTOMER_SEARCH, {
+  sort: "outstanding_name",
+  group: "all",
+  direction: "all",
+});
+assert.deepEqual(DEFAULT_CUSTOMER_LIST, { sort: "recent", group: "all", direction: "all" });
+assert.deepEqual(parseHomeCustomerListPreference(null, null), DEFAULT_CUSTOMER_LIST);
+assert.deepEqual(
+  parseHomeCustomerListPreference(null, '{"sort":"outstanding_name","group":["shop","family"]}'),
+  { sort: "recent", group: ["family", "shop"], direction: "all" },
+  "the inherited search default cannot keep recent work in alphabetical order",
+);
+assert.deepEqual(
+  parseHomeCustomerListPreference(null, '{"sort":"amount_desc","group":"family"}'),
+  { sort: "amount_desc", group: "family", direction: "all" },
+  "migration retains other chosen sorts and group filters",
+);
+assert.deepEqual(
+  parseHomeCustomerListPreference(
+    '{"sort":"outstanding_name","group":"ungrouped"}',
+    '{"sort":"recent","group":"family"}',
+  ),
+  { sort: "outstanding_name", group: "ungrouped", direction: "all" },
+  "an explicit homepage choice wins, including the old search default",
+);
+assert.deepEqual(
+  parseHomeCustomerListPreference("invalid", '{"sort":"name_desc","group":"family"}'),
+  DEFAULT_CUSTOMER_LIST,
+  "invalid current preferences use the homepage default rather than an old search setting",
+);
+assert.deepEqual(parseHomeCustomerListPreference(null, "invalid"), DEFAULT_CUSTOMER_LIST);
 assert.deepEqual(ids("outstanding_name"), ["a", "b", "d", "e", "c"]);
 assert.deepEqual(ids("name_asc"), ["a", "b", "c", "d", "e"]);
 assert.deepEqual(ids("name_desc"), ["e", "d", "c", "b", "a"]);
@@ -220,7 +253,7 @@ for (const raw of [null, "invalid", "{}", '{"sort":"bad","group":4}']) {
 }
 assert.deepEqual(
   parseCustomerSearchPreference('{"sort":"amount_asc","group":["shop","family","shop"]}'),
-  { sort: "amount_asc", group: ["family", "shop"] },
+  { sort: "amount_asc", group: ["family", "shop"], direction: "all" },
   "existing explicit sort choices and group selections remain valid",
 );
 assert.deepEqual(
@@ -237,8 +270,241 @@ assert.deepEqual(
   selectCustomers(people, "pay", DEFAULT_CUSTOMER_LIST, {}, "en").map((p) => p.id),
   ["b", "d"],
 );
+
+assert.deepEqual(CUSTOMER_BALANCE_FILTERS, ["all", "collect", "pay"]);
+const mixed = person("mixed", "Both currencies", 0, 60, {
+  currency: "AFN",
+  currency_balances: [
+    person("mixed", "Both currencies", 100, 40, { currency: "AFN" }),
+    person("mixed", "Both currencies", -100, 60, { currency: "USD" }),
+  ],
+});
+const knownPay = person("known-pay", "Known pay and unknown", 9999, 70, {
+  tab_unsynced: 1,
+  currency_balances: [
+    person("known-pay", "Known pay and unknown", 9999, 70, { currency: "AFN", tab_unsynced: 1 }),
+    person("known-pay", "Known pay and unknown", -7, 50, { currency: "USD", tab_unsynced: 0 }),
+    person("known-pay", "Known pay and unknown", 20, 40, { currency: "EUR", is_settled: 1 }),
+  ],
+});
+const directionPeople = [
+  mixed,
+  knownPay,
+  person("collect", "Collect only", 25, 20, { currency: "USD" }),
+  person("pay", "Pay only", -30, 30, { currency: "AUD" }),
+  person("empty-rows-pay", "Empty currency rows", -3, 10, { currency_balances: [] }),
+  person("zero", "Zero with history", 0, 40),
+  person("empty", "Empty contact", 0, null),
+  person("settled", "Settled stale positive", 50, 50, { is_settled: 1 }),
+  person("unknown", "Unknown positive", 80, 60, { tab_unsynced: 1 }),
+  person("unknown-pay", "Unknown negative", -80, 60, { tab_unsynced: 1 }),
+  person("pending-collect", "Pending collection", 0, 70, {
+    tab_pending_count: 1,
+    tab_pending_balance: 500,
+    tab_confirmed_balance: 0,
+  }),
+  person("pending-pay", "Pending payment", 0, 80, {
+    tab_pending_count: 1,
+    tab_pending_balance: -500,
+    tab_confirmed_balance: 0,
+  }),
+  person("confirmed-pay", "Confirmed payment", -4, 80, {
+    tab_pending_count: 1,
+    tab_pending_balance: 500,
+    tab_confirmed_balance: -4,
+  }),
+  person("private-collect", "Private collection", 5, 80, {
+    tab_pending_count: 1,
+    tab_pending_balance: -500,
+    tab_confirmed_balance: 0,
+  }),
+];
+const originalDirections = JSON.stringify(directionPeople);
+for (const row of directionPeople) {
+  row.currency_balances?.forEach(Object.freeze);
+  if (row.currency_balances) Object.freeze(row.currency_balances);
+  Object.freeze(row);
+}
+Object.freeze(directionPeople);
+const matches: Record<Exclude<CustomerBalanceFilter, "all">, ReadonlySet<string>> = {
+  collect: new Set(["mixed", "collect", "private-collect"]),
+  pay: new Set(["mixed", "known-pay", "pay", "empty-rows-pay", "confirmed-pay"]),
+};
+for (const sort of CUSTOMER_SORTS) {
+  const unfiltered = selectSearchCustomers(directionPeople, { sort, group: "all" }, {}, "en");
+  assert.deepEqual(
+    selectSearchCustomers(directionPeople, { sort, group: "all", direction: "all" }, {}, "en"),
+    unfiltered,
+    "omitted direction keeps the backward-compatible All view",
+  );
+  for (const direction of ["collect", "pay"] as const) {
+    const selected = selectSearchCustomers(
+      directionPeople,
+      { sort, group: "all", direction },
+      {},
+      "en",
+    );
+    assert.deepEqual(
+      selected.map((row) => row.id),
+      unfiltered.filter((row) => matches[direction].has(row.id)).map((row) => row.id),
+      `${direction}/${sort}: filter preserves sort while every known denomination qualifies independently`,
+    );
+    assert.equal(
+      selected.find((row) => row.id === "mixed"),
+      mixed,
+    );
+    assert.equal(
+      selected.find((row) => row.id === "mixed")!.currency_balances,
+      mixed.currency_balances,
+      "matching a sign keeps both currency rows intact, including the opposite balance",
+    );
+  }
+}
+const directionGroups = {
+  mixed: ["family", "shop"],
+  collect: "shop",
+  "known-pay": "family",
+  pay: "other",
+  unknown: "family",
+};
+const directionRelevance = new Map([
+  ["mixed", 1],
+  ["known-pay", 3],
+  ["pay", 10],
+  ["unknown", 20],
+]);
+assert.deepEqual(
+  selectSearchCustomers(
+    [...directionPeople, mixed],
+    { sort: "name_asc", group: ["family", "shop"], direction: "pay" },
+    directionGroups,
+    "en",
+    directionRelevance,
+  ).map((row) => row.id),
+  ["known-pay", "mixed"],
+  "group OR, direction and search relevance compose; unknown amounts cannot bypass the filter",
+);
+assert.deepEqual(
+  selectSearchCustomers(
+    directionPeople,
+    { sort: "name_asc", group: "ungrouped", direction: "collect" },
+    directionGroups,
+    "en",
+  ).map((row) => row.id),
+  ["private-collect"],
+);
+assert.deepEqual(
+  selectCustomers(
+    people,
+    "collect",
+    { ...DEFAULT_CUSTOMER_LIST, direction: "collect" },
+    {},
+    "en",
+  ).map((row) => row.id),
+  ["a", "e"],
+  "legacy side selection also excludes its zero/settled rows under an explicit sign filter",
+);
+assert.deepEqual(
+  selectCustomers(
+    [pendingGiven],
+    "collect",
+    { ...DEFAULT_CUSTOMER_LIST, direction: "collect" },
+    {},
+    "en",
+  ),
+  [],
+  "legacy pending-side fallback never qualifies an unconfirmed-only balance",
+);
+assert.deepEqual(
+  selectNeverTalliedCustomers(
+    directionPeople,
+    { ...DEFAULT_CUSTOMER_LIST, direction: "pay" },
+    {},
+    "en",
+  ),
+  [],
+  "empty contacts have no confirmed balance direction",
+);
+assert.equal(
+  selectNeverTalliedCustomers(directionPeople, DEFAULT_CUSTOMER_LIST, {}, "en").some(
+    (row) => row.id === "empty",
+  ),
+  true,
+);
+for (const direction of CUSTOMER_BALANCE_FILTERS) {
+  const raw = JSON.stringify({ sort: "amount_desc", group: ["shop", "family", "shop"], direction });
+  const expected = { sort: "amount_desc", group: ["family", "shop"], direction };
+  assert.deepEqual(parseCustomerListPreference(raw), expected);
+  assert.deepEqual(parseCustomerSearchPreference(raw), expected);
+  assert.deepEqual(
+    parseCustomerListPreference(JSON.stringify(parseCustomerListPreference(raw))),
+    expected,
+  );
+}
+for (const direction of [null, "both", "to_pay", "", 7, ["pay"], true, {}]) {
+  assert.deepEqual(
+    parseCustomerListPreference(JSON.stringify({ sort: "name_desc", group: "family", direction })),
+    { sort: "name_desc", group: "family", direction: "all" },
+    "invalid saved directions fall back without losing sort or groups",
+  );
+}
+assert.deepEqual(
+  parseHomeCustomerListPreference(
+    null,
+    '{"sort":"outstanding_name","group":["shop"],"direction":"pay"}',
+  ),
+  { sort: "recent", group: ["shop"], direction: "pay" },
+  "the inherited-sort migration preserves a valid balance filter",
+);
+assert.deepEqual(
+  parseHomeCustomerListPreference(
+    '{"sort":"date_desc","group":"ungrouped","direction":"collect"}',
+    '{"sort":"name_desc","direction":"pay"}',
+  ),
+  { sort: "recent", group: "ungrouped", direction: "collect" },
+  "current direction and existing sort migrations take precedence over legacy preferences",
+);
+assert.equal(
+  JSON.stringify(directionPeople),
+  originalDirections,
+  "filtering never changes financial values, currencies, source order or pending metadata",
+);
+
+const soleCurrency = (id: string, balance: number) =>
+  person(id, id, 0, 10, {
+    currency: "AFN",
+    currency_balances: [person(id, id, balance, 10, { currency: "USD" })],
+  });
+const amountPeople = [
+  soleCurrency("usd-100", 100),
+  soleCurrency("usd-5", 5),
+  soleCurrency("usd-minus-200", -200),
+  person("multi-scalar", "Multiple currencies", 10, 10, {
+    currency: "AFN",
+    currency_balances: [
+      person("multi-scalar", "Multiple currencies", 9999, 10, { currency: "AFN" }),
+      person("multi-scalar", "Multiple currencies", -9999, 10, { currency: "USD" }),
+    ],
+  }),
+];
+const beforeAmountSort = JSON.stringify(amountPeople);
+assert.deepEqual(
+  selectSearchCustomers(amountPeople, { sort: "amount_desc", group: "all" }, {}, "en").map(
+    (row) => row.id,
+  ),
+  ["usd-minus-200", "usd-100", "multi-scalar", "usd-5"],
+  "one active denomination sorts by its actual signed amount rather than an empty base-currency wrapper",
+);
+assert.deepEqual(
+  selectSearchCustomers(amountPeople, { sort: "amount_asc", group: "all" }, {}, "en").map(
+    (row) => row.id,
+  ),
+  ["usd-5", "multi-scalar", "usd-100", "usd-minus-200"],
+  "ascending sorts use absolute sole-currency amounts; legacy multi-currency comparison never sums denominations",
+);
+assert.equal(JSON.stringify(amountPeople), beforeAmountSort);
 assert.equal(JSON.stringify(people), originalPeople, "search selection never mutates ledger rows");
 
 console.log(
-  "PASS combined customer search: outstanding/name default, all alternate sorts, relevance tiers, unknown balances, groups, deduplication, and unchanged home defaults",
+  "PASS combined customer search: independent currency directions, confirmed/unknown/pending/settled filtering, preference migrations, all sorts, relevance/groups, deduplication and immutable balances",
 );

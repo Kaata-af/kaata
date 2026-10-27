@@ -77,7 +77,7 @@ export function effectiveSharedPeriods(periods: readonly { link: TabLink; entrie
 }
 
 function scope(link: string, selected: string): string {
-  return `${link}.vault_id = ${selected}.vault_id AND ${link}.relationship_id = ${selected}.relationship_id`;
+  return `${link}.vault_id = ${selected}.vault_id AND ${link}.relationship_id = ${selected}.relationship_id AND ${link}.currency = ${selected}.currency`;
 }
 
 export function unknownHistorySql(selected = "tl"): string {

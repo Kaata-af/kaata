@@ -19,6 +19,9 @@ let pref = "auto",
 let createCalls = 0,
   dismissals = 0,
   linkedCalls = 0;
+let accountId = "account",
+  vaultId = "vault";
+const createArguments: any[] = [];
 let copied: string[] = [];
 let shares: Array<{ link: TabLink; phone: string | null; text: string }> = [];
 let openResult = true,
@@ -101,6 +104,8 @@ const mocks: Record<string, any> = {
   "./Button": { Button: "Button" },
   "./Toast": { useToast: () => ({ push() {} }) },
   "../lib/colors": { colors: {} },
+  "../lib/currency": { getCurrentCurrencyCode: () => "AFN" },
+  "../lib/db-tx": { getAccountIdSync: () => accountId, getActiveVaultIdSyncMaybe: () => vaultId },
   "../lib/direction": { useIsRTL: () => locale !== "en", rowDir: () => ({}), textDir: () => ({}) },
   "../lib/i18n": {
     getLocale: () => locale,
@@ -111,8 +116,9 @@ const mocks: Record<string, any> = {
   },
   "../lib/tabs/db": { getTabLinkForPerson: async () => fresh },
   "../lib/tabs/link": {
-    linkContact: async () => {
+    linkContact: async (...args: any[]) => {
       createCalls++;
+      createArguments.push(args);
       return create();
     },
     shareTabLinkOnWhatsApp: async (link: TabLink, person: any, text: string) => {
@@ -156,6 +162,9 @@ async function tap(key: string) {
   await settle();
 }
 function reset(phone: string | null, preference = "auto", existing: TabLink | null = null) {
+  accountId = "account";
+  vaultId = "vault";
+  createArguments.length = 0;
   for (const slot of slots) slot?.cleanup?.();
   slots = [];
   effects = [];
@@ -342,6 +351,34 @@ async function main() {
   await settle();
   assert.equal(shares.length, 0, "late completion cannot launch WhatsApp from another screen");
   console.log("PASS: closing the screen invalidates late delivery");
+  reset("+93700000000");
+  props.currency = "USD";
+  render();
+  await settle();
+  await tap("tab.link.whatsapp");
+  assert.equal(
+    createArguments[0][1].currency,
+    "USD",
+    "Link creation targets the explicit action currency",
+  );
+  for (const owner of ["account", "vault"]) {
+    reset("+93700000000");
+    create = () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      });
+    await settle();
+    await tap("tab.link.whatsapp");
+    if (owner === "vault") vaultId = "another-vault";
+    else accountId = "another-account";
+    render();
+    await settle();
+    finish({ link: fresh });
+    await settle();
+    assert.equal(shares.length, 0, "A late create cannot share from another account/book");
+    assert.equal(linkedCalls, 0);
+  }
+  console.log("PASS: explicit currency creation and late account/book scopes remain isolated");
 
   reset("+93700000000");
   create = async () => {

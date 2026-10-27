@@ -206,6 +206,7 @@ const installId = load<InstallId>("../install-id", {
 });
 
 const auth = load<Auth>("../auth", {
+  expo: { isRunningInExpoGo: () => false },
   "expo-constants": { __esModule: true, default: { executionEnvironment: "standalone" } },
   "expo-secure-store": {
     getItemAsync: async (key: string) => secure.get(key) ?? null,

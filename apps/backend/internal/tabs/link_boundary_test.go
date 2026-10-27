@@ -54,8 +54,8 @@ func TestContactBindingAndRestoreBoundary(t *testing.T) {
 	}
 	_, err = f.svc.Create(ctx, CreateInput{Currency: "USD", Label: "USD",
 		AccountID: &f.acctA, VaultID: &f.vaultA, RelationshipID: &otherRel})
-	if !errors.Is(err, ErrCurrencyMismatch) {
-		t.Fatalf("mixed currency accepted: %v", err)
+	if err != nil {
+		t.Fatalf("a separate USD account must fit inside the same kaata: %v", err)
 	}
 	viewer := seedAccount(t, f.pool, "viewer-tab@example.com", "Viewer")
 	seedMember(t, f.pool, f.vaultA, viewer, "viewer")

@@ -224,7 +224,8 @@ const en = {
   "onboardingKaata.name.placeholder": "Ahmad Grocery Store",
   "onboardingKaata.name.required": "Please name your kaata",
   "onboardingKaata.currency.label": "Currency",
-  "onboardingKaata.currency.hint": "All amounts in this kaata use this currency.",
+  "onboardingKaata.currency.hint":
+    "Default currency for new tallies. You can use other currencies in this Kaata.",
   "onboardingKaata.submit": "Create my kaata",
 
   // Quiet confirmation after the first kaata is created, with one next step.
@@ -319,7 +320,14 @@ const en = {
   "home.tab.collect": "To collect",
   "home.tab.pay": "To pay",
   "home.total.label.collect": "To collect",
+  "home.total.title": "Balances",
   "home.total.label.pay": "To pay",
+  "home.total.nextCurrency": "Next currency",
+  "home.total.previousCurrency": "Previous currency",
+  "home.total.pending":
+    "Shared accounts are still downloading. Totals will appear when they're ready.",
+  "home.empty.title": "No customers yet",
+  "home.empty.subtitle": "Add a customer to start keeping tallies.",
   "home.empty.collect.title": "Nothing to collect yet",
   "home.empty.collect.subtitle":
     "Tap the button at the bottom right to add a tally for someone you keep accounts with — one per customer.",
@@ -405,14 +413,23 @@ const en = {
   "search.filters": "Filters",
   "search.showResults": "Show results",
   "search.clearQuery": "Clear search",
-  "search.clearAll": "Clear all",
+  "search.clearAll": "Clear all filters",
   "customers.search.clear": "Clear customer search",
   "customers.search.title": "Search results",
   "customers.search.result": "1 matching customer",
   "customers.search.results": "{count} matching customers",
   "customers.noResults": "No matching customers",
   "customers.noTallies": "No tallies yet",
+  "customers.balanceFilter": "Balances",
+  "customers.balanceFilter.all": "All customers",
+  "customers.balanceFilter.collect": "To collect only",
+  "customers.balanceFilter.pay": "To pay only",
+  "customers.balanceFilter.help":
+    "Matches any currency. A customer with different currency balances can appear in both filters.",
+  "customers.balanceFilter.clear": "Clear balance filter",
   "customers.sort": "Sort customers",
+  "customers.sort.multiCurrencyHelp":
+    "Amount sorting is available when balances use a single currency.",
   "customers.sort.outstanding_name": "Balances first · A–Z",
   "customers.sort.recent": "Recent activity",
   "customers.sort.name_asc": "Name · A–Z",
@@ -672,6 +689,14 @@ const en = {
   "entry.amount.label": "Amount (AFN)",
   "entry.note.label": "Note",
   "entry.date.label": "Date",
+  "entry.more.show": "Show more",
+  "entry.more.hide": "Show less",
+  "entry.currency.label": "Currency",
+  "entry.currency.fixed":
+    "Currency stays with this tally. Add a new tally to use another currency.",
+  "entry.currency.disabled":
+    "This currency is no longer enabled for this Kaata. Choose an enabled currency.",
+  "currency.view": "Viewing",
   "entry.note.placeholder": "Flour and tea",
   "entry.save": "Save",
   "entry.saveChanges": "Save changes",
@@ -804,6 +829,8 @@ const en = {
   "share.settled.cta": "Thank you.",
   "share.footer": "— Sent via www.kaata.af",
   "share.fullLedger": "See the full ledger here:",
+  "share.currencySettled": "🤝 {currency}: settled.",
+  "share.billUnavailable": "The full bill could not be attached. These are the balances only.",
   "share.askLang.title": "Send in which language?",
 
   // Brand
@@ -1208,25 +1235,19 @@ const en = {
   "account.retired.failed": "Couldn't reset this phone. Try again.",
 
   // Vault create (Phase 5.2 — Add a Kaata)
-  // Copy fix: real users typed a CUSTOMER's name here (treating a "Kaata"
-  // as a single person's tab), so the admin dashboard's shop_name —
-  // sourced from the active vault's name — filled with tally/person names
-  // instead of shops. The screen now asks plainly for the SHOP name: a
-  // question title + a concrete "Shop name" field label + an example
-  // placeholder. The product still calls the container a "Kaata"
-  // everywhere else; only this naming step is shop-framed.
-  "vaultNew.title": "What's your shop called?",
+  // Outside onboarding, a Kaata can be for personal, household, or business use.
+  "vaultNew.title": "Name your Kaata",
   // UX-fix #1: forced post-archive-last entry-point title. The back
   // chevron is hidden in this mode (no parent to pop to); the title
   // shifts to a directive framing so the screen reads as "you must
   // complete this".
-  "vaultNew.titleForced": "Name your shop to continue",
-  "vaultNew.name.label": "Shop name",
-  "vaultNew.name.placeholder": "Ahmad Grocery Store",
+  "vaultNew.titleForced": "Name your Kaata to continue",
+  "vaultNew.name.label": "Kaata name",
+  "vaultNew.name.placeholder": "e.g. Personal or Business",
   "vaultNew.name.required": "Name is required",
-  "vaultNew.currency.label": "Currency",
+  "vaultNew.currency.label": "Default currency",
   "vaultNew.currency.hint":
-    "Default for all amounts in this Kaata. Can be changed later in settings.",
+    "Default currency for new tallies. Other currencies have separate balances in the same Kaata.",
   "vaultNew.localOnlyHint":
     "You are not signed in. This Kaata will live only on this phone until you sign in.",
   "vaultNew.submit": "Create Kaata",
@@ -1415,7 +1436,15 @@ const en = {
   // across unrelated screens is how a later reword on one surface silently
   // rewrites another (the personAdd.title lesson).
   "vaultSettings.name.save": "Save",
-  "vaultSettings.currency.label": "Currency",
+  "vaultSettings.currency.label": "Default currency",
+  "vaultSettings.currency.hint":
+    "Selected automatically for new tallies. Each saved tally keeps its own currency.",
+  "vaultSettings.currencies.label": "Currencies for this Kaata",
+  "vaultSettings.currencies.hint":
+    "Choose the currencies offered for new tallies. Removing a choice keeps all existing tallies and balances.",
+  "vaultSettings.currencies.default": "Default currency — always enabled",
+  "vaultSettings.currencies.changed":
+    "Currency settings changed. Close and reopen this list to review the latest choices.",
   "vaultSettings.viewOnly": "View only — owner permission required.",
   "vaultSettings.toast.noActive": "No active Kaata",
   "vaultSettings.toast.notFound": "Kaata not found",
@@ -2354,7 +2383,8 @@ const fa: Partial<Record<Key, string>> = {
   "onboardingKaata.name.placeholder": "خوراکه فروشی احمد",
   "onboardingKaata.name.required": "لطفاً برای کاتای‌تان نام بگذارید",
   "onboardingKaata.currency.label": "ارز",
-  "onboardingKaata.currency.hint": "تمام مبلغ‌های این کاتا با همین ارز ثبت می‌شوند.",
+  "onboardingKaata.currency.hint":
+    "ارز پیش‌فرض ثبت‌های تازه. در همین کاتا از ارزهای دیگر هم استفاده کرده می‌توانید.",
   "onboardingKaata.submit": "ساختن کاتا",
 
   // Onboarding completion (success screen)
@@ -2435,7 +2465,14 @@ const fa: Partial<Record<Key, string>> = {
   "home.tab.collect": "وصول",
   "home.tab.pay": "پرداخت",
   "home.total.label.collect": "قابل وصول",
+  "home.total.title": "بیلانس‌ها",
   "home.total.label.pay": "قابل پرداخت",
+  "home.total.nextCurrency": "واحد پول بعدی",
+  "home.total.previousCurrency": "واحد پول قبلی",
+  "home.total.pending":
+    "حساب‌های مشترک هنوز در حال دانلود است. مجموع‌ها پس از آماده‌شدن نمایش داده می‌شود.",
+  "home.empty.title": "هنوز مشتری‌ای نیست",
+  "home.empty.subtitle": "برای شروع ثبت حساب، یک مشتری اضافه کنید.",
   "home.empty.collect.title": "هنوز چیزی برای وصول نیست",
   "home.empty.collect.subtitle":
     "با دکمهٔ پایین سمت راست برای کسی که با او حساب دارید یک حساب بسازید — برای هر مشتری یکی.",
@@ -2512,14 +2549,22 @@ const fa: Partial<Record<Key, string>> = {
   "search.filters": "فیلترها",
   "search.showResults": "نمایش نتیجه‌ها",
   "search.clearQuery": "پاک‌کردن جستجو",
-  "search.clearAll": "پاک‌کردن همه",
+  "search.clearAll": "پاک‌کردن همهٔ فیلترها",
   "customers.search.clear": "پاک‌کردن جستجوی مشتری‌ها",
   "customers.search.title": "نتیجه‌های جستجو",
   "customers.search.result": "۱ مشتری مطابق جستجو",
   "customers.search.results": "{count} مشتری مطابق جستجو",
   "customers.noResults": "مشتری مطابق جستجو پیدا نشد",
   "customers.noTallies": "هنوز ثبتی نیست",
+  "customers.balanceFilter": "بیلانس‌ها",
+  "customers.balanceFilter.all": "همهٔ مشتری‌ها",
+  "customers.balanceFilter.collect": "فقط قابل وصول",
+  "customers.balanceFilter.pay": "فقط قابل پرداخت",
+  "customers.balanceFilter.help":
+    "بیلانس همهٔ ارزها در نظر گرفته می‌شود؛ یک مشتری می‌تواند در هر دو فیلتر ظاهر شود.",
+  "customers.balanceFilter.clear": "پاک‌کردن فیلتر بیلانس",
   "customers.sort": "ترتیب مشتری‌ها",
+  "customers.sort.multiCurrencyHelp": "ترتیب بر اساس مبلغ فقط برای بیلانس‌های یک ارز در دسترس است.",
   "customers.sort.outstanding_name": "مانده‌دارها اول · الف تا ی",
   "customers.sort.recent": "فعالیت تازه",
   "customers.sort.name_asc": "نام · الف تا ی",
@@ -2777,6 +2822,12 @@ const fa: Partial<Record<Key, string>> = {
   "entry.amount.label": "مقدار (AFN)",
   "entry.note.label": "یادداشت",
   "entry.date.label": "تاریخ",
+  "entry.more.show": "نمایش بیشتر",
+  "entry.more.hide": "نمایش کمتر",
+  "entry.currency.label": "ارز",
+  "entry.currency.fixed": "ارز این ثبت ثابت می‌ماند. برای ارز دیگر، ثبت تازه اضافه کنید.",
+  "entry.currency.disabled": "این ارز دیگر برای این کاتا فعال نیست. یک ارز فعال را انتخاب کنید.",
+  "currency.view": "نمایش ارز",
   "entry.note.placeholder": "آرد و چای",
   "entry.save": "ذخیره",
   "entry.saveChanges": "ذخیره تغییرات",
@@ -2910,6 +2961,8 @@ const fa: Partial<Record<Key, string>> = {
   "share.settled.cta": "تشکر.",
   "share.footer": "پیام از طرف www.kaata.af",
   "share.fullLedger": "کاتای مکمل را اینجا ببینید:",
+  "share.currencySettled": "🤝 {currency}: تصفیه شده.",
+  "share.billUnavailable": "کاتای مکمل ضمیمه نشد. این‌ها فقط بیلانس‌ها هستند.",
   "share.askLang.title": "پیام به کدام زبان فرستاده شود؟",
 
   // Brand
@@ -3202,15 +3255,15 @@ const fa: Partial<Record<Key, string>> = {
   "account.retired.confirm.cta": "پاک کردن و از نو تنظیم",
   "account.retired.failed": "از نو تنظیم کردن این تلفون ناکام شد. دوباره کوشش کنید.",
 
-  // Vault create (Phase 5.2). Shop-framed to stop users naming the kaata
-  // after a customer — see the English block's note.
-  "vaultNew.title": "نام دکان شما چیست؟",
-  "vaultNew.titleForced": "برای ادامه، نام دکان را بنویسید",
-  "vaultNew.name.label": "نام دکان",
-  "vaultNew.name.placeholder": "خوراکه فروشی احمد",
+  // Vault create (Phase 5.2 — Add a Kaata)
+  "vaultNew.title": "برای کاتای‌تان نام بگذارید",
+  "vaultNew.titleForced": "برای ادامه، نام کاتا را بنویسید",
+  "vaultNew.name.label": "نام کاتا",
+  "vaultNew.name.placeholder": "مثلاً شخصی یا کاری",
   "vaultNew.name.required": "نام لازم است",
-  "vaultNew.currency.label": "ارز",
-  "vaultNew.currency.hint": "پیش‌فرض برای تمام مبالغ این کاتا. بعداً در تنظیمات قابل تغییر است.",
+  "vaultNew.currency.label": "ارز پیش‌فرض",
+  "vaultNew.currency.hint":
+    "ارز پیش‌فرض ثبت‌های تازه. بیلانس ارزهای دیگر در همین کاتا جدا نگه‌داری می‌شود.",
   "vaultNew.localOnlyHint": "وارد نشده‌اید. این کاتا فقط روی همین تلفون می‌ماند تا وقتی وارد شوید.",
   "vaultNew.submit": "ایجاد کاتا",
   "vaultNew.created": "{name} ایجاد شد",
@@ -3393,7 +3446,15 @@ const fa: Partial<Record<Key, string>> = {
   "vaultSettings.name.label": "نام کاتا",
   "vaultSettings.name.required": "نام لازم است",
   "vaultSettings.name.save": "ذخیره",
-  "vaultSettings.currency.label": "ارز",
+  "vaultSettings.currency.label": "ارز پیش‌فرض",
+  "vaultSettings.currency.hint":
+    "برای ثبت‌های تازه به‌صورت خودکار انتخاب می‌شود. هر ثبت ذخیره‌شده ارز خودش را نگه می‌دارد.",
+  "vaultSettings.currencies.label": "ارزهای این کاتا",
+  "vaultSettings.currencies.hint":
+    "ارزهای قابل انتخاب برای ثبت‌های تازه را مشخص کنید. برداشتن یک گزینه، ثبت‌ها و بیلانس‌های قبلی را حفظ می‌کند.",
+  "vaultSettings.currencies.default": "ارز پیش‌فرض — همیشه فعال",
+  "vaultSettings.currencies.changed":
+    "تنظیمات ارز تغییر کرده است. این فهرست را ببندید و دوباره باز کنید تا گزینه‌های تازه را ببینید.",
   "vaultSettings.viewOnly": "فقط مشاهده — اجازه مالک لازم است.",
   "vaultSettings.toast.noActive": "کاتای فعال نیست",
   "vaultSettings.toast.notFound": "کاتا پیدا نشد",
@@ -4063,7 +4124,8 @@ const ps: Record<Key, string> = {
   "onboardingKaata.name.placeholder": "د احمد خوراکي توکو دوکان",
   "onboardingKaata.name.required": "خپلې کاټې ته نوم ورکړئ",
   "onboardingKaata.currency.label": "اسعار",
-  "onboardingKaata.currency.hint": "په دې کاټه کې ټولې پیسې په دې اسعارو حسابېږي.",
+  "onboardingKaata.currency.hint":
+    "د نویو راکړو ورکړو اصلي اسعار. په همدې کاټه کې نور اسعار هم کارولی شئ.",
   "onboardingKaata.submit": "زما کاټه جوړه کړئ",
   "onboardingSuccess.title": "ستاسې کاټه چمتو ده",
   "onboardingSuccess.body":
@@ -4397,7 +4459,13 @@ const ps: Record<Key, string> = {
   "home.tab.collect": "د اخیستلو پیسې",
   "home.tab.pay": "د ورکولو پیسې",
   "home.total.label.collect": "د اخیستلو پیسې",
+  "home.total.title": "بیلانسونه",
   "home.total.label.pay": "ورکونکې پیسې",
+  "home.total.nextCurrency": "راتلونکی اسعار",
+  "home.total.previousCurrency": "مخکینی اسعار",
+  "home.total.pending": "ګډ حسابونه لا ډاونلوډېږي. ټولې پیسې به د چمتو کېدو وروسته ښکاره شي.",
+  "home.empty.title": "تر اوسه پېرودونکي نشته",
+  "home.empty.subtitle": "د حسابونو د ثبت پیل لپاره یو پېرودونکی ورزیات کړئ.",
   "home.empty.collect.title": "لا اخیستونکې پیسې نشته",
   "home.empty.collect.subtitle":
     "د ښي لوري لاندې تڼۍ ووهئ او د هغه کس حساب ورزیات کړئ چې حساب ورسره لرئ؛ د هر پېرودونکي لپاره یو حساب.",
@@ -4415,7 +4483,7 @@ const ps: Record<Key, string> = {
   "search.filters": "چاڼونه",
   "search.showResults": "پایلې وښایئ",
   "search.clearQuery": "لټون پاک کړئ",
-  "search.clearAll": "ټول پاک کړئ",
+  "search.clearAll": "ټول فلټرونه پاک کړئ",
   "customers.search.clear": "د پېرودونکو لټون پاک کړئ",
   "customers.search.title": "د لټون پایلې",
   "customers.search.result": "1 پېرودونکی وموندل شو",
@@ -4423,6 +4491,15 @@ const ps: Record<Key, string> = {
   "customers.noResults": "اړوند پېرودونکي ونه موندل شول",
   "customers.noTallies": "لا حسابونه نشته",
   "customers.sort": "پېرودونکي ترتیب کړئ",
+  "customers.sort.multiCurrencyHelp":
+    "د مبلغ له مخې ترتیب هغه وخت شونی دی چې د بیلانسونو اسعار یو شان وي.",
+  "customers.balanceFilter": "بیلانسونه",
+  "customers.balanceFilter.all": "ټول پېرودونکي",
+  "customers.balanceFilter.collect": "یوازې د اخیستلو پیسې",
+  "customers.balanceFilter.pay": "یوازې د ورکولو پیسې",
+  "customers.balanceFilter.help":
+    "د ټولو اسعارو بیلانسونه کتل کېږي؛ یو پېرودونکی په دواړو فلټرونو کې راتلای شي.",
+  "customers.balanceFilter.clear": "د بیلانس فلټر پاک کړئ",
   "customers.sort.outstanding_name": "لومړی ناتصفیه شوي حسابونه · د الفبا په ترتیب",
   "customers.sort.recent": "وروستي فعالیتونه",
   "customers.sort.name_asc": "نوم · د الفبا په ترتیب",
@@ -4785,6 +4862,13 @@ const ps: Record<Key, string> = {
   "entry.amount.label": "مبلغ (AFN)",
   "entry.note.label": "یادښت",
   "entry.date.label": "نېټه",
+  "entry.more.show": "نور وښایئ",
+  "entry.more.hide": "لږ وښایئ",
+  "entry.currency.label": "اسعار",
+  "entry.currency.fixed":
+    "د دې راکړې ورکړې اسعار ثابت دي. د بل اسعارو لپاره نوې راکړه ورکړه زیاته کړئ.",
+  "entry.currency.disabled": "دا اسعار نور د دې کاټې لپاره فعال نه دي. فعال اسعار وټاکئ.",
+  "currency.view": "د اسعارو لید",
   "entry.note.placeholder": "اوړه او چای",
   "entry.save": "خوندي کړئ",
   "entry.saveChanges": "بدلونونه خوندي کړئ",
@@ -5523,14 +5607,14 @@ const ps: Record<Key, string> = {
   "restoreProgress.vault": "له {total} څخه {current} کاټه بېرته راګرځول کېږي…",
   "restoreProgress.vaultOne": "ستاسو کاټه بېرته راګرځول کېږي…",
   "restoreProgress.finishing": "بشپړېږي…",
-  "vaultNew.title": "ستاسو د دوکان نوم څه دی؟",
-  "vaultNew.titleForced": "د دوام لپاره د خپل دوکان نوم ولیکئ",
-  "vaultNew.name.label": "د دوکان نوم",
-  "vaultNew.name.placeholder": "د احمد خوراکي توکو دوکان",
+  "vaultNew.title": "خپلې کاټې ته نوم ورکړئ",
+  "vaultNew.titleForced": "د دوام لپاره د خپلې کاټې نوم ولیکئ",
+  "vaultNew.name.label": "د کاټې نوم",
+  "vaultNew.name.placeholder": "لکه شخصي یا کاروباري",
   "vaultNew.name.required": "نوم اړین دی",
-  "vaultNew.currency.label": "پیسه",
+  "vaultNew.currency.label": "اصلي اسعار",
   "vaultNew.currency.hint":
-    "په دې کاټه کې د ټولو مبلغونو لپاره ټاکل شوې پیسه. وروسته یې په تنظیماتو کې بدلولی شئ.",
+    "د نویو راکړو ورکړو اصلي اسعار. په همدې کاټه کې د نورو اسعارو بیلانسونه جلا ساتل کېږي.",
   "vaultNew.localOnlyHint":
     "حساب ته نه یاست ننوتلي. تر ننوتلو پورې به دا کاټه یوازې په دې ټیلیفون کې وي.",
   "vaultNew.submit": "کاټه جوړه کړئ",
@@ -5550,7 +5634,15 @@ const ps: Record<Key, string> = {
   "vaultSettings.name.label": "د کاټې نوم",
   "vaultSettings.name.required": "نوم اړین دی",
   "vaultSettings.name.save": "خوندي کړئ",
-  "vaultSettings.currency.label": "پیسه",
+  "vaultSettings.currency.label": "اصلي اسعار",
+  "vaultSettings.currency.hint":
+    "د نوو راکړو ورکړو لپاره په خپله ټاکل کېږي. هره خوندي شوې راکړه ورکړه خپل اسعار ساتي.",
+  "vaultSettings.currencies.label": "د دې کاټې اسعار",
+  "vaultSettings.currencies.hint":
+    "د نوو راکړو ورکړو لپاره د ټاکلو اسعار وټاکئ. د یوه انتخاب لرې کول پخوانۍ راکړې ورکړې او بیلانسونه ساتي.",
+  "vaultSettings.currencies.default": "اصلي اسعار — تل فعال دي",
+  "vaultSettings.currencies.changed":
+    "د اسعارو امستنې بدلې شوې. دا لړ وتړئ او بیا یې پرانیزئ چې وروستي انتخابونه وګورئ.",
   "vaultSettings.viewOnly": "یوازې یې کتلی شئ؛ د مالک اجازه اړینه ده.",
   "vaultSettings.toast.noActive": "فعاله کاټه نشته",
   "vaultSettings.toast.notFound": "کاټه ونه موندل شوه",
@@ -5623,6 +5715,8 @@ const ps: Record<Key, string> = {
   "share.settled.cta": "مننه.",
   "share.footer": "— د www.kaata.af له لارې لېږل شوی",
   "share.fullLedger": "بشپړ حساب کتاب دلته وګورئ:",
+  "share.currencySettled": "🤝 {currency}: تصفیه شوی.",
+  "share.billUnavailable": "بشپړ حساب کتاب ورسره ونه نښلول شو. دا یوازې بیلانسونه دي.",
   "share.askLang.title": "په کومه ژبه یې ولېږو؟",
   "brand.wordmark": "کاټه.",
   "format.justNow": "همدا اوس",

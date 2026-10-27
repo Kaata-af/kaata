@@ -1,5 +1,6 @@
 import { SheetBackdrop } from "./SheetBackdrop";
 import { SheetHandle } from "./SheetHandle";
+import { SheetSurface } from "./SheetSurface";
 import { useOverlayAnimation } from "../lib/use-overlay-animation";
 import { useSheetDrag } from "../lib/use-sheet-drag";
 // OptionSheet — a small single-select picker bottom sheet, extracted from
@@ -9,17 +10,7 @@ import { useSheetDrag } from "../lib/use-sheet-drag";
 // hairline dividers, 220ms exit defer, numeric maxHeight cap).
 
 import { Ionicons } from "@expo/vector-icons";
-import {
-  Animated,
-  Dimensions,
-  Modal,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { Animated, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { colors } from "../lib/colors";
 import {
   SETTINGS_ROW_LABEL_FONT_SIZE,
@@ -77,11 +68,7 @@ export function OptionSheet(props: {
         style={[styles.sheetContainer, { transform: [{ translateY: drag.translateY }] }]}
         pointerEvents={visible ? "box-none" : "none"}
       >
-        <SafeAreaView
-          {...drag.surfacePanHandlers}
-          edges={["bottom"]}
-          style={[styles.sheetWrap, { maxHeight: Dimensions.get("window").height * 0.75 }]}
-        >
+        <SheetSurface {...drag.surfacePanHandlers} maxHeightRatio={0.75} style={styles.sheetWrap}>
           <View style={styles.sheet}>
             <SheetHandle panHandlers={drag.panHandlers} onDismiss={drag.dismiss} />
             <Text style={[styles.sheetTitle, textDir(isRTL), trackingSafe(isRTL)]}>{title}</Text>
@@ -128,7 +115,7 @@ export function OptionSheet(props: {
               })}
             </ScrollView>
           </View>
-        </SafeAreaView>
+        </SheetSurface>
       </Animated.View>
     </Modal>
   );

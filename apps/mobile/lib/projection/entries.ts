@@ -23,6 +23,7 @@ import type {
 import { MissingPrereqError } from "./errors";
 import { isValidEntryDate } from "../entry-date";
 import { compareHLC } from "../hlc";
+import { isValidCurrencyCode } from "../currency-scope";
 import {
   compareFieldHLC,
   parseFieldHLCs,
@@ -43,6 +44,8 @@ export async function applyEntryCreated(tx: SQLiteTx, event: EntryCreatedEvent):
   if (!isValidEntryDate(p.occurred_at_ms)) throw new Error("Invalid entry date");
   if (p.recorded_at_ms != null && !isValidEntryDate(p.recorded_at_ms))
     throw new Error("Invalid entry recording date");
+  if (p.currency != null && !isValidCurrencyCode(p.currency))
+    throw new Error("Invalid entry currency");
   if (event.vault_id == null) {
     throw new Error(`entry_created event ${event.event_id} missing envelope vault_id`);
   }
@@ -59,18 +62,20 @@ export async function applyEntryCreated(tx: SQLiteTx, event: EntryCreatedEvent):
 
   await tx.runAsync(
     `INSERT OR REPLACE INTO entries (
-       id, vault_id, relationship_id, type, amount_afn, note,
+       id, vault_id, relationship_id, type, amount_afn, note, currency,
        created_at, updated_at, proposed_by_user_id,
        current_event_id, is_deleted, is_settled,
        accepted_at, disputed_at, disputed_reason, settled_at,
        deleted_at, field_hlcs
-     ) VALUES (?, ?, ?, ?, ?, ?,  ?, ?, ?,  ?, 0, ?,  ?, ?, ?, ?,  NULL, ?)`,
+     ) VALUES (?, ?, ?, ?, ?, ?, COALESCE(?,(SELECT COALESCE(legacy_currency,currency,'AFN') FROM vaults WHERE id=?),'AFN'), ?, ?, ?,  ?, 0, ?,  ?, ?, ?, ?,  NULL, ?)`,
     p.entry_id,
     event.vault_id,
     p.relationship_id,
     p.type,
     p.amount_afn,
     p.note,
+    p.currency ?? null,
+    event.vault_id,
     p.occurred_at_ms,
     event.hlc.pms,
     // author_user_id_local_only is device-local and NEVER crosses the wire —
@@ -251,16 +256,20 @@ export async function applyEntryDeleted(tx: SQLiteTx, event: EntryDeletedEvent):
 // INSERT OR IGNORE keeps replay/restore idempotent. No prereq: the boundary
 // is meaningful even if some of the chapter's entries arrive later.
 export async function applyEntrySettled(tx: SQLiteTx, event: EntrySettledEvent): Promise<void> {
+  if (event.payload.currency != null && !isValidCurrencyCode(event.payload.currency))
+    throw new Error("Invalid settlement currency");
   if (event.relationship_id == null) {
     throw new Error(`entry_settled event ${event.event_id} missing envelope relationship_id`);
   }
   await tx.runAsync(
-    `INSERT OR IGNORE INTO settlements (id, vault_id, relationship_id, settled_at_ms, created_at)
-     VALUES (?, ?, ?, ?, ?)`,
+    `INSERT OR IGNORE INTO settlements (id, vault_id, relationship_id, settled_at_ms, created_at, currency)
+     VALUES (?, ?, ?, ?, ?,COALESCE(?,(SELECT COALESCE(legacy_currency,currency,'AFN') FROM vaults WHERE id=?),'AFN'))`,
     event.event_id,
     event.vault_id,
     event.relationship_id,
     event.payload.settled_at_ms,
     event.hlc.pms,
+    event.payload.currency ?? null,
+    event.vault_id,
   );
 }

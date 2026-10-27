@@ -64,7 +64,10 @@ const mocks: Record<string, any> = {
   "../lib/attribution": { chipActorFor: () => null },
   "../lib/calendar": { useCalendar() {} },
   "../lib/colors": { colors },
-  "../lib/currency": { getCurrentCurrencySymbol: () => "AFN" },
+  "../lib/currency": {
+    getCurrentCurrencyCode: () => "AFN",
+    getCurrencyLabel: (code: string) => code,
+  },
   "../lib/direction": {
     useIsRTL: () => rtl,
     rowDir: (r: boolean) => ({ flexDirection: r ? "row-reverse" : "row" }),
@@ -784,8 +787,9 @@ assert.equal(capturedStyles.actionBtn.flex, undefined, "no vertical flex collaps
 assert.ok(capturedStyles.actionBtn.minHeight >= 52);
 assert.equal(capturedStyles.actionBtnWrap.flex, 1, "equal-width buttons");
 assert.ok(capturedStyles.actionText.lineHeight >= 20, "visible Dari line box");
-// Toasts lift the dock, except above an open keyboard (the toast is behind it).
-assert.match(person, /translateY: keyboardShown \? 0 : toastOffset/);
+// Toasts lift the dock outside its compact keyboard layout. Android prepares
+// that layout on search focus, before the native keyboard-shown event arrives.
+assert.match(person, /translateY: compactDock \? 0 : toastOffset/);
 // WhatsApp sits beside the ⋯ menu, never inside it (#11). The old check here
 // compared against a menu label that no longer exists (indexOf -1), so it
 // passed without testing anything.

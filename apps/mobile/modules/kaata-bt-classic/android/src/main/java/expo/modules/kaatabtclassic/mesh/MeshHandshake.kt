@@ -95,7 +95,7 @@ object MeshHandshake {
       JSONObject().apply {
         put("type", "hello")
         put("v", 3)
-        put("capabilities", JSONArray().put("v1"))
+        put("capabilities", JSONArray().put("multi-currency-v1"))
         put("pop_nonce", ourNonceB64)
         put("ephemeral_x25519_pubkey", MeshCrypto.b64UrlEncode(ourEph.publicKey))
         put("device_pubkey_b64", p.devicePubkeyB64Std)
@@ -113,9 +113,9 @@ object MeshHandshake {
       throw HandshakeError("expected hello, got ${peerHello.optString("type")}")
     }
     val caps = peerHello.optJSONArray("capabilities")
-    var hasV1 = false
-    if (caps != null) for (i in 0 until caps.length()) if (caps.optString(i) == "v1") hasV1 = true
-    if (!hasV1) throw HandshakeError("no shared capability")
+    var hasCurrencies = false
+    if (caps != null) for (i in 0 until caps.length()) if (caps.optString(i) == "multi-currency-v1") hasCurrencies = true
+    if (!hasCurrencies) throw HandshakeError("both phones need a currency-compatible Kaata update")
     val peerPopNonce = peerHello.optString("pop_nonce", "")
     if (peerPopNonce.length < 16) throw HandshakeError("peer pop_nonce missing/short")
     val peerEphB64 = peerHello.optString("ephemeral_x25519_pubkey", "")

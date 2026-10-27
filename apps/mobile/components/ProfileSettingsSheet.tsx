@@ -1,15 +1,9 @@
-import { SheetBackdrop } from "./SheetBackdrop";
-import { useOverlayAnimation } from "../lib/use-overlay-animation";
-import { useSheetDrag } from "../lib/use-sheet-drag";
-import { SheetHandle } from "./SheetHandle";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  Animated,
-  Dimensions,
   Image,
-  Modal,
+  Keyboard,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -17,16 +11,15 @@ import {
   Text,
   View,
 } from "react-native";
-import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import { SafeAreaView } from "react-native-safe-area-context";
 import type { SessionUser } from "../lib/auth";
 import { colors } from "../lib/colors";
-import { getAccountIdSync } from "../lib/db-tx";
+import { getAccountIdSync, getActiveVaultIdSyncMaybe } from "../lib/db-tx";
 import {
   SETTINGS_AVATAR_HERO,
   SETTINGS_ROW_ICON_GAP,
   SETTINGS_ROW_ICON_SIZE,
   SETTINGS_ROW_PADDING_X,
-  SETTINGS_SHEET_TOP_RADIUS,
 } from "../lib/design-tokens";
 import { getCurrencySymbol } from "../lib/currency";
 import { rowDir, textDir, useIsRTL } from "../lib/direction";
@@ -35,7 +28,7 @@ import { SOLO_STORE_MODE } from "../constants/env";
 import { t } from "../lib/i18n";
 import { useMembersCount } from "../lib/use-vault-summary";
 import { InitialAvatar } from "./InitialAvatar";
-import { NavRow, SectionGap, SectionHeader } from "./SettingsScreen";
+import { NavRow, ScreenHeader, SectionGap, SectionHeader } from "./SettingsScreen";
 
 // ProfileSettingsSheet — Phase 7 unified settings surface.
 //
@@ -70,9 +63,6 @@ import { NavRow, SectionGap, SectionHeader } from "./SettingsScreen";
 //      SOLO_STORE_MODE). Cloud backup is now AUTOMATIC for signed-in users —
 //      there is no toggle. App health + version moved to the Account screen.
 
-const OFFSCREEN = 600;
-const EXIT_DURATION_MS = 220;
-
 export type VaultListItem = {
   id: string;
   name: string;
@@ -82,7 +72,7 @@ export type VaultListItem = {
   archived: boolean;
 };
 
-export function ProfileSettingsSheet(props: {
+export type ProfileSettingsProps = {
   visible: boolean;
 
   // Identity
@@ -128,20 +118,30 @@ export function ProfileSettingsSheet(props: {
 
   // Dismiss
   onDismiss: () => void;
-}) {
-  const { rendered, opacity, position: translateY } = useOverlayAnimation(props.visible, OFFSCREEN);
-  const drag = useSheetDrag(props.visible, translateY, props.onDismiss);
+  onNavigate?: (path: "/sign-in" | "/guide" | "/dev/btc-test") => void;
+};
+
+/** Content of the native /profile modal, presented like /person/new. */
+export function ProfileSettingsSheet(props: ProfileSettingsProps) {
   const isRTL = useIsRTL();
   const router = useRouter();
-  const insets = useSafeAreaInsets();
   const actionQueued = useRef(false);
-  const actionTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(
-    () => () => {
-      if (actionTimer.current) clearTimeout(actionTimer.current);
-    },
-    [],
-  );
+  const latest = useRef(props);
+  latest.current = props;
+  const mounted = useRef(true);
+  const previousVisible = useRef(props.visible);
+  const presentation = useRef(0);
+  if (previousVisible.current !== props.visible) {
+    previousVisible.current = props.visible;
+    if (props.visible) presentation.current++;
+  }
+  const currentPresentation = presentation.current;
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
   // Reactive account_id — same pattern as the old HamburgerMenuSheet.
   // Reads the synchronous module cache on every `visible` flip so a sign-in
@@ -156,25 +156,33 @@ export function ProfileSettingsSheet(props: {
 
   useEffect(() => {
     if (props.visible) {
+      Keyboard.dismiss();
       actionQueued.current = false;
-      if (actionTimer.current) clearTimeout(actionTimer.current);
-      actionTimer.current = null;
     }
   }, [props.visible]);
 
-  // Defer router.push / action callbacks by EXIT_DURATION_MS so the Modal
-  // unmounts before a second Modal mounts — same Android Modal-stacking
-  // mitigation as BottomSheet.tsx / the deprecated HamburgerMenuSheet.tsx.
+  function current() {
+    return (
+      mounted.current &&
+      latest.current.visible &&
+      presentation.current === currentPresentation &&
+      latest.current.activeAccountId === props.activeAccountId &&
+      latest.current.activeVaultId === props.activeVaultId &&
+      getAccountIdSync() === props.activeAccountId &&
+      getActiveVaultIdSyncMaybe() === props.activeVaultId
+    );
+  }
+
+  // Native navigation owns dismissal; an action never waits for a JS timer.
   function chained(action: () => void) {
     return () => {
-      // The sheet remains mounted during its exit animation. A second tap
-      // there must not push another sign-in page (or run a second action).
-      if (actionQueued.current) return;
+      if (!current() || actionQueued.current) return;
       actionQueued.current = true;
-      props.onDismiss();
-      actionTimer.current = setTimeout(action, EXIT_DURATION_MS);
+      action();
     };
   }
+  const navigate = (path: "/sign-in" | "/guide" | "/dev/btc-test") =>
+    props.onNavigate ? props.onNavigate(path) : router.replace(path);
 
   const membersCount = useMembersCount(props.activeVaultId, props.visible);
 
@@ -192,206 +200,177 @@ export function ProfileSettingsSheet(props: {
     [props.activeVaultId, activeVaults],
   );
 
-  if (!rendered) return null;
+  if (!props.visible) return null;
 
   return (
-    <Modal
-      visible
-      transparent
-      animationType="none"
-      statusBarTranslucent
-      onRequestClose={drag.dismiss}
-    >
-      <Animated.View style={[StyleSheet.absoluteFill, { opacity }]}>
-        <SheetBackdrop onDismiss={drag.dismiss} />
-      </Animated.View>
-
-      <Animated.View
-        style={[styles.sheetContainer, { transform: [{ translateY: drag.translateY }] }]}
-        pointerEvents={props.visible ? "box-none" : "none"}
+    <SafeAreaView style={styles.screen} onAccessibilityEscape={chained(props.onDismiss)}>
+      <ScreenHeader
+        title={t("menu.title.profile")}
+        onBack={chained(props.onDismiss)}
+        isRTL={isRTL}
+        backLabel={t("common.close")}
+      />
+      <ScrollView
+        style={styles.scroll}
+        showsVerticalScrollIndicator={false}
+        bounces={false}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+        contentContainerStyle={styles.content}
       >
-        <SafeAreaView
-          {...drag.surfacePanHandlers}
-          edges={["bottom"]}
-          style={[
-            styles.sheetWrap,
-            // Numeric maxHeight — "85%" against position:absolute parent with
-            // no explicit height is undefined in RN, so the sheet was rendering
-            // taller than viewport. Dimensions gives a concrete pixel cap.
-            { maxHeight: Dimensions.get("window").height * 0.85 },
-          ]}
-        >
-          <View style={styles.sheet}>
-            <SheetHandle panHandlers={drag.panHandlers} onDismiss={drag.dismiss} />
-            {/* Phase 7 UX critique: removed the redundant uppercase "MENU"
-                title at the top of the sheet — every section already has
-                its own header, so the extra title was visual noise. */}
-
-            <ScrollView
-              {...drag.scrollProps}
-              showsVerticalScrollIndicator={false}
-              bounces={false}
-              contentContainerStyle={{
-                paddingBottom: 16 + insets.bottom * 0.25,
-              }}
-            >
-              {/* ============ SECTION 1: ACCOUNT ============ */}
-              <SectionHeader label={t("menu.account")} isRTL={isRTL} />
-              {props.signedInUser ? (
-                <>
-                  <View style={[styles.identityRow, rowDir(isRTL)]}>
-                    {props.signedInUser.picture_url ? (
-                      <Image
-                        accessibilityIgnoresInvertColors
-                        source={{ uri: props.signedInUser.picture_url }}
-                        style={[styles.avatar, isRTL ? { marginLeft: 14 } : { marginRight: 14 }]}
-                      />
-                    ) : (
-                      // Metric-corrected letter chip — shared with the home
-                      // header's profile slot (see components/InitialAvatar
-                      // for the Vazirmatn centering math).
-                      <InitialAvatar
-                        size={SETTINGS_AVATAR_HERO}
-                        label={initialFor(props.signedInUser)}
-                        style={isRTL ? { marginLeft: 14 } : { marginRight: 14 }}
-                      />
-                    )}
-                    <View style={{ flex: 1 }}>
-                      {props.signedInUser.name ? (
-                        <Text style={[styles.identityName, textDir(isRTL)]} numberOfLines={1}>
-                          {props.signedInUser.name}
-                        </Text>
-                      ) : null}
-                      <Text style={[styles.identityEmail, textDir(isRTL)]} numberOfLines={1}>
-                        {props.signedInUser.email ?? ""}
-                      </Text>
-                    </View>
-                  </View>
-                  {/* design-tokens.ts (line 107): "Sign out" is destructive
+        {/* ============ SECTION 1: ACCOUNT ============ */}
+        <SectionHeader label={t("menu.account")} isRTL={isRTL} />
+        {props.signedInUser ? (
+          <>
+            <View style={[styles.identityRow, rowDir(isRTL)]}>
+              {props.signedInUser.picture_url ? (
+                <Image
+                  accessibilityIgnoresInvertColors
+                  source={{ uri: props.signedInUser.picture_url }}
+                  style={[styles.avatar, isRTL ? { marginLeft: 14 } : { marginRight: 14 }]}
+                />
+              ) : (
+                // Metric-corrected letter chip — shared with the home
+                // header's profile slot (see components/InitialAvatar
+                // for the Vazirmatn centering math).
+                <InitialAvatar
+                  size={SETTINGS_AVATAR_HERO}
+                  label={initialFor(props.signedInUser)}
+                  style={isRTL ? { marginLeft: 14 } : { marginRight: 14 }}
+                />
+              )}
+              <View style={{ flex: 1 }}>
+                {props.signedInUser.name ? (
+                  <Text style={[styles.identityName, textDir(isRTL)]} numberOfLines={1}>
+                    {props.signedInUser.name}
+                  </Text>
+                ) : null}
+                <Text style={[styles.identityEmail, textDir(isRTL)]} numberOfLines={1}>
+                  {props.signedInUser.email ?? ""}
+                </Text>
+              </View>
+            </View>
+            {/* design-tokens.ts (line 107): "Sign out" is destructive
                       and uses `danger` color. Tap routes through the host's
                       onSignOut which now opens a ConfirmDialog before
                       actually wiping the session. */}
-                  {/* "Switch account" removed (Matee): to use another Google
+            {/* "Switch account" removed (Matee): to use another Google
                       account, sign out then sign in — the kaatas you have stay
                       on the phone (each backs up to its own account). */}
-                  {/* Account settings belongs UNDER the ACCOUNT section (Matee):
+            {/* Account settings belongs UNDER the ACCOUNT section (Matee):
                       the user's own name + phone, language, default country,
                       archived kaatas. Sits above the destructive "Sign out". */}
-                  <NavRow
-                    icon="person-circle-outline"
-                    label={t("menu.account.settings")}
-                    hint={t("menu.account.settings.hint")}
-                    onPress={chained(props.onOpenAccount)}
-                    isRTL={isRTL}
-                  />
-                  <NavRow
-                    icon="log-out-outline"
-                    label={t("menu.account.signOut")}
-                    onPress={chained(props.onSignOut)}
-                    isRTL={isRTL}
-                    danger
-                    isLast
-                  />
-                </>
-              ) : (
-                <>
-                  <Text style={[styles.emptyHint, textDir(isRTL)]}>
-                    {t("menu.account.localOnlyHint")}
-                  </Text>
-                  {/* Keep the sheet compact; the dedicated page offers email,
+            <NavRow
+              icon="person-circle-outline"
+              label={t("menu.account.settings")}
+              hint={t("menu.account.settings.hint")}
+              onPress={chained(props.onOpenAccount)}
+              isRTL={isRTL}
+            />
+            <NavRow
+              icon="log-out-outline"
+              label={t("menu.account.signOut")}
+              onPress={chained(props.onSignOut)}
+              isRTL={isRTL}
+              danger
+              isLast
+            />
+          </>
+        ) : (
+          <>
+            <Text style={[styles.emptyHint, textDir(isRTL)]}>
+              {t("menu.account.localOnlyHint")}
+            </Text>
+            {/* Keep the sheet compact; the dedicated page offers email,
                       Google and Apple with the existing recovery and account
                       change guards. Close this native Modal before navigating. */}
-                  <NavRow
-                    icon="log-in-outline"
-                    label={t("menu.account.signIn.choose")}
-                    onPress={chained(() => router.push("/sign-in"))}
-                    isRTL={isRTL}
-                    emphasis
-                  />
-                  {/* Editable while signed out too — it's the local identity. */}
-                  <NavRow
-                    icon="person-circle-outline"
-                    label={t("menu.account.settings")}
-                    hint={t("menu.account.settings.hint")}
-                    onPress={chained(props.onOpenAccount)}
-                    isRTL={isRTL}
-                    isLast
-                  />
-                </>
-              )}
+            <NavRow
+              icon="log-in-outline"
+              label={t("menu.account.signIn.choose")}
+              onPress={chained(() => navigate("/sign-in"))}
+              isRTL={isRTL}
+              emphasis
+            />
+            {/* Editable while signed out too — it's the local identity. */}
+            <NavRow
+              icon="person-circle-outline"
+              label={t("menu.account.settings")}
+              hint={t("menu.account.settings.hint")}
+              onPress={chained(props.onOpenAccount)}
+              isRTL={isRTL}
+              isLast
+            />
+          </>
+        )}
 
-              {/* ============ CURRENT KAATA ============
+        {/* ============ CURRENT KAATA ============
                   Settings for the ACTIVE kaata (rename, currency, members, archive),
                   clearly separated from the USER/ACCOUNT settings. Moved here from
                   the vault switcher (now switch-only) so "user settings vs
                   current-kaata settings" is explicit (Matee's ask). Shown whenever
                   there is a manageable active vault — in solo mode too, so the lone
                   shopkeeper can still rename their kaata / change currency. */}
-              {hasManageable ? (
-                <>
-                  <SectionGap />
-                  <SectionHeader label={t("menu.currentKaata")} isRTL={isRTL} />
-                  <NavRow
-                    icon="cog-outline"
-                    label={t("menu.thisKaata.settings")}
-                    // Member count only when it means something (multi-member);
-                    // a solo shopkeeper doesn't think in "1 member".
-                    hint={membersCount > 1 ? pluralizeMembers(membersCount) : undefined}
-                    onPress={chained(props.onManageCurrentKaata)}
-                    isRTL={isRTL}
-                    isLast
-                  />
-                </>
-              ) : null}
+        {hasManageable ? (
+          <>
+            <SectionGap />
+            <SectionHeader label={t("menu.currentKaata")} isRTL={isRTL} />
+            <NavRow
+              icon="cog-outline"
+              label={t("menu.thisKaata.settings")}
+              // Member count only when it means something (multi-member);
+              // a solo shopkeeper doesn't think in "1 member".
+              hint={membersCount > 1 ? pluralizeMembers(membersCount) : undefined}
+              onPress={chained(props.onManageCurrentKaata)}
+              isRTL={isRTL}
+              isLast
+            />
+          </>
+        ) : null}
 
-              {/* ============ SECTION 3: KAATAS ============
+        {/* ============ SECTION 3: KAATAS ============
                   Hidden in SOLO_STORE_MODE: the kaata list is redundant with the
                   top-left vault switcher (VaultPickerSheet), and pairing/scan are
                   multi-employee surfaces a lone shopkeeper doesn't need. (Matee:
                   "the vaults/kaatas are listed in the settings too, it's not
                   needed, I see them on the vault/kaata switcher.") */}
-              {!SOLO_STORE_MODE ? (
-                <>
-                  <SectionGap />
-                  <SectionHeader label={t("menu.allKaatas")} isRTL={isRTL} />
-                  {activeVaults.length === 0 ? (
-                    <Text style={[styles.emptyHint, textDir(isRTL)]}>
-                      {t("menu.allKaatas.empty")}
-                    </Text>
-                  ) : (
-                    activeVaults.map((v) => {
-                      const isActive = v.id === props.activeVaultId;
-                      return (
-                        <NavRow
-                          key={v.id}
-                          icon={isActive ? "checkmark-circle" : "ellipse-outline"}
-                          iconColor={isActive ? colors.actionPrimary : colors.textMuted}
-                          label={v.name}
-                          trailing={v.currency ? getCurrencySymbol(v.currency) : undefined}
-                          bold={isActive}
-                          onPress={
-                            isActive
-                              ? () => props.onDismiss()
-                              : chained(() => props.onSelectVault(v.id))
-                          }
-                          isRTL={isRTL}
-                        />
-                      );
-                    })
-                  )}
+        {!SOLO_STORE_MODE ? (
+          <>
+            <SectionGap />
+            <SectionHeader label={t("menu.allKaatas")} isRTL={isRTL} />
+            {activeVaults.length === 0 ? (
+              <Text style={[styles.emptyHint, textDir(isRTL)]}>{t("menu.allKaatas.empty")}</Text>
+            ) : (
+              activeVaults.map((v) => {
+                const isActive = v.id === props.activeVaultId;
+                return (
                   <NavRow
-                    icon="add-circle-outline"
-                    label={t("menu.allKaatas.add")}
-                    onPress={chained(props.onAddVault)}
+                    key={v.id}
+                    icon={isActive ? "checkmark-circle" : "ellipse-outline"}
+                    iconColor={isActive ? colors.actionPrimary : colors.textMuted}
+                    label={v.name}
+                    trailing={v.currency ? getCurrencySymbol(v.currency) : undefined}
+                    bold={isActive}
+                    onPress={
+                      isActive ? chained(props.onDismiss) : chained(() => props.onSelectVault(v.id))
+                    }
                     isRTL={isRTL}
-                    emphasis
-                    // Last in-section row before the archived footer now that
-                    // the parked scan row below no longer renders. The archived
-                    // row sits behind a SectionGap so it doesn't influence this
-                    // row's divider.
-                    isLast={!hasArchived}
                   />
-                  {/* PARKED (mesh): "Scan a pairing code" opened the offline QR
+                );
+              })
+            )}
+            <NavRow
+              icon="add-circle-outline"
+              label={t("menu.allKaatas.add")}
+              onPress={chained(props.onAddVault)}
+              isRTL={isRTL}
+              emphasis
+              // Last in-section row before the archived footer now that
+              // the parked scan row below no longer renders. The archived
+              // row sits behind a SectionGap so it doesn't influence this
+              // row's divider.
+              isLast={!hasArchived}
+            />
+            {/* PARKED (mesh): "Scan a pairing code" opened the offline QR
                       scan (vault/pair-scan), parked with the rest of mesh.
                       Re-add when mesh ships again. (props.onScanPairingCode is
                       kept on the type but is no longer consumed.)
@@ -404,7 +383,7 @@ export function ProfileSettingsSheet(props: {
                     isLast={!hasArchived}
                   />
                   */}
-                  {/* D-ARCHIVED-SCREEN — muted "Archived (N) >" footer link
+            {/* D-ARCHIVED-SCREEN — muted "Archived (N) >" footer link
                   to /vault/archived. Renders only when the user has at
                   least one archived Kaata. Placed below the manage row
                   so primary actions (select / add / scan / manage) stay
@@ -418,119 +397,116 @@ export function ProfileSettingsSheet(props: {
                   SectionGap above the archived row so it reads as a
                   distinct footer section rather than "yet another row"
                   in the Kaatas list. */}
-                  {hasArchived ? (
-                    <>
-                      <SectionGap />
-                      <NavRow
-                        icon="archive-outline"
-                        iconColor={colors.textMuted}
-                        label={t("menu.allKaatas.archived.view", {
-                          count: archivedCount,
-                        })}
-                        onPress={chained(() => props.onOpenArchived?.())}
-                        isRTL={isRTL}
-                        isLast
-                      />
-                    </>
-                  ) : null}
-                </>
-              ) : null}
+            {hasArchived ? (
+              <>
+                <SectionGap />
+                <NavRow
+                  icon="archive-outline"
+                  iconColor={colors.textMuted}
+                  label={t("menu.allKaatas.archived.view", {
+                    count: archivedCount,
+                  })}
+                  onPress={chained(() => props.onOpenArchived?.())}
+                  isRTL={isRTL}
+                  isLast
+                />
+              </>
+            ) : null}
+          </>
+        ) : null}
 
-              {/* ============ SECTION 4: SYNC (Nearby/mesh only) ============
+        {/* ============ SECTION 4: SYNC (Nearby/mesh only) ============
                   Cloud backup is now automatic for signed-in users (no toggle).
                   This section is ONLY the Nearby (Bluetooth/WiFi) mesh toggle,
                   which is hidden in SOLO_STORE_MODE — so in the production solo
                   build the whole section is absent (the header + gap gate on
                   !SOLO_STORE_MODE). The dev Bluetooth-test row keeps its own
                   __DEV__ gate inside. */}
-              {!SOLO_STORE_MODE ? (
-                <>
-                  <SectionGap />
-                  <SectionHeader label={t("menu.sync")} isRTL={isRTL} />
-                  <View
-                    style={[
-                      styles.toggleRow,
-                      rowDir(isRTL),
-                      // Last sync row when no dev BT row follows.
-                      !__DEV__ ? styles.toggleRowLast : null,
-                    ]}
-                  >
-                    <Ionicons
-                      name="bluetooth-outline"
-                      size={SETTINGS_ROW_ICON_SIZE}
-                      color={colors.textEmphasis}
-                      style={
-                        isRTL
-                          ? { marginLeft: SETTINGS_ROW_ICON_GAP }
-                          : { marginRight: SETTINGS_ROW_ICON_GAP }
-                      }
-                    />
-                    <View style={{ flex: 1 }}>
-                      <Text style={[styles.toggleTitle, textDir(isRTL)]}>
-                        {t("menu.sync.shopMode")}
-                      </Text>
-                      <Text style={[styles.toggleHint, textDir(isRTL)]}>
-                        {!props.shopModeEnabled
-                          ? t("menu.sync.shopMode.hint")
-                          : (props.activePeers ?? 0) === 0
-                            ? t("menu.sync.shopMode.hintLooking")
-                            : (props.activePeers ?? 0) === 1
-                              ? t("menu.sync.shopMode.hintOnePeer")
-                              : t("menu.sync.shopMode.hintWithPeers", {
-                                  count: props.activePeers ?? 0,
-                                })}
-                      </Text>
-                    </View>
-                    <Switch
-                      value={props.shopModeEnabled}
-                      onValueChange={props.onToggleShopMode}
-                      disabled={!!props.shopModeBusy}
-                      accessibilityRole="switch"
-                      accessibilityLabel={t("menu.sync.shopMode")}
-                      accessibilityState={{
-                        checked: props.shopModeEnabled,
-                        disabled: !!props.shopModeBusy,
-                      }}
-                    />
-                  </View>
+        {!SOLO_STORE_MODE ? (
+          <>
+            <SectionGap />
+            <SectionHeader label={t("menu.sync")} isRTL={isRTL} />
+            <View
+              style={[
+                styles.toggleRow,
+                rowDir(isRTL),
+                // Last sync row when no dev BT row follows.
+                !__DEV__ ? styles.toggleRowLast : null,
+              ]}
+            >
+              <Ionicons
+                name="bluetooth-outline"
+                size={SETTINGS_ROW_ICON_SIZE}
+                color={colors.textEmphasis}
+                style={
+                  isRTL
+                    ? { marginLeft: SETTINGS_ROW_ICON_GAP }
+                    : { marginRight: SETTINGS_ROW_ICON_GAP }
+                }
+              />
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.toggleTitle, textDir(isRTL)]}>{t("menu.sync.shopMode")}</Text>
+                <Text style={[styles.toggleHint, textDir(isRTL)]}>
+                  {!props.shopModeEnabled
+                    ? t("menu.sync.shopMode.hint")
+                    : (props.activePeers ?? 0) === 0
+                      ? t("menu.sync.shopMode.hintLooking")
+                      : (props.activePeers ?? 0) === 1
+                        ? t("menu.sync.shopMode.hintOnePeer")
+                        : t("menu.sync.shopMode.hintWithPeers", {
+                            count: props.activePeers ?? 0,
+                          })}
+                </Text>
+              </View>
+              <Switch
+                value={props.shopModeEnabled}
+                onValueChange={(next) => {
+                  if (current()) props.onToggleShopMode(next);
+                }}
+                disabled={!!props.shopModeBusy}
+                accessibilityRole="switch"
+                accessibilityLabel={t("menu.sync.shopMode")}
+                accessibilityState={{
+                  checked: props.shopModeEnabled,
+                  disabled: !!props.shopModeBusy,
+                }}
+              />
+            </View>
 
-                  {/* Cloud backup is automatic for signed-in users — no toggle
+            {/* Cloud backup is automatic for signed-in users — no toggle
                       (Matee). App health + version moved to the Account screen. */}
 
-                  {/* DEV-only: Bluetooth Classic (RFCOMM) transport test. Gated
+            {/* DEV-only: Bluetooth Classic (RFCOMM) transport test. Gated
                       behind __DEV__ so it never appears in preview/production
                       builds now that RFCOMM is the real mesh transport. */}
-                  {__DEV__ ? (
-                    <NavRow
-                      icon="bluetooth-outline"
-                      label={t("menu.dev.bluetoothTest")}
-                      onPress={() => router.push("/dev/btc-test")}
-                      isRTL={isRTL}
-                      isLast
-                    />
-                  ) : null}
-                </>
-              ) : null}
-
-              {/* ============ HELP ============
-                  Permanent home for the kaata-vs-tally guide (app/guide.tsx).
-                  Always rendered — re-readable any time, e.g. when the phone
-                  is handed to staff. */}
-              <SectionGap />
-              <SectionHeader label={t("menu.help")} isRTL={isRTL} />
+            {__DEV__ ? (
               <NavRow
-                icon="help-circle-outline"
-                label={t("menu.guide")}
-                hint={t("menu.guide.hint")}
-                onPress={chained(() => router.push("/guide"))}
+                icon="bluetooth-outline"
+                label={t("menu.dev.bluetoothTest")}
+                onPress={chained(() => navigate("/dev/btc-test"))}
                 isRTL={isRTL}
                 isLast
               />
-            </ScrollView>
-          </View>
-        </SafeAreaView>
-      </Animated.View>
-    </Modal>
+            ) : null}
+          </>
+        ) : null}
+
+        {/* ============ HELP ============
+                  Permanent home for the kaata-vs-tally guide (app/guide.tsx).
+                  Always rendered — re-readable any time, e.g. when the phone
+                  is handed to staff. */}
+        <SectionGap />
+        <SectionHeader label={t("menu.help")} isRTL={isRTL} />
+        <NavRow
+          icon="help-circle-outline"
+          label={t("menu.guide")}
+          hint={t("menu.guide.hint")}
+          onPress={chained(() => navigate("/guide"))}
+          isRTL={isRTL}
+          isLast
+        />
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
@@ -563,23 +539,9 @@ function pluralizeMembers(count: number): string {
 // --------------------------------------------------------------------------
 
 const styles = StyleSheet.create({
-  sheetContainer: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    bottom: 0,
-  },
-  sheetWrap: {
-    backgroundColor: colors.bgDefault,
-    borderTopLeftRadius: SETTINGS_SHEET_TOP_RADIUS,
-    borderTopRightRadius: SETTINGS_SHEET_TOP_RADIUS,
-    borderTopWidth: 1,
-    borderTopColor: colors.borderDefault,
-  },
-  // flexShrink propagates the SafeAreaView maxHeight down to the
-  // ScrollView; without it the inner View takes content height and the
-  // ScrollView never scrolls (HamburgerMenuSheet Phase 5.2 bug rerun).
-  sheet: { paddingTop: 8, paddingBottom: 0, flexShrink: 1 },
+  screen: { flex: 1, backgroundColor: colors.bgDefault },
+  scroll: { flex: 1, minHeight: 0 },
+  content: { paddingBottom: 16 },
 
   // Identity (signed in) ----------------------------------------------------
   identityRow: {

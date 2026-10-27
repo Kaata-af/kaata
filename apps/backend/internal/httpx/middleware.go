@@ -21,7 +21,7 @@ func Logger(next http.Handler) http.Handler {
 		}
 		// Path only: query strings can contain short-lived socket tickets.
 		path := r.URL.Path
-		for _, prefix := range []string{"/t/", "/v/", "/i/"} {
+		for _, prefix := range []string{"/t/", "/v/", "/v2/", "/i/"} {
 			if strings.HasPrefix(path, prefix) {
 				path = prefix + "[redacted]"
 				break
@@ -47,7 +47,7 @@ func CORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Kaata-Party")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Kaata-Party, X-Kaata-Currencies, X-Kaata-Legacy-Currency")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
 			return

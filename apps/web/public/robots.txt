@@ -2,6 +2,17 @@ User-agent: *
 Allow: /
 Disallow: /i/
 Disallow: /v/
+Disallow: /v2/
+Disallow: /t/
+
+# Share-preview crawlers may fetch bills without opening invitations or tabs.
+# Bill responses separately declare noindex/nofollow; search rules above stay closed.
+User-agent: facebookexternalhit
+User-agent: WhatsApp
+Allow: /
+Allow: /v/
+Allow: /v2/
+Disallow: /i/
 Disallow: /t/
 
 Sitemap: https://kaata.af/sitemap.xml

@@ -133,6 +133,8 @@ export type VaultListing = {
   vault_id: string;
   name: string;
   currency?: string;
+  legacy_currency?: string;
+  default_entry_currency?: string;
   role: string;
   members_count: number;
   created_at_ms: number;
@@ -618,6 +620,9 @@ export async function fetchInviteInfo(token: string): Promise<InviteInfo | null>
 }
 
 export type AcceptInviteResult = {
+  currency?: string;
+  legacy_currency?: string;
+  default_entry_currency?: string;
   vault_id: string;
   vault_name: string;
   role: VaultRole;
