@@ -353,7 +353,6 @@ These are coordination patterns that recur across screens and bit us once each. 
 - **Home uses one reusable page.** `apps/mobile/app/index.tsx` loads all people via `listAllPeople()` and derives both directions from that one query. `use-home-page-transition.ts` runs a short native slide before changing the rendered direction. Keep the page and ScrollView keyed by account/vault scope, not direction: remounting hundreds of rows on each switch caused visible lag. Idle financial rows reuse native slots; search, selection and neutral rows retain customer-ID keys. `PersonRow` binds held presses to the original customer so a recycled slot cannot open another customer. Each direction keeps its own scroll offset; restore on direction/layout changes while interaction and scroll recording are paused. Gestures commit on release using **500 px/s velocity OR 30% screen-width distance**, with one soft haptic and no per-frame JS updates. Keep the transition cancellation and stale scope guards; do not restore the old two-page rail or per-direction fetching.
 
 - **Bottom-anchored UI lifts for toasts via `useToastOffset()`** (`apps/mobile/components/Toast.tsx`). The person screen's search/action dock and the home dock both subscribe to this hook (the person dock is opaque and carries a `DOCK_SKIRT` below it, so a lifted dock never shows rows underneath or passes taps through to them), which returns an `Animated.Value` that springs to `-(VIEWPORT_BOTTOM_MARGIN + TOAST_HEIGHT_SINGLE - BUTTON_OFFSET_ABOVE_SAFE_AREA + LIFT_GAP)` when any toast is visible and back to 0 when the queue empties. **Two math constraints:**
-
   - The insets cancel between the toast viewport (`bottom: 24 + insets.bottom`) and the lifted UI (whose visible bottom should also sit `X + insets.bottom` above the screen). The lift constant therefore has **no `insets.bottom` term**; adding one stacks 24-34px of phantom gap on real devices.
   - Any new bottom-anchored UI must have its visible bottom at `BUTTON_OFFSET_ABOVE_SAFE_AREA` (currently 20px) above the safe area; otherwise the lift is wrong. See the long comment block on `useToastOffset`.
 
@@ -418,8 +417,13 @@ Follow the rollout gate in
 [`docs/next-release-refinements.md`](docs/next-release-refinements.md#before-the-next-release)
 and [the preparation record](docs/2.3.0-release-preparation.md). Coordinate backend
 deployment with updated mobile apps: store Android code 73 cannot provide the
-new relinking history receipts. The October 27 request authorizes local commits
-only; builds, submissions, pushing and deployment remain deferred.
+new relinking history receipts. The later October 27 request authorized pushing
+`main`, deploying matching services and testing distribution. Android 2.3.0/code
+75 is on internal testing (replacing startup-failing 74); iOS 2.3.0/build 42 is
+valid in the existing internal TestFlight group. Matching bill-v3/web/snapshot
+support is live. See [the testing delivery record](docs/2.3.0-testing-distribution.md)
+for artifact provenance, the Android constructor fix and verification limits.
+Neither public mobile production release was promoted or submitted for review.
 
 **Store reviewers need a way to sign in. Play reviews closed-testing releases too.**
 
