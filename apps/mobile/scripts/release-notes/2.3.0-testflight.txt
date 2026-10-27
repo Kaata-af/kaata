@@ -1,0 +1,12 @@
+Kaata 2.3.0 testing build 42
+
+Update the existing app without uninstalling or clearing data. Use disposable records for recovery and shared-account checks. These are checks to perform, not claims of completed iPhone testing.
+
+- Currencies: check separate balances in the same Kaata, the searchable 155-currency catalog, enabled currencies and the default currency. Existing tallies must retain their original currency. Check English, Dari and Pashto, narrow screens and large text.
+- Home and customers: check mixed collect/pay lists, Recent activity ordering, search, balance/group filters, scrolling balance cards and selection controls. Verify keyboard opening, dismissal, rapid reopening and sheets on iPhone.
+- Tallies: check Amount to Note, long notes, calculator handoff, More options and the date popup. Backdated tallies must keep their chosen day when edited and shared.
+- Statements and bills: check separate currency totals, settled accounts, pre-link and earlier shared history without double counting. Send bill links is on by default in each Kaata. Turn it off and verify WhatsApp contains current balances and the https://kaata.af footer without a public bill link. Check that the saved choice survives recovery. Incomplete current shared balances must not be sent as zero.
+- Reminders and support: check a reminder tap after the app was closed or the phone was locked. App health can prepare a compact, addressed SMS; review or cancel the phone's composer. Opening the composer does not mean a message was sent, and carrier charges may apply.
+- Existing sign-in, backups, cloud restore, shared-account review/cancellation and staff permissions should remain stable. Never reset or corrupt a real Kaata to test recovery.
+
+Testing only: the existing Team (Expo) internal TestFlight group. No App Store production review submission, public release or external beta distribution.

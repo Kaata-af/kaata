@@ -64,6 +64,8 @@ async function requestJson(url, init) {
     throw new Error("Google request failed or timed out.");
   }
   if (!response.ok) throw new Error(`Google request failed: HTTP ${response.status}.`);
+  // Empty tracks return 204 rather than an object containing no releases.
+  if (response.status === 204) return {};
   try {
     return await response.json();
   } catch {

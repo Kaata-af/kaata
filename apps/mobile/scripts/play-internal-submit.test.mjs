@@ -18,13 +18,13 @@ after(() => {
   rmdirSync(scratch);
 });
 
-const app = { version: "2.2.4", android: { package: "af.kaata.app", versionCode: 68 } };
+const app = { version: "2.3.0", android: { package: "af.kaata.app", versionCode: 74 } };
 const token = "mock-bearer-secret";
 const production = {
   releases: [
     {
-      releaseName: "2.2.3",
-      activeArtifacts: [{ versionCode: 67 }],
+      releaseName: "2.2.4",
+      activeArtifacts: [{ versionCode: 73 }],
       releaseLifecycleState: "RELEASE_LIFECYCLE_STATE_PUBLISHED",
     },
   ],
@@ -32,7 +32,7 @@ const production = {
 const internal = (code) => ({
   releases: [
     {
-      releaseName: `${code === 68 ? "2.2.4" : "2.2.3"} (${code}) — internal testing`,
+      releaseName: `${code === 74 ? "2.3.0" : "2.2.4"} (${code}) — internal testing`,
       activeArtifacts: [{ versionCode: code }],
       releaseLifecycleState: "RELEASE_LIFECYCLE_STATE_PUBLISHED",
     },
@@ -49,7 +49,7 @@ function mock(options = {}) {
   const otherTracks = [
     {
       track: "production",
-      releases: [{ name: "2.2.3", versionCodes: ["67"], status: "completed" }],
+      releases: [{ name: "2.2.4", versionCodes: ["73"], status: "completed" }],
     },
     { track: "alpha", releases: [{ name: "2.0.0", versionCodes: ["43"], status: "completed" }] },
     { track: "beta" },
@@ -57,7 +57,7 @@ function mock(options = {}) {
   const previousInternal = {
     track: "internal",
     releases: [
-      { name: "2.2.3 (67) — internal testing", versionCodes: ["67"], status: "completed" },
+      { name: "2.2.4 (73) — internal testing", versionCodes: ["73"], status: "completed" },
     ],
   };
   const fetchImpl = async (url, init) => {
@@ -74,7 +74,7 @@ function mock(options = {}) {
           releases: [
             {
               ...production.releases[0],
-              activeArtifacts: [{ versionCode: 68 }],
+              activeArtifacts: [{ versionCode: 74 }],
             },
           ],
         });
@@ -92,7 +92,7 @@ function mock(options = {}) {
       return response(production);
     }
     if (init.method === "GET" && parsed.pathname.endsWith("/tracks/internal/releases")) {
-      return response(internal(committed || options.alreadyPublished ? 68 : 67));
+      return response(internal(committed || options.alreadyPublished ? 74 : 73));
     }
     if (init.method === "POST" && parsed.pathname.endsWith("/edits"))
       return response({ id: committed ? "verification-edit-456" : "own-edit-123" });
@@ -122,18 +122,18 @@ function mock(options = {}) {
       });
     if (init.method === "GET" && /\/edits\/[^/]+\/tracks$/.test(parsed.pathname)) {
       const preserved = structuredClone(otherTracks);
-      if (options.closedTrackDrift && staged) preserved[1].releases[0].versionCodes = ["68"];
+      if (options.closedTrackDrift && staged) preserved[1].releases[0].versionCodes = ["74"];
       return response({ tracks: [...preserved, staged ?? previousInternal] });
     }
     if (init.method === "GET" && parsed.pathname.endsWith("/edits/own-edit-123/bundles"))
       return response({
         bundles: [
-          64,
-          65,
-          66,
-          67,
-          ...(options.usedCode ? [68] : []),
-          ...(options.higherCode ? [69] : []),
+          70,
+          71,
+          72,
+          73,
+          ...(options.usedCode ? [74] : []),
+          ...(options.higherCode ? [75] : []),
         ].map((versionCode) => ({ versionCode })),
       });
     if (init.method === "GET" && parsed.pathname.endsWith("/edits/own-edit-123/apks"))
@@ -145,7 +145,7 @@ function mock(options = {}) {
       if (options.uploadError) return response({}, 400);
       if (options.ambiguousUpload) throw new Error(token);
       return response({
-        versionCode: options.wrongCode ? 67 : 68,
+        versionCode: options.wrongCode ? 73 : 74,
         ...(options.missingHash
           ? {}
           : {
@@ -157,7 +157,7 @@ function mock(options = {}) {
     }
     if (init.method === "PUT" && parsed.pathname.endsWith("/edits/own-edit-123/tracks/internal")) {
       assert.equal(body.track, "internal");
-      assert.deepEqual(body.releases[0].versionCodes, ["68"]);
+      assert.deepEqual(body.releases[0].versionCodes, ["74"]);
       assert.equal(body.releases[0].status, "completed");
       staged = structuredClone(body);
       return response(body);
@@ -214,7 +214,7 @@ const lifecycleReads = (calls) =>
     (call) => call.method === "GET" && /\/tracks\/(production|internal)\/releases$/.test(call.path),
   );
 
-test("uploads code 68 beside published production/internal 67 and older artifacts; preserves everything outside internal", async () => {
+test("uploads code 74 beside published production/internal 73 and older artifacts; preserves everything outside internal", async () => {
   const transport = mock();
   const result = await run(transport, {
     notes: "Private test build. Do not promote to production.",
@@ -223,10 +223,10 @@ test("uploads code 68 beside published production/internal 67 and older artifact
   assert.deepEqual(result.productionBefore, result.productionAfter);
   assert.ok(
     transport.messages.some(
-      (message) => message.startsWith("Internal before:") && message.includes('"67"'),
+      (message) => message.startsWith("Internal before:") && message.includes('"73"'),
     ),
   );
-  assert.ok(result.internalAfter.some((release) => release.codes.includes("68")));
+  assert.ok(result.internalAfter.some((release) => release.codes.includes("74")));
   assert.ok(Object.values(result.preservationChecks).every(Boolean));
   assert.deepEqual(
     result.before.tracks.filter((track) => track.track !== "internal"),
@@ -273,13 +273,13 @@ test("pending review refusal retains the attempted edit, checks both tracks, and
 });
 
 for (const [option, description] of [
-  ["wrongCode", "old code 67 upload"],
+  ["wrongCode", "old code 73 upload"],
   ["wrongHash", "mismatched uploaded bundle SHA-256"],
   ["missingHash", "missing uploaded bundle SHA-256"],
   ["uploadError", "upload refusal"],
   ["ambiguousUpload", "ambiguous upload failure"],
-  ["usedCode", "already uploaded unassigned code 68"],
-  ["higherCode", "newer existing artifact code 69"],
+  ["usedCode", "already uploaded unassigned code 74"],
+  ["higherCode", "newer existing artifact code 75"],
 ]) {
   test(`${description} discards the edit before any track update or commit`, async () => {
     const transport = mock({ [option]: true });
@@ -384,7 +384,7 @@ test("post-commit drift is reported after verification cleanup without a second 
   );
 });
 
-test("an already published internal code 68 is idempotent and opens no edit", async () => {
+test("an already published internal code 74 is idempotent and opens no edit", async () => {
   const transport = mock({ alreadyPublished: true });
   const result = await run(transport);
   assert.equal(result.alreadyPublished, true);
@@ -397,9 +397,9 @@ test("production cannot be inspected before upload: no edit is created", async (
   assert.ok(transport.calls.every((call) => call.method === "GET"));
 });
 
-test("code 68 already on production refuses before opening an edit", async () => {
+test("code 74 already on production refuses before opening an edit", async () => {
   const transport = mock({ targetOnProduction: true });
-  await assert.rejects(run(transport), /Code 68 already exists on production/);
+  await assert.rejects(run(transport), /Code 74 already exists on production/);
   assert.ok(transport.calls.every((call) => call.method === "GET"));
 });
 
@@ -416,13 +416,13 @@ test("production lifecycle drift after commit requires inspection and does not t
 
 test("wrong app/package/build refuses before any Google request", async () => {
   for (const other of [
-    { ...app, version: "2.2.3" },
+    { ...app, version: "2.2.4" },
     { ...app, android: { ...app.android, package: "af.other.app" } },
-    { ...app, android: { ...app.android, versionCode: 64 } },
-    { ...app, android: { ...app.android, versionCode: 65 } },
-    { ...app, android: { ...app.android, versionCode: 66 } },
-    { ...app, android: { ...app.android, versionCode: 67 } },
-    { ...app, android: { ...app.android, versionCode: 69 } },
+    { ...app, android: { ...app.android, versionCode: 70 } },
+    { ...app, android: { ...app.android, versionCode: 71 } },
+    { ...app, android: { ...app.android, versionCode: 72 } },
+    { ...app, android: { ...app.android, versionCode: 73 } },
+    { ...app, android: { ...app.android, versionCode: 75 } },
   ]) {
     const transport = mock();
     await assert.rejects(run(transport, { app: other }), /restricted/);
@@ -438,16 +438,16 @@ test("invalid or excessive notes refuse before Google requests", async () => {
   }
 });
 
-test("the checked-in internal testing notes fit Play's limit and attach only to code 68", async () => {
+test("the checked-in internal testing notes fit Play's limit and attach only to code 74", async () => {
   const notes = readFileSync(
-    new URL("./release-notes/2.2.4-internal.txt", import.meta.url),
+    new URL("./release-notes/2.3.0-internal.txt", import.meta.url),
     "utf8",
   ).trim();
   assert.ok(notes.length > 0 && notes.length <= 500);
   const transport = mock();
   await run(transport, { notes });
   const put = transport.calls.find((call) => call.method === "PUT");
-  assert.deepEqual(put.body.releases[0].versionCodes, ["68"]);
+  assert.deepEqual(put.body.releases[0].versionCodes, ["74"]);
   assert.deepEqual(put.body.releases[0].releaseNotes, [{ language: "en-US", text: notes }]);
 });
 

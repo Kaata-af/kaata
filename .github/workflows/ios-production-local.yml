@@ -1,4 +1,4 @@
-name: iOS production candidate (local Mac build)
+name: iOS testing candidate (local Mac build)
 
 on:
   workflow_dispatch:
@@ -26,10 +26,10 @@ jobs:
         working-directory: apps/mobile
         shell: bash
     env:
-      CI: '1'
-      EXPO_NO_TELEMETRY: '1'
-      EAS_NO_TELEMETRY: '1'
-      EXPO_APPLE_TEAM_ID: '2JPK69B8Z2'
+      CI: "1"
+      EXPO_NO_TELEMETRY: "1"
+      EAS_NO_TELEMETRY: "1"
+      EXPO_APPLE_TEAM_ID: "2JPK69B8Z2"
       DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
     steps:
       - name: Check out the requested main commit
@@ -42,7 +42,7 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: '22.23.3'
+          node-version: "22.23.3"
           package-manager-cache: false
 
       - name: Verify source, free runner and production configuration
@@ -68,9 +68,9 @@ jobs:
           const app = JSON.parse(fs.readFileSync('app.json', 'utf8')).expo;
           const eas = JSON.parse(fs.readFileSync('eas.json', 'utf8'));
           const prod = eas.build.production;
-          assert.equal(app.version, '2.2.4');
+          assert.equal(app.version, '2.3.0');
           assert.equal(app.ios.bundleIdentifier, 'af.kaata.app');
-          assert.equal(app.ios.buildNumber, '41');
+          assert.equal(app.ios.buildNumber, '42');
           assert.equal(app.owner, 'mateesaafi');
           assert.equal(app.extra.eas.projectId, 'a612156b-0f0b-47ea-ac66-b54d880d98aa');
           assert.equal(eas.cli.appVersionSource, 'local');
@@ -85,7 +85,7 @@ jobs:
           assert.equal(prod.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID,
             '987359341353-dgceg8n94aem9pgorclo11l4nr5906i8.apps.googleusercontent.com');
           assert.equal(fs.existsSync('credentials.json'), false);
-          console.log(`Verified production source ${actual}, iOS 2.2.4 (41).`);
+          console.log(`Verified testing source ${actual}, iOS 2.3.0 (42).`);
           NODE
           xcodebuild -version
           test "$(xcodebuild -version | head -n 1)" = 'Xcode 26.6'
@@ -127,8 +127,8 @@ jobs:
               info = plistlib.loads(z.read(infos[0]))
               root = infos[0].removesuffix('Info.plist')
               assert info['CFBundleIdentifier'] == 'af.kaata.app'
-              assert info['CFBundleShortVersionString'] == '2.2.4'
-              assert info['CFBundleVersion'] == '41'
+              assert info['CFBundleShortVersionString'] == '2.3.0'
+              assert info['CFBundleVersion'] == '42'
               assert info['MinimumOSVersion'] == '16.4'
               assert sorted(info['UIDeviceFamily']) == [1, 2]
               assert sorted(info['CFBundleLocalizations']) == ['en', 'fa', 'ps']
@@ -150,13 +150,13 @@ jobs:
               'lockfileSha256': hashlib.sha256(pathlib.Path('package-lock.json').read_bytes()).hexdigest(),
           }
           (out / 'candidate-receipt.json').write_text(json.dumps(receipt, indent=2) + '\n')
-          print(json.dumps({'version': '2.2.4', 'build': '41', 'ipaBytes': len(raw), 'ipaSha256': receipt['ipaSha256'], 'requiresFinalArtifactVerification': True}))
+          print(json.dumps({'version': '2.3.0', 'build': '42', 'ipaBytes': len(raw), 'ipaSha256': receipt['ipaSha256'], 'requiresFinalArtifactVerification': True}))
           PY
 
       - name: Keep only the IPA and its non-secret identity receipt
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: kaata-ios-2.2.4-41-candidate-${{ github.run_id }}-${{ github.run_attempt }}
+          name: kaata-ios-2.3.0-42-candidate-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             ${{ runner.temp }}/kaata-ios-output/Kaata.ipa
             ${{ runner.temp }}/kaata-ios-output/candidate-receipt.json
