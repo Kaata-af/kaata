@@ -37,6 +37,7 @@ function fixture(
     delayRefresh?: boolean;
     role?: VaultRole;
     locale?: "en" | "fa";
+    currencyCode?: "AFN" | "KWD";
   } = {},
 ) {
   const hooks = uiHooks();
@@ -49,6 +50,15 @@ function fixture(
     binding = 1;
   const locale = options.locale ?? "en";
   i18n.setLocale(locale);
+  const currency = compileUI("../currency", {
+    react: {},
+    "./currency-scope": require("../currency-scope"),
+    "./currency-settings": require("../currency-settings"),
+    "./currency-catalog": require("../currency-catalog"),
+    "./db": {},
+    "./db-tx": {},
+    "./i18n": { getLocale: () => locale },
+  }) as typeof import("../currency");
   const refreshGate = options.delayRefresh ? deferred<void>() : null;
   const guard = async (snapshot: any, work: () => Promise<any>) => {
     if (snapshot.bindingVersion !== binding) throw new SessionChangedError();
@@ -81,7 +91,11 @@ function fixture(
       useToast: () => ({ push: (message: string) => notices.push(message) }),
     },
     "../../../lib/colors": { colors: require("../colors").colors },
-    "../../../lib/currency": { useCurrency: () => "AFN", getCurrencyLabel: (code: string) => code },
+    "../../../lib/currency": {
+      useCurrency: () => options.currencyCode ?? "AFN",
+      getCurrencyLabel: (code: string) => code,
+      currencyNeedsPrecisionHint: currency.currencyNeedsPrecisionHint,
+    },
     "../../../lib/credit-policy": { KAATA_DEFAULT_ROUTE_ID: "kaata-default" },
     "../../../lib/credit-limits": {
       KAATA_DEFAULT_CREDIT_ID: "00000000-0000-0000-0000-000000000000",
@@ -234,6 +248,39 @@ async function run() {
   }
   console.log(
     "PASS credit settings: admins save each mode with exact amounts and explicit true/false editor scope; double taps save once",
+  );
+
+  for (const locale of ["en", "fa"] as const)
+    for (const currencyCode of ["AFN", "KWD"] as const) {
+      const f = fixture({ locale, currencyCode });
+      await f.render();
+      const precisionNotes = () =>
+        nodes(f.hooks.tree).filter(
+          (node) => node.type === "Text" && words(node) === i18n.t("currency.precisionHint"),
+        );
+      assert.equal(
+        precisionNotes().length,
+        currencyCode === "KWD" ? 1 : 0,
+        "a higher-precision currency explains the current limit once beside both credit fields",
+      );
+      f.inputs()[0].props.onChangeText("1.234");
+      await f.render();
+      assert.equal(f.inputs()[0].props.value, "1.234", "invalid precision remains visible");
+      f.save().props.onPress();
+      await f.render();
+      assert.equal(f.saves.length, 0, "an over-precise cap cannot be saved or rounded");
+      assert.ok(words(f.hooks.tree).includes(i18n.t("credit.limitInvalid")));
+      assert.equal(precisionNotes().length, currencyCode === "KWD" ? 1 : 0);
+      f.inputs()[0].props.onChangeText("1.23");
+      await f.render();
+      f.save().props.onPress();
+      await f.render();
+      assert.equal(f.saves.length, 1);
+      assert.equal(f.saves[0].value.max_collect_minor, 123, "credit limits retain hundredths");
+      f.hooks.unmount();
+    }
+  console.log(
+    "PASS credit settings: English/Dari higher-precision currency guidance and exact two-decimal validation",
   );
 
   for (const role of ["editor", "viewer", "clerk"] as const) {

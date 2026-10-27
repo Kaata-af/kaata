@@ -1,15 +1,27 @@
 import { Ionicons } from "@expo/vector-icons";
-import { Animated, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  Animated,
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 import { Button } from "./Button";
 import { SheetBackdrop } from "./SheetBackdrop";
 import { SheetHandle } from "./SheetHandle";
 import { SheetSurface } from "./SheetSurface";
+import { SearchKeyboardFrame } from "./SearchKeyboardMotion";
 import { useOverlayAnimation } from "../lib/use-overlay-animation";
 import { useSheetDrag } from "../lib/use-sheet-drag";
 import { colors } from "../lib/colors";
 import { fonts } from "../lib/fonts";
 import { rowDir, textDir } from "../lib/direction";
-import { t } from "../lib/i18n";
+import { getLocale, t } from "../lib/i18n";
+import { searchCurrencies } from "../lib/currency-catalog";
 import { icon } from "../lib/tokens";
 import {
   SETTINGS_ROW_MIN_HEIGHT,
@@ -17,6 +29,8 @@ import {
   SETTINGS_ROW_PADDING_Y,
   SETTINGS_SHEET_TOP_RADIUS,
 } from "../lib/design-tokens";
+
+const MAX_ENABLED_CURRENCIES = 64;
 
 /** A controlled draft: the parent persists only the explicit Save action. */
 export function EnabledCurrenciesSheet(props: {
@@ -32,6 +46,31 @@ export function EnabledCurrenciesSheet(props: {
   error?: string | null;
   isRTL: boolean;
 }) {
+  const [query, setQuery] = useState("");
+  const [limitAttempted, setLimitAttempted] = useState(false);
+  const selection = useRef({ source: props.selected, codes: new Set(props.selected) });
+  if (selection.current.source !== props.selected)
+    selection.current = { source: props.selected, codes: new Set(props.selected) };
+  const latest = useRef(props);
+  latest.current = props;
+  const locale = getLocale();
+  const choices = useMemo(() => {
+    if (!query.trim()) return props.options;
+    const catalogMatches = new Set(searchCurrencies(query, locale).map((item) => item.code));
+    const terms = query.trim().toLowerCase().split(/\s+/);
+    return props.options.filter(
+      (option) =>
+        catalogMatches.has(option.code) ||
+        terms.every((term) =>
+          `${option.code} ${option.label} ${option.symbol}`.toLowerCase().includes(term),
+        ),
+    );
+  }, [query, locale, props.options]);
+  const atLimit = new Set(props.selected).size >= MAX_ENABLED_CURRENCIES;
+  useEffect(() => {
+    setQuery("");
+    setLimitAttempted(false);
+  }, [props.visible]);
   const { rendered, opacity, position } = useOverlayAnimation(props.visible, 600);
   const dismiss = () => {
     if (!props.saving) props.onDismiss();
@@ -43,96 +82,157 @@ export function EnabledCurrenciesSheet(props: {
       <Animated.View style={[StyleSheet.absoluteFill, { opacity }]}>
         <SheetBackdrop onDismiss={dismiss} />
       </Animated.View>
-      <Animated.View
-        style={[styles.container, { transform: [{ translateY: drag.translateY }] }]}
-        pointerEvents={props.visible ? "box-none" : "none"}
-      >
-        <SheetSurface {...drag.surfacePanHandlers} maxHeightRatio={0.82} style={styles.sheet}>
-          <SheetHandle panHandlers={drag.panHandlers} onDismiss={dismiss} />
-          <Text style={[styles.title, textDir(props.isRTL)]}>
-            {t("vaultSettings.currencies.label")}
-          </Text>
-          <ScrollView
-            {...drag.scrollProps}
-            style={styles.choices}
-            keyboardShouldPersistTaps="always"
-            bounces={false}
+      <SearchKeyboardFrame style={styles.frame} pointerEvents="box-none">
+        <View style={styles.frame} pointerEvents="box-none">
+          <Animated.View
+            style={[styles.container, { transform: [{ translateY: drag.translateY }] }]}
+            pointerEvents={props.visible ? "box-none" : "none"}
           >
-            {props.error ? (
-              <Text style={[styles.error, textDir(props.isRTL)]} accessibilityRole="alert">
-                {props.error}
+            <SheetSurface {...drag.surfacePanHandlers} maxHeightRatio={0.82} style={styles.sheet}>
+              <SheetHandle panHandlers={drag.panHandlers} onDismiss={dismiss} />
+              <Text style={[styles.title, textDir(props.isRTL)]}>
+                {t("vaultSettings.currencies.label")}
               </Text>
-            ) : null}
-            <Text style={[styles.hint, textDir(props.isRTL)]}>
-              {t("vaultSettings.currencies.hint")}
-            </Text>
-            {props.options.map((option) => {
-              const checked = props.selected.includes(option.code);
-              const isDefault = option.code === props.defaultCurrency;
-              const disabled = props.saving || props.conflicted || isDefault;
-              return (
-                <Pressable
-                  key={option.code}
-                  accessibilityRole="checkbox"
-                  accessibilityLabel={`${option.code} ${option.label}`}
-                  accessibilityState={{ checked, disabled: !!disabled }}
-                  disabled={!!disabled}
-                  onPress={() => {
-                    if (!disabled) props.onToggle(option.code);
-                  }}
-                  style={[styles.choice, rowDir(props.isRTL)]}
-                >
-                  <Ionicons
-                    name={checked ? "checkbox" : "square-outline"}
-                    size={icon.row}
-                    color={checked ? colors.actionPrimary : colors.textSubtle}
+              <ScrollView
+                {...drag.scrollProps}
+                style={styles.choices}
+                keyboardShouldPersistTaps="always"
+                bounces={false}
+              >
+                <View style={[styles.search, rowDir(props.isRTL)]}>
+                  <Ionicons name="search-outline" size={icon.row} color={colors.textSubtle} />
+                  <TextInput
+                    accessibilityLabel={t("vaultSettings.currencies.search")}
+                    placeholder={t("vaultSettings.currencies.search")}
+                    placeholderTextColor={colors.textMuted}
+                    value={query}
+                    onChangeText={setQuery}
+                    editable={!props.saving && !props.conflicted}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    style={[styles.searchInput, textDir(props.isRTL)]}
                   />
-                  <Text style={styles.symbol}>{option.symbol}</Text>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.label, textDir(props.isRTL)]}>
-                      {option.code} · {option.label}
-                    </Text>
-                    {isDefault ? (
-                      <Text style={[styles.defaultHint, textDir(props.isRTL)]}>
-                        {t("vaultSettings.currencies.default")}
-                      </Text>
-                    ) : null}
+                </View>
+                {props.error ? (
+                  <Text style={[styles.error, textDir(props.isRTL)]} accessibilityRole="alert">
+                    {props.error}
+                  </Text>
+                ) : null}
+                <Text style={[styles.hint, textDir(props.isRTL)]}>
+                  {t("vaultSettings.currencies.hint")}
+                </Text>
+                {atLimit || limitAttempted ? (
+                  <Text
+                    style={[styles.hint, textDir(props.isRTL)]}
+                    accessibilityRole="alert"
+                    accessibilityLiveRegion="polite"
+                  >
+                    {t("vaultSettings.currencies.limit")}
+                  </Text>
+                ) : null}
+                {choices.length === 0 ? (
+                  <Text style={[styles.hint, textDir(props.isRTL)]}>{t("currency.noMatch")}</Text>
+                ) : null}
+                {choices.map((option) => {
+                  const checked = props.selected.includes(option.code);
+                  const isDefault = option.code === props.defaultCurrency;
+                  const disabled =
+                    props.saving || props.conflicted || isDefault || (!checked && atLimit);
+                  return (
+                    <Pressable
+                      key={option.code}
+                      accessibilityRole="checkbox"
+                      accessibilityLabel={`${option.code} ${option.label}`}
+                      accessibilityState={{ checked, disabled: !!disabled }}
+                      disabled={!!disabled}
+                      onPress={() => {
+                        const current = latest.current;
+                        if (
+                          !current.visible ||
+                          current.saving ||
+                          current.conflicted ||
+                          option.code === current.defaultCurrency
+                        )
+                          return;
+                        const codes = selection.current.codes;
+                        if (!codes.has(option.code) && codes.size >= MAX_ENABLED_CURRENCIES) {
+                          setLimitAttempted(true);
+                          return;
+                        }
+                        // Reserve the slot before the parent's next render so two
+                        // rapid taps at 63 cannot forward a 65th choice.
+                        if (codes.has(option.code)) codes.delete(option.code);
+                        else codes.add(option.code);
+                        setLimitAttempted(false);
+                        current.onToggle(option.code);
+                      }}
+                      style={[styles.choice, rowDir(props.isRTL)]}
+                    >
+                      <Ionicons
+                        name={checked ? "checkbox" : "square-outline"}
+                        size={icon.row}
+                        color={checked ? colors.actionPrimary : colors.textSubtle}
+                      />
+                      <Text style={styles.symbol}>{option.symbol}</Text>
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.label, textDir(props.isRTL)]}>
+                          {option.code} · {option.label}
+                        </Text>
+                        {isDefault ? (
+                          <Text style={[styles.defaultHint, textDir(props.isRTL)]}>
+                            {t("vaultSettings.currencies.default")}
+                          </Text>
+                        ) : null}
+                      </View>
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+              <View style={styles.footer}>
+                <View style={[styles.buttons, rowDir(props.isRTL)]}>
+                  <View style={styles.button}>
+                    <Button
+                      label={t("common.cancel")}
+                      variant="secondary"
+                      fullWidth
+                      disabled={props.saving}
+                      onPress={dismiss}
+                    />
                   </View>
-                </Pressable>
-              );
-            })}
-          </ScrollView>
-          <View style={styles.footer}>
-            <View style={[styles.buttons, rowDir(props.isRTL)]}>
-              <View style={styles.button}>
-                <Button
-                  label={t("common.cancel")}
-                  variant="secondary"
-                  fullWidth
-                  disabled={props.saving}
-                  onPress={dismiss}
-                />
+                  <View style={styles.button}>
+                    <Button
+                      label={t("vaultSettings.name.save")}
+                      fullWidth
+                      loading={props.saving}
+                      disabled={
+                        props.saving ||
+                        props.conflicted ||
+                        props.selected.length === 0 ||
+                        props.selected.length > MAX_ENABLED_CURRENCIES
+                      }
+                      onPress={() => {
+                        if (
+                          !props.saving &&
+                          !props.conflicted &&
+                          props.selected.length > 0 &&
+                          props.selected.length <= MAX_ENABLED_CURRENCIES
+                        )
+                          props.onSave();
+                      }}
+                    />
+                  </View>
+                </View>
               </View>
-              <View style={styles.button}>
-                <Button
-                  label={t("vaultSettings.name.save")}
-                  fullWidth
-                  loading={props.saving}
-                  disabled={props.saving || props.conflicted || props.selected.length === 0}
-                  onPress={() => {
-                    if (!props.saving && !props.conflicted) props.onSave();
-                  }}
-                />
-              </View>
-            </View>
-          </View>
-        </SheetSurface>
-      </Animated.View>
+            </SheetSurface>
+          </Animated.View>
+        </View>
+      </SearchKeyboardFrame>
     </Modal>
   );
 }
 const styles = StyleSheet.create({
-  container: { position: "absolute", left: 0, right: 0, bottom: 0 },
+  frame: { flex: 1, minHeight: 0 },
+  container: { position: "absolute", left: 0, right: 0, bottom: 0, maxHeight: "100%" },
   sheet: {
     backgroundColor: colors.bgDefault,
     borderTopLeftRadius: SETTINGS_SHEET_TOP_RADIUS,
@@ -157,6 +257,24 @@ const styles = StyleSheet.create({
     paddingBottom: 12,
   },
   choices: { flexShrink: 1, minHeight: 0 },
+  search: {
+    marginHorizontal: SETTINGS_ROW_PADDING_X,
+    marginTop: 12,
+    alignItems: "center",
+    gap: 8,
+    borderWidth: 1,
+    borderColor: colors.borderDefault,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+  },
+  searchInput: {
+    flex: 1,
+    minWidth: 0,
+    paddingVertical: 12,
+    fontFamily: fonts.sansRegular,
+    fontSize: 15,
+    color: colors.textDefault,
+  },
   choice: {
     minHeight: SETTINGS_ROW_MIN_HEIGHT,
     paddingHorizontal: SETTINGS_ROW_PADDING_X,

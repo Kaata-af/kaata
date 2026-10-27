@@ -17,7 +17,7 @@ import { SelectionMark } from "../../../components/SelectionMark";
 import { ScreenHeader } from "../../../components/SettingsScreen";
 import { useToast } from "../../../components/Toast";
 import { colors } from "../../../lib/colors";
-import { getCurrencyLabel, useCurrency } from "../../../lib/currency";
+import { currencyNeedsPrecisionHint, getCurrencyLabel, useCurrency } from "../../../lib/currency";
 import {
   type CreditPolicy,
   KAATA_DEFAULT_CREDIT_ID,
@@ -266,6 +266,9 @@ export default function CreditLimitScreen() {
             editable={editable && !busy}
             accessibilityLabel={`${t("credit.maxPay")} (${currency})`}
           />
+          {currencyNeedsPrecisionHint(currencyCode) ? (
+            <Text style={[styles.help, textDir(isRTL)]}>{t("currency.precisionHint")}</Text>
+          ) : null}
           <Text style={[styles.help, textDir(isRTL)]}>{t("credit.zeroHelp")}</Text>
           <Text style={[styles.help, textDir(isRTL)]}>{t("credit.modeHelp")}</Text>
           <View style={styles.modeCard} accessibilityRole="radiogroup">

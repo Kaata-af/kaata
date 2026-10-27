@@ -103,6 +103,7 @@ function rowFixture(kind: "contact" | "tally") {
       formatTimestamp: () => "12:00",
     },
     "../lib/i18n": { t: (key: string) => key },
+    "../lib/multi-currency-view": require("../multi-currency-view"),
     "../lib/tokens": { icon: { row: 22 }, radius: { sm: 8, md: 12, pill: 999 } },
   };
   const Row =

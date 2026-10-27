@@ -5,6 +5,7 @@ import { compileUI, deferred, flattenStyle, jsx, nodes, settleUI, uiHooks } from
 import * as scope from "../currency-scope";
 import * as settings from "../currency-settings";
 import { Mutex } from "../util/mutex";
+import { CURRENCIES, searchCurrencies } from "../currency-catalog";
 
 function fixture() {
   const store = new Database(":memory:");
@@ -125,6 +126,7 @@ function fixture() {
     react: {},
     "./currency-scope": scope,
     "./currency-settings": settings,
+    "./currency-catalog": require("../currency-catalog"),
   }) as typeof import("../currency");
   const router = compileUI("../vault-router", {
     "./auth": auth,
@@ -136,6 +138,7 @@ function fixture() {
     "./currency-settings": settings,
   }) as typeof import("../vault-router");
   const hooks = uiHooks();
+  const sheetHooks = uiHooks();
   const surfaceModule = compileUI(
     "../../components/SheetSurface",
     {
@@ -154,6 +157,7 @@ function fixture() {
     { __DEV__: false },
   );
   const Sheet = compileUI("../../components/EnabledCurrenciesSheet", {
+    react: sheetHooks.react,
     "@expo/vector-icons": { Ionicons: "Ionicons" },
     "react/jsx-runtime": { jsx, jsxs: jsx },
     "react-native": {
@@ -163,10 +167,12 @@ function fixture() {
       ScrollView: "ScrollView",
       StyleSheet: { create: (s: any) => s, absoluteFill: {}, hairlineWidth: 1 },
       Text: "Text",
+      TextInput: "TextInput",
       View: "View",
       useWindowDimensions: () => viewport,
     },
     "./SheetSurface": surfaceModule,
+    "./SearchKeyboardMotion": { SearchKeyboardFrame: "SearchKeyboardFrame" },
     "./Button": { Button: "Button" },
     "./SheetBackdrop": { SheetBackdrop: "SheetBackdrop" },
     "./SheetHandle": { SheetHandle: "SheetHandle" },
@@ -185,7 +191,8 @@ function fixture() {
     "../lib/colors": require("../colors"),
     "../lib/fonts": { fonts: {} },
     "../lib/direction": { rowDir: () => ({}), textDir: () => ({}) },
-    "../lib/i18n": { t: (key: string) => key },
+    "../lib/i18n": { getLocale: () => "en", t: (key: string) => key },
+    "../lib/currency-catalog": { searchCurrencies },
     "../lib/tokens": { icon: { row: 22 } },
     "../lib/design-tokens": {
       SETTINGS_ROW_MIN_HEIGHT: 52,
@@ -198,6 +205,7 @@ function fixture() {
     "BottomSheet",
     "Button",
     "ConfirmDialog",
+    "CurrencyPickerSheet",
     "FormField",
     "OptionSheet",
     "ScreenLoading",
@@ -278,7 +286,8 @@ function fixture() {
   });
   const screen = compileUI("../../app/vault/settings", mocks).default;
   const sheetProps = () => nodes(hooks.tree).find((node) => node.type === Sheet)!.props;
-  const sheetTree = () => Sheet(sheetProps());
+  const renderSheet = (props: any) => sheetHooks.render(() => Sheet(props));
+  const sheetTree = () => renderSheet(sheetProps());
   const checkbox = (code: string) =>
     nodes(sheetTree()).find(
       (node) =>
@@ -305,7 +314,9 @@ function fixture() {
     button,
     field,
     sheetProps,
+    sheetMounted: () => nodes(hooks.tree).some((node) => node.type === Sheet),
     sheetTree,
+    renderSheet,
     keyboardDismisses: () => keyboardDismisses,
     setViewport: (height: number, top: number, fontScale: number) => {
       viewport = { height, top, fontScale };
@@ -336,7 +347,107 @@ function fixture() {
   };
 }
 
+function checkSearchAndLimit() {
+  const picker = fixture();
+  let selected: readonly string[] = Object.freeze(["AFN", "USD"]);
+  const initialSelection = selected;
+  const toggles: string[] = [];
+  let saves = 0;
+  let props = {
+    visible: true,
+    options: [
+      ...CURRENCIES.map((item) => ({ code: item.code, label: item.name, symbol: item.symbol })),
+      { code: "ZZZ", label: "Historical unit", symbol: "old" },
+    ],
+    selected,
+    defaultCurrency: "AFN",
+    onToggle: (code: string) => {
+      toggles.push(code);
+      selected = selected.includes(code)
+        ? selected.filter((item) => item !== code)
+        : [...selected, code];
+      props = { ...props, selected };
+    },
+    onSave: () => saves++,
+    onDismiss() {},
+    saving: false,
+    isRTL: false,
+  };
+  let tree = picker.renderSheet(props);
+  const search = (value: string) => {
+    nodes(tree)
+      .find((node) => node.type === "TextInput")!
+      .props.onChangeText(value);
+    tree = picker.renderSheet(props);
+  };
+  const checks = () => nodes(tree).filter((node) => node.props.accessibilityRole === "checkbox");
+  const checkbox = (code: string) =>
+    checks().find((node) => node.props.accessibilityLabel.startsWith(code + " "))!;
+  assert.equal(checks().length, 156, "all catalog and existing historical options are available");
+  assert.equal(nodes(tree).find((node) => node.type === "TextInput")!.props.autoFocus, undefined);
+  search("Canada");
+  assert.ok(checkbox("CAD"), "country aliases find currencies in the enabled-currency list");
+  assert.equal(checkbox("AFN"), undefined, "nonmatching default is filtered visually only");
+  assert.equal(props.selected, initialSelection);
+  assert.equal(saves, 0);
+  assert.deepEqual(toggles, [], "search never toggles hidden selections");
+  search(CURRENCIES.find((item) => item.code === "CAD")!.nameFa);
+  assert.ok(checkbox("CAD"), "Dari catalog names are searchable in the English interface");
+  search("Historical unit");
+  assert.ok(checkbox("ZZZ"), "an existing code outside the catalog remains searchable");
+  search("nothing matches this currency");
+  assert.equal(checks().length, 0);
+  assert.ok(nodes(tree).some((node) => node.props.children === "currency.noMatch"));
+  assert.deepEqual(props.selected, ["AFN", "USD"]);
+  props = { ...props, visible: false };
+  assert.equal(picker.renderSheet(props), null);
+  props = { ...props, visible: true };
+  tree = picker.renderSheet(props);
+  assert.equal(nodes(tree).find((node) => node.type === "TextInput")!.props.value, "");
+  assert.equal(checks().length, 156, "reopening restores the full list without changing the draft");
+  selected = Object.freeze(CURRENCIES.slice(0, 63).map((item) => item.code));
+  props = { ...props, selected };
+  tree = picker.renderSheet(props);
+  const add64 = checkbox(CURRENCIES[63].code).props.onPress;
+  const add65 = checkbox(CURRENCIES[64].code).props.onPress;
+  add64();
+  add65();
+  assert.equal(props.selected.length, 64);
+  assert.deepEqual(
+    toggles,
+    [CURRENCIES[63].code],
+    "rapid taps cannot forward the 65th choice to the parent",
+  );
+  assert.deepEqual(
+    initialSelection,
+    ["AFN", "USD"],
+    "the component never mutates controlled arrays",
+  );
+  tree = picker.renderSheet(props);
+  assert.equal(checkbox(CURRENCIES[64].code).props.disabled, true);
+  assert.ok(nodes(tree).some((node) => node.props.children === "vaultSettings.currencies.limit"));
+  const locked = checkbox("AFN");
+  assert.equal(locked.props.disabled, true);
+  locked.props.onPress();
+  assert.equal(toggles.length, 1, "default cannot be removed even by a retained callback");
+  checkbox(CURRENCIES[1].code).props.onPress();
+  tree = picker.renderSheet(props);
+  assert.equal(props.selected.length, 63);
+  search(CURRENCIES[64].code);
+  assert.equal(checkbox(CURRENCIES[64].code).props.disabled, false);
+  checkbox(CURRENCIES[64].code).props.onPress();
+  tree = picker.renderSheet(props);
+  assert.equal(props.selected.length, 64, "removing a currency frees one slot");
+  assert.equal(saves, 0, "all checkbox choices remain draft-only");
+  nodes(tree)
+    .find((node) => node.type === "Button" && node.props.label === "vaultSettings.name.save")!
+    .props.onPress();
+  assert.equal(saves, 1, "explicit Save remains available while the list is filtered");
+  picker.store.close();
+}
+
 async function main() {
+  checkSearchAndLimit();
   for (const value of [null, "[]", '["AFN","AFN"]', '["usd"]', "[1]", "{}", '"USD"'])
     assert.equal(settings.parseEnabledCurrencies(value), null);
   const compat = fixture();
@@ -444,6 +555,7 @@ async function main() {
     for (let i = 0; i < 3; i++) {
       await settleUI();
       ui.hooks.render();
+      if (ui.sheetMounted()) ui.sheetTree();
     }
   };
   ui.hooks.render(ui.screen);
@@ -528,10 +640,11 @@ async function main() {
     123.45,
   );
   const defaultPicker = nodes(ui.hooks.tree).find(
-    (node) => node.type === "OptionSheet" && node.props.title === "vaultSettings.currency.label",
+    (node) =>
+      node.type === "CurrencyPickerSheet" && node.props.title === "vaultSettings.currency.label",
   )!;
   assert.deepEqual(
-    defaultPicker.props.options.map((row: any) => row.key),
+    defaultPicker.props.allowedCurrencies,
     ["AFN", "EUR"],
     "separate default selector is preserved",
   );
@@ -666,10 +779,18 @@ async function main() {
     12,
     "the iOS context bottom inset is inside the capped surface",
   );
-  assert.ok(
-    !nodes(shortTree).some(
-      (node) => node.type === "AnimatedView" && flattenStyle(node.props.style)?.maxHeight != null,
-    ),
+  const keyboardFrame = nodes(shortTree).find((node) => node.type === "SearchKeyboardFrame")!;
+  assert.ok(keyboardFrame, "native keyboard progress keeps the modal footer above the keyboard");
+  assert.equal(flattenStyle(keyboardFrame.props.style).flex, 1);
+  assert.equal(flattenStyle(keyboardFrame.props.children.props.style).minHeight, 0);
+  const movingSheet = nodes(keyboardFrame).find(
+    (node) =>
+      node.type === "AnimatedView" && flattenStyle(node.props.style)?.position === "absolute",
+  )!;
+  assert.equal(
+    flattenStyle(movingSheet.props.style).maxHeight,
+    "100%",
+    "the surface also fits the shrinking keyboard viewport",
   );
   assert.equal(shortScroll.props.style.flexShrink, 1);
   assert.equal(shortScroll.props.style.minHeight, 0);

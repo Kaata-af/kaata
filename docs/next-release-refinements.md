@@ -908,37 +908,52 @@ restored; changing solo-mode configuration alone is insufficient.
     keep different international numbers sharing their final eight digits
     separate; changing one number must preserve other numbers and custom names.
 
-## October 24: all country phone codes (unreleased)
+## October 27, 2026 — worldwide phone countries and currencies
 
-Implemented on `codex/all-country-phone-codes`, independently of the unmerged
-`codex/shared-account-safety` branch. The shared picker now includes all 245
-geographic dialing regions in pinned libphonenumber-js 1.13.15 metadata, with
-offline English, Dari and Pashto country names from pinned Unicode CLDR 49.
-Afghanistan remains the default; existing country preferences are preserved.
-Search accepts names, ISO codes and calling codes, including Persian/Arabic
-digits. The list renders in batches rather than mounting every country at once.
+Integrated into local main for the next release; no push, backend deployment,
+app build or store submission is authorized by this preparation.
 
-Normalization uses actual national-prefix rules, including significant Italian
-zeros and shared calling-code inference. Its existing permissive 7–15-digit
-international shape policy remains; it does not verify ownership or reachability.
-No stored numbers are rewritten, and no backend/schema changes are required.
-Phone-book deduplication, lookup, number updates and shared-contact suggestions
-now compare complete numbers instead of treating an eight-digit suffix as
-identity. National candidates use the explicit counterpart's numbering plan;
-available native country hints are respected. Unrelated numbers and names the
-user changed in Contacts remain protected.
-The offline catalog generator and regressions cover every supported numbering
-region, input/edit round trips, localized search, picker selection and old save
-paths. Native visual checks are recorded separately in item 24 above.
+The shared country picker includes all 245 geographic dialing regions in pinned
+libphonenumber-js 1.13.15 metadata, with offline English, Dari and Pashto country
+names from pinned Unicode CLDR 49. Afghanistan remains the default; existing
+preferences are preserved. Search accepts names, ISO codes and calling codes,
+including Persian/Arabic digits. The list renders in batches.
 
-October 24 validation passed: mobile TypeScript, 1,106 phone/catalog checks,
-54 country-safe native-contact checks, exhaustive localized country search,
-picker, permission, join, add/find, save, selection, language and sheet-drag
-regressions, and Android/iOS production JS/Hermes exports. The add/find fixture
-now follows the shipped single-page Home model; this changes no Home app code.
-No device phone-book writes or store uploads were performed for these checks.
+Normalization respects national prefixes, significant Italian zeros and shared
+calling codes. Its permissive 7–15-digit international shape policy does not
+verify ownership or reachability. No stored numbers are rewritten and no phone
+schema changes are required. Contacts deduplication, lookup, updates and shared
+suggestions compare complete numbers instead of eight-digit suffixes. Native
+country hints and explicit counterpart numbering plans are respected, while
+unrelated numbers and user-edited contact names remain protected.
 
-- [ ] Include `codex/all-country-phone-codes` in the next app release batch.
-- [ ] Also merge `codex/shared-account-safety` when that rollout is authorized;
-  coordinate its automatic backend deployment with the updated mobile apps.
-  Store code 73 cannot send the history receipts required by its relinking rules.
+Currency selection covers all 155 current monetary currencies in the pinned ISO
+4217 list, excluding fund/accounting units, metals and testing codes. Searchable
+pickers have English, Dari and Pashto names, codes, symbols and country aliases.
+Onboarding keeps one currency. New kaatas after onboarding and kaata settings
+allow an explicit enabled set, with a searchable checkbox sheet and Save/Cancel.
+Up to 64 currencies can be enabled in a kaata; tally pickers show that set only.
+
+Each tally retains its own currency. Changing a default does not relabel history
+or convert amounts. Balances, exports, sharing and credit limits remain scoped
+by currency. Amounts support at most two decimal places; currencies normally
+using three decimals show that limitation in selection and entry forms. Third-
+decimal arithmetic, storage and sync remain separate work.
+
+Phone integration checks passed on October 27: generated catalog, 1,106 phone
+checks, 54 contacts checks, picker, permissions, join, add/find, save, selection,
+Pashto and sheet regressions. Currency and final combined checks are recorded in
+[2.3.0 release preparation](2.3.0-release-preparation.md). Historical branch
+exports are not fresh release builds; no builds were run for this preparation.
+
+Before building or submitting:
+
+- [ ] Review country/currency search and selection on iOS and Android in all
+      three languages, with long names, large text and keyboard-open search.
+      Check selected states, dismissal, new/existing kaatas and enabled-set saves.
+      Try INR, CNY, SAR, CAD, JPY, XOF and KWD, restart and switch kaatas.
+- [ ] Verify existing AFN/USD history, per-currency shared-account restrictions,
+      bill exports, precision guidance and rejected third-decimal direct entries.
+- [ ] Coordinate backend changes with updated mobile apps. Store Android code
+      73 cannot send the history receipts required by the newer relinking rules.
+      Preserve rollout safeguards; committing locally does not deploy anything.

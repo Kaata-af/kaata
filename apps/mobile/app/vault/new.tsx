@@ -40,11 +40,16 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "../../components/Button";
 import { FormField } from "../../components/FormField";
 import { EnabledCurrenciesSheet } from "../../components/EnabledCurrenciesSheet";
-import { OptionSheet } from "../../components/OptionSheet";
+import { CurrencyPickerSheet } from "../../components/CurrencyPickerSheet";
 import { NavRow, ScreenHeader } from "../../components/SettingsScreen";
 import { useToast } from "../../components/Toast";
 import { colors } from "../../lib/colors";
-import { CURRENCIES, DEFAULT_CURRENCY, getCurrencyName } from "../../lib/currency";
+import {
+  CURRENCIES,
+  DEFAULT_CURRENCY,
+  currencyNeedsPrecisionHint,
+  getCurrencyName,
+} from "../../lib/currency";
 import {
   ACTIVE_VAULT_META_KEY,
   getDb,
@@ -553,6 +558,9 @@ export default function VaultNewScreen() {
                 ? t("tab.join.currencyPreset", { currency: bidiIsolate(presetCurrency) })
                 : t("vaultNew.currency.hint")}
             </Text>
+            {currencyNeedsPrecisionHint(currency) ? (
+              <Text style={[styles.fieldHint, textDir(isRTL)]}>{t("currency.precisionHint")}</Text>
+            ) : null}
 
             {/* Local-only disclosure sits ABOVE the Create button so users
                 see it BEFORE they tap. Snapshotted at mount so it doesn't
@@ -585,15 +593,12 @@ export default function VaultNewScreen() {
 
       {/* Per-kaata currency picker — same sheet, same option list and same
           selection tick as vault/settings.tsx. */}
-      <OptionSheet
+      <CurrencyPickerSheet
         visible={currencySheetVisible}
         title={t("vaultNew.currency.label")}
-        options={CURRENCIES.map((c) => ({
-          key: c.code,
-          label: getCurrencyName(c.code),
-          leading: c.symbol,
-        }))}
-        selected={currency}
+        disabled={creating}
+        allowedCurrencies={enabledCurrencies.length >= 64 ? enabledCurrencies : undefined}
+        selectedCode={currency}
         onSelect={(code) => {
           if (
             !isCurrentPicker("default", pickerVersion) ||
@@ -601,6 +606,8 @@ export default function VaultNewScreen() {
           )
             return;
           const previous = form.current;
+          if (previous.enabledCurrencies.length >= 64 && !previous.enabledCurrencies.includes(code))
+            return;
           const enabled =
             previous.enabledCurrencies.length === 1 &&
             previous.enabledCurrencies[0] === previous.currency
@@ -612,7 +619,6 @@ export default function VaultNewScreen() {
           dismissPicker("default", pickerVersion);
         }}
         onDismiss={() => dismissPicker("default", pickerVersion)}
-        isRTL={isRTL}
       />
       <EnabledCurrenciesSheet
         visible={enabledDraft !== null}

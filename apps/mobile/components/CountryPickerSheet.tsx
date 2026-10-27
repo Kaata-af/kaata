@@ -10,7 +10,7 @@ import {
   FlatList,
   Modal,
   Pressable,
-  type ScrollView,
+  type ScrollViewInstance,
   StyleSheet,
   Text,
   TextInput,
@@ -49,7 +49,7 @@ export function CountryPickerSheet(props: {
       listRef.current = list;
       // The drag hook uses the underlying scroll identity to reset its offset;
       // it does not call ScrollView methods on this native host ref.
-      drag.scrollProps.ref((list?.getNativeScrollRef() ?? null) as ScrollView | null);
+      drag.scrollProps.ref((list?.getNativeScrollRef() ?? null) as ScrollViewInstance | null);
     },
     [drag.scrollProps.ref],
   );

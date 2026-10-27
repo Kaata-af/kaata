@@ -60,6 +60,7 @@ const { listAllPeopleForSearch, getPerson } = compileUI("../db", {
     }),
   },
   "./event-log": {},
+  "./vault-initial-currencies": {},
   "./checkin-trigger": {},
   "./db-health": {},
   "./db-backup": {},

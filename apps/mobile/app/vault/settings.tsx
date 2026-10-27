@@ -35,7 +35,7 @@ import { BottomSheet } from "../../components/BottomSheet";
 import { Button } from "../../components/Button";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { FormField } from "../../components/FormField";
-import { OptionSheet } from "../../components/OptionSheet";
+import { CurrencyPickerSheet } from "../../components/CurrencyPickerSheet";
 import { EnabledCurrenciesSheet } from "../../components/EnabledCurrenciesSheet";
 import { ScreenLoading } from "../../components/ScreenLoading";
 import {
@@ -66,6 +66,7 @@ import {
 } from "../../lib/db-tx";
 import {
   CURRENCIES,
+  currencyNeedsPrecisionHint,
   getCurrencyName,
   getCurrencyLabel,
   getDefaultEntryCurrency,
@@ -949,6 +950,11 @@ export default function VaultSettingsScreen() {
             isRTL={isRTL}
             isLast
           />
+          {currencyNeedsPrecisionHint(currency) ? (
+            <View style={styles.formInset}>
+              <Text style={[styles.fieldHint, textDir(isRTL)]}>{t("currency.precisionHint")}</Text>
+            </View>
+          ) : null}
 
           <SectionGap />
 
@@ -1160,21 +1166,17 @@ export default function VaultSettingsScreen() {
         onCancel={() => setLastOwnerConfirm(false)}
       />
       {/* Per-kaata currency picker — row→sheet, matching the country picker. */}
-      <OptionSheet
+      <CurrencyPickerSheet
         visible={currencySheetVisible}
         title={t("vaultSettings.currency.label")}
-        options={enabledCurrencies.map((code) => ({
-          key: code,
-          label: getCurrencyName(code),
-          leading: CURRENCIES.find((item) => item.code === code)?.symbol ?? code,
-        }))}
-        selected={currency}
+        selectedCode={currency}
+        allowedCurrencies={enabledCurrencies}
+        disabled={savingCurrency}
         onSelect={(code) => {
           setCurrencySheetVisible(false);
           void commitCurrency(code);
         }}
         onDismiss={() => setCurrencySheetVisible(false)}
-        isRTL={isRTL}
       />
       <EnabledCurrenciesSheet
         visible={

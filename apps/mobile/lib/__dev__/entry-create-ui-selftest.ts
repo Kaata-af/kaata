@@ -55,6 +55,16 @@ const words = (node: any): string =>
         ? words(node.props.children)
         : "";
 
+const currencyMetadata = compileUI("../currency", {
+  react: {},
+  "./currency-scope": require("../currency-scope"),
+  "./currency-settings": require("../currency-settings"),
+  "./currency-catalog": require("../currency-catalog"),
+  "./db": {},
+  "./db-tx": {},
+  "./i18n": { getLocale: () => "en" },
+}) as typeof import("../currency");
+
 function fixture({
   os = "android",
   rtl = false,
@@ -230,6 +240,7 @@ function fixture({
           return gate ? gate.promise : enabledCurrencies;
         },
         getCurrencyLabel: (code: string) => code,
+        currencyNeedsPrecisionHint: currencyMetadata.currencyNeedsPrecisionHint,
         setCurrentCurrency: (code: string) => {
           selectedCurrency = code;
         },
@@ -555,6 +566,7 @@ function editFixture(os: PlatformOS, rtl: boolean, initialNote: string, entryCur
       "../../../lib/currency": {
         getCurrentCurrencyCode: () => "AFN",
         getCurrencyLabel: (code: string) => code,
+        currencyNeedsPrecisionHint: currencyMetadata.currencyNeedsPrecisionHint,
       },
       "../../../lib/db": {
         getEntry: async () => ({
@@ -701,6 +713,54 @@ const layoutEvent = (height: number, width = 390) => ({
 const savedNotes: [string, string][] = [];
 async function main() {
   let cases = 0;
+  for (const os of ["android", "ios"] as const)
+    for (const currencyCode of ["AFN", "KWD"])
+      for (const mode of ["create", "edit"] as const) {
+        const f =
+          mode === "create"
+            ? fixture({
+                os,
+                bookCurrency: currencyCode,
+                enabledCurrencies: [currencyCode],
+                initialLedgerCurrency: currencyCode === "KWD" ? "AFN" : "KWD",
+              })
+            : editFixture(os, false, "", currencyCode);
+        await f.ready();
+        const precisionNotes = () =>
+          nodes(f.hooks.tree).filter(
+            (node) => node.type === "Text" && words(node) === "currency.precisionHint",
+          );
+        assert.equal(
+          precisionNotes().length,
+          currencyCode === "KWD" ? 1 : 0,
+          `${mode}/${os}: precision guidance follows the form's denomination independently of the selected ledger`,
+        );
+        f.input().props.onChangeText("1.234");
+        f.render();
+        assert.equal(f.input().props.value, "1.234", "input retains the original precision");
+        await f.button().props.onPress();
+        await settleUI();
+        f.render();
+        if (mode === "create") {
+          assert.ok(words(f.hooks.tree).includes("calculator.rounded"));
+          assert.equal(f.writes[0][2], 1.23, "calculator applies its displayed two-decimal result");
+          assert.equal(f.writes[0][4].currency, currencyCode);
+        } else {
+          assert.equal(
+            f.writes.length,
+            0,
+            "direct editing rejects excess precision without a write",
+          );
+          assert.ok(words(f.hooks.tree).includes("entry.invalidAmount"));
+          f.input().props.onChangeText("1.23");
+          f.render();
+          await f.button().props.onPress();
+          assert.equal(f.writes[0][1], 1.23, "valid major units are saved without changing scale");
+          assert.equal(precisionNotes().length, currencyCode === "KWD" ? 1 : 0);
+        }
+        f.hooks.unmount();
+        cases++;
+      }
   {
     const hooks = uiHooks(),
       changes: string[] = [];

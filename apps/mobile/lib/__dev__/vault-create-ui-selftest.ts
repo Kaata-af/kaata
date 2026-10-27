@@ -4,13 +4,9 @@ import assert from "node:assert/strict";
 import { compileUI, deferred, jsx, nodes, settleUI, uiHooks } from "./ui-fixture";
 import { requireEnabledCurrencies } from "../currency-settings";
 import { requireCurrencyCode } from "../currency-scope";
+import { CURRENCIES } from "../currency-catalog";
 
-const currencies = [
-  { code: "AFN", symbol: "؋" },
-  { code: "USD", symbol: "$" },
-  { code: "EUR", symbol: "€" },
-  { code: "GBP", symbol: "£" },
-];
+const currencies = CURRENCIES;
 const validate = (currency: string, enabled?: readonly string[]) => {
   requireCurrencyCode(currency);
   const codes = requireEnabledCurrencies(enabled ?? [currency]);
@@ -73,7 +69,7 @@ function fixture(
     "../../components/Button": { Button: "Button" },
     "../../components/FormField": { FormField: "FormField" },
     "../../components/EnabledCurrenciesSheet": { EnabledCurrenciesSheet: "EnabledCurrenciesSheet" },
-    "../../components/OptionSheet": { OptionSheet: "OptionSheet" },
+    "../../components/CurrencyPickerSheet": { CurrencyPickerSheet: "CurrencyPickerSheet" },
     "../../components/SettingsScreen": { NavRow: "NavRow", ScreenHeader: "Header" },
     "../../components/Toast": {
       useToast: () => ({ push: (...args: unknown[]) => toasts.push(args) }),
@@ -83,6 +79,7 @@ function fixture(
       CURRENCIES: currencies,
       DEFAULT_CURRENCY: "AFN",
       getCurrencyName: (code: string) => `name:${code}`,
+      currencyNeedsPrecisionHint: () => false,
     },
     "../../lib/db-tx": {
       ACTIVE_VAULT_META_KEY: "active_vault_id",
@@ -155,7 +152,7 @@ function fixture(
     nodes(hooks.tree).find((node) => node.type === "NavRow" && node.props.label === label)!;
   const defaultRow = () => row("vaultNew.currency.label");
   const enabledRow = () => row("vaultSettings.currencies.label");
-  const defaults = () => one("OptionSheet");
+  const defaults = () => one("CurrencyPickerSheet");
   const enabled = () => one("EnabledCurrenciesSheet");
   const name = (value: string) => {
     one("FormField").props.onChangeText(value);
@@ -216,10 +213,10 @@ async function main() {
     await f.flush();
     assert.deepEqual(f.enabled().props.selected, ["AFN"]);
     assert.equal(f.enabled().props.defaultCurrency, "AFN");
-    assert.deepEqual(
-      f.defaults().props.options.map((item: any) => item.key),
-      currencies.map((item) => item.code),
-      "Default picker retains every supported currency",
+    assert.equal(
+      f.defaults().props.allowedCurrencies,
+      undefined,
+      "default picker offers the complete catalog while the enabled set has room",
     );
     f.pickDefault("USD");
     assert.equal(f.keyboardDismissals, 1, "Opening the default picker releases the name keyboard");
@@ -275,7 +272,7 @@ async function main() {
     staleDefault.onSelect("AFN");
     f.render();
     assert.equal(
-      f.defaults().props.selected,
+      f.defaults().props.selectedCode,
       "EUR",
       "A reopened picker rejects a prior session's selection",
     );
@@ -287,9 +284,44 @@ async function main() {
     assert.equal(f.hooks.lateWrites, 0, "Departed picker callbacks cannot write state");
   }
 
+  const full = fixture();
+  await full.flush();
+  full.openEnabled();
+  for (const item of currencies.slice(1, 64)) {
+    full.enabled().props.onToggle(item.code);
+    full.render();
+  }
+  full.enabled().props.onSave();
+  full.render();
+  const committed = [...full.enabled().props.selected];
+  assert.equal(committed.length, 64);
+  const fullPicker = full.openDefault();
+  assert.deepEqual(
+    fullPicker.allowedCurrencies,
+    committed,
+    "a full enabled set cannot offer a new default that would create an invalid 65th choice",
+  );
+  fullPicker.onSelect(currencies[64].code);
+  full.render();
+  assert.equal(full.defaults().props.selectedCode, "AFN");
+  assert.deepEqual(
+    full.enabled().props.selected,
+    committed,
+    "even a retained callback respects the enabled limit",
+  );
+  full.defaults().props.onSelect(currencies[1].code);
+  full.render();
+  assert.equal(
+    full.defaults().props.selectedCode,
+    currencies[1].code,
+    "changing the default within a full enabled set still works",
+  );
+  assert.deepEqual(full.enabled().props.selected, committed);
+  full.hooks.unmount();
+
   const preset = fixture({ preset: "USD" });
   await preset.flush();
-  assert.equal(preset.defaults().props.selected, "USD");
+  assert.equal(preset.defaults().props.selectedCode, "USD");
   assert.deepEqual(
     preset.enabled().props.selected,
     ["USD"],
@@ -309,7 +341,7 @@ async function main() {
     pending.resolve();
     await f.flush();
     assert.equal(
-      f.defaults().props.selected,
+      f.defaults().props.selectedCode,
       "AFN",
       `${touch}: late preset cannot clobber an engaged form`,
     );

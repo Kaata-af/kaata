@@ -11,74 +11,20 @@ import {
 } from "./currency-scope";
 import { parseEnabledCurrencies, settingCurrency } from "./currency-settings";
 
-// Currency selection for entry amounts. Curated for the Afghan market:
-// AFN as the default, USD for parallel pricing (common in Afghan shops),
-// then the currencies of the diaspora and neighbouring countries.
-//
-// Tallies retain their own currency. The selected currency scopes the ledger's
-// balances and lists; changing it never relabels or converts a saved amount.
+import { CURRENCIES, getCurrencyNameForLocale } from "./currency-catalog";
+export { CURRENCIES, type Currency } from "./currency-catalog";
 
-export type Currency = {
-  // ISO code (kept as the persistence key in app_meta + a stable picker id).
-  code: string;
-  // Locale-specific names. `name` is English; `nameFa` is Afghan Dari.
-  name: string;
-  nameFa: string;
-  namePs: string;
-  // Display symbol. Used everywhere amounts render — replaces the letter
-  // code (per the user request: ؋ instead of AFN, $ instead of USD, etc.).
-  symbol: string;
-};
-
-export const CURRENCIES: ReadonlyArray<Currency> = [
-  { code: "AFN", name: "Afghan Afghani", nameFa: "افغانی", namePs: "افغانۍ", symbol: "؋" },
-  { code: "USD", name: "US Dollar", nameFa: "دالر امریکا", namePs: "امریکایي ډالر", symbol: "$" },
-  { code: "EUR", name: "Euro", nameFa: "یورو", namePs: "یورو", symbol: "€" },
-  {
-    code: "AUD",
-    name: "Australian Dollar",
-    nameFa: "دالر آسترالیا",
-    namePs: "اسټرالیايي ډالر",
-    symbol: "A$",
-  },
-  {
-    code: "GBP",
-    name: "British Pound",
-    nameFa: "پوند انگلیس",
-    namePs: "برتانوي پونډ",
-    symbol: "£",
-  },
-  {
-    code: "PKR",
-    name: "Pakistani Rupee",
-    nameFa: "روپیه پاکستان",
-    namePs: "پاکستانۍ روپۍ",
-    symbol: "₨",
-  },
-  { code: "IRR", name: "Iranian Rial", nameFa: "ریال ایران", namePs: "ایراني ریال", symbol: "﷼" },
-  {
-    code: "AED",
-    name: "UAE Dirham",
-    nameFa: "درهم امارات",
-    namePs: "د متحده عربي اماراتو درهم",
-    symbol: "د.إ",
-  },
-  { code: "TRY", name: "Turkish Lira", nameFa: "لیره ترکیه", namePs: "ترکي لیره", symbol: "₺" },
-];
-
+// Tallies retain their own currency. The selected view and future-entry default
+// never relabel or convert saved amounts. ISO minor units are metadata only;
+// all money keeps the existing two-decimal storage and arithmetic contract.
 export const DEFAULT_CURRENCY = "AFN";
+const currenciesByCode = new Map(CURRENCIES.map((currency) => [currency.code, currency]));
 
 // Active currency code, set on app start via initCurrencyFromPref(). Lives
 // as a module-level mutable so callers can read it synchronously from any
 // render path without prop-drilling.
 const selectedCurrencyKey = (vaultId: string) => `selected_currency:${vaultId}`;
 let selectedVault: string | null = null;
-
-// Picks an entry from CURRENCIES with a fallback to AFN if the code is
-// somehow unknown (defensive — picker should never let us into that state).
-function findCurrency(code: string): Currency {
-  return CURRENCIES.find((c) => c.code === code) ?? CURRENCIES[0];
-}
 
 export function getCurrentCurrencyCode(): string {
   return getLedgerCurrencyCode();
@@ -176,9 +122,12 @@ export function useCurrency(): string {
 // Locale-aware human name for the active currency. Used in the picker so
 // each row reads "؋  افغانی" in Dari and "؋  Afghan Afghani" in English.
 export function getCurrencyName(code: string): string {
-  if (!CURRENCIES.some((c) => c.code === code)) return code;
-  const c = findCurrency(code);
-  return getLocale() === "ps" ? c.namePs : getLocale() === "fa" ? c.nameFa : c.name;
+  return getCurrencyNameForLocale(code, getLocale());
+}
+
+/** ISO metadata does not change the ledger's two-decimal money contract. */
+export function currencyNeedsPrecisionHint(code = getLedgerCurrencyCode()): boolean {
+  return (currenciesByCode.get(code)?.minorUnits ?? 2) > 2;
 }
 
 // Display symbol for an arbitrary code (not the active one) — the vault
@@ -187,7 +136,7 @@ export function getCurrencyName(code: string): string {
 // raw code for an unknown currency rather than the AFN symbol: mislabeling
 // a foreign-currency book "؋" is worse than showing "XYZ".
 export function getCurrencySymbol(code: string): string {
-  return CURRENCIES.find((c) => c.code === code)?.symbol ?? code;
+  return currenciesByCode.get(code)?.symbol ?? code;
 }
 
 // Called by _layout.tsx during init alongside i18n. Reads from app_meta and

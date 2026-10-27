@@ -65,6 +65,7 @@ const currency = compileUI("../currency", {
   react: {},
   "./currency-scope": require("../currency-scope"),
   "./currency-settings": require("../currency-settings"),
+  "./currency-catalog": require("../currency-catalog"),
   "./db": {},
   "./db-tx": {},
   "./i18n": i18n,

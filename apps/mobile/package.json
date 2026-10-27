@@ -16,6 +16,7 @@
     "selftest:ingest": "tsx lib/__dev__/ingest-selftest.ts",
     "selftest:migration-014": "tsx lib/__dev__/migration-014-selftest.ts",
     "selftest:money": "tsx lib/__dev__/money-selftest.ts",
+    "selftest:currency": "node scripts/gen-currencies.mjs --check && tsx lib/__dev__/currency-selftest.ts && tsx lib/__dev__/currency-picker-selftest.ts",
     "selftest:person-save": "tsx lib/__dev__/person-save-selftest.ts",
     "selftest:phone": "tsx lib/__dev__/phone-selftest.ts",
     "selftest:phone-contacts": "tsx lib/__dev__/phone-contacts-selftest.ts",

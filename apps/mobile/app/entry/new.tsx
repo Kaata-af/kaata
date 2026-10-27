@@ -35,6 +35,7 @@ import {
 import { getAccountIdSync, getActiveVaultIdSyncMaybe, getInstallIdSync } from "../../lib/db-tx";
 import {
   DEFAULT_CURRENCY,
+  currencyNeedsPrecisionHint,
   getDefaultEntryCurrency,
   getEnabledCurrencies,
   getCurrencyLabel,
@@ -1029,6 +1030,11 @@ export default function NewEntryScreen() {
                     </Text>
                   </View>
                 </View>
+                {currencyNeedsPrecisionHint(currency) ? (
+                  <Text style={[styles.calculationHint, textDir(isRTL)]}>
+                    {t("currency.precisionHint")}
+                  </Text>
+                ) : null}
                 {calculationHint && !amountError ? (
                   <Text
                     style={[

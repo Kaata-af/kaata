@@ -803,6 +803,10 @@ const en = {
 
   // Country picker
   "country.title": "Choose country",
+  "currency.title": "Choose currency",
+  "currency.search": "Search by name, code or symbol",
+  "currency.noMatch": "No matching currency.",
+  "currency.precisionHint": "Kaata currently supports up to 2 decimal places for this currency.",
   "country.search": "Search by name or code",
   "country.noMatch": "No match.",
 
@@ -1441,6 +1445,9 @@ const en = {
   "vaultSettings.currency.hint":
     "Selected automatically for new tallies. Each saved tally keeps its own currency.",
   "vaultSettings.currencies.label": "Currencies for this Kaata",
+  "vaultSettings.currencies.search": "Search currencies",
+  "vaultSettings.currencies.limit":
+    "You can enable up to 64 currencies. Turn one off to add another.",
   "vaultSettings.currencies.hint":
     "Choose the currencies offered for new tallies. Removing a choice keeps all existing tallies and balances.",
   "vaultSettings.currencies.default": "Default currency — always enabled",
@@ -2937,6 +2944,10 @@ const fa: Partial<Record<Key, string>> = {
 
   // Country picker
   "country.title": "انتخاب کشور",
+  "currency.title": "انتخاب ارز",
+  "currency.search": "جستجو با نام، کد یا نماد ارز",
+  "currency.noMatch": "ارزی پیدا نشد.",
+  "currency.precisionHint": "کاتا فعلاً برای این ارز تا ۲ رقم اعشار را پشتیبانی می‌کند.",
   "country.search": "جستجو بر اساس نام یا کد",
   "country.noMatch": "موردی پیدا نشد.",
 
@@ -3452,6 +3463,9 @@ const fa: Partial<Record<Key, string>> = {
   "vaultSettings.currency.hint":
     "برای ثبت‌های تازه به‌صورت خودکار انتخاب می‌شود. هر ثبت ذخیره‌شده ارز خودش را نگه می‌دارد.",
   "vaultSettings.currencies.label": "ارزهای این کاتا",
+  "vaultSettings.currencies.search": "جستجوی ارزها",
+  "vaultSettings.currencies.limit":
+    "حداکثر ۶۴ ارز را می‌توانید فعال کنید. برای افزودن ارز دیگر، یکی را غیرفعال کنید.",
   "vaultSettings.currencies.hint":
     "ارزهای قابل انتخاب برای ثبت‌های تازه را مشخص کنید. برداشتن یک گزینه، ثبت‌ها و بیلانس‌های قبلی را حفظ می‌کند.",
   "vaultSettings.currencies.default": "ارز پیش‌فرض — همیشه فعال",
@@ -4353,6 +4367,10 @@ const ps: Record<Key, string> = {
     "دا یوازې د مبلغونو د ښودلو د پیسې نوم بدلوي. پخوانۍ راکړې ورکړې بلې پیسې ته نه اړوي.",
   "settings.currency.changed": "پیسه بدله شوه.",
   "country.title": "هېواد وټاکئ",
+  "currency.title": "د پیسو واحد وټاکئ",
+  "currency.search": "په نوم، کوډ یا نښه یې ولټوئ",
+  "currency.noMatch": "د پیسو واحد ونه موندل شو.",
+  "currency.precisionHint": "کاتا اوس د دې پیسو واحد لپاره تر ۲ اعشاري ځایونو پورې ملاتړ کوي.",
   "country.search": "په نوم یا کوډ یې ولټوئ",
   "country.noMatch": "پایله ونه موندل شوه.",
   "updatePrompt.title": "تازه کول اړین دي",
@@ -5641,6 +5659,9 @@ const ps: Record<Key, string> = {
   "vaultSettings.currency.hint":
     "د نوو راکړو ورکړو لپاره په خپله ټاکل کېږي. هره خوندي شوې راکړه ورکړه خپل اسعار ساتي.",
   "vaultSettings.currencies.label": "د دې کاټې اسعار",
+  "vaultSettings.currencies.search": "اسعار ولټوئ",
+  "vaultSettings.currencies.limit":
+    "تاسو تر ۶۴ پورې اسعار فعالولی شئ. د نورو اسعارو د زیاتولو لپاره یو غیر فعال کړئ.",
   "vaultSettings.currencies.hint":
     "د نوو راکړو ورکړو لپاره د ټاکلو اسعار وټاکئ. د یوه انتخاب لرې کول پخوانۍ راکړې ورکړې او بیلانسونه ساتي.",
   "vaultSettings.currencies.default": "اصلي اسعار — تل فعال دي",

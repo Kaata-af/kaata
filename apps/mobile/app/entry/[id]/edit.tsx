@@ -21,7 +21,11 @@ import { ScreenHeader } from "../../../components/SettingsScreen";
 import { useToast } from "../../../components/Toast";
 import { colors } from "../../../lib/colors";
 import { creditWarningForEdit } from "../../../lib/credit-limits";
-import { getCurrentCurrencyCode, getCurrencyLabel } from "../../../lib/currency";
+import {
+  currencyNeedsPrecisionHint,
+  getCurrentCurrencyCode,
+  getCurrencyLabel,
+} from "../../../lib/currency";
 import { getEntry, SettledChapterError, TabLinkedEntryError, updateEntry } from "../../../lib/db";
 import { rowDir, textDir, useIsRTL } from "../../../lib/direction";
 import { EventSigningUnavailableError, RoleGateRejectionError } from "../../../lib/event-log";
@@ -299,6 +303,9 @@ export default function EditEntryScreen() {
             <View style={styles.currencyRow}>
               <CurrencySelector compact symbolOnly value={currency} />
             </View>
+            {currencyNeedsPrecisionHint(currency) ? (
+              <Text style={[styles.hint, textDir(isRTL)]}>{t("currency.precisionHint")}</Text>
+            ) : null}
             {amountError ? (
               <Text style={[styles.fieldError, textDir(isRTL)]} accessibilityLiveRegion="polite">
                 {amountError}

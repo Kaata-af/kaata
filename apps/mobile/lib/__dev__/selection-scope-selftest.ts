@@ -101,6 +101,8 @@ const append = compile("../event-log", {
   "./event-sig": {},
   "./money": {},
   "./money-sql": { signedEntryMinorSumSql: () => "0" },
+  "./entry-date": require("../entry-date"),
+  "./currency-scope": require("../currency-scope"),
   "./tabs/errors": { TabLinkedEntryError: class extends Error {} },
   "./projection": {
     applyEvent: async (event: any, options: any) => {
@@ -131,6 +133,10 @@ const db = compile("../db", {
   "./hlc": {},
   "./group-memberships": {},
   "./money-sql": { signedEntryMinorSumSql: () => "0" },
+  "./entry-date": require("../entry-date"),
+  "./currency-scope": require("../currency-scope"),
+  "./vault-initial-currencies": {},
+  "./tabs/history": require("../tabs/history"),
   "./tabs/db": {},
   "./tabs/direction": { tabBalanceSql: () => "0" },
   "./tabs/errors": { TabLinkedEntryError: class extends Error {} },

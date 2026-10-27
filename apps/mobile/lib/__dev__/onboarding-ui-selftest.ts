@@ -225,7 +225,7 @@ function kaataFixture(
     "react-native-safe-area-context": { SafeAreaView: "SafeArea" },
     "../../components/Onboarding": ui,
     "../../components/FormField": { FormField: "FormField" },
-    "../../components/OptionSheet": { OptionSheet: "OptionSheet" },
+    "../../components/CurrencyPickerSheet": { CurrencyPickerSheet: "CurrencyPickerSheet" },
     "../../lib/colors": { colors },
     "../../lib/direction": { ...direction, bidiIsolate: (value: string) => value },
     "../../lib/i18n": i18n,
@@ -242,6 +242,7 @@ function kaataFixture(
       ],
       DEFAULT_CURRENCY: "AFN",
       getCurrencyName: (code: string) => code,
+      currencyNeedsPrecisionHint: () => false,
     },
     "../../lib/db": {
       getAppMeta: async (key: string) => meta.get(key) ?? null,
@@ -283,7 +284,7 @@ function kaataFixture(
     create: () =>
       nodes(hooks.tree).find((node) => node.props.accessibilityLabel === "onboardingKaata.submit")!,
     field: () => nodes(hooks.tree).find((node) => node.type === "FormField")!,
-    defaultSheet: () => nodes(hooks.tree).find((node) => node.type === "OptionSheet")!,
+    defaultSheet: () => nodes(hooks.tree).find((node) => node.type === "CurrencyPickerSheet")!,
     defaultField: () =>
       nodes(hooks.tree).find(
         (node) =>
@@ -365,9 +366,10 @@ async function main() {
     const draft = kaataFixture({ rtl });
     await draft.flush();
     assert.equal(draft.defaultSheet().props.title, "onboardingKaata.currency.label");
-    assert.deepEqual(
-      draft.defaultSheet().props.options.map((option: { key: string }) => option.key),
-      ["AFN", "USD", "EUR"],
+    assert.equal(
+      draft.defaultSheet().props.allowedCurrencies,
+      undefined,
+      "onboarding offers the complete catalog for its single default",
     );
     assert.equal(
       nodes(draft.hooks.tree).some((node) => node.type === "EnabledCurrenciesSheet"),
@@ -384,12 +386,12 @@ async function main() {
     draft.defaultField().props.onPress();
     draft.render();
     assert.equal(draft.defaultSheet().props.visible, true);
-    assert.equal(draft.defaultSheet().props.isRTL, rtl);
-    assert.equal(draft.defaultSheet().props.selected, "AFN");
+    assert.equal(draft.defaultSheet().props.disabled, false);
+    assert.equal(draft.defaultSheet().props.selectedCode, "AFN");
     draft.defaultSheet().props.onSelect("INVALID");
     draft.render();
     assert.equal(
-      draft.defaultSheet().props.selected,
+      draft.defaultSheet().props.selectedCode,
       "AFN",
       "unknown currency choices are ignored",
     );
@@ -407,7 +409,7 @@ async function main() {
       "callbacks from an old sheet cannot close a new one",
     );
     assert.equal(
-      draft.defaultSheet().props.selected,
+      draft.defaultSheet().props.selectedCode,
       "AFN",
       "stale picker callbacks cannot alter the current choice",
     );
@@ -421,7 +423,7 @@ async function main() {
     draft.render();
     assert.equal(draft.defaultSheet().props.visible, false);
     assert.deepEqual(draft.routes, [], "Back dismisses the currency picker before leaving setup");
-    assert.equal(draft.defaultSheet().props.selected, "USD");
+    assert.equal(draft.defaultSheet().props.selectedCode, "USD");
     draft.hooks.unmount();
   }
 
@@ -432,7 +434,7 @@ async function main() {
   });
   await preset.flush();
   await preset.flush();
-  assert.equal(preset.defaultSheet().props.selected, "EUR");
+  assert.equal(preset.defaultSheet().props.selectedCode, "EUR");
   assert.ok(
     preset.defaultField().props.accessibilityLabel.includes("EUR"),
     "the pending link still presets the single currency field",
@@ -447,7 +449,7 @@ async function main() {
     latePreset.resolve({ tab: { currency: "USD" } });
     await editing.flush();
     assert.equal(
-      editing.defaultSheet().props.selected,
+      editing.defaultSheet().props.selectedCode,
       "AFN",
       "opening the currency picker takes ownership before a late preset resolves",
     );
@@ -455,7 +457,7 @@ async function main() {
     editing.defaultSheet().props.onDismiss();
     await editing.flush();
     assert.equal(
-      editing.defaultSheet().props.selected,
+      editing.defaultSheet().props.selectedCode,
       "AFN",
       "dismissing still preserves the user's currency intent",
     );
@@ -518,7 +520,7 @@ async function main() {
   pendingSubmission.resolve({ tab: { currency: "USD" } });
   await submittedPreset.flush();
   assert.equal(
-    submittedPreset.defaultSheet().props.selected,
+    submittedPreset.defaultSheet().props.selectedCode,
     "AFN",
     "a late preset cannot change a submitted form",
   );
