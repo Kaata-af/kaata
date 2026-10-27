@@ -19,6 +19,7 @@ import (
 // Complete bills are bounded, never truncated into a misleading partial bill.
 const maxPayload = 4 << 20 // 4 MiB
 const maxSharedEntries = 5000
+const maxSharedCurrencies = 256
 
 type snapshotStore interface {
 	Create(context.Context, []byte) (string, error)
@@ -46,10 +47,10 @@ func NewHandler(svc snapshotStore, webBaseURL, shareLinkBaseURL, apiBaseURL stri
 	}
 }
 
-// Capabilities lets new senders avoid handing a v2 bill to an older renderer.
+// Capabilities keeps versioned bills away from renderers that would omit data.
 func (h *Handler) Capabilities(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "public, max-age=300")
-	httpx.JSON(w, http.StatusOK, map[string]any{"bill_versions": []int{1, 2}, "multi_currency": true})
+	httpx.JSON(w, http.StatusOK, map[string]any{"bill_versions": []int{1, 2, 3}, "multi_currency": true})
 }
 
 // sharePayload is the snapshot shape the mobile app sends and the SSR shell
@@ -143,9 +144,13 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		"token": token,
 		"url":   h.shareBaseURL + "/v/" + token,
 	}
-	if p.V == 2 {
-		response["bill_version"] = 2
-		response["url"] = h.shareBaseURL + "/v2/" + token
+	if p.V == 2 || p.V == 3 {
+		response["bill_version"] = p.V
+		path := "/v2/"
+		if p.V == 3 {
+			path = "/v3/"
+		}
+		response["url"] = h.shareBaseURL + path + token
 	}
 	httpx.JSON(w, http.StatusOK, response)
 }
@@ -196,7 +201,7 @@ func (h *Handler) View(w http.ResponseWriter, r *http.Request) {
 	}
 	var p sharePayload
 	_ = json.Unmarshal(payload, &p) // payload was validated on create
-	if p.V == 2 {
+	if p.V == 2 || p.V == 3 {
 		if err := validateSharePayload(p); err != nil {
 			httpx.Error(w, http.StatusUnprocessableEntity, "invalid bill")
 			return
@@ -246,8 +251,12 @@ func (h *Handler) View(w http.ResponseWriter, r *http.Request) {
 		// Solar Hijri for fa) at first paint; 0 (pre-date snapshots) hides it.
 		GeneratedAtMs: p.GeneratedAt,
 	}
-	if p.V == 2 {
-		data.ShareURL = h.shareBaseURL + "/v2/" + token
+	if p.V == 2 || p.V == 3 {
+		path := "/v2/"
+		if p.V == 3 {
+			path = "/v3/"
+		}
+		data.ShareURL = h.shareBaseURL + path + token
 		data.Currencies = currencyPreviews(p, lang)
 		data.Direction = "multi"
 		parts := make([]string, 0, len(data.Currencies))

@@ -3,6 +3,7 @@ package shared
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"html"
 	"net/http"
@@ -59,6 +60,10 @@ func requireBillArtwork(t *testing.T, meta map[string]string, image string, secu
 }
 
 func TestBillOGImageHTTP(t *testing.T) {
+	historyPayload, err := json.Marshal(historyBill(t))
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, tc := range []struct {
 		name, path, payload, title string
 		descriptions               []string
@@ -77,6 +82,14 @@ func TestBillOGImageHTTP(t *testing.T) {
 				"In your favour: 10.10 USD $", "All settled — nothing owed. (AUD A$)",
 			},
 		},
+		{
+			name: "v3", path: "/v3/synthetic-token", payload: string(historyPayload),
+			title: "Synthetic customer — Synthetic shop",
+			descriptions: []string{
+				"Bill dated 15 Nov 2023 — Balance to settle: 10.10 AFN ؋",
+				"In your favour: 10.10 USD $", "All settled — nothing owed. (AUD A$)",
+			},
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			store := &memorySnapshotStore{payload: []byte(tc.payload)}
@@ -84,6 +97,7 @@ func TestBillOGImageHTTP(t *testing.T) {
 			r := chi.NewRouter()
 			r.Get("/v/{token}", h.View)
 			r.Get("/v2/{token}", h.View)
+			r.Get("/v3/{token}", h.View)
 			w := httptest.NewRecorder()
 			r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "https://untrusted.example"+tc.path, nil))
 			if w.Code != http.StatusOK {

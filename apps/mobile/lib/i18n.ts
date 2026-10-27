@@ -1901,6 +1901,10 @@ const en = {
   "export.record.closedDeleted":
     "Closed because an account was deleted. The shared record is read-only.",
   "export.record.archiveTitle": "Earlier shared period",
+  "export.preLinkHistory.title": "Private history before linking",
+  "export.preLinkHistory.note":
+    "Historical records only. Their balance is already carried by the opening tally and is excluded from the current total.",
+  "export.record.beforeLink": "Before linking — excluded from current balance",
   "export.record.archiveExplanation":
     "Historical evidence only. This period is excluded from the current balance; its carried-over amount is represented by a later opening tally. The period balance below belongs to this earlier account.",
   "export.record.scope": "Balance scope",
@@ -3872,6 +3876,10 @@ const fa: Partial<Record<Key, string>> = {
   "export.record.closedDeleted":
     "به دلیل حذف یک حساب بسته شده است. سابقهٔ مشترک فقط قابل خواندن است.",
   "export.record.archiveTitle": "دورهٔ مشترک پیشین",
+  "export.preLinkHistory.title": "سابقهٔ غیرمشترک پیش از پیوند",
+  "export.preLinkHistory.note":
+    "فقط برای حفظ سابقه است. باقی‌ماندهٔ این ثبت‌ها در ثبت آغازین انتقال یافته و در مجموع فعلی جمع نمی‌شود.",
+  "export.record.beforeLink": "پیش از پیوند — بیرون از باقی‌ماندهٔ فعلی",
   "export.record.archiveExplanation":
     "فقط برای حفظ سابقه است. این دوره در باقی‌ماندهٔ فعلی جمع نمی‌شود؛ مبلغ انتقال‌یافتهٔ آن در ثبت آغازینِ دورهٔ بعد آمده است. باقی‌ماندهٔ این بخش مربوط به همان حساب پیشین است.",
   "export.record.scope": "محدودهٔ باقی‌مانده",
@@ -5861,6 +5869,10 @@ const ps: Record<Key, string> = {
   "export.record.closedDeleted":
     "د یوه حساب د ړنګېدو له امله وتړل شو. ګډ ریکارډ یوازې د لیدلو لپاره دی.",
   "export.record.archiveTitle": "پخوانۍ ګډه دوره",
+  "export.preLinkHistory.title": "تر نښلولو مخکې شخصي مخینه",
+  "export.preLinkHistory.note":
+    "یوازې د مخینې لپاره دي. د دې ریکارډونو پاتې حساب لا دمخه د پیل په راکړه ورکړه کې لېږدول شوی او په اوسني ټولیز حساب کې نه شمېرل کېږي.",
+  "export.record.beforeLink": "تر نښلولو مخکې — په اوسني پاتې حساب کې نه شمېرل کېږي",
   "export.record.archiveExplanation":
     "یوازې د پخوانۍ مخینې ثبوت دی. دا دوره په اوسني پاتې حساب کې نه شمېرل کېږي؛ لېږدول شوی مبلغ یې په یوې وروسته پیل شوې راکړه ورکړه کې ښودل کېږي. د لاندې دورې پاتې حساب په همدې پخواني حساب پورې تړاو لري.",
   "export.record.scope": "د پاتې حساب محدوده",

@@ -49,8 +49,8 @@ function fixture(pathname, search) {
   return { exports, beacons };
 }
 
-test("visit and store-click beacons redact all capability routes including v2 bills", async () => {
-  for (const route of ["i", "v", "v2", "t"]) {
+test("visit and store-click beacons redact all capability routes including historical bills", async () => {
+  for (const route of ["i", "v", "v2", "v3", "t"]) {
     const app = fixture("/" + route + "/private-capability", "?secret=private-ticket&s=campaign");
     app.exports.fireVisitOnce();
     app.exports.fireVisitOnce();
@@ -135,6 +135,7 @@ test("search robots retain token-page exclusions while only bill-preview crawler
     "/i/private-invitation",
     "/v/private-bill",
     "/v2/private-bill",
+    "/v3/private-bill",
     "/t/private-tab",
   ];
   for (const agent of [
@@ -163,6 +164,7 @@ test("search robots retain token-page exclusions while only bill-preview crawler
       "/og/kaata-bill-fa-v1.png",
       "/v/private-bill",
       "/v2/private-bill",
+      "/v3/private-bill",
     ])
       assert.equal(
         mayCrawl(groups, agent, path),

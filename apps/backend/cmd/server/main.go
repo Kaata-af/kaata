@@ -393,6 +393,7 @@ func main() {
 	// for the OG preview; otherwise the SPA's /v/:token fallback renders it.
 	r.Get("/v/{token}", sharedH.View)
 	r.Get("/v2/{token}", sharedH.View)
+	r.Get("/v3/{token}", sharedH.View)
 	// Mutual tab page (kaata.af/t/<token>, Caddy @sharessr). The token in
 	// the path is an invitation, not read/write authority. The page only opens
 	// the app, and renders a uniform 404 for unknown/rotated links.

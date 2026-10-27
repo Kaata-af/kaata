@@ -358,6 +358,13 @@ a{color:inherit;text-decoration:none;}
       + '</div>'
     + '</div>';
   }
+  var historyCopy = lang === 'ps' ? {
+    pre_link:'له شریک حساب مخکې',closed_shared:'پخوانی شریک حساب',balance:'د پخواني حساب بیلانس',note:'دا پخوانۍ راکړې ورکړې په اوسني بیلانس کې بیا نه جمع کېږي.'
+  } : rtl ? {
+    pre_link:'پیش از حساب مشترک',closed_shared:'حساب مشترک قبلی',balance:'بیلانس حساب قبلی',note:'این معاملات قدیمی دوباره به بیلانس فعلی اضافه نمی‌شوند.'
+  } : {
+    pre_link:'Before this shared account',closed_shared:'Earlier shared account',balance:'Historical balance',note:'These earlier records do not add to the current balance.'
+  };
   // Note + cue on one line. Only notes that actually overflow the single
   // line become tap-to-expand (a "more"/"less" cue, measured — not guessed).
   function wireNotes(el){
@@ -375,13 +382,14 @@ a{color:inherit;text-decoration:none;}
     .then(function(r){ if(!r.ok) throw 0; return r.json(); })
     .then(function(payload){
       var container = document.getElementById('entries');
-      var groups = payload && payload.v === 2 ? payload.currencies : [payload];
+      var multi = payload && (payload.v === 2 || payload.v === 3);
+      var groups = multi ? payload.currencies : [payload];
       if(!Array.isArray(groups) || !groups.length) throw new Error('invalid bill');
       var expandAll = [], counts = [];
-      if(payload.v === 2){ container.innerHTML = ''; container.className = ''; }
+      if(multi){ container.innerHTML = ''; container.className = ''; }
       groups.forEach(function(p, index){
         var el = container;
-        if(payload.v === 2){
+        if(multi){
           var heading = document.createElement('div'); heading.className = 'sectionhead';
           heading.textContent = p.currency_code + (p.currency.indexOf(p.currency_code) < 0 ? ' ' + p.currency : '');
           if(p.currency.indexOf(p.currency_code) >= 0) heading.textContent = p.currency;
@@ -390,7 +398,9 @@ a{color:inherit;text-decoration:none;}
         }
       var all = (p && p.entries) || [];
       var cur = (p && p.currency) || '';
-      if(payload.v === 2 && cur.indexOf(p.currency_code) < 0) cur = p.currency_code + ' ' + cur;
+      if(multi && cur.indexOf(p.currency_code) < 0) cur = p.currency_code + ' ' + cur;
+      var history = payload.v === 3 ? (p.history || []) : [];
+      var historyCount = history.reduce(function(total, group){ return total + group.entries.length; }, 0);
       // Settled-chapter collapse (parity with the app + SPA): entries dated
       // at/before the boundary are ruled-off history behind one collapsed row.
       // COHERENCE RULE: collapse only while the current chapter's sum
@@ -424,7 +434,7 @@ a{color:inherit;text-decoration:none;}
       var open = false;
       function render(){
         var list = open ? all : current;
-        counts[index] = list.length;
+        counts[index] = list.length + historyCount;
         var totalCount = counts.reduce(function(sum, count){ return sum + count; }, 0);
         document.getElementById('txCount').textContent = totalCount ? fmtAmt(totalCount) : '';
         var html = '';
@@ -456,6 +466,36 @@ a{color:inherit;text-decoration:none;}
         if(hb){ hb.addEventListener('click', function(){ open = !open; render(); }); }
       }
       render();
+      history.forEach(function(group){
+        var heading = document.createElement('div'); heading.className = 'sectionhead';
+        heading.textContent = historyCopy[group.kind] + ' · ' + cur;
+        container.appendChild(heading);
+        var archived = document.createElement('div'); archived.className = 'rows historical-rows';
+        var markers = new Map();
+        (group.settlements || []).forEach(function(marker){ markers.set(marker.after_entry_id, marker.date); });
+        var historyHtml = '<div class="empty">' + esc(historyCopy.note) + '</div>';
+        if(markers.has(null)) historyHtml += markerHtml(markers.get(null));
+        var running = 0;
+        group.entries.forEach(function(entry){
+          running += entry.type === 'payment' ? -moneyMinor(entry.amount) : moneyMinor(entry.amount);
+          historyHtml += rowHtml(entry, cur);
+          historyHtml += '<div class="rmeta" style="padding:0 16px 10px">' + esc(historyCopy.balance) + ': <bdi dir="ltr">'
+            + (running < 0 ? '−' : '') + fmtAmt(running / 100) + ' ' + esc(cur) + '</bdi></div>';
+          if(markers.has(entry.id)) historyHtml += markerHtml(markers.get(entry.id));
+        });
+        archived.innerHTML = historyHtml;
+        container.appendChild(archived);
+        wireNotes(archived);
+        archived.addEventListener('click', function(ev){
+          var r=ev.target.closest('.row[role="button"]'); if(!r) return;
+          var open=r.classList.toggle('open'), cue=r.querySelector('.rmore'); if(cue) cue.textContent=open?L.less:L.more;
+        });
+        archived.addEventListener('keydown', function(ev){
+          if(ev.key!=='Enter' && ev.key!==' ') return;
+          var r=ev.target.closest('.row[role="button"]'); if(!r) return; ev.preventDefault();
+          var open=r.classList.toggle('open'), cue=r.querySelector('.rmore'); if(cue) cue.textContent=open?L.less:L.more;
+        });
+      });
       expandAll.push(function(){ if(!open){ open = true; render(); } });
       // Save as PDF. Revealed only now, because until render() has run the
       // page is three skeleton bars and printing them would be worse than

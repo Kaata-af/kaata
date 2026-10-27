@@ -177,7 +177,10 @@ test("public social-image route keeps PNG MIME/cache headers and avoids SPA fall
     !route.includes("try_files") && !route.includes("rewrite"),
     "missing images are not HTML previews",
   );
-  assert.match(config, /@sharessr path \/v\/\* \/v2\/\* \/v1\/shared\/\* \/t\/\* \/v1\/tabs\/\*/);
+  assert.match(
+    config,
+    /@sharessr path \/v\/\* \/v2\/\* \/v3\/\* \/v1\/shared\/\* \/t\/\* \/v1\/tabs\/\*/,
+  );
   assert.ok(config.includes("script-src 'self';"));
 });
 

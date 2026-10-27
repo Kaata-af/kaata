@@ -5026,6 +5026,7 @@ export async function listEntries(
 export async function listArchivedSharedPeriodsForExport(
   personId: string,
   currencyCode = getLedgerCurrencyCode(),
+  options?: { requireComplete?: boolean },
 ): Promise<Array<{ link: TabLink; entries: Entry[] }>> {
   const current = await getLatestTabLinkForPerson(personId, currencyCode);
   if (!current) return [];
@@ -5037,13 +5038,17 @@ export async function listArchivedSharedPeriodsForExport(
     current.vault_id,
     current.tab_id,
   );
+  if (options?.requireComplete && links.some((link) => link.last_synced_at == null))
+    throw new Error("Shared history is still syncing. Please try exporting again shortly.");
   const result: Array<{ link: TabLink; entries: Entry[] }> = [];
   const activeIds = new Set((await listEffectiveSharedEntries(current)).map((entry) => entry.id));
   for (const link of links) {
     const entries = (await listTabEntriesAsEntries(link)).filter(
       (entry) => !activeIds.has(entry.id),
     );
-    if (entries.length) result.push({ link, entries });
+    // Keep an unknown empty period visible to completeness checks; an absent
+    // cache is different from an authoritatively empty historical account.
+    if (entries.length || link.last_synced_at == null) result.push({ link, entries });
   }
   return result;
 }
@@ -5095,6 +5100,19 @@ export async function listEntriesForExport(
   currencyCode = getLedgerCurrencyCode(),
 ): Promise<ExportEntryRow[]> {
   const db = await getDb();
+  // The UI shows an ellipsis for incomplete shared history. Never turn the
+  // same missing cache into an authoritative zero or a partial printed book.
+  const incomplete = await db.getFirstAsync<{ pending: number }>(
+    `SELECT 1 AS pending FROM relationships r ${tabLinkJoin(currencyCode)}
+     WHERE r.vault_id=? AND r.archived_at IS NULL AND tl.tab_id IS NOT NULL
+       AND ((${unknownHistorySql()}) OR EXISTS (
+         SELECT 1 FROM tab_links history WHERE history.vault_id=tl.vault_id
+           AND history.relationship_id=tl.relationship_id AND history.currency=tl.currency
+           AND history.last_synced_at IS NULL)) LIMIT 1`,
+    vaultId,
+  );
+  if (incomplete)
+    throw new Error("Shared history is still syncing. Please try exporting again shortly.");
   // Linked contacts contribute their TAB rows (including rejected/cancelled
   // originals, never the separate void rows) and NOT their pre-link local rows
   // — the opening entry carries that sum. Exporters give excluded originals

@@ -32,7 +32,7 @@ import { toJalali, toQamari } from "../jalali";
 import type { Entry, PersonWithBalance, Self } from "../types";
 import { addAmounts } from "../money";
 import { balanceContribution, recordTotals, type RecordTotals } from "./shared-record";
-import { listTabSettlements } from "../tabs/db";
+import { getTabLink, listPreLinkEntries, listTabSettlements } from "../tabs/db";
 import { afterSharedSettlement } from "../tabs/chapters";
 import type { TabSettlement } from "../tabs/types";
 import { applyEventMutex } from "../projection";
@@ -69,6 +69,9 @@ export type PersonStatement = {
   /** Present only when the statement contains shared records. Pending stays
    * separate from the confirmed headline and running balance. */
   sharedTotals?: RecordTotals;
+  /** Private history already carried by the shared opening. These rows never
+   * contribute to the current statement's headline or running balance. */
+  preLinkRows?: StatementRow[];
   archivedSharedPeriods?: Array<
     Awaited<ReturnType<typeof listArchivedSharedPeriodsForExport>>[number] & {
       rows: StatementRow[];
@@ -119,6 +122,38 @@ function sharedStatementRows(
     });
   }
   while (index < current.length) appendEntry(current[index++]);
+  return rows;
+}
+
+function privateStatementRows(entries: Entry[], boundaries: number[]): StatementRow[] {
+  const asc = [...entries].sort(
+    (a, b) => a.created_at - b.created_at || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+  );
+  const rows: StatementRow[] = [];
+  let running = 0;
+  let index = 0;
+  for (const boundary of boundaries) {
+    let consumed = 0;
+    while (index < asc.length && asc[index].created_at <= boundary) {
+      const entry = asc[index++];
+      running = addAmounts(running, balanceContribution(entry));
+      rows.push({ kind: "entry", entry, balanceAfter: running });
+      consumed++;
+    }
+    if (rows.length === 0) continue;
+    const last = rows[rows.length - 1];
+    if (consumed === 0 && last.kind === "settled") {
+      // Adjacent empty chapters collapse to their newest boundary.
+      last.ms = boundary;
+      continue;
+    }
+    rows.push({ kind: "settled", ms: boundary, balanceAfter: running });
+  }
+  while (index < asc.length) {
+    const entry = asc[index++];
+    running = addAmounts(running, balanceContribution(entry));
+    rows.push({ kind: "entry", entry, balanceAfter: running });
+  }
   return rows;
 }
 
@@ -190,6 +225,7 @@ export async function buildPersonStatements(
     const populated = statements.filter(
       (statement) =>
         statement.rows.length > 0 ||
+        !!statement.preLinkRows?.length ||
         !!statement.archivedSharedPeriods?.length ||
         !!statement.person.tab_id ||
         statement.person.tab_unsynced === 1,
@@ -211,56 +247,28 @@ async function buildPersonStatementSnapshot(
     listEntries(personId, currencyCode),
     listSettlementBoundaries(personId, currencyCode),
     getLocalSelf(),
-    listArchivedSharedPeriodsForExport(personId, currencyCode),
+    listArchivedSharedPeriodsForExport(personId, currencyCode, { requireComplete: true }),
   ]);
   if (!person) return null;
+  if (person.tab_unsynced === 1)
+    throw new Error("Shared history is still syncing. Please try exporting again shortly.");
   assertSingleCurrency(entries, currencyCode);
 
-  // listEntries is newest-first with no tie-break; re-sort ascending with an
-  // id tie-break so re-exporting the same book orders identically. A linked
-  // contact's list includes rejected/cancelled originals. Keep their recorded
-  // history while assigning them zero contribution to the running balance.
-  const asc = entries.sort(
-    (a, b) => a.created_at - b.created_at || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
-  );
-  // Settle-up boundaries belong to the LOCAL book. Once linked, the tab is the
-  // account (D8) and its rows are not partitioned by the pre-link ruled-off
-  // lines — a backdated tab tally would otherwise fall "into" a closed chapter.
-  const chapters = person.tab_id ? [] : boundaries;
-
+  // Shared clearances follow server sequence; private chapters follow the
+  // edited business date. Keep both histories without counting an opening twice.
   const rows: StatementRow[] = person.tab_id
     ? sharedStatementRows(entries, await listTabSettlements(person.tab_id), person.tab_id)
-    : [];
-  let running = 0;
-  let i = 0;
-  for (const boundary of chapters) {
-    let consumed = 0;
-    while (i < asc.length && asc[i].created_at <= boundary) {
-      const entry = asc[i++];
-      running = addAmounts(running, balanceContribution(entry));
-      rows.push({ kind: "entry", entry, balanceAfter: running });
-      consumed++;
-    }
-    // A ruled line above an empty page is meaningless (all of the chapter's
-    // entries were later deleted), and a double-settle draws no second line —
-    // same adjacent-marker collapse as the person screen's history view.
-    if (rows.length === 0) continue;
-    const last = rows[rows.length - 1];
-    if (consumed === 0 && last.kind === "settled") {
-      // Keep the NEWEST boundary of an adjacent run — it is the one that
-      // governs chapter membership (MAX-based getSettlementSummary, and the
-      // person screen's DESC walk keeps the newest too).
-      last.ms = boundary;
-      continue;
-    }
-    rows.push({ kind: "settled", ms: boundary, balanceAfter: running });
+    : privateStatementRows(entries, boundaries);
+  const running = rows.at(-1)?.balanceAfter ?? 0;
+  let preLinkRows: StatementRow[] = [];
+  if (person.tab_id) {
+    const link = await getTabLink(person.tab_id);
+    if (!link || link.currency !== currencyCode)
+      throw new Error("Shared records changed during export. Please try again.");
+    const before = await listPreLinkEntries(link);
+    assertSingleCurrency(before, currencyCode);
+    preLinkRows = privateStatementRows(before, boundaries);
   }
-  while (!person.tab_id && i < asc.length) {
-    const entry = asc[i++];
-    running = addAmounts(running, balanceContribution(entry));
-    rows.push({ kind: "entry", entry, balanceAfter: running });
-  }
-  if (person.tab_id) running = rows.at(-1)?.balanceAfter ?? 0;
 
   const archivedPeriods = await Promise.all(
     archivedSharedPeriods.map(async (period) => {
@@ -289,7 +297,8 @@ async function buildPersonStatementSnapshot(
     // One captured app calendar keeps every currency's document columns equal.
     calendar,
     generatedAtMs,
-    ...(asc.some((e) => e.tab) ? { sharedTotals: recordTotals(asc) } : {}),
+    ...(entries.some((e) => e.tab) ? { sharedTotals: recordTotals(entries) } : {}),
+    ...(preLinkRows.length ? { preLinkRows } : {}),
     ...(archivedPeriods.length ? { archivedSharedPeriods: archivedPeriods } : {}),
   };
 }
@@ -300,6 +309,7 @@ export async function buildVaultReport(
   currencyCode: string,
   locale: LocaleCode,
   generatedAtMs: number,
+  calendar = getEffectiveCalendar(),
 ): Promise<VaultReport> {
   const [entries, self] = await Promise.all([
     listEntriesForExport(vaultId, currencyCode),
@@ -358,7 +368,7 @@ export async function buildVaultReport(
     currencyCode,
     currencySymbol: getCurrencySymbol(currencyCode),
     locale,
-    calendar: getEffectiveCalendar(),
+    calendar,
     generatedAtMs,
   };
 }
@@ -373,9 +383,12 @@ export async function buildVaultReports(
   generatedAtMs: number,
 ): Promise<VaultReport[]> {
   return applyEventMutex.runExclusive(async () => {
+    const calendar = getEffectiveCalendar();
     const codes = [...new Set([defaultCurrency, ...(await listLedgerCurrencies(vaultId))])];
     const reports = await Promise.all(
-      codes.map((code) => buildVaultReport(vaultId, vaultName, code, locale, generatedAtMs)),
+      codes.map((code) =>
+        buildVaultReport(vaultId, vaultName, code, locale, generatedAtMs, calendar),
+      ),
     );
     const populated = reports.filter((report) => report.journal.length > 0);
     return populated.length ? populated : reports.slice(0, 1);

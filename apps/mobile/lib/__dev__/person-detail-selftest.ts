@@ -3029,7 +3029,7 @@ async function main() {
   preLink = [tally("local-before-first-link", "old local", 10, 1)];
   priorPeriods = [
     {
-      link: { tab_id: "closed-a", role: "a" },
+      link: { tab_id: "closed-a", role: "a", last_synced_at: 1 },
       entries: [
         shared("a-gave", 2, "a", "a_to_b"),
         shared("a-received", 3, "a", "b_to_a"),
@@ -3038,7 +3038,7 @@ async function main() {
       ],
     },
     {
-      link: { tab_id: "closed-b", role: "b" },
+      link: { tab_id: "closed-b", role: "b", last_synced_at: 1 },
       entries: [
         shared("b-received", 4, "b", "a_to_b"),
         shared("b-gave", 5, "b", "b_to_a"),
@@ -3059,6 +3059,59 @@ async function main() {
     "earlier periods are summary-only, never injected into current money/list",
   );
   assert.ok(words(tree).includes("amount:493"), "flow history cannot change the hero balance");
+  const olderCache = {
+    link: { tab_id: "older-unrestored", last_synced_at: null as number | null },
+    entries: [],
+  };
+  priorPeriods.push(olderCache);
+  tabListeners.forEach((fn) => fn({ relationshipId: "relationship", origin: "pull" }));
+  await flush();
+  pingButton().props.onPress();
+  await flush();
+  assert.equal(
+    shares.length,
+    0,
+    "A synced current ledger cannot publish a bill while an earlier empty cache is unknown",
+  );
+  assert.equal(toasts.at(-1)?.[0], "tab.notDownloaded");
+  assert.ok(
+    words(tree).includes("amount:493"),
+    "Missing historical cache does not hide the known current balance",
+  );
+  olderCache.link.last_synced_at = 1;
+  tabListeners.forEach((fn) => fn({ relationshipId: "relationship", origin: "pull" }));
+  await flush();
+  pingButton().props.onPress();
+  await flush();
+  assert.equal(shares.length, 1);
+  assert.equal(
+    shares[0].args[2][0].balance,
+    493,
+    "The bill preserves the confirmed current balance",
+  );
+  assert.deepEqual(
+    shares[0].args[2][0].entries.map((entry: any) => entry.id),
+    ["current-opening", "current-received"],
+  );
+  assert.deepEqual(
+    shares[0].args[2][0].history.map((group: any) => [
+      group.kind,
+      group.entries.map((entry: any) => entry.id),
+    ]),
+    [
+      ["pre_link", ["local-before-first-link"]],
+      ["closed_shared", ["a-gave", "a-received", "old-opening", "old-rejected"]],
+      ["closed_shared", ["b-received", "b-gave", "old-voided"]],
+      ["closed_shared", []],
+    ],
+    "The sharing layer receives every historical book separately, with original review evidence for its confirmed-only filter",
+  );
+  assert.ok(
+    shares[0].args[2][0].history.slice(1).every((group: any) => Array.isArray(group.settlements)),
+    "Each earlier shared book loads its own clearance markers",
+  );
+  shares[0].resolve(true);
+  await flush();
   let release!: (value: any[]) => void;
   historyReadGate = new Promise((resolve) => {
     release = resolve;

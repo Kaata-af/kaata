@@ -89,6 +89,7 @@ export function buildPersonCurrenciesCsv(statements: readonly PersonStatement[])
   const shared = statements.some(
     (statement) =>
       statement.rows.some((row) => (row.kind === "entry" ? row.entry.tab : row.shared)) ||
+      !!statement.preLinkRows?.length ||
       !!statement.archivedSharedPeriods?.length,
   );
   const tables = statements.map((statement) =>
@@ -106,6 +107,7 @@ function personCsvLines(
   const shared =
     options.shared ??
     (st.rows.some((r) => (r.kind === "entry" ? r.entry.tab : r.shared)) ||
+      !!st.preLinkRows?.length ||
       !!st.archivedSharedPeriods?.length);
   let totals: RecordTotals = { acknowledged: 0, pending: 0, private: 0 };
   const lines: string[] = [
@@ -199,6 +201,39 @@ function personCsvLines(
           : []),
         ...(qamari ? [qamariDate(e.created_at)] : []),
         e.id,
+      ]),
+    );
+  }
+  // The opening already carries this private history. Keep its original
+  // amounts and historical balance without entering any current money column.
+  for (const row of st.preLinkRows ?? []) {
+    const entry = row.kind === "entry" ? row.entry : null;
+    const ms = row.kind === "entry" ? row.entry.created_at : row.ms;
+    lines.push(
+      csvLine([
+        isoDate(ms),
+        shamsiDate(ms),
+        "",
+        "",
+        "",
+        guardText(
+          entry
+            ? noteFor(entry.note, undefined, locale)
+            : tIn(locale, "export.doc.settledOn", {
+                date: formatSettlementDate(ms, locale, calendar),
+              }),
+        ),
+        tIn(locale, "export.record.beforeLink"),
+        code,
+        entry ? recordedAmount(entry) : "",
+        row.balanceAfter,
+        0,
+        "",
+        "",
+        "",
+        ...(entry ? evidenceCells(undefined, locale) : EVIDENCE_KEYS.map(() => "")),
+        ...(qamari ? [qamariDate(ms)] : []),
+        entry?.id ?? "",
       ]),
     );
   }

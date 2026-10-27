@@ -155,6 +155,43 @@ async function main() {
     byId.get("shared")!.currency_balances!.find((row) => row.currency === "EUR")!.tab_unsynced,
     1,
   );
+  await assert.rejects(
+    db.listEntriesForExport("v", "EUR"),
+    /still syncing/,
+    "an unrestored shared account must not become a zero-balance export",
+  );
+  assert.ok(
+    (await db.listEntriesForExport("v", "AFN")).length > 0,
+    "another currency's missing cache does not corrupt this currency's export",
+  );
+  store.prepare("UPDATE tab_links SET last_synced_at=NULL WHERE tab_id='new-usd'").run();
+  await assert.rejects(db.listEntriesForExport("v", "USD"), /still syncing/);
+  store.prepare("UPDATE tab_links SET last_synced_at=500 WHERE tab_id='new-usd'").run();
+  assert.ok((await db.listEntriesForExport("v", "USD")).length > 0);
+  store.prepare("UPDATE tab_links SET last_synced_at=NULL WHERE tab_id='old-usd'").run();
+  await assert.rejects(db.listEntriesForExport("v", "USD"), /still syncing/);
+  await assert.rejects(
+    db.listArchivedSharedPeriodsForExport("shared", "USD", { requireComplete: true }),
+    /still syncing/,
+    "a known latest opening cannot make missing older history look complete",
+  );
+  assert.ok(
+    (await db.listArchivedSharedPeriodsForExport("shared", "USD")).some(
+      (period) => period.link.tab_id === "old-usd" && period.link.last_synced_at === null,
+    ),
+    "the ordinary page can still load while retaining the incomplete-history signal",
+  );
+  store.exec("SAVEPOINT empty_missing_history; DELETE FROM tab_entries WHERE tab_id='old-usd';");
+  try {
+    const missing = await db.listArchivedSharedPeriodsForExport("shared", "USD");
+    assert.ok(
+      missing.some((period) => period.link.tab_id === "old-usd" && period.entries.length === 0),
+      "an empty unrestored cache must remain visible to the bill completeness guard",
+    );
+  } finally {
+    store.exec("ROLLBACK TO empty_missing_history; RELEASE empty_missing_history;");
+  }
+  store.prepare("UPDATE tab_links SET last_synced_at=100 WHERE tab_id='old-usd'").run();
   const totals = Object.fromEntries(
     currencyBalances(people, "AFN").map((row) => [row.currency, row]),
   );

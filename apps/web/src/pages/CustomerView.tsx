@@ -7,8 +7,10 @@ import { isRtlLanguage, languageForLocale, type Lang } from "../lib/language";
 import { brand, ledger } from "../theme";
 import {
   billCurrencyLabel,
+  isMultiCurrencyBill,
   parseSharedLedger,
   type SharedEntry,
+  type SharedHistoryGroup,
   type SharedLedger,
   type SingleCurrencyBill,
 } from "../lib/shared-ledger";
@@ -79,6 +81,11 @@ const LABELS = {
     // load-bearing — an old link must read as a dated bill, never as the
     // current balance.
     billDated: "Bill dated {date}",
+    preLink: "Before this shared account",
+    closedShared: "Earlier shared account",
+    historyBalance: "Historical balance",
+    historyNote:
+      "Historical records only. These amounts are already carried by an opening tally and do not change the current balance.",
   },
   fa: {
     owe: "قرضدار است",
@@ -103,6 +110,11 @@ const LABELS = {
     settledHide: "پنهان کردن سابقهٔ تصفیه‌شده",
     settledOn: "تصفیه شد · {date}",
     billDated: "بل مورخ {date}",
+    preLink: "پیش از این حساب مشترک",
+    closedShared: "حساب مشترک پیشین",
+    historyBalance: "باقی‌ماندهٔ تاریخی",
+    historyNote:
+      "این بخش فقط برای حفظ سابقه است. مبلغ‌ها در ثبت آغازین انتقال یافته‌اند و باقی‌ماندهٔ فعلی را تغییر نمی‌دهند.",
   },
   ps: {
     owe: "پوروړی دی",
@@ -124,6 +136,11 @@ const LABELS = {
     settledHide: "تصفیه شوې مخینه پټه کړئ",
     settledOn: "تصفیه شو · {date}",
     billDated: "د {date} نېټې بل",
+    preLink: "تر دې ګډ حساب مخکې",
+    closedShared: "پخوانی ګډ حساب",
+    historyBalance: "د مخینې پاتې حساب",
+    historyNote:
+      "یوازې د مخینې لپاره دي. دا مبلغونه د پیل په راکړه ورکړه کې لېږدول شوي او اوسنی پاتې حساب نه بدلوي.",
   },
 } as const;
 
@@ -184,6 +201,7 @@ function Row({
   calendar,
   qamariOffset,
   L,
+  historicalBalance,
 }: {
   e: SharedEntry;
   currency: string;
@@ -193,6 +211,7 @@ function Row({
   calendar: BillCalendar;
   qamariOffset: number;
   L: ReturnType<typeof pickLabels>;
+  historicalBalance?: number;
 }) {
   const gave = e.type !== "payment"; // debt → "I gave" (up); payment → "I received" (down)
   const noteRef = useRef<HTMLParagraphElement>(null);
@@ -262,6 +281,15 @@ function Row({
             {fmtDate(e.date, lang, calendar, qamariOffset)}
           </p>
         </div>
+        {historicalBalance != null ? (
+          <p className="mt-1 text-[11px]" style={{ color: C.sub }}>
+            {L.historyBalance}:{" "}
+            <span dir="ltr" style={{ unicodeBidi: "isolate", fontFamily: MONO }}>
+              {historicalBalance < 0 ? "-" : ""}
+              {fmtAmount(historicalBalance, lang)} {currency}
+            </span>
+          </p>
+        ) : null}
         {e.note ? (
           <div className="mt-[5px] flex items-baseline gap-1.5">
             <p
@@ -352,7 +380,7 @@ export function CustomerView() {
 }
 
 export function Ledger({ data }: { data: SharedLedger }) {
-  if (data.v !== 2) return <SingleLedger data={data} />;
+  if (!isMultiCurrencyBill(data)) return <SingleLedger data={data} />;
   return (
     <>
       {data.currencies.map((section, index) => (
@@ -372,6 +400,7 @@ export function Ledger({ data }: { data: SharedLedger }) {
           header={index === 0}
           footer={index === data.currencies.length - 1}
           currencySection
+          history={data.v === 3 ? section.history : undefined}
         />
       ))}
     </>
@@ -383,11 +412,13 @@ function SingleLedger({
   header = true,
   footer = true,
   currencySection = false,
+  history,
 }: {
   data: SingleCurrencyBill;
   header?: boolean;
   footer?: boolean;
   currencySection?: boolean;
+  history?: readonly SharedHistoryGroup[] | null;
 }) {
   const lang = languageForLocale(d.locale) ?? "en";
   const rtl = isRtlLanguage(lang);
@@ -626,6 +657,18 @@ function SingleLedger({
         ) : null}
       </div>
 
+      {history?.map((group, index) => (
+        <HistoricalLedger
+          key={index}
+          group={group}
+          currency={d.currency}
+          lang={lang}
+          calendar={calendar}
+          qamariOffset={qamariOffset}
+          L={L}
+        />
+      ))}
+
       {/* Quiet footer — a single brand line, nothing more. dir="ltr": the
           line is all-English in BOTH locales, and inside the fa page's RTL
           paragraph the bidi algorithm snaps the wordmark's trailing "." to
@@ -639,6 +682,77 @@ function SingleLedger({
           </Link>
         </p>
       ) : null}
+    </section>
+  );
+}
+
+function HistoricalLedger({
+  group,
+  currency,
+  lang,
+  calendar,
+  qamariOffset,
+  L,
+}: {
+  group: SharedHistoryGroup;
+  currency: string;
+  lang: Lang;
+  calendar: BillCalendar;
+  qamariOffset: number;
+  L: ReturnType<typeof pickLabels>;
+}) {
+  const positions = new Map(group.entries.map((entry, index) => [entry.id, index]));
+  const markers = new Map<number, number>();
+  for (const marker of group.settlements ?? []) {
+    const position = marker.after_entry_id == null ? -1 : positions.get(marker.after_entry_id);
+    if (position != null) markers.set(position, marker.date);
+  }
+  // Membership order is frozen in the snapshot. A date edited later must not
+  // move a tally across its saved clearance anchor.
+  let minor = 0;
+  const items: (
+    | { kind: "entry"; entry: SharedEntry; balance: number }
+    | { kind: "marker"; date: number }
+  )[] = [];
+  if (markers.has(-1)) items.push({ kind: "marker", date: markers.get(-1)! });
+  for (const [position, entry] of group.entries.entries()) {
+    minor += (entry.type === "payment" ? -1 : 1) * Math.round(entry.amount * 100);
+    items.push({ kind: "entry", entry, balance: minor / 100 });
+    if (markers.has(position)) items.push({ kind: "marker", date: markers.get(position)! });
+  }
+  const title = group.kind === "pre_link" ? L.preLink : L.closedShared;
+  return (
+    <section className="mt-7" aria-label={title}>
+      <h2 className="px-1 text-[13px] font-semibold" style={{ color: C.sub }}>
+        {title}
+      </h2>
+      <p className="mb-3 mt-1 px-1 text-[12px]" style={{ color: C.sub }}>
+        {L.historyNote}
+      </p>
+      <div className="overflow-hidden rounded-2xl border bg-white" style={{ borderColor: C.line }}>
+        {items.map((item, index) =>
+          item.kind === "entry" ? (
+            <Row
+              key={item.entry.id}
+              e={item.entry}
+              historicalBalance={item.balance}
+              currency={currency}
+              lang={lang}
+              calendar={calendar}
+              qamariOffset={qamariOffset}
+              L={L}
+            />
+          ) : (
+            <div
+              key={`clearance-${index}`}
+              className="border-b px-4 py-[11px] text-center text-[11px] font-medium"
+              style={{ borderColor: C.hair, background: C.bg, color: C.sub }}
+            >
+              {L.settledOn.replace("{date}", fmtDate(item.date, lang, calendar, qamariOffset))}
+            </div>
+          ),
+        )}
+      </div>
     </section>
   );
 }

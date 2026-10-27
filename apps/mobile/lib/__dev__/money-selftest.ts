@@ -560,6 +560,14 @@ async function main(): Promise<void> {
           "../projection": { applyEventMutex: exportMutex },
           "../tabs/db": {
             listTabSettlements: async (tabId: string) => sharedMarkers.get(tabId) ?? [],
+            getTabLink: async (tabId: string) => ({
+              tab_id: tabId,
+              currency: "USD",
+              vault_id: "vault",
+              relationship_id: "r",
+              linked_at: 4000,
+            }),
+            listPreLinkEntries: async () => [],
           },
           "../db": {
             getPerson: async () => ({
@@ -630,6 +638,7 @@ async function main(): Promise<void> {
       }
     }
     const nativeStubs = {
+      "../expo-go": { IS_EXPO_GO: false },
       "expo-localization": { getLocales: () => [{ languageCode: "en" }] },
       "../db": { getAppMeta: async () => null },
       "../calendar": { getEffectiveCalendar: () => "gregorian" },
@@ -1298,6 +1307,156 @@ async function main(): Promise<void> {
       `Cleared by عبدالله احمدزی on ${formatSettlementDate(10_000, "en", "qamari")}`,
       "CSV prose dates respect Qamari",
     );
+
+    // The accepted opening carries 100 given minus 30 received. Preserve
+    // those private originals as evidence without adding them a second time.
+    const historicalDay = new Date(2025, 5, 19, 12).getTime();
+    const opening: Entry = {
+      ...reviewed,
+      id: "carried-opening",
+      amount_afn: 70,
+      note: null,
+      tab: { ...reviewed.tab!, tab_id: "current-shared", status: "accepted", kind: "opening" },
+    };
+    const privateGave: Entry = {
+      ...fixture[0],
+      id: "private-before-gave",
+      type: "debt",
+      amount_afn: 100,
+      note: '=SUGAR <raw> & "note"',
+      // created_at is the edited occurrence date, independent of recording.
+      created_at: historicalDay,
+      updated_at: historicalDay + 86_400_000,
+      tab: undefined,
+    };
+    const privateReceived: Entry = {
+      ...privateGave,
+      id: "private-before-received",
+      type: "payment",
+      amount_afn: 30,
+      note: "received\nsecond line",
+      created_at: historicalDay + 1000,
+    };
+    const preLinkStatement: import("../export/data").PersonStatement = {
+      ...namedStatement,
+      locale: "en",
+      calendar: "gregorian",
+      rows: [{ kind: "entry", entry: opening, balanceAfter: 70 }],
+      balance: 70,
+      sharedTotals: { acknowledged: 70, pending: 0, private: 0 },
+      archivedSharedPeriods: undefined,
+      preLinkRows: [
+        { kind: "entry", entry: privateGave, balanceAfter: 100 },
+        { kind: "entry", entry: privateReceived, balanceAfter: 70 },
+        { kind: "settled", ms: historicalDay + 2000, balanceAfter: 70 },
+      ],
+    };
+    const historyCsv = csvTable(csv.buildPersonCsv(preLinkStatement));
+    assert.equal(historyCsv.net("USD"), 70, "the carried opening is counted exactly once");
+    assert.ok(historyCsv.rows.every((row) => row.length === historyCsv.header.length));
+    for (const [id, recorded, historical] of [
+      ["private-before-gave", "100", "100"],
+      ["private-before-received", "-30", "70"],
+    ]) {
+      const row = historyCsv.row(id);
+      assert.deepEqual(row.slice(2, 5), ["", "", ""], "history never fills current money cells");
+      assert.deepEqual(
+        [
+          "Balance scope",
+          "Currency",
+          "Recorded amount",
+          "Earlier period balance",
+          "Balance contribution",
+        ].map((column) => historyCsv.cell(row, column)),
+        ["Before linking — excluded from current balance", "USD", recorded, historical, "0"],
+      );
+      for (const column of [
+        "Acknowledged net balance",
+        "Pending net balance",
+        "Private net balance",
+      ])
+        assert.equal(historyCsv.cell(row, column), "", "history never updates current subtotals");
+      assert.equal(
+        historyCsv.cell(row, "Shared account ID"),
+        "",
+        "private history invents no shared receipt",
+      );
+    }
+    assert.deepEqual(historyCsv.row(privateGave.id).slice(0, 2), [
+      isoDate(historicalDay),
+      shamsiDate(historicalDay),
+    ]);
+    assert.equal(historyCsv.row(privateGave.id)[5], '\t=SUGAR <raw> & "note"');
+    assert.equal(historyCsv.row(privateReceived.id)[5], "received\nsecond line");
+    const historyMarker = historyCsv.rows.at(-1)!;
+    assert.deepEqual(historyMarker.slice(2, 5), ["", "", ""]);
+    assert.equal(historyCsv.cell(historyMarker, "Earlier period balance"), "70");
+    assert.equal(historyCsv.cell(historyMarker, "Balance contribution"), "0");
+    const forcedHistoryShape = csvTable(
+      csv.buildPersonCsv({ ...preLinkStatement, rows: [], sharedTotals: undefined }),
+    );
+    assert.ok(
+      forcedHistoryShape.header.includes("Recorded amount"),
+      "private history alone selects the explicit noncontributing CSV shape",
+    );
+    assert.equal(forcedHistoryShape.net("USD"), 0);
+    const eurEntry: Entry = { ...privateGave, id: "current-eur", amount_afn: 5, currency: "EUR" };
+    const eurStatement: import("../export/data").PersonStatement = {
+      ...statement,
+      currencyCode: "EUR",
+      currencySymbol: "€",
+      rows: [{ kind: "entry", entry: eurEntry, balanceAfter: 5 }],
+      balance: 5,
+    };
+    const mixedHistory = csvTable(csv.buildPersonCurrenciesCsv([preLinkStatement, eurStatement]));
+    assert.ok(mixedHistory.rows.every((row) => row.length === mixedHistory.header.length));
+    assert.deepEqual(
+      ["carried-opening", "current-eur"].map((id) => {
+        const row = mixedHistory.row(id);
+        return [mixedHistory.cell(row, "Currency"), mixedHistory.cell(row, "Gave")];
+      }),
+      [
+        ["USD", "70"],
+        ["EUR", "5"],
+      ],
+      "current amounts retain their denomination when one currency has private history",
+    );
+    assert.equal(mixedHistory.cell(mixedHistory.row(privateGave.id), "Currency"), "USD");
+    assert.equal(mixedHistory.cell(mixedHistory.row(privateGave.id), "Gave"), "");
+    assert.equal(mixedHistory.cell(mixedHistory.row(privateGave.id), "Balance contribution"), "0");
+    await pdf.renderPersonCurrenciesPdf(
+      [preLinkStatement, eurStatement],
+      "fixture-history-currencies.pdf",
+    );
+    assert.ok(html.at(-1)!.includes("70 $</div>") && html.at(-1)!.includes("5 €</div>"));
+    assert.ok(!html.at(-1)!.includes("75 $"), "PDF keeps each currency's total independent");
+    const exportLanguage = require("../i18n") as typeof import("../i18n");
+    for (const locale of ["en", "fa", "ps"] as const) {
+      const localized = {
+        ...preLinkStatement,
+        locale,
+        calendar: locale === "en" ? ("gregorian" as const) : ("jalali" as const),
+      };
+      await pdf.renderPersonStatementPdf(localized, "fixture-prelink.pdf");
+      const page = html.at(-1)!;
+      const historyStart = page.indexOf(exportLanguage.tIn(locale, "export.preLinkHistory.title"));
+      assert.ok(historyStart >= 0, "private history has its own localized heading");
+      const historyPage = page.slice(historyStart);
+      assert.ok(historyPage.includes(exportLanguage.tIn(locale, "export.preLinkHistory.note")));
+      assert.ok(historyPage.includes("100 USD</span>"));
+      assert.ok(historyPage.includes("30 USD</span>"));
+      assert.ok(
+        historyPage.includes(formatSettlementDate(historicalDay, locale, localized.calendar)),
+      );
+      assert.ok(historyPage.includes("=SUGAR &lt;raw&gt; &amp; &quot;note&quot;"));
+      assert.ok(!historyPage.includes("<raw>"));
+      assert.ok(
+        !historyPage.includes("current-shared"),
+        "historical private rows carry no fabricated receipt evidence",
+      );
+      assert.ok(page.slice(0, historyStart).includes("70 $</div>"));
+      assert.ok(!page.includes("140 $"), "PDF history never doubles the current balance");
+    }
   });
 
   console.log(`\n${passed} money regression groups passed.`);

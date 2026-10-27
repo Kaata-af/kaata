@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os/exec"
@@ -78,9 +79,135 @@ func TestMultiCurrencyBillValidation(t *testing.T) {
 	}
 }
 
+func TestMultiCurrencyBillCurrencyCount(t *testing.T) {
+	for _, count := range []int{155, maxSharedCurrencies, maxSharedCurrencies + 1} {
+		balance := 0.0
+		p := sharePayload{V: 2, Person: "Synthetic customer"}
+		for i := 0; i < count; i++ {
+			code := string([]byte{byte('A' + i/676), byte('A' + (i/26)%26), byte('A' + i%26)})
+			p.Currencies = append(p.Currencies, shareCurrencyLedger{
+				Currency: code, CurrencyCode: code, Balance: &balance, Entries: []shareEntry{},
+			})
+		}
+		err := validateSharePayload(p)
+		if (err == nil) != (count <= maxSharedCurrencies) {
+			t.Fatalf("currency count %d: %v", count, err)
+		}
+	}
+}
+
 type memorySnapshotStore struct {
 	payload []byte
 	writes  int
+}
+
+func historyBill(t *testing.T) sharePayload {
+	t.Helper()
+	p := multiBill(t)
+	p.V = 3
+	for c := range p.Currencies {
+		for e := range p.Currencies[c].Entries {
+			p.Currencies[c].Entries[e].ID = fmt.Sprintf("current-%d-%d", c, e)
+		}
+	}
+	a, b := "before-gave", "old-gave"
+	privateNote, sharedNote, backdatedNote := "Private pre-link tally", "Earlier shared tally", "Backdated after clearance"
+	p.Currencies[0].History = []shareHistory{
+		{Kind: "pre_link", Entries: []shareEntry{
+			{ID: a, Currency: "AFN", Type: "debt", Amount: 20, Date: 100, Note: &privateNote},
+			{ID: "before-paid", Currency: "AFN", Type: "payment", Amount: 10, Date: 200},
+		}, Settlements: []shareHistorySettlement{{AfterEntryID: &a, Date: 150}}},
+		{Kind: "closed_shared", Entries: []shareEntry{
+			{ID: b, Currency: "AFN", Type: "debt", Amount: 90, Date: 3000, Note: &sharedNote},
+			{ID: "old-backdated", Currency: "AFN", Type: "payment", Amount: 50, Date: 1000, Note: &backdatedNote},
+		}, Settlements: []shareHistorySettlement{{AfterEntryID: &b, Date: 3500}, {AfterEntryID: &b, Date: 3600}}},
+	}
+	return p
+}
+
+func TestBillHistoryValidation(t *testing.T) {
+	if err := validateSharePayload(historyBill(t)); err != nil {
+		t.Fatal(err)
+	}
+	for name, mutate := range map[string]func(*sharePayload){
+		"missing id":                func(p *sharePayload) { p.Currencies[0].Entries[0].ID = "" },
+		"duplicate current/history": func(p *sharePayload) { p.Currencies[0].History[0].Entries[0].ID = p.Currencies[0].Entries[0].ID },
+		"foreign currency":          func(p *sharePayload) { p.Currencies[0].History[0].Entries[0].Currency = "USD" },
+		"unknown history":           func(p *sharePayload) { p.Currencies[0].History[0].Kind = "unknown" },
+		"invalid anchor": func(p *sharePayload) {
+			wrong := "current-0-0"
+			p.Currencies[0].History[0].Settlements[0].AfterEntryID = &wrong
+		},
+		"unordered anchors": func(p *sharePayload) {
+			p.Currencies[0].History[0].Settlements = append(p.Currencies[0].History[0].Settlements, shareHistorySettlement{Date: 200})
+		},
+		"old version":    func(p *sharePayload) { p.V = 2 },
+		"future version": func(p *sharePayload) { p.V = 4 },
+		"unsafe running": func(p *sharePayload) {
+			p.Currencies[0].History[0].Entries[0].Amount = 90071992547409.0
+			p.Currencies[0].History[0].Entries[1].Type = "debt"
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			p := historyBill(t)
+			mutate(&p)
+			if err := validateSharePayload(p); err == nil {
+				t.Fatal("accepted invalid history")
+			}
+		})
+	}
+	p := historyBill(t)
+	for i := range p.Currencies {
+		p.Currencies[i].Entries = []shareEntry{}
+		p.Currencies[i].History = nil
+		p.Currencies[i].SettledBoundaries = nil
+		p.Currencies[i].SettledBoundaryMs = nil
+	}
+	p.Currencies[0].History = []shareHistory{{Kind: "pre_link", Entries: []shareEntry{}}}
+	for i := 0; i < maxSharedEntries; i++ {
+		p.Currencies[0].History[0].Entries = append(p.Currencies[0].History[0].Entries, shareEntry{ID: fmt.Sprint(i), Currency: "AFN", Type: "debt", Amount: 0.01, Date: 1})
+	}
+	if err := validateSharePayload(p); err != nil {
+		t.Fatal(err)
+	}
+	p.Currencies[1].Entries = append(p.Currencies[1].Entries, shareEntry{ID: "overflow", Currency: "USD", Type: "debt", Amount: 0.01, Date: 1})
+	if err := validateSharePayload(p); err == nil {
+		t.Fatal("current and history entry counts must share one limit")
+	}
+	p = historyBill(t)
+	p.Currencies[0].SettledBoundaries = make([]int64, maxSharedEntries-6)
+	if err := validateSharePayload(p); err != nil {
+		t.Fatalf("exact aggregate marker bound: %v", err)
+	}
+	p.Currencies[0].SettledBoundaries = append(p.Currencies[0].SettledBoundaries, 0)
+	if err := validateSharePayload(p); err == nil {
+		t.Fatal("current and history markers must share one bound")
+	}
+}
+
+func TestBillHistoryHTTP(t *testing.T) {
+	store := &memorySnapshotStore{}
+	h := NewHandler(store, "https://kaata.af", "https://bill.kaata.af", "https://api.kaata.af")
+	r := chi.NewRouter()
+	r.Post("/v1/shared", h.Create)
+	r.Get("/v3/{token}", h.View)
+	p := historyBill(t)
+	body, _ := json.Marshal(p)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/v1/shared", bytes.NewReader(body)))
+	var result map[string]any
+	_ = json.Unmarshal(w.Body.Bytes(), &result)
+	if w.Code != 200 || result["bill_version"] != float64(3) || result["url"] != "https://bill.kaata.af/v3/synthetic-token" {
+		t.Fatalf("unsafe history handoff: %d %s", w.Code, w.Body.String())
+	}
+	if !bytes.Equal(store.payload, body) {
+		t.Fatal("history snapshot must be frozen without normalization or truncation")
+	}
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/v3/synthetic-token", nil))
+	if w.Code != 200 || !strings.Contains(w.Body.String(), "https://bill.kaata.af/v3/synthetic-token") || !strings.Contains(w.Body.String(), "AFN ؋") {
+		t.Fatal("history page/canonical balance unavailable")
+	}
 }
 
 func (s *memorySnapshotStore) Create(_ context.Context, p []byte) (string, error) {
@@ -100,7 +227,7 @@ func TestMultiCurrencyBillHTTPCompatibility(t *testing.T) {
 	r.Get("/v2/{token}", h.View)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/v1/shared/capabilities", nil))
-	if w.Code != 200 || !strings.Contains(w.Body.String(), `"bill_versions":[1,2]`) {
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"bill_versions":[1,2,3]`) {
 		t.Fatalf("missing explicit v2 capability: %s", w.Body.String())
 	}
 	w = httptest.NewRecorder()
@@ -160,6 +287,7 @@ func TestMultiCurrencyBillInlineRendering(t *testing.T) {
 	start := strings.Index(html, "<script>") + len("<script>")
 	end := strings.Index(html[start:], "</script>") + start
 	script, _ := json.Marshal(html[start:end])
+	historyPayload, _ := json.Marshal(historyBill(t))
 	program := `const assert=require('node:assert/strict'),vm=require('node:vm');
 class Element{
  constructor(){this.children=[];this.listeners={};this._html='';this._text='';this.classList={add:()=>{}};}
@@ -174,7 +302,7 @@ async function run(payload){
  const document={getElementById:id=>ids[id]??null,createElement:()=>new Element(),addEventListener:()=>{}};
  vm.runInNewContext(` + string(script) + `,{document,fetch:()=>Promise.resolve({ok:true,json:()=>Promise.resolve(payload)}),requestAnimationFrame:fn=>fn(),window:{print:()=>{printed=ids.entries.innerHTML;}}});
  await new Promise(resolve=>setImmediate(resolve));
- return {ids,groups:payload.v===2?ids.entries.children.filter(child=>child.className==='rows'):[ids.entries],print:()=>{ids.dlbtn.listeners.click();return printed;}};
+ return {ids,groups:payload.v>=2?ids.entries.children.filter(child=>child.className==='rows'):[ids.entries],histories:ids.entries.children.filter(child=>child.className==='rows historical-rows'),print:()=>{ids.dlbtn.listeners.click();return printed;}};
 }
 (async()=>{const payload=` + multiBillFixture + `;
  const bill=await run(payload);assert.equal(bill.groups.length,3);
@@ -186,6 +314,15 @@ async function run(payload){
  const printed=bill.print();assert.deepEqual(bill.groups.map(rows),[3,3,2]);assert.equal((printed.match(/class="chline"/g)||[]).length,3,'duplicate same-currency boundaries collapse');
  assert.match(printed,/AUD A\$/);assert.ok(!printed.includes('NaN'));
  const old=await run({...payload,...payload.currencies[0],v:1});assert.equal(rows(old.groups[0]),1);old.print();assert.equal(rows(old.groups[0]),3,'v1 print still includes all settled rows');
+ const historical=await run(` + string(historyPayload) + `);
+ assert.deepEqual(historical.groups.map(rows),[1,1,0],'historic books never alter current balance/coherence');
+ assert.deepEqual(historical.histories.map(rows),[2,2],'pre-link and earlier shared books remain complete');
+ assert.equal(historical.ids.txCount.textContent,'6','visible count includes history without adding its money');
+ const prior=historical.histories[1].innerHTML;
+ assert.ok(prior.indexOf('Earlier shared tally')<prior.indexOf('class="chline"')&&prior.indexOf('class="chline"')<prior.indexOf('Backdated after clearance'),'clearance remains at its frozen sequence anchor');
+ assert.equal((prior.match(/class="chline"/g)||[]).length,1,'duplicate adjacent anchors collapse');
+ assert.match(prior,/Historical balance/);assert.match(prior,/40/);assert.match(prior,/AFN ؋/);
+ const historyPrint=historical.print();assert.match(historyPrint,/Private pre-link tally/);assert.match(historyPrint,/Earlier shared tally/);assert.ok(!historyPrint.includes('NaN'));
 })().catch(error=>{console.error(error);process.exitCode=1;});`
 	cmd := exec.Command(node, "--input-type=commonjs")
 	cmd.Stdin = strings.NewReader(program)

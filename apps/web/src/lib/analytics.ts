@@ -90,7 +90,7 @@ export function getSource(): string {
 }
 
 // Redact token-bearing routes before they reach analytics. The invite (/i/:token),
-// shared-ledger (/v/:token or /v2/:token) and mutual-tab (/t/:token) paths carry a secret token
+// shared-ledger (/v/:token, /v2/:token or /v3/:token) and mutual-tab (/t/:token) paths carry a secret token
 // that the backend deliberately stores only as a SHA-256 hash — beaconing the raw
 // path would rest the plaintext token in web_visits next to the visitor's IP,
 // defeating that design and letting anyone with DB/backup access redeem the
@@ -99,7 +99,7 @@ export function getSource(): string {
 // when Caddy's handle_errors falls back to the SPA shell — still a leak then.)
 function safeVisitPath(): string {
   const p = window.location.pathname;
-  const m = p.match(/^\/(i|v|v2|t)\/.+/);
+  const m = p.match(/^\/(i|v|v2|v3|t)\/.+/);
   if (m) return `/${m[1]}/:token`;
   return p + window.location.search;
 }

@@ -27,7 +27,14 @@ const symbols = { AFN: "؋", USD: "$", EUR: "€" };
 const calls: [string, string | undefined][] = [];
 let calendar: "gregorian" | "qamari" = "gregorian";
 let changeCalendarWhileListing = false;
+let linked = false;
+let invalidPreLinkCurrency = false;
+let waitingSharedHistory = false;
 const scoped = (code: string) => ledger.filter((entry) => entry.currency === code);
+const preLinkHistory = [
+  { ...ledger[1], id: "before-gave", type: "debt", amount_afn: 100, created_at: 1500 },
+  { ...ledger[1], id: "before-received", type: "payment", amount_afn: 30, created_at: 1600 },
+];
 const money = require("../money");
 const records = require("../export/shared-record");
 const exportFiles = new Map<string, string>();
@@ -46,8 +53,13 @@ class ExportFile {
   delete() {
     exportFiles.delete(this.uri);
   }
-  writeSync(contents: string) {
-    exportFiles.set(this.uri, contents);
+  writeSync(contents: string, options?: { encoding?: string }) {
+    exportFiles.set(
+      this.uri,
+      options?.encoding === "base64"
+        ? Buffer.from(contents, "base64").toString("latin1")
+        : contents,
+    );
   }
 }
 const data = compileUI("../export/data", {
@@ -71,21 +83,57 @@ const data = compileUI("../export/data", {
       calls.push(["journal", code]);
       return scoped(code);
     },
-    getPerson: async (_id: string, code: string) => ({ id: "p", name: "Customer", currency: code }),
+    getPerson: async (_id: string, code: string) => ({
+      id: "p",
+      name: "Customer",
+      currency: code,
+      tab_id: linked && code === "USD" ? "shared-usd" : null,
+      tab_unsynced: linked && code === "USD" && waitingSharedHistory ? 1 : 0,
+    }),
     listEntries: async (_id: string, code: string) => {
       calls.push(["entries", code]);
+      if (linked && code === "USD")
+        return [
+          ...scoped(code),
+          {
+            ...ledger[1],
+            id: "shared-opening",
+            type: "debt",
+            amount_afn: 70,
+            created_at: 1800,
+            tab: {
+              tab_id: "shared-usd",
+              seq: 1,
+              recorded_at: 1800,
+              status: "accepted",
+              kind: "opening",
+              by: "me",
+              dispute_reason: null,
+              voided: false,
+              local_pending: false,
+              other_label: "Customer",
+            },
+          },
+        ];
       return scoped(code);
     },
     listSettlementBoundaries: async (_id: string, code: string) => {
       calls.push(["settlements", code]);
-      return [];
+      return linked && code === "USD" ? [1550] : [];
     },
     listArchivedSharedPeriodsForExport: async () => [],
   },
   "../jalali": { toJalali, toQamari },
   "../money": money,
   "./shared-record": records,
-  "../tabs/db": {},
+  "../tabs/db": {
+    getTabLink: async () => ({ tab_id: "shared-usd", currency: "USD" }),
+    listPreLinkEntries: async () =>
+      [...preLinkHistory]
+        .reverse()
+        .map((entry) => (invalidPreLinkCurrency ? { ...entry, currency: "AFN" } : entry)),
+    listTabSettlements: async () => [],
+  },
   "../tabs/chapters": {},
   "../projection": { applyEventMutex: { runExclusive: (work: () => unknown) => work() } },
   "../currency-totals": { assertSingleCurrency },
@@ -105,6 +153,9 @@ const csv = compileUI("../export/csv", {
 const pages: string[] = [];
 let moves = 0;
 let duringPrint = () => {};
+let expoGo = false;
+let missingPrintedBytes = false;
+const samplePdfBytes = "%PDF-1.7\nSynthetic export fixture";
 class PrintedFile {
   constructor(public uri: string) {}
   async base64() {
@@ -122,14 +173,25 @@ const pdf = compileUI("../export/pdf", {
   },
   "expo-file-system": { File: PrintedFile },
   "expo-print": {
-    printToFileAsync: async ({ html }: { html: string }) => {
+    printToFileAsync: async ({ html, base64 }: { html: string; base64?: boolean }) => {
       pages.push(html);
       duringPrint();
-      return { uri: "printed" };
+      return {
+        uri: "printed",
+        base64:
+          base64 && !missingPrintedBytes
+            ? Buffer.from(samplePdfBytes).toString("base64")
+            : undefined,
+      };
     },
   },
   "@expo-google-fonts/vazirmatn": { Vazirmatn_400Regular: 1, Vazirmatn_700Bold: 2 },
   "../colors": require("../colors"),
+  "../expo-go": {
+    get IS_EXPO_GO() {
+      return expoGo;
+    },
+  },
   "../format": {
     formatAmount: (value: number) => value.toLocaleString("en-US", { maximumFractionDigits: 8 }),
   },
@@ -179,6 +241,21 @@ function table(contents: string): string[][] {
 }
 
 async function main() {
+  for (const nativeModule of [{}, null]) {
+    const runtime = compileUI("../expo-go", {
+      "expo-modules-core": {
+        requireOptionalNativeModule: (name: string) => {
+          assert.equal(name, "ExpoGo");
+          return nativeModule;
+        },
+      },
+    });
+    assert.equal(
+      runtime.IS_EXPO_GO,
+      nativeModule !== null,
+      "native Go detection works without depending on legacy executionEnvironment metadata",
+    );
+  }
   // SDK 58 File.write() is asynchronous. A returned export must already have
   // its bytes so the immediate share/save call cannot see an empty file.
   const written = data.writeExportFile("currencies.csv", "currency,amount\nUSD,20");
@@ -240,6 +317,13 @@ async function main() {
     "single-currency CSV keeps its existing file contract",
   );
   changeCalendarWhileListing = true;
+  const stableReportDates = await data.buildVaultReports("vault", "Shop", "AFN", "en", 3000);
+  assert.deepEqual(
+    stableReportDates.map((item) => item.calendar),
+    ["gregorian", "gregorian"],
+    "one calendar snapshot keeps all Kaata report date columns aligned",
+  );
+  calendar = "gregorian";
   const stableDates = await data.buildPersonStatements("p", "vault", "fa", 3000);
   assert.deepEqual(
     stableDates.map((item) => item.calendar),
@@ -248,6 +332,39 @@ async function main() {
   );
   changeCalendarWhileListing = false;
   calendar = "gregorian";
+  linked = true;
+  const linkedStatements = await data.buildPersonStatements("p", "vault", "en", 3000);
+  const linkedUsd = linkedStatements.find((statement) => statement.currencyCode === "USD")!;
+  assert.equal(linkedUsd.balance, 50, "the carried opening and current payment count once");
+  assert.deepEqual(linkedUsd.sharedTotals, { acknowledged: 70, pending: 0, private: -20 });
+  assert.deepEqual(
+    linkedUsd.preLinkRows?.map((row) =>
+      row.kind === "entry"
+        ? [row.entry.id, row.entry.created_at, row.balanceAfter]
+        : ["settled", row.ms, row.balanceAfter],
+    ),
+    [
+      ["before-gave", 1500, 100],
+      ["settled", 1550, 100],
+      ["before-received", 1600, 70],
+    ],
+    "private history retains its business dates, chapters and independent running balance",
+  );
+  assert.equal(
+    linkedUsd.rows.filter((row) => row.kind === "entry").length,
+    2,
+    "historical private rows never enter the current ledger",
+  );
+  invalidPreLinkCurrency = true;
+  await assert.rejects(
+    data.buildPersonStatements("p", "vault", "en", 3000),
+    /different currencies/,
+  );
+  invalidPreLinkCurrency = false;
+  waitingSharedHistory = true;
+  await assert.rejects(data.buildPersonStatements("p", "vault", "en", 3000), /still syncing/);
+  waitingSharedHistory = false;
+  linked = false;
   const usdEntry = statements[1].rows.find((row) => row.kind === "entry")!.entry;
   const pending: (typeof statements)[number] = {
     ...statements[1],
@@ -291,6 +408,18 @@ async function main() {
   assert.ok(!html.includes("4,980"), "no converted or cross-currency total appears");
   assert.equal((html.match(/<article/g) ?? []).length, 2);
   assert.equal(moves, 1, "the PDF exists at its target before it is returned");
+  expoGo = true;
+  const goPdf = await pdf.renderPersonCurrenciesPdf(linkedStatements, "customer-expo-go.pdf");
+  assert.equal(
+    exportFiles.get(goPdf.uri),
+    samplePdfBytes,
+    "Expo Go writes real PDF bytes into its scoped cache before returning",
+  );
+  assert.equal(moves, 1, "Expo Go never reads or moves the inaccessible native print URI");
+  missingPrintedBytes = true;
+  await assert.rejects(pdf.renderPersonCurrenciesPdf(statements, "missing-pdf.pdf"), /unavailable/);
+  missingPrintedBytes = false;
+  expoGo = false;
 
   let activeVault = "vault";
   const outputs: any[] = [];

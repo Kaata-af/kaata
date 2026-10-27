@@ -39,6 +39,7 @@ import { File } from "expo-file-system";
 import * as Print from "expo-print";
 import { Vazirmatn_400Regular, Vazirmatn_700Bold } from "@expo-google-fonts/vazirmatn";
 import { colors } from "../colors";
+import { IS_EXPO_GO } from "../expo-go";
 import { formatAmount } from "../format";
 import { tExtraIn } from "../mobile-copy";
 import { tIn, type LocaleCode } from "../i18n";
@@ -262,6 +263,15 @@ ${opts.note ? `<div class="cardNote" dir="auto">${esc(opts.note)}</div>` : ""}
 }
 
 async function printToTarget(html: string, fileName: string): Promise<File> {
+  if (IS_EXPO_GO) {
+    // Expo Go prints outside the experience's scoped FileSystem directory.
+    // Read the bytes through Print, then write only within our own cache.
+    const { base64 } = await Print.printToFileAsync({ html, base64: true });
+    if (!base64) throw new Error("The printed PDF is unavailable. Please try again.");
+    const target = exportFileTarget(fileName);
+    target.writeSync(base64, { encoding: "base64" });
+    return target;
+  }
   const { uri } = await Print.printToFileAsync({ html });
   const printed = new File(uri);
   const target = exportFileTarget(fileName);
@@ -418,12 +428,43 @@ ${period.link.closed_reason === "account_deleted" ? `<p class="recordNotes" dir=
 </tr></thead><tbody>${rows}</tbody></table></section>`;
 }
 
+function preLinkHistoryHtml(st: PersonStatement): string {
+  if (!st.preLinkRows?.length) return "";
+  const { locale, calendar, currencyCode } = st;
+  let index = 0;
+  const rows = st.preLinkRows
+    .map((row) => {
+      if (row.kind === "settled") return settlementRowHtml(row, st);
+      const entry = row.entry;
+      const gave = entry.type === "debt";
+      const cls = gave ? "gave" : "received";
+      return `<tr>
+<td class="idx n">${num(String(++index))}</td>
+<td class="muted" dir="auto">${esc(formatSettlementDate(entry.created_at, locale, calendar))}</td>
+<td class="c"><span class="type ${cls}" dir="auto">${esc(tIn(locale, gave ? "export.col.gave" : "export.col.received"))}</span></td>
+<td class="n amount ${cls}">${num(`${formatAmount(entry.amount_afn)} ${esc(currencyCode)}`)}</td>
+<td class="n bal">${num(fmtSigned(row.balanceAfter))}</td>
+<td class="note" dir="auto">${esc(noteFor(entry.note, undefined, locale) ?? "")}</td>
+</tr>`;
+    })
+    .join("");
+  return `<section class="section">
+<h2 class="sectionTitle" dir="auto">${esc(tIn(locale, "export.preLinkHistory.title"))} — ${esc(currencyCode)}</h2>
+<p class="recordNotes" dir="auto">${esc(tIn(locale, "export.preLinkHistory.note"))}</p>
+<table><thead><tr>
+<th class="n">${esc(tIn(locale, "export.col.num"))}</th><th>${esc(tIn(locale, "export.col.date"))}</th>
+<th class="c">${esc(tIn(locale, "export.col.type"))}</th><th class="n">${esc(tIn(locale, "export.col.amount"))}</th>
+<th class="n">${esc(tIn(locale, "export.record.periodBalance"))}</th><th>${esc(tIn(locale, "export.col.note"))}</th>
+</tr></thead><tbody>${rows}</tbody></table></section>`;
+}
+
 function personStatementBody(st: PersonStatement): string {
   const { locale, calendar, currencySymbol: sym } = st;
   const shopName = st.self?.shop_name ?? st.self?.name ?? "";
   const entries = st.rows.filter((r) => r.kind === "entry");
   const shared =
     st.rows.some((r) => (r.kind === "entry" ? r.entry.tab : r.shared)) ||
+    !!st.preLinkRows?.length ||
     !!st.archivedSharedPeriods?.length;
   const totals = st.sharedTotals ?? recordTotals(entries.map((r) => r.entry));
 
@@ -552,6 +593,7 @@ ${summaryHtml}
 <h2 class="sectionTitle" dir="auto">${esc(tIn(locale, "export.doc.transactionsSection"))}</h2>
 ${tableHtml}
 </section>
+${preLinkHistoryHtml(st)}
 ${(st.archivedSharedPeriods ?? []).map((period) => archivedPeriodHtml(period, st)).join("")}
 </div>`;
 

@@ -176,6 +176,8 @@ type CurrencyPeriod = {
   boundaries: number[];
   tab: TabLink | null;
   sharedSettlements: TabSettlement[];
+  before: Entry[];
+  priorPeriods: Array<{ link: TabLink; entries: Entry[]; settlements: TabSettlement[] }>;
 };
 
 function currencyChapter(period: CurrencyPeriod): Entry[] {
@@ -1061,7 +1063,13 @@ export default function PersonDetailScreen() {
     if (!person || !screenIsCurrent() || pingBusyRef.current || (lang == null && askLangVisible))
       return;
     if (currencyPeriods.length === 0) return;
-    if (currencyPeriods.some((period) => period.person.tab_unsynced === 1)) {
+    if (
+      currencyPeriods.some(
+        (period) =>
+          period.person.tab_unsynced === 1 ||
+          period.priorPeriods.some((prior) => prior.link.last_synced_at == null),
+      )
+    ) {
       toast.push(t("tab.notDownloaded"), "info");
       return;
     }
@@ -1071,6 +1079,14 @@ export default function PersonDetailScreen() {
       currency: period.currency,
       balance: period.person.balance,
       entries: period.entries,
+      history: [
+        { kind: "pre_link" as const, entries: period.before, settledBoundaries: period.boundaries },
+        ...period.priorPeriods.map((prior) => ({
+          kind: "closed_shared" as const,
+          entries: prior.entries,
+          settlements: prior.settlements,
+        })),
+      ],
       // A shared tab carries its own opening balance; the earlier private
       // book's settlement lines do not belong on that statement.
       settled: period.tab
@@ -1225,7 +1241,12 @@ export default function PersonDetailScreen() {
               before,
               refused,
               sharedSettlements,
-              priorPeriods,
+              priorPeriods: await Promise.all(
+                priorPeriods.map(async (prior) => ({
+                  ...prior,
+                  settlements: await listTabSettlements(prior.link.tab_id),
+                })),
+              ),
             };
           }),
         );

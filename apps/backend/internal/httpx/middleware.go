@@ -21,7 +21,7 @@ func Logger(next http.Handler) http.Handler {
 		}
 		// Path only: query strings can contain short-lived socket tickets.
 		path := r.URL.Path
-		for _, prefix := range []string{"/t/", "/v/", "/v2/", "/i/"} {
+		for _, prefix := range []string{"/t/", "/v/", "/v2/", "/v3/", "/v1/shared/", "/i/"} {
 			if strings.HasPrefix(path, prefix) {
 				path = prefix + "[redacted]"
 				break

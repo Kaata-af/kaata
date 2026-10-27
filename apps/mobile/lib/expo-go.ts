@@ -10,12 +10,11 @@
 // error as a red banner the developer has to dismiss on every launch.
 //
 // Gating the require on this flag avoids the throw entirely in Expo Go and is
-// a NO-OP in every real build: dev-client / preview / production all report
-// executionEnvironment "standalone" (or "bare"), so IS_EXPO_GO is false and
-// the native module loads exactly as before.
+// a NO-OP in installed builds, where the ExpoGo native module is absent.
 //
-// This is a leaf module (only depends on expo-constants, a core native module
-// that is always linked and safe to evaluate at the very top of the bundle).
-import Constants from "expo-constants";
+// Match Expo's isRunningInExpoGo check. SDK 58 no longer reliably reports
+// storeClient through Constants. Use the optional lookup so installed builds
+// do not throw, and keep Expo's root barrel out of early bootstrap imports.
+import { requireOptionalNativeModule } from "expo-modules-core";
 
-export const IS_EXPO_GO = Constants.executionEnvironment === "storeClient";
+export const IS_EXPO_GO = requireOptionalNativeModule("ExpoGo") !== null;

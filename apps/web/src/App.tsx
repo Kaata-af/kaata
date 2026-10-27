@@ -58,6 +58,7 @@ export function App() {
           <Route path="/delete-account" element={<DeleteAccount />} />
           <Route path="/v/:token" element={<CustomerView />} />
           <Route path="/v2/:token" element={<CustomerView />} />
+          <Route path="/v3/:token" element={<CustomerView />} />
           {/* Phase 4: vault-invite landing. Public, no auth — purely
               informational, mirrors what's behind the token. Actual accept
               happens in the mobile app via POST /v1/vaults/invites/accept. */}

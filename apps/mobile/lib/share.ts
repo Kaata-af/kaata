@@ -10,10 +10,12 @@ import type { Entry, Self } from "./types";
 import { countsTowardBalance } from "./export/shared-record";
 import { requireCurrencyCode } from "./currency-scope";
 import { toMinorUnits } from "./money";
+import type { TabSettlement } from "./tabs/types";
 
 // The public endpoint rejects an oversized bill as a whole. Never publish a
 // shortened history behind a link described as the complete statement.
 const MAX_SHARED_BILL_ENTRIES = 5_000;
+const MAX_SHARED_BILL_CURRENCIES = 256;
 const SHARE_UPLOAD_TIMEOUT_MS = 8_000;
 
 // Upload a small read-only snapshot of one person's ledger to the backend and
@@ -92,7 +94,7 @@ async function uploadSharedLedger(args: {
 async function uploadSharedSnapshot(
   snapshot: object,
   signal?: AbortSignal,
-  billVersion?: 2,
+  billVersion?: 2 | 3,
 ): Promise<string | null> {
   // Freeze the complete packet before awaiting the backend address/network.
   const body = JSON.stringify(snapshot);
@@ -103,13 +105,13 @@ async function uploadSharedSnapshot(
   const timer = setTimeout(() => controller.abort(), SHARE_UPLOAD_TIMEOUT_MS);
   try {
     const baseUrl = await getBackendUrl();
-    if (billVersion === 2) {
+    if (billVersion) {
       const capability = await fetch(`${baseUrl}/v1/shared/capabilities`, {
         signal: controller.signal,
       });
       if (!capability.ok) return null;
       const supported = (await capability.json()) as { bill_versions?: unknown };
-      if (!Array.isArray(supported.bill_versions) || !supported.bill_versions.includes(2))
+      if (!Array.isArray(supported.bill_versions) || !supported.bill_versions.includes(billVersion))
         return null;
     }
     const res = await fetch(`${baseUrl}/v1/shared`, {
@@ -124,7 +126,7 @@ async function uploadSharedSnapshot(
     // The 2026-07-26 revocation registry (shared_links table + revoke_secret)
     // was deliberately removed; migration 026 dropped the table.
     const response = (await res.json()) as { url?: string; bill_version?: number };
-    if (billVersion === 2 && response.bill_version !== 2) return null;
+    if (billVersion && response.bill_version !== billVersion) return null;
     if (typeof response.url !== "string" || response.url.length === 0) return null;
     return response.url;
   } catch (err) {
@@ -170,6 +172,13 @@ export type WhatsAppCurrencyStatement = {
   settled?: SettledInfo;
   /** An unrestored shared cache cannot be published as a settled balance. */
   pending?: boolean;
+  /** Earlier books are evidence, never another contribution to this balance. */
+  history?: readonly {
+    kind: "pre_link" | "closed_shared";
+    entries: readonly Entry[];
+    settledBoundaries?: readonly number[];
+    settlements?: readonly Pick<TabSettlement, "through_seq" | "settled_at_ms">[];
+  }[];
 };
 
 /** One permanent bill with independent balances and complete currency sections.
@@ -188,6 +197,25 @@ export async function shareKaataCurrenciesViaWhatsApp(
   if (statements.length === 0) throw new Error("No bill currencies");
   const codes = new Set<string>();
   const ids = new Set<string>();
+  const version = statements.some((statement) =>
+    statement.history?.some((group) => group.entries.some(countsTowardBalance)),
+  )
+    ? 3
+    : 2;
+  const billEntry = (entry: Entry, code: string) => {
+    if (!entry.id) throw new Error("Missing bill entry");
+    if (ids.has(entry.id)) throw new Error("Duplicate bill entry");
+    ids.add(entry.id);
+    toMinorUnits(entry.amount_afn);
+    return {
+      ...(version === 3 ? { id: entry.id } : {}),
+      currency: code,
+      type: entry.type,
+      amount: entry.amount_afn,
+      note: entry.note ?? (entry.tab?.kind === "opening" ? tIn(lang, "tab.opening.note") : null),
+      date: entry.created_at,
+    };
+  };
   const sections = statements.map((statement) => {
     const code = requireCurrencyCode(statement.currency);
     if (codes.has(code)) throw new Error("Duplicate bill currency");
@@ -197,17 +225,46 @@ export async function shareKaataCurrenciesViaWhatsApp(
     assertSingleCurrency(statement.entries, code);
     const symbol = getCurrencySymbol(code);
     const currency = symbol === code ? code : `${symbol} ${code}`;
-    const entries = statement.entries.filter(countsTowardBalance).map((entry) => {
-      if (ids.has(entry.id)) throw new Error("Duplicate bill entry");
-      ids.add(entry.id);
-      toMinorUnits(entry.amount_afn);
-      return {
-        currency: code,
-        type: entry.type,
-        amount: entry.amount_afn,
-        note: entry.note ?? (entry.tab?.kind === "opening" ? tIn(lang, "tab.opening.note") : null),
-        date: entry.created_at,
-      };
+    const entries = statement.entries
+      .filter(countsTowardBalance)
+      .map((entry) => billEntry(entry, code));
+    const history = (statement.history ?? []).flatMap((group) => {
+      assertSingleCurrency(group.entries, code);
+      const ordered = group.entries
+        .filter(countsTowardBalance)
+        .slice()
+        .sort(
+          (a, b) =>
+            (group.kind === "closed_shared" ? (a.tab?.seq ?? 0) - (b.tab?.seq ?? 0) : 0) ||
+            a.created_at - b.created_at ||
+            a.id.localeCompare(b.id),
+        );
+      if (!ordered.length) return [];
+      const boundaries =
+        group.kind === "closed_shared"
+          ? [...(group.settlements ?? [])]
+              .sort((a, b) => a.through_seq - b.through_seq)
+              .map((settlement) => ({
+                after_entry_id:
+                  ordered
+                    .filter((entry) => (entry.tab?.seq ?? Infinity) <= settlement.through_seq)
+                    .at(-1)?.id ?? null,
+                date: settlement.settled_at_ms,
+              }))
+          : [...(group.settledBoundaries ?? [])]
+              .sort((a, b) => a - b)
+              .map((date) => ({
+                after_entry_id:
+                  ordered.filter((entry) => entry.created_at <= date).at(-1)?.id ?? null,
+                date,
+              }));
+      return [
+        {
+          kind: group.kind,
+          entries: ordered.map((entry) => billEntry(entry, code)),
+          settlements: boundaries,
+        },
+      ];
     });
     return {
       currency,
@@ -217,13 +274,14 @@ export async function shareKaataCurrenciesViaWhatsApp(
       settled_chapters: statement.settled?.settledChapters ?? 0,
       settled_boundary_ms: statement.settled?.settledBoundaryMs ?? null,
       settled_boundaries: [...(statement.settled?.settledBoundaries ?? [])],
+      ...(history.length ? { history } : {}),
     };
   });
   const calendar = getEffectiveCalendar();
   const qamariOffset = getQamariOffset();
   const accountWith = self?.shop_name ?? self?.name ?? "Kaata";
   const snapshot = {
-    v: 2,
+    v: version,
     shop: accountWith,
     person: person.name,
     locale: lang,
@@ -280,9 +338,29 @@ export async function shareKaataCurrenciesViaWhatsApp(
       lines.push(tIn(lang, "share.settled.cta"));
   }
   onStage?.("preparing");
-  const count = sections.reduce((count, section) => count + section.entries.length, 0);
+  const count = sections.reduce(
+    (count, section) =>
+      count +
+      section.entries.length +
+      (section.history?.reduce((total, group) => total + group.entries.length, 0) ?? 0),
+    0,
+  );
+  const markerCount =
+    version === 3
+      ? sections.reduce(
+          (total, section) =>
+            total +
+            (section.settled_boundaries.length || (section.settled_boundary_ms == null ? 0 : 1)) +
+            (section.history?.reduce((count, group) => count + group.settlements.length, 0) ?? 0),
+          0,
+        )
+      : 0;
   const link =
-    count > MAX_SHARED_BILL_ENTRIES ? null : await uploadSharedSnapshot(snapshot, signal, 2);
+    count > MAX_SHARED_BILL_ENTRIES ||
+    markerCount > MAX_SHARED_BILL_ENTRIES ||
+    sections.length > MAX_SHARED_BILL_CURRENCIES
+      ? null
+      : await uploadSharedSnapshot(snapshot, signal, version);
   if (signal?.aborted) return false;
   lines.push("");
   if (link) lines.push(tIn(lang, "share.fullLedger"), link);

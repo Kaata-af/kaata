@@ -2693,7 +2693,8 @@ async function main(): Promise<void> {
   });
 
   await test("private tally dates create/edit without changing shared-link ownership or balances", async () => {
-    await tabsDb.upsertTabLink(link());
+    // This fixture represents a fully read, empty shared period before close.
+    await tabsDb.upsertTabLink(link({ last_synced_at: 9_000 }));
     await tabsDb.markTabClosedLocally(TAB, 9_000);
     const result = await db.createEntryDetailed(CONTACT, "debt", 45, "dated", {
       occurredAtMs: 1_000,
@@ -2751,7 +2752,14 @@ async function main(): Promise<void> {
     localEntry.run("e1", VAULT, REL, "debt", 500, 1_000, 1_000);
     // Tab one: opening 500 (carried), they pay 200 -> 300. Closed at 3000.
     await tabsDb.upsertTabLink(
-      link({ tab_id: "tab-1", history_order: "1", linked_at: 2_000, closed_at: 3_000, rev: 9 }),
+      link({
+        tab_id: "tab-1",
+        history_order: "1",
+        linked_at: 2_000,
+        closed_at: 3_000,
+        rev: 9,
+        last_synced_at: 3_000,
+      }),
     );
     tabRow.run("t1", "tab-1", 1, 1, "a_to_b", 50_000, "opening", 2_000, 2_000);
     tabRow.run("t2", "tab-1", 2, 2, "b_to_a", 20_000, "entry", 2_500, 2_500);
@@ -2762,7 +2770,13 @@ async function main(): Promise<void> {
     assert.equal((await db.getPerson(CONTACT))?.balance, 370);
     // Re-link: tab two opens carrying 370, then a tally of 100.
     await tabsDb.upsertTabLink(
-      link({ tab_id: "tab-2", history_order: "2", linked_at: 5_000, rev: 7 }),
+      link({
+        tab_id: "tab-2",
+        history_order: "2",
+        linked_at: 5_000,
+        rev: 7,
+        last_synced_at: 6_000,
+      }),
     );
     tabRow.run("t3", "tab-2", 1, 1, "a_to_b", 37_000, "opening", 5_000, 5_000);
     tabRow.run("t4", "tab-2", 2, 2, "a_to_b", 10_000, "entry", 5_500, 5_500);
@@ -3277,8 +3291,21 @@ async function main(): Promise<void> {
   });
 
   await test("parallel currencies keep independent links, openings, receipts and balances", async () => {
-    const afn = link({ tab_id: "afn-tab", currency: "AFN", history_order: "1", linked_at: 2000 });
-    const usd = link({ tab_id: "usd-tab", currency: "USD", history_order: "2", linked_at: 3000 });
+    // Both openings below are complete cached reads, independent by currency.
+    const afn = link({
+      tab_id: "afn-tab",
+      currency: "AFN",
+      history_order: "1",
+      linked_at: 2000,
+      last_synced_at: 4000,
+    });
+    const usd = link({
+      tab_id: "usd-tab",
+      currency: "USD",
+      history_order: "2",
+      linked_at: 3000,
+      last_synced_at: 4000,
+    });
     await tabsDb.upsertTabLink(afn);
     await tabsDb.upsertTabLink(usd);
     assert.equal((await tabsDb.getTabLinkForPerson(CONTACT, "AFN"))?.tab_id, "afn-tab");

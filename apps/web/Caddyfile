@@ -7,7 +7,7 @@
 	encode gzip
 
 	# Security headers on every response. CSP is added per-handle below (the
-	# shared-ledger SSR at /v/* and /v2/* renders a backend inline script the SPA's
+	# shared-ledger SSR at /v/*, /v2/* and /v3/* renders a backend inline script the SPA's
 	# script-src 'self' would block, so it must not inherit the SPA CSP).
 	header {
 		X-Content-Type-Options "nosniff"
@@ -19,7 +19,7 @@
 		-Server
 	}
 
-	# Go-rendered token pages. Bill links use kaata.af/v2/<token> (legacy /v/), and the
+	# Go-rendered token pages. Bills use /v3/<token>, /v2/<token> or legacy /v/, and the
 	# mutual-tab link kaata.af/t/<token>, but both per-link SSR shells (per-person
 	# OG text, plus branded preview images on bills) are rendered by the Go backend —
 	# reachable publicly at api.kaata.af. Proxy each page AND the API its inline
@@ -30,7 +30,7 @@
 	# backend error, handle_errors below serves the SPA instead, so this can never
 	# hard-fail the page (worst case = today's generic preview; the SPA has no
 	# /t/ route, so a tab link then lands on its NotFound).
-	@sharessr path /v/* /v2/* /v1/shared/* /t/* /v1/tabs/*
+	@sharessr path /v/* /v2/* /v3/* /v1/shared/* /t/* /v1/tabs/*
 	handle @sharessr {
 		reverse_proxy https://api.kaata.af {
 			header_up Host api.kaata.af
@@ -83,7 +83,7 @@
 	}
 
 	# Backend unreachable / 5xx → fall back to the SPA shell (its React
-	# /v/:token and /v2/:token views still render the ledger from the API directly).
+	# /v/:token, /v2/:token and /v3/:token views still render bills from the API).
 	handle_errors {
 		root * /srv
 		rewrite * /index.html

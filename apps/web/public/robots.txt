@@ -3,6 +3,7 @@ Allow: /
 Disallow: /i/
 Disallow: /v/
 Disallow: /v2/
+Disallow: /v3/
 Disallow: /t/
 
 # Share-preview crawlers may fetch bills without opening invitations or tabs.
@@ -12,6 +13,7 @@ User-agent: WhatsApp
 Allow: /
 Allow: /v/
 Allow: /v2/
+Allow: /v3/
 Disallow: /i/
 Disallow: /t/
 

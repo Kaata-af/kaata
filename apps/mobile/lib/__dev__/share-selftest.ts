@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import type { Entry } from "../types";
+import { CURRENCIES } from "../currency-catalog";
 
 // Run the actual sharing module; replace only native/storage/network edges.
 // All data and URLs are synthetic. Never opens WhatsApp or talks to a backend.
@@ -430,6 +431,220 @@ async function main() {
     snapshot!.currencies[0].entries.length,
     5000,
     "the complete accepted capacity reaches the server unchanged",
+  );
+
+  const catalogStatements = CURRENCIES.map(({ code }) => ({
+    currency: code,
+    balance: 0.01,
+    entries: [{ ...tally(`catalog-${code}`, code), currency: code, amount_afn: 0.01 }],
+  }));
+  await shareKaataCurrenciesViaWhatsApp(person, null, catalogStatements, "en");
+  assert.deepEqual(
+    snapshot!.currencies.map((section: any) => section.currency_code),
+    CURRENCIES.map(({ code }) => code),
+    "All155 catalog currencies reach one complete bill",
+  );
+  const allCodes = Array.from({ length: 257 }, (_, i) =>
+    String.fromCharCode(65 + Math.floor(i / 676), 65 + (Math.floor(i / 26) % 26), 65 + (i % 26)),
+  );
+  const broadHistory = allCodes.map((currency) => ({ currency, balance: 0, entries: [] }));
+  await shareKaataCurrenciesViaWhatsApp(person, null, broadHistory.slice(0, 256), "en");
+  assert.equal(
+    snapshot!.currencies.length,
+    256,
+    "The exact bound includes historical ISO codes beyond the current catalog",
+  );
+  const beforeTooManyCurrencies = requests.length;
+  await shareKaataCurrenciesViaWhatsApp(person, null, broadHistory, "en");
+  assert.equal(
+    requests.length,
+    beforeTooManyCurrencies,
+    "An oversized currency set makes no partial upload",
+  );
+  const broadFallback = new URL(opens.at(-1)!).searchParams.get("text")!;
+  assert.match(broadFallback, /share.billUnavailable/);
+  assert.doesNotMatch(broadFallback, /share.fullLedger|https:\/\/example.invalid\/v2/);
+
+  const historyRequests: string[] = [];
+  globalThis.fetch = (async (url: unknown, init?: RequestInit) => {
+    historyRequests.push(String(url));
+    if (String(url).endsWith("/capabilities")) return Response.json({ bill_versions: [1, 2, 3] });
+    snapshot = JSON.parse(String(init?.body));
+    return Response.json({
+      bill_version: snapshot!.v,
+      url: "https://example.invalid/v3/full-history",
+    });
+  }) as typeof fetch;
+  const historyStatements = [
+    {
+      currency: "AFN",
+      balance: 40,
+      entries: [
+        {
+          ...tally("current-opening", "", { ...meta, kind: "opening" }),
+          note: null,
+          currency: "AFN",
+          amount_afn: 40,
+        },
+      ],
+      history: [
+        {
+          kind: "pre_link" as const,
+          entries: [
+            {
+              ...tally("private-old", "Private before sharing"),
+              currency: "AFN",
+              amount_afn: 20,
+              created_at: 100,
+            },
+            {
+              ...tally("private-receipt", "Earlier receipt"),
+              currency: "AFN",
+              amount_afn: 10,
+              type: "payment" as const,
+              created_at: 200,
+            },
+          ],
+          settledBoundaries: [150],
+        },
+        {
+          kind: "closed_shared" as const,
+          entries: [
+            {
+              ...tally("shared-backdated", "Backdated after clearance", { ...meta, seq: 2 }),
+              currency: "AFN",
+              type: "payment" as const,
+              amount_afn: 50,
+              created_at: 1000,
+            },
+            {
+              ...tally("shared-old", "Old shared tally", { ...meta, seq: 1 }),
+              currency: "AFN",
+              amount_afn: 90,
+              created_at: 3000,
+            },
+            {
+              ...tally("old-unconfirmed", "Not billed", { ...meta, status: "pending", seq: 3 }),
+              currency: "AFN",
+            },
+          ],
+          settlements: [{ through_seq: 1, settled_at_ms: 3500 }],
+        },
+      ],
+    },
+  ];
+  await shareKaataCurrenciesViaWhatsApp(person, null, historyStatements, "fa");
+  assert.equal(snapshot!.v, 3);
+  assert.equal(
+    snapshot!.currencies[0].balance,
+    40,
+    "Earlier carried books never add to the confirmed current balance",
+  );
+  assert.deepEqual(
+    snapshot!.currencies[0].entries.map((entry: any) => entry.id),
+    ["current-opening"],
+  );
+  assert.deepEqual(
+    snapshot!.currencies[0].history.map((group: any) =>
+      group.entries.map((entry: any) => entry.id),
+    ),
+    [
+      ["private-old", "private-receipt"],
+      ["shared-old", "shared-backdated"],
+    ],
+  );
+  assert.deepEqual(snapshot!.currencies[0].history[0].settlements, [
+    { after_entry_id: "private-old", date: 150 },
+  ]);
+  assert.deepEqual(
+    snapshot!.currencies[0].history[1].settlements,
+    [{ after_entry_id: "shared-old", date: 3500 }],
+    "Shared clearances follow server sequence rather than an editable tally date",
+  );
+  assert.match(new URL(opens.at(-1)!).searchParams.get("text")!, /\/v3\/full-history/);
+  await shareKaataCurrenciesViaWhatsApp(
+    person,
+    null,
+    catalogStatements.map((statement, index) =>
+      index ? statement : { ...statement, history: historyStatements[0].history },
+    ),
+    "en",
+  );
+  assert.equal(snapshot!.v, 3);
+  assert.equal(
+    snapshot!.currencies.length,
+    155,
+    "All155currencies plus complete historical books remain in one versioned bill",
+  );
+  assert.equal(snapshot!.currencies[0].history.length, 2);
+  const beforeHistoryOversize = historyRequests.length;
+  await shareKaataCurrenciesViaWhatsApp(
+    person,
+    null,
+    [{ ...historyStatements[0], entries: capacity }],
+    "en",
+  );
+  assert.equal(
+    historyRequests.length,
+    beforeHistoryOversize,
+    "History rows share the5000total-entry cap with current rows",
+  );
+  assert.match(new URL(opens.at(-1)!).searchParams.get("text")!, /share.billUnavailable/);
+
+  let historyPosts = 0;
+  globalThis.fetch = (async (_url: unknown, init?: RequestInit) => {
+    if (init?.method === "POST") historyPosts++;
+    return Response.json({ bill_versions: [1, 2] });
+  }) as typeof fetch;
+  await shareKaataCurrenciesViaWhatsApp(person, null, historyStatements, "en");
+  assert.equal(historyPosts, 0, "V2-only workers never receive a history bill they would shorten");
+  assert.doesNotMatch(new URL(opens.at(-1)!).searchParams.get("text")!, /share.fullLedger|\/v3\//);
+  globalThis.fetch = (async (url: unknown) =>
+    String(url).endsWith("/capabilities")
+      ? Response.json({ bill_versions: [1, 2, 3] })
+      : Response.json({
+          bill_version: 2,
+          url: "https://example.invalid/v2/old-worker",
+        })) as typeof fetch;
+  await shareKaataCurrenciesViaWhatsApp(person, null, historyStatements, "en");
+  assert.doesNotMatch(
+    new URL(opens.at(-1)!).searchParams.get("text")!,
+    /share.fullLedger|old-worker/,
+  );
+  await assert.rejects(
+    shareKaataCurrenciesViaWhatsApp(
+      person,
+      null,
+      [
+        {
+          ...historyStatements[0],
+          history: [{ kind: "pre_link", entries: historyStatements[0].entries }],
+        },
+      ],
+      "en",
+    ),
+    /Duplicate bill entry/,
+  );
+  await assert.rejects(
+    shareKaataCurrenciesViaWhatsApp(
+      person,
+      null,
+      [
+        {
+          ...historyStatements[0],
+          history: [
+            {
+              kind: "pre_link",
+              entries: [
+                { ...historyStatements[0].entries[0], id: "foreign-history", currency: "USD" },
+              ],
+            },
+          ],
+        },
+      ],
+      "en",
+    ),
+    /different currencies/,
   );
 
   // The older explicit-row API remains scoped to exactly the supplied rows.
