@@ -1,14 +1,16 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
+  FlatList,
   Modal,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
   View,
+  type FlatListInstance,
+  type ScrollViewInstance,
 } from "react-native";
 import { Button } from "./Button";
 import { SheetBackdrop } from "./SheetBackdrop";
@@ -26,16 +28,74 @@ import { icon } from "../lib/tokens";
 import {
   SETTINGS_ROW_MIN_HEIGHT,
   SETTINGS_ROW_PADDING_X,
-  SETTINGS_ROW_PADDING_Y,
   SETTINGS_SHEET_TOP_RADIUS,
 } from "../lib/design-tokens";
 
 const MAX_ENABLED_CURRENCIES = 64;
+type CurrencyOption = { code: string; label: string; symbol: string };
+const currencyKey = (option: CurrencyOption) => option.code;
+
+const CurrencyChoiceRow = memo(function CurrencyChoiceRow(props: {
+  code: string;
+  label: string;
+  symbol: string;
+  checked: boolean;
+  isDefault: boolean;
+  disabled: boolean;
+  isRTL: boolean;
+  defaultLabel: string;
+  defaultActionLabel: string;
+  onToggle: (code: string) => void;
+  onSetDefault: (code: string) => void;
+}) {
+  const symbol = props.symbol.trim();
+  const codeLabel = symbol && symbol !== props.code ? `${props.code} · ${symbol}` : props.code;
+  return (
+    <View style={[styles.choice, rowDir(props.isRTL)]}>
+      <Pressable
+        accessibilityRole="checkbox"
+        accessibilityLabel={`${props.code} ${props.label}${props.isDefault ? `, ${props.defaultLabel}` : ""}`}
+        accessibilityState={{ checked: props.checked, disabled: props.disabled }}
+        disabled={props.disabled}
+        onPress={() => props.onToggle(props.code)}
+        style={[styles.choiceToggle, rowDir(props.isRTL)]}
+      >
+        <Ionicons
+          name={props.checked ? "checkbox" : "square-outline"}
+          size={icon.row}
+          color={props.checked ? colors.actionPrimary : colors.textSubtle}
+        />
+        <View style={styles.choiceText}>
+          <Text style={[styles.label, textDir(props.isRTL)]}>{props.label}</Text>
+          {codeLabel !== props.label ? (
+            <Text style={[styles.code, textDir(props.isRTL)]}>{ltrIsolate(codeLabel)}</Text>
+          ) : null}
+        </View>
+      </Pressable>
+      {props.checked ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={props.defaultActionLabel}
+          accessibilityState={{ selected: props.isDefault, disabled: props.disabled }}
+          disabled={props.disabled}
+          onPress={() => props.onSetDefault(props.code)}
+          style={styles.defaultButton}
+        >
+          <Ionicons
+            name={props.isDefault ? "star" : "star-outline"}
+            size={icon.row}
+            color={props.isDefault ? colors.actionPrimary : colors.textSubtle}
+          />
+        </Pressable>
+      ) : null}
+    </View>
+  );
+});
 
 /** A controlled draft: the parent persists only the explicit Save action. */
 export function EnabledCurrenciesSheet(props: {
   visible: boolean;
-  options: readonly { code: string; label: string; symbol: string }[];
+  options: readonly CurrencyOption[];
   selected: readonly string[];
   defaultCurrency: string;
   onToggle: (code: string) => void;
@@ -49,6 +109,7 @@ export function EnabledCurrenciesSheet(props: {
 }) {
   const [query, setQuery] = useState("");
   const [limitAttempted, setLimitAttempted] = useState(false);
+  const listRef = useRef<FlatListInstance | null>(null);
   const selection = useRef({
     source: props,
     codes: new Set(props.selected),
@@ -77,16 +138,96 @@ export function EnabledCurrenciesSheet(props: {
         ),
     );
   }, [query, locale, props.options]);
-  const atLimit = new Set(props.selected).size >= MAX_ENABLED_CURRENCIES;
+  const selectedCodes = useMemo(() => new Set(props.selected), [props.selected]);
+  const atLimit = selectedCodes.size >= MAX_ENABLED_CURRENCIES;
+  const blocked = props.saving || !!props.conflicted;
+  const toggle = useCallback((code: string) => {
+    const current = latest.current;
+    if (
+      !current.visible ||
+      current.saving ||
+      current.conflicted ||
+      code === selection.current.defaultCurrency
+    )
+      return;
+    const codes = selection.current.codes;
+    if (!codes.has(code) && codes.size >= MAX_ENABLED_CURRENCIES) {
+      setLimitAttempted(true);
+      return;
+    }
+    // Reserve a slot before the parent's next render for rapid taps at the limit.
+    if (codes.has(code)) codes.delete(code);
+    else codes.add(code);
+    setLimitAttempted(false);
+    current.onToggle(code);
+  }, []);
+  const setDefault = useCallback((code: string) => {
+    const current = latest.current;
+    if (
+      !current.visible ||
+      current.saving ||
+      current.conflicted ||
+      !selection.current.codes.has(code) ||
+      selection.current.defaultCurrency === code
+    )
+      return;
+    // Protect the new default before the parent's next render.
+    selection.current.defaultCurrency = code;
+    current.onSetDefault(code);
+  }, []);
+  const defaultLabel = t("vaultSettings.currencies.default");
+  const renderChoice = useCallback(
+    ({ item }: { item: CurrencyOption }) => {
+      const checked = selectedCodes.has(item.code);
+      const isDefault = item.code === props.defaultCurrency;
+      return (
+        <CurrencyChoiceRow
+          code={item.code}
+          label={item.label}
+          symbol={item.symbol}
+          checked={checked}
+          isDefault={isDefault}
+          disabled={blocked || isDefault || (!checked && atLimit)}
+          isRTL={props.isRTL}
+          defaultLabel={defaultLabel}
+          defaultActionLabel={t("vaultSettings.currencies.setDefault", { currency: item.label })}
+          onToggle={toggle}
+          onSetDefault={setDefault}
+        />
+      );
+    },
+    [
+      selectedCodes,
+      props.defaultCurrency,
+      props.isRTL,
+      blocked,
+      atLimit,
+      defaultLabel,
+      locale,
+      toggle,
+      setDefault,
+    ],
+  );
   useEffect(() => {
     setQuery("");
     setLimitAttempted(false);
   }, [props.visible]);
   const { rendered, opacity, position } = useOverlayAnimation(props.visible, 600);
-  const dismiss = () => {
-    if (!props.saving) props.onDismiss();
-  };
+  const dismiss = useCallback(() => {
+    const current = latest.current;
+    if (!current.saving) current.onDismiss();
+  }, []);
   const drag = useSheetDrag(props.visible && !props.saving, position, dismiss);
+  const setListRef = useCallback(
+    (list: FlatListInstance | null) => {
+      listRef.current = list;
+      drag.scrollProps.ref((list?.getNativeScrollRef() ?? null) as ScrollViewInstance | null);
+    },
+    [drag.scrollProps.ref],
+  );
+  useEffect(() => {
+    if (props.visible) listRef.current?.scrollToOffset({ offset: 0, animated: false });
+  }, [props.visible, query]);
   if (!rendered) return null;
   return (
     <Modal visible transparent animationType="none" statusBarTranslucent onRequestClose={dismiss}>
@@ -94,197 +235,110 @@ export function EnabledCurrenciesSheet(props: {
         <SheetBackdrop onDismiss={dismiss} />
       </Animated.View>
       <SearchKeyboardFrame style={styles.frame} pointerEvents="box-none">
-        <View style={styles.frame} pointerEvents="box-none">
-          <Animated.View
-            style={[styles.container, { transform: [{ translateY: drag.translateY }] }]}
-            pointerEvents={props.visible ? "box-none" : "none"}
-          >
-            <SheetSurface {...drag.surfacePanHandlers} maxHeightRatio={0.82} style={styles.sheet}>
-              <SheetHandle panHandlers={drag.panHandlers} onDismiss={dismiss} />
-              <Text style={[styles.title, textDir(props.isRTL)]}>
-                {t("vaultSettings.currencies.label")}
-              </Text>
-              <View style={[styles.search, rowDir(props.isRTL)]}>
-                <Ionicons name="search-outline" size={icon.row} color={colors.textSubtle} />
-                <TextInput
-                  accessibilityLabel={t("vaultSettings.currencies.search")}
-                  placeholder={t("vaultSettings.currencies.search")}
-                  placeholderTextColor={colors.textMuted}
-                  value={query}
-                  onChangeText={setQuery}
-                  editable={!props.saving && !props.conflicted}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  style={[styles.searchInput, textDir(props.isRTL)]}
+        <Animated.View
+          style={[styles.container, { transform: [{ translateY: drag.translateY }] }]}
+          pointerEvents={props.visible ? "box-none" : "none"}
+        >
+          <SheetSurface {...drag.surfacePanHandlers} maxHeightRatio={0.82} style={styles.sheet}>
+            <SheetHandle panHandlers={drag.panHandlers} onDismiss={dismiss} />
+            <Text style={[styles.title, textDir(props.isRTL)]}>
+              {t("vaultSettings.currencies.label")}
+            </Text>
+            <View style={[styles.search, rowDir(props.isRTL)]}>
+              <Ionicons name="search-outline" size={icon.row} color={colors.textSubtle} />
+              <TextInput
+                accessibilityLabel={t("vaultSettings.currencies.search")}
+                placeholder={t("vaultSettings.currencies.search")}
+                placeholderTextColor={colors.textMuted}
+                value={query}
+                onChangeText={setQuery}
+                editable={!props.saving && !props.conflicted}
+                autoCapitalize="none"
+                autoCorrect={false}
+                style={[styles.searchInput, textDir(props.isRTL)]}
+              />
+            </View>
+            <FlatList
+              {...drag.scrollProps}
+              ref={setListRef}
+              data={choices}
+              renderItem={renderChoice}
+              keyExtractor={currencyKey}
+              extraData={props.selected}
+              style={styles.choices}
+              keyboardShouldPersistTaps="always"
+              bounces={false}
+              initialNumToRender={10}
+              maxToRenderPerBatch={8}
+              windowSize={5}
+              removeClippedSubviews={false}
+              ListHeaderComponent={
+                <>
+                  {props.error ? (
+                    <Text style={[styles.error, textDir(props.isRTL)]} accessibilityRole="alert">
+                      {props.error}
+                    </Text>
+                  ) : null}
+                  <Text style={[styles.hint, textDir(props.isRTL)]}>
+                    {t("vaultSettings.currencies.hint")}
+                  </Text>
+                  {atLimit || limitAttempted ? (
+                    <Text
+                      style={[styles.hint, textDir(props.isRTL)]}
+                      accessibilityRole="alert"
+                      accessibilityLiveRegion="polite"
+                    >
+                      {t("vaultSettings.currencies.limit")}
+                    </Text>
+                  ) : null}
+                </>
+              }
+              ListEmptyComponent={
+                <Text style={[styles.hint, textDir(props.isRTL)]}>{t("currency.noMatch")}</Text>
+              }
+            />
+            <View style={[styles.footer, rowDir(props.isRTL)]}>
+              <View style={styles.button}>
+                <Button
+                  label={t("common.cancel")}
+                  variant="secondary"
+                  fullWidth
+                  disabled={props.saving}
+                  onPress={dismiss}
                 />
               </View>
-              <ScrollView
-                {...drag.scrollProps}
-                style={styles.choices}
-                keyboardShouldPersistTaps="always"
-                bounces={false}
-              >
-                {props.error ? (
-                  <Text style={[styles.error, textDir(props.isRTL)]} accessibilityRole="alert">
-                    {props.error}
-                  </Text>
-                ) : null}
-                <Text style={[styles.hint, textDir(props.isRTL)]}>
-                  {t("vaultSettings.currencies.hint")}
-                </Text>
-                {atLimit || limitAttempted ? (
-                  <Text
-                    style={[styles.hint, textDir(props.isRTL)]}
-                    accessibilityRole="alert"
-                    accessibilityLiveRegion="polite"
-                  >
-                    {t("vaultSettings.currencies.limit")}
-                  </Text>
-                ) : null}
-                {choices.length === 0 ? (
-                  <Text style={[styles.hint, textDir(props.isRTL)]}>{t("currency.noMatch")}</Text>
-                ) : null}
-                {choices.map((option) => {
-                  const checked = props.selected.includes(option.code);
-                  const isDefault = option.code === props.defaultCurrency;
-                  const symbol = option.symbol.trim();
-                  const codeLabel =
-                    symbol && symbol !== option.code ? `${option.code} · ${symbol}` : option.code;
-                  const disabled =
-                    props.saving || props.conflicted || isDefault || (!checked && atLimit);
-                  return (
-                    <View key={option.code} style={[styles.choice, rowDir(props.isRTL)]}>
-                      <Pressable
-                        accessibilityRole="checkbox"
-                        accessibilityLabel={`${option.code} ${option.label}${isDefault ? `, ${t("vaultSettings.currencies.default")}` : ""}`}
-                        accessibilityState={{ checked, disabled: !!disabled }}
-                        disabled={!!disabled}
-                        onPress={() => {
-                          const current = latest.current;
-                          if (
-                            !current.visible ||
-                            current.saving ||
-                            current.conflicted ||
-                            option.code === selection.current.defaultCurrency
-                          )
-                            return;
-                          const codes = selection.current.codes;
-                          if (!codes.has(option.code) && codes.size >= MAX_ENABLED_CURRENCIES) {
-                            setLimitAttempted(true);
-                            return;
-                          }
-                          // Reserve the slot before the parent's next render so two
-                          // rapid taps at 63 cannot forward a 65th choice.
-                          if (codes.has(option.code)) codes.delete(option.code);
-                          else codes.add(option.code);
-                          setLimitAttempted(false);
-                          current.onToggle(option.code);
-                        }}
-                        style={[styles.choiceToggle, rowDir(props.isRTL)]}
-                      >
-                        <Ionicons
-                          name={checked ? "checkbox" : "square-outline"}
-                          size={icon.row}
-                          color={checked ? colors.actionPrimary : colors.textSubtle}
-                        />
-                        <View style={styles.choiceText}>
-                          <Text style={[styles.label, textDir(props.isRTL)]}>{option.label}</Text>
-                          {codeLabel !== option.label ? (
-                            <Text style={[styles.code, textDir(props.isRTL)]}>
-                              {ltrIsolate(codeLabel)}
-                            </Text>
-                          ) : null}
-                          {isDefault ? (
-                            <Text style={[styles.defaultHint, textDir(props.isRTL)]}>
-                              {t("vaultSettings.currencies.default")}
-                            </Text>
-                          ) : null}
-                        </View>
-                      </Pressable>
-                      {checked ? (
-                        <Pressable
-                          accessibilityRole="button"
-                          accessibilityLabel={t("vaultSettings.currencies.setDefault", {
-                            currency: option.label,
-                          })}
-                          accessibilityState={{
-                            selected: isDefault,
-                            disabled: !!(props.saving || props.conflicted || isDefault),
-                          }}
-                          disabled={!!(props.saving || props.conflicted || isDefault)}
-                          onPress={() => {
-                            const current = latest.current;
-                            if (
-                              !current.visible ||
-                              current.saving ||
-                              current.conflicted ||
-                              !selection.current.codes.has(option.code) ||
-                              selection.current.defaultCurrency === option.code
-                            )
-                              return;
-                            // Protect the new default immediately, including taps
-                            // received before the parent's next render.
-                            selection.current.defaultCurrency = option.code;
-                            current.onSetDefault(option.code);
-                          }}
-                          style={styles.defaultButton}
-                        >
-                          <Ionicons
-                            name={isDefault ? "star" : "star-outline"}
-                            size={icon.row}
-                            color={isDefault ? colors.actionPrimary : colors.textSubtle}
-                          />
-                        </Pressable>
-                      ) : null}
-                    </View>
-                  );
-                })}
-              </ScrollView>
-              <View style={styles.footer}>
-                <View style={[styles.buttons, rowDir(props.isRTL)]}>
-                  <View style={styles.button}>
-                    <Button
-                      label={t("common.cancel")}
-                      variant="secondary"
-                      fullWidth
-                      disabled={props.saving}
-                      onPress={dismiss}
-                    />
-                  </View>
-                  <View style={styles.button}>
-                    <Button
-                      label={t("vaultSettings.name.save")}
-                      fullWidth
-                      loading={props.saving}
-                      disabled={
-                        props.saving ||
-                        props.conflicted ||
-                        props.selected.length === 0 ||
-                        props.selected.length > MAX_ENABLED_CURRENCIES
-                      }
-                      onPress={() => {
-                        if (
-                          !props.saving &&
-                          !props.conflicted &&
-                          props.selected.length > 0 &&
-                          props.selected.length <= MAX_ENABLED_CURRENCIES
-                        )
-                          props.onSave();
-                      }}
-                    />
-                  </View>
-                </View>
+              <View style={styles.button}>
+                <Button
+                  label={t("vaultSettings.name.save")}
+                  fullWidth
+                  loading={props.saving}
+                  disabled={
+                    props.saving ||
+                    props.conflicted ||
+                    props.selected.length === 0 ||
+                    props.selected.length > MAX_ENABLED_CURRENCIES
+                  }
+                  onPress={() => {
+                    if (
+                      !props.saving &&
+                      !props.conflicted &&
+                      props.selected.length > 0 &&
+                      props.selected.length <= MAX_ENABLED_CURRENCIES
+                    )
+                      props.onSave();
+                  }}
+                />
               </View>
-            </SheetSurface>
-          </Animated.View>
-        </View>
+            </View>
+          </SheetSurface>
+        </Animated.View>
       </SearchKeyboardFrame>
     </Modal>
   );
 }
 const styles = StyleSheet.create({
-  frame: { flex: 1, minHeight: 0 },
-  container: { position: "absolute", left: 0, right: 0, bottom: 0, maxHeight: "100%" },
+  frame: { flex: 1, minHeight: 0, justifyContent: "flex-end" },
+  container: { flexShrink: 1, maxHeight: "100%" },
   sheet: {
     backgroundColor: colors.bgDefault,
     borderTopLeftRadius: SETTINGS_SHEET_TOP_RADIUS,
@@ -298,21 +352,20 @@ const styles = StyleSheet.create({
     fontSize: 17,
     color: colors.textEmphasis,
     paddingHorizontal: SETTINGS_ROW_PADDING_X,
-    paddingTop: 8,
   },
   hint: {
     fontFamily: fonts.sansRegular,
     fontSize: 13,
     color: colors.textSubtle,
     paddingHorizontal: SETTINGS_ROW_PADDING_X,
-    paddingTop: 8,
-    paddingBottom: 12,
+    paddingTop: 4,
+    paddingBottom: 8,
   },
   choices: { flexShrink: 1, minHeight: 0 },
   search: {
     marginHorizontal: SETTINGS_ROW_PADDING_X,
-    marginTop: 12,
-    marginBottom: 8,
+    marginTop: 8,
+    marginBottom: 4,
     alignItems: "center",
     gap: 8,
     borderWidth: 1,
@@ -336,7 +389,7 @@ const styles = StyleSheet.create({
   choiceToggle: {
     flex: 1,
     minWidth: 0,
-    paddingVertical: SETTINGS_ROW_PADDING_Y,
+    paddingVertical: 10,
     alignItems: "center",
     gap: 12,
   },
@@ -355,18 +408,13 @@ const styles = StyleSheet.create({
     color: colors.textSubtle,
     marginTop: 2,
   },
-  defaultHint: {
-    fontFamily: fonts.sansRegular,
-    fontSize: 12,
-    color: colors.textSubtle,
-    marginTop: 3,
-  },
   footer: {
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: colors.borderSubtle,
-    padding: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    gap: 12,
   },
-  buttons: { gap: 12 },
   button: { flex: 1 },
   error: {
     fontFamily: fonts.sansRegular,

@@ -19,7 +19,7 @@
 import { KAATA_DEFAULT_ROUTE_ID } from "../../lib/credit-policy";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Keyboard,
@@ -87,7 +87,7 @@ import {
 } from "../../lib/export";
 import { bidiIsolate, rowDir, textDir, useIsRTL } from "../../lib/direction";
 import { fonts } from "../../lib/fonts";
-import { t } from "../../lib/i18n";
+import { getLocale, t } from "../../lib/i18n";
 import { icon } from "../../lib/tokens";
 import { useVaultPermission, useVaultRole } from "../../lib/use-vault-role";
 import { SOLO_STORE_MODE } from "../../constants/env";
@@ -114,10 +114,12 @@ type CurrencyChoicesDraft = {
 /** Vault-summary glyph well. Named so its radius is size/2 rather than a
  *  literal 22 that can drift from the diameter (lib/tokens rule 3). */
 const AVATAR_SIZE = 44;
+const CATALOG_CURRENCY_CODES = new Set(CURRENCIES.map((item) => item.code));
 
 export default function VaultSettingsScreen() {
   const router = useRouter();
   const isRTL = useIsRTL();
+  const locale = getLocale();
   const toast = useToast();
   // D-ARCHIVED-VAULT-FILTER: optional `?id=<vaultId>` route param so the
   // archived-restore affordance can target a specific (non-active) vault.
@@ -151,6 +153,34 @@ export default function VaultSettingsScreen() {
   const [enabledCurrencies, setEnabledCurrencies] = useState<string[]>(["AFN"]);
   const [currencyChoicesDraft, setCurrencyChoicesDraft] = useState<CurrencyChoicesDraft | null>(
     null,
+  );
+  const historicalCurrencyKey = JSON.stringify(
+    [
+      ...new Set(
+        [
+          ...enabledCurrencies,
+          currency,
+          vault?.currency,
+          ...(currencyChoicesDraft?.selected ?? []),
+          currencyChoicesDraft?.defaultCurrency,
+        ].filter((code): code is string => !!code && !CATALOG_CURRENCY_CODES.has(code)),
+      ),
+    ].sort(),
+  );
+  const currencyOptions = useMemo(
+    () => [
+      ...CURRENCIES.map((item) => ({
+        code: item.code,
+        label: getCurrencyName(item.code),
+        symbol: item.symbol,
+      })),
+      ...(JSON.parse(historicalCurrencyKey) as string[]).map((code) => ({
+        code,
+        label: getCurrencyName(code),
+        symbol: code,
+      })),
+    ],
+    [locale, historicalCurrencyKey],
   );
   const currencyChoicesRef = useRef<CurrencyChoicesDraft | null>(null);
   const currencyChoicesSequence = useRef(0);
@@ -1154,13 +1184,7 @@ export default function VaultSettingsScreen() {
           currencyFocused.current &&
           currencyLoadedVault.current === currencyChoicesDraft.vaultId
         }
-        options={[...new Set([...CURRENCIES.map((item) => item.code), ...enabledCurrencies])].map(
-          (code) => ({
-            code,
-            label: getCurrencyName(code),
-            symbol: CURRENCIES.find((item) => item.code === code)?.symbol ?? code,
-          }),
-        )}
+        options={currencyOptions}
         selected={currencyChoicesDraft?.selected ?? enabledCurrencies}
         defaultCurrency={currencyChoicesDraft?.defaultCurrency ?? currency}
         saving={savingCurrency}

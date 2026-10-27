@@ -61,7 +61,7 @@ import {
 import { getAppMeta, getLocalSelf, setAppMeta } from "../../lib/db";
 import { bidiIsolate, rowDir, textDir, useIsRTL } from "../../lib/direction";
 import { appendShopProfileUpdated } from "../../lib/event-log";
-import { t } from "../../lib/i18n";
+import { getLocale, t } from "../../lib/i18n";
 import { ensureDeviceKey, getDevicePubkey } from "../../lib/mesh/device-key";
 import { gutter, icon, radius, space, typography } from "../../lib/tokens";
 import { buildLocalAccountId } from "../../lib/trust/account-id";
@@ -78,6 +78,16 @@ export default function VaultNewScreen() {
   const router = useRouter();
   const toast = useToast();
   const isRTL = useIsRTL();
+  const locale = getLocale();
+  const currencyOptions = useMemo(
+    () =>
+      CURRENCIES.map((item) => ({
+        code: item.code,
+        label: getCurrencyName(item.code),
+        symbol: item.symbol,
+      })),
+    [locale],
+  );
 
   // UX-fix #1 (Phase 7 finalize): /vault/new?forced=1 is the
   // archive-the-last-vault forced-create entry point. In that mode the
@@ -577,11 +587,7 @@ export default function VaultNewScreen() {
 
       <EnabledCurrenciesSheet
         visible={enabledDraft !== null}
-        options={CURRENCIES.map((item) => ({
-          code: item.code,
-          label: getCurrencyName(item.code),
-          symbol: item.symbol,
-        }))}
+        options={currencyOptions}
         selected={enabledDraft?.enabledCurrencies ?? enabledCurrencies}
         defaultCurrency={enabledDraft?.currency ?? currency}
         onSetDefault={(code) => {

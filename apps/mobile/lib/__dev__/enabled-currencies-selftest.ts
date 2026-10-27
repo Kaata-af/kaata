@@ -8,8 +8,8 @@ import { Mutex } from "../util/mutex";
 import { CURRENCIES, searchCurrencies } from "../currency-catalog";
 import { ltrIsolate } from "../bidi";
 
-function defaultAction(tree: any, code: string) {
-  const row = nodes(tree).find(
+function currencyRow(tree: any, code: string) {
+  const mounted = nodes(tree).find(
     (node) =>
       node.type === "View" &&
       [node.props.children]
@@ -20,6 +20,20 @@ function defaultAction(tree: any, code: string) {
             child.props.accessibilityLabel.startsWith(code + " "),
         ),
   );
+  if (mounted) return mounted;
+  // Native virtualization mounts a requested offscreen item on demand. Keep
+  // the normal test tree bounded while exercising that item's real handlers.
+  const list = nodes(tree).find((node) => node.type === "FlatList");
+  const index = list?.props.data.findIndex((item: any) => item.code === code) ?? -1;
+  return index < 0 ? undefined : list!.props.renderItem({ item: list!.props.data[index], index });
+}
+
+function currencyCheckbox(tree: any, code: string) {
+  return nodes(currencyRow(tree, code)).find((node) => node.props.accessibilityRole === "checkbox");
+}
+
+function defaultAction(tree: any, code: string) {
+  const row = currencyRow(tree, code);
   return [row?.props.children]
     .flat()
     .find((child: any) => child?.props?.accessibilityRole === "button");
@@ -179,6 +193,70 @@ function fixture() {
   }) as typeof import("../vault-router");
   const hooks = uiHooks();
   const sheetHooks = uiHooks();
+  const rowRenders = new Map<string, number>();
+  const memoCache = new Map<any, Map<string, { props: any; tree: any }>>();
+  const memo = (component: (props: any) => any, compare?: (before: any, next: any) => boolean) => ({
+    component,
+    compare:
+      compare ??
+      ((before: any, next: any) =>
+        Object.keys(before).length === Object.keys(next).length &&
+        Object.keys(before).every((key) => Object.is(before[key], next[key]))),
+  });
+  const renderRow = (element: any, key: string): any => {
+    if (!element?.type?.component) return element;
+    const descriptor = element.type;
+    const cached = memoCache.get(descriptor) ?? new Map();
+    memoCache.set(descriptor, cached);
+    const previous = cached.get(key);
+    if (previous && descriptor.compare(previous.props, element.props)) return previous.tree;
+    rowRenders.set(key, (rowRenders.get(key) ?? 0) + 1);
+    const result = descriptor.component(element.props);
+    cached.set(key, { props: element.props, tree: result });
+    return result;
+  };
+  const nativeScroll = { native: "currency-scroll" };
+  let bridgedScroll: unknown;
+  const listResets: unknown[] = [];
+  const nativeList = {
+    getNativeScrollRef: () => nativeScroll,
+    scrollToOffset: (options: unknown) => listResets.push(options),
+  };
+  const dragScrollProps = {
+    ref: (value: unknown) => {
+      bridgedScroll = value;
+    },
+  };
+  let listRef: ((list: any) => void) | undefined;
+  const materializeList = (node: any): any => {
+    if (Array.isArray(node)) return node.map(materializeList);
+    if (!node?.props) return node;
+    if (node.type !== "FlatList")
+      return { ...node, props: { ...node.props, children: materializeList(node.props.children) } };
+    const props = node.props;
+    if (listRef !== props.ref) {
+      listRef?.(null);
+      listRef = props.ref;
+      listRef?.(nativeList);
+    }
+    const renderItem = (info: any) =>
+      renderRow(props.renderItem(info), props.keyExtractor(info.item));
+    return {
+      ...node,
+      props: {
+        ...props,
+        renderItem,
+        children: [
+          props.ListHeaderComponent,
+          ...(props.data.length
+            ? props.data
+                .slice(0, props.initialNumToRender)
+                .map((item: any, index: number) => renderItem({ item, index }))
+            : [props.ListEmptyComponent]),
+        ],
+      },
+    };
+  };
   const surfaceModule = compileUI(
     "../../components/SheetSurface",
     {
@@ -197,14 +275,14 @@ function fixture() {
     { __DEV__: false },
   );
   const Sheet = compileUI("../../components/EnabledCurrenciesSheet", {
-    react: sheetHooks.react,
+    react: { ...sheetHooks.react, memo },
     "@expo/vector-icons": { Ionicons: "Ionicons" },
     "react/jsx-runtime": { jsx, jsxs: jsx },
     "react-native": {
       Animated: { View: "AnimatedView" },
       Modal: "Modal",
       Pressable: "Pressable",
-      ScrollView: "ScrollView",
+      FlatList: "FlatList",
       StyleSheet: { create: (s: any) => s, absoluteFill: {}, hairlineWidth: 1 },
       Text: "Text",
       TextInput: "TextInput",
@@ -225,7 +303,7 @@ function fixture() {
         translateY: 0,
         surfacePanHandlers: {},
         panHandlers: {},
-        scrollProps: {},
+        scrollProps: dragScrollProps,
       }),
     },
     "../lib/colors": require("../colors"),
@@ -317,6 +395,7 @@ function fixture() {
     },
     "../../lib/fonts": { fonts: {} },
     "../../lib/i18n": {
+      getLocale: () => "en",
       t: (key: string, args?: Record<string, unknown>) =>
         args ? `${key}:${JSON.stringify(args)}` : key,
     },
@@ -329,14 +408,18 @@ function fixture() {
   });
   const screen = compileUI("../../app/vault/settings", mocks).default;
   const sheetProps = () => nodes(hooks.tree).find((node) => node.type === Sheet)!.props;
-  const renderSheet = (props: any) => sheetHooks.render(() => Sheet(props));
+  const renderSheet = (props: any) => {
+    const tree = sheetHooks.render(() => Sheet(props));
+    if (!tree) {
+      listRef?.(null);
+      listRef = undefined;
+      memoCache.clear();
+      return null;
+    }
+    return materializeList(tree);
+  };
   const sheetTree = () => renderSheet(sheetProps());
-  const checkbox = (code: string) =>
-    nodes(sheetTree()).find(
-      (node) =>
-        node.props.accessibilityRole === "checkbox" &&
-        node.props.accessibilityLabel.startsWith(code + " "),
-    )!;
+  const checkbox = (code: string) => currencyCheckbox(sheetTree(), code)!;
   const button = (label: string) =>
     nodes(sheetTree()).find((node) => node.type === "Button" && node.props.label === label)!;
   const field = () =>
@@ -360,6 +443,10 @@ function fixture() {
     sheetMounted: () => nodes(hooks.tree).some((node) => node.type === Sheet),
     sheetTree,
     renderSheet,
+    rowRenders,
+    listResets,
+    nativeScroll,
+    bridgedScroll: () => bridgedScroll,
     keyboardDismisses: () => keyboardDismisses,
     setViewport: (height: number, top: number, fontScale: number) => {
       viewport = { height, top, fontScale };
@@ -431,11 +518,31 @@ function checkSearchAndLimit() {
     tree = picker.renderSheet(props);
   };
   const checks = () => nodes(tree).filter((node) => node.props.accessibilityRole === "checkbox");
-  const checkbox = (code: string) =>
-    checks().find((node) => node.props.accessibilityLabel.startsWith(code + " "))!;
-  assert.equal(checks().length, 156, "all catalog and existing historical options are available");
+  const checkbox = (code: string) => currencyCheckbox(tree, code)!;
+  const list = () => nodes(tree).find((node) => node.type === "FlatList")!;
+  assert.equal(
+    list().props.data.length,
+    156,
+    "all catalog and existing historical options remain available",
+  );
+  assert.equal(checks().length, 10, "the initial native window mounts a bounded set of real rows");
+  assert.equal(
+    picker.bridgedScroll(),
+    picker.nativeScroll,
+    "sheet dragging tracks the native list host",
+  );
+  const retainedListRef = list().props.ref;
   assert.equal(nodes(tree).find((node) => node.type === "TextInput")!.props.autoFocus, undefined);
   search("Canada");
+  assert.equal(
+    list().props.ref,
+    retainedListRef,
+    "filtering retains the native scroll ref callback",
+  );
+  assert.ok(
+    picker.listResets.length > 0,
+    "changing the query returns the native list to its first result",
+  );
   assert.ok(checkbox("CAD"), "country aliases find currencies in the enabled-currency list");
   assert.equal(checkbox("AFN"), undefined, "nonmatching default is filtered visually only");
   assert.equal(props.selected, initialSelection);
@@ -454,7 +561,12 @@ function checkSearchAndLimit() {
   props = { ...props, visible: true };
   tree = picker.renderSheet(props);
   assert.equal(nodes(tree).find((node) => node.type === "TextInput")!.props.value, "");
-  assert.equal(checks().length, 156, "reopening restores the full list without changing the draft");
+  assert.equal(
+    list().props.data.length,
+    156,
+    "reopening restores the complete choices without changing the draft",
+  );
+  assert.equal(checks().length, 10);
   assert.equal(
     defaultAction(tree, "EUR"),
     undefined,
@@ -556,6 +668,47 @@ function checkSearchAndLimit() {
 }
 
 async function main() {
+  {
+    const virtual = fixture();
+    let selected = ["AFN", "USD"];
+    let props = {
+      visible: true,
+      options: CURRENCIES.map((item) => ({
+        code: item.code,
+        label: item.name,
+        symbol: item.symbol,
+      })),
+      selected,
+      defaultCurrency: "AFN",
+      saving: false,
+      isRTL: false,
+      onSetDefault() {},
+      onSave() {},
+      onDismiss() {},
+      onToggle(code: string) {
+        selected = selected.filter((item) => item !== code);
+        props = { ...props, selected };
+      },
+    };
+    let tree = virtual.renderSheet(props);
+    assert.equal(
+      nodes(tree).filter((node) => node.props.accessibilityRole === "checkbox").length,
+      10,
+    );
+    const before = new Map(virtual.rowRenders);
+    currencyCheckbox(tree, "USD")!.props.onPress();
+    tree = virtual.renderSheet(props);
+    assert.deepEqual(
+      [...virtual.rowRenders]
+        .filter(([code, count]) => count !== before.get(code))
+        .map(([code]) => code),
+      ["USD"],
+      "toggling one mounted currency skips work for every unchanged memoized row",
+    );
+    assert.equal(currencyCheckbox(tree, "USD")!.props.accessibilityState.checked, false);
+    assert.equal(nodes(tree).find((node) => node.type === "FlatList")!.props.data.length, 155);
+    virtual.store.close();
+  }
   checkSearchAndLimit();
   for (const value of [null, "[]", '["AFN","AFN"]', '["usd"]', "[1]", "{}", '"USD"'])
     assert.equal(settings.parseEnabledCurrencies(value), null);
@@ -721,7 +874,7 @@ async function main() {
   await settle();
   assert.deepEqual(ui.sheetProps().selected, ["AFN", "USD"]);
   assert.equal(ui.authored.length, 0, "the failed Save and rejected star persist neither setting");
-  const choicesScroll = nodes(ui.sheetTree()).find((node) => node.type === "ScrollView")!;
+  const choicesScroll = nodes(ui.sheetTree()).find((node) => node.type === "FlatList")!;
   assert.equal(
     nodes(choicesScroll).some((node) => node.type === "Button"),
     false,
@@ -974,7 +1127,7 @@ async function main() {
   assert.equal(ui.sheetProps().conflicted, true);
   ui.setViewport(280, 48, 2.6);
   const shortTree = ui.sheetTree();
-  const shortScroll = nodes(shortTree).find((node) => node.type === "ScrollView")!;
+  const shortScroll = nodes(shortTree).find((node) => node.type === "FlatList")!;
   const surface = nodes(shortTree).find((node) => node.type?.name === "SheetSurface")!;
   assert.equal(surface.props.maxHeightRatio, 0.82);
   assert.equal(surface.props.edges, undefined);
@@ -998,11 +1151,17 @@ async function main() {
   const keyboardFrame = nodes(shortTree).find((node) => node.type === "SearchKeyboardFrame")!;
   assert.ok(keyboardFrame, "native keyboard progress keeps the modal footer above the keyboard");
   assert.equal(flattenStyle(keyboardFrame.props.style).flex, 1);
-  assert.equal(flattenStyle(keyboardFrame.props.children.props.style).minHeight, 0);
+  assert.equal(flattenStyle(keyboardFrame.props.style).minHeight, 0);
+  assert.equal(flattenStyle(keyboardFrame.props.style).justifyContent, "flex-end");
   const movingSheet = nodes(keyboardFrame).find(
-    (node) =>
-      node.type === "AnimatedView" && flattenStyle(node.props.style)?.position === "absolute",
+    (node) => node.type === "AnimatedView" && flattenStyle(node.props.style)?.maxHeight === "100%",
   )!;
+  assert.equal(
+    flattenStyle(movingSheet.props.style).position,
+    undefined,
+    "the sheet stays in keyboard frame layout flow",
+  );
+  assert.equal(flattenStyle(movingSheet.props.style).flexShrink, 1);
   assert.equal(
     flattenStyle(movingSheet.props.style).maxHeight,
     "100%",

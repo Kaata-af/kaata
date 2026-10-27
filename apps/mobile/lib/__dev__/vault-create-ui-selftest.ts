@@ -31,6 +31,8 @@ function fixture(
     creations: any[] = [],
     registrations: any[] = [];
   let account = options.account ?? null;
+  let locale = options.rtl ? "fa" : "en";
+  let currencyNameReads = 0;
   let keyboardDismissals = 0;
   let keyGate: Promise<void> | null = null,
     creationGate: Promise<void> | null = null;
@@ -77,7 +79,10 @@ function fixture(
     "../../lib/currency": {
       CURRENCIES: currencies,
       DEFAULT_CURRENCY: "AFN",
-      getCurrencyName: (code: string) => `name:${code}`,
+      getCurrencyName: (code: string) => {
+        currencyNameReads++;
+        return `${locale}:name:${code}`;
+      },
       getCurrencyLabel: (code: string) =>
         `${code} ${currencies.find((item) => item.code === code)?.symbol ?? code}`,
       currencyNeedsPrecisionHint: (code: string) => code === "KWD",
@@ -109,6 +114,7 @@ function fixture(
     },
     "../../lib/event-log": { appendShopProfileUpdated: async () => stages.push("shop-event") },
     "../../lib/i18n": {
+      getLocale: () => locale,
       t: (key: string, values?: unknown) => key + (values ? ` ${JSON.stringify(values)}` : ""),
     },
     "../../lib/mesh/device-key": {
@@ -183,6 +189,12 @@ function fixture(
     get keyboardDismissals() {
       return keyboardDismissals;
     },
+    get currencyNameReads() {
+      return currencyNameReads;
+    },
+    setLocale: (value: string) => {
+      locale = value;
+    },
     setKeyGate: (value: Promise<void>) => {
       keyGate = value;
     },
@@ -210,6 +222,8 @@ async function main() {
     );
     assert.ok(!nodes(f.hooks.tree).some((node) => node.type === "CurrencyPickerSheet"));
     assert.equal(f.enabled().props.options.length, 155);
+    const originalOptions = f.enabled().props.options;
+    const originalNameReads = f.currencyNameReads;
     assert.deepEqual(f.enabled().props.selected, ["AFN"]);
     assert.equal(f.enabled().props.defaultCurrency, "AFN");
     assert.match(f.enabledRow().props.hint, /AFN/);
@@ -234,6 +248,16 @@ async function main() {
       "The new draft default is protected even before React commits",
     );
     assert.equal(f.enabled().props.defaultCurrency, "USD");
+    assert.equal(
+      f.enabled().props.options,
+      originalOptions,
+      "Checkbox and default changes reuse the catalog objects",
+    );
+    assert.equal(
+      f.currencyNameReads,
+      originalNameReads,
+      "Selection does not translate all155currency names again",
+    );
     discarded.onToggle("AFN");
     f.render();
     assert.deepEqual(
@@ -331,6 +355,14 @@ async function main() {
     );
     f.enabled().props.onDismiss();
     f.render();
+    f.setLocale("ps");
+    f.render();
+    assert.notEqual(
+      f.enabled().props.options,
+      originalOptions,
+      "A locale change refreshes option labels even when RTL stays true",
+    );
+    assert.equal(f.enabled().props.options[0].label, "ps:name:AFN");
     f.hooks.unmount();
     stale.onSetDefault("USD");
     saved.onSave();
