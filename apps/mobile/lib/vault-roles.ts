@@ -29,6 +29,7 @@ export type VaultAction =
   | "person.add"
   | "person.rename"
   | "person.change_phone"
+  | "person.set_default_currency"
   | "person.archive"
   | "person.set_group"
   | "group.manage"
@@ -57,6 +58,13 @@ export const PERMISSIONS: Readonly<Record<VaultAction, Readonly<Record<VaultRole
 
     "person.add": { owner: true, manager: true, editor: true, clerk: true, viewer: false },
     "person.rename": { owner: true, manager: true, editor: true, clerk: false, viewer: false },
+    "person.set_default_currency": {
+      owner: true,
+      manager: true,
+      editor: true,
+      clerk: false,
+      viewer: false,
+    },
     "person.change_phone": {
       owner: true,
       manager: true,

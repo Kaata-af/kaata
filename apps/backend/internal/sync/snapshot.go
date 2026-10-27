@@ -73,6 +73,9 @@ type SnapshotResponse struct {
 	// Keep an explicit bill-link OFF choice across pre-cursor recovery without
 	// serializing arbitrary private/client settings or unsigned authority.
 	BillLinkEvents []PulledEvent `json:"bill_link_events,omitempty"`
+	// Contact defaults, including explicit resets to the Kaata default, retain
+	// their original signatures and field clocks across pre-cursor recovery.
+	PersonCurrencyEvents []PulledEvent `json:"person_currency_events,omitempty"`
 	// SettlementEvents (2026-07-27): every entry_settled chapter marker for
 	// the vault, cursor-independent like MembershipEvents — the settlements
 	// projection is mobile-only, so a snapshot restore would otherwise lose
@@ -250,6 +253,11 @@ func (s *Service) LatestSnapshot(ctx context.Context, vaultID string) (*Snapshot
 		return nil, fmt.Errorf("read bill link events: %w", err)
 	}
 	s.resolveBindingsOnPulled(ctx, vaultID, billLinks)
+	personCurrencies, err := pullPersonCurrencyEvents(ctx, s.pool, vaultID)
+	if err != nil {
+		return nil, fmt.Errorf("read person currency events: %w", err)
+	}
+	s.resolveBindingsOnPulled(ctx, vaultID, personCurrencies)
 
 	settlements, err := s.pullSettlementEvents(ctx, vaultID)
 	if err != nil {
@@ -309,6 +317,7 @@ func (s *Service) LatestSnapshot(ctx context.Context, vaultID string) (*Snapshot
 		MembershipEvents:      membership,
 		EnabledCurrencyEvents: enabledCurrencies,
 		BillLinkEvents:        billLinks,
+		PersonCurrencyEvents:  personCurrencies,
 		SettlementEvents:      settlements,
 	}
 	return resp, nil
@@ -430,6 +439,9 @@ func snapshotMaxHLC(p *Projection, tail []PulledEvent) HLC {
 	for _, r := range p.Relationships {
 		if r.UpdatedAt > max.PMS {
 			max = HLC{PMS: r.UpdatedAt}
+		}
+		if r.CurrencyFieldHLC != nil && CompareHLC(*r.CurrencyFieldHLC, max) > 0 {
+			max = *r.CurrencyFieldHLC
 		}
 		for _, h := range r.GroupFieldHLCs {
 			if CompareHLC(h, max) > 0 {
@@ -614,6 +626,24 @@ func pullBillLinkEvents(ctx context.Context, query snapshotEventQuerier, vaultID
 		  AND redacted_at IS NULL
 		  AND event_type = 'vault_setting_set'
 		  AND payload->>'key' = 'share_bill_links'
+		ORDER BY hlc_physical_ms ASC, hlc_logical ASC, hlc_device_id ASC, event_id ASC
+	`, vaultID)
+	if err != nil {
+		return nil, err
+	}
+	return scanPulledEvents(rows)
+}
+
+// Read the complete signed contact preference history, rather than a scalar
+// from a possibly older cached snapshot. Null resets must survive too, so an
+// older offline preference cannot resurrect after recovery.
+func pullPersonCurrencyEvents(ctx context.Context, query snapshotEventQuerier, vaultID string) ([]PulledEvent, error) {
+	rows, err := query.Query(ctx, `
+		SELECT`+pulledEventColumns+`
+		FROM events
+		WHERE vault_id = $1::uuid
+		  AND redacted_at IS NULL
+		  AND event_type = 'person_default_currency_set'
 		ORDER BY hlc_physical_ms ASC, hlc_logical ASC, hlc_device_id ASC, event_id ASC
 	`, vaultID)
 	if err != nil {

@@ -173,6 +173,7 @@ func requiredRoleFor(eventType string) (string, bool) {
 		"entry_settled",
 		"person_renamed",
 		"person_phone_changed",
+		"person_default_currency_set",
 		"person_archived",
 		"person_unarchived",
 		"group_created", "group_renamed", "group_archived", "person_group_set":

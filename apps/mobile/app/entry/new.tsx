@@ -36,12 +36,12 @@ import { getAccountIdSync, getActiveVaultIdSyncMaybe, getInstallIdSync } from ".
 import {
   DEFAULT_CURRENCY,
   currencyNeedsPrecisionHint,
-  getDefaultEntryCurrency,
   getEnabledCurrencies,
   getCurrencyLabel,
   setCurrentCurrency,
 } from "../../lib/currency";
 import { createEntryDetailed, getActiveVaultArchivedState, getPerson } from "../../lib/db";
+import { getPersonEntryCurrency } from "../../lib/person-currency";
 import { rowDir, textDir, trackingSafe, useIsRTL } from "../../lib/direction";
 import { EventSigningUnavailableError, RoleGateRejectionError } from "../../lib/event-log";
 import { fonts, sansLineHeight } from "../../lib/fonts";
@@ -411,7 +411,7 @@ export default function NewEntryScreen() {
           if (attempt.vaultId && currencyScope.current !== currencyKey) {
             setEntryDay(null);
             const [defaultCurrency] = await Promise.all([
-              getDefaultEntryCurrency(attempt.vaultId),
+              getPersonEntryCurrency(attempt.vaultId, attempt.personId),
               refreshEnabledCurrencies(attempt),
             ]);
             if (!isCurrent(attempt)) return;

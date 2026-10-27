@@ -70,27 +70,28 @@ func CompareHLC(a, b HLC) int {
 
 // Known event_type strings. Mirrors KNOWN_EVENT_TYPES in events.ts.
 const (
-	EventEntryCreated        = "entry_created"
-	EventEntryAmended        = "entry_amended"
-	EventEntryDeleted        = "entry_deleted"
-	EventEntrySettled        = "entry_settled"
-	EventPersonAdded         = "person_added"
-	EventPersonRenamed       = "person_renamed"
-	EventPersonPhoneChanged  = "person_phone_changed"
-	EventPersonArchived      = "person_archived"
-	EventPersonUnarchived    = "person_unarchived"
-	EventGroupCreated        = "group_created"
-	EventGroupRenamed        = "group_renamed"
-	EventGroupArchived       = "group_archived"
-	EventPersonGroupSet      = "person_group_set"
-	EventShopProfileUpdated  = "shop_profile_updated"
-	EventVaultSettingSet     = "vault_setting_set"
-	EventVaultMemberAdded    = "vault_member_added"
-	EventVaultMemberRoleChng = "vault_member_role_changed"
-	EventVaultMemberRemoved  = "vault_member_removed"
-	EventVaultDeviceAdded    = "vault_device_added"
-	EventVaultDeviceRemoved  = "vault_device_removed"
-	EventAccountBound        = "account_bound"
+	EventEntryCreated             = "entry_created"
+	EventEntryAmended             = "entry_amended"
+	EventEntryDeleted             = "entry_deleted"
+	EventEntrySettled             = "entry_settled"
+	EventPersonAdded              = "person_added"
+	EventPersonRenamed            = "person_renamed"
+	EventPersonPhoneChanged       = "person_phone_changed"
+	EventPersonDefaultCurrencySet = "person_default_currency_set"
+	EventPersonArchived           = "person_archived"
+	EventPersonUnarchived         = "person_unarchived"
+	EventGroupCreated             = "group_created"
+	EventGroupRenamed             = "group_renamed"
+	EventGroupArchived            = "group_archived"
+	EventPersonGroupSet           = "person_group_set"
+	EventShopProfileUpdated       = "shop_profile_updated"
+	EventVaultSettingSet          = "vault_setting_set"
+	EventVaultMemberAdded         = "vault_member_added"
+	EventVaultMemberRoleChng      = "vault_member_role_changed"
+	EventVaultMemberRemoved       = "vault_member_removed"
+	EventVaultDeviceAdded         = "vault_device_added"
+	EventVaultDeviceRemoved       = "vault_device_removed"
+	EventAccountBound             = "account_bound"
 )
 
 // LedgerEvent is the tagged-struct equivalent of the TS discriminated union.
@@ -206,17 +207,19 @@ type UserProjection struct {
 }
 
 type RelationshipProjection struct {
-	ID             string         `json:"id"`
-	UserAID        string         `json:"user_a_id"`
-	UserBID        string         `json:"user_b_id"`
-	Context        string         `json:"context"`
-	VaultID        string         `json:"vault_id"`
-	CreatedAt      int64          `json:"created_at"`
-	UpdatedAt      int64          `json:"updated_at"`
-	ArchivedAt     *int64         `json:"archived_at"`
-	GroupID        *string        `json:"group_id,omitempty"`
-	GroupIDs       []string       `json:"group_ids,omitempty"`
-	GroupFieldHLCs map[string]HLC `json:"group_field_hlcs,omitempty"`
+	ID                   string         `json:"id"`
+	UserAID              string         `json:"user_a_id"`
+	UserBID              string         `json:"user_b_id"`
+	Context              string         `json:"context"`
+	VaultID              string         `json:"vault_id"`
+	CreatedAt            int64          `json:"created_at"`
+	UpdatedAt            int64          `json:"updated_at"`
+	ArchivedAt           *int64         `json:"archived_at"`
+	GroupID              *string        `json:"group_id,omitempty"`
+	GroupIDs             []string       `json:"group_ids,omitempty"`
+	GroupFieldHLCs       map[string]HLC `json:"group_field_hlcs,omitempty"`
+	DefaultEntryCurrency *string        `json:"default_entry_currency,omitempty"`
+	CurrencyFieldHLC     *HLC           `json:"currency_field_hlc,omitempty"`
 }
 
 type EntryProjection struct {
@@ -360,6 +363,8 @@ func applyOne(p *Projection, e *LedgerEvent) error {
 		return applyPersonRenamed(p, e)
 	case EventPersonPhoneChanged:
 		return applyPersonPhoneChanged(p, e)
+	case EventPersonDefaultCurrencySet:
+		return applyPersonDefaultCurrencySet(p, e)
 	case EventPersonArchived:
 		return applyPersonArchived(p, e)
 	case EventPersonUnarchived:

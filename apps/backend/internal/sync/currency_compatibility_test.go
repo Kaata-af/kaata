@@ -275,7 +275,7 @@ func TestCurrencyCapabilities(t *testing.T) {
 	w := httptest.NewRecorder()
 	NewHandler(nil).CurrencyCapabilities(w, httptest.NewRequest("GET", "/v1/sync/capabilities", nil))
 	var capabilities map[string]bool
-	if err := json.Unmarshal(w.Body.Bytes(), &capabilities); err != nil || !capabilities["multi_currency"] {
+	if err := json.Unmarshal(w.Body.Bytes(), &capabilities); err != nil || !capabilities["multi_currency"] || !capabilities["person_default_currency"] {
 		t.Fatalf("capabilities: %s, %v", w.Body.String(), err)
 	}
 }

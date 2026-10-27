@@ -1,5 +1,9 @@
 import assert from "node:assert/strict";
-import { ensureCurrencySyncSupported, currencyRequestHeaders } from "../currency-sync";
+import {
+  ensureCurrencySyncSupported,
+  currencyRequestHeaders,
+  supportsPersonDefaultCurrencySync,
+} from "../currency-sync";
 import { compileUI } from "./ui-fixture";
 
 async function main() {
@@ -36,6 +40,37 @@ async function main() {
     await assert.rejects(
       ensureCurrencySyncSupported("https://currency-test.invalid", "jwt", controller.signal),
       /cancelled/,
+    );
+    let personCapability: unknown = false;
+    globalThis.fetch = async () =>
+      Response.json({ multi_currency: true, person_default_currency: personCapability });
+    assert.equal(
+      await supportsPersonDefaultCurrencySync("https://currency-test.invalid", "jwt"),
+      false,
+      "the cached multi-currency capability does not authorize a new event type",
+    );
+    personCapability = "true";
+    assert.equal(
+      await supportsPersonDefaultCurrencySync("https://currency-test.invalid", "jwt"),
+      false,
+    );
+    personCapability = true;
+    assert.equal(
+      await supportsPersonDefaultCurrencySync("https://currency-test.invalid", "jwt"),
+      true,
+    );
+    personCapability = false;
+    assert.equal(
+      await supportsPersonDefaultCurrencySync("https://currency-test.invalid", "jwt"),
+      false,
+      "a server rollback cannot reuse an earlier affirmative response",
+    );
+    globalThis.fetch = async () => {
+      throw new Error("offline");
+    };
+    assert.equal(
+      await supportsPersonDefaultCurrencySync("https://currency-test.invalid", "jwt"),
+      false,
     );
   } finally {
     globalThis.fetch = priorFetch;

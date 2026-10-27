@@ -42,6 +42,7 @@
     "selftest:onboarding-ui": "tsx lib/__dev__/onboarding-ui-selftest.ts",
     "selftest:vault-create-ui": "tsx lib/__dev__/vault-create-ui-selftest.ts",
     "selftest:initial-currencies": "tsx lib/__dev__/initial-currencies-selftest.ts",
+    "selftest:person-currency": "tsx lib/__dev__/person-currency-selftest.ts && tsx lib/__dev__/person-currency-ui-selftest.ts",
     "selftest:initial-route": "tsx lib/__dev__/initial-route-selftest.ts",
     "selftest:tabs": "tsx lib/__dev__/tabs-selftest.ts",
     "selftest:tab-settlement": "tsx lib/__dev__/tab-settlement-selftest.ts",

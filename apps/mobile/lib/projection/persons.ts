@@ -8,10 +8,12 @@ import type {
   PersonAddedEvent,
   PersonArchivedEvent,
   PersonPhoneChangedEvent,
+  PersonDefaultCurrencySetEvent,
   PersonRenamedEvent,
   PersonUnarchivedEvent,
 } from "../events";
 import { MissingPrereqError } from "./errors";
+import { isValidCurrencyCode } from "../currency-scope";
 import { compareFieldHLC, parseFieldHLCs, serializeFieldHLCs, type FieldHLCMap } from "./field-hlc";
 
 export async function applyPersonAdded(tx: SQLiteTx, event: PersonAddedEvent): Promise<void> {
@@ -148,6 +150,34 @@ export async function applyPersonPhoneChanged(
     event.payload.phone_e164,
     event.hlc.pms,
     serializeFieldHLCs(next),
+    event.target_id,
+  );
+}
+
+export async function applyPersonDefaultCurrencySet(
+  tx: SQLiteTx,
+  event: PersonDefaultCurrencySetEvent,
+): Promise<void> {
+  if (!event.vault_id || !event.target_id || event.relationship_id !== event.target_id)
+    throw new Error("person_default_currency_set must target its own relationship");
+  const currency = event.payload.currency;
+  if (currency !== null && !isValidCurrencyCode(currency))
+    throw new Error("Invalid contact default currency");
+  const row = await tx.getFirstAsync<{ field_hlcs: string | null }>(
+    "SELECT field_hlcs FROM relationships WHERE vault_id=? AND id=?",
+    event.vault_id,
+    event.target_id,
+  );
+  if (!row) throw new MissingPrereqError(`relationship ${event.target_id} missing`);
+  const hlcs = parseFieldHLCs(row.field_hlcs);
+  if (compareFieldHLC(hlcs, "default_entry_currency", event.hlc) === "skip") return;
+  // A null reset is a real LWW write. Enabled-list changes never invalidate
+  // signed history; only local authoring checks whether a new choice is enabled.
+  await tx.runAsync(
+    "UPDATE relationships SET default_entry_currency=?,field_hlcs=? WHERE vault_id=? AND id=?",
+    currency,
+    serializeFieldHLCs({ ...hlcs, default_entry_currency: event.hlc }),
+    event.vault_id,
     event.target_id,
   );
 }

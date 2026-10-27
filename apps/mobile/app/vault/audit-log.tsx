@@ -536,6 +536,10 @@ function humanizeKind(kind: string, payload: Record<string, unknown> | null): st
       return t("auditLog.kind.local.personAdded");
     case "person_renamed":
       return t("auditLog.kind.local.personRenamed");
+    case "person_default_currency_set":
+      return payload && typeof payload.currency === "string"
+        ? t("auditLog.kind.local.personDefaultCurrencySet", { code: payload.currency })
+        : t("auditLog.kind.local.personDefaultCurrencyReset");
     case "person_archived":
       return t("auditLog.kind.local.personArchived");
     case "person_unarchived":

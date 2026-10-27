@@ -30,6 +30,7 @@ const AUDITED_EVENT_TYPES = [
   "entry_deleted",
   "person_added",
   "person_renamed",
+  "person_default_currency_set",
   "person_archived",
   "person_unarchived",
 ] as const;

@@ -77,6 +77,7 @@ function fixture({
   fontScale = 1,
   initialLedgerCurrency = "AFN",
   bookCurrency = "AFN",
+  personCurrency = null,
   enabledCurrencies = ["AFN", "USD", "EUR"],
 }: {
   os?: PlatformOS;
@@ -88,6 +89,7 @@ function fixture({
   fontScale?: number;
   initialLedgerCurrency?: string;
   bookCurrency?: string;
+  personCurrency?: string | null;
   enabledCurrencies?: string[];
 } = {}) {
   const screenId = `entry-fixture-${++fixtureSequence}`;
@@ -96,6 +98,8 @@ function fixture({
   let enabledCurrencyGate: ReturnType<typeof deferred<string[]>> | null = null;
   const ledgerListeners = new Set<(vaultId: string) => void>();
   const defaultCurrencyReads: (string | null)[] = [];
+  const personCurrencyReads: [string, string][] = [];
+  let personCurrencyGate: ReturnType<typeof deferred<string | null>> | null = null;
   const hooks = uiHooks(),
     routes: any[] = [],
     notices: any[] = [],
@@ -131,6 +135,43 @@ function fixture({
     noteBlurs = 0,
     noteFocuses = 0,
     overLimit = false;
+  const currencyEdges = {
+    DEFAULT_CURRENCY: "AFN",
+    getCurrentCurrencyCode: () => selectedCurrency,
+    getDefaultEntryCurrency: async (vaultId: string) => {
+      defaultCurrencyReads.push(vaultId);
+      const gate = defaultCurrencyGate;
+      defaultCurrencyGate = null;
+      return gate ? gate.promise : bookCurrency;
+    },
+    getEnabledCurrencies: async () => {
+      const gate = enabledCurrencyGate;
+      enabledCurrencyGate = null;
+      return gate ? gate.promise : enabledCurrencies;
+    },
+    getCurrencyLabel: (code: string) => code,
+    currencyNeedsPrecisionHint: currencyMetadata.currencyNeedsPrecisionHint,
+    setCurrentCurrency: (code: string) => {
+      selectedCurrency = code;
+    },
+  };
+  const personCurrencyEdges = compileUI("../person-currency", {
+    "./auth": {},
+    "./db-tx": {
+      getDb: async () => ({
+        getFirstAsync: async (_sql: string, requestedVault: string, requestedPerson: string) => {
+          personCurrencyReads.push([requestedVault, requestedPerson]);
+          const gate = personCurrencyGate;
+          personCurrencyGate = null;
+          return { default_entry_currency: gate ? await gate.promise : personCurrency };
+        },
+      }),
+    },
+    "./currency-scope": require("../currency-scope"),
+    "./event-log": {},
+    "./projection": { applyEventMutex: { runExclusive: (work: () => Promise<unknown>) => work() } },
+    "./currency": currencyEdges,
+  });
   const Screen = compileUI(
     "../../app/entry/new",
     {
@@ -227,26 +268,8 @@ function fixture({
         getActiveVaultIdSyncMaybe: () => vault,
         getInstallIdSync: () => install,
       },
-      "../../lib/currency": {
-        DEFAULT_CURRENCY: "AFN",
-        getCurrentCurrencyCode: () => selectedCurrency,
-        getDefaultEntryCurrency: async (vaultId: string) => {
-          defaultCurrencyReads.push(vaultId);
-          const gate = defaultCurrencyGate;
-          defaultCurrencyGate = null;
-          return gate ? gate.promise : bookCurrency;
-        },
-        getEnabledCurrencies: async () => {
-          const gate = enabledCurrencyGate;
-          enabledCurrencyGate = null;
-          return gate ? gate.promise : enabledCurrencies;
-        },
-        getCurrencyLabel: (code: string) => code,
-        currencyNeedsPrecisionHint: currencyMetadata.currencyNeedsPrecisionHint,
-        setCurrentCurrency: (code: string) => {
-          selectedCurrency = code;
-        },
-      },
+      "../../lib/currency": currencyEdges,
+      "../../lib/person-currency": personCurrencyEdges,
       "../../lib/ledger-events": {
         onLedgerApplied: (listener: (vaultId: string) => void) => {
           ledgerListeners.add(listener);
@@ -445,6 +468,11 @@ function fixture({
     writes,
     creditChecks,
     defaultCurrencyReads,
+    personCurrencyReads,
+    setPersonCurrency: (code: string | null) => {
+      personCurrency = code;
+    },
+    delayedPersonCurrency: () => (personCurrencyGate = deferred<string | null>()),
     delayedDefaultCurrency: () => (defaultCurrencyGate = deferred<string>()),
     delayedEnabledCurrencies: () => (enabledCurrencyGate = deferred<string[]>()),
     setEnabledCurrencies: (codes: string[]) => {
@@ -1249,6 +1277,86 @@ async function main() {
       undefined,
       "busy callbacks cannot backdate the saved tally",
     );
+    f.hooks.unmount();
+    cases++;
+  }
+  for (const os of ["ios", "android"] as const)
+    for (const rtl of [false, true]) {
+      for (const personCurrency of [null, "USD", "JPY"]) {
+        const f = fixture({
+          os,
+          rtl,
+          personCurrency,
+          initialLedgerCurrency: "EUR",
+          bookCurrency: "AFN",
+        });
+        await f.ready();
+        const expected = personCurrency === "USD" ? "USD" : "AFN";
+        assert.deepEqual(f.personCurrencyReads, [["vault", "customer"]]);
+        assert.equal(
+          currencyField(f).props.value,
+          expected,
+          "An enabled contact preference seeds a new tally; inheritance or a disabled preference uses the Kaata default",
+        );
+        f.fireKeyboardTimers();
+        await f.flush();
+        assert.equal(
+          f.creditChecks.at(-1)?.[4],
+          expected,
+          "credit warning uses the resolved draft currency",
+        );
+        await f.button().props.onPress();
+        assert.equal(f.writes[0][4].currency, expected);
+        f.hooks.unmount();
+        cases++;
+      }
+    }
+  {
+    const f = fixture({ personCurrency: "USD" });
+    await f.ready();
+    currencyField(f).props.onChange("EUR");
+    f.render();
+    f.setPersonCurrency("AFN");
+    f.refocus();
+    await f.flush();
+    assert.equal(
+      currencyField(f).props.value,
+      "EUR",
+      "a later contact preference does not overwrite an explicit currency on the same draft",
+    );
+    assert.deepEqual(f.personCurrencyReads, [["vault", "customer"]]);
+    f.emitLedger();
+    await f.flush();
+    assert.equal(
+      currencyField(f).props.value,
+      "EUR",
+      "remote refresh updates permitted choices without relabeling the draft",
+    );
+    await f.button().props.onPress();
+    assert.equal(f.writes[0][4].currency, "EUR");
+    f.hooks.unmount();
+    cases++;
+  }
+  {
+    const f = fixture();
+    const oldPreference = f.delayedPersonCurrency();
+    f.render();
+    await f.flush();
+    assert.equal(currencyField(f), undefined);
+    f.transitions.person();
+    await f.flush();
+    assert.equal(currencyField(f).props.value, "AFN");
+    oldPreference.resolve("USD");
+    await f.flush();
+    assert.equal(
+      currencyField(f).props.value,
+      "AFN",
+      "a late previous-contact preference cannot label a new contact's draft",
+    );
+    assert.deepEqual(f.personCurrencyReads, [
+      ["vault", "customer"],
+      ["vault", "different-customer"],
+    ]);
     f.hooks.unmount();
     cases++;
   }

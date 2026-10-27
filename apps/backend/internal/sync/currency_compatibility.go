@@ -29,6 +29,9 @@ func validateEnabledCurrencies(value string) error {
 }
 
 func validateCurrencyPayload(event PushEvent) error {
+	if event.EventType == EventPersonDefaultCurrencySet {
+		return validatePersonDefaultCurrencyPushEvent(event)
+	}
 	if event.EventType == EventVaultSettingSet {
 		var setting vaultSettingSetPayload
 		if err := json.Unmarshal(event.Payload, &setting); err != nil {
@@ -69,7 +72,7 @@ func validateCurrencyPayload(event PushEvent) error {
 }
 
 func (h *Handler) CurrencyCapabilities(w http.ResponseWriter, r *http.Request) {
-	httpx.JSON(w, http.StatusOK, map[string]bool{"multi_currency": true})
+	httpx.JSON(w, http.StatusOK, map[string]bool{"multi_currency": true, "person_default_currency": true})
 }
 
 // Old clients add every amount into one balance. Once a book contains another

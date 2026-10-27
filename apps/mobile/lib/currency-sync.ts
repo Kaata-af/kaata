@@ -44,3 +44,25 @@ export async function ensureCurrencySyncSupported(
     signal?.removeEventListener("abort", cancel);
   }
 }
+
+/** A multi-currency server may predate contact defaults. Probe this separate
+ * capability for each queued change, so an older deployment keeps it local. */
+export async function supportsPersonDefaultCurrencySync(
+  baseUrl: string,
+  jwt: string,
+): Promise<boolean> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 6000);
+  try {
+    const response = await fetch(`${baseUrl}/v1/sync/capabilities`, {
+      headers: { ...CURRENCY_SYNC_HEADERS, Authorization: `Bearer ${jwt}` },
+      signal: controller.signal,
+    });
+    const body = response.ok ? await response.json() : null;
+    return body?.person_default_currency === true;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}

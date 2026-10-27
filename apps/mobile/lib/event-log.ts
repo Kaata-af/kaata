@@ -40,6 +40,7 @@ import type {
   PersonAddedEvent,
   PersonArchivedEvent,
   PersonPhoneChangedEvent,
+  PersonDefaultCurrencySetEvent,
   PersonRenamedEvent,
   PersonUnarchivedEvent,
   ShopProfileUpdatedEvent,
@@ -51,7 +52,12 @@ import type {
   VaultRole,
   VaultSettingSetEvent,
 } from "./events";
-import { applyEvent, applyLocalEventsAtomically, AtomicEventRejectionError } from "./projection";
+import {
+  applyEvent,
+  applyEventMutex,
+  applyLocalEventsAtomically,
+  AtomicEventRejectionError,
+} from "./projection";
 import type { EntryType } from "./types";
 import { parseAmountInput } from "./money";
 import { signedEntryMinorSumSql } from "./money-sql";
@@ -613,6 +619,116 @@ function assertExpectedMutationScope(vaultId: string, accountId: string | null |
   if (accountId === undefined) return;
   if (getActiveVaultIdSync() !== vaultId || getAccountIdSync() !== accountId)
     throw new Error("ledger mutation context changed");
+}
+
+/** A contact edit commits its independently signed fields together. */
+export async function appendPersonEdit(args: {
+  userId: string;
+  relationshipId: string;
+  vaultId: string;
+  name?: string;
+  phoneE164?: string | null;
+  defaultCurrency?: string | null;
+  expectedDefaultCurrency?: string | null;
+  expectedAccountId: string | null;
+  shouldContinue?: () => boolean;
+  preflight?: (tx: SQLiteTx) => Promise<void>;
+}): Promise<void> {
+  if (args.defaultCurrency !== undefined && args.defaultCurrency !== null)
+    requireCurrencyCode(args.defaultCurrency);
+  const installId = getInstallIdSync();
+  const self = requireLocalSelfUserId();
+  const guard = () => {
+    assertExpectedMutationScope(args.vaultId, args.expectedAccountId);
+    if (
+      getInstallIdSync() !== installId ||
+      getLocalSelfUserIdSync() !== self ||
+      args.shouldContinue?.() === false
+    )
+      throw new Error("Contact edit changed scope");
+  };
+  guard();
+  const base = {
+    vault_id: args.vaultId,
+    hlc: { pms: 0, l: 0, did: installId },
+    device_id: installId,
+    author_user_id_local_only: self,
+    actor_account_id: args.expectedAccountId,
+    payload_schema: CURRENT_PAYLOAD_SCHEMA,
+    appended_at: 0,
+    server_acked_at: null,
+    rejected_at: null,
+    origin: "local" as const,
+  };
+  const events: Array<
+    PersonRenamedEvent | PersonPhoneChangedEvent | PersonDefaultCurrencySetEvent
+  > = [];
+  if (args.name !== undefined)
+    events.push({
+      ...base,
+      event_id: Crypto.randomUUID(),
+      event_type: "person_renamed",
+      target_id: args.userId,
+      relationship_id: null,
+      payload: { name: args.name },
+    });
+  if (args.phoneE164 !== undefined)
+    events.push({
+      ...base,
+      event_id: Crypto.randomUUID(),
+      event_type: "person_phone_changed",
+      target_id: args.userId,
+      relationship_id: null,
+      payload: { phone_e164: args.phoneE164 },
+    });
+  if (args.defaultCurrency !== undefined)
+    events.push({
+      ...base,
+      event_id: Crypto.randomUUID(),
+      event_type: "person_default_currency_set",
+      target_id: args.relationshipId,
+      relationship_id: args.relationshipId,
+      payload: { currency: args.defaultCurrency },
+    });
+  const preflight = async (tx: SQLiteTx) => {
+    guard();
+    const row = await tx.getFirstAsync<{ default_entry_currency: string | null }>(
+      "SELECT default_entry_currency FROM relationships WHERE vault_id=? AND id=? AND user_b_id=? AND archived_at IS NULL",
+      args.vaultId,
+      args.relationshipId,
+      args.userId,
+    );
+    if (!row) throw new Error("The contact no longer exists in this Kaata");
+    if (
+      args.expectedDefaultCurrency !== undefined &&
+      row.default_entry_currency !== args.expectedDefaultCurrency
+    )
+      throw new Error("Contact currency preference changed; reopen the contact and try again");
+    // Do not reject a dormant, unchanged preference during an unrelated edit.
+    if (args.defaultCurrency != null && args.defaultCurrency !== row.default_entry_currency) {
+      const { getEnabledCurrencies } = require("./currency") as typeof import("./currency");
+      if (!(await getEnabledCurrencies(args.vaultId)).includes(args.defaultCurrency))
+        throw new Error("This currency is no longer enabled for this Kaata");
+    }
+    await args.preflight?.(tx);
+    guard();
+  };
+  if (events.length === 0) {
+    const db = await getDb();
+    await applyEventMutex.runExclusive(() => preflight(db));
+    return;
+  }
+  try {
+    await applyLocalEventsAtomically(events, { preflight, guard });
+  } catch (err) {
+    if (
+      err instanceof AtomicEventRejectionError &&
+      err.result.reason === "role_gate" &&
+      err.result.role_gate
+    )
+      throw new RoleGateRejectionError(err.result.role_gate);
+    throw err;
+  }
 }
 
 export async function appendPersonPhoneChanged(args: {

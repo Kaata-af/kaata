@@ -139,6 +139,12 @@ export type PersonPhoneChangedEvent = EventEnvelope & {
   payload: { phone_e164: string | null };
 };
 
+/** A future-entry preference in this relationship's Kaata; never changes saved tallies. */
+export type PersonDefaultCurrencySetEvent = EventEnvelope & {
+  event_type: "person_default_currency_set";
+  payload: { currency: string | null };
+};
+
 export type PersonArchivedEvent = EventEnvelope & {
   event_type: "person_archived";
   payload: Record<string, never>;
@@ -269,6 +275,7 @@ export type LedgerEvent =
   | PersonAddedEvent
   | PersonRenamedEvent
   | PersonPhoneChangedEvent
+  | PersonDefaultCurrencySetEvent
   | PersonArchivedEvent
   | PersonUnarchivedEvent
   | CustomerGroupEvent
@@ -296,6 +303,7 @@ export const KNOWN_EVENT_TYPES: ReadonlySet<EventType> = new Set([
   "person_added",
   "person_renamed",
   "person_phone_changed",
+  "person_default_currency_set",
   "person_archived",
   "person_unarchived",
   "group_created",
@@ -325,6 +333,7 @@ export function isKnownEventType(t: string): t is EventType {
 // holds their canonical copy and a genuinely-bad one of those must not loop or
 // resurface forever.
 const USER_LEDGER_EVENT_TYPES: ReadonlySet<string> = new Set<string>([
+  "person_default_currency_set",
   "group_created",
   "group_renamed",
   "group_archived",

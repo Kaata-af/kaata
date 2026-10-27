@@ -34,6 +34,7 @@ import {
   applyPersonAdded,
   applyPersonArchived,
   applyPersonPhoneChanged,
+  applyPersonDefaultCurrencySet,
   applyPersonRenamed,
   applyPersonUnarchived,
 } from "./persons";
@@ -125,6 +126,7 @@ export const APPLIERS: Partial<Record<EventType, Applier>> = {
   person_added: applyPersonAdded as unknown as Applier,
   person_renamed: applyPersonRenamed as unknown as Applier,
   person_phone_changed: applyPersonPhoneChanged as unknown as Applier,
+  person_default_currency_set: applyPersonDefaultCurrencySet as unknown as Applier,
   person_archived: applyPersonArchived as unknown as Applier,
   person_unarchived: applyPersonUnarchived as unknown as Applier,
   shop_profile_updated: applyShopProfileUpdated as unknown as Applier,
@@ -322,6 +324,8 @@ export async function applyLocalEventsAtomically(
   opts: {
     preflight?: (tx: SQLiteTx) => Promise<void>;
     expectedSignerPubkey?: string;
+    /** Synchronous session/scope check, including after asynchronous signing. */
+    guard?: () => void;
   } = {},
 ): Promise<void> {
   if (events.length === 0) throw new Error("An atomic event batch cannot be empty");
@@ -341,10 +345,13 @@ export async function applyLocalEventsAtomically(
     withDeferredVaultRoleNotifications(async () => {
       try {
         await db.withTransactionAsync(async () => {
+          opts.guard?.();
           await opts.preflight?.(db);
           for (const [index, event] of events.entries()) {
+            opts.guard?.();
             const result = await applyEventInTransaction(db, event, { origin: "local" }, signer);
             if (!result.applied) throw new AtomicEventRejectionError(index, result);
+            opts.guard?.();
           }
         });
       } catch (err) {

@@ -403,6 +403,145 @@ async function run() {
     assert.deepEqual(await pushEvents(enabledVault), { pushed: 1, duplicates: 0, rejected: 0 });
     assert.equal(probes, 2);
     assert.equal(uploads, 1);
+
+    const preferenceVault = randomUUID();
+    const preferences: string[] = [];
+    for (let i = 0; i < 500; i++) {
+      const id = randomUUID();
+      preferences.push(id);
+      insert.run(
+        id,
+        "person_default_currency_set",
+        preferenceVault,
+        "relationship",
+        600 + i,
+        installId,
+        installId,
+        "self",
+        JSON.stringify({ currency: i % 2 ? null : "USD" }),
+        600 + i,
+        i + 1,
+        "preference-signature",
+        "public-key",
+      );
+    }
+    const ordinary = randomUUID();
+    insert.run(
+      ordinary,
+      "person_renamed",
+      preferenceVault,
+      "person",
+      1200,
+      installId,
+      installId,
+      "self",
+      JSON.stringify({ name: "Synthetic" }),
+      1200,
+      501,
+      "name-signature",
+      "public-key",
+    );
+    const unchangedPreferences = fixture
+      .prepare(
+        "SELECT * FROM event_log WHERE vault_id=? AND event_type='person_default_currency_set' ORDER BY event_id",
+      )
+      .all(preferenceVault);
+    let personSupported = false;
+    let personPosts = 0;
+    let personProbes = 0;
+    let rejectPreference = false;
+    globalThis.fetch = async (url, init) => {
+      if (String(url).endsWith("/capabilities")) {
+        personProbes++;
+        return Response.json({ multi_currency: true, person_default_currency: personSupported });
+      }
+      personPosts++;
+      const body = JSON.parse(String(init?.body));
+      if (!personSupported)
+        assert.deepEqual(
+          body.events.map((e: any) => e.event_id),
+          [ordinary],
+        );
+      return Response.json({
+        accepted: rejectPreference
+          ? []
+          : body.events.map((e: any, i: number) => ({ event_id: e.event_id, server_seq: i + 1 })),
+        duplicates: [],
+        rejected: rejectPreference
+          ? body.events.map((e: any) => ({ event_id: e.event_id, reason: "unhandled" }))
+          : [],
+      });
+    };
+    const backedUpBefore = markedBackedUp;
+    assert.deepEqual(await pushEvents(preferenceVault), { pushed: 1, duplicates: 0, rejected: 0 });
+    assert.equal(
+      personPosts,
+      1,
+      "500 deferred old preferences cannot starve a later ordinary edit",
+    );
+    assert.equal(
+      markedBackedUp,
+      backedUpBefore,
+      "partial capability support never claims all changes backed up",
+    );
+    assert.deepEqual(await pushEvents(preferenceVault), { pushed: 0, duplicates: 0, rejected: 0 });
+    assert.equal(personPosts, 1, "preference-only outbox sends no unsupported POST");
+    assert.equal(markedBackedUp, backedUpBefore);
+    assert.deepEqual(
+      fixture
+        .prepare(
+          "SELECT * FROM event_log WHERE vault_id=? AND event_type='person_default_currency_set' ORDER BY event_id",
+        )
+        .all(preferenceVault),
+      unchangedPreferences,
+      "capability deferral changes no signature, ack, rejection, or retry metadata",
+    );
+    personSupported = true;
+    assert.deepEqual(await pushEvents(preferenceVault), {
+      pushed: 500,
+      duplicates: 0,
+      rejected: 0,
+    });
+    assert.equal(personProbes, 3, "the new capability is rechecked after a server upgrade");
+    assert.equal(markedBackedUp, backedUpBefore + 1);
+    const rolling = randomUUID();
+    insert.run(
+      rolling,
+      "person_default_currency_set",
+      preferenceVault,
+      "relationship",
+      1300,
+      installId,
+      installId,
+      "self",
+      JSON.stringify({ currency: null }),
+      1300,
+      502,
+      "reset-signature",
+      "public-key",
+    );
+    rejectPreference = true;
+    const conflictsBefore = (
+      fixture.prepare("SELECT COUNT(*) AS n FROM projection_conflicts").get() as any
+    ).n;
+    assert.deepEqual(await pushEvents(preferenceVault), { pushed: 0, duplicates: 0, rejected: 1 });
+    const rollingRow = fixture
+      .prepare("SELECT * FROM event_log WHERE event_id=?")
+      .get(rolling) as any;
+    assert.equal(
+      rollingRow.rejected_at,
+      null,
+      "a rolling older server cannot permanently discard the new preference",
+    );
+    assert.equal(rollingRow.server_acked_at, null);
+    assert.equal(rollingRow.event_sig_b64, "reset-signature");
+    assert.equal(
+      (fixture.prepare("SELECT COUNT(*) AS n FROM projection_conflicts").get() as any).n,
+      conflictsBefore,
+    );
+    console.log(
+      "PASS person currency push: unsupported outbox retained, ordinary sync unblocked, upgrade retry and rolling-server rejection safe",
+    );
   } finally {
     globalThis.fetch = realFetch;
     fixture.close();

@@ -1,11 +1,13 @@
 import type { TextInputInstance } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { useLocalSearchParams, useRouter } from "expo-router";
-import { useEffect, useRef, useState } from "react";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -16,19 +18,28 @@ import { BottomSheet } from "../../../components/BottomSheet";
 import { Button } from "../../../components/Button";
 import { ConfirmDialog } from "../../../components/ConfirmDialog";
 import { CountryPickerSheet } from "../../../components/CountryPickerSheet";
+import { OptionSheet } from "../../../components/OptionSheet";
 import { ScreenLoading } from "../../../components/ScreenLoading";
 import { NavRow, ScreenHeader } from "../../../components/SettingsScreen";
 import { queuePendingToast, useToast } from "../../../components/Toast";
 import { colors } from "../../../lib/colors";
 import { splitName } from "../../../lib/contacts-sync";
 import { archivePerson, getPerson, updatePerson } from "../../../lib/db";
+import { captureCurrentSession, SessionChangedError } from "../../../lib/auth";
+import {
+  getCurrencyLabel,
+  getCurrencyName,
+  getDefaultEntryCurrency,
+  getEnabledCurrencies,
+} from "../../../lib/currency";
+import { getPersonDefaultCurrency } from "../../../lib/person-currency";
 import { ltrIsolate, rowDir, textDir, useIsRTL } from "../../../lib/direction";
 import { EventSigningUnavailableError, RoleGateRejectionError } from "../../../lib/event-log";
 import { fonts } from "../../../lib/fonts";
 import { t } from "../../../lib/i18n";
 import { getCountry, getCurrentDefaultCountryCode, inferCountryFromE164 } from "../../../lib/phone";
 import { icon, radius, TOUCH_MIN } from "../../../lib/tokens";
-import { getActiveVaultIdSyncMaybe } from "../../../lib/db-tx";
+import { getAccountIdSync, getActiveVaultIdSyncMaybe, getInstallIdSync } from "../../../lib/db-tx";
 import { useCustomerGroups } from "../../../lib/use-customer-groups";
 import { useActiveVaultWriteCaps } from "../../../lib/use-vault-role";
 
@@ -37,6 +48,14 @@ import { useActiveVaultWriteCaps } from "../../../lib/use-vault-role";
 // screen case), so the pre-content branches have to spell this out or the
 // header shifts the moment the read resolves.
 const MODAL_EDGES = ["top", "bottom", "left", "right"] as const;
+const INHERIT_CURRENCY = "kaata-default";
+type EditScope = {
+  id: string;
+  vaultId: string | null;
+  accountId: string | null;
+  installId: string;
+};
+type EditAttempt = EditScope & { focus: number };
 
 export default function EditPersonScreen() {
   const router = useRouter();
@@ -44,6 +63,8 @@ export default function EditPersonScreen() {
   const toast = useToast();
   const { id } = useLocalSearchParams<{ id: string }>();
   const vaultId = getActiveVaultIdSyncMaybe();
+  const accountId = getAccountIdSync();
+  const installId = getInstallIdSync();
   const groupState = useCustomerGroups(vaultId);
   const caps = useActiveVaultWriteCaps(vaultId);
   const personGroupIds = groupState.groupsByPerson[id] ?? [];
@@ -71,6 +92,14 @@ export default function EditPersonScreen() {
   const [countryCode, setCountryCode] = useState(getCurrentDefaultCountryCode);
   const [pickerVisible, setPickerVisible] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [defaultCurrency, setDefaultCurrency] = useState<string | null>(null);
+  const defaultCurrencyRef = useRef<string | null>(null);
+  const originalDefaultCurrency = useRef<string | null>(null);
+  const [enabledCurrencies, setEnabledCurrencies] = useState<readonly string[]>([]);
+  const enabledCurrenciesRef = useRef<readonly string[]>([]);
+  const [kaataDefault, setKaataDefault] = useState("");
+  const [currencyPickerVisible, setCurrencyPickerVisible] = useState(false);
+  const currencyPickerAttempt = useRef<EditAttempt | null>(null);
   // Inline errors — modal screen, toasts can't render above it (Toast.tsx).
   const [nameError, setNameError] = useState<string | null>(null);
   const [phoneError, setPhoneError] = useState<string | null>(null);
@@ -85,58 +114,160 @@ export default function EditPersonScreen() {
   // Remove-person confirm (archive semantics — see the danger row below).
   const [confirmRemove, setConfirmRemove] = useState(false);
   const removingRef = useRef(false);
-  // Export (PDF/CSV statement → OS share sheet, or saved to a folder on the
-  // phone). Result AND errors render inline — modal screen, toasts can't
-  // draw above it (Toast.tsx). Ref guards same-frame double-fire like
-  // savingRef.
+  const mounted = useRef(true);
+  const focused = useRef(false);
+  const focusGeneration = useRef(0);
+  const [, setFocusVersion] = useState(0);
+  const loadedScope = useRef<string | null>(null);
+  const scope = { id, vaultId, accountId, installId };
+  const scopeRef = useRef(scope);
+  scopeRef.current = scope;
+  const capsRef = useRef(caps);
+  capsRef.current = caps;
+  const scopeKey = JSON.stringify([id, vaultId, accountId, installId]);
+  const hasScope = (attempt: EditAttempt) =>
+    mounted.current &&
+    scopeRef.current.id === attempt.id &&
+    getActiveVaultIdSyncMaybe() === attempt.vaultId &&
+    getAccountIdSync() === attempt.accountId &&
+    getInstallIdSync() === attempt.installId;
+  const isCurrent = (attempt: EditAttempt) =>
+    hasScope(attempt) && focused.current && attempt.focus === focusGeneration.current;
+  const canEdit = (attempt: EditAttempt) =>
+    isCurrent(attempt) && !!attempt.vaultId && capsRef.current.resolved && capsRef.current.canAmend;
+
   useEffect(() => {
-    if (!id) return;
-    getPerson(id)
-      .then((p) => {
-        if (p) {
-          // kaata stores one display_name; the edit UI shows it as first + last
-          // (matching the phone Contacts app). Split on the first space: single-
-          // word names keep an empty last name. See contacts-sync.splitName.
-          const s = splitName(p.name);
-          setFirstName(s.firstName);
-          setLastName(s.lastName ?? "");
-          if (p.phone) {
-            // Split stored E.164 into (country, national) so the picker shows
-            // the right flag and the input shows just the national digits.
-            const inferred = inferCountryFromE164(p.phone);
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      focused.current = true;
+      const attempt: EditAttempt = {
+        id,
+        vaultId,
+        accountId,
+        installId,
+        focus: ++focusGeneration.current,
+      };
+      setFocusVersion(attempt.focus);
+      const alreadyLoaded = loadedScope.current === scopeKey;
+      currencyPickerAttempt.current = null;
+      setCurrencyPickerVisible(false);
+      setPickerVisible(false);
+      if (!alreadyLoaded) {
+        setLoaded(false);
+        setFound(false);
+        setLoadFailed(false);
+        setBusy(false);
+        setSaveError(null);
+        setNameError(null);
+        setPhoneError(null);
+      }
+      void (async () => {
+        try {
+          if (!attempt.id || !attempt.vaultId) {
+            if (isCurrent(attempt)) setLoaded(true);
+            return;
+          }
+          const [p, rawDefault, enabled, bookDefault] = await Promise.all([
+            alreadyLoaded ? null : getPerson(attempt.id),
+            alreadyLoaded ? null : getPersonDefaultCurrency(attempt.vaultId, attempt.id),
+            getEnabledCurrencies(attempt.vaultId),
+            getDefaultEntryCurrency(attempt.vaultId),
+          ]);
+          if (!isCurrent(attempt)) return;
+          enabledCurrenciesRef.current = enabled;
+          setEnabledCurrencies(enabled);
+          setKaataDefault(bookDefault);
+          if (alreadyLoaded) return;
+          if (p) {
+            const name = splitName(p.name);
+            setFirstName(name.firstName);
+            setLastName(name.lastName ?? "");
+            const inferred = p.phone
+              ? inferCountryFromE164(p.phone)
+              : getCurrentDefaultCountryCode();
             const dial = getCountry(inferred).dialCode;
             setCountryCode(inferred);
-            setPhone(p.phone.startsWith(dial) ? p.phone.slice(dial.length) : p.phone);
-          } else {
-            setPhone("");
+            setPhone(
+              p.phone ? (p.phone.startsWith(dial) ? p.phone.slice(dial.length) : p.phone) : "",
+            );
+            originalDefaultCurrency.current = rawDefault;
+            defaultCurrencyRef.current = rawDefault;
+            setDefaultCurrency(rawDefault);
+            setFound(true);
+            loadedScope.current = scopeKey;
           }
-          setFound(true);
+          setLoaded(true);
+        } catch (err) {
+          if (!isCurrent(attempt)) return;
+          console.warn("[person/edit] load failed", err);
+          if (alreadyLoaded) setSaveError(t("home.loadFailed"));
+          else {
+            setLoadFailed(true);
+            setLoaded(true);
+          }
         }
-        setLoaded(true);
-      })
-      .catch((err) => {
-        // A rejected read must still flip `loaded`, else this modal is a
-        // permanent spinner with no header/back — but it must NOT claim the
-        // person is missing. See loadFailed's declaration.
-        console.warn("[person/edit] load failed", err);
-        setLoadFailed(true);
-        setLoaded(true);
-      });
-  }, [id]);
+      })();
+      return () => {
+        focused.current = false;
+        focusGeneration.current++;
+        currencyPickerAttempt.current = null;
+        if (mounted.current) {
+          setCurrencyPickerVisible(false);
+          setPickerVisible(false);
+          setConfirmRemove(false);
+        }
+      };
+      // Live refs validate retained handlers; a new scope must load its own draft.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [id, vaultId, accountId, installId, scopeKey]),
+  );
+
+  const renderAttempt: EditAttempt = { ...scope, focus: focusGeneration.current };
+  const currentDraft = loadedScope.current === scopeKey;
+  const editable = currentDraft && canEdit(renderAttempt) && !busy;
+  const currencySelectable = enabledCurrencies.length > 1 || defaultCurrency !== null;
+  const unavailableDefault =
+    defaultCurrency !== null && !enabledCurrencies.includes(defaultCurrency);
+  const inheritedLabel = t("personEdit.currency.inherit", {
+    currency: getCurrencyLabel(kaataDefault),
+  });
+  const pickerAttempt = currencyPickerAttempt.current;
+  const currencyOptions = [
+    { key: INHERIT_CURRENCY, label: inheritedLabel },
+    ...enabledCurrencies.map((code) => ({
+      key: code,
+      label: getCurrencyName(code),
+      hint: ltrIsolate(getCurrencyLabel(code)),
+    })),
+  ];
 
   // Reliable keyboard pop-up on Android — see entry/[id]/edit for context.
   useEffect(() => {
-    if (!loaded) return;
-    const focusTimer = setTimeout(() => firstNameRef.current?.focus(), 280);
+    if (!loaded || !editable) return;
+    const attempt = renderAttempt;
+    const focusTimer = setTimeout(() => {
+      if (canEdit(attempt) && !savingRef.current && !currencyPickerAttempt.current)
+        firstNameRef.current?.focus();
+    }, 280);
     return () => clearTimeout(focusTimer);
-  }, [loaded]);
+    // Focus only when entering the loaded form, not after each draft edit/save.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded, scopeKey]);
 
   async function onRemove() {
+    const attempt = renderAttempt;
+    if (!canEdit(attempt) || savingRef.current || removingRef.current) return;
     setConfirmRemove(false);
-    if (!id || removingRef.current) return;
     removingRef.current = true;
     try {
-      await archivePerson(id);
+      await archivePerson(attempt.id, { vaultId: attempt.vaultId!, accountId: attempt.accountId });
+      if (!isCurrent(attempt)) return;
       // The toast must outlive this modal AND the person screen beneath it —
       // queue it for the home screen's drain (see Toast.tsx contract).
       queuePendingToast(
@@ -145,34 +276,53 @@ export default function EditPersonScreen() {
       );
       router.replace("/");
     } catch (err) {
+      if (!isCurrent(attempt)) return;
       if (err instanceof RoleGateRejectionError) {
         setSaveError(t("entry.roleDenied"));
       } else {
         console.warn("[person/edit] archivePerson failed", err);
         setSaveError(t("entry.deleteFailed"));
       }
+    } finally {
       removingRef.current = false;
     }
   }
 
   async function onSave() {
-    if (savingRef.current || !id) return;
+    const attempt = renderAttempt;
+    if (savingRef.current || removingRef.current || !currentDraft || !canEdit(attempt)) return;
     const fn = firstName.trim();
     if (!fn) {
       setNameError(t("onboarding.nameRequired"));
       return;
     }
     savingRef.current = true;
+    currencyPickerAttempt.current = null;
+    setCurrencyPickerVisible(false);
+    setPickerVisible(false);
     setBusy(true);
     setSaveError(null);
     try {
+      const session = await captureCurrentSession();
+      if (!canEdit(attempt) || session.accountId !== attempt.accountId) return;
+      const chosenDefault = defaultCurrencyRef.current;
+      const originalDefault = originalDefaultCurrency.current;
       const result = await updatePerson(
-        id,
+        attempt.id,
         fn,
         lastName.trim() || null,
         phone.trim() || null,
         countryCode,
+        {
+          session,
+          vaultId: attempt.vaultId!,
+          shouldContinue: () => canEdit(attempt),
+          ...(chosenDefault !== originalDefault
+            ? { defaultCurrency: chosenDefault, expectedDefaultCurrency: originalDefault }
+            : {}),
+        },
       );
+      if (!isCurrent(attempt)) return;
       if (!result.ok) {
         if (result.error === "phone_invalid") {
           setPhoneError(t("personAdd.phone.invalid"));
@@ -186,6 +336,7 @@ export default function EditPersonScreen() {
       toast.push(t("settings.saved"), "success");
       router.back();
     } catch (err) {
+      if (!isCurrent(attempt) || err instanceof SessionChangedError) return;
       // Without this catch a thrown updatePerson (role demotion landing
       // via mesh, signing unavailable, storage error) was a completely
       // silent failure — spinner stopped, nothing saved, no feedback.
@@ -198,11 +349,11 @@ export default function EditPersonScreen() {
       }
     } finally {
       savingRef.current = false;
-      setBusy(false);
+      if (hasScope(attempt)) setBusy(false);
     }
   }
 
-  if (!loaded) {
+  if (!loaded || (found && !currentDraft)) {
     return (
       <ScreenLoading
         title={t("personEdit.title")}
@@ -233,135 +384,189 @@ export default function EditPersonScreen() {
 label so TalkBack still announces "Cancel", not "Back". */}
       <ScreenHeader
         title={t("personEdit.title")}
-        onBack={() => router.back()}
+        onBack={() => {
+          if (isCurrent(renderAttempt) && !savingRef.current && !removingRef.current) router.back();
+        }}
         isRTL={isRTL}
         backLabel={t("common.cancel")}
       />
       <KeyboardAvoidingView
-        style={styles.body}
+        style={styles.keyboardBody}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
-        <View style={styles.field}>
-          <Text style={[styles.label, textDir(isRTL)]}>
-            {t("personEdit.name.label")} <Text style={styles.required}>*</Text>
-          </Text>
-          <View style={[styles.nameRow, rowDir(isRTL)]}>
-            <TextInput
-              ref={firstNameRef}
-              style={[styles.nameInput, textDir(isRTL), nameError ? styles.inputError : null]}
-              value={firstName}
-              onChangeText={(v) => {
-                setNameError(null);
-                setFirstName(v);
-              }}
-              placeholder={t("personAdd.firstName.placeholder")}
-              placeholderTextColor={colors.textMuted}
-              accessibilityLabel={t("personEdit.firstName.label")}
-              autoCapitalize="words"
-              autoCorrect={false}
-              maxLength={40}
-              returnKeyType="next"
-              onSubmitEditing={() => lastNameRef.current?.focus()}
-              submitBehavior="submit"
-            />
-            <TextInput
-              ref={lastNameRef}
-              style={[styles.nameInput, textDir(isRTL)]}
-              value={lastName}
-              onChangeText={setLastName}
-              placeholder={t("personAdd.lastName.placeholder")}
-              placeholderTextColor={colors.textMuted}
-              accessibilityLabel={t("personEdit.lastName.label")}
-              autoCapitalize="words"
-              autoCorrect={false}
-              maxLength={40}
-              returnKeyType="next"
-              onSubmitEditing={() => phoneRef.current?.focus()}
-              submitBehavior="submit"
-            />
-          </View>
-          {nameError ? (
-            <Text style={[styles.fieldError, textDir(isRTL)]} accessibilityLiveRegion="polite">
-              {nameError}
+        <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
+          <View style={styles.field}>
+            <Text style={[styles.label, textDir(isRTL)]}>
+              {t("personEdit.name.label")} <Text style={styles.required}>*</Text>
             </Text>
-          ) : null}
-        </View>
-        <View style={styles.field}>
-          <Text style={[styles.label, textDir(isRTL)]}>{t("personEdit.phone.label")}</Text>
-          {/* Phone row stays physical-LTR; numbers are LTR-natural via
+            <View style={[styles.nameRow, rowDir(isRTL)]}>
+              <TextInput
+                ref={firstNameRef}
+                style={[styles.nameInput, textDir(isRTL), nameError ? styles.inputError : null]}
+                value={firstName}
+                editable={editable}
+                onChangeText={(v) => {
+                  if (!canEdit(renderAttempt) || savingRef.current) return;
+                  setNameError(null);
+                  setFirstName(v);
+                }}
+                placeholder={t("personAdd.firstName.placeholder")}
+                placeholderTextColor={colors.textMuted}
+                accessibilityLabel={t("personEdit.firstName.label")}
+                autoCapitalize="words"
+                autoCorrect={false}
+                maxLength={40}
+                returnKeyType="next"
+                onSubmitEditing={() => lastNameRef.current?.focus()}
+                submitBehavior="submit"
+              />
+              <TextInput
+                ref={lastNameRef}
+                style={[styles.nameInput, textDir(isRTL)]}
+                value={lastName}
+                editable={editable}
+                onChangeText={(v) => {
+                  if (canEdit(renderAttempt) && !savingRef.current) setLastName(v);
+                }}
+                placeholder={t("personAdd.lastName.placeholder")}
+                placeholderTextColor={colors.textMuted}
+                accessibilityLabel={t("personEdit.lastName.label")}
+                autoCapitalize="words"
+                autoCorrect={false}
+                maxLength={40}
+                returnKeyType="next"
+                onSubmitEditing={() => phoneRef.current?.focus()}
+                submitBehavior="submit"
+              />
+            </View>
+            {nameError ? (
+              <Text style={[styles.fieldError, textDir(isRTL)]} accessibilityLiveRegion="polite">
+                {nameError}
+              </Text>
+            ) : null}
+          </View>
+          <View style={styles.field}>
+            <Text style={[styles.label, textDir(isRTL)]}>{t("personEdit.phone.label")}</Text>
+            {/* Phone row stays physical-LTR; numbers are LTR-natural via
               Unicode bidi. See the matching comment in person/new.tsx. */}
-          <View style={styles.phoneRow}>
-            <Pressable
-              onPress={() => setPickerVisible(true)}
-              style={({ pressed }) => [
-                styles.countryBtn,
-                pressed && { backgroundColor: colors.bgMuted },
-              ]}
-            >
-              <Text style={styles.countryFlag}>{country.flag}</Text>
-              <Text style={styles.countryDial}>{ltrIsolate(country.dialCode)}</Text>
-              <Ionicons name="chevron-down" size={icon.trailing} color={colors.textMuted} />
-            </Pressable>
-            <TextInput
-              ref={phoneRef}
-              style={[styles.phoneInput, phoneError ? styles.inputError : null]}
-              value={phone}
-              onChangeText={(v) => {
-                setPhoneError(null);
-                setPhone(v);
-              }}
-              placeholder={
-                country.code === "AF" ? "70 123 4567" : t("personAdd.phone.placeholderGeneric")
-              }
-              placeholderTextColor={colors.textMuted}
-              accessibilityLabel={t("personEdit.phone.label")}
-              keyboardType="phone-pad"
-              returnKeyType="done"
-              onSubmitEditing={onSave}
-            />
+            <View style={styles.phoneRow}>
+              <Pressable
+                disabled={!editable}
+                onPress={() => {
+                  if (canEdit(renderAttempt) && !savingRef.current) setPickerVisible(true);
+                }}
+                style={({ pressed }) => [
+                  styles.countryBtn,
+                  pressed && { backgroundColor: colors.bgMuted },
+                ]}
+              >
+                <Text style={styles.countryFlag}>{country.flag}</Text>
+                <Text style={styles.countryDial}>{ltrIsolate(country.dialCode)}</Text>
+                <Ionicons name="chevron-down" size={icon.trailing} color={colors.textMuted} />
+              </Pressable>
+              <TextInput
+                ref={phoneRef}
+                style={[styles.phoneInput, phoneError ? styles.inputError : null]}
+                value={phone}
+                editable={editable}
+                onChangeText={(v) => {
+                  if (!canEdit(renderAttempt) || savingRef.current) return;
+                  setPhoneError(null);
+                  setPhone(v);
+                }}
+                placeholder={
+                  country.code === "AF" ? "70 123 4567" : t("personAdd.phone.placeholderGeneric")
+                }
+                placeholderTextColor={colors.textMuted}
+                accessibilityLabel={t("personEdit.phone.label")}
+                keyboardType="phone-pad"
+                returnKeyType="done"
+                onSubmitEditing={onSave}
+              />
+            </View>
+            {phoneError ? (
+              <Text style={[styles.fieldError, textDir(isRTL)]} accessibilityLiveRegion="polite">
+                {phoneError}
+              </Text>
+            ) : null}
           </View>
-          {phoneError ? (
+          <NavRow
+            icon="cash-outline"
+            label={t("personEdit.currency.label")}
+            hint={
+              unavailableDefault
+                ? t("personEdit.currency.unavailable", {
+                    currency: getCurrencyLabel(defaultCurrency!),
+                  })
+                : undefined
+            }
+            trailing={
+              defaultCurrency === null
+                ? t("personEdit.currency.inherited")
+                : getCurrencyLabel(defaultCurrency)
+            }
+            accessibilityLabel={`${t("personEdit.currency.label")}, ${defaultCurrency === null ? inheritedLabel : getCurrencyLabel(defaultCurrency)}`}
+            accessibilityHint={
+              unavailableDefault
+                ? t("personEdit.currency.unavailable", {
+                    currency: getCurrencyLabel(defaultCurrency!),
+                  })
+                : t("personEdit.currency.hint")
+            }
+            isRTL={isRTL}
+            disabled={!editable || !currencySelectable}
+            onPress={() => {
+              if (!canEdit(renderAttempt) || savingRef.current || !currencySelectable) return;
+              Keyboard.dismiss();
+              currencyPickerAttempt.current = { ...renderAttempt };
+              setCurrencyPickerVisible(true);
+            }}
+          />
+          {caps.resolved && caps.canAmend && vaultId ? (
+            <NavRow
+              icon="pricetags-outline"
+              label={t("groups.personAction")}
+              trailing={groupName || t("groups.none")}
+              isRTL={isRTL}
+              disabled={!editable}
+              onPress={() => {
+                if (canEdit(renderAttempt) && !savingRef.current)
+                  router.push({ pathname: "/person/[id]/group", params: { id, vaultId } });
+              }}
+            />
+          ) : null}
+          {saveError ? (
             <Text style={[styles.fieldError, textDir(isRTL)]} accessibilityLiveRegion="polite">
-              {phoneError}
+              {saveError}
             </Text>
           ) : null}
-        </View>
-        {caps.resolved && caps.canAmend && vaultId ? (
-          <NavRow
-            icon="pricetags-outline"
-            label={t("groups.personAction")}
-            trailing={groupName || t("groups.none")}
-            isRTL={isRTL}
-            disabled={busy}
-            onPress={() => router.push({ pathname: "/person/[id]/group", params: { id, vaultId } })}
+          <View style={{ height: 24 }} />
+          <Button
+            label={t("personEdit.save")}
+            onPress={onSave}
+            loading={busy}
+            disabled={!editable}
           />
-        ) : null}
-        {saveError ? (
-          <Text style={[styles.fieldError, textDir(isRTL)]} accessibilityLiveRegion="polite">
-            {saveError}
-          </Text>
-        ) : null}
-        <View style={{ height: 24 }} />
-        {/* disabled during export: Save → router.back mid-export would pop
-            the share sheet over the person screen with no visible cause. */}
-        <Button label={t("personEdit.save")} onPress={onSave} loading={busy} />
 
-        {/* Remove person — the ONE place removal works for every contact.
+          {/* Remove person — the ONE place removal works for every contact.
             The home list's long-press remove only exists for people WITH
             tallies (zero-tally contacts never appear there), which left
             phone-book imports and typo-adds undeletable. Same archive
             semantics as home: relationship archived (entries kept as
             history), phone number freed for re-use. */}
-        <Pressable
-          onPress={() => setConfirmRemove(true)}
-          disabled={busy}
-          accessibilityRole="button"
-          style={({ pressed }) => [styles.removeRow, pressed && { opacity: 0.7 }]}
-        >
-          <Text style={styles.removeRowText}>
-            {t("common.remove.title", { name: [firstName, lastName].filter(Boolean).join(" ") })}
-          </Text>
-        </Pressable>
+          <Pressable
+            onPress={() => {
+              if (canEdit(renderAttempt) && !savingRef.current) setConfirmRemove(true);
+            }}
+            disabled={!editable}
+            accessibilityRole="button"
+            style={({ pressed }) => [styles.removeRow, pressed && { opacity: 0.7 }]}
+          >
+            <Text style={styles.removeRowText}>
+              {t("common.remove.title", { name: [firstName, lastName].filter(Boolean).join(" ") })}
+            </Text>
+          </Pressable>
+        </ScrollView>
       </KeyboardAvoidingView>
 
       <ConfirmDialog
@@ -377,10 +582,47 @@ label so TalkBack still announces "Cancel", not "Back". */}
       />
 
       <CountryPickerSheet
-        visible={pickerVisible}
+        visible={pickerVisible && editable}
         selectedCode={countryCode}
-        onSelect={(c) => setCountryCode(c)}
-        onDismiss={() => setPickerVisible(false)}
+        onSelect={(c) => {
+          if (pickerVisible && canEdit(renderAttempt) && !savingRef.current) setCountryCode(c);
+        }}
+        onDismiss={() => {
+          if (isCurrent(renderAttempt)) setPickerVisible(false);
+        }}
+      />
+      <OptionSheet
+        visible={currencyPickerVisible && editable}
+        title={t("personEdit.currency.label")}
+        options={currencyOptions}
+        selected={defaultCurrency ?? INHERIT_CURRENCY}
+        isRTL={isRTL}
+        onSelect={(code) => {
+          if (
+            !pickerAttempt ||
+            currencyPickerAttempt.current !== pickerAttempt ||
+            !canEdit(pickerAttempt) ||
+            savingRef.current ||
+            (code !== INHERIT_CURRENCY && !enabledCurrenciesRef.current.includes(code))
+          )
+            return;
+          currencyPickerAttempt.current = null;
+          const next = code === INHERIT_CURRENCY ? null : code;
+          defaultCurrencyRef.current = next;
+          setDefaultCurrency(next);
+          setCurrencyPickerVisible(false);
+          setSaveError(null);
+        }}
+        onDismiss={() => {
+          if (
+            !pickerAttempt ||
+            currencyPickerAttempt.current !== pickerAttempt ||
+            !isCurrent(pickerAttempt)
+          )
+            return;
+          currencyPickerAttempt.current = null;
+          setCurrencyPickerVisible(false);
+        }}
       />
     </SafeAreaView>
   );
@@ -388,7 +630,8 @@ label so TalkBack still announces "Cancel", not "Back". */}
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bgDefault },
-  body: { flex: 1, padding: 16, paddingTop: 24 },
+  keyboardBody: { flex: 1 },
+  body: { padding: 16, paddingTop: 24 },
   field: { marginBottom: 20 },
   label: {
     fontSize: 13,

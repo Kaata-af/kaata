@@ -11,6 +11,8 @@ import {
   getActiveVaultIdSyncMaybe,
   getAppMetaInTx,
   getDb as getDbFromTx,
+  getInstallIdSync,
+  getLocalSelfUserIdSync,
   refreshLocalSelfUserIdCache,
   setActiveVaultId,
   setActiveVaultIdCache,
@@ -21,6 +23,7 @@ import {
   appendEntryCreated,
   appendEntryDeleted,
   appendPersonAdded,
+  appendPersonEdit,
   appendPersonArchived,
   appendPersonPhoneChanged,
   appendPersonUnarchived,
@@ -131,6 +134,7 @@ const MIGRATION_039 = "039_customer_groups_from_payloads";
 const MIGRATION_040 = "040_member_credit_permissions";
 const MIGRATION_041 = "041_shared_history_order";
 const MIGRATION_042 = "042_ledger_currencies";
+const MIGRATION_043 = "043_person_default_currency";
 
 // Phase 5 mesh: app_meta keys used by the lib/mesh package. They are NOT
 // referenced from db.ts directly — the table itself is the generic key/value
@@ -564,6 +568,9 @@ export async function initDb(opts: { installId?: string } = {}): Promise<void> {
   }
   if (!(await hasRunMigration(db, MIGRATION_042))) {
     await runMigration042(db);
+  }
+  if (!(await hasRunMigration(db, MIGRATION_043))) {
+    await runMigration043(db);
   }
 }
 
@@ -3698,6 +3705,24 @@ type V0Entry = {
   deleted_at: number | null;
 };
 
+async function runMigration043(db: SQLite.SQLiteDatabase): Promise<void> {
+  await db.withTransactionAsync(async () => {
+    if (!(await columnExists(db, "relationships", "default_entry_currency")))
+      await db.execAsync("ALTER TABLE relationships ADD COLUMN default_entry_currency TEXT");
+    // Older clients retained unknown pulled events, but could have recovered
+    // from a snapshot without this new field. Re-pull idempotently once to
+    // recover pre-cursor preference history, and retry locally retained rows.
+    await db.runAsync("UPDATE sync_state SET last_pulled_server_seq=0");
+    await db.runAsync(`UPDATE event_log SET applied_at=NULL,quarantine_reason=NULL
+      WHERE event_type='person_default_currency_set' AND rejected_at IS NULL AND tombstone_reason IS NULL`);
+    await db.runAsync(
+      "INSERT INTO schema_migrations(name,applied_at) VALUES (?,?)",
+      MIGRATION_043,
+      Date.now(),
+    );
+  });
+}
+
 // --- internal helpers ---
 
 async function getLocalSelfUserId(db: SQLite.SQLiteDatabase): Promise<string | null> {
@@ -5514,9 +5539,33 @@ export async function updatePerson(
   lastName: string | null,
   phone: string | null,
   countryCode?: string,
+  expected?: import("./person-currency").PersonCurrencyMutationOptions & {
+    defaultCurrency?: string | null;
+    vaultId?: string;
+  },
 ): Promise<UpdatePersonResult> {
+  const accountId = getAccountIdSync();
+  const editIdentity = expected
+    ? { installId: getInstallIdSync(), self: getLocalSelfUserIdSync() }
+    : null;
+  const vaultId = expected?.vaultId ?? getActiveVaultIdSync();
+  const assertScope = () => {
+    if (
+      expected &&
+      (getActiveVaultIdSync() !== vaultId ||
+        getAccountIdSync() !== accountId ||
+        getInstallIdSync() !== editIdentity!.installId ||
+        getLocalSelfUserIdSync() !== editIdentity!.self ||
+        expected.shouldContinue?.() === false)
+    )
+      throw new Error("Contact edit changed scope");
+  };
+  assertScope();
+  const session = expected
+    ? (expected.session ?? (await (await import("./auth")).captureCurrentSession()))
+    : undefined;
+  assertScope();
   const db = await getDb();
-  const vaultId = getActiveVaultIdSync();
   const name = joinName(firstName, lastName);
 
   // Cross-vault safety: a stale UI passing a user_id from a different vault
@@ -5524,21 +5573,25 @@ export async function updatePerson(
   // least one active relationship IN THE ACTIVE VAULT before reading their
   // current row.
   const current = await db.getFirstAsync<{
+    relationship_id: string;
     display_name: string;
     phone_e164: string | null;
   }>(
-    `SELECT u.display_name, u.phone_e164
+    `SELECT r.id AS relationship_id,u.display_name, u.phone_e164
        FROM users u
       INNER JOIN relationships r
          ON r.user_b_id = u.id
         AND r.vault_id  = ?
         AND r.archived_at IS NULL
       WHERE u.id = ?
+      ORDER BY r.created_at DESC
       LIMIT 1`,
     vaultId,
     id,
   );
+  assertScope();
   if (!current) {
+    if (expected) throw new Error("The contact no longer exists in this Kaata");
     // Mirror the pre-rewrite silent no-op on missing id (or id from
     // another vault, which is now indistinguishable from missing).
     return { ok: true };
@@ -5581,15 +5634,45 @@ export async function updatePerson(
 
   // Emit as separate events when both changed — each event has a single
   // semantic, which is what the backend projection + Phase 4 ACL want.
-  if (nameChanged) {
-    await appendPersonRenamed({ userId: id, vaultId, name });
-  }
-  if (phoneChanged) {
-    await appendPersonPhoneChanged({
-      userId: id,
-      vaultId,
-      phoneE164: nextPhone,
-    });
+  if (expected) {
+    assertScope();
+    const { applyForUnchangedLocalSession } = await import("./auth");
+    await applyForUnchangedLocalSession(session!, () =>
+      appendPersonEdit({
+        userId: id,
+        relationshipId: current.relationship_id,
+        vaultId,
+        name: nameChanged ? name : undefined,
+        phoneE164: phoneChanged ? nextPhone : undefined,
+        defaultCurrency: expected.defaultCurrency,
+        expectedDefaultCurrency: expected.expectedDefaultCurrency,
+        expectedAccountId: accountId,
+        shouldContinue: expected.shouldContinue,
+        preflight: async (tx) => {
+          assertScope();
+          if (phoneChanged && nextPhone) {
+            const self = await tx.getFirstAsync<{ phone_e164: string | null }>(
+              "SELECT phone_e164 FROM users WHERE is_local_self=1 LIMIT 1",
+            );
+            if (self?.phone_e164 === nextPhone) throw new Error("phone_is_self");
+            if (await findPhoneConflictInVault(nextPhone, vaultId, id))
+              throw new Error("phone_conflict");
+          }
+          assertScope();
+        },
+      }),
+    );
+  } else {
+    if (nameChanged) {
+      await appendPersonRenamed({ userId: id, vaultId, name });
+    }
+    if (phoneChanged) {
+      await appendPersonPhoneChanged({
+        userId: id,
+        vaultId,
+        phoneE164: nextPhone,
+      });
+    }
   }
 
   // Mirror the edit into the phone book so the app's contacts stay "one with"
