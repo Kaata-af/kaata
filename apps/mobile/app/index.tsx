@@ -86,6 +86,7 @@ import {
   parseHomeCustomerListPreference,
   selectSearchCustomers,
   selectedCustomerGroupIds,
+  selectedCustomerCurrencyCodes,
   type CustomerListPreference,
 } from "../lib/customer-list";
 import {
@@ -733,9 +734,13 @@ export default function HomeScreen() {
   const filterCurrencies = currentPeopleScope
     ? (peopleScope?.currencies ?? EMPTY_CURRENCIES)
     : EMPTY_CURRENCIES;
-  const currencyFilter = availableCustomerCurrencyFilter(
-    savedListPreference.currency,
-    filterCurrencies,
+  const currencyFilter = useMemo(
+    () => availableCustomerCurrencyFilter(savedListPreference.currency, filterCurrencies),
+    [savedListPreference.currency, filterCurrencies],
+  );
+  const selectedFilterCurrencies = useMemo(
+    () => selectedCustomerCurrencyCodes(currencyFilter),
+    [currencyFilter],
   );
   const allCurrencyAmountSortAvailable = useMemo(
     () =>
@@ -746,7 +751,9 @@ export default function HomeScreen() {
       ).size <= 1,
     [visibleAllPeople, selectedCurrency],
   );
-  const amountSortAvailable = !!currencyFilter || allCurrencyAmountSortAvailable;
+  const amountSortAvailable =
+    selectedFilterCurrencies.length === 1 ||
+    (selectedFilterCurrencies.length === 0 && allCurrencyAmountSortAvailable);
   // A saved amount sort can outlive a book's first additional currency. Use a
   // valid order immediately, without comparing unlike amounts or saving on load.
   const listPreference = useMemo<CustomerListPreference>(() => {
@@ -772,8 +779,8 @@ export default function HomeScreen() {
     () =>
       Object.fromEntries(
         visibleAllPeople.map((person) => {
-          const statuses = currencyFilter
-            ? [creditByCurrency[currencyFilter]?.[person.id] ?? "none"]
+          const statuses = selectedFilterCurrencies.length
+            ? selectedFilterCurrencies.map((code) => creditByCurrency[code]?.[person.id] ?? "none")
             : Object.values(creditByCurrency).map((statuses) => statuses[person.id] ?? "none");
           return [
             person.id,
@@ -781,7 +788,7 @@ export default function HomeScreen() {
           ];
         }),
       ),
-    [visibleAllPeople, creditByCurrency, currencyFilter],
+    [visibleAllPeople, creditByCurrency, selectedFilterCurrencies],
   );
   const searchMatches = useMemo(
     () =>
@@ -985,7 +992,7 @@ export default function HomeScreen() {
     homeScrollPositions.current = { scope: homeScrollScope, offset: 0 };
   // Retained callbacks write their own scope's record, including account ABA.
   const homeScrollPosition = homeScrollPositions.current;
-  const listOrderKey = `${listPreference.sort}|${balanceFilter}|${currencyFilter ?? "all"}|${JSON.stringify(effectiveGroup)}`;
+  const listOrderKey = `${listPreference.sort}|${balanceFilter}|${JSON.stringify(currencyFilter ?? "all")}|${JSON.stringify(effectiveGroup)}`;
   const shownListOrderKey = useRef(listOrderKey);
   useEffect(() => {
     if (shownListOrderKey.current === listOrderKey) return;
@@ -1006,11 +1013,11 @@ export default function HomeScreen() {
   const changeListPreference = (preference: CustomerListPreference) => {
     if (!isCurrentHome() || selectionBusyRef.current || homeInteraction.current.confirming) return;
     const currency = availableCustomerCurrencyFilter(preference.currency, filterCurrencies);
+    const currencyCount = selectedCustomerCurrencyCodes(currency).length;
     const { currency: _requestedCurrency, ...allCurrenciesPreference } = preference;
     preference = currency ? { ...preference, currency } : allCurrenciesPreference;
     if (
-      !currency &&
-      !allCurrencyAmountSortAvailable &&
+      (currencyCount > 1 || (currencyCount === 0 && !allCurrencyAmountSortAvailable)) &&
       (preference.sort === "amount_desc" || preference.sort === "amount_asc")
     )
       preference = { ...preference, sort: DEFAULT_CUSTOMER_LIST.sort };
@@ -1442,7 +1449,7 @@ export default function HomeScreen() {
         ) : null}
         {currencyFilter ? (
           <CustomerFilterChip
-            label={`${t("customers.currencyFilter")}: ${getCurrencyLabel(currencyFilter)}`}
+            label={`${t("customers.currencyFilter")}: ${selectedFilterCurrencies.map(getCurrencyLabel).join(locale === "en" ? ", " : "، ")}`}
             clearHint={t("customers.currencyFilter.clear")}
             onClear={() => changeListPreference({ ...listPreference, currency: undefined })}
           />

@@ -1329,6 +1329,65 @@ async function main() {
     "USD",
     "the per-Kaata currency choice survives refresh",
   );
+  options().props.onChange({
+    ...options().props.preference,
+    currency: ["USD", "GBP"],
+    sort: "amount_asc",
+  });
+  render();
+  assert.deepEqual(options().props.preference.currency, ["GBP", "USD"]);
+  assert.equal(
+    options().props.preference.sort,
+    "recent",
+    "selecting several currencies cannot compare unlike amounts",
+  );
+  assert.equal(options().props.amountSortAvailable, false);
+  assert.deepEqual(new Set(searchIds()), new Set(["a", "b", "c"]));
+  assert.equal(searchIds().length, 3, "customers matching several currencies appear only once");
+  assert.ok(
+    searchRows().every((row) =>
+      row.props.person.currency_balances.every((balance: any) =>
+        ["GBP", "USD"].includes(balance.currency),
+      ),
+    ),
+  );
+  assert.equal(
+    searchRows().find((row) => row.props.person.id === "c")!.props.creditStatus,
+    "none",
+    "unselected AFN cannot contribute a credit warning",
+  );
+  assert.deepEqual(initialSummary().props.balances, fullCurrencyCards);
+  assert.ok(
+    homeNodes().some(
+      (node) =>
+        node.props.accessibilityHint === "customers.currencyFilter.clear" &&
+        node.props.accessibilityLabel.includes("GBP") &&
+        node.props.accessibilityLabel.includes("USD"),
+    ),
+  );
+  options().props.onChange({ ...options().props.preference, direction: "collect" });
+  render();
+  assert.deepEqual(searchIds(), ["c"]);
+  options().props.onChange({ ...options().props.preference, direction: "pay" });
+  render();
+  assert.deepEqual(searchIds(), ["a"]);
+  options().props.onChange({ ...options().props.preference, direction: "all" });
+  render();
+  await reload();
+  await flush();
+  assert.deepEqual(
+    options().props.preference.currency,
+    ["GBP", "USD"],
+    "several selected currencies survive refresh without becoming All",
+  );
+  options().props.onChange({ ...options().props.preference, currency: "USD", sort: "amount_asc" });
+  render();
+  assert.equal(
+    options().props.amountSortAvailable,
+    true,
+    "returning to a single selected currency enables amount order",
+  );
+  assert.deepEqual(searchIds(), ["c", "a"]);
   options().props.onChange({ ...options().props.preference, direction: "collect", group: ["g"] });
   render();
   homeNodes()

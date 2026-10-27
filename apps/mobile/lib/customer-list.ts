@@ -17,11 +17,12 @@ export type CustomerSort = (typeof CUSTOMER_SORTS)[number];
 export const CUSTOMER_BALANCE_FILTERS = ["all", "collect", "pay"] as const;
 export type CustomerBalanceFilter = (typeof CUSTOMER_BALANCE_FILTERS)[number];
 export type CustomerGroupFilter = "all" | "ungrouped" | string | string[];
+export type CustomerCurrencyFilter = string | string[] | undefined;
 export type CustomerListPreference = {
   sort: CustomerSort;
   group: CustomerGroupFilter;
   direction?: CustomerBalanceFilter;
-  currency?: string;
+  currency?: CustomerCurrencyFilter;
 };
 export const DEFAULT_CUSTOMER_LIST: CustomerListPreference = {
   sort: "recent",
@@ -59,27 +60,62 @@ function normalizeCustomerCurrency(currency: unknown): string | undefined {
 }
 
 export function availableCustomerCurrencyFilter(
-  currency: string | undefined,
+  currency: CustomerCurrencyFilter,
   codes: readonly string[],
-): string | undefined {
-  const code = normalizeCustomerCurrency(currency);
-  return code && codes.some((available) => normalizeCustomerCurrency(available) === code)
-    ? code
-    : undefined;
+): CustomerCurrencyFilter {
+  const available = new Set(selectedCustomerCurrencyCodes(codes));
+  return compactCustomerCurrencies(
+    selectedCustomerCurrencyCodes(currency).filter((code) => available.has(code)),
+  );
 }
 
-/** A specific denomination is a projection of an actual currency row. Missing
+/** Empty means All; legacy single-currency preferences remain valid. */
+export function selectedCustomerCurrencyCodes(currency: unknown): string[] {
+  return [
+    ...new Set(
+      (Array.isArray(currency) ? currency : [currency])
+        .map(normalizeCustomerCurrency)
+        .filter((code): code is string => !!code),
+    ),
+  ].sort();
+}
+
+function compactCustomerCurrencies(codes: string[]): CustomerCurrencyFilter {
+  return codes.length === 1 ? codes[0] : codes.length ? codes : undefined;
+}
+
+export function toggleCustomerCurrencyFilter(
+  currency: CustomerCurrencyFilter,
+  code: string,
+): CustomerCurrencyFilter {
+  const selected = selectedCustomerCurrencyCodes(currency);
+  const normalized = normalizeCustomerCurrency(code);
+  if (!normalized) return compactCustomerCurrencies(selected);
+  return compactCustomerCurrencies(
+    selectedCustomerCurrencyCodes(
+      selected.includes(normalized)
+        ? selected.filter((value) => value !== normalized)
+        : [...selected, normalized],
+    ),
+  );
+}
+
+/** Keep real balances in the selected denominations, once per customer. Missing
  * rows never become foreign-currency zeros, including for never-tallied people. */
 export function filterCustomerCurrencyRows<T extends PersonWithBalance>(
   people: readonly T[],
-  currency?: string,
+  currency?: CustomerCurrencyFilter,
 ): T[] {
-  const code = normalizeCustomerCurrency(currency);
-  if (!code) return [...people];
+  const codes = selectedCustomerCurrencyCodes(currency);
+  if (!codes.length) return [...people];
   return people.flatMap((person) => {
     const rows = person.currency_balances ?? [person];
-    const row = rows.find((candidate) => normalizeCustomerCurrency(candidate.currency) === code);
-    if (!row) return [];
+    const matching = rows.filter((candidate) =>
+      codes.includes(normalizeCustomerCurrency(candidate.currency) ?? ""),
+    );
+    if (!matching.length) return [];
+    const row = matching.find((candidate) => candidate.currency === person.currency) ?? matching[0];
+    const code = normalizeCustomerCurrency(row.currency)!;
     return [
       {
         ...person,
@@ -90,7 +126,7 @@ export function filterCustomerCurrencyRows<T extends PersonWithBalance>(
         created_at: person.created_at,
         archived_at: person.archived_at,
         currency: code,
-        currency_balances: [row],
+        currency_balances: matching,
         // Optional metadata must also come from this denomination: an absent
         // value cannot inherit another currency's shared or settled state.
         tab_confirmed_balance: row.tab_confirmed_balance,
@@ -103,6 +139,24 @@ export function filterCustomerCurrencyRows<T extends PersonWithBalance>(
         last_entry_type: row.last_entry_type,
         is_settled: row.is_settled,
         selection_totals: row.selection_totals,
+        ...(matching.length > 1
+          ? {
+              last_entry_at:
+                Math.max(...matching.map((balance) => balance.last_entry_at ?? 0)) || null,
+              is_settled: matching.every((balance) => balance.is_settled === 1) ? 1 : 0,
+              tab_unsynced: matching.some((balance) => balance.tab_unsynced === 1) ? 1 : 0,
+              tab_pending: matching.reduce(
+                (count, balance) => count + (balance.tab_pending ?? 0),
+                0,
+              ),
+              tab_pending_count: matching.reduce(
+                (count, balance) => count + (balance.tab_pending_count ?? 0),
+                0,
+              ),
+              tab_pending_balance: undefined,
+              selection_totals: undefined,
+            }
+          : {}),
       },
     ];
   });
@@ -158,7 +212,7 @@ function parsePreference(
           .sort()
           .slice(0, 100)
       : null;
-    const currency = normalizeCustomerCurrency(value?.currency);
+    const currency = compactCustomerCurrencies(selectedCustomerCurrencyCodes(value?.currency));
     return {
       sort: CUSTOMER_SORTS.includes(value?.sort) ? value.sort : fallback.sort,
       direction: CUSTOMER_BALANCE_FILTERS.includes(value?.direction) ? value.direction : "all",
@@ -251,9 +305,15 @@ export function selectCustomers<T extends PersonWithBalance>(
   groupByPerson: Readonly<Record<string, string | readonly string[] | null>>,
   locale: LocaleCode,
 ): T[] {
+  const multipleCurrencies = selectedCustomerCurrencyCodes(preference.currency).length > 1;
   return selectCustomerRows(
     people,
-    (person) => !isNeverTalliedCustomer(person) && customerSide(person) === direction,
+    (person) =>
+      multipleCurrencies
+        ? (person.currency_balances ?? [person]).some(
+            (row) => !isNeverTalliedCustomer(row) && customerSide(row) === direction,
+          )
+        : !isNeverTalliedCustomer(person) && customerSide(person) === direction,
     preference,
     groupByPerson,
     locale,
@@ -350,6 +410,12 @@ function selectCustomerRows<T extends PersonWithBalance>(
   activityAt: (person: T) => number,
   relevanceById?: ReadonlyMap<string, number>,
 ): T[] {
+  // Several denominations have no comparable combined amount.
+  const sort =
+    selectedCustomerCurrencyCodes(preference.currency).length > 1 &&
+    (preference.sort === "amount_asc" || preference.sort === "amount_desc")
+      ? "recent"
+      : preference.sort;
   const byName = (a: T, b: T) =>
     compareCustomerNames(a.name, b.name, locale) || a.id.localeCompare(b.id);
   const byDate = (a: T, b: T) => activityAt(b) - activityAt(a);
@@ -382,12 +448,10 @@ function selectCustomerRows<T extends PersonWithBalance>(
     )
     .sort((a, b) => {
       const relevance = (relevanceById?.get(b.id) ?? 0) - (relevanceById?.get(a.id) ?? 0);
-      if (preference.sort === "amount_asc" || preference.sort === "amount_desc")
-        return (
-          byAmount(a, b, preference.sort === "amount_asc" ? 1 : -1) || relevance || byName(a, b)
-        );
+      if (sort === "amount_asc" || sort === "amount_desc")
+        return byAmount(a, b, sort === "amount_asc" ? 1 : -1) || relevance || byName(a, b);
       if (relevance) return relevance;
-      switch (preference.sort) {
+      switch (sort) {
         case "outstanding_name":
           return outstandingTier(a) - outstandingTier(b) || byName(a, b);
         case "name_asc":

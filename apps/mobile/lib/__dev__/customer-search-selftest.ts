@@ -7,6 +7,8 @@ import {
   compareCustomerNames,
   customerSide,
   availableCustomerCurrencyFilter,
+  selectedCustomerCurrencyCodes,
+  toggleCustomerCurrencyFilter,
   filterCustomerCurrencyRows,
   parseCustomerListPreference,
   parseCustomerSearchPreference,
@@ -807,7 +809,7 @@ for (const parser of [parseCustomerListPreference, parseCustomerSearchPreference
     currencyPreference,
   );
   assert.deepEqual(parser(JSON.stringify(currencyPreference)), currencyPreference);
-  for (const currency of [null, "all", "ALL", "", 7, ["USD"], true, {}, "US", "USDX", "US$"])
+  for (const currency of [null, "all", "ALL", "", 7, [], true, {}, "US", "USDX", "US$"])
     assert.deepEqual(
       parser(JSON.stringify({ ...currencyPreference, currency })),
       {
@@ -836,6 +838,75 @@ assert.equal(
 assert.equal(availableCustomerCurrencyFilter("USD", []), undefined);
 assert.equal(availableCustomerCurrencyFilter("all", ["AFN", "USD"]), undefined);
 assert.equal(availableCustomerCurrencyFilter("US$", ["US$"]), undefined);
+assert.deepEqual(selectedCustomerCurrencyCodes(["usd", " afn ", "USD", "invalid", null]), [
+  "AFN",
+  "USD",
+]);
+assert.deepEqual(availableCustomerCurrencyFilter(["USD", "AFN", "EUR"], ["AFN", "USD"]), [
+  "AFN",
+  "USD",
+]);
+assert.equal(availableCustomerCurrencyFilter(["USD", "EUR"], ["USD"]), "USD");
+assert.equal(availableCustomerCurrencyFilter(["USD"], ["AFN"]), undefined);
+assert.equal(toggleCustomerCurrencyFilter(undefined, "USD"), "USD");
+assert.deepEqual(toggleCustomerCurrencyFilter("USD", "AFN"), ["AFN", "USD"]);
+assert.equal(toggleCustomerCurrencyFilter(["AFN", "USD"], "USD"), "AFN");
+assert.equal(toggleCustomerCurrencyFilter("AFN", "AFN"), undefined);
+assert.deepEqual(parseCustomerListPreference('{"currency":["usd","AFN","USD","US$"]}'), {
+  ...DEFAULT_CUSTOMER_LIST,
+  currency: ["AFN", "USD"],
+});
+const selectedCurrencies = filterCustomerCurrencyRows(currencyPeople, ["AFN", "USD"]);
+const selectedMixed = selectedCurrencies.find((row) => row.id === "mixed-currency")!;
+assert.deepEqual(
+  selectedMixed.currency_balances!.map((row) => row.currency),
+  ["AFN", "USD"],
+);
+assert.equal(selectedMixed.currency_balances![0].balance, 100);
+assert.equal(
+  selectedMixed.currency_balances![1].balance,
+  -100,
+  "unlike currencies never net to zero",
+);
+assert.equal(
+  selectedMixed.last_entry_at,
+  900,
+  "latest selected-currency activity replaces wrapper date",
+);
+assert.equal(new Set(selectedCurrencies.map((row) => row.id)).size, selectedCurrencies.length);
+assert.deepEqual(
+  selectSearchCustomers(
+    [mixedCurrency, currencyPeople[1]],
+    { sort: "amount_asc", group: "all", currency: ["AFN", "USD"] },
+    {},
+    "en",
+  ).map((row) => row.id),
+  ["mixed-currency", "usd-small"],
+  "multi-currency amount order safely falls back to recent activity",
+);
+assert.deepEqual(
+  selectSearchCustomers(
+    [mixedCurrency],
+    { sort: "recent", group: "all", direction: "pay", currency: ["AFN", "USD"] },
+    {},
+    "en",
+  ).map((row) => row.id),
+  ["mixed-currency"],
+  "any selected known currency can satisfy a balance direction",
+);
+for (const direction of ["collect", "pay"] as const) {
+  assert.deepEqual(
+    selectCustomers(
+      [mixedCurrency],
+      direction,
+      { sort: "recent", group: "all", currency: ["AFN", "USD"] },
+      {},
+      "en",
+    ).map((row) => row.id),
+    ["mixed-currency"],
+    "financial-side lists match any selected denomination independently",
+  );
+}
 assert.equal(
   JSON.stringify(currencyPeople),
   originalCurrencyPeople,

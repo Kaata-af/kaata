@@ -17,6 +17,8 @@ import { rowDir, textDir } from "../lib/direction";
 import { t } from "../lib/i18n";
 import {
   CUSTOMER_BALANCE_FILTERS,
+  selectedCustomerCurrencyCodes,
+  toggleCustomerCurrencyFilter,
   selectedCustomerGroupIds,
   toggleCustomerGroupFilter,
   type CustomerListPreference,
@@ -44,21 +46,17 @@ type CustomerListOptionsProps = {
 
 /** Shared in-flow controls, including inside the search sheet's own scroll area. */
 export function CustomerListOptions(props: CustomerListOptionsProps) {
-  const selectedCurrency =
-    props.preference.currency && props.preference.currency !== "all"
-      ? props.preference.currency
-      : undefined;
-  const currencies = [
-    ...new Set([...(props.currencies ?? []), ...(selectedCurrency ? [selectedCurrency] : [])]),
-  ];
-  const showCurrencies = currencies.length > 1 || selectedCurrency !== undefined;
+  const selectedCurrencies = selectedCustomerCurrencyCodes(props.preference.currency);
+  const currencies = [...new Set([...(props.currencies ?? []), ...selectedCurrencies])];
+  const showCurrencies = currencies.length > 1 || selectedCurrencies.length > 0;
+  const amountSortAvailable = props.amountSortAvailable !== false && selectedCurrencies.length <= 1;
   // Keep related choices on the same row rather than relying on wrap order.
   // Recent activity remains the first full-width choice; its reverse follows it.
   const sortRows: readonly (readonly CustomerSort[])[] = [
     ["recent"],
     ["date_asc"],
     ["name_asc", "name_desc"],
-    ...(props.amountSortAvailable === false ? [] : [["amount_asc", "amount_desc"] as const]),
+    ...(amountSortAvailable ? [["amount_asc", "amount_desc"] as const] : []),
     ["outstanding_name"],
   ];
   const choice = (
@@ -71,7 +69,7 @@ export function CustomerListOptions(props: CustomerListOptionsProps) {
   ) => (
     <Pressable
       key={key}
-      accessibilityRole={kind === "group" ? "checkbox" : "radio"}
+      accessibilityRole={kind === "group" || kind === "currency" ? "checkbox" : "radio"}
       accessibilityLabel={label}
       accessibilityState={{ checked: selected, selected }}
       onPress={onPress}
@@ -88,7 +86,7 @@ export function CustomerListOptions(props: CustomerListOptionsProps) {
     >
       <Ionicons
         name={
-          kind !== "group"
+          kind !== "group" && kind !== "currency"
             ? selected
               ? "radio-button-on"
               : "radio-button-off"
@@ -131,10 +129,7 @@ export function CustomerListOptions(props: CustomerListOptionsProps) {
                   {t("customers.currencyFilter")}
                 </Text>
               </View>
-              <View
-                accessibilityRole="radiogroup"
-                accessibilityLabel={t("customers.currencyFilter")}
-              >
+              <View accessibilityRole="none" accessibilityLabel={t("customers.currencyFilter")}>
                 <ScrollView
                   horizontal
                   style={styles.currencyScroll}
@@ -147,7 +142,7 @@ export function CustomerListOptions(props: CustomerListOptionsProps) {
                   {choice(
                     "all",
                     t("customers.currencyFilter.all"),
-                    !selectedCurrency,
+                    selectedCurrencies.length === 0,
                     () => props.onChange({ ...props.preference, currency: undefined }),
                     "currency",
                   )}
@@ -155,8 +150,12 @@ export function CustomerListOptions(props: CustomerListOptionsProps) {
                     choice(
                       code,
                       getCurrencyLabel(code),
-                      selectedCurrency === code,
-                      () => props.onChange({ ...props.preference, currency: code }),
+                      selectedCurrencies.includes(code),
+                      () =>
+                        props.onChange({
+                          ...props.preference,
+                          currency: toggleCustomerCurrencyFilter(props.preference.currency, code),
+                        }),
                       "currency",
                     ),
                   )}
@@ -196,7 +195,7 @@ export function CustomerListOptions(props: CustomerListOptionsProps) {
               )}
             </View>
           </View>
-          {props.amountSortAvailable === false ? (
+          {!amountSortAvailable ? (
             <Text style={[styles.help, textDir(props.isRTL)]}>
               {t("customers.balanceFilter.help")}
             </Text>
@@ -235,10 +234,10 @@ export function CustomerListOptions(props: CustomerListOptionsProps) {
               </View>
             ))}
           </View>
-          {props.amountSortAvailable === false ? (
+          {!amountSortAvailable ? (
             <Text style={[styles.help, textDir(props.isRTL)]}>
               {t(
-                showCurrencies && !selectedCurrency
+                showCurrencies
                   ? "customers.sort.selectCurrencyHelp"
                   : "customers.sort.multiCurrencyHelp",
               )}

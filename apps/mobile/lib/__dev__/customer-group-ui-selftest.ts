@@ -11,6 +11,8 @@ import {
   CUSTOMER_BALANCE_FILTERS,
   CUSTOMER_SORTS,
   selectedCustomerGroupIds,
+  selectedCustomerCurrencyCodes,
+  toggleCustomerCurrencyFilter,
   toggleCustomerGroupFilter,
   type CustomerListPreference,
 } from "../customer-list";
@@ -110,6 +112,8 @@ export async function customerGroupUIChecks() {
         CUSTOMER_BALANCE_FILTERS,
         CUSTOMER_SORTS,
         selectedCustomerGroupIds,
+        selectedCustomerCurrencyCodes,
+        toggleCustomerCurrencyFilter,
         toggleCustomerGroupFilter,
       },
       "./SheetBackdrop": { SheetBackdrop: "SheetBackdrop" },
@@ -449,7 +453,7 @@ export async function customerGroupUIChecks() {
           currencies,
           isRTL: locale !== "en",
           preference,
-          amountSortAvailable: !!preference.currency && preference.currency !== "all",
+          amountSortAvailable: selectedCustomerCurrencyCodes(preference.currency).length === 1,
           groups: [{ id: "family", name: "Family", member_count: 1 }],
           onChange: (next: CustomerListPreference) => {
             preference = next;
@@ -461,30 +465,26 @@ export async function customerGroupUIChecks() {
       const currencyGroup = (tree: any) =>
         nodes(tree).find(
           (node) =>
-            node.props.accessibilityRole === "radiogroup" &&
+            node.props.accessibilityRole === "none" &&
             node.props.accessibilityLabel === language.t("customers.currencyFilter"),
         );
-      const currencyRadios = (tree: any) =>
-        nodes(currencyGroup(tree)).filter((node) => node.props.accessibilityRole === "radio");
+      const currencyButtons = (tree: any) =>
+        nodes(currencyGroup(tree)).filter((node) => node.props.accessibilityRole === "checkbox");
       const allCurrencies = currencyOptions();
       assert.deepEqual(
         nodes(allCurrencies)
           .filter((node) => node.props.accessibilityRole === "radiogroup")
           .map((node) => node.props.accessibilityLabel),
-        [
-          language.t("customers.currencyFilter"),
-          language.t("customers.balanceFilter"),
-          language.t("customers.sort"),
-        ],
-        "currency, balance and order remain independent radio groups",
+        [language.t("customers.balanceFilter"), language.t("customers.sort")],
+        "balance and sort remain radio groups while currencies support independent selection",
       );
       assert.deepEqual(
-        currencyRadios(allCurrencies).map((node) => node.props.accessibilityLabel),
+        currencyButtons(allCurrencies).map((node) => node.props.accessibilityLabel),
         [language.t("customers.currencyFilter.all"), "AFN ؋", "USD $", "XYZ"],
         "currency choices deduplicate codes and label unknown historic codes honestly",
       );
       assert.deepEqual(
-        currencyRadios(allCurrencies).map((node) => node.props.accessibilityState.checked),
+        currencyButtons(allCurrencies).map((node) => node.props.accessibilityState.checked),
         [true, false, false, false],
       );
       const strip = nodes(currencyGroup(allCurrencies)).find((node) => node.type === "ScrollView")!;
@@ -507,7 +507,7 @@ export async function customerGroupUIChecks() {
           (node) => node.props.children === language.t("customers.sort.selectCurrencyHelp"),
         ),
       );
-      for (const control of currencyRadios(allCurrencies)) {
+      for (const control of currencyButtons(allCurrencies)) {
         const style = flattenStyle(control.props.style({ pressed: false }));
         assert.ok(style.minHeight >= 44);
         assert.equal(style.flexShrink, 0);
@@ -515,7 +515,7 @@ export async function customerGroupUIChecks() {
         assert.equal(label.props.numberOfLines, undefined);
       }
       const beforeCurrency = { ...preference };
-      currencyRadios(allCurrencies)
+      currencyButtons(allCurrencies)
         .find((node) => node.props.accessibilityLabel === "USD $")!
         .props.onPress();
       assert.deepEqual(
@@ -525,8 +525,8 @@ export async function customerGroupUIChecks() {
       );
       const oneCurrency = currencyOptions();
       assert.equal(
-        currencyRadios(oneCurrency).find((node) => node.props.accessibilityLabel === "USD $")!.props
-          .accessibilityState.checked,
+        currencyButtons(oneCurrency).find((node) => node.props.accessibilityLabel === "USD $")!
+          .props.accessibilityState.checked,
         true,
       );
       const smallest = nodes(oneCurrency).find(
@@ -538,8 +538,30 @@ export async function customerGroupUIChecks() {
       assert.equal(preference.sort, "amount_asc");
       assert.deepEqual(preference.group, ["family"]);
       assert.equal(preference.direction, "collect");
+      currencyButtons(currencyOptions())
+        .find((node) => node.props.accessibilityLabel === "AFN ؋")!
+        .props.onPress();
+      assert.deepEqual(preference.currency, ["AFN", "USD"]);
+      const severalCurrencies = currencyOptions();
+      assert.deepEqual(
+        currencyButtons(severalCurrencies).map((node) => node.props.accessibilityState.checked),
+        [false, true, true, false],
+      );
+      assert.ok(
+        !nodes(severalCurrencies).some(
+          (node) => node.props.accessibilityLabel === language.t("customers.sort.amount_asc"),
+        ),
+      );
+      currencyButtons(severalCurrencies)
+        .find((node) => node.props.accessibilityLabel === "USD $")!
+        .props.onPress();
+      assert.equal(preference.currency, "AFN", "a selected currency toggles off independently");
+      currencyButtons(currencyOptions())
+        .find((node) => node.props.accessibilityLabel === "AFN ؋")!
+        .props.onPress();
+      assert.equal(preference.currency, undefined, "deselecting the last currency returns to All");
       const beforeAll = { ...preference };
-      currencyRadios(currencyOptions())[0].props.onPress();
+      currencyButtons(currencyOptions())[0].props.onPress();
       assert.deepEqual(preference, { ...beforeAll, currency: undefined });
       assert.equal(
         currencyGroup(currencyOptions(["AFN"])),
@@ -553,7 +575,7 @@ export async function customerGroupUIChecks() {
       );
       const manyOptions = currencyOptions(many);
       assert.equal(
-        currencyRadios(manyOptions).length,
+        currencyButtons(manyOptions).length,
         65,
         "all available denominations remain reachable without a tall grid",
       );
@@ -564,7 +586,7 @@ export async function customerGroupUIChecks() {
       // Native callbacks are opaque to assertion-based TypeScript narrowing.
       preference = { ...beforeAll, currency: "AFN" };
       assert.equal(
-        currencyRadios(currencyOptions(["AFN"])).length,
+        currencyButtons(currencyOptions(["AFN"])).length,
         2,
         "an explicit one-currency filter still offers All to clear it",
       );

@@ -356,13 +356,14 @@ for (const isRTL of [false, true]) {
       embedded: true,
       preference: changed,
       currencies: ["AFN", "USD"],
-      amountSortAvailable: changed.currency !== undefined,
+      amountSortAvailable:
+        customerList.selectedCustomerCurrencyCodes(changed.currency).length === 1,
     });
   const allCurrencies = currencyOptions();
   const currencyGroup = (tree: any) =>
     nodes(tree).find(
       (node) =>
-        node.props.accessibilityRole === "radiogroup" &&
+        node.props.accessibilityRole === "none" &&
         node.props.accessibilityLabel === "customers.currencyFilter",
     )!;
   const strip = nodes(currencyGroup(allCurrencies)).find((node) => node.type === "ScrollView")!;
