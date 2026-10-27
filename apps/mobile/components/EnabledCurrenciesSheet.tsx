@@ -66,24 +66,17 @@ export function EnabledCurrenciesSheet(props: {
   latest.current = props;
   const locale = getLocale();
   const choices = useMemo(() => {
-    let matches = props.options;
-    if (query.trim()) {
-      const catalogMatches = new Set(searchCurrencies(query, locale).map((item) => item.code));
-      const terms = query.trim().toLowerCase().split(/\s+/);
-      matches = props.options.filter(
-        (option) =>
-          catalogMatches.has(option.code) ||
-          terms.every((term) =>
-            `${option.code} ${option.label} ${option.symbol}`.toLowerCase().includes(term),
-          ),
-      );
-    }
-    const selected = new Set(props.selected);
-    const priority = (code: string) =>
-      code === props.defaultCurrency ? 0 : selected.has(code) ? 1 : 2;
-    // Preserve catalog order within the selected and remaining currencies.
-    return [...matches].sort((a, b) => priority(a.code) - priority(b.code));
-  }, [query, locale, props.options, props.selected, props.defaultCurrency]);
+    if (!query.trim()) return props.options;
+    const catalogMatches = new Set(searchCurrencies(query, locale).map((item) => item.code));
+    const terms = query.trim().toLowerCase().split(/\s+/);
+    return props.options.filter(
+      (option) =>
+        catalogMatches.has(option.code) ||
+        terms.every((term) =>
+          `${option.code} ${option.label} ${option.symbol}`.toLowerCase().includes(term),
+        ),
+    );
+  }, [query, locale, props.options]);
   const atLimit = new Set(props.selected).size >= MAX_ENABLED_CURRENCIES;
   useEffect(() => {
     setQuery("");
