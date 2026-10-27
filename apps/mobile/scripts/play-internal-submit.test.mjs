@@ -18,7 +18,7 @@ after(() => {
   rmdirSync(scratch);
 });
 
-const app = { version: "2.3.0", android: { package: "af.kaata.app", versionCode: 74 } };
+const app = { version: "2.3.0", android: { package: "af.kaata.app", versionCode: 75 } };
 const token = "mock-bearer-secret";
 const production = {
   releases: [
@@ -32,7 +32,7 @@ const production = {
 const internal = (code) => ({
   releases: [
     {
-      releaseName: `${code === 74 ? "2.3.0" : "2.2.4"} (${code}) — internal testing`,
+      releaseName: `${code >= 74 ? "2.3.0" : "2.2.4"} (${code}) — internal testing`,
       activeArtifacts: [{ versionCode: code }],
       releaseLifecycleState: "RELEASE_LIFECYCLE_STATE_PUBLISHED",
     },
@@ -57,7 +57,7 @@ function mock(options = {}) {
   const previousInternal = {
     track: "internal",
     releases: [
-      { name: "2.2.4 (73) — internal testing", versionCodes: ["73"], status: "completed" },
+      { name: "2.3.0 (74) — internal testing", versionCodes: ["74"], status: "completed" },
     ],
   };
   const fetchImpl = async (url, init) => {
@@ -74,7 +74,7 @@ function mock(options = {}) {
           releases: [
             {
               ...production.releases[0],
-              activeArtifacts: [{ versionCode: 74 }],
+              activeArtifacts: [{ versionCode: 75 }],
             },
           ],
         });
@@ -92,7 +92,7 @@ function mock(options = {}) {
       return response(production);
     }
     if (init.method === "GET" && parsed.pathname.endsWith("/tracks/internal/releases")) {
-      return response(internal(committed || options.alreadyPublished ? 74 : 73));
+      return response(internal(committed || options.alreadyPublished ? 75 : 74));
     }
     if (init.method === "POST" && parsed.pathname.endsWith("/edits"))
       return response({ id: committed ? "verification-edit-456" : "own-edit-123" });
@@ -122,7 +122,7 @@ function mock(options = {}) {
       });
     if (init.method === "GET" && /\/edits\/[^/]+\/tracks$/.test(parsed.pathname)) {
       const preserved = structuredClone(otherTracks);
-      if (options.closedTrackDrift && staged) preserved[1].releases[0].versionCodes = ["74"];
+      if (options.closedTrackDrift && staged) preserved[1].releases[0].versionCodes = ["75"];
       return response({ tracks: [...preserved, staged ?? previousInternal] });
     }
     if (init.method === "GET" && parsed.pathname.endsWith("/edits/own-edit-123/bundles"))
@@ -132,8 +132,9 @@ function mock(options = {}) {
           71,
           72,
           73,
-          ...(options.usedCode ? [74] : []),
-          ...(options.higherCode ? [75] : []),
+          74,
+          ...(options.usedCode ? [75] : []),
+          ...(options.higherCode ? [76] : []),
         ].map((versionCode) => ({ versionCode })),
       });
     if (init.method === "GET" && parsed.pathname.endsWith("/edits/own-edit-123/apks"))
@@ -145,7 +146,7 @@ function mock(options = {}) {
       if (options.uploadError) return response({}, 400);
       if (options.ambiguousUpload) throw new Error(token);
       return response({
-        versionCode: options.wrongCode ? 73 : 74,
+        versionCode: options.wrongCode ? 74 : 75,
         ...(options.missingHash
           ? {}
           : {
@@ -157,7 +158,7 @@ function mock(options = {}) {
     }
     if (init.method === "PUT" && parsed.pathname.endsWith("/edits/own-edit-123/tracks/internal")) {
       assert.equal(body.track, "internal");
-      assert.deepEqual(body.releases[0].versionCodes, ["74"]);
+      assert.deepEqual(body.releases[0].versionCodes, ["75"]);
       assert.equal(body.releases[0].status, "completed");
       staged = structuredClone(body);
       return response(body);
@@ -214,7 +215,7 @@ const lifecycleReads = (calls) =>
     (call) => call.method === "GET" && /\/tracks\/(production|internal)\/releases$/.test(call.path),
   );
 
-test("uploads code 74 beside published production/internal 73 and older artifacts; preserves everything outside internal", async () => {
+test("uploads code 75 beside published production73/internal74 and older artifacts; preserves everything outside internal", async () => {
   const transport = mock();
   const result = await run(transport, {
     notes: "Private test build. Do not promote to production.",
@@ -223,10 +224,10 @@ test("uploads code 74 beside published production/internal 73 and older artifact
   assert.deepEqual(result.productionBefore, result.productionAfter);
   assert.ok(
     transport.messages.some(
-      (message) => message.startsWith("Internal before:") && message.includes('"73"'),
+      (message) => message.startsWith("Internal before:") && message.includes('"74"'),
     ),
   );
-  assert.ok(result.internalAfter.some((release) => release.codes.includes("74")));
+  assert.ok(result.internalAfter.some((release) => release.codes.includes("75")));
   assert.ok(Object.values(result.preservationChecks).every(Boolean));
   assert.deepEqual(
     result.before.tracks.filter((track) => track.track !== "internal"),
@@ -273,13 +274,13 @@ test("pending review refusal retains the attempted edit, checks both tracks, and
 });
 
 for (const [option, description] of [
-  ["wrongCode", "old code 73 upload"],
+  ["wrongCode", "old code 74 upload"],
   ["wrongHash", "mismatched uploaded bundle SHA-256"],
   ["missingHash", "missing uploaded bundle SHA-256"],
   ["uploadError", "upload refusal"],
   ["ambiguousUpload", "ambiguous upload failure"],
-  ["usedCode", "already uploaded unassigned code 74"],
-  ["higherCode", "newer existing artifact code 75"],
+  ["usedCode", "already uploaded unassigned code 75"],
+  ["higherCode", "newer existing artifact code 76"],
 ]) {
   test(`${description} discards the edit before any track update or commit`, async () => {
     const transport = mock({ [option]: true });
@@ -384,7 +385,7 @@ test("post-commit drift is reported after verification cleanup without a second 
   );
 });
 
-test("an already published internal code 74 is idempotent and opens no edit", async () => {
+test("an already published internal code 75 is idempotent and opens no edit", async () => {
   const transport = mock({ alreadyPublished: true });
   const result = await run(transport);
   assert.equal(result.alreadyPublished, true);
@@ -397,9 +398,9 @@ test("production cannot be inspected before upload: no edit is created", async (
   assert.ok(transport.calls.every((call) => call.method === "GET"));
 });
 
-test("code 74 already on production refuses before opening an edit", async () => {
+test("code 75 already on production refuses before opening an edit", async () => {
   const transport = mock({ targetOnProduction: true });
-  await assert.rejects(run(transport), /Code 74 already exists on production/);
+  await assert.rejects(run(transport), /Code 75 already exists on production/);
   assert.ok(transport.calls.every((call) => call.method === "GET"));
 });
 
@@ -422,7 +423,8 @@ test("wrong app/package/build refuses before any Google request", async () => {
     { ...app, android: { ...app.android, versionCode: 71 } },
     { ...app, android: { ...app.android, versionCode: 72 } },
     { ...app, android: { ...app.android, versionCode: 73 } },
-    { ...app, android: { ...app.android, versionCode: 75 } },
+    { ...app, android: { ...app.android, versionCode: 74 } },
+    { ...app, android: { ...app.android, versionCode: 76 } },
   ]) {
     const transport = mock();
     await assert.rejects(run(transport, { app: other }), /restricted/);
@@ -438,7 +440,7 @@ test("invalid or excessive notes refuse before Google requests", async () => {
   }
 });
 
-test("the checked-in internal testing notes fit Play's limit and attach only to code 74", async () => {
+test("the checked-in internal testing notes fit Play's limit and attach only to code 75", async () => {
   const notes = readFileSync(
     new URL("./release-notes/2.3.0-internal.txt", import.meta.url),
     "utf8",
@@ -447,7 +449,7 @@ test("the checked-in internal testing notes fit Play's limit and attach only to 
   const transport = mock();
   await run(transport, { notes });
   const put = transport.calls.find((call) => call.method === "PUT");
-  assert.deepEqual(put.body.releases[0].versionCodes, ["74"]);
+  assert.deepEqual(put.body.releases[0].versionCodes, ["75"]);
   assert.deepEqual(put.body.releases[0].releaseNotes, [{ language: "en-US", text: notes }]);
 });
 

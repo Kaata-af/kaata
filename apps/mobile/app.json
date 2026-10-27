@@ -37,7 +37,7 @@
         "android.permission.SYSTEM_ALERT_WINDOW",
         "android.permission.RECORD_AUDIO"
       ],
-      "versionCode": 74
+      "versionCode": 75
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -102,6 +102,7 @@
           "android": {
             "enableProguardInReleaseBuilds": true,
             "enableShrinkResourcesInReleaseBuilds": true,
+            "extraProguardRules": "# Older Room/WorkManager consumer rules rely on implicit constructor retention.\n# AGP 9 strict R8 mode requires these reflective no-argument constructors explicitly.\n-keep class * extends androidx.room.RoomDatabase {\n    public <init>();\n}\n-keep class * extends androidx.work.InputMerger {\n    public <init>();\n}",
             "usesCleartextTraffic": true
           },
           "ios": {
