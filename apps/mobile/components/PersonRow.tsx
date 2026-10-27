@@ -175,7 +175,7 @@ export const PersonRow = memo(function PersonRow(props: {
                 </Text>
               )}
               <Text style={styles.afn} maxFontSizeMultiplier={1.5}>
-                {getCurrencyLabel(code)}
+                {code}
               </Text>
             </View>
           );
