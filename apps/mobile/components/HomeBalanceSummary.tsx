@@ -57,8 +57,8 @@ export function visibleCurrencyBalances(
       ];
 }
 
-/** A currency always shows both sides together, without growing the sticky
- * header as more currencies are added. Native scrolling owns the animation. */
+/** A currency always shows both sides together, without growing the summary
+ * as more currencies are added. Native scrolling owns the animation. */
 export function HomeBalanceSummary({
   people,
   balances,

@@ -570,6 +570,10 @@ const homeScroll = () =>
   nodes(tree).find(
     (node) => node.type === "ScrollView" && node.props.ref === renderedPage!.props.scrollRef,
   )!;
+const customerContentTop = () =>
+  flattenStyle(
+    homeNodes().find((node) => node.props.testID === "home-customer-content")!.props.style,
+  ).paddingTop;
 const scrollHome = (y: number) =>
   homeScroll().props.onScroll({ nativeEvent: { contentOffset: { y } } });
 const homeScrollCalls = () =>
@@ -663,7 +667,7 @@ const startFromContactMenu = () => {
   topSelection.props.onLayout({ nativeEvent: { layout: { height: 224 } } });
   render();
   assert.equal(
-    homeScroll().props.contentContainerStyle.paddingTop,
+    customerContentTop(),
     236,
     "The initial 12px gap belongs to scroll content below the measured floating panel",
   );
@@ -732,8 +736,8 @@ async function main() {
   const initialSummary = () => homeNodes().find((node) => node.type === "HomeBalanceSummary")!;
   assert.equal(
     nodes(homeScroll()).some((node) => node.type === "HomeBalanceSummary"),
-    false,
-    "The summary stays outside the customer scroll surface",
+    true,
+    "The summary scrolls away with the customer list",
   );
   assert.equal(initialSummary().props.currency, "AFN");
   assert.equal(initialSummary().props.active, true, "The current idle home may advance balances");
@@ -1386,7 +1390,7 @@ async function main() {
   assert.notEqual(flattenStyle(restoredBalances.props.style).display, "none");
   assert.equal(restoredBalances.props.pointerEvents, "auto");
   assert.equal(restoredBalances.props.accessibilityElementsHidden, false);
-  assert.equal(homeScroll().props.contentContainerStyle.paddingTop, 12);
+  assert.equal(customerContentTop(), 12);
   assert.equal(
     homeNodes().some((node) => node.props.testID === "home-selection-toolbar"),
     false,
@@ -1407,7 +1411,7 @@ async function main() {
   staleSelectionLayout({ nativeEvent: { layout: { height: 500 } } });
   render();
   assert.equal(
-    homeScroll().props.contentContainerStyle.paddingTop,
+    customerContentTop(),
     236,
     "An old selection measurement cannot move a newly opened list",
   );

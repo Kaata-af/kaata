@@ -2310,15 +2310,6 @@ function HomePage(
       accessibilityElementsHidden={!props.active}
       importantForAccessibility={props.active ? "auto" : "no-hide-descendants"}
     >
-      <View
-        testID="home-balance-section"
-        style={[styles.topSection, props.selecting && styles.hiddenBalanceSection]}
-        pointerEvents={props.selecting ? "none" : "auto"}
-        accessibilityElementsHidden={Boolean(props.selecting)}
-        importantForAccessibility={props.selecting ? "no-hide-descendants" : "auto"}
-      >
-        {props.summary}
-      </View>
       {props.selecting && props.selectionControls ? (
         <View
           testID="home-selection-toolbar"
@@ -2352,6 +2343,7 @@ function HomePage(
         bounces
         alwaysBounceVertical
         overScrollMode="always"
+        stickyHeaderIndices={[1]}
         onScroll={(event) => {
           if (props.active) props.onScrollOffset(Math.max(0, event.nativeEvent.contentOffset.y));
         }}
@@ -2359,21 +2351,44 @@ function HomePage(
         keyboardShouldPersistTaps="always"
         keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
         contentContainerStyle={{
-          paddingTop: props.selecting ? selectionHeight + 12 : 12,
           paddingBottom: props.paddingBottom,
           flexGrow: 1,
         }}
       >
-        {props.controls}
-        {props.people.length === 0 ? (
-          <EmptyState
-            title={t(props.filtered ? "customers.noResults" : "home.empty.title")}
-            subtitle={props.filtered ? undefined : t("home.empty.subtitle")}
-            isRTL={isRTL}
-          />
-        ) : (
-          <CustomerRows {...props} showDirection />
-        )}
+        <View
+          testID="home-balance-section"
+          style={[styles.topSection, props.selecting && styles.hiddenBalanceSection]}
+          pointerEvents={props.selecting ? "none" : "auto"}
+          accessibilityElementsHidden={Boolean(props.selecting)}
+          importantForAccessibility={props.selecting ? "no-hide-descendants" : "auto"}
+        >
+          {props.summary}
+        </View>
+        {/* Only the divider pins beneath navigation after the cards scroll away. */}
+        <View
+          testID="home-nav-divider"
+          style={[styles.navDivider, props.selecting && styles.hiddenBalanceSection]}
+          pointerEvents="none"
+          accessible={false}
+        />
+        <View
+          testID="home-customer-content"
+          style={[
+            styles.customerContent,
+            { paddingTop: props.selecting ? selectionHeight + 12 : 12 },
+          ]}
+        >
+          {props.controls}
+          {props.people.length === 0 ? (
+            <EmptyState
+              title={t(props.filtered ? "customers.noResults" : "home.empty.title")}
+              subtitle={props.filtered ? undefined : t("home.empty.subtitle")}
+              isRTL={isRTL}
+            />
+          ) : (
+            <CustomerRows {...props} showDirection />
+          )}
+        </View>
       </ScrollView>
     </View>
   );
@@ -2385,9 +2400,9 @@ const styles = StyleSheet.create({
   topSection: {
     flexShrink: 0,
     backgroundColor: colors.bgDefault,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.borderDefault,
   },
+  navDivider: { height: StyleSheet.hairlineWidth, backgroundColor: colors.borderDefault },
+  customerContent: { flexGrow: 1, minHeight: 0 },
   authOverlay: {
     ...StyleSheet.absoluteFill,
     backgroundColor: "rgba(0,0,0,0.55)",
