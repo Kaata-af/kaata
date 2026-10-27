@@ -1,12 +1,11 @@
-Kaata 2.3.0 testing build 42
+Kaata 2.3.0 testing build 43
 
-Update the existing app without uninstalling or clearing data. Use disposable records for recovery and shared-account checks. These are checks to perform, not claims of completed iPhone testing.
+Update in place without uninstalling or clearing data. Use disposable records for recovery and shared-account checks. These are checks to perform, not claims of completed phone testing.
 
-- Currencies: check separate balances in the same Kaata, the searchable 155-currency catalog, enabled currencies and the default currency. Existing tallies must retain their original currency. Check English, Dari and Pashto, narrow screens and large text.
-- Home and customers: check mixed collect/pay lists, Recent activity ordering, search, balance/group filters, scrolling balance cards and selection controls. Verify keyboard opening, dismissal, rapid reopening and sheets on iPhone.
-- Tallies: check Amount to Note, long notes, calculator handoff, More options and the date popup. Backdated tallies must keep their chosen day when edited and shared.
-- Statements and bills: check separate currency totals, settled accounts, pre-link and earlier shared history without double counting. Send bill links is on by default in each Kaata. Turn it off and verify WhatsApp contains current balances and the https://kaata.af footer without a public bill link. Check that the saved choice survives recovery. Incomplete current shared balances must not be sent as zero.
-- Reminders and support: check a reminder tap after the app was closed or the phone was locked. App health can prepare a compact, addressed SMS; review or cancel the phone's composer. Opening the composer does not mean a message was sent, and carrier charges may apply.
-- Existing sign-in, backups, cloud restore, shared-account review/cancellation and staff permissions should remain stable. Never reset or corrupt a real Kaata to test recovery.
+- Currency filters: open Home search, then Sort & filters. Select several currencies independently; each customer should appear once with only those currency balances. To collect/pay matches any selected currency. Deselect a currency or choose All currencies. Select just one currency to sort smallest/largest amounts; zeros remain last and unknown shared balances are not treated as confirmed amounts. Saved filters belong to each Kaata; the top totals still show the whole Kaata.
+- Contact currency: set a contact's default tally currency in Edit contact. New tallies should start in that enabled currency without changing saved tallies. Check owner/editor permission, switching Kaata, multi-device sync and recovery.
+- Shared accounts: sent invitations say Waiting to join. The blue checkmark appears only after the other person joins, including after refresh and currency filtering. Merely previewing an invitation must not mark it joined.
+- Layout: check Home and customer search opening/dismissal, compact grouped filters, whole-navigation blur, sheets, scrolling and localized English/Dari/Pashto screens. Check the Xiaomi installed build keeps both search fields above its keyboard.
+- Regression: check existing separate currency balances, tally dates/notes, reminders from a locked/closed app, full-history bill links, balance-only WhatsApp reminders when Send bill links is off, PDF/CSV exports, sign-in, backups and shared-account review/cancellation.
 
-Testing only: the existing Team (Expo) internal TestFlight group. No App Store production review submission, public release or external beta distribution.
+Testing only: the existing Team (Expo) internal TestFlight group. No App Store review submission, public release or external beta distribution.
