@@ -345,7 +345,8 @@ const mocks: Record<string, any> = {
     getCurrentCurrencySymbol: () => "AFN",
     getCurrentCurrencyCode: () => selectedCurrency,
     getCurrencyLabel: (code: string) => code,
-    getCurrencySymbol: (code: string) => code,
+    getCurrencySymbol: (code: string) =>
+      (({ AFN: "؋", USD: "$" }) as Record<string, string>)[code] ?? code,
     useCurrency: () => selectedCurrency,
     setCurrentCurrency: (code: string) => {
       selectedCurrency = code;
@@ -1855,7 +1856,106 @@ async function billLinkPreferenceTests() {
   );
 }
 
+async function singleCurrencyBalanceTests() {
+  const byId = (id: string) => nodes(tree).find((node) => node.props.testID === id);
+  for (const direction of [false, true]) {
+    fixture();
+    rtl = direction;
+    person = { ...person, currency: "USD", balance: -9_999_999_999.99 };
+    await flush();
+    assert.equal(byId("customer-balance-header-USD"), undefined);
+    const status = byId("customer-balance-status-USD")!;
+    assert.equal(
+      flattenStyle(status.props.style).backgroundColor,
+      mocks["../../lib/colors"].colors.bgDefault,
+    );
+    assert.equal(
+      nodes(status).find((node) => node.type === "Chip")!.props.label,
+      "person.balance.youOwe",
+      "Removing the currency strip retains the balance direction",
+    );
+    const amount = byId("customer-balance-amount-USD")!;
+    assert.equal(flattenStyle(amount.props.style).direction, "ltr");
+    assert.equal(flattenStyle(amount.props.style).flexDirection, "row");
+    assert.deepEqual(
+      kids(amount).map((node) => words(node)),
+      ["amount:9999999999.99", "$"],
+    );
+    assert.equal(amount.props.accessibilityLabel, "USD amount:9999999999.99");
+    assert.equal(amount.props.accessible, true);
+    const value = byId("customer-balance-value-USD")!;
+    assert.equal(value.props.numberOfLines, 1);
+    assert.equal(value.props.adjustsFontSizeToFit, true);
+    assert.equal(flattenStyle(value.props.style).flexShrink, 1);
+    assert.equal(flattenStyle(byId("customer-balance-symbol-USD")!.props.style).flexShrink, 0);
+    unmount();
+  }
+  rtl = false;
+
+  fixture();
+  person = { ...person, currency: "ZZZ", balance: 0 };
+  entries = [];
+  settlement = { count: 0, lastSettledAtMs: null };
+  await flush();
+  assert.equal(byId("customer-balance-header-ZZZ"), undefined);
+  assert.equal(
+    byId("customer-balance-status-ZZZ"),
+    undefined,
+    "An empty account has no empty header gap",
+  );
+  assert.equal(
+    words(byId("customer-balance-symbol-ZZZ")),
+    "ZZZ",
+    "Unknown historical symbols fall back to their ISO code",
+  );
+  unmount();
+
+  fixture();
+  person = { ...person, balance: 0 };
+  entries = [];
+  await flush();
+  assert.equal(
+    nodes(byId("customer-balance-status-AFN")).find((node) => node.type === "Chip")!.props.label,
+    "person.balance.settled",
+    "A real clearance keeps its settled status on the white card",
+  );
+  assert.equal(words(byId("customer-balance-symbol-AFN")), "؋");
+  unmount();
+
+  fixture(true);
+  link.other_joined_at = null;
+  await flush();
+  const waiting = nodes(byId("customer-balance-status-AFN")).find(
+    (node) => node.type === "Pressable" && words(node).includes("tab.chip.waiting"),
+  )!;
+  assert.ok(waiting);
+  waiting.props.onPress();
+  await flush();
+  assert.equal(
+    nodes(tree).find((node) => node.type === "BottomSheet" && node.props.visible)?.props.title,
+    "Synthetic person · AFN",
+    "Waiting invitation management remains reachable",
+  );
+  unmount();
+
+  fixture(true);
+  person = { ...person, balance: 999, tab_unsynced: 1 };
+  await flush();
+  assert.equal(words(byId("customer-balance-value-AFN")), "…");
+  assert.equal(words(byId("customer-balance-symbol-AFN")), "؋");
+  assert.equal(byId("customer-balance-status-AFN"), undefined);
+  assert.equal(
+    byId("customer-balance-amount-AFN")!.props.accessibilityLabel,
+    "AFN tab.notDownloaded",
+  );
+  unmount();
+  console.log(
+    "PASS single-currency customer: symbol beside amount, no gray/empty currency header, retained direction/settled/waiting, unknown balance and LTR/RTL accessibility",
+  );
+}
+
 async function main() {
+  await singleCurrencyBalanceTests();
   {
     fixture();
     const afn = { ...person, currency: "AFN", balance: 100 };
@@ -1879,6 +1979,17 @@ async function main() {
       find("CustomerBalanceCarousel")!.props.currencies,
       ["AFN", "USD"],
       "Both independent balances share the horizontal carousel",
+    );
+    assert.deepEqual(
+      nodes(tree)
+        .filter((node) => /^customer-balance-header-/.test(node.props.testID ?? ""))
+        .map((node) => node.props.testID),
+      ["customer-balance-header-AFN", "customer-balance-header-USD"],
+      "Multiple currencies retain their separate labeled header strips",
+    );
+    assert.equal(
+      nodes(tree).some((node) => /^customer-balance-symbol-/.test(node.props.testID ?? "")),
+      false,
     );
     assert.deepEqual(
       rowIds(),

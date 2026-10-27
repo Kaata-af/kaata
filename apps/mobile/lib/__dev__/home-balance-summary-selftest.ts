@@ -127,6 +127,7 @@ function fixture(
       "../lib/currency": {
         getCurrentCurrencyCode: () => "AFN",
         getCurrencyLabel: currencyLabel,
+        getCurrencySymbol: (code: string) => currencySymbols[code] ?? code,
       },
       "../lib/direction": {
         textDir: (rtl: boolean) => ({ textAlign: rtl ? "right" : "left" }),
@@ -353,6 +354,51 @@ async function main() {
       current.hooks.unmount();
     }
   }
+  for (const locale of ["en", "fa", "ps"] as const) {
+    for (const platform of ["ios", "android"]) {
+      const current = fixture(locale, 320, 1.8, 568, platform);
+      for (const currency of ["AFN", "USD", "XYZ"]) {
+        const root = current.render({
+          currency,
+          balances: [
+            { currency, collect: 12.34, pay: 5.67, pending: false },
+            { currency: "EUR", collect: 0, pay: 0, pending: false },
+          ],
+        }) as UINode;
+        const page = children(current.scroll())[0];
+        assert.equal(children(current.scroll()).length, 1);
+        assert.equal(byId(root, `home-balance-currency-${currency}`), undefined);
+        assert.ok(
+          !nodes(page).some((node) => style(node).backgroundColor === colors.bgMuted),
+          "one visible currency has no gray header or reserved header row",
+        );
+        assert.deepEqual(
+          nodes(page)
+            .filter((node) => node.props.minimumFontScale !== undefined)
+            .map(text),
+          ["12.34", "5.67"],
+          "each amount keeps its exact digits",
+        );
+        for (const side of ["collect", "pay"]) {
+          const symbol = byId(root, `home-balance-symbol-${side}-${currency}`);
+          assert.equal(text(symbol), currencySymbols[currency] ?? currency);
+          const valueRow = nodes(page).find((node) => children(node).includes(symbol))!;
+          assert.equal(style(valueRow).direction, "ltr");
+          assert.equal(style(valueRow).flexDirection, "row");
+          assert.equal(
+            children(valueRow)[0],
+            symbol,
+            "the symbol stays beside the number in every language",
+          );
+        }
+        assert.equal(style(quoteRow(page)).direction, "ltr");
+        assert.equal(current.scroll().props.scrollEnabled, false);
+        assert.equal(style(current.scroll()).height, 112);
+        assert.ok(root.props.accessibilityLabel.includes(currency));
+      }
+      current.hooks.unmount();
+    }
+  }
   {
     const current = fixture("fa", 320, 1.8, 568);
     const root = current.render({
@@ -365,7 +411,7 @@ async function main() {
       "row",
       "collect/pay positions stay LTR on small screens",
     );
-    assert.equal(style(current.scroll()).height, 114, "large fonts get a bounded compact height");
+    assert.equal(style(current.scroll()).height, 86, "one currency omits the header's height");
     const numbers = nodes(root).filter((node) => node.props.minimumFontScale !== undefined);
     assert.equal(numbers.length, 2);
     assert.equal(
@@ -412,7 +458,8 @@ async function main() {
     const zeroAmounts = nodes(empty).filter((node) => node.props.minimumFontScale !== undefined);
     assert.deepEqual(zeroAmounts.map(text), ["0", "0"]);
     assert.ok(zeroAmounts.every((amount) => style(amount).color === colors.textSubtle));
-    assert.equal(text(byId(empty, "home-balance-currency-USD")), "USD $");
+    assert.equal(byId(empty, "home-balance-currency-USD"), undefined);
+    assert.ok(empty.props.accessibilityLabel.includes("USD $"));
     current.hooks.unmount();
   }
   {
@@ -502,10 +549,11 @@ async function main() {
       const availableWidth =
         (style(page).width - style(page).borderWidth * 2) / 2 -
         card.paddingHorizontal * 2 -
-        (card.borderLeftWidth ?? 0);
+        (card.borderLeftWidth ?? 0) -
+        (compact ? 12 : 14) * 0.8 * 1.2 -
+        6;
       const cappedFontScale = Math.min(1.8, amount.props.maxFontSizeMultiplier);
-      const monoEstimate =
-        largestExactText.length * style(amount).fontSize * 0.65 * cappedFontScale;
+      const monoEstimate = text(amount).length * style(amount).fontSize * 0.65 * cappedFontScale;
       assert.ok(
         amount.props.minimumFontScale > 0 && amount.props.minimumFontScale < 0.5,
         "the largest totals can shrink beyond the old half-size floor",

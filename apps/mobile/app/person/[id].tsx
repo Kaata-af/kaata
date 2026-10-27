@@ -48,8 +48,8 @@ import { loadRelationshipAttribution, type EntryAttribution } from "../../lib/at
 import { colors } from "../../lib/colors";
 import {
   getCurrentCurrencyCode,
-  getCurrentCurrencySymbol,
   getCurrencyLabel,
+  getCurrencySymbol,
   setCurrentCurrency,
   useCurrency,
 } from "../../lib/currency";
@@ -1859,6 +1859,7 @@ export default function PersonDetailScreen() {
     />
   );
   const balanceRows = personCurrencyRows(person);
+  const singleBalanceCurrency = balanceRows.length === 1;
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
       <View style={[styles.headerNav, rowDir(isRTL)]}>
@@ -2162,87 +2163,128 @@ export default function PersonDetailScreen() {
                                 entry.tab.status === "pending")),
                         );
                       const unsettledOriginalCount = period ? currencyChapter(period).length : 0;
+                      const hasBalanceStatus =
+                        (person.tab_unsynced !== 1 &&
+                          (chipLabel ||
+                            (settledCount > 0 &&
+                              chapterCoherent &&
+                              !sharedReviewPending &&
+                              unsettledOriginalCount === 0) ||
+                            displayedEntries.length > 0)) ||
+                        (link && link.other_joined_at == null);
                       return (
                         <View key={code} style={styles.balanceOverview}>
-                          <View style={styles.balanceHeader}>
-                            <Text style={styles.balanceCurrency}>{getCurrencyLabel(code)}</Text>
+                          {!singleBalanceCurrency || hasBalanceStatus ? (
                             <View
+                              testID={`customer-balance-${singleBalanceCurrency ? "status" : "header"}-${code}`}
                               style={[
-                                styles.chipRow,
-                                rowDir(isRTL),
-                                { justifyContent: isRTL ? "flex-start" : "flex-end" },
+                                styles.balanceHeader,
+                                singleBalanceCurrency && styles.balanceStatus,
                               ]}
                             >
-                              {person.tab_unsynced === 1 ? null : chipLabel && chipVariant ? (
-                                <Chip label={chipLabel} variant={chipVariant} />
-                              ) : settledCount > 0 &&
-                                chapterCoherent &&
-                                !sharedReviewPending &&
-                                unsettledOriginalCount === 0 ? (
-                                // "SETTLED" only when the user actually drew the line and it
-                                // covers everything.
-                                <Chip label={t("person.balance.settled")} variant="neutral" />
-                              ) : displayedEntries.length > 0 ? (
-                                // A tally that merely SUMS to zero (or whose chapter no longer
-                                // adds up after a sync) is not a settled account — say so
-                                // rather than leaving the chip slot blank while every other
-                                // state labels itself. Hollow pill: true, but not an
-                                // achievement. The settle-row invitation sits below.
-                                // Contacts with no entries at all keep an empty slot — there
-                                // is no tally yet to have a state.
-                                <Chip label={t("person.balance.notSettled")} variant="outline" />
+                              {!singleBalanceCurrency ? (
+                                <Text style={styles.balanceCurrency}>{getCurrencyLabel(code)}</Text>
                               ) : null}
-                              {link && link.other_joined_at == null ? (
-                                // Keep the invitation-waiting cue until the other side joins.
-                                // Once linked, the name badge is enough; no duplicate chip.
-                                <Pressable
-                                  onPress={
-                                    canAmend
-                                      ? () => {
-                                          setManagementCurrency(code);
-                                          setLinkedSheetVisible(true);
-                                        }
-                                      : undefined
-                                  }
-                                  disabled={!canAmend}
-                                  accessibilityRole={canAmend ? "button" : "text"}
-                                  style={({ pressed }) => [
-                                    styles.readOnlyChip,
-                                    pressed && { opacity: 0.5 },
-                                  ]}
-                                >
-                                  <Ionicons
-                                    name="link-outline"
-                                    size={14}
-                                    color={colors.textSubtle}
-                                  />
-                                  <Text
-                                    style={styles.readOnlyChipText}
-                                    allowFontScaling={false}
-                                    numberOfLines={1}
+                              <View
+                                style={[
+                                  styles.chipRow,
+                                  rowDir(isRTL),
+                                  { justifyContent: isRTL ? "flex-start" : "flex-end" },
+                                ]}
+                              >
+                                {person.tab_unsynced === 1 ? null : chipLabel && chipVariant ? (
+                                  <Chip label={chipLabel} variant={chipVariant} />
+                                ) : settledCount > 0 &&
+                                  chapterCoherent &&
+                                  !sharedReviewPending &&
+                                  unsettledOriginalCount === 0 ? (
+                                  // "SETTLED" only when the user actually drew the line and it
+                                  // covers everything.
+                                  <Chip label={t("person.balance.settled")} variant="neutral" />
+                                ) : displayedEntries.length > 0 ? (
+                                  // A tally that merely SUMS to zero (or whose chapter no longer
+                                  // adds up after a sync) is not a settled account — say so
+                                  // rather than leaving the chip slot blank while every other
+                                  // state labels itself. Hollow pill: true, but not an
+                                  // achievement. The settle-row invitation sits below.
+                                  // Contacts with no entries at all keep an empty slot — there
+                                  // is no tally yet to have a state.
+                                  <Chip label={t("person.balance.notSettled")} variant="outline" />
+                                ) : null}
+                                {link && link.other_joined_at == null ? (
+                                  // Keep the invitation-waiting cue until the other side joins.
+                                  // Once linked, the name badge is enough; no duplicate chip.
+                                  <Pressable
+                                    onPress={
+                                      canAmend
+                                        ? () => {
+                                            setManagementCurrency(code);
+                                            setLinkedSheetVisible(true);
+                                          }
+                                        : undefined
+                                    }
+                                    disabled={!canAmend}
+                                    accessibilityRole={canAmend ? "button" : "text"}
+                                    style={({ pressed }) => [
+                                      styles.readOnlyChip,
+                                      pressed && { opacity: 0.5 },
+                                    ]}
                                   >
-                                    {t("tab.chip.waiting")}
-                                  </Text>
-                                </Pressable>
+                                    <Ionicons
+                                      name="link-outline"
+                                      size={14}
+                                      color={colors.textSubtle}
+                                    />
+                                    <Text
+                                      style={styles.readOnlyChipText}
+                                      allowFontScaling={false}
+                                      numberOfLines={1}
+                                    >
+                                      {t("tab.chip.waiting")}
+                                    </Text>
+                                  </Pressable>
+                                ) : null}
+                              </View>
+                            </View>
+                          ) : null}
+                          <View style={styles.balanceSide}>
+                            <View
+                              testID={`customer-balance-amount-${code}`}
+                              style={singleBalanceCurrency ? styles.balanceAmountRow : undefined}
+                              accessible={singleBalanceCurrency}
+                              accessibilityLabel={
+                                singleBalanceCurrency
+                                  ? `${getCurrencyLabel(code)} ${person.tab_unsynced === 1 ? t("tab.notDownloaded") : formatAmount(abs)}`
+                                  : undefined
+                              }
+                            >
+                              <Text
+                                testID={`customer-balance-value-${code}`}
+                                style={[
+                                  styles.balance,
+                                  singleBalanceCurrency && styles.balanceWithCurrency,
+                                  {
+                                    color:
+                                      person.tab_unsynced === 1 ? colors.textMuted : balanceColor,
+                                  },
+                                ]}
+                                numberOfLines={1}
+                                adjustsFontSizeToFit
+                                minimumFontScale={0.1}
+                                maxFontSizeMultiplier={1.4}
+                              >
+                                {person.tab_unsynced === 1 ? "…" : formatAmount(abs)}
+                              </Text>
+                              {singleBalanceCurrency ? (
+                                <Text
+                                  testID={`customer-balance-symbol-${code}`}
+                                  style={styles.balanceSymbol}
+                                  maxFontSizeMultiplier={1.4}
+                                >
+                                  {ltrIsolate(getCurrencySymbol(code))}
+                                </Text>
                               ) : null}
                             </View>
-                          </View>
-                          <View style={styles.balanceSide}>
-                            <Text
-                              style={[
-                                styles.balance,
-                                {
-                                  color:
-                                    person.tab_unsynced === 1 ? colors.textMuted : balanceColor,
-                                },
-                              ]}
-                              numberOfLines={1}
-                              adjustsFontSizeToFit
-                              minimumFontScale={0.1}
-                              maxFontSizeMultiplier={1.4}
-                            >
-                              {person.tab_unsynced === 1 ? "…" : formatAmount(abs)}
-                            </Text>
                             {/* A discovered shared account that has not been pulled yet
                         has no known balance; the pull is already queued. */}
                             {person.tab_unsynced === 1 ? (
@@ -3099,6 +3141,22 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 8,
     backgroundColor: colors.bgMuted,
+  },
+  balanceStatus: { backgroundColor: colors.bgDefault, paddingBottom: 0 },
+  balanceAmountRow: {
+    direction: "ltr",
+    flexDirection: "row",
+    alignItems: "baseline",
+    gap: 8,
+    minWidth: 0,
+  },
+  balanceWithCurrency: { width: undefined, flexShrink: 1, minWidth: 0 },
+  balanceSymbol: {
+    fontFamily: fonts.sansSemi,
+    fontSize: 22,
+    color: colors.textSubtle,
+    writingDirection: "ltr",
+    flexShrink: 0,
   },
   balanceCurrency: {
     ...typography.bodySm,

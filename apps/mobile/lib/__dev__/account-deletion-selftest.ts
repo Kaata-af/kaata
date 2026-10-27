@@ -309,6 +309,10 @@ async function testGracePolicy() {
 
 async function testCurrentSessionResponseGuard() {
   const store = new Map<string, string>([["kaata.session.jwt", "session-a"]]);
+  const appMeta = new Map<string, string>();
+  const database = { fixture: "session metadata" };
+  const metadataWrites: { key: string; value: string }[] = [];
+  let sessionEnded = false;
   let account: string | null = "account-a";
   const resetStarted = deferred();
   const finishReset = deferred();
@@ -332,12 +336,20 @@ async function testCurrentSessionResponseGuard() {
     "../constants/env": {},
     "./api": { getBackendUrl: async () => "https://example.test" },
     "./db-tx": {
+      getDb: async () => database,
+      setAppMetaInTx: async (db: unknown, key: string, value: string) => {
+        assert.equal(db, database, "session state writes use the current database handle");
+        appMeta.set(key, value);
+        metadataWrites.push({ key, value });
+      },
       getAccountIdSync: () => account,
       setAccountIdCache: (id: string | null) => {
         account = id;
       },
       SESSION_ENDED_KEY: "session_ended",
-      setSessionEndedSync: () => {},
+      setSessionEndedSync: (ended: boolean) => {
+        sessionEnded = ended;
+      },
       setLocalSelfUserIdCache: () => {},
       setInstallIdCache: () => {},
     },
@@ -438,6 +450,13 @@ async function testCurrentSessionResponseGuard() {
   // Generation prevents an ABA reuse even when account and JWT are identical.
   const beforeClear = await auth.captureCurrentSession();
   await auth.clearLocalSession();
+  assert.equal(sessionEnded, true, "sign-out immediately updates the session-ended cache");
+  assert.equal(
+    appMeta.get("session_ended"),
+    "1",
+    "sign-out persists the marker used by the next launch",
+  );
+  assert.deepEqual(metadataWrites, [{ key: "session_ended", value: "1" }]);
   store.set("kaata.session.jwt", "session-b-refreshed");
   account = "account-b";
   await assert.rejects(
@@ -455,13 +474,27 @@ async function testCurrentSessionResponseGuard() {
     assert.equal(store.get("kaata.session.jwt"), "session-b-refreshed");
   });
   await entered.promise;
+  const writesBeforeClearing = metadataWrites.length;
   const clearing = auth.clearLocalSession();
   await Promise.resolve();
   assert.equal(account, "account-b", "cleanup cannot interleave inside guarded cache work");
+  assert.equal(
+    metadataWrites.length,
+    writesBeforeClearing,
+    "session-ended persistence also waits for the accepted local apply to finish",
+  );
   finishApply.resolve();
   await applying;
   await clearing;
   assert.equal(account, null);
+  assert.equal(appMeta.get("session_ended"), "1");
+  assert.equal(metadataWrites.length, writesBeforeClearing + 1);
+  assert.deepEqual(metadataWrites.at(-1), { key: "session_ended", value: "1" });
+  assert.equal(
+    store.has("kaata.session.jwt"),
+    false,
+    "the persisted ended marker accompanies the cleared token",
+  );
 }
 
 async function main() {

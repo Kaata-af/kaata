@@ -744,21 +744,30 @@ async function main() {
   };
   homeRenderedNodes = () => (screen === home ? nodes(renderList(homePages())) : []);
   const homeInput = () => byLabel("customers.search")!;
+  const settleHomeCommit = () => {
+    for (let turn = 0; turn < 10 && (dirty || effects.length); turn++) {
+      if (dirty) {
+        dirty = false;
+        cursor = 0;
+        tree = screen();
+      }
+      const pending = effects;
+      effects = [];
+      pending.forEach((effect) => effect());
+    }
+  };
   const homeOptions = () => {
+    if (!byLabel("customers.listOptions")) {
+      homeInput().props.onPress();
+      homeInput().props.onFocus();
+      keyboardEvent(platform === "ios" ? "keyboardWillShow" : "keyboardDidShow");
+      settleHomeCommit();
+    }
     if (!find("CustomerListOptions")) {
       byLabel("customers.listOptions")!.props.onPress();
       // The popover measures after its expanded commit in useLayoutEffect.
       // Settle that synchronous commit/effect sequence before inspecting it.
-      for (let turn = 0; turn < 10 && (dirty || effects.length); turn++) {
-        if (dirty) {
-          dirty = false;
-          cursor = 0;
-          tree = screen();
-        }
-        const pending = effects;
-        effects = [];
-        pending.forEach((effect) => effect());
-      }
+      settleHomeCommit();
     }
     return find("CustomerListOptions")!;
   };
@@ -823,7 +832,10 @@ async function main() {
         node.type === "View" &&
         [node.props.children]
           .flat()
-          .some((child) => child?.props?.accessibilityLabel === "customers.listOptions"),
+          .some(
+            (child) =>
+              child?.type === "View" && nodes(child).some((node) => node.type === "TextInput"),
+          ),
     )!;
     assert.equal(
       flattenStyle(physicalRow.props.style).flexDirection,
@@ -832,7 +844,13 @@ async function main() {
     );
     const rowChildren = [physicalRow.props.children].flat().filter((node) => node?.props);
     assert.ok(nodes(rowChildren[0]).some((node) => node.type === "TextInput"));
-    assert.equal(rowChildren[1].props.accessibilityLabel, "customers.listOptions");
+    assert.equal(
+      byLabel("customers.listOptions") != null,
+      dock.props.keyboardShown,
+      "Filter controls are available only while search is open",
+    );
+    if (dock.props.keyboardShown)
+      assert.equal(rowChildren[1].props.accessibilityLabel, "customers.listOptions");
     assert.equal(
       nodes(list).some((node) => node.type === "HomeBalanceSummary"),
       true,
@@ -840,9 +858,23 @@ async function main() {
     const scrolling = nodes(list).find((node) => node.type === "ScrollView")!;
     assert.equal(
       nodes(scrolling).some((node) => node.type === "HomeBalanceSummary"),
-      false,
-      "Sticky summary does not scroll with customers",
+      true,
+      "Balance cards scroll away with customers",
     );
+    const scrollChildren = [scrolling.props.children].flat().filter((node) => node?.props);
+    assert.deepEqual(
+      scrollChildren.map((node) => node.props.testID),
+      ["home-balance-section", "home-nav-divider", "home-customer-content"],
+    );
+    assert.deepEqual(
+      scrolling.props.stickyHeaderIndices,
+      [1],
+      "Only the divider pins below navigation",
+    );
+    const divider = scrollChildren[1];
+    assert.equal(divider.props.pointerEvents, "none");
+    assert.equal(divider.props.accessible, false);
+    assert.equal(flattenStyle(divider.props.style).display, selecting ? "none" : undefined);
     const balanceSection = nodes(list).find(
       (node) => node.props.testID === "home-balance-section",
     )!;
@@ -893,9 +925,11 @@ async function main() {
       assert.equal(nodes(keyboard).filter((node) => node.type === "SelectionToolbar").length, 1);
       top.props.onLayout({ nativeEvent: { layout: { height: 148 } } });
       const measured = renderList(find("SearchKeyboardFrame")!);
-      const measuredScroll = nodes(measured).find((node) => node.type === "ScrollView")!;
+      const measuredContent = nodes(measured).find(
+        (node) => node.props.testID === "home-customer-content",
+      )!;
       assert.equal(
-        flattenStyle(measuredScroll.props.contentContainerStyle).paddingTop,
+        flattenStyle(measuredContent.props.style).paddingTop,
         160,
         "the first customer starts below the measured overlay with a 12pt gap",
       );
@@ -915,7 +949,7 @@ async function main() {
         false,
       );
       assert.equal(
-        flattenStyle(scrolling.props.contentContainerStyle).paddingTop,
+        flattenStyle(scrollChildren[2].props.style).paddingTop,
         12,
         "ending selection restores ordinary list spacing",
       );
@@ -1623,8 +1657,7 @@ async function main() {
         );
         assert.equal(homeInput().type, "TextInput");
         expectBottomDock();
-        assert.equal(homeOptions().props.compact, true, "Home uses compact inline filters");
-        await flush();
+        assert.equal(byLabel("customers.listOptions"), undefined, "Idle Home keeps filters hidden");
         assert.equal(typeof homeInput().props.onChangeText, "function");
         assert.equal(find("SearchSheet"), undefined, "Inline search never opens a modal");
         assert.equal(find("Tabs"), undefined);
@@ -1670,6 +1703,9 @@ async function main() {
           "Every role and platform retains result space while typing",
         );
         assert.ok(byLabel("common.hideKeyboard"), "Every role can dismiss the keyboard");
+        assert.equal(homeOptions().props.compact, true, "Open search exposes compact filters");
+        find("HomeFilterPopover")!.props.onDismiss();
+        await flush();
         assert.equal(byLabel("personAdd.new"), undefined);
         homeInput().props.onBlur();
         await flush();

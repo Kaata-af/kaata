@@ -222,7 +222,16 @@ async function main() {
     "boot accepts calendar resume via the tested parser",
   );
   assert.match(layout, /name="onboarding\/calendar" options=\{\{ gestureEnabled: false \}\}/);
-  assert.match(layout, /initialRouteName=\{pickInitialRoute\(/);
+  assert.match(
+    layout,
+    /<InitialRouteRedirect\s+route=\{pickInitialRoute\(/,
+    "the registered calendar resume is passed to the SDK 58 launch redirect",
+  );
+  assert.doesNotMatch(
+    layout,
+    /initialRouteName=/,
+    "SDK 58 no longer accepts Stack.initialRouteName",
+  );
 
   for (const locale of ["en", "fa", "ps"] as const) {
     const f = fixture(locale);

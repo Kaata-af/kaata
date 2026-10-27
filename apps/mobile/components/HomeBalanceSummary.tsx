@@ -13,7 +13,7 @@ import {
   type ScrollViewInstance,
 } from "react-native";
 import { colors } from "../lib/colors";
-import { getCurrentCurrencyCode, getCurrencyLabel } from "../lib/currency";
+import { getCurrentCurrencyCode, getCurrencyLabel, getCurrencySymbol } from "../lib/currency";
 import { textDir, useIsRTL } from "../lib/direction";
 import { fonts } from "../lib/fonts";
 import { formatAmount } from "../lib/format";
@@ -84,7 +84,9 @@ export function HomeBalanceSummary({
   const multiple = rows.length > 1;
   const pageWidth = Math.max(0, viewport);
   const step = pageWidth + 12;
-  const cardHeight = small ? (fontScale > 1.3 ? 114 : 104) : fontScale > 1.3 ? 144 : 132;
+  const cardHeight =
+    (small ? (fontScale > 1.3 ? 114 : 104) : fontScale > 1.3 ? 144 : 132) -
+    (multiple ? 0 : small ? 28 : 32);
   const amountWidth = Math.max(1, pageWidth / 2 - (small ? 18 : 26));
   const [position, setPosition] = useState(0);
   const selectedCode = useRef(rows[0].currency);
@@ -294,32 +296,39 @@ export function HomeBalanceSummary({
             testID={`home-balance-${row.currency}`}
             style={[styles.page, { width: pageWidth, height: cardHeight }]}
           >
-            <View style={[styles.boardHeader, small && styles.compactHeader]}>
-              <Text
-                testID={`home-balance-currency-${row.currency}`}
-                accessible={false}
-                style={styles.currency}
-                maxFontSizeMultiplier={1.2}
-                numberOfLines={1}
-                adjustsFontSizeToFit
-              >
-                {getCurrencyLabel(row.currency)}
-              </Text>
-              <Text
-                accessible={false}
-                style={[styles.boardCaption, textDir(isRTL)]}
-                maxFontSizeMultiplier={1.2}
-                numberOfLines={1}
-                adjustsFontSizeToFit
-              >
-                {t("home.total.title")}
-              </Text>
-            </View>
+            {multiple ? (
+              <View style={[styles.boardHeader, small && styles.compactHeader]}>
+                <Text
+                  testID={`home-balance-currency-${row.currency}`}
+                  accessible={false}
+                  style={styles.currency}
+                  maxFontSizeMultiplier={1.2}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                >
+                  {getCurrencyLabel(row.currency)}
+                </Text>
+                <Text
+                  accessible={false}
+                  style={[styles.boardCaption, textDir(isRTL)]}
+                  maxFontSizeMultiplier={1.2}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                >
+                  {t("home.total.title")}
+                </Text>
+              </View>
+            ) : null}
             <View style={styles.quoteRow}>
               {(["collect", "pay"] as const).map((side) => {
                 const collect = side === "collect";
                 const tone = collect ? board.collect : board.pay;
                 const amount = row.pending ? "…" : formatAmount(row[side]);
+                const symbol = multiple ? null : getCurrencySymbol(row.currency);
+                const symbolSize = small ? 12 : 14;
+                const symbolWidth = symbol
+                  ? symbol.length * symbolSize * 0.8 * Math.max(1, Math.min(fontScale, 1.2)) + 6
+                  : 0;
                 const amountSize = amount.length > 10 ? (small ? 16 : 18) : small ? 20 : 30;
                 // Keep every digit even at the largest supported money values.
                 // Mono glyphs use about 0.6em; leave headroom for scaled fonts.
@@ -327,7 +336,7 @@ export function HomeBalanceSummary({
                   0.5,
                   Math.max(
                     0.01,
-                    amountWidth /
+                    Math.max(1, amountWidth - symbolWidth) /
                       (amount.length * amountSize * 0.65 * Math.max(1, Math.min(fontScale, 1.2))),
                   ),
                 );
@@ -354,22 +363,41 @@ export function HomeBalanceSummary({
                       </Text>
                     </View>
                     <View style={styles.values}>
-                      <Text
-                        accessible={false}
-                        style={[
-                          styles.amount,
-                          {
-                            color: row.pending || row[side] === 0 ? board.muted : tone,
-                            fontSize: amountSize,
-                          },
-                        ]}
-                        numberOfLines={1}
-                        adjustsFontSizeToFit
-                        minimumFontScale={minimumScale}
-                        maxFontSizeMultiplier={1.2}
-                      >
-                        {amount}
-                      </Text>
+                      <View style={styles.valueRow}>
+                        {symbol ? (
+                          <Text
+                            testID={`home-balance-symbol-${side}-${row.currency}`}
+                            accessible={false}
+                            style={[
+                              styles.amountSymbol,
+                              {
+                                color: row.pending || row[side] === 0 ? board.muted : tone,
+                                fontSize: symbolSize,
+                              },
+                            ]}
+                            numberOfLines={1}
+                            maxFontSizeMultiplier={1.2}
+                          >
+                            {symbol}
+                          </Text>
+                        ) : null}
+                        <Text
+                          accessible={false}
+                          style={[
+                            styles.amount,
+                            {
+                              color: row.pending || row[side] === 0 ? board.muted : tone,
+                              fontSize: amountSize,
+                            },
+                          ]}
+                          numberOfLines={1}
+                          adjustsFontSizeToFit
+                          minimumFontScale={minimumScale}
+                          maxFontSizeMultiplier={1.2}
+                        >
+                          {amount}
+                        </Text>
+                      </View>
                     </View>
                   </View>
                 );
@@ -440,6 +468,14 @@ const styles = StyleSheet.create({
     alignItems: "flex-start",
     direction: "ltr",
   },
+  valueRow: {
+    maxWidth: "100%",
+    flexDirection: "row",
+    alignItems: "baseline",
+    gap: 6,
+    direction: "ltr",
+  },
+  amountSymbol: { flexShrink: 0, fontFamily: fonts.sansMedium, writingDirection: "ltr" },
   amount: {
     flexShrink: 1,
     maxWidth: "100%",

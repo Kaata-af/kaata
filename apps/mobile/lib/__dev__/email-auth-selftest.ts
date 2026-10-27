@@ -255,7 +255,13 @@ const i18n = load<I18n>("../i18n", {
 });
 
 const digits = load<typeof import("../digits")>("../digits", {});
-const phoneLabels = load<typeof import("../phone")>("../phone", { "./db": {}, "./digits": digits });
+const phoneLabels = load<typeof import("../phone")>("../phone", {
+  "./db": {},
+  "./digits": digits,
+  "./phone-countries": require("../phone-countries"),
+  "libphonenumber-js/core": require("libphonenumber-js/core"),
+  "libphonenumber-js/metadata.min.json": require("libphonenumber-js/metadata.min.json"),
+});
 
 const rules = load<Rules>("../account-rules", { "./digits": digits, "./i18n": i18n });
 
@@ -2439,8 +2445,17 @@ test("cold start: the real root layout mounts the resume gate beside its Stack",
       ts.isJsxElement(node) &&
       node.openingElement.tagName.getText(layout) === "AppMetaProvider"
     ) {
-      const tags = node.children.filter(ts.isJsxElement);
-      const stack = tags.find((tag) => tag.openingElement.tagName.getText(layout) === "Stack");
+      // The profile-sheet provider wraps the navigator; the resume gate must
+      // still mount after that real Stack within the same app-meta scope.
+      let stack: ts.JsxElement | undefined;
+      const findStack = (child: ts.Node) => {
+        if (ts.isJsxElement(child) && child.openingElement.tagName.getText(layout) === "Stack") {
+          stack = child;
+          return;
+        }
+        ts.forEachChild(child, findStack);
+      };
+      ts.forEachChild(node, findStack);
       const gate = node.children.find(
         (child) =>
           ts.isJsxSelfClosingElement(child) &&
