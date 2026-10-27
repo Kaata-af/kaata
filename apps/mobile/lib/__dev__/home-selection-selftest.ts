@@ -464,11 +464,18 @@ const removalDialog = () =>
   homeNodes().find(
     (node) => node.type === "ConfirmDialog" && node.props.title === "selection.removeContactsTitle",
   )!;
+const filterTrigger = () =>
+  homeNodes().find((node) => node.props.accessibilityLabel === "customers.listOptions");
+const openSearch = () => {
+  input().props.ref.current.focus();
+  input().props.onFocus();
+  emitKeyboard(native.Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow");
+  render();
+};
 const options = () => {
+  if (!filterTrigger()) openSearch();
   if (!homeNodes().some((node) => node.type === "CustomerListOptions")) {
-    homeNodes()
-      .find((node) => node.props.accessibilityLabel === "customers.listOptions")!
-      .props.onPress();
+    filterTrigger()!.props.onPress();
     render();
   }
   return homeNodes().find((node) => node.type === "CustomerListOptions")!;
@@ -716,6 +723,11 @@ async function main() {
   assert.ok(searchSortRuns > 0, "Inline results are sorted on the homepage");
   expectPage();
   expectBottomDock();
+  assert.equal(filterTrigger(), undefined, "Idle Home has no filter button");
+  assert.equal(
+    homeNodes().some((node) => node.type === "HomeFilterPopover"),
+    false,
+  );
   const canvas = homeNodes().find((node) => node.props.edges?.includes("top"))!;
   assert.equal(
     flattenStyle(canvas.props.style).backgroundColor,
@@ -893,18 +905,18 @@ async function main() {
   homeNodes()
     .find((node) => node.type === "SearchKeyboardFooter")!
     .props.onLayout();
-  homeNodes()
-    .find((node) => node.props.accessibilityLabel === "customers.listOptions")!
-    .props.onLayout();
+  assert.equal(filterTrigger(), undefined, "Closing search removes its filter button");
   assert.equal(
     filterMeasurements,
     closedMeasures,
-    "closed filters do not measure during keyboard layout",
+    "closed search does not measure filters during keyboard layout",
   );
+  openSearch();
+  assert.equal(filterTrigger()!.props.accessibilityState.expanded, false);
+  filterTrigger()!.props.onLayout();
+  assert.equal(filterMeasurements, closedMeasures, "A closed popup needs no anchor measurement");
   const beforePopupScroll = homeScrollCalls().length;
-  homeNodes()
-    .find((node) => node.props.accessibilityLabel === "customers.listOptions")!
-    .props.onPress();
+  filterTrigger()!.props.onPress();
   render();
   const popup = homeNodes().find((node) => node.type === "HomeFilterPopover")!;
   assert.ok(popup.props.visible && popup.props.anchor);
@@ -946,15 +958,75 @@ async function main() {
     homeNodes().some((node) => node.type === "HomeFilterPopover"),
     false,
   );
+  const persistedOptions = options();
+  persistedOptions.props.onChange({ ...persistedOptions.props.preference, group: ["g"] });
+  input().props.onChangeText("Cyrus");
+  render();
+  const retainedTrigger = filterTrigger()!;
   deferFilterMeasurement = true;
   homeNodes()
-    .find((node) => node.props.accessibilityLabel === "customers.listOptions")!
-    .props.onPress();
-  render();
+    .find((node) => node.type === "SearchKeyboardFooter")!
+    .props.onLayout();
   assert.equal(pendingFilterMeasurements.length, 1);
   homeNodes()
-    .find((node) => node.props.accessibilityLabel === "customers.listOptions")!
+    .find((node) => node.props.accessibilityLabel === "common.hideKeyboard")!
     .props.onPress();
+  emitKeyboard("keyboardWillHide");
+  emitKeyboard("keyboardDidHide");
+  render();
+  assert.equal(filterTrigger(), undefined);
+  assert.equal(
+    homeNodes().some((node) => node.type === "HomeFilterPopover"),
+    false,
+    "Closing search also closes its open popup",
+  );
+  const measurementsAfterClose = filterMeasurements;
+  retainedTrigger.props.onPress();
+  retainedTrigger.props.onLayout();
+  render();
+  assert.equal(
+    filterMeasurements,
+    measurementsAfterClose,
+    "Retained trigger and layout callbacks cannot measure while search is closed",
+  );
+  assert.equal(
+    homeNodes().some((node) => node.type === "HomeFilterPopover"),
+    false,
+  );
+  openSearch();
+  assert.equal(filterTrigger()!.props.accessibilityState.expanded, false);
+  assert.equal(
+    homeNodes().some((node) => node.type === "HomeFilterPopover"),
+    false,
+    "Reopening search starts with its popup closed",
+  );
+  deferFilterMeasurement = false;
+  pendingFilterMeasurements.shift()!();
+  render();
+  assert.equal(
+    homeNodes().some((node) => node.type === "HomeFilterPopover"),
+    false,
+    "An old native measurement cannot reopen filters in the next search session",
+  );
+  assert.equal(input().props.value, "Cyrus", "Closing search preserves its query");
+  assert.deepEqual(
+    options().props.preference.group,
+    ["g"],
+    "Chosen filters survive search closure",
+  );
+  assert.deepEqual(searchIds(), ["c"]);
+  options().props.onChange(customerList.DEFAULT_CUSTOMER_LIST);
+  input().props.onChangeText("");
+  render();
+  homeNodes()
+    .find((node) => node.type === "HomeFilterPopover")!
+    .props.onDismiss();
+  render();
+  deferFilterMeasurement = true;
+  filterTrigger()!.props.onPress();
+  render();
+  assert.equal(pendingFilterMeasurements.length, 1);
+  filterTrigger()!.props.onPress();
   render();
   deferFilterMeasurement = false;
   pendingFilterMeasurements.shift()!();

@@ -960,6 +960,7 @@ export default function HomeScreen() {
     selectableIds,
     scoped: currentPeopleScope && currentVaultScope,
     confirming: confirmRemoveIds !== null,
+    searchOpen: keyboardLayoutShown,
     filtersExpanded,
   });
   homeInteraction.current = {
@@ -968,6 +969,7 @@ export default function HomeScreen() {
     selectableIds,
     scoped: currentPeopleScope && currentVaultScope,
     confirming: confirmRemoveIds !== null,
+    searchOpen: keyboardLayoutShown,
     filtersExpanded,
   };
 
@@ -976,6 +978,7 @@ export default function HomeScreen() {
     const trigger = filterTriggerRef.current;
     if (
       !filtersExpandedRef.current ||
+      !homeInteraction.current.searchOpen ||
       !isCurrentHome() ||
       !surface?.measureInWindow ||
       !trigger?.measureInWindow
@@ -986,6 +989,7 @@ export default function HomeScreen() {
       trigger.measureInWindow((x, y, triggerWidth, triggerHeight) => {
         if (
           !filtersExpandedRef.current ||
+          !homeInteraction.current.searchOpen ||
           !isCurrentHome() ||
           request !== filterMeasureVersion.current ||
           overlaySurfaceRef.current !== surface ||
@@ -1016,8 +1020,13 @@ export default function HomeScreen() {
     // Opening measures after the expanded state commits. Closing invalidates
     // in-flight native measurements so hidden filters cannot repaint Home.
     filterMeasureVersion.current++;
+    if (!keyboardLayoutShown) {
+      setFiltersExpanded(false);
+      setFilterAnchor(null);
+      return;
+    }
     if (filtersExpanded) updateFilterAnchor();
-  }, [filtersExpanded, updateFilterAnchor]);
+  }, [keyboardLayoutShown, filtersExpanded, updateFilterAnchor]);
   useEffect(() => {
     let alive = true;
     const current = () => alive && isCurrentHome();
@@ -1230,34 +1239,41 @@ export default function HomeScreen() {
           </Pressable>
         ) : null}
       </View>
-      <Pressable
-        ref={filterTriggerRef}
-        onLayout={updateFilterAnchor}
-        accessibilityRole="button"
-        accessibilityLabel={t("customers.listOptions")}
-        accessibilityState={{
-          expanded: filtersExpanded,
-          selected: listCustomized,
-          disabled: controlsDisabled,
-        }}
-        disabled={controlsDisabled}
-        onPress={() => {
-          if (!isCurrentHome() || selectionBusyRef.current || homeInteraction.current.confirming)
-            return;
-          setFiltersExpanded(!filtersExpanded);
-          setFilterAnchor(null);
-        }}
-        style={[
-          styles.filterButton,
-          (filtersExpanded || listCustomized) && styles.filterButtonActive,
-        ]}
-      >
-        <Ionicons
-          name="options-outline"
-          size={icon.row}
-          color={filtersExpanded || listCustomized ? colors.textInverted : colors.textDefault}
-        />
-      </Pressable>
+      {keyboardLayoutShown ? (
+        <Pressable
+          ref={filterTriggerRef}
+          onLayout={updateFilterAnchor}
+          accessibilityRole="button"
+          accessibilityLabel={t("customers.listOptions")}
+          accessibilityState={{
+            expanded: filtersExpanded,
+            selected: listCustomized,
+            disabled: controlsDisabled,
+          }}
+          disabled={controlsDisabled}
+          onPress={() => {
+            if (
+              !isCurrentHome() ||
+              !homeInteraction.current.searchOpen ||
+              selectionBusyRef.current ||
+              homeInteraction.current.confirming
+            )
+              return;
+            setFiltersExpanded(!filtersExpanded);
+            setFilterAnchor(null);
+          }}
+          style={[
+            styles.filterButton,
+            (filtersExpanded || listCustomized) && styles.filterButtonActive,
+          ]}
+        >
+          <Ionicons
+            name="options-outline"
+            size={icon.row}
+            color={filtersExpanded || listCustomized ? colors.textInverted : colors.textDefault}
+          />
+        </Pressable>
+      ) : null}
       {keyboardLayoutShown ? (
         <Pressable
           accessibilityRole="button"
@@ -1716,7 +1732,9 @@ export default function HomeScreen() {
             ) : null}
           </BlurTargetView>
           <HomeFilterPopover
-            visible={filtersExpanded && currentPeopleScope && currentVaultScope}
+            visible={
+              keyboardLayoutShown && filtersExpanded && currentPeopleScope && currentVaultScope
+            }
             contextKey={homeScrollScope}
             anchor={filterAnchor}
             viewport={filterViewport}
