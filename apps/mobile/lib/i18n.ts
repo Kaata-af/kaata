@@ -2045,7 +2045,7 @@ const en = {
   "tab.balance.pending": "{count} pending · net change {amount} {currency}",
   "tab.unlinked": "Unlinked",
   "tab.chip.linked": "Linked · {name}",
-  "tab.chip.waiting": "Link sent · waiting",
+  "tab.chip.waiting": "Waiting to join",
   // Fold row over the pre-link local rows (D8: visible, excluded from the balance).
   "tab.beforeLinking": "Before linking · {count}",
   "tab.notSent": "Not sent · {count}",
@@ -4024,7 +4024,7 @@ const fa: Partial<Record<Key, string>> = {
   "tab.balance.pending": "{count} در انتظار · تغییر خالص {amount} {currency}",
   "tab.unlinked": "پیوند قطع شد",
   "tab.chip.linked": "پیوند شده · {name}",
-  "tab.chip.waiting": "لینک فرستاده شد · در انتظار",
+  "tab.chip.waiting": "در انتظار پیوستن",
   "tab.beforeLinking": "پیش از پیوند · {count}",
   "tab.notSent": "فرستاده نشد · {count}",
   "tab.notSent.body":
@@ -5330,7 +5330,7 @@ const ps: Record<Key, string> = {
   "tab.balance.pending": "{count} په تمه · خالص بدلون {amount} {currency}",
   "tab.unlinked": "اړیکه پرې شوه",
   "tab.chip.linked": "نښلول شوی · {name}",
-  "tab.chip.waiting": "لینک ولېږل شو · په تمه",
+  "tab.chip.waiting": "د یوځای کېدو په تمه",
   "tab.beforeLinking": "تر نښلولو مخکې · {count}",
   "tab.notSent": "نه دي لېږل شوې · {count}",
   "tab.notSent.body":

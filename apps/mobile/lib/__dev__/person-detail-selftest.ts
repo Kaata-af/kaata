@@ -454,6 +454,7 @@ const mocks: Record<string, any> = {
   "../../lib/tally-summary": { summarizeTallyFlows },
   "../../lib/selection-summary": { summarizeSelectionEntries },
   "../../lib/multi-currency-view": multiCurrencyView,
+  "../../lib/tabs/link-status": require("../tabs/link-status"),
   "../../lib/recent-entry": {
     takeSavedEntry: () => {
       const taken = justSaved;
@@ -1924,7 +1925,12 @@ async function singleCurrencyBalanceTests() {
 
   fixture(true);
   link.other_joined_at = null;
+  person.tab_other_joined = 1; // A stale wrapper cannot certify the live invitation.
   await flush();
+  assert.equal(find("SharedAccountBadge"), undefined, "an invitation alone has no blue check");
+  assert.equal(words(byId("customer-link-waiting")), "tab.chip.waiting");
+  const beforeJoinMoney = words(byId("customer-balance-value-AFN"));
+  const beforeJoinEntries = JSON.stringify(entries);
   const waiting = nodes(byId("customer-balance-status-AFN")).find(
     (node) => node.type === "Pressable" && words(node).includes("tab.chip.waiting"),
   )!;
@@ -1936,6 +1942,31 @@ async function singleCurrencyBalanceTests() {
     "Synthetic person · AFN",
     "Waiting invitation management remains reachable",
   );
+  link.other_joined_at = 900;
+  tabListeners.forEach((fn) => fn({ relationshipId: "relationship", origin: "pull" }));
+  await flush();
+  assert.ok(find("SharedAccountBadge"), "join metadata alone enables the blue check");
+  assert.equal(byId("customer-link-waiting"), undefined);
+  assert.equal(
+    nodes(byId("customer-balance-status-AFN")).some(
+      (node) => node.type === "Pressable" && words(node).includes("tab.chip.waiting"),
+    ),
+    false,
+    "the per-currency waiting cue disappears after joining",
+  );
+  assert.equal(words(byId("customer-balance-value-AFN")), beforeJoinMoney);
+  assert.equal(JSON.stringify(entries), beforeJoinEntries, "joining does not review any tally");
+  link.other_joined_at = undefined;
+  await ledgerRefresh();
+  await flush();
+  assert.equal(find("SharedAccountBadge"), undefined, "unknown join state cannot show blue");
+  assert.ok(byId("customer-link-waiting"));
+  link.other_joined_at = 900;
+  link.closed_at = 1000;
+  await ledgerRefresh();
+  await flush();
+  assert.equal(find("SharedAccountBadge"), undefined, "closed history has no blue check");
+  assert.equal(byId("customer-link-waiting"), undefined);
   unmount();
 
   fixture(true);
@@ -2112,6 +2143,10 @@ async function main() {
     currencyPeriods.set("USD", { tab: dollarTab, settlement, boundaries: [], markers: [] });
     tabLinksById.set("usd-tab", dollarTab);
     await flush();
+    assert.ok(
+      find("SharedAccountBadge"),
+      "a joined foreign-currency account enables the contact badge with a private primary currency",
+    );
     await flush();
     assert.ok(
       (watched.get("usd-tab") ?? 0) > 0,

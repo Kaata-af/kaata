@@ -853,6 +853,7 @@ async function main() {
       "../lib/i18n": language,
       "../lib/tokens": { icon: { row: 22 } },
       "../lib/multi-currency-view": { personCurrencyRows },
+      "../lib/tabs/link-status": require("../tabs/link-status"),
     });
     const base = {
       id: "customer",

@@ -50,6 +50,7 @@ import { PHONE_SEARCH_MIN_DIGITS } from "../../lib/search";
 import { icon, radius, TOUCH_MIN } from "../../lib/tokens";
 import type { PersonWithBalance } from "../../lib/types";
 import { SharedAccountBadge } from "../../components/SharedAccountBadge";
+import { personSharedAccountStatus } from "../../lib/tabs/link-status";
 import { useDeviceContacts } from "../../lib/use-device-contacts";
 import { useActiveVaultWriteCaps } from "../../lib/use-vault-role";
 
@@ -143,7 +144,7 @@ export default function PersonAddOrFindScreen() {
         return;
       }
       // Search/add must find people with ZERO tallies too (home hides them).
-      const list = await listAllPeopleForSearch(vaultId);
+      const list = await listAllPeopleForSearch(vaultId, undefined, { allCurrencies: true });
       if (!current()) return;
       setLoadedPeople({ vaultId, rows: list });
     })().catch((err) => {
@@ -352,6 +353,8 @@ export default function PersonAddOrFindScreen() {
   function renderItem({ item }: { item: Row }) {
     if (item.kind === "app") {
       const p = item.person;
+      const sharedStatus = personSharedAccountStatus(p);
+      const amountPerson = p.currency_balances?.find((row) => row.currency === p.currency) ?? p;
       return (
         <Pressable
           onPress={() => openPerson(p.id)}
@@ -363,15 +366,21 @@ export default function PersonAddOrFindScreen() {
               <Text style={[styles.rowName, textDir(isRTL), { flexShrink: 1 }]} numberOfLines={1}>
                 {p.name}
               </Text>
-              {p.tab_id && p.tab_closed_at == null ? (
+              {sharedStatus === "joined" ? (
                 <SharedAccountBadge name={p.name} fontSize={styles.rowName.fontSize} />
               ) : null}
             </View>
             <Text style={[styles.rowSub, textDir(isRTL)]} numberOfLines={1}>
               {p.phone ? ltrIsolate(p.phone) : t("contacts.noPhone")}
             </Text>
+            {sharedStatus === "waiting" ? (
+              <Text style={[styles.rowSub, textDir(isRTL)]}>{t("tab.chip.waiting")}</Text>
+            ) : null}
           </View>
-          <RightAmount balance={p.balance} hasEntries={p.last_entry_at !== null} />
+          <RightAmount
+            balance={amountPerson.balance}
+            hasEntries={amountPerson.last_entry_at != null}
+          />
         </Pressable>
       );
     }

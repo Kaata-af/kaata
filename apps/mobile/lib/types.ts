@@ -158,7 +158,8 @@ export type PersonWithBalance = Person & {
   // live and is the only thing that distinguishes "shared account" from
   // retained shared history; tab_pending (the other party's tallies awaiting
   // my accept/dispute — the home badge) remains visible after closing.
-  // tab_other_joined = 1 once the counterparty has opened their link.
+  // tab_other_joined = 1 after the counterparty explicitly joins; previewing
+  // an invitation or reviewing a tally does not establish this state.
   tab_id: string | null;
   tab_closed_at: number | null;
   tab_account_name?: string | null;

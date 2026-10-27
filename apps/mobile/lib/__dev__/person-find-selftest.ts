@@ -57,10 +57,18 @@ let archivedState: "active" | "archived" | "none" = "active";
 let delayedGuard: Promise<{ state: string }> | null = null;
 let delayedRole: Promise<void> | null = null;
 let delayedPeople: Promise<void> | null = null;
-type FixturePerson = (typeof people)[number] & { tab_id?: string; tab_unsynced?: 0 | 1 };
+type FixturePerson = (typeof people)[number] & {
+  tab_id?: string;
+  tab_unsynced?: 0 | 1;
+  tab_closed_at?: number | null;
+  tab_other_joined?: 0 | 1;
+  currency?: string;
+  currency_balances?: FixturePerson[];
+};
 let peopleByVault: Map<string | null, FixturePerson[]>;
 let activeVaultsOverride: { id: string; name: string; currency: string }[] | null = null;
 const homeReadScopes: (string | null)[] = [];
+const contactReadRequests: unknown[][] = [];
 let appState = "active";
 let roleReadFails = false,
   focusEpoch = 0;
@@ -390,6 +398,7 @@ const sharedMocks: Record<string, any> = {
 };
 const libMocks: Record<string, any> = {
   colors: { colors },
+  "tabs/link-status": require("../tabs/link-status"),
   currency: {
     applyVaultCurrency: async () => {},
     getCurrentCurrencySymbol: () => selectedCurrency,
@@ -475,8 +484,13 @@ const libMocks: Record<string, any> = {
         pending: false,
       },
     ],
-    listAllPeopleForSearch: async (scope: string | null = vaultId) => {
+    listAllPeopleForSearch: async (
+      scope: string | null = vaultId,
+      currency?: string,
+      options?: { allCurrencies?: boolean },
+    ) => {
       if (screen === home) homeReadScopes.push(scope);
+      else contactReadRequests.push([scope, currency, options]);
       const rows = peopleByVault.get(scope) ?? [];
       if (delayedPeople) await delayedPeople;
       return rows.map((person) => ({
@@ -658,6 +672,7 @@ function fixture(
   permissionRequests = 0;
   activeVaultsOverride = null;
   homeReadScopes.length = 0;
+  contactReadRequests.length = 0;
   dirty = true;
 }
 async function flush() {
@@ -717,6 +732,130 @@ async function main() {
   resolveInitialRole();
   await flush();
   assert.equal(contactsReads, 0, "resolved viewer never starts a phone-book read");
+
+  for (const nextPlatform of ["android", "ios"])
+    for (const nextRtl of [false, true]) {
+      const linked: FixturePerson = { ...people[0], tab_id: "link", tab_closed_at: null };
+      const statuses: [FixturePerson, boolean, boolean][] = [
+        [people[0], false, false],
+        [{ ...linked, tab_other_joined: 0 }, false, true],
+        [linked, false, true],
+        [{ ...linked, tab_other_joined: 1 }, true, false],
+        [{ ...linked, tab_other_joined: 1, tab_closed_at: 100 }, false, false],
+        [
+          {
+            ...linked,
+            tab_other_joined: 1,
+            currency_balances: [
+              { ...linked, currency: "AFN", tab_other_joined: 1, tab_closed_at: 100 },
+              { ...linked, currency: "USD", tab_other_joined: 0 },
+            ],
+          },
+          false,
+          true,
+        ],
+        [
+          {
+            ...linked,
+            tab_other_joined: 0,
+            currency_balances: [
+              { ...linked, currency: "AFN", tab_other_joined: 0 },
+              { ...linked, currency: "USD", tab_other_joined: 1 },
+            ],
+          },
+          true,
+          false,
+        ],
+      ];
+      for (const [person, joined, waiting] of statuses) {
+        fixture(addOrFind, "viewer", nextRtl, nextPlatform);
+        peopleByVault.set("kaata", [person]);
+        await flush();
+        assert.deepEqual(
+          contactReadRequests[0],
+          ["kaata", undefined, { allCurrencies: true }],
+          "contact search loads authoritative join state across currencies",
+        );
+        const row = personRows()[0];
+        assert.ok(row);
+        assert.equal(
+          nodes(row).some((node) => node.type === "SharedBadge"),
+          joined,
+          "only an open joined account gets a blue badge in contact search",
+        );
+        const waitingTexts = nodes(row).filter(
+          (node) => node.type === "Text" && node.props.children === "tab.chip.waiting",
+        );
+        assert.equal(
+          waitingTexts.length,
+          waiting ? 1 : 0,
+          "pending or unknown joins receive one explicit neutral waiting label",
+        );
+        if (waiting)
+          assert.equal(flattenStyle(waitingTexts[0].props.style).color, colors.textSubtle);
+        assert.equal(
+          text(row).split(person.phone).length - 1,
+          1,
+          "the phone remains visible once alongside join status",
+        );
+        row.props.onPress();
+        assert.deepEqual(
+          routes.at(-1),
+          { pathname: "/person/[id]", params: { id: person.id } },
+          "status presentation does not change opening the contact",
+        );
+      }
+    }
+
+  for (const otherJoined of [0, 1] as const) {
+    fixture(addOrFind, "viewer");
+    const preferred: FixturePerson = {
+      ...people[0],
+      currency: "AFN",
+      balance: 0,
+      last_entry_at: null,
+    };
+    const foreign: FixturePerson = {
+      ...people[0],
+      currency: "USD",
+      balance: 50,
+      last_entry_at: 100,
+      tab_id: "foreign-shared",
+      tab_closed_at: null,
+      tab_other_joined: otherJoined,
+    };
+    peopleByVault.set("kaata", [
+      { ...preferred, last_entry_at: 100, currency_balances: [preferred, foreign] },
+    ]);
+    await flush();
+    const row = personRows()[0];
+    const amount = nodes(row).find(
+      (node) => typeof node.type === "function" && node.type.name === "RightAmount",
+    )!;
+    assert.ok(amount);
+    assert.equal(amount.props.balance, 0);
+    assert.equal(
+      amount.props.hasEntries,
+      false,
+      "a foreign tally does not invent preferred-currency activity",
+    );
+    const renderedAmount = amount.type(amount.props);
+    assert.ok(text(renderedAmount).includes("personAdd.rightAmount.new"));
+    assert.equal(
+      text(renderedAmount).includes("personAdd.rightAmount.settled"),
+      false,
+      "AFN without tallies is not mislabeled settled because USD has activity",
+    );
+    assert.equal(
+      nodes(row).some((node) => node.type === "SharedBadge"),
+      otherJoined === 1,
+      "join presentation still reads the actual foreign-currency account",
+    );
+    assert.equal(
+      nodes(row).some((node) => node.type === "Text" && node.props.children === "tab.chip.waiting"),
+      otherJoined === 0,
+    );
+  }
 
   const homePages = () =>
     nodes(tree).filter((node) => typeof node.type === "function" && node.type.name === "HomePage");

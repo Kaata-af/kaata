@@ -74,6 +74,7 @@ const { PersonRow } = compileUI("../../components/PersonRow", {
   "../lib/multi-currency-view": {
     personCurrencyRows: (person: any) => person.currency_balances ?? [person],
   },
+  "../lib/tabs/link-status": require("../tabs/link-status"),
   "../lib/fonts": { fonts },
   "../lib/format": { formatAmount: String, formatRelative: () => "yesterday" },
 });

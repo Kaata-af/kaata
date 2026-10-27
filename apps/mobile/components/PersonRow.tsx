@@ -13,6 +13,7 @@ import { icon } from "../lib/tokens";
 import type { PersonWithBalance } from "../lib/types";
 import { SelectionMark } from "./SelectionMark";
 import { personCurrencyRows } from "../lib/multi-currency-view";
+import { personSharedAccountStatus } from "../lib/tabs/link-status";
 
 // Stacked-card list row. Designed to live inside a rounded container with
 // borderWidth:1 and divider Views between rows.
@@ -36,6 +37,7 @@ export const PersonRow = memo(function PersonRow(props: {
 }) {
   const isRTL = useIsRTL();
   const { person } = props;
+  const sharedStatus = personSharedAccountStatus(person);
   const activePress = useRef<{ personId: string } | null>(null);
   // Deliberately settled (user drew the line, balance zero, nothing since) —
   // NOT the same as a balance that merely sums to zero. Settled rows get a
@@ -54,13 +56,17 @@ export const PersonRow = memo(function PersonRow(props: {
   // A shared account found on this phone but not downloaded yet has no known
   // balance: say so rather than show a false 0.
   const unsynced = person.tab_unsynced === 1;
-  const subtitle = unsynced
+  const activitySubtitle = unsynced
     ? t("tab.row.notDownloaded")
     : person.tab_id && person.tab_pending > 0
       ? `${t("tab.row.pending", { count: person.tab_pending })} · ${timeline}`
       : (person.tab_pending_count ?? 0) > 0
         ? `${t("tab.row.awaiting", { count: person.tab_pending_count ?? 0 })} · ${timeline}`
         : timeline;
+  const subtitle =
+    sharedStatus === "waiting"
+      ? `${t("tab.chip.waiting")} · ${activitySubtitle}`
+      : activitySubtitle;
 
   return (
     <Pressable
@@ -132,7 +138,7 @@ export const PersonRow = memo(function PersonRow(props: {
           <Text style={[styles.name, styles.nameText, textDir(isRTL)]} numberOfLines={1}>
             {person.name}
           </Text>
-          {person.tab_id && person.tab_closed_at == null ? (
+          {sharedStatus === "joined" ? (
             <SharedAccountBadge name={person.name} fontSize={styles.name.fontSize} />
           ) : null}
         </View>

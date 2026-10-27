@@ -39,6 +39,7 @@ import { SearchControlSlot } from "../../components/SearchControlSlot";
 import { SearchKeyboardFooter, SearchKeyboardFrame } from "../../components/SearchKeyboardMotion";
 import { SelectionToolbar } from "../../components/SelectionToolbar";
 import { personCurrencyRows, selectedEntriesByCurrency } from "../../lib/multi-currency-view";
+import { sharedAccountLinkStatus } from "../../lib/tabs/link-status";
 import { useCustomerGroups } from "../../lib/use-customer-groups";
 import { LinkAccountDialog } from "../../components/LinkAccountDialog";
 import { OverflowMenu } from "../../components/OverflowMenu";
@@ -551,6 +552,13 @@ export default function PersonDetailScreen() {
   // rows and the fold stay, so the history and the number both survive.
   const [tabHistory, setTabHistory] = useState<TabLink | null>(null);
   const link = tabHistory != null && tabHistory.closed_at == null ? tabHistory : null;
+  const sharedAccountStatus = currencyPeriods.some(
+    (period) => sharedAccountLinkStatus(period.tab) === "joined",
+  )
+    ? "joined"
+    : currencyPeriods.some((period) => sharedAccountLinkStatus(period.tab) === "waiting")
+      ? "waiting"
+      : "none";
   const [preLink, setPreLink] = useState<Entry[]>([]);
   const [preLinkOpen, setPreLinkOpen] = useState(false);
   const [failedTallies, setFailedTallies] = useState<Entry[]>([]);
@@ -2052,12 +2060,20 @@ export default function PersonDetailScreen() {
                     <Text style={[styles.name, { flexShrink: 1 }, textDir(isRTL)]}>
                       {person.name}
                     </Text>
-                    {link ? (
+                    {sharedAccountStatus === "joined" ? (
                       <SharedAccountBadge
                         size={20}
                         name={person.name}
                         fontSize={typography.heading.fontSize}
                       />
+                    ) : sharedAccountStatus === "waiting" ? (
+                      <Text
+                        testID="customer-link-waiting"
+                        style={[styles.linkWaiting, textDir(isRTL)]}
+                        numberOfLines={1}
+                      >
+                        {t("tab.chip.waiting")}
+                      </Text>
                     ) : null}
                   </View>
                   {personGroupNames.length > 0 ? (
@@ -2171,7 +2187,7 @@ export default function PersonDetailScreen() {
                               !sharedReviewPending &&
                               unsettledOriginalCount === 0) ||
                             displayedEntries.length > 0)) ||
-                        (link && link.other_joined_at == null);
+                        sharedAccountLinkStatus(link) === "waiting";
                       return (
                         <View key={code} style={styles.balanceOverview}>
                           {!singleBalanceCurrency || hasBalanceStatus ? (
@@ -2211,7 +2227,7 @@ export default function PersonDetailScreen() {
                                   // is no tally yet to have a state.
                                   <Chip label={t("person.balance.notSettled")} variant="outline" />
                                 ) : null}
-                                {link && link.other_joined_at == null ? (
+                                {sharedAccountLinkStatus(link) === "waiting" ? (
                                   // Keep the invitation-waiting cue until the other side joins.
                                   // Once linked, the name badge is enough; no duplicate chip.
                                   <Pressable
@@ -3183,6 +3199,7 @@ const styles = StyleSheet.create({
   // Button's `textPill`.
   identityRow: { alignItems: "center", justifyContent: "space-between", gap: 12 },
   nameRow: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 7 },
+  linkWaiting: { ...typography.caption, color: colors.textSubtle, maxWidth: "50%" },
   groupBadges: { maxWidth: "45%", flexWrap: "wrap", justifyContent: "flex-end", gap: 6 },
   groupBadge: {
     maxWidth: "100%",

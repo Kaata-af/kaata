@@ -187,6 +187,8 @@ const errors = require("../tabs/errors") as typeof import("../tabs/errors");
 const events = require("../tabs/events") as typeof import("../tabs/events");
 const tabsDb = require("../tabs/db") as typeof import("../tabs/db");
 const chapters = require("../tabs/chapters") as typeof import("../tabs/chapters");
+const { personSharedAccountStatus, sharedAccountLinkStatus } =
+  require("../tabs/link-status") as typeof import("../tabs/link-status");
 const sync = require("../tabs/sync") as typeof import("../tabs/sync");
 const db = require("../db") as typeof import("../db");
 const eventLog = require("../event-log") as typeof import("../event-log");
@@ -195,6 +197,9 @@ const dbTx = require("../db-tx") as typeof import("../db-tx");
 // The shipped DDL, lifted from the migration itself so this fixture cannot
 // drift from what initDb() creates.
 const dbSource = readFileSync(require.resolve("../db"), "utf8");
+const VAULT_SETTINGS_DDL =
+  /execAsync\(`([^`]*CREATE TABLE IF NOT EXISTS vault_settings[^`]*)`\)/.exec(dbSource)?.[1];
+assert.ok(VAULT_SETTINGS_DDL, "all-currency reads use the shipped vault settings schema");
 const MIGRATION_028_DDL = /execAsync\(`([^`]*CREATE TABLE IF NOT EXISTS tab_links[^`]*)`\)/.exec(
   dbSource,
 )?.[1];
@@ -295,6 +300,7 @@ function openFixture(): void {
       ingested_at INTEGER NOT NULL, applied_at INTEGER, author_seq INTEGER,
       quarantine_reason TEXT, UNIQUE(vault_id, device_id, author_seq)
     );
+    ${VAULT_SETTINGS_DDL}
     ${MIGRATION_028_DDL}
     ${MIGRATION_029_DDL}
     ${MIGRATION_030_DDL}
@@ -2508,6 +2514,112 @@ async function main(): Promise<void> {
     );
   });
 
+  await test("shared badge follows explicit join metadata, without changing balances or retained history", async () => {
+    const tl = link();
+    await tabsDb.upsertTabLink(tl);
+    server.parties.b = {
+      label: "Synthetic Customer",
+      account_name: "Known account",
+      phone: "+93700000001",
+      bound: true,
+      joined_at_ms: null,
+    };
+    const opening = server.seed({
+      id: "accepted-without-join",
+      created_by: "a",
+      direction: "a_to_b",
+      amount: "70.25",
+      kind: "opening",
+      status: "accepted",
+      status_at_ms: 6_000,
+    });
+    const waitingResponse: TabResponse = {
+      tab: server.view("a"),
+      entries: [opening],
+      full: true,
+    };
+    await tabsDb.upsertTabFromWire(tl, waitingResponse);
+    const waiting = await db.getPerson(CONTACT);
+    assert.ok(waiting);
+    assert.equal(waiting.tab_account_name, "Known account");
+    assert.equal(waiting.balance, 70.25);
+    assert.equal(waiting.tab_other_joined, 0);
+    assert.equal(
+      personSharedAccountStatus(waiting),
+      "waiting",
+      "account binding, a name/phone, and an accepted opening do not prove joining",
+    );
+    assert.equal(personSharedAccountStatus((await db.listAllPeople())[0]), "waiting");
+    assert.equal(sharedAccountLinkStatus(storedLink()), "waiting");
+    const originalEntries = fixture.prepare("SELECT * FROM tab_entries ORDER BY id").all();
+    const refreshesBefore = ledgerEmits.length;
+    const applied: import("../tabs/types").TabAppliedEvent[] = [];
+    const stop = events.onTabApplied((event) => applied.push(event));
+    try {
+      server.parties.b.joined_at_ms = 7_000;
+      server.rev++;
+      await tabsDb.upsertTabFromWire(tl, {
+        tab: server.view("a"),
+        entries: [],
+        full: false,
+      });
+      const joined = await db.getPerson(CONTACT);
+      assert.ok(joined);
+      assert.equal(joined.tab_other_joined, 1);
+      assert.equal(personSharedAccountStatus(joined), "joined");
+      assert.equal(personSharedAccountStatus((await db.listAllPeople())[0]), "joined");
+      assert.equal(sharedAccountLinkStatus(storedLink()), "joined");
+      assert.equal(joined.balance, waiting.balance, "joining does not change a financial amount");
+      assert.deepEqual(
+        fixture.prepare("SELECT * FROM tab_entries ORDER BY id").all(),
+        originalEntries,
+      );
+      assert.equal(
+        ledgerEmits.length,
+        refreshesBefore + 1,
+        "metadata-only join refreshes visible people",
+      );
+      assert.equal(applied.length, 1);
+      assert.equal(applied[0].relationshipId, REL);
+      assert.equal(applied[0].origin, "pull");
+      assert.equal(applied[0].newFromThem, 0);
+      assert.equal(applied[0].statusChangedOnMine, 0);
+
+      await tabsDb.upsertTabFromWire(tl, waitingResponse);
+      assert.equal(
+        personSharedAccountStatus((await db.getPerson(CONTACT))!),
+        "joined",
+        "an older full response cannot turn a joined party back into waiting",
+      );
+      assert.equal(storedLink().other_joined_at, 7_000);
+      assert.equal(ledgerEmits.length, refreshesBefore + 1);
+      assert.equal(applied.length, 1);
+
+      server.closedAt = 8_000;
+      server.rev++;
+      await tabsDb.upsertTabFromWire(tl, {
+        tab: server.view("a"),
+        entries: [],
+        full: false,
+      });
+      const closed = await db.getPerson(CONTACT);
+      assert.ok(closed);
+      assert.equal(closed.tab_id, TAB, "closing retains the shared period");
+      assert.equal(closed.tab_other_joined, 1, "historical joining evidence is retained");
+      assert.equal(personSharedAccountStatus(closed), "none");
+      assert.equal(personSharedAccountStatus((await db.listAllPeople())[0]), "none");
+      assert.equal(sharedAccountLinkStatus(storedLink()), "none");
+      assert.equal(closed.balance, 70.25);
+      assert.deepEqual(
+        fixture.prepare("SELECT * FROM tab_entries ORDER BY id").all(),
+        originalEntries,
+      );
+      assert.equal(ledgerEmits.length, refreshesBefore + 2, "closure refreshes the status too");
+    } finally {
+      stop();
+    }
+  });
+
   await test("read sites in the real lib/db.ts: linked contact reads the tab, unlinked stays byte-identical", async () => {
     const insertEntry = fixture.prepare(
       `INSERT INTO entries (id, vault_id, relationship_id, type, amount_afn, note, created_at, updated_at, is_deleted, is_settled)
@@ -3302,6 +3414,7 @@ async function main(): Promise<void> {
     const usd = link({
       tab_id: "usd-tab",
       currency: "USD",
+      other_joined_at: 3_500,
       history_order: "2",
       linked_at: 3000,
       last_synced_at: 4000,
@@ -3323,6 +3436,26 @@ async function main(): Promise<void> {
             ('usd-opening','usd-tab',1,1,'a','a_to_b',7000,'opening',3000,3000,'accepted');`);
     assert.equal((await db.getPerson(CONTACT, "AFN"))?.balance, 100);
     assert.equal((await db.getPerson(CONTACT, "USD"))?.balance, 75);
+    const aggregate = await db.getPerson(CONTACT, "AFN", { allCurrencies: true });
+    assert.ok(aggregate);
+    assert.equal(aggregate.tab_other_joined, 0, "the primary AFN currency is still waiting");
+    assert.equal(
+      personSharedAccountStatus(aggregate),
+      "joined",
+      "the joined USD account qualifies independently of a waiting primary currency",
+    );
+    const homeAggregate = (
+      await db.listAllPeopleForSearch(VAULT, "AFN", { allCurrencies: true })
+    )[0];
+    assert.equal(personSharedAccountStatus(homeAggregate), "joined");
+    assert.deepEqual(
+      aggregate.currency_balances?.map((row) => [row.currency, row.balance]),
+      [
+        ["AFN", 100],
+        ["USD", 75],
+      ],
+      "status aggregation never adds unlike denominations",
+    );
     assert.deepEqual(
       (await tabsDb.listPreLinkEntries(usd)).map((e) => e.id),
       ["usd-private"],
@@ -3347,8 +3480,31 @@ async function main(): Promise<void> {
       "closing USD keeps its history",
     );
     assert.equal(
+      personSharedAccountStatus((await db.getPerson(CONTACT, "AFN", { allCurrencies: true }))!),
+      "waiting",
+      "a formerly joined closed currency cannot hide the remaining invitation",
+    );
+    assert.equal(
       (await db.listEntriesForExport(VAULT, "USD")).every((e) => e.currency === "USD"),
       true,
+    );
+    await tabsDb.markTabClosedLocally("afn-tab", 6_000);
+    const closedAggregate = await db.getPerson(CONTACT, "AFN", { allCurrencies: true });
+    assert.ok(closedAggregate);
+    assert.equal(personSharedAccountStatus(closedAggregate), "none");
+    assert.equal(
+      personSharedAccountStatus(
+        (await db.listAllPeopleForSearch(VAULT, "AFN", { allCurrencies: true }))[0],
+      ),
+      "none",
+    );
+    assert.deepEqual(
+      closedAggregate.currency_balances?.map((row) => [row.currency, row.balance]),
+      [
+        ["AFN", 100],
+        ["USD", 75],
+      ],
+      "closing all badges preserves both independent balances",
     );
   });
 

@@ -1,13 +1,15 @@
 // Run the real row through customer reuse. Native touch delivery and microtask
 // ordering are controlled boundaries; this does not claim device gesture QA.
 import assert from "node:assert/strict";
-import { compileUI, jsx, uiHooks, type UINode } from "./ui-fixture";
+import { compileUI, flattenStyle, jsx, nodes, uiHooks, type UINode } from "./ui-fixture";
 import type { PersonWithBalance } from "../types";
 
 const hooks = uiHooks();
 const queued: (() => void)[] = [];
 const pressed: string[] = [],
   held: string[] = [];
+let rowRTL = false;
+const colors = require("../colors").colors;
 const { PersonRow } = compileUI(
   "../../components/PersonRow",
   {
@@ -23,9 +25,14 @@ const { PersonRow } = compileUI(
     "./SharedAccountBadge": { SharedAccountBadge: "SharedAccountBadge" },
     "./CreditStatusBadge": { CreditStatusBadge: "CreditStatusBadge" },
     "./SelectionMark": { SelectionMark: "SelectionMark" },
-    "../lib/colors": { colors: {} },
-    "../lib/currency": { getCurrentCurrencySymbol: () => "AFN" },
-    "../lib/direction": { useIsRTL: () => false, rowDir: () => ({}), textDir: () => ({}) },
+    "../lib/colors": { colors },
+    "../lib/currency": {
+      getCurrentCurrencyCode: () => "AFN",
+      getCurrencyLabel: (code: string) => code,
+    },
+    "../lib/multi-currency-view": require("../multi-currency-view"),
+    "../lib/tabs/link-status": require("../tabs/link-status"),
+    "../lib/direction": { useIsRTL: () => rowRTL, rowDir: () => ({}), textDir: () => ({}) },
     "../lib/fonts": { fonts: {} },
     "../lib/format": { formatAmount: String, formatRelative: () => "recent" },
     "../lib/i18n": { t: (key: string) => key },
@@ -57,10 +64,79 @@ const reset = () => {
 };
 let checks = 0;
 
+for (rowRTL of [false, true]) {
+  for (const [tab, joined, waiting] of [
+    [{}, false, false],
+    [{ tab_id: "waiting", tab_closed_at: null, tab_other_joined: 0 }, false, true],
+    [{ tab_id: "unknown", tab_closed_at: null }, false, true],
+    [{ tab_id: "joined", tab_closed_at: null, tab_other_joined: 1 }, true, false],
+    [{ tab_id: "closed", tab_closed_at: 100, tab_other_joined: 1 }, false, false],
+    [
+      {
+        tab_id: "promoted-waiting",
+        tab_closed_at: null,
+        tab_other_joined: 1,
+        currency_balances: [
+          { ...a, currency: "AFN", tab_id: "old-joined", tab_closed_at: 100, tab_other_joined: 1 },
+          {
+            ...a,
+            currency: "USD",
+            tab_id: "actual-waiting",
+            tab_closed_at: null,
+            tab_other_joined: 0,
+          },
+        ],
+      },
+      false,
+      true,
+    ],
+    [
+      {
+        tab_id: "waiting-root",
+        tab_closed_at: null,
+        tab_other_joined: 0,
+        currency_balances: [
+          { ...a, currency: "AFN", tab_id: "waiting-a", tab_closed_at: null, tab_other_joined: 0 },
+          { ...a, currency: "USD", tab_id: "joined-b", tab_closed_at: null, tab_other_joined: 1 },
+        ],
+      },
+      true,
+      false,
+    ],
+  ] as const) {
+    reuse({ ...a, ...tab } as PersonWithBalance);
+    assert.equal(
+      nodes(row!).some((node) => node.type === "SharedAccountBadge"),
+      joined,
+      "only a confirmed joined open currency account receives the blue badge",
+    );
+    const waitingText = nodes(row!).find(
+      (node) => node.type === "Text" && String(node.props.children).includes("tab.chip.waiting"),
+    );
+    assert.equal(
+      !!waitingText,
+      waiting,
+      "waiting and unknown membership remain explicit without a joined badge",
+    );
+    if (waitingText)
+      assert.equal(
+        flattenStyle(waitingText.props.style).color,
+        colors.textSubtle,
+        "waiting uses the neutral activity text color",
+      );
+    checks++;
+  }
+}
+rowRTL = false;
+
 reuse({ ...a, balance: 0, tab_id: "shared", tab_pending: 0, tab_pending_count: 1 });
 assert.ok(
   JSON.stringify(row!).includes("tab.row.awaiting"),
   "own pending loans remain visibly unconfirmed",
+);
+assert.ok(
+  JSON.stringify(row!).includes("tab.chip.waiting"),
+  "waiting to join does not replace outgoing unconfirmed review information",
 );
 reuse({ ...a, balance: 0, tab_id: "shared", tab_pending: 1, tab_pending_count: 2 });
 assert.ok(
@@ -70,6 +146,12 @@ assert.ok(
 assert.ok(
   !JSON.stringify(row!).includes("tab.row.awaiting"),
   "one subtitle avoids duplicate pending labels",
+);
+reuse({ ...a, tab_id: "shared", tab_unsynced: 1, tab_other_joined: 0 });
+assert.ok(JSON.stringify(row!).includes("tab.chip.waiting"));
+assert.ok(
+  JSON.stringify(row!).includes("tab.row.notDownloaded"),
+  "not-downloaded guidance survives the waiting prefix",
 );
 checks++;
 reuse(a);

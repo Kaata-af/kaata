@@ -140,7 +140,13 @@ New tallies record the authenticated author's account ID and person-name snapsho
 review/void notifications record their actual actor, not the party/store label.
 Historical authors that were not recorded remain unknown; do not invent authors.
 Party metadata retains the bound account's name, but contact headings show only
-the saved contact name and blue badge (no parenthesized account name). Expanded
+the saved contact name (no parenthesized account name). An invitation shows neutral
+“Waiting to join” text until the counterparty explicitly joins; previewing the
+invitation, binding an account, or accepting a tally is not that transition. The
+blue badge appears only for an open shared account whose counterparty has joined.
+For multiple currencies, any currently joined currency establishes the contact
+badge; other pending currencies retain their own waiting cues. Closed shared
+history does not establish the badge. Expanded
 attribution uses the actual author name with localized “(you)” only when the
 author account ID matches the signed-in account, never just the same party.
 Push delivery excludes the acting account/install, including dual-vault members.
