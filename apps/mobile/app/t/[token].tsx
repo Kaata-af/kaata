@@ -145,14 +145,17 @@ function preselectVault(plan: CurrencyPlan): VaultFacts | null {
 }
 
 /** The picker country for a number: its own dial code when it carries one,
- *  else the install default — person/new's rule for a tapped phone-book row.
+ *  else a native phone-book country hint or the install default.
  *  The string itself is handed to createPerson VERBATIM (lib/phone.ts owns the
  *  parsing; see person/new's onDeviceContactTap for the doubled-code bug). */
-function countryCodeFor(phone: string | null | undefined): string {
-  const p = (phone ?? "").trim();
-  return p.startsWith("+")
-    ? inferCountryFromE164(toAsciiDigits(p))
-    : getCurrentDefaultCountryCode();
+function countryCodeFor(phone: string | null | undefined, countryHint?: string): string {
+  const p = toAsciiDigits((phone ?? "").trim());
+  const nativeCountry = countryHint?.toUpperCase();
+  return p.startsWith("+") || p.startsWith("00")
+    ? inferCountryFromE164(p.replace(/^00/, "+"))
+    : nativeCountry && getCountry(nativeCountry).code === nativeCountry
+      ? nativeCountry
+      : getCurrentDefaultCountryCode();
 }
 
 /** What joining a suggestion means: the existing contact, or a new person
@@ -666,7 +669,7 @@ export default function TabJoinScreen() {
           firstName: fn,
           lastName: ln,
           phone: c.phone,
-          countryCode: countryCodeFor(c.phone),
+          countryCode: countryCodeFor(c.phone, c.countryCode),
         },
       },
       c.name,

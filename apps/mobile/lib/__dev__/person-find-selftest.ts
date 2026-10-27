@@ -342,10 +342,7 @@ const contactsHook = compile("../use-device-contacts", {
   },
 });
 const merge = compile("../contacts-merge", {
-  "./contacts-sync": {
-    phoneKey: (phone: string | null) =>
-      phone ? toAsciiDigits(phone).replace(/\D/g, "").slice(-8) : null,
-  },
+  "./phone-match": require("../phone-match"),
   "./digits": { toAsciiDigits },
   "./search": search,
 });
@@ -2427,6 +2424,30 @@ async function main() {
   await flush();
   assert.equal(writes.length, 1, "authorized writable flow still creates");
   assert.deepEqual(routes.at(-1), { pathname: "/person/[id]", params: { id: "created" } });
+
+  // A malformed national number must keep its known native country even if
+  // the form's current default would make those digits usable elsewhere.
+  deviceContacts.push({
+    id: "native-country-short",
+    name: "Short AF",
+    firstName: "Short",
+    lastName: "AF",
+    phone: "1234",
+    countryCode: "AF",
+  } as (typeof deviceContacts)[number]);
+  fixture(addOrFind, "owner");
+  await flush();
+  find("CountryPicker")!.props.onSelect("AC");
+  await flush();
+  const shortNativeRow = nodes(tree).find(
+    (node) => node.type === "Pressable" && text(node).includes("Short AF"),
+  );
+  assert(shortNativeRow);
+  shortNativeRow.props.onPress();
+  await flush();
+  assert.equal(writes[0][2], "1234", "native phone text reaches validation unchanged");
+  assert.equal(writes[0][3], "AF", "a native AF number is not silently reinterpreted as AC");
+  deviceContacts.pop();
   unmount();
   console.log(
     "PASS: contact action-sheet entry into inline multi-select, exact selected debt/credit totals and pending shared balances, visible-result select-all, search/group retention and remote pruning, role/account/vault clearing, Done/cancel, guarded bulk removal and partial-failure retry; one mixed Home list with simultaneous independent totals, unique financial/neutral rows, direction labels, one scroll owner, filtered/scope/blur/unmount row guards; fixed keyboard-aware bottom search, compact inline groups/sort, query-only counts, unfiltered balance card inputs, direct keyboard-open navigation, native overscroll without pull-refresh, combined collect/pay results, no balance tabs/swipe rail, EN/FA and 320px access, zero-tally/phone searches, multi-group/sort composition, scoped live/resume reloads, in-place role downgrades, late-read and unmount guards, no viewer phone-book reads/prompts or writes, stable writable tally refresh and authorized creation",

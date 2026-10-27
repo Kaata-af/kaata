@@ -40,14 +40,20 @@
 // Migrating to the new class-based API is worthwhile but is its own change;
 // this subpath is supported and preserves behaviour exactly.
 import * as Contacts from "expo-contacts/legacy";
+import {
+  isInternationalPhone,
+  normalizeContactPhone,
+  PhoneMatchIndex,
+  samePhoneNumber,
+} from "./phone-match";
 
 /** Normalize to comparable digits (drop +, spaces, dashes). */
 function digitsOf(s: string): string {
   return (s ?? "").replace(/[^\d]/g, "");
 }
 
-/** Last-8-digit key for deduping a phone across +93 / leading-0 format variance.
- *  Empty string when there's no number (callers treat empty as "no match"). */
+/** Legacy fuzzy search key. Never use suffix equality to establish contact
+ * identity or choose which native phone-book card may be updated. */
 export function phoneKey(phone: string | null | undefined): string {
   return digitsOf(phone ?? "").slice(-8);
 }
@@ -102,6 +108,9 @@ export type DeviceContact = {
   lastName: string | null;
   name: string;
   phone: string | null;
+  // Retain a native hint when a malformed/short national number could not be
+  // canonicalized, so later identity matching cannot retry another country.
+  countryCode?: string;
 };
 
 // Result of reading the phone book — carries the permission state so the add
@@ -139,7 +148,7 @@ export async function readDeviceContacts({
       sort: Contacts.SortTypes.FirstName,
     });
     const out: DeviceContact[] = [];
-    const seen = new Set<string>();
+    const seen = new PhoneMatchIndex<DeviceContact>();
     for (const c of data) {
       let firstName = cleanToken(c.firstName);
       let lastName = cleanToken(c.lastName) || null;
@@ -155,18 +164,37 @@ export async function readDeviceContacts({
         firstName = s.firstName;
         lastName = lastName ?? s.lastName;
       }
-      const phone = c.phoneNumbers?.[0]?.number?.trim() || null;
+      const firstNumber = c.phoneNumbers?.[0];
+      const rawPhone = firstNumber?.number?.trim() || null;
+      // Keep the native region context before the row reaches the add screen.
+      // A Canadian national number must not be interpreted under the user's
+      // Afghan default merely because the inline row dropped its native hint.
+      const phone = normalizeContactPhone(rawPhone, firstNumber?.countryCode) ?? rawPhone;
       // Dedup the book against itself by phone (the same person is often listed
       // twice). Phone-less contacts can't be deduped, so they all pass through.
-      const k = phoneKey(phone);
-      if (k) {
-        if (seen.has(k)) continue;
-        seen.add(k);
+      const previous = seen.find(phone, firstNumber?.countryCode);
+      if (previous) {
+        // A later explicit country prefix gives the earlier national-format
+        // row a usable country when it is tapped. Keep the first contact's name.
+        if (isInternationalPhone(phone) && !isInternationalPhone(previous.phone)) {
+          seen.replace(previous.phone!, phone!, previous);
+          previous.phone = phone;
+        }
+        continue;
       }
       // Prefer the OS contact id (stable across list filtering); fall back to a
       // content key for the rare contact without one.
       const id = c.id ?? `${display}-${phone ?? ""}`;
-      out.push({ id, firstName, lastName, name: display, phone });
+      const item = {
+        id,
+        firstName,
+        lastName,
+        name: display,
+        phone,
+        countryCode: firstNumber?.countryCode,
+      };
+      out.push(item);
+      seen.add(phone, item, firstNumber?.countryCode);
     }
     return {
       contacts: out,
@@ -180,9 +208,8 @@ export async function readDeviceContacts({
   }
 }
 
-/** The phone-book contact holding this number, or null. Last-8-digit match, so
- *  it tolerates +93 / leading-0 / spacing differences between how the number was
- *  saved in Contacts and how kaata normalizes it.
+/** The phone-book contact holding this complete number, or null. National-format
+ *  contacts are interpreted using the sought international number's own plan.
  *
  *  Returns the whole contact (not just a boolean) because the caller needs the
  *  id to UPDATE it, and the existing name to decide whether updating is safe —
@@ -193,8 +220,7 @@ async function findContactByPhone(
   phoneE164: string,
 ): Promise<{ id: string; firstName: string; lastName: string; name: string } | null> {
   try {
-    const want = digitsOf(phoneE164).slice(-8);
-    if (!want) return null;
+    if (!phoneE164.trim()) return null;
     const { data } = await Contacts.getContactsAsync({
       fields: [
         Contacts.Fields.PhoneNumbers,
@@ -205,8 +231,7 @@ async function findContactByPhone(
     });
     for (const c of data) {
       for (const pn of c.phoneNumbers ?? []) {
-        const have = digitsOf(pn.number ?? "").slice(-8);
-        if (have && have === want && c.id) {
+        if (samePhoneNumber(pn.number, phoneE164, pn.countryCode) && c.id) {
           const firstName = (c.firstName ?? "").trim();
           const lastName = (c.lastName ?? "").trim();
           return {
@@ -304,20 +329,19 @@ export async function upsertPersonInPhoneBook(
       // Repair the number in place, preserving every OTHER number on the card
       // (home, work, a second mobile). Replacing the array wholesale would
       // delete contact data kaata never knew about.
-      const wantDigits = digitsOf(phoneE164).slice(-8);
-      const lookupDigits = digitsOf(lookupPhone).slice(-8);
-      if (wantDigits && wantDigits !== lookupDigits) {
+      if (!samePhoneNumber(phoneE164, lookupPhone)) {
         const full = await Contacts.getContactByIdAsync(existing.id, [
           Contacts.Fields.PhoneNumbers,
         ]);
         const numbers = full?.phoneNumbers ?? [];
         if (numbers.length > 0) {
-          patch.phoneNumbers = numbers.map((pn) =>
-            digitsOf(pn.number ?? "").slice(-8) === lookupDigits
-              ? { ...pn, number: phoneE164 }
-              : pn,
-          );
-          dirty = true;
+          let replaced = false;
+          patch.phoneNumbers = numbers.map((pn) => {
+            if (!samePhoneNumber(pn.number, lookupPhone, pn.countryCode)) return pn;
+            replaced = true;
+            return { ...pn, number: phoneE164 };
+          });
+          dirty ||= replaced;
         }
       }
 

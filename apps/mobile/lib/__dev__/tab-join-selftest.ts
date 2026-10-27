@@ -258,6 +258,28 @@ check("two E.164 numbers sharing their last 8 digits are two people", () => {
   });
 });
 
+check("00 foreign prefixes and partial national suffixes never bind the wrong person", () => {
+  const suggestion = suggestJoinContact({
+    otherPhone: "+93712345678",
+    otherLabel: "Sender",
+    candidates: [cand("foreign", "AU", "0061412345678", 1)],
+    deviceContacts: [dev("suffix", "Incomplete", null, "12345678")],
+  });
+  assert.equal(suggestion?.source, "invitation");
+});
+
+check("short national phone-book numbers use the invitation's actual country plan", () => {
+  const suggestion = suggestJoinContact({
+    otherPhone: "+2471234",
+    otherLabel: "Sender",
+    candidates: [],
+    deviceContacts: [dev("short", "Ascension", null, "1234")],
+  });
+  assert.equal(suggestion?.source, "phone");
+  assert.equal(suggestion && "countryCode" in suggestion ? suggestion.countryCode : null, "AC");
+  assert.equal(suggestion && "phone" in suggestion ? suggestion.phone : null, "+2471234");
+});
+
 check("phone-book entry with its own dial code → country inferred", () => {
   const af = suggestJoinContact({
     otherPhone: "0700123456",
@@ -275,17 +297,16 @@ check("phone-book entry with its own dial code → country inferred", () => {
   });
   assert.equal(au?.source, "phone");
   assert.equal(au && "countryCode" in au ? au.countryCode : null, "AU");
-  // phoneKey is ASCII-only (lib/contacts-sync digitsOf) — the same rule the
-  // person/new dedup applies — so a Persian-digit phone-book number never
-  // keys, cannot match, and the invitation's own number is suggested instead.
+  // Identity matching transliterates Persian digits before comparing the
+  // complete number, consistent with entering the same number manually.
   const fa = suggestJoinContact({
     otherPhone: "+93700123456",
     otherLabel: "",
     candidates: [],
     deviceContacts: [dev("d1", "احمد", null, "+۹۳۷۰۰۱۲۳۴۵۶")],
   });
-  assert.equal(fa?.source, "invitation");
-  assert.equal(fa && "phone" in fa ? fa.phone : null, "+93700123456");
+  assert.equal(fa?.source, "phone");
+  assert.equal(fa && "phone" in fa ? fa.phone : null, "+۹۳۷۰۰۱۲۳۴۵۶");
 });
 
 check("nothing on the device knows the number → the invitation's label and number", () => {

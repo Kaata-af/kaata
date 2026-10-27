@@ -613,7 +613,8 @@ const en = {
   "personAdd.lastName.placeholder": "Karimi",
   "personAdd.add": "Add {name}",
   "personAdd.phone.hint": "Needed to send pings on WhatsApp.",
-  "personAdd.phone.invalid": "Couldn't read that phone number. Try +93 70 123 4567.",
+  "personAdd.phone.invalid":
+    "Enter a phone number for the selected country, or include + and its country code.",
   "personAdd.phone.conflict": "Phone already used by {name}",
   "personAdd.phone.isSelf": "That's your own number — you can't add yourself.",
   "personAdd.save.storageFull": "Your phone's storage is full. Free up some space and try again.",
@@ -2747,7 +2748,8 @@ const fa: Partial<Record<Key, string>> = {
   "personAdd.lastName.placeholder": "کریمی",
   "personAdd.add": "افزودن {name}",
   "personAdd.phone.hint": "برای ارسال یادآوری در واتساپ لازم است.",
-  "personAdd.phone.invalid": "این شماره را نتوانستم بخوانم. مثلاً +93 70 123 4567.",
+  "personAdd.phone.invalid":
+    "شمارهٔ تلفون کشور انتخاب‌شده را وارد کنید، یا شماره را با + و کد کشور بنویسید.",
   "personAdd.phone.conflict": "این شماره قبلاً برای {name} ثبت شده",
   "personAdd.phone.isSelf": "این شماره خود شماست — نمی‌توانید خودتان را اضافه کنید.",
   "personAdd.save.storageFull": "حافظهٔ گوشی شما پر است. کمی فضا خالی کنید و دوباره امتحان کنید.",
@@ -4625,7 +4627,8 @@ const ps: Record<Key, string> = {
   "personAdd.lastName.placeholder": "کریمي",
   "personAdd.add": "{name} ورزیات کړئ",
   "personAdd.phone.hint": "په WhatsApp کې د یادونو لېږلو لپاره اړینه ده.",
-  "personAdd.phone.invalid": "دا ټیلیفون شمېره ونه پېژندل شوه. +93 70 123 4567 وازمویئ.",
+  "personAdd.phone.invalid":
+    "د ټاکل شوي هېواد د ټیلیفون شمېره ولیکئ، یا یې له + او د هېواد له کوډ سره ولیکئ.",
   "personAdd.phone.conflict": "دا شمېره له مخکې د {name} له خوا کارول کېږي",
   "personAdd.phone.isSelf": "دا ستاسې خپله شمېره ده — ځان نه شئ ورزیاتولی.",
   "personAdd.save.storageFull": "د ټیلیفون حافظه مو ډکه ده. لږ ځای تش کړئ او بیا هڅه وکړئ.",

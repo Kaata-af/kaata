@@ -4,12 +4,13 @@ import { SheetSurface } from "./SheetSurface";
 import { useOverlayAnimation } from "../lib/use-overlay-animation";
 import { useSheetDrag } from "../lib/use-sheet-drag";
 import { Ionicons } from "@expo/vector-icons";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
+  FlatList,
   Modal,
   Pressable,
-  ScrollView,
+  type ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -19,7 +20,8 @@ import { colors } from "../lib/colors";
 import { ltrIsolate, rowDir, textDir, trackingSafe, useIsRTL } from "../lib/direction";
 import { fonts } from "../lib/fonts";
 import { getLocale, t } from "../lib/i18n";
-import { COUNTRIES, getCountryName } from "../lib/phone";
+import { getCountryName, type Country } from "../lib/phone";
+import { searchCountries } from "../lib/country-search";
 import { icon, radius } from "../lib/tokens";
 
 // Slide-up sheet that mirrors BottomSheet's chrome (blur backdrop + tint +
@@ -39,25 +41,28 @@ export function CountryPickerSheet(props: {
   const { rendered, opacity, position: translateY } = useOverlayAnimation(props.visible, OFFSCREEN);
   const drag = useSheetDrag(props.visible, translateY, props.onDismiss);
   const isRTL = useIsRTL();
+  const locale = getLocale();
+  const filtered = useMemo(() => searchCountries(query), [query]);
+  const listRef = useRef<FlatList<Country> | null>(null);
+  const setListRef = useCallback(
+    (list: FlatList<Country> | null) => {
+      listRef.current = list;
+      // The drag hook uses the underlying scroll identity to reset its offset;
+      // it does not call ScrollView methods on this native host ref.
+      drag.scrollProps.ref((list?.getNativeScrollRef() ?? null) as ScrollView | null);
+    },
+    [drag.scrollProps.ref],
+  );
 
   useEffect(() => {
     if (props.visible) setQuery("");
   }, [props.visible]);
 
-  if (!rendered) return null;
+  useEffect(() => {
+    if (props.visible) listRef.current?.scrollToOffset({ offset: 0, animated: false });
+  }, [query, props.visible]);
 
-  const q = query.trim().toLowerCase();
-  const filtered = q
-    ? COUNTRIES.filter(
-        (c) =>
-          getCountryName(c.code, getLocale()).toLowerCase().includes(q) ||
-          c.name.toLowerCase().includes(q) ||
-          c.nameFa.includes(q) ||
-          c.namePs.includes(q) ||
-          c.dialCode.includes(query.trim()) ||
-          c.code.toLowerCase().includes(q),
-      )
-    : COUNTRIES;
+  if (!rendered) return null;
 
   return (
     <Modal
@@ -97,68 +102,77 @@ export function CountryPickerSheet(props: {
                 value={query}
                 onChangeText={setQuery}
                 placeholder={t("country.search")}
+                accessibilityLabel={t("country.search")}
                 placeholderTextColor={colors.textMuted}
                 autoCapitalize="none"
                 autoCorrect={false}
               />
             </View>
 
-            <ScrollView
+            <FlatList
               {...drag.scrollProps}
+              ref={setListRef}
+              data={filtered}
+              extraData={`${locale}:${props.selectedCode}`}
+              keyExtractor={(country) => country.code}
+              initialNumToRender={14}
+              maxToRenderPerBatch={12}
+              windowSize={5}
               bounces={false}
               keyboardShouldPersistTaps="handled"
               style={styles.list}
               contentContainerStyle={styles.listContent}
-            >
-              {filtered.length === 0 ? (
+              ListEmptyComponent={
                 <View style={styles.empty}>
                   <Text style={styles.emptyText}>{t("country.noMatch")}</Text>
                 </View>
-              ) : (
-                filtered.map((c) => {
-                  const selected = c.code === props.selectedCode;
-                  return (
-                    <Pressable
-                      key={c.code}
-                      onPress={() => {
-                        props.onSelect(c.code);
-                        props.onDismiss();
-                      }}
-                      style={({ pressed }) => [
-                        styles.row,
-                        rowDir(isRTL),
-                        pressed && { backgroundColor: colors.bgMuted },
-                      ]}
-                    >
-                      <Text style={[styles.flag, isRTL ? styles.flagRTL : styles.flagLTR]}>
-                        {c.flag}
-                      </Text>
-                      <Text style={[styles.name, textDir(isRTL)]} numberOfLines={1}>
-                        {getCountryName(c.code, getLocale())}
-                      </Text>
-                      <Text style={[styles.dial, isRTL ? styles.dialRTL : styles.dialLTR]}>
-                        {ltrIsolate(c.dialCode)}
-                      </Text>
-                      {selected ? (
-                        <Ionicons
-                          name="checkmark"
-                          // icon.row (22), same tick size as OptionSheet. The
-                          // styles.check box below is sized from the same token
-                          // because the unselected branch renders it as an empty
-                          // spacer — icon and spacer must stay identical or the
-                          // dial codes jitter between selected/unselected rows.
-                          size={icon.row}
-                          color={colors.textEmphasis}
-                          style={styles.check}
-                        />
-                      ) : (
-                        <View style={styles.check} />
-                      )}
-                    </Pressable>
-                  );
-                })
-              )}
-            </ScrollView>
+              }
+              renderItem={({ item: c }) => {
+                const selected = c.code === props.selectedCode;
+                return (
+                  <Pressable
+                    key={c.code}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${getCountryName(c.code, locale)} ${c.dialCode}`}
+                    accessibilityState={{ selected }}
+                    onPress={() => {
+                      props.onSelect(c.code);
+                      props.onDismiss();
+                    }}
+                    style={({ pressed }) => [
+                      styles.row,
+                      rowDir(isRTL),
+                      pressed && { backgroundColor: colors.bgMuted },
+                    ]}
+                  >
+                    <Text style={[styles.flag, isRTL ? styles.flagRTL : styles.flagLTR]}>
+                      {c.flag}
+                    </Text>
+                    <Text style={[styles.name, textDir(isRTL)]} numberOfLines={2}>
+                      {getCountryName(c.code, locale)}
+                    </Text>
+                    <Text style={[styles.dial, isRTL ? styles.dialRTL : styles.dialLTR]}>
+                      {ltrIsolate(c.dialCode)}
+                    </Text>
+                    {selected ? (
+                      <Ionicons
+                        name="checkmark"
+                        // icon.row (22), same tick size as OptionSheet. The
+                        // styles.check box below is sized from the same token
+                        // because the unselected branch renders it as an empty
+                        // spacer — icon and spacer must stay identical or the
+                        // dial codes jitter between selected/unselected rows.
+                        size={icon.row}
+                        color={colors.textEmphasis}
+                        style={styles.check}
+                      />
+                    ) : (
+                      <View style={styles.check} />
+                    )}
+                  </Pressable>
+                );
+              }}
+            />
           </View>
         </SheetSurface>
       </Animated.View>
