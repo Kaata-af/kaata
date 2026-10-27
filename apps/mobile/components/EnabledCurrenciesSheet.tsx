@@ -93,26 +93,26 @@ export function EnabledCurrenciesSheet(props: {
               <Text style={[styles.title, textDir(props.isRTL)]}>
                 {t("vaultSettings.currencies.label")}
               </Text>
+              <View style={[styles.search, rowDir(props.isRTL)]}>
+                <Ionicons name="search-outline" size={icon.row} color={colors.textSubtle} />
+                <TextInput
+                  accessibilityLabel={t("vaultSettings.currencies.search")}
+                  placeholder={t("vaultSettings.currencies.search")}
+                  placeholderTextColor={colors.textMuted}
+                  value={query}
+                  onChangeText={setQuery}
+                  editable={!props.saving && !props.conflicted}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  style={[styles.searchInput, textDir(props.isRTL)]}
+                />
+              </View>
               <ScrollView
                 {...drag.scrollProps}
                 style={styles.choices}
                 keyboardShouldPersistTaps="always"
                 bounces={false}
               >
-                <View style={[styles.search, rowDir(props.isRTL)]}>
-                  <Ionicons name="search-outline" size={icon.row} color={colors.textSubtle} />
-                  <TextInput
-                    accessibilityLabel={t("vaultSettings.currencies.search")}
-                    placeholder={t("vaultSettings.currencies.search")}
-                    placeholderTextColor={colors.textMuted}
-                    value={query}
-                    onChangeText={setQuery}
-                    editable={!props.saving && !props.conflicted}
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    style={[styles.searchInput, textDir(props.isRTL)]}
-                  />
-                </View>
                 {props.error ? (
                   <Text style={[styles.error, textDir(props.isRTL)]} accessibilityRole="alert">
                     {props.error}
@@ -265,6 +265,7 @@ const styles = StyleSheet.create({
   search: {
     marginHorizontal: SETTINGS_ROW_PADDING_X,
     marginTop: 12,
+    marginBottom: 8,
     alignItems: "center",
     gap: 8,
     borderWidth: 1,
