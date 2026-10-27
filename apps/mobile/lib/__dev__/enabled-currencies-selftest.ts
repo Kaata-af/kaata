@@ -8,6 +8,23 @@ import { Mutex } from "../util/mutex";
 import { CURRENCIES, searchCurrencies } from "../currency-catalog";
 import { ltrIsolate } from "../bidi";
 
+function defaultAction(tree: any, code: string) {
+  const row = nodes(tree).find(
+    (node) =>
+      node.type === "View" &&
+      [node.props.children]
+        .flat()
+        .some(
+          (child: any) =>
+            child?.props?.accessibilityRole === "checkbox" &&
+            child.props.accessibilityLabel.startsWith(code + " "),
+        ),
+  );
+  return [row?.props.children]
+    .flat()
+    .find((child: any) => child?.props?.accessibilityRole === "button");
+}
+
 function fixture() {
   const store = new Database(":memory:");
   store.exec(`CREATE TABLE vaults(id TEXT PRIMARY KEY,name TEXT,currency TEXT,legacy_currency TEXT,default_entry_currency TEXT,archived_at INTEGER,updated_at INTEGER,vault_trust_anchor_pubkey TEXT);
@@ -81,6 +98,27 @@ function fixture() {
     "./currency-scope": scope,
     "./currency-settings": settings,
     "./projection": {
+      AtomicEventRejectionError: class extends Error {},
+      applyLocalEventsAtomically: async (events: any[], options: any) =>
+        projectionMutex.runExclusive(async () => {
+          await beforeApply?.();
+          store.exec("SAVEPOINT currency_settings_ui");
+          try {
+            await options.preflight?.(tx);
+            if (role !== "owner") throw new Error("owner permission required");
+            for (const event of events) {
+              event.hlc = { pms: ++clock, l: 0, did: "device" };
+              event.appended_at = clock;
+              await projection.applyVaultSettingSet(tx, event);
+            }
+            store.exec("RELEASE currency_settings_ui");
+            authored.push(...events);
+          } catch (error) {
+            store.exec("ROLLBACK TO currency_settings_ui");
+            store.exec("RELEASE currency_settings_ui");
+            throw error;
+          }
+        }),
       applyEvent: async (event: any, options: any) =>
         projectionMutex.runExclusive(async () => {
           await beforeApply?.();
@@ -137,6 +175,7 @@ function fixture() {
     "./vault-api": {},
     "./ownership-transfer-readiness": {},
     "./currency-settings": settings,
+    "./currency-scope": scope,
   }) as typeof import("../vault-router");
   const hooks = uiHooks();
   const sheetHooks = uiHooks();
@@ -277,7 +316,10 @@ function fixture() {
       useIsRTL: () => false,
     },
     "../../lib/fonts": { fonts: {} },
-    "../../lib/i18n": { t: (key: string) => key },
+    "../../lib/i18n": {
+      t: (key: string, args?: Record<string, unknown>) =>
+        args ? `${key}:${JSON.stringify(args)}` : key,
+    },
     "../../lib/tokens": { icon: { row: 22 } },
     "../../lib/use-vault-role": {
       useVaultRole: () => role,
@@ -353,6 +395,7 @@ function checkSearchAndLimit() {
   let selected: readonly string[] = Object.freeze(["AFN", "USD"]);
   const initialSelection = selected;
   const toggles: string[] = [];
+  const defaults: string[] = [];
   let saves = 0;
   let props = {
     visible: true,
@@ -362,6 +405,10 @@ function checkSearchAndLimit() {
     ],
     selected,
     defaultCurrency: "AFN",
+    onSetDefault(code: string) {
+      defaults.push(code);
+      props = { ...props, defaultCurrency: code };
+    },
     onToggle: (code: string) => {
       toggles.push(code);
       selected = selected.includes(code)
@@ -369,7 +416,9 @@ function checkSearchAndLimit() {
         : [...selected, code];
       props = { ...props, selected };
     },
-    onSave: () => saves++,
+    onSave: () => {
+      saves++;
+    },
     onDismiss() {},
     saving: false,
     isRTL: false,
@@ -406,6 +455,35 @@ function checkSearchAndLimit() {
   tree = picker.renderSheet(props);
   assert.equal(nodes(tree).find((node) => node.type === "TextInput")!.props.value, "");
   assert.equal(checks().length, 156, "reopening restores the full list without changing the draft");
+  assert.equal(
+    defaultAction(tree, "EUR"),
+    undefined,
+    "unchecked currencies have no default action",
+  );
+  const retainedUsdToggle = checkbox("USD").props.onPress;
+  const usdStar = defaultAction(tree, "USD")!;
+  assert.equal(usdStar.props.accessibilityState.selected, false);
+  assert.ok(flattenStyle(usdStar.props.style).minHeight >= 44);
+  assert.ok(flattenStyle(usdStar.props.style).minWidth >= 44);
+  usdStar.props.onPress();
+  retainedUsdToggle();
+  assert.deepEqual(toggles, [], "a new default is protected before the parent rerenders");
+  tree = picker.renderSheet(props);
+  assert.equal(defaultAction(tree, "USD")!.props.accessibilityState.selected, true);
+  defaultAction(tree, "AFN")!.props.onPress();
+  tree = picker.renderSheet(props);
+  const removedUsdStar = defaultAction(tree, "USD")!.props.onPress;
+  checkbox("USD").props.onPress();
+  removedUsdStar();
+  assert.deepEqual(
+    defaults,
+    ["USD", "AFN"],
+    "a synchronously unchecked currency cannot become default",
+  );
+  tree = picker.renderSheet(props);
+  checkbox("USD").props.onPress();
+  tree = picker.renderSheet(props);
+  toggles.length = 0;
   selected = Object.freeze(CURRENCIES.slice(0, 63).map((item) => item.code));
   props = { ...props, selected };
   tree = picker.renderSheet(props);
@@ -444,6 +522,36 @@ function checkSearchAndLimit() {
     .find((node) => node.type === "Button" && node.props.label === "vaultSettings.name.save")!
     .props.onPress();
   assert.equal(saves, 1, "explicit Save remains available while the list is filtered");
+  search("");
+  let busy = false;
+  const acceptToggle = props.onToggle;
+  selected = Object.freeze(CURRENCIES.slice(0, 63).map((item) => item.code));
+  props = {
+    ...props,
+    selected,
+    onSave() {
+      busy = true;
+    },
+    onToggle(code: string) {
+      if (!busy) acceptToggle(code);
+    },
+  };
+  tree = picker.renderSheet(props);
+  const refusedAddition = checkbox(CURRENCIES[63].code).props.onPress;
+  nodes(tree)
+    .find((node) => node.type === "Button" && node.props.label === "vaultSettings.name.save")!
+    .props.onPress();
+  refusedAddition();
+  assert.equal(props.selected.length, 63, "the busy parent rejects the retained checkbox action");
+  busy = false;
+  props = { ...props };
+  tree = picker.renderSheet(props);
+  checkbox(CURRENCIES[64].code).props.onPress();
+  assert.ok(
+    props.selected.includes(CURRENCIES[64].code),
+    "a parent render after failed Save clears an unacknowledged checkbox reservation",
+  );
+  assert.equal(props.selected.length, 64);
   picker.store.close();
 }
 
@@ -566,7 +674,24 @@ async function main() {
     0,
     "settings stays a compact select field",
   );
-  assert.match(ui.field().props.trailing, /USD/);
+  assert.equal(
+    nodes(ui.hooks.tree).filter(
+      (node) => node.type === "NavRow" && node.props.label === "vaultSettings.currency.label",
+    ).length,
+    0,
+    "settings has one combined currency field",
+  );
+  assert.equal(
+    nodes(ui.hooks.tree).some((node) => node.type === "CurrencyPickerSheet"),
+    false,
+  );
+  assert.match(ui.field().props.trailing, /selectedCount.*2/);
+  assert.match(ui.field().props.hint, /defaultSummary.*AFN/);
+  assert.ok(
+    ui.field().props.accessibilityLabel.includes("AFN") &&
+      ui.field().props.accessibilityLabel.includes("USD"),
+    "screen readers retain the selected codes and default",
+  );
   const open = async () => {
     ui.field().props.onPress();
     await settle();
@@ -574,6 +699,28 @@ async function main() {
   };
   await open();
   assert.equal(ui.keyboardDismisses(), 1, "opening the picker dismisses the name keyboard");
+  const rejectedStar = defaultAction(ui.sheetTree(), "USD")!.props.onPress;
+  ui.beforeApply(() => {
+    throw new Error("synthetic failed Save before currency edits");
+  });
+  ui.button("vaultSettings.name.save").props.onPress();
+  rejectedStar();
+  await settle();
+  assert.equal(ui.sheetProps().error, "vaultSettings.toast.currencyFailed");
+  assert.equal(ui.sheetProps().defaultCurrency, "AFN", "the busy parent rejects the retained star");
+  assert.equal(ui.checkbox("USD").props.disabled, false);
+  ui.beforeApply(null);
+  ui.checkbox("USD").props.onPress();
+  await settle();
+  assert.deepEqual(
+    ui.sheetProps().selected,
+    ["AFN"],
+    "USD remains usable after Save fails instead of being internally protected as an unacknowledged default",
+  );
+  ui.checkbox("USD").props.onPress();
+  await settle();
+  assert.deepEqual(ui.sheetProps().selected, ["AFN", "USD"]);
+  assert.equal(ui.authored.length, 0, "the failed Save and rejected star persist neither setting");
   const choicesScroll = nodes(ui.sheetTree()).find((node) => node.type === "ScrollView")!;
   assert.equal(
     nodes(choicesScroll).some((node) => node.type === "Button"),
@@ -582,6 +729,38 @@ async function main() {
   );
   assert.equal(ui.checkbox("AFN").props.accessibilityState.checked, true);
   assert.equal(ui.checkbox("AFN").props.disabled, true, "default cannot be unchecked");
+  const cancelledDefault = ui.sheetProps().onSetDefault;
+  ui.sheetProps().onSetDefault("JPY");
+  await settle();
+  assert.equal(
+    ui.sheetProps().defaultCurrency,
+    "AFN",
+    "an unchecked currency cannot become the default",
+  );
+  defaultAction(ui.sheetTree(), "USD")!.props.onPress();
+  await settle();
+  assert.equal(ui.sheetProps().defaultCurrency, "USD");
+  assert.equal(ui.checkbox("USD").props.disabled, true);
+  assert.equal(
+    ui.checkbox("AFN").props.disabled,
+    false,
+    "the old default becomes removable in the draft",
+  );
+  ui.checkbox("AFN").props.onPress();
+  await settle();
+  assert.deepEqual(ui.sheetProps().selected, ["USD"]);
+  assert.equal(await ui.currency.getDefaultEntryCurrency("v"), "AFN");
+  ui.button("common.cancel").props.onPress();
+  await settle();
+  await open();
+  cancelledDefault("USD");
+  await settle();
+  assert.equal(
+    ui.sheetProps().defaultCurrency,
+    "AFN",
+    "Cancel restores the default and rejects retained star actions",
+  );
+  assert.deepEqual(ui.sheetProps().selected, ["AFN", "USD"]);
   ui.checkbox("USD").props.onPress();
   ui.checkbox("EUR").props.onPress();
   await settle();
@@ -633,24 +812,37 @@ async function main() {
   save();
   save();
   await settle();
-  assert.equal(ui.authored.length, 1, "duplicate Save signs one setting");
+  assert.equal(ui.authored.length, 2, "duplicate Save commits one atomic pair of settings");
   assert.deepEqual(await ui.currency.getEnabledCurrencies("v"), ["AFN", "EUR"]);
   assert.equal(ui.sheetProps().visible, false);
   assert.equal(
     (ui.store.prepare("SELECT amount_afn FROM entries").get() as any).amount_afn,
     123.45,
   );
-  const defaultPicker = nodes(ui.hooks.tree).find(
-    (node) =>
-      node.type === "CurrencyPickerSheet" && node.props.title === "vaultSettings.currency.label",
-  )!;
-  assert.deepEqual(
-    defaultPicker.props.allowedCurrencies,
-    ["AFN", "EUR"],
-    "separate default selector is preserved",
-  );
-  defaultPicker.props.onSelect("EUR");
+  await open();
+  defaultAction(ui.sheetTree(), "EUR")!.props.onPress();
   await settle();
+  ui.checkbox("AFN").props.onPress();
+  ui.checkbox("USD").props.onPress();
+  await settle();
+  assert.equal(ui.sheetProps().defaultCurrency, "EUR", "default selection stays in the open draft");
+  assert.equal(await ui.currency.getDefaultEntryCurrency("v"), "AFN");
+  assert.equal(ui.authored.length, 2, "a draft default never saves immediately");
+  ui.button("vaultSettings.name.save").props.onPress();
+  await settle();
+  assert.equal(ui.authored.length, 4, "a default and its enabled set commit together");
+  assert.deepEqual(
+    ui.authored.slice(-2).map((event) => event.payload),
+    [
+      { key: "default_entry_currency", value: "EUR" },
+      { key: "enabled_currencies", value: '["EUR","USD"]' },
+    ],
+  );
+  assert.equal(
+    await ui.currency.getDefaultEntryCurrency("v"),
+    "EUR",
+    "the original AFN baseline does not conflict with the new EUR draft",
+  );
   await open();
   assert.equal(ui.checkbox("EUR").props.disabled, true, "fresh default stays enabled");
   ui.checkbox("AFN").props.onPress();
@@ -662,7 +854,7 @@ async function main() {
     .run();
   ui.button("vaultSettings.name.save").props.onPress();
   await settle();
-  assert.equal(ui.authored.length, 2, "remote enabled choices cannot be silently overwritten");
+  assert.equal(ui.authored.length, 4, "remote enabled choices cannot be silently overwritten");
   assert.equal(ui.sheetProps().conflicted, true);
   assert.equal(ui.button("vaultSettings.name.save").props.disabled, true);
   assert.equal(ui.sheetProps().error, "vaultSettings.currencies.changed");
@@ -688,13 +880,14 @@ async function main() {
     true,
     "a default changing at the transaction boundary blocks the stale save",
   );
-  assert.equal(ui.authored.length, 2);
+  assert.equal(ui.authored.length, 4);
   ui.beforeApply(null);
   ui.button("common.cancel").props.onPress();
   await settle();
   await open();
   assert.equal(ui.checkbox("USD").props.disabled, true);
   ui.checkbox("EUR").props.onPress();
+  ui.sheetProps().onSetDefault("AFN");
   await settle();
   ui.store.prepare("INSERT INTO entries VALUES('unrelated','JPY',4)").run();
   ui.beforeApply(() => {
@@ -704,17 +897,27 @@ async function main() {
   await settle();
   assert.equal(ui.sheetProps().error, "vaultSettings.toast.currencyFailed");
   assert.equal(
+    ui.sheetProps().defaultCurrency,
+    "AFN",
+    "failed Save retains the draft default for retry",
+  );
+  assert.equal(
+    await ui.currency.getDefaultEntryCurrency("v"),
+    "USD",
+    "failure never changes the committed default",
+  );
+  assert.equal(
     ui.checkbox("EUR").props.accessibilityState.checked,
     false,
     "failed save retains draft for retry",
   );
-  assert.equal(ui.authored.length, 2);
+  assert.equal(ui.authored.length, 4);
   ui.beforeApply(null);
   ui.button("vaultSettings.name.save").props.onPress();
   await settle();
   assert.equal(
     ui.authored.length,
-    3,
+    6,
     "unrelated ledger changes do not conflict with currency settings",
   );
   assert.deepEqual(await ui.currency.getEnabledCurrencies("v"), ["AFN", "USD"]);
@@ -726,6 +929,18 @@ async function main() {
   ui.button("vaultSettings.name.save").props.onPress();
   await settle();
   assert.equal(ui.button("common.cancel").props.disabled, true);
+  const frozenDraft = {
+    selected: [...ui.sheetProps().selected],
+    defaultCurrency: ui.sheetProps().defaultCurrency,
+  };
+  ui.sheetProps().onSetDefault("USD");
+  ui.sheetProps().onToggle("USD");
+  await settle();
+  assert.deepEqual(
+    { selected: ui.sheetProps().selected, defaultCurrency: ui.sheetProps().defaultCurrency },
+    frozenDraft,
+    "an in-flight atomic Save freezes both checkbox and default actions",
+  );
   nodes(ui.sheetTree())
     .find((node) => node.type === "Modal")!
     .props.onRequestClose();
@@ -737,7 +952,7 @@ async function main() {
   pending.resolve();
   await settle();
   ui.beforeApply(null);
-  assert.equal(ui.authored.length, 4);
+  assert.equal(ui.authored.length, 8);
   ui.queueDuringBaseline(() =>
     ui.store
       .prepare("UPDATE vault_settings SET value='[\"AFN\",\"USD\"]' WHERE key='enabled_currencies'")
@@ -753,7 +968,7 @@ async function main() {
   await settle();
   assert.equal(
     ui.authored.length,
-    4,
+    8,
     "one coherent opening baseline prevents a selected-old/raw-new overwrite",
   );
   assert.equal(ui.sheetProps().conflicted, true);
@@ -825,14 +1040,16 @@ async function main() {
   assert.equal(ui.sheetProps().visible, false);
   staleRoleSave();
   await settle();
-  assert.equal(ui.authored.length, 4, "live role loss rejects retained Save callbacks");
+  assert.equal(ui.authored.length, 8, "live role loss rejects retained Save callbacks");
   ui.setRole("owner");
   ui.hooks.render();
   await open();
   const retained = ui.button("vaultSettings.name.save").props.onPress;
+  const departedDefault = ui.sheetProps().onSetDefault;
   ui.hooks.unmount();
   retained();
-  assert.equal(ui.authored.length, 4, "dismissed settings cannot write");
+  departedDefault("USD");
+  assert.equal(ui.authored.length, 8, "dismissed settings cannot write");
   assert.equal(ui.hooks.lateWrites, 0);
   ui.store.close();
   console.log(

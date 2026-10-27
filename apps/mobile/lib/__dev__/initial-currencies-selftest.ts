@@ -29,10 +29,14 @@ function fixture() {
     CREATE TABLE vault_credentials(vault_id TEXT,device_id TEXT,account_id TEXT,device_pubkey TEXT);
     CREATE TABLE revocation_list(vault_id TEXT,device_id TEXT,lifted_at INTEGER);`);
   let account: string | null = null;
+  let bindingVersion = 0;
   let cachedSelf: string | null = null;
   let cachedVault: string | null = null;
   let signerReads = 0;
   let signerFailure = false;
+  let signatureCalls = 0;
+  let failedSignatureCall: number | null = null;
+  let refuseEnabledRole = false;
   let afterSignerRead: (() => void) | null = null;
   let notifications = 0;
   let transactions = 0;
@@ -79,21 +83,31 @@ function fixture() {
   }) as typeof import("../event-sig");
   const secret = new Uint8Array(32).fill(11);
   const pubkey = Buffer.from(ed.getPublicKey(secret)).toString("base64");
+  let currentSecret = secret;
+  const currentPubkey = () => Buffer.from(ed.getPublicKey(currentSecret)).toString("base64");
   class DeviceKeyUnavailableError extends Error {
     reason = "test";
   }
   const device = {
     DeviceKeyUnavailableError,
     ensureDeviceKey: async () => {},
-    getDevicePubkey: () => pubkey,
+    getDevicePubkey: currentPubkey,
     getDeviceSigner: async () => {
       assert.equal(sql.inTransaction, false, "key access precedes mint transaction");
       signerReads++;
       if (signerFailure) throw new DeviceKeyUnavailableError("key unavailable");
       afterSignerRead?.();
-      return { pubkey_b64: pubkey, sign: async (bytes: Uint8Array) => ed.sign(bytes, secret) };
+      return {
+        pubkey_b64: currentPubkey(),
+        sign: async (bytes: Uint8Array) => {
+          signatureCalls++;
+          if (signatureCalls === failedSignatureCall)
+            throw new Error("injected second signature failure");
+          return ed.sign(bytes, currentSecret);
+        },
+      };
     },
-    isOwnDevicePubkey: async (key: string) => key === pubkey,
+    isOwnDevicePubkey: async (key: string) => key === currentPubkey(),
   };
   const required = (name: string) => require(name);
   const gate = compileModule("../projection/role-gate", (name) => {
@@ -107,6 +121,18 @@ function fixture() {
     if (name === "../trust/chain" || name === "../trust/crypto-runtime") return {};
     throw Error(`Unexpected role import ${name}`);
   });
+  const realRoleGate = gate.checkRoleForEvent;
+  gate.checkRoleForEvent = (tx: SQLiteTx, event: LedgerEvent) =>
+    refuseEnabledRole &&
+    event.event_type === "vault_setting_set" &&
+    event.payload.key === "enabled_currencies"
+      ? Promise.resolve({
+          ok: false,
+          reason: "insufficient_role",
+          current_role: "viewer",
+          required_role: "manager",
+        })
+      : realRoleGate(tx, event);
   const roleNotifications = {
     invalidateVaultRoleCache: () => {},
     withDeferredVaultRoleNotifications: (work: () => Promise<unknown>) => work(),
@@ -156,6 +182,40 @@ function fixture() {
     "./projection": projection,
     "./trust/account-id": { buildLocalAccountId },
   }) as typeof import("../vault-initial-currencies");
+  const eventLog = compileUI("../event-log", {
+    "expo-crypto": crypto,
+    "./db-tx": dbTx,
+    "./mesh/device-key": device,
+    "./event-sig": signature,
+    "./money": require("../money"),
+    "./money-sql": require("../money-sql"),
+    "./tabs/errors": require("../tabs/errors"),
+    "./entry-date": require("../entry-date"),
+    "./currency-scope": require("../currency-scope"),
+    "./currency-settings": require("../currency-settings"),
+    "./projection": projection,
+  }) as typeof import("../event-log");
+  const session = () => ({ accountId: account, jwt: null, bindingVersion });
+  const router = compileUI("../vault-router", {
+    "./auth": {
+      captureCurrentSession: async () => session(),
+      applyForUnchangedLocalSession: async (
+        expected: ReturnType<typeof session>,
+        work: () => Promise<unknown>,
+      ) => {
+        if (expected.accountId !== account || expected.bindingVersion !== bindingVersion)
+          throw new Error("stale local session");
+        return work();
+      },
+    },
+    "./db-tx": dbTx,
+    "./effective-account": {},
+    "./event-log": eventLog,
+    "./vault-api": {},
+    "./ownership-transfer-readiness": {},
+    "./currency-settings": require("../currency-settings"),
+    "./currency-scope": require("../currency-scope"),
+  }) as typeof import("../vault-router");
   const source = readFileSync(require.resolve("../db"), "utf8");
   const ast = ts.createSourceFile("db.ts", source, ts.ScriptTarget.ES2022, true);
   const declaration = ast.statements.find(
@@ -211,17 +271,30 @@ function fixture() {
     signature,
     projection,
     helper,
+    eventLog,
+    router,
+    session,
     create: profile.createSelfProfile as typeof import("../db").createSelfProfile,
     count,
     values,
     counts: () => ({ signerReads, transactions, notifications, cachedSelf, cachedVault }),
     account: (id: string | null) => {
       account = id;
+      bindingVersion++;
     },
     failSigner: () => {
       signerFailure = true;
     },
-    afterSigner: (work: () => void) => {
+    refuseEnabledRole: (value: boolean) => {
+      refuseEnabledRole = value;
+    },
+    failSecondSignature: (value: boolean) => {
+      failedSignatureCall = value ? signatureCalls + 2 : null;
+    },
+    usePairedSigner: () => {
+      currentSecret = new Uint8Array(32).fill(22);
+    },
+    afterSigner: (work: (() => void) | null) => {
       afterSignerRead = work;
     },
   };
@@ -237,6 +310,7 @@ function compileModule(path: string, required: (name: string) => unknown): any {
 }
 
 async function main() {
+  await atomicCurrencySettings();
   await snapshotCurrencyRecovery();
   {
     const f = fixture();
@@ -416,6 +490,263 @@ async function main() {
   console.log(
     "initial-currencies: atomic mint, signed genesis-first replay, local/signed-in defaults, validation, rollback and existing-book preservation passed",
   );
+}
+
+async function atomicCurrencySettings() {
+  const f = fixture();
+  try {
+    await f.create("Owner", "Atomic settings", null, "AFN", ["AFN", "USD"]);
+    const vaultId = (f.sql.prepare("SELECT id FROM vaults").get() as { id: string }).id;
+    f.sql.exec(
+      "CREATE TABLE entries(id TEXT PRIMARY KEY,currency TEXT,amount_afn REAL,created_at INTEGER); INSERT INTO entries VALUES('historical','AFN',123.45,1000);",
+    );
+    const state = () => ({
+      vault: f.sql
+        .prepare("SELECT currency,legacy_currency,default_entry_currency FROM vaults")
+        .get(),
+      settings: f.values(),
+      events: f.sql.prepare("SELECT * FROM event_log ORDER BY author_seq").all(),
+      meta: f.sql.prepare("SELECT * FROM app_meta ORDER BY key").all(),
+      entries: f.sql.prepare("SELECT * FROM entries").all(),
+    });
+    const previous = () => ({
+      enabledValue: f.values().enabled_currencies,
+      defaultCurrency: f.values().default_entry_currency,
+    });
+    const counts = f.counts();
+    const before = state();
+    const result = await f.router.changeVaultCurrencySettings(
+      vaultId,
+      { defaultCurrency: "EUR", enabledCurrencies: ["EUR", "USD"] },
+      { session: f.session(), previous: previous() },
+    );
+    assert.equal(result.kind, "local");
+    assert.deepEqual(f.values(), {
+      default_entry_currency: "EUR",
+      enabled_currencies: '["EUR","USD"]',
+    });
+    assert.deepEqual(
+      f.sql.prepare("SELECT currency,legacy_currency,default_entry_currency FROM vaults").get(),
+      { currency: "AFN", legacy_currency: "AFN", default_entry_currency: "EUR" },
+    );
+    assert.deepEqual(
+      state().entries,
+      before.entries,
+      "default changes never relabel historical money or dates",
+    );
+    assert.equal(
+      f.counts().transactions,
+      counts.transactions + 1,
+      "both settings use exactly one transaction",
+    );
+    assert.equal(
+      f.counts().notifications,
+      counts.notifications + 1,
+      "observers see one complete committed pair",
+    );
+    const writes = state().events.slice(-2) as any[];
+    assert.deepEqual(
+      writes.map((row) => JSON.parse(row.payload_json).key),
+      ["default_entry_currency", "enabled_currencies"],
+    );
+    for (const row of writes) {
+      const event = {
+        event_id: row.event_id,
+        event_type: row.event_type,
+        vault_id: row.vault_id,
+        target_id: row.target_id,
+        relationship_id: row.relationship_id,
+        hlc: { pms: row.hlc_physical_ms, l: row.hlc_logical, did: row.hlc_device_id },
+        device_id: row.device_id,
+        actor_account_id: row.actor_account_id,
+        payload_schema: row.payload_schema,
+        payload: JSON.parse(row.payload_json),
+        author_seq: row.author_seq,
+      } as LedgerEvent;
+      assert.deepEqual(
+        f.signature.verifyEventSignature(event, row.event_sig_b64, row.signer_device_pubkey),
+        { valid: true },
+        "both saved settings retain authentic signatures",
+      );
+    }
+    if (result.kind === "local") assert.equal(result.eventId, writes[1].event_id);
+
+    const stable = state();
+    const signerReads = f.counts().signerReads;
+    for (const changes of [
+      { defaultCurrency: "eur", enabledCurrencies: ["EUR"] },
+      { defaultCurrency: "EUR", enabledCurrencies: [] },
+      { defaultCurrency: "EUR", enabledCurrencies: ["USD"] },
+      { defaultCurrency: "EUR", enabledCurrencies: ["EUR", "EUR"] },
+      {
+        defaultCurrency: "AFN",
+        enabledCurrencies: require("../currency-catalog")
+          .CURRENCIES.slice(0, 65)
+          .map((row: any) => row.code),
+      },
+    ])
+      await assert.rejects(f.router.changeVaultCurrencySettings(vaultId, changes));
+    assert.equal(
+      f.counts().signerReads,
+      signerReads,
+      "invalid complete drafts fail before signing",
+    );
+    assert.deepEqual(state(), stable);
+
+    f.sql.exec(
+      "CREATE TRIGGER reject_second_setting BEFORE INSERT ON vault_settings WHEN NEW.key='enabled_currencies' BEGIN SELECT RAISE(ABORT,'second setting failed'); END;",
+    );
+    const beforeRollback = state(),
+      notices = f.counts().notifications;
+    await assert.rejects(
+      f.router.changeVaultCurrencySettings(vaultId, {
+        defaultCurrency: "GBP",
+        enabledCurrencies: ["GBP"],
+      }),
+      /second setting failed/,
+    );
+    assert.deepEqual(
+      state(),
+      beforeRollback,
+      "second-setting failure rolls back default, signatures, clock, sequence and money",
+    );
+    assert.equal(f.counts().notifications, notices);
+    f.sql.exec("DROP TRIGGER reject_second_setting");
+
+    const enabledBaseline = previous();
+    f.afterSigner(() =>
+      f.sql
+        .prepare(
+          "UPDATE vault_settings SET value='[\"EUR\",\"GBP\"]' WHERE key='enabled_currencies'",
+        )
+        .run(),
+    );
+    await assert.rejects(
+      f.router.changeVaultCurrencySettings(
+        vaultId,
+        { defaultCurrency: "USD", enabledCurrencies: ["USD"] },
+        { previous: enabledBaseline },
+      ),
+      f.router.CurrencySettingsChangedError,
+    );
+    f.afterSigner(null);
+    assert.equal(
+      f.values().enabled_currencies,
+      '["EUR","GBP"]',
+      "a remote enabled-list edit wins over the stale draft",
+    );
+    assert.equal(f.count("event_log"), stable.events.length);
+    const defaultBaseline = previous();
+    f.afterSigner(() =>
+      f.sql.exec(
+        "UPDATE vault_settings SET value='GBP' WHERE key='default_entry_currency'; UPDATE vaults SET default_entry_currency='GBP';",
+      ),
+    );
+    await assert.rejects(
+      f.router.changeVaultCurrencySettings(
+        vaultId,
+        { defaultCurrency: "USD", enabledCurrencies: ["USD"] },
+        { previous: defaultBaseline },
+      ),
+      f.router.CurrencySettingsChangedError,
+    );
+    f.afterSigner(null);
+    assert.equal(f.values().default_entry_currency, "GBP", "a remote default edit also conflicts");
+
+    const scopeState = state();
+    let current = true;
+    f.afterSigner(() => {
+      current = false;
+    });
+    await assert.rejects(
+      f.router.changeVaultCurrencySettings(
+        vaultId,
+        { defaultCurrency: "USD", enabledCurrencies: ["USD"] },
+        { shouldContinue: () => current },
+      ),
+      /scope/,
+    );
+    f.afterSigner(null);
+    assert.deepEqual(
+      state(),
+      scopeState,
+      "losing focus/scope during key preparation writes neither setting",
+    );
+    const stale = f.session();
+    f.account("other");
+    f.account(null);
+    await assert.rejects(
+      f.router.changeVaultCurrencySettings(
+        vaultId,
+        { defaultCurrency: "USD", enabledCurrencies: ["USD"] },
+        { session: stale },
+      ),
+      /stale local session/,
+    );
+    assert.deepEqual(state(), scopeState, "account ABA rejects retained Save consent");
+    f.refuseEnabledRole(true);
+    await assert.rejects(
+      f.router.changeVaultCurrencySettings(vaultId, {
+        defaultCurrency: "USD",
+        enabledCurrencies: ["USD"],
+      }),
+      f.eventLog.RoleGateRejectionError,
+    );
+    f.refuseEnabledRole(false);
+    assert.deepEqual(
+      state(),
+      scopeState,
+      "a role refusal on the second event rolls back the first setting and both event rows",
+    );
+    f.failSecondSignature(true);
+    await assert.rejects(
+      f.router.changeVaultCurrencySettings(vaultId, {
+        defaultCurrency: "USD",
+        enabledCurrencies: ["USD"],
+      }),
+    );
+    f.failSecondSignature(false);
+    assert.deepEqual(
+      state(),
+      scopeState,
+      "second-event signing failure rolls back the whole draft",
+    );
+    await f.eventLog.appendVaultMemberAdded({
+      targetVaultId: vaultId,
+      accountId: "viewer-account",
+      role: "viewer",
+    });
+    const restrictedState = state();
+    f.usePairedSigner();
+    f.account("viewer-account");
+    await assert.rejects(
+      f.router.changeVaultCurrencySettings(vaultId, {
+        defaultCurrency: "USD",
+        enabledCurrencies: ["USD"],
+      }),
+      f.eventLog.RoleGateRejectionError,
+    );
+    f.account(null);
+    assert.deepEqual(
+      state(),
+      restrictedState,
+      "the actual role gate refuses a paired viewer's complete draft",
+    );
+    f.failSigner();
+    await assert.rejects(
+      f.router.changeVaultCurrencySettings(vaultId, {
+        defaultCurrency: "USD",
+        enabledCurrencies: ["USD"],
+      }),
+    );
+    assert.deepEqual(
+      state(),
+      restrictedState,
+      "unavailable signing keys never leave a partial choice",
+    );
+  } finally {
+    f.sql.close();
+  }
 }
 
 async function snapshotCurrencyRecovery() {

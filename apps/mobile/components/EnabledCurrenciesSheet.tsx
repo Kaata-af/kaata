@@ -39,6 +39,7 @@ export function EnabledCurrenciesSheet(props: {
   selected: readonly string[];
   defaultCurrency: string;
   onToggle: (code: string) => void;
+  onSetDefault: (code: string) => void;
   onSave: () => void;
   onDismiss: () => void;
   saving: boolean;
@@ -48,9 +49,19 @@ export function EnabledCurrenciesSheet(props: {
 }) {
   const [query, setQuery] = useState("");
   const [limitAttempted, setLimitAttempted] = useState(false);
-  const selection = useRef({ source: props.selected, codes: new Set(props.selected) });
-  if (selection.current.source !== props.selected)
-    selection.current = { source: props.selected, codes: new Set(props.selected) };
+  const selection = useRef({
+    source: props,
+    codes: new Set(props.selected),
+    defaultCurrency: props.defaultCurrency,
+  });
+  // A parent may decline a same-frame edit after Save starts. Reconcile on
+  // every new controlled prop snapshot, including unchanged selected values.
+  if (selection.current.source !== props)
+    selection.current = {
+      source: props,
+      codes: new Set(props.selected),
+      defaultCurrency: props.defaultCurrency,
+    };
   const latest = useRef(props);
   latest.current = props;
   const locale = getLocale();
@@ -142,54 +153,90 @@ export function EnabledCurrenciesSheet(props: {
                   const disabled =
                     props.saving || props.conflicted || isDefault || (!checked && atLimit);
                   return (
-                    <Pressable
-                      key={option.code}
-                      accessibilityRole="checkbox"
-                      accessibilityLabel={`${option.code} ${option.label}`}
-                      accessibilityState={{ checked, disabled: !!disabled }}
-                      disabled={!!disabled}
-                      onPress={() => {
-                        const current = latest.current;
-                        if (
-                          !current.visible ||
-                          current.saving ||
-                          current.conflicted ||
-                          option.code === current.defaultCurrency
-                        )
-                          return;
-                        const codes = selection.current.codes;
-                        if (!codes.has(option.code) && codes.size >= MAX_ENABLED_CURRENCIES) {
-                          setLimitAttempted(true);
-                          return;
-                        }
-                        // Reserve the slot before the parent's next render so two
-                        // rapid taps at 63 cannot forward a 65th choice.
-                        if (codes.has(option.code)) codes.delete(option.code);
-                        else codes.add(option.code);
-                        setLimitAttempted(false);
-                        current.onToggle(option.code);
-                      }}
-                      style={[styles.choice, rowDir(props.isRTL)]}
-                    >
-                      <Ionicons
-                        name={checked ? "checkbox" : "square-outline"}
-                        size={icon.row}
-                        color={checked ? colors.actionPrimary : colors.textSubtle}
-                      />
-                      <View style={styles.choiceText}>
-                        <Text style={[styles.label, textDir(props.isRTL)]}>{option.label}</Text>
-                        {codeLabel !== option.label ? (
-                          <Text style={[styles.code, textDir(props.isRTL)]}>
-                            {ltrIsolate(codeLabel)}
-                          </Text>
-                        ) : null}
-                        {isDefault ? (
-                          <Text style={[styles.defaultHint, textDir(props.isRTL)]}>
-                            {t("vaultSettings.currencies.default")}
-                          </Text>
-                        ) : null}
-                      </View>
-                    </Pressable>
+                    <View key={option.code} style={[styles.choice, rowDir(props.isRTL)]}>
+                      <Pressable
+                        accessibilityRole="checkbox"
+                        accessibilityLabel={`${option.code} ${option.label}${isDefault ? `, ${t("vaultSettings.currencies.default")}` : ""}`}
+                        accessibilityState={{ checked, disabled: !!disabled }}
+                        disabled={!!disabled}
+                        onPress={() => {
+                          const current = latest.current;
+                          if (
+                            !current.visible ||
+                            current.saving ||
+                            current.conflicted ||
+                            option.code === selection.current.defaultCurrency
+                          )
+                            return;
+                          const codes = selection.current.codes;
+                          if (!codes.has(option.code) && codes.size >= MAX_ENABLED_CURRENCIES) {
+                            setLimitAttempted(true);
+                            return;
+                          }
+                          // Reserve the slot before the parent's next render so two
+                          // rapid taps at 63 cannot forward a 65th choice.
+                          if (codes.has(option.code)) codes.delete(option.code);
+                          else codes.add(option.code);
+                          setLimitAttempted(false);
+                          current.onToggle(option.code);
+                        }}
+                        style={[styles.choiceToggle, rowDir(props.isRTL)]}
+                      >
+                        <Ionicons
+                          name={checked ? "checkbox" : "square-outline"}
+                          size={icon.row}
+                          color={checked ? colors.actionPrimary : colors.textSubtle}
+                        />
+                        <View style={styles.choiceText}>
+                          <Text style={[styles.label, textDir(props.isRTL)]}>{option.label}</Text>
+                          {codeLabel !== option.label ? (
+                            <Text style={[styles.code, textDir(props.isRTL)]}>
+                              {ltrIsolate(codeLabel)}
+                            </Text>
+                          ) : null}
+                          {isDefault ? (
+                            <Text style={[styles.defaultHint, textDir(props.isRTL)]}>
+                              {t("vaultSettings.currencies.default")}
+                            </Text>
+                          ) : null}
+                        </View>
+                      </Pressable>
+                      {checked ? (
+                        <Pressable
+                          accessibilityRole="button"
+                          accessibilityLabel={t("vaultSettings.currencies.setDefault", {
+                            currency: option.label,
+                          })}
+                          accessibilityState={{
+                            selected: isDefault,
+                            disabled: !!(props.saving || props.conflicted || isDefault),
+                          }}
+                          disabled={!!(props.saving || props.conflicted || isDefault)}
+                          onPress={() => {
+                            const current = latest.current;
+                            if (
+                              !current.visible ||
+                              current.saving ||
+                              current.conflicted ||
+                              !selection.current.codes.has(option.code) ||
+                              selection.current.defaultCurrency === option.code
+                            )
+                              return;
+                            // Protect the new default immediately, including taps
+                            // received before the parent's next render.
+                            selection.current.defaultCurrency = option.code;
+                            current.onSetDefault(option.code);
+                          }}
+                          style={styles.defaultButton}
+                        >
+                          <Ionicons
+                            name={isDefault ? "star" : "star-outline"}
+                            size={icon.row}
+                            color={isDefault ? colors.actionPrimary : colors.textSubtle}
+                          />
+                        </Pressable>
+                      ) : null}
+                    </View>
                   );
                 })}
               </ScrollView>
@@ -284,9 +331,21 @@ const styles = StyleSheet.create({
   choice: {
     minHeight: SETTINGS_ROW_MIN_HEIGHT,
     paddingHorizontal: SETTINGS_ROW_PADDING_X,
+    alignItems: "center",
+  },
+  choiceToggle: {
+    flex: 1,
+    minWidth: 0,
     paddingVertical: SETTINGS_ROW_PADDING_Y,
     alignItems: "center",
     gap: 12,
+  },
+  defaultButton: {
+    minWidth: 44,
+    minHeight: 44,
+    alignItems: "center",
+    justifyContent: "center",
+    marginStart: 8,
   },
   choiceText: { flex: 1, minWidth: 0 },
   label: { fontFamily: fonts.sansMedium, fontSize: 15, color: colors.textDefault },

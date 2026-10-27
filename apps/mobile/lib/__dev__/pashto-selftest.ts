@@ -168,6 +168,7 @@ async function verifyExport() {
     },
     "@expo-google-fonts/vazirmatn": { Vazirmatn_400Regular: 1, Vazirmatn_700Bold: 2 },
     "../colors": require("../colors"),
+    "../expo-go": { isExpoGo: () => false },
     "../format": format,
     "../i18n": language,
     "../mobile-copy": extra,

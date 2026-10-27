@@ -1449,8 +1449,11 @@ const en = {
   "vaultSettings.currencies.limit":
     "You can enable up to 64 currencies. Turn one off to add another.",
   "vaultSettings.currencies.hint":
-    "Choose the currencies offered for new tallies. Removing a choice keeps all existing tallies and balances.",
-  "vaultSettings.currencies.default": "Default currency — always enabled",
+    "Choose currencies for new tallies. Tap a star to set the default. Existing tallies keep their currency.",
+  "vaultSettings.currencies.default": "Default currency",
+  "vaultSettings.currencies.defaultSummary": "Default: {currency}",
+  "vaultSettings.currencies.selectedCount": "{count} selected",
+  "vaultSettings.currencies.setDefault": "Set {currency} as default",
   "vaultSettings.currencies.changed":
     "Currency settings changed. Close and reopen this list to review the latest choices.",
   "vaultSettings.viewOnly": "View only — owner permission required.",
@@ -3471,8 +3474,11 @@ const fa: Partial<Record<Key, string>> = {
   "vaultSettings.currencies.limit":
     "حداکثر ۶۴ ارز را می‌توانید فعال کنید. برای افزودن ارز دیگر، یکی را غیرفعال کنید.",
   "vaultSettings.currencies.hint":
-    "ارزهای قابل انتخاب برای ثبت‌های تازه را مشخص کنید. برداشتن یک گزینه، ثبت‌ها و بیلانس‌های قبلی را حفظ می‌کند.",
-  "vaultSettings.currencies.default": "ارز پیش‌فرض — همیشه فعال",
+    "ارزهای ثبت‌های تازه را انتخاب کنید. برای تعیین ارز پیش‌فرض، ستاره را بزنید. ثبت‌های قبلی ارز خود را نگه می‌دارند.",
+  "vaultSettings.currencies.default": "ارز پیش‌فرض",
+  "vaultSettings.currencies.defaultSummary": "پیش‌فرض: {currency}",
+  "vaultSettings.currencies.selectedCount": "{count} انتخاب شده",
+  "vaultSettings.currencies.setDefault": "{currency} را پیش‌فرض بسازید",
   "vaultSettings.currencies.changed":
     "تنظیمات ارز تغییر کرده است. این فهرست را ببندید و دوباره باز کنید تا گزینه‌های تازه را ببینید.",
   "vaultSettings.viewOnly": "فقط مشاهده — اجازه مالک لازم است.",
@@ -5671,8 +5677,11 @@ const ps: Record<Key, string> = {
   "vaultSettings.currencies.limit":
     "تاسو تر ۶۴ پورې اسعار فعالولی شئ. د نورو اسعارو د زیاتولو لپاره یو غیر فعال کړئ.",
   "vaultSettings.currencies.hint":
-    "د نوو راکړو ورکړو لپاره د ټاکلو اسعار وټاکئ. د یوه انتخاب لرې کول پخوانۍ راکړې ورکړې او بیلانسونه ساتي.",
-  "vaultSettings.currencies.default": "اصلي اسعار — تل فعال دي",
+    "د نوو راکړو ورکړو اسعار وټاکئ. د اصلي اسعارو لپاره ستوری ووهئ. پخوانۍ راکړې ورکړې خپل اسعار ساتي.",
+  "vaultSettings.currencies.default": "اصلي اسعار",
+  "vaultSettings.currencies.defaultSummary": "اصلي: {currency}",
+  "vaultSettings.currencies.selectedCount": "{count} ټاکل شوي",
+  "vaultSettings.currencies.setDefault": "{currency} اصلي وټاکئ",
   "vaultSettings.currencies.changed":
     "د اسعارو امستنې بدلې شوې. دا لړ وتړئ او بیا یې پرانیزئ چې وروستي انتخابونه وګورئ.",
   "vaultSettings.viewOnly": "یوازې یې کتلی شئ؛ د مالک اجازه اړینه ده.",

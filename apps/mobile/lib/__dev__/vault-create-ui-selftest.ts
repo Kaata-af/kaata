@@ -69,7 +69,6 @@ function fixture(
     "../../components/Button": { Button: "Button" },
     "../../components/FormField": { FormField: "FormField" },
     "../../components/EnabledCurrenciesSheet": { EnabledCurrenciesSheet: "EnabledCurrenciesSheet" },
-    "../../components/CurrencyPickerSheet": { CurrencyPickerSheet: "CurrencyPickerSheet" },
     "../../components/SettingsScreen": { NavRow: "NavRow", ScreenHeader: "Header" },
     "../../components/Toast": {
       useToast: () => ({ push: (...args: unknown[]) => toasts.push(args) }),
@@ -79,7 +78,9 @@ function fixture(
       CURRENCIES: currencies,
       DEFAULT_CURRENCY: "AFN",
       getCurrencyName: (code: string) => `name:${code}`,
-      currencyNeedsPrecisionHint: () => false,
+      getCurrencyLabel: (code: string) =>
+        `${code} ${currencies.find((item) => item.code === code)?.symbol ?? code}`,
+      currencyNeedsPrecisionHint: (code: string) => code === "KWD",
     },
     "../../lib/db-tx": {
       ACTIVE_VAULT_META_KEY: "active_vault_id",
@@ -104,10 +105,12 @@ function fixture(
       useIsRTL: () => options.rtl ?? false,
       rowDir: () => ({}),
       textDir: () => ({}),
-      bidiIsolate: (value: string) => value,
+      bidiIsolate: (value: string) => `\u2068${value}\u2069`,
     },
     "../../lib/event-log": { appendShopProfileUpdated: async () => stages.push("shop-event") },
-    "../../lib/i18n": { t: (key: string) => key },
+    "../../lib/i18n": {
+      t: (key: string, values?: unknown) => key + (values ? ` ${JSON.stringify(values)}` : ""),
+    },
     "../../lib/mesh/device-key": {
       ensureDeviceKey: async () => {
         stages.push("prepare-key");
@@ -150,21 +153,10 @@ function fixture(
   const one = (type: string) => nodes(hooks.tree).find((node) => node.type === type)!;
   const row = (label: string) =>
     nodes(hooks.tree).find((node) => node.type === "NavRow" && node.props.label === label)!;
-  const defaultRow = () => row("vaultNew.currency.label");
   const enabledRow = () => row("vaultSettings.currencies.label");
-  const defaults = () => one("CurrencyPickerSheet");
   const enabled = () => one("EnabledCurrenciesSheet");
   const name = (value: string) => {
     one("FormField").props.onChangeText(value);
-    render();
-  };
-  const openDefault = () => {
-    defaultRow().props.onPress();
-    render();
-    return defaults().props;
-  };
-  const pickDefault = (code: string) => {
-    openDefault().onSelect(code);
     render();
   };
   const openEnabled = () => {
@@ -184,13 +176,9 @@ function fixture(
     registrations,
     meta,
     one,
-    defaultRow,
     enabledRow,
-    defaults,
     enabled,
     name,
-    openDefault,
-    pickDefault,
     openEnabled,
     get keyboardDismissals() {
       return keyboardDismissals;
@@ -211,128 +199,192 @@ async function main() {
   for (const rtl of [false, true]) {
     const f = fixture({ rtl });
     await f.flush();
+    assert.equal(
+      nodes(f.hooks.tree).filter((node) => node.type === "NavRow").length,
+      1,
+      "One currency field combines enabled choices and their default",
+    );
+    assert.equal(
+      nodes(f.hooks.tree).filter((node) => node.type === "EnabledCurrenciesSheet").length,
+      1,
+    );
+    assert.ok(!nodes(f.hooks.tree).some((node) => node.type === "CurrencyPickerSheet"));
+    assert.equal(f.enabled().props.options.length, 155);
     assert.deepEqual(f.enabled().props.selected, ["AFN"]);
     assert.equal(f.enabled().props.defaultCurrency, "AFN");
-    assert.equal(
-      f.defaults().props.allowedCurrencies,
-      undefined,
-      "default picker offers the complete catalog while the enabled set has room",
-    );
-    f.pickDefault("USD");
-    assert.equal(f.keyboardDismissals, 1, "Opening the default picker releases the name keyboard");
-    assert.deepEqual(
-      f.enabled().props.selected,
-      ["USD"],
-      "Changing an untouched singleton replaces its old default",
-    );
+    assert.match(f.enabledRow().props.hint, /AFN/);
+    assert.match(f.enabledRow().props.trailing, /"count":1/);
     const discarded = f.openEnabled();
-    assert.equal(f.keyboardDismissals, 2, "Opening enabled choices releases the name keyboard");
+    assert.equal(f.keyboardDismissals, 1, "Opening the combined sheet dismisses the name keyboard");
+    discarded.onSetDefault("USD");
+    f.render();
+    assert.equal(
+      f.enabled().props.defaultCurrency,
+      "AFN",
+      "An unchecked currency cannot become the draft default",
+    );
+    discarded.onToggle("USD");
+    f.render();
+    f.enabled().props.onSetDefault("USD");
     discarded.onToggle("USD");
     f.render();
     assert.deepEqual(
       f.enabled().props.selected,
+      ["AFN", "USD"],
+      "The new draft default is protected even before React commits",
+    );
+    assert.equal(f.enabled().props.defaultCurrency, "USD");
+    discarded.onToggle("AFN");
+    f.render();
+    assert.deepEqual(
+      f.enabled().props.selected,
       ["USD"],
-      "The default cannot be unchecked even through a retained callback",
+      "A previous default can be unchecked after the star changes",
     );
-    discarded.onToggle("EUR");
+    assert.match(
+      f.enabledRow().props.hint,
+      /AFN/,
+      "Draft default changes do not alter the form yet",
+    );
+    f.name("Draft shop");
+    await f.one("Button").props.onPress();
+    assert.equal(f.creations.length, 0, "Create cannot bypass an unsaved currency sheet");
+    discarded.onDismiss();
     f.render();
+    let sheet = f.openEnabled();
+    assert.deepEqual(sheet.selected, ["AFN"]);
     assert.equal(
-      f.enabledRow().props.trailing,
-      "USD",
-      "Checkbox drafts do not change the committed form",
+      sheet.defaultCurrency,
+      "AFN",
+      "Cancel discards both the draft set and draft default",
     );
-    f.enabled().props.onDismiss();
+    sheet.onToggle("USD");
     f.render();
-    assert.deepEqual(f.openEnabled().selected, ["USD"], "Cancel discards checkbox edits");
-    f.enabled().props.onToggle("GBP");
+    f.enabled().props.onSetDefault("USD");
+    f.enabled().props.onToggle("AFN");
     f.render();
     const saved = f.enabled().props;
     saved.onSave();
     f.render();
-    assert.equal(f.enabledRow().props.trailing, "USD · GBP");
+    assert.equal(f.enabled().props.defaultCurrency, "USD");
+    assert.deepEqual(f.enabled().props.selected, ["USD"]);
+    assert.match(f.enabledRow().props.hint, /USD/);
+    assert.match(f.enabledRow().props.trailing, /"count":1/);
     discarded.onToggle("EUR");
+    discarded.onSetDefault("AFN");
     discarded.onSave();
-    saved.onToggle("AFN");
     f.render();
-    assert.equal(
-      f.enabledRow().props.trailing,
-      "USD · GBP",
-      "Old sheet sessions cannot overwrite saved choices",
-    );
-    f.pickDefault("EUR");
     assert.deepEqual(
       f.enabled().props.selected,
-      ["USD", "GBP", "EUR"],
-      "Changing a multi-currency default retains its set and includes the new default",
+      ["USD"],
+      "Old sessions cannot overwrite the saved pair",
     );
-    const staleDefault = f.openDefault();
-    staleDefault.onDismiss();
+    sheet = f.openEnabled();
+    sheet.onToggle("GBP");
     f.render();
-    f.openDefault();
-    staleDefault.onSelect("AFN");
+    f.enabled().props.onSetDefault("GBP");
     f.render();
+    f.enabled().props.onSave();
+    f.render();
+    assert.deepEqual(f.enabled().props.selected, ["USD", "GBP"]);
+    assert.equal(f.enabled().props.defaultCurrency, "GBP");
+    assert.ok(
+      f.enabledRow().props.accessibilityLabel.includes("USD $"),
+      "The nondefault enabled currency remains audible from the field",
+    );
+    assert.ok(
+      f.enabledRow().props.accessibilityLabel.includes("GBP £"),
+      "All enabled ISO labels and symbols are announced",
+    );
+    assert.ok(
+      f.enabledRow().props.hint.includes("\u2068GBP £\u2069"),
+      "The default summary isolates the currency token within localized prose",
+    );
+    assert.match(f.enabledRow().props.trailing, /"count":2/);
+    sheet = f.openEnabled();
+    sheet.onToggle("KWD");
+    f.render();
+    f.enabled().props.onSetDefault("KWD");
+    f.render();
+    f.enabled().props.onSave();
+    f.render();
+    assert.ok(
+      nodes(f.hooks.tree).some(
+        (node) => node.type === "Text" && node.props.children === "currency.precisionHint",
+      ),
+      "Three-decimal ISO currencies retain the two-decimal storage explanation",
+    );
+    const stale = f.openEnabled();
+    stale.onDismiss();
+    f.render();
+    f.openEnabled();
+    stale.onSetDefault("USD");
+    stale.onToggle("EUR");
+    stale.onSave();
+    stale.onDismiss();
+    f.render();
+    assert.equal(f.enabled().props.visible, true);
     assert.equal(
-      f.defaults().props.selectedCode,
-      "EUR",
-      "A reopened picker rejects a prior session's selection",
+      f.enabled().props.defaultCurrency,
+      "KWD",
+      "Reopening rejects retained star/save/dismiss callbacks from the previous session",
     );
-    f.defaults().props.onDismiss();
+    f.enabled().props.onDismiss();
     f.render();
     f.hooks.unmount();
-    staleDefault.onSelect("AFN");
+    stale.onSetDefault("USD");
     saved.onSave();
-    assert.equal(f.hooks.lateWrites, 0, "Departed picker callbacks cannot write state");
+    assert.equal(f.hooks.lateWrites, 0, "Departed sheet callbacks cannot write state");
   }
 
   const full = fixture();
   await full.flush();
-  full.openEnabled();
-  for (const item of currencies.slice(1, 64)) {
-    full.enabled().props.onToggle(item.code);
-    full.render();
-  }
-  full.enabled().props.onSave();
+  const fullSheet = full.openEnabled();
+  for (const item of currencies.slice(1, 64)) fullSheet.onToggle(item.code);
   full.render();
   const committed = [...full.enabled().props.selected];
   assert.equal(committed.length, 64);
-  const fullPicker = full.openDefault();
-  assert.deepEqual(
-    fullPicker.allowedCurrencies,
-    committed,
-    "a full enabled set cannot offer a new default that would create an invalid 65th choice",
-  );
-  fullPicker.onSelect(currencies[64].code);
+  fullSheet.onToggle(currencies[64].code);
+  fullSheet.onSetDefault(currencies[64].code);
   full.render();
-  assert.equal(full.defaults().props.selectedCode, "AFN");
+  assert.equal(full.enabled().props.defaultCurrency, "AFN");
   assert.deepEqual(
     full.enabled().props.selected,
     committed,
-    "even a retained callback respects the enabled limit",
+    "Retained callbacks cannot add a65th currency or star an unchecked choice",
   );
-  full.defaults().props.onSelect(currencies[1].code);
+  full.enabled().props.onSetDefault("USD");
+  fullSheet.onToggle("USD");
   full.render();
-  assert.equal(
-    full.defaults().props.selectedCode,
-    currencies[1].code,
-    "changing the default within a full enabled set still works",
+  assert.equal(full.enabled().props.defaultCurrency, "USD");
+  assert.deepEqual(
+    full.enabled().props.selected,
+    committed,
+    "Changing the default within a full set keeps it selected",
   );
-  assert.deepEqual(full.enabled().props.selected, committed);
+  full.enabled().props.onSave();
+  full.render();
+  assert.equal(full.enabled().props.defaultCurrency, "USD");
   full.hooks.unmount();
 
   const preset = fixture({ preset: "USD" });
   await preset.flush();
-  assert.equal(preset.defaults().props.selectedCode, "USD");
+  assert.equal(preset.enabled().props.defaultCurrency, "USD");
   assert.deepEqual(
     preset.enabled().props.selected,
     ["USD"],
-    "A shared-tab preset initializes default and singleton together",
+    "Shared-tab preset initializes the saved default and singleton together",
   );
-  for (const touch of ["default", "enabled", "create"] as const) {
+  for (const touch of ["open", "edit", "create"] as const) {
     const pending = deferred<void>();
     const f = fixture({ preset: "USD", presetGate: pending.promise });
-    if (touch === "default") f.openDefault();
-    else if (touch === "enabled") f.openEnabled();
-    else {
+    if (touch === "open") f.openEnabled();
+    else if (touch === "edit") {
+      f.openEnabled().onToggle("EUR");
+      f.render();
+      f.enabled().props.onSetDefault("EUR");
+      f.render();
+    } else {
       f.name("Shop");
       const key = deferred<void>();
       f.setKeyGate(key.promise);
@@ -341,11 +393,11 @@ async function main() {
     pending.resolve();
     await f.flush();
     assert.equal(
-      f.defaults().props.selectedCode,
-      "AFN",
-      `${touch}: late preset cannot clobber an engaged form`,
+      f.enabled().props.defaultCurrency,
+      touch === "edit" ? "EUR" : "AFN",
+      "A late preset cannot clobber an opened, edited or creating form",
     );
-    assert.deepEqual(f.enabled().props.selected, ["AFN"]);
+    assert.deepEqual(f.enabled().props.selected, touch === "edit" ? ["AFN", "EUR"] : ["AFN"]);
     f.hooks.unmount();
   }
 
@@ -355,28 +407,30 @@ async function main() {
     f.name("  New shop  ");
     f.openEnabled().onToggle("USD");
     f.render();
+    f.enabled().props.onSetDefault("USD");
+    f.render();
     f.enabled().props.onSave();
     f.render();
     const key = deferred<void>(),
       commit = deferred<void>();
     f.setKeyGate(key.promise);
     f.setCreationGate(commit.promise);
-    const defaultOpener = f.defaultRow().props.onPress,
-      enabledOpener = f.enabledRow().props.onPress;
+    const enabledOpener = f.enabledRow().props.onPress;
+    const retainedSheet = f.enabled().props;
     const retainedBack = f.one("Header").props.onBack;
     const submit = f.one("Button").props.onPress;
     const first = submit();
     const duplicate = submit();
     f.render();
     assert.equal(f.one("Button").props.disabled, true);
-    assert.equal(f.defaultRow().props.disabled, true);
     assert.equal(f.enabledRow().props.disabled, true);
-    defaultOpener();
     enabledOpener();
+    retainedSheet.onSetDefault("AFN");
+    retainedSheet.onToggle("EUR");
+    retainedSheet.onSave();
     retainedBack();
     f.one("FormField").props.onChangeText("replaced");
     f.render();
-    assert.equal(f.defaults().props.visible, false);
     assert.equal(f.enabled().props.visible, false);
     assert.deepEqual(f.routes, [], "A retained Back action cannot leave creation while busy");
     assert.equal(
@@ -390,6 +444,11 @@ async function main() {
     assert.equal(f.creations[0].accountId, account);
     assert.equal(f.creations[0].expectedSignerPubkey, "device-pubkey");
     assert.equal(f.creations[0].ownerDisplayName, "Synthetic owner");
+    assert.equal(
+      f.creations[0].currency,
+      "USD",
+      "The saved draft default reaches the atomic creation helper",
+    );
     assert.deepEqual(f.creations[0].enabledCurrencies, ["AFN", "USD"]);
     assert.deepEqual(f.routes, []);
     assert.deepEqual(f.toasts, []);

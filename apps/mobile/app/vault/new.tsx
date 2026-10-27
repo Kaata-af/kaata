@@ -40,7 +40,6 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "../../components/Button";
 import { FormField } from "../../components/FormField";
 import { EnabledCurrenciesSheet } from "../../components/EnabledCurrenciesSheet";
-import { CurrencyPickerSheet } from "../../components/CurrencyPickerSheet";
 import { NavRow, ScreenHeader } from "../../components/SettingsScreen";
 import { useToast } from "../../components/Toast";
 import { colors } from "../../lib/colors";
@@ -49,6 +48,7 @@ import {
   DEFAULT_CURRENCY,
   currencyNeedsPrecisionHint,
   getCurrencyName,
+  getCurrencyLabel,
 } from "../../lib/currency";
 import {
   ACTIVE_VAULT_META_KEY,
@@ -72,6 +72,7 @@ import {
 } from "../../lib/vault-initial-currencies";
 
 const NAME_MAX = 50;
+type CurrencyDraft = { currency: string; enabledCurrencies: string[] };
 
 export default function VaultNewScreen() {
   const router = useRouter();
@@ -91,17 +92,13 @@ export default function VaultNewScreen() {
   const [shopName, setShopName] = useState("");
   const [currency, setCurrency] = useState<string>(DEFAULT_CURRENCY);
   const [enabledCurrencies, setEnabledCurrencies] = useState<string[]>([DEFAULT_CURRENCY]);
-  const [enabledDraft, setEnabledDraft] = useState<string[] | null>(null);
-  const enabledDraftRef = useRef<string[] | null>(null);
-  const picker = useRef<{ kind: "default" | "enabled" | null; version: number }>({
+  const [enabledDraft, setEnabledDraft] = useState<CurrencyDraft | null>(null);
+  const enabledDraftRef = useRef<CurrencyDraft | null>(null);
+  const picker = useRef<{ kind: "enabled" | null; version: number }>({
     kind: null,
     version: 0,
   });
   const mounted = useRef(true);
-  // Currency is picked through a row→sheet, not a chip grid — see the NavRow
-  // in the form below. Only the CONTROL changed; `currency` / setCurrency are
-  // still the single source of truth for the INSERT.
-  const [currencySheetVisible, setCurrencySheetVisible] = useState(false);
   // Mutual-tab handoff (docs/mutual-tab-design.md §4.4, D9): app/t/[token].tsx
   // sends a user with no kaata in the tab's currency here with
   // pending_tab_token AND pending_tab_currency armed. The row is preset to that
@@ -135,24 +132,25 @@ export default function VaultNewScreen() {
 
   const canEdit = () => mounted.current && !creatingRef.current;
   const pickerVersion = picker.current.version;
-  const isCurrentPicker = (kind: "default" | "enabled", version: number) =>
-    canEdit() && picker.current.kind === kind && picker.current.version === version;
-  const openPicker = (kind: "default" | "enabled") => {
+  const isCurrentPicker = (version: number) =>
+    canEdit() && picker.current.kind === "enabled" && picker.current.version === version;
+  const openPicker = () => {
     if (!canEdit()) return;
     Keyboard.dismiss();
     currencyDirtyRef.current = true;
-    picker.current = { kind, version: picker.current.version + 1 };
-    const draft = kind === "enabled" ? [...form.current.enabledCurrencies] : null;
+    picker.current = { kind: "enabled", version: picker.current.version + 1 };
+    const draft = {
+      currency: form.current.currency,
+      enabledCurrencies: [...form.current.enabledCurrencies],
+    };
     enabledDraftRef.current = draft;
     setEnabledDraft(draft);
-    setCurrencySheetVisible(kind === "default");
   };
-  const dismissPicker = (kind: "default" | "enabled", version: number) => {
-    if (!isCurrentPicker(kind, version)) return;
+  const dismissPicker = (version: number) => {
+    if (!isCurrentPicker(version)) return;
     picker.current = { kind: null, version: picker.current.version + 1 };
     enabledDraftRef.current = null;
     setEnabledDraft(null);
-    setCurrencySheetVisible(false);
   };
 
   // Snapshot account presence at mount-time so the local-only hint and the
@@ -449,11 +447,12 @@ export default function VaultNewScreen() {
     }
   }
 
-  // Same trailing composition as vault/settings.tsx's currency row: symbol +
-  // localized name, so "₨  Pakistani Rupee" reads to someone who doesn't know
-  // the ISO codes. Built here (not in a memo) — it's two lookups per render.
-  const currencyValue =
-    `${CURRENCIES.find((c) => c.code === currency)?.symbol ?? ""}  ${getCurrencyName(currency)}`.trim();
+  const currencySummary = t("vaultSettings.currencies.defaultSummary", {
+    currency: bidiIsolate(getCurrencyLabel(currency)),
+  });
+  const currencyCount = t("vaultSettings.currencies.selectedCount", {
+    count: enabledCurrencies.length,
+  });
 
   return (
     // Default SafeAreaView edges (matches vault/settings, vault/members,
@@ -517,33 +516,18 @@ export default function VaultNewScreen() {
             />
           </View>
 
-          {/* Currency: row→sheet, IDENTICAL to the edit path (vault/settings.tsx).
-              The old control was a 9-chip wrapping grid at ~36px tall — under the
-              44pt floor, and a mistap silently mislabels every future amount in
-              this kaata (lib/currency.ts relabels, it never converts). NavRow
-              clears the floor at 52px and the sheet gives each currency a full
-              row, so creating and editing a kaata now use one mental model.
-              Full-bleed on purpose: the row carries the 20px settings gutter that
-              formInset above matches. */}
-          <NavRow
-            icon="cash-outline"
-            label={t("vaultNew.currency.label")}
-            trailing={currencyValue}
-            // NavRow puts accessibilityLabel on the Pressable, which SUPPRESSES the
-            // child text — so without this TalkBack announced only "Currency" and
-            // never the selected value sitting in `trailing`. A blind user could not
-            // hear which currency their ledger was about to be created in.
-            accessibilityLabel={`${t("vaultNew.currency.label")}: ${currencyValue}`}
-            onPress={() => openPicker("default")}
-            disabled={creating}
-            isRTL={isRTL}
-          />
           <NavRow
             icon="cash-outline"
             label={t("vaultSettings.currencies.label")}
-            trailing={enabledCurrencies.map((code) => bidiIsolate(code)).join(" · ")}
-            accessibilityLabel={`${t("vaultSettings.currencies.label")}: ${enabledCurrencies.join(", ")}`}
-            onPress={() => openPicker("enabled")}
+            hint={currencySummary}
+            trailing={currencyCount}
+            accessibilityLabel={[
+              t("vaultSettings.currencies.label"),
+              currencyCount,
+              currencySummary,
+              ...enabledCurrencies.map((code) => bidiIsolate(getCurrencyLabel(code))),
+            ].join(", ")}
+            onPress={openPicker}
             disabled={creating}
             isRTL={isRTL}
             isLast
@@ -591,35 +575,6 @@ export default function VaultNewScreen() {
         </ScrollView>
       </KeyboardAvoidingView>
 
-      {/* Per-kaata currency picker — same sheet, same option list and same
-          selection tick as vault/settings.tsx. */}
-      <CurrencyPickerSheet
-        visible={currencySheetVisible}
-        title={t("vaultNew.currency.label")}
-        disabled={creating}
-        allowedCurrencies={enabledCurrencies.length >= 64 ? enabledCurrencies : undefined}
-        selectedCode={currency}
-        onSelect={(code) => {
-          if (
-            !isCurrentPicker("default", pickerVersion) ||
-            !CURRENCIES.some((item) => item.code === code)
-          )
-            return;
-          const previous = form.current;
-          if (previous.enabledCurrencies.length >= 64 && !previous.enabledCurrencies.includes(code))
-            return;
-          const enabled =
-            previous.enabledCurrencies.length === 1 &&
-            previous.enabledCurrencies[0] === previous.currency
-              ? [code]
-              : [...new Set([...previous.enabledCurrencies, code])];
-          form.current = { ...previous, currency: code, enabledCurrencies: enabled };
-          setCurrency(code);
-          setEnabledCurrencies(enabled);
-          dismissPicker("default", pickerVersion);
-        }}
-        onDismiss={() => dismissPicker("default", pickerVersion)}
-      />
       <EnabledCurrenciesSheet
         visible={enabledDraft !== null}
         options={CURRENCIES.map((item) => ({
@@ -627,34 +582,42 @@ export default function VaultNewScreen() {
           label: getCurrencyName(item.code),
           symbol: item.symbol,
         }))}
-        selected={enabledDraft ?? enabledCurrencies}
-        defaultCurrency={currency}
+        selected={enabledDraft?.enabledCurrencies ?? enabledCurrencies}
+        defaultCurrency={enabledDraft?.currency ?? currency}
+        onSetDefault={(code) => {
+          if (!isCurrentPicker(pickerVersion)) return;
+          const draft = enabledDraftRef.current;
+          if (!draft || !draft.enabledCurrencies.includes(code)) return;
+          const next = { ...draft, currency: code };
+          enabledDraftRef.current = next;
+          setEnabledDraft(next);
+        }}
         onToggle={(code) => {
-          if (
-            !isCurrentPicker("enabled", pickerVersion) ||
-            code === form.current.currency ||
-            !CURRENCIES.some((item) => item.code === code)
-          )
+          if (!isCurrentPicker(pickerVersion) || !CURRENCIES.some((item) => item.code === code))
             return;
           const draft = enabledDraftRef.current;
-          if (!draft) return;
-          const next = draft.includes(code)
-            ? draft.filter((item) => item !== code)
-            : [...draft, code];
+          if (!draft || code === draft.currency) return;
+          if (!draft.enabledCurrencies.includes(code) && draft.enabledCurrencies.length >= 64)
+            return;
+          const next = {
+            ...draft,
+            enabledCurrencies: draft.enabledCurrencies.includes(code)
+              ? draft.enabledCurrencies.filter((item) => item !== code)
+              : [...draft.enabledCurrencies, code],
+          };
           enabledDraftRef.current = next;
           setEnabledDraft(next);
         }}
         onSave={() => {
-          if (!isCurrentPicker("enabled", pickerVersion) || !enabledDraftRef.current) return;
-          const enabled = validateInitialVaultCurrencies(
-            form.current.currency,
-            enabledDraftRef.current,
-          );
-          form.current = { ...form.current, enabledCurrencies: enabled };
+          if (!isCurrentPicker(pickerVersion) || !enabledDraftRef.current) return;
+          const draft = enabledDraftRef.current;
+          const enabled = validateInitialVaultCurrencies(draft.currency, draft.enabledCurrencies);
+          form.current = { ...form.current, currency: draft.currency, enabledCurrencies: enabled };
+          setCurrency(draft.currency);
           setEnabledCurrencies(enabled);
-          dismissPicker("enabled", pickerVersion);
+          dismissPicker(pickerVersion);
         }}
-        onDismiss={() => dismissPicker("enabled", pickerVersion)}
+        onDismiss={() => dismissPicker(pickerVersion)}
         saving={creating}
         isRTL={isRTL}
       />

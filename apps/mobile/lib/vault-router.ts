@@ -22,6 +22,7 @@ import {
   appendVaultMemberRemoved,
   appendVaultOwnershipTransfer,
   appendVaultSettingSet,
+  appendVaultCurrencySettings,
 } from "./event-log";
 import {
   archiveVault as apiArchiveVault,
@@ -199,6 +200,63 @@ export async function changeVaultEnabledCurrencies(
         )
           throw new CurrencySettingsChangedError();
         if (!codes.includes(defaultCode)) throw new Error("The default currency must stay enabled");
+      },
+    });
+    return local ? { kind: "local", eventId: event_id } : { kind: "server" };
+  });
+}
+
+/** Commit the complete currency draft as one local transaction. The original
+ * raw enabled list and resolved default are checked before either signed edit. */
+export async function changeVaultCurrencySettings(
+  vaultId: string,
+  changes: { defaultCurrency: string; enabledCurrencies: readonly string[] },
+  expected?: {
+    session?: SessionSnapshot;
+    shouldContinue?: () => boolean;
+    previous?: { enabledValue: string | null; defaultCurrency: string };
+  },
+): Promise<VaultOpResult> {
+  const { requireEnabledCurrencies, settingCurrency } =
+    require("./currency-settings") as typeof import("./currency-settings");
+  const { requireCurrencyCode } = require("./currency-scope") as typeof import("./currency-scope");
+  const defaultCurrency = changes.defaultCurrency;
+  const previous = expected?.previous ? { ...expected.previous } : undefined;
+  requireCurrencyCode(defaultCurrency);
+  const codes = requireEnabledCurrencies(changes.enabledCurrencies);
+  if (!codes.includes(defaultCurrency)) throw new Error("The default currency must stay enabled");
+  const session = expected?.session ?? (await captureCurrentSession());
+  return applyForUnchangedLocalSession(session, async () => {
+    if (expected?.shouldContinue?.() === false) throw new Error("Currency settings changed scope");
+    const local = await isLocalCAVault(vaultId);
+    const { event_id } = await appendVaultCurrencySettings({
+      targetVaultId: vaultId,
+      defaultCurrency,
+      enabledCurrencies: codes,
+      preflight: async (tx) => {
+        if (expected?.shouldContinue?.() === false)
+          throw new Error("Currency settings changed scope");
+        const row = await tx.getFirstAsync<{
+          currency: string | null;
+          default_entry_currency: string | null;
+          value: string | null;
+          enabled_value: string | null;
+        }>(
+          "SELECT currency,default_entry_currency,(SELECT value FROM vault_settings WHERE vault_id=v.id AND key='default_entry_currency') AS value,(SELECT value FROM vault_settings WHERE vault_id=v.id AND key='enabled_currencies') AS enabled_value FROM vaults v WHERE id=?",
+          vaultId,
+        );
+        if (!row) throw new Error("The Kaata no longer exists");
+        const defaultCode =
+          settingCurrency(row.value) ??
+          settingCurrency(row.default_entry_currency) ??
+          settingCurrency(row.currency) ??
+          "AFN";
+        if (
+          previous &&
+          ((row.enabled_value ?? null) !== previous.enabledValue ||
+            defaultCode !== previous.defaultCurrency)
+        )
+          throw new CurrencySettingsChangedError();
       },
     });
     return local ? { kind: "local", eventId: event_id } : { kind: "server" };

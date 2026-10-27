@@ -863,13 +863,33 @@ export async function appendVaultSettingSet(args: {
     (
       require("./currency-settings") as typeof import("./currency-settings")
     ).requireEnabledCurrencies(args.value);
-  const eventId = Crypto.randomUUID();
+  const event = newVaultSettingSetEvent(args);
+  const result = await applyEvent(event, {
+    origin: "local",
+    preflightAbort: args.preflight
+      ? async (tx) => {
+          await args.preflight!(tx);
+          return false;
+        }
+      : undefined,
+  });
+  if (!result.applied && result.reason === "role_gate" && result.role_gate) {
+    throw new RoleGateRejectionError(result.role_gate);
+  }
+  return { event_id: event.event_id };
+}
+
+function newVaultSettingSetEvent(args: {
+  targetVaultId: string;
+  key: string;
+  value: string;
+}): VaultSettingSetEvent {
   const installId = getInstallIdSync();
   const authorUserId = requireLocalSelfUserId();
   const accountId = getAccountIdSync();
 
-  const event: VaultSettingSetEvent = {
-    event_id: eventId,
+  return {
+    event_id: Crypto.randomUUID(),
     event_type: "vault_setting_set",
     vault_id: args.targetVaultId,
     // target_id is the vault_id — the setting is scoped to it.
@@ -886,20 +906,46 @@ export async function appendVaultSettingSet(args: {
     origin: "local",
     payload: { key: args.key, value: args.value },
   };
+}
 
-  const result = await applyEvent(event, {
-    origin: "local",
-    preflightAbort: args.preflight
-      ? async (tx) => {
-          await args.preflight!(tx);
-          return false;
-        }
-      : undefined,
-  });
-  if (!result.applied && result.reason === "role_gate" && result.role_gate) {
-    throw new RoleGateRejectionError(result.role_gate);
+/** Both future-entry settings become visible together, including their signed
+ * event rows. A rejected second setting cannot leave a changed default behind. */
+export async function appendVaultCurrencySettings(args: {
+  targetVaultId: string;
+  defaultCurrency: string;
+  enabledCurrencies: readonly string[];
+  preflight?: (tx: SQLiteTx) => Promise<void>;
+}): Promise<{ event_id: string }> {
+  requireCurrencyCode(args.defaultCurrency);
+  const codes = (
+    require("./currency-settings") as typeof import("./currency-settings")
+  ).requireEnabledCurrencies(args.enabledCurrencies);
+  if (!codes.includes(args.defaultCurrency))
+    throw new Error("The default currency must stay enabled");
+  const events = [
+    newVaultSettingSetEvent({
+      targetVaultId: args.targetVaultId,
+      key: "default_entry_currency",
+      value: args.defaultCurrency,
+    }),
+    newVaultSettingSetEvent({
+      targetVaultId: args.targetVaultId,
+      key: "enabled_currencies",
+      value: JSON.stringify(codes),
+    }),
+  ];
+  try {
+    await applyLocalEventsAtomically(events, { preflight: args.preflight });
+  } catch (err) {
+    if (
+      err instanceof AtomicEventRejectionError &&
+      err.result.reason === "role_gate" &&
+      err.result.role_gate
+    )
+      throw new RoleGateRejectionError(err.result.role_gate);
+    throw err;
   }
-  return { event_id: eventId };
+  return { event_id: events[1].event_id };
 }
 
 // ---------- Phase 8 / D-OFFLINE-* : vault membership append helpers ----------

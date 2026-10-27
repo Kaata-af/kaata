@@ -35,7 +35,6 @@ import { BottomSheet } from "../../components/BottomSheet";
 import { Button } from "../../components/Button";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { FormField } from "../../components/FormField";
-import { CurrencyPickerSheet } from "../../components/CurrencyPickerSheet";
 import { EnabledCurrenciesSheet } from "../../components/EnabledCurrenciesSheet";
 import { ScreenLoading } from "../../components/ScreenLoading";
 import {
@@ -49,8 +48,7 @@ import { queuePendingToast, useToast } from "../../components/Toast";
 import { appendVaultSettingSet } from "../../lib/event-log";
 import {
   archiveVaultRouted,
-  changeVaultCurrency,
-  changeVaultEnabledCurrencies,
+  changeVaultCurrencySettings,
   CurrencySettingsChangedError,
   changeVaultName,
   isLocalCAVault,
@@ -107,6 +105,7 @@ type CurrencyChoicesDraft = {
   vaultId: string;
   selected: string[];
   defaultCurrency: string;
+  baselineDefaultCurrency: string;
   enabledValue: string | null;
   error: string | null;
   conflicted: boolean;
@@ -162,7 +161,6 @@ export default function VaultSettingsScreen() {
   const currencyFocused = useRef(false);
   const currencyLoadedVault = useRef<string | null>(null);
   const currencySession = useRef<SessionSnapshot | null>(null);
-  const [currencySheetVisible, setCurrencySheetVisible] = useState(false);
   const [savingName, setSavingName] = useState(false);
   const [savingCurrency, setSavingCurrency] = useState(false);
 
@@ -374,42 +372,6 @@ export default function VaultSettingsScreen() {
     }
   }
 
-  async function commitCurrency(next: string) {
-    if (!vault) return;
-    if (currencyLoadedVault.current !== vault.id) return;
-    if (!canRename) return;
-    if (
-      !currencyFocused.current ||
-      next === currency ||
-      currencySavingRef.current ||
-      !enabledCurrencies.includes(next)
-    )
-      return;
-    const scopeVersion = currencyScopeVersion.current;
-    const session = currencySession.current;
-    if (!session) return;
-    const operation = ++currencyOperation.current;
-    const current = () => currencyFocused.current && scopeVersion === currencyScopeVersion.current;
-    currencySavingRef.current = true;
-    setSavingCurrency(true);
-    try {
-      // This default applies to future tallies; existing amounts keep their currency.
-      await changeVaultCurrency(vault.id, next, { session, shouldContinue: current });
-      if (!current()) return;
-      setCurrency(next);
-      toast.push(t("vaultSettings.toast.currencyUpdated"), "success");
-    } catch (err) {
-      if (!current()) return;
-      console.warn("[vault/settings] patch currency failed", err);
-      toast.push(t("vaultSettings.toast.currencyFailed"), "error");
-    } finally {
-      if (operation === currencyOperation.current) {
-        currencySavingRef.current = false;
-        if (current()) setSavingCurrency(false);
-      }
-    }
-  }
-
   async function readCurrencyChoices(targetVaultId: string) {
     const { applyEventMutex } =
       require("../../lib/projection") as typeof import("../../lib/projection");
@@ -466,6 +428,7 @@ export default function VaultSettingsScreen() {
       setCurrency(latest.defaultCurrency);
       updateCurrencyChoices({
         ...latest,
+        baselineDefaultCurrency: latest.defaultCurrency,
         id: request,
         vaultId: targetVaultId,
         error: null,
@@ -510,6 +473,23 @@ export default function VaultSettingsScreen() {
     });
   }
 
+  function setDefaultCurrencyChoice(id: number, code: string) {
+    const draft = currencyChoicesRef.current;
+    if (
+      !draft ||
+      draft.id !== id ||
+      !currencyFocused.current ||
+      currencyLoadedVault.current !== draft.vaultId ||
+      !canEditCurrencies.current ||
+      currencySavingRef.current ||
+      draft.conflicted ||
+      !draft.selected.includes(code) ||
+      draft.defaultCurrency === code
+    )
+      return;
+    updateCurrencyChoices({ ...draft, defaultCurrency: code, error: null });
+  }
+
   async function saveCurrencyChoices(id: number) {
     const draft = currencyChoicesRef.current;
     if (
@@ -536,11 +516,18 @@ export default function VaultSettingsScreen() {
       canEditCurrencies.current;
     const current = () => scopeCurrent() && currencyChoicesRef.current?.id === id;
     try {
-      await changeVaultEnabledCurrencies(draft.vaultId, draft.selected, {
-        session,
-        shouldContinue: current,
-        previous: { enabledValue: draft.enabledValue, defaultCurrency: draft.defaultCurrency },
-      });
+      await changeVaultCurrencySettings(
+        draft.vaultId,
+        { defaultCurrency: draft.defaultCurrency, enabledCurrencies: draft.selected },
+        {
+          session,
+          shouldContinue: current,
+          previous: {
+            enabledValue: draft.enabledValue,
+            defaultCurrency: draft.baselineDefaultCurrency,
+          },
+        },
+      );
       if (!current()) return;
       updateCurrencyChoices(null);
       const latest = await readCurrencyChoices(draft.vaultId);
@@ -853,9 +840,6 @@ export default function VaultSettingsScreen() {
     );
   }
 
-  const currencyValue =
-    `${CURRENCIES.find((c) => c.code === currency)?.symbol ?? ""}  ${getCurrencyName(currency)}`.trim();
-
   return (
     <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
       <ScreenHeader
@@ -926,25 +910,23 @@ export default function VaultSettingsScreen() {
               <Text style={[styles.fieldHint, textDir(isRTL)]}>{t("vaultSettings.viewOnly")}</Text>
             ) : null}
           </View>
-          {/* Currency is PER-KAATA. Row→sheet picker so it matches the default-
-              country picker in user Preferences (Matee: "currency options and
-              default country options should match"). Language + default country +
-              app health are USER preferences and live in /preferences, NOT here. */}
-          <NavRow
-            icon="cash-outline"
-            label={t("vaultSettings.currency.label")}
-            hint={t("vaultSettings.currency.hint")}
-            trailing={currencyValue}
-            onPress={() => setCurrencySheetVisible(true)}
-            disabled={!canRename || savingCurrency}
-            isRTL={isRTL}
-          />
+          {/* One controlled draft saves enabled choices and their default together. */}
           <NavRow
             icon="cash-outline"
             label={t("vaultSettings.currencies.label")}
-            trailing={enabledCurrencies
-              .map((code) => bidiIsolate(getCurrencyLabel(code)))
-              .join(", ")}
+            hint={t("vaultSettings.currencies.defaultSummary", {
+              currency: bidiIsolate(getCurrencyLabel(currency)),
+            })}
+            trailing={t("vaultSettings.currencies.selectedCount", {
+              count: enabledCurrencies.length,
+            })}
+            accessibilityLabel={[
+              t("vaultSettings.currencies.label"),
+              t("vaultSettings.currencies.defaultSummary", {
+                currency: bidiIsolate(getCurrencyLabel(currency)),
+              }),
+              ...enabledCurrencies.map((code) => bidiIsolate(getCurrencyLabel(code))),
+            ].join(", ")}
             onPress={() => void openCurrencyChoices()}
             disabled={!canRename || savingCurrency || busy !== null}
             isRTL={isRTL}
@@ -1165,19 +1147,6 @@ export default function VaultSettingsScreen() {
         onConfirm={onArchiveFromLastOwner}
         onCancel={() => setLastOwnerConfirm(false)}
       />
-      {/* Per-kaata currency picker — row→sheet, matching the country picker. */}
-      <CurrencyPickerSheet
-        visible={currencySheetVisible}
-        title={t("vaultSettings.currency.label")}
-        selectedCode={currency}
-        allowedCurrencies={enabledCurrencies}
-        disabled={savingCurrency}
-        onSelect={(code) => {
-          setCurrencySheetVisible(false);
-          void commitCurrency(code);
-        }}
-        onDismiss={() => setCurrencySheetVisible(false)}
-      />
       <EnabledCurrenciesSheet
         visible={
           !!currencyChoicesDraft &&
@@ -1199,6 +1168,9 @@ export default function VaultSettingsScreen() {
         error={currencyChoicesDraft?.error}
         onToggle={(code) => {
           if (currencyChoicesDraft) toggleCurrencyChoice(currencyChoicesDraft.id, code);
+        }}
+        onSetDefault={(code) => {
+          if (currencyChoicesDraft) setDefaultCurrencyChoice(currencyChoicesDraft.id, code);
         }}
         onSave={() => {
           if (currencyChoicesDraft) void saveCurrencyChoices(currencyChoicesDraft.id);
