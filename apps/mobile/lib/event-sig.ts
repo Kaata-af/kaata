@@ -22,7 +22,7 @@
 // origin='local' and origin='backfill'. Any remote-origin event MUST
 // carry a signature OR be refused by the role-gate as 'unsigned_event'.
 //
-// This file is pure functions only — no DB I/O.
+// Signature/canonicalization logic only — no DB I/O. Native math is optional.
 
 // @noble/ed25519 v2 Hermes shims — INLINED here because event-sig.ts can be
 // transitively imported via `lib/event-log.ts` from boot paths (vault/new,
@@ -142,6 +142,52 @@ function b64ToBytes(b64: string): Uint8Array {
   return out;
 }
 
+type NativePublicVerifier = (item: {
+  messageBase64: string;
+  signatureBase64: string;
+  publicKeyBase64: string;
+}) => true | null;
+
+let nativePublicVerifier: NativePublicVerifier | null | undefined;
+
+// A native success is a strict subset of the original Noble acceptance rules.
+// Keep every other result on that original path, including ZIP215 edge cases.
+// Resolve lazily so pure fixtures and non-Android callers need no native module.
+function verifiedByNative(
+  msg: Uint8Array,
+  signatureBase64: string,
+  publicKeyBase64: string,
+): boolean {
+  // Other runtime inputs (including Noble's hex-string API) retain its own
+  // interpretation; character/typed-view coercion must never change signed bytes.
+  if (!(msg instanceof Uint8Array) || msg.length > 16 * 1024) return false;
+  if (nativePublicVerifier === undefined) {
+    nativePublicVerifier = null;
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      if (require("react-native").Platform.OS === "android") {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const verify = require("kaata-bt-classic").verifyEd25519Sync;
+        if (typeof verify === "function") nativePublicVerifier = verify;
+      }
+    } catch {
+      // Node, Expo Go and older builds retain the original verifier.
+    }
+  }
+  if (!nativePublicVerifier) return false;
+  try {
+    return (
+      nativePublicVerifier({
+        messageBase64: bytesToB64(msg),
+        signatureBase64,
+        publicKeyBase64,
+      }) === true
+    );
+  } catch {
+    return false;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -205,6 +251,7 @@ export function verifyEventSignature(
 
   const msg = canonicalizeEvent(event);
   try {
+    if (verifiedByNative(msg, sigB64, pubkeyB64)) return { valid: true };
     // SYNC verify — Hermes has no crypto.subtle for the async variant.
     if (ed.verify(sig, msg, pub)) return { valid: true };
   } catch {
@@ -229,7 +276,11 @@ export function verifyRawSignature(msg: Uint8Array, sigB64: string, pubkeyB64: s
   }
   if (sig.length !== 64 || pub.length !== 32) return false;
   try {
-    return ed.verify(sig, msg, pub);
+    // Match Noble's byte normalization once, including custom iterators. Use
+    // the same copy on fallback so a stateful iterator cannot change the input.
+    const message = msg instanceof Uint8Array ? Uint8Array.from(msg) : msg;
+    if (verifiedByNative(message, sigB64, pubkeyB64)) return true;
+    return ed.verify(sig, message, pub);
   } catch {
     return false;
   }

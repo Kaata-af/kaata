@@ -10,6 +10,9 @@
 // retired-list cap, sign-out re-validation, and backend re-registration.
 import assert from "node:assert/strict";
 import { randomBytes, randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { runInNewContext } from "node:vm";
+import * as ts from "typescript";
 import * as ed from "@noble/ed25519";
 import { sha512 } from "@noble/hashes/sha512";
 
@@ -95,6 +98,8 @@ stub("expo-crypto", {
   randomUUID,
   getRandomBytes: (n: number) => new Uint8Array(randomBytes(n)),
 });
+// Keep the existing lifecycle cases on the Android implementation they cover.
+stub("react-native", { Platform: { OS: "android" } });
 stub("expo-secure-store", {
   getItemAsync: async (key: string) => {
     secure.reads++;
@@ -146,6 +151,87 @@ type DeviceKeyModule = typeof import("../mesh/device-key");
 function freshModule(): DeviceKeyModule {
   delete require.cache[require.resolve("../mesh/device-key")];
   return require("../mesh/device-key") as DeviceKeyModule;
+}
+
+// Evaluate the actual module with explicit import accounting, so a cached
+// Android helper cannot conceal an accidental import on iOS/web.
+const deviceKeySource = readFileSync(require.resolve("../mesh/device-key"), "utf8");
+const deviceKeyCompiled = ts.transpileModule(deviceKeySource, {
+  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+}).outputText;
+
+function platformModule(platform: { OS: string }): {
+  mod: DeviceKeyModule;
+  imports: string[];
+  calls: {
+    nobleDerives: number;
+    nobleSigns: number;
+    curveLoads: number;
+    curveDerives: number;
+    curveSigns: number;
+  };
+} {
+  const imports: string[] = [];
+  const calls = { nobleDerives: 0, nobleSigns: 0, curveLoads: 0, curveDerives: 0, curveSigns: 0 };
+  const exports: Record<string, unknown> = {};
+  runInNewContext(deviceKeyCompiled, {
+    exports,
+    Uint8Array,
+    atob,
+    btoa,
+    console,
+    setTimeout,
+    clearTimeout,
+    AbortController,
+    fetch: globalThis.fetch,
+    require(name: string) {
+      imports.push(name);
+      if (name === "./_crypto-polyfill") return {};
+      if (name === "react-native") return { Platform: platform };
+      if (name === "@noble/hashes/sha512") return { sha512 };
+      if (name === "@noble/ed25519") {
+        return {
+          ...ed,
+          getPublicKey: (seed: Uint8Array) => {
+            calls.nobleDerives++;
+            return ed.getPublicKey(seed);
+          },
+          sign: (message: Uint8Array, seed: Uint8Array) => {
+            calls.nobleSigns++;
+            return ed.sign(message, seed);
+          },
+        };
+      }
+      if (name === "./device-signing") {
+        calls.curveLoads++;
+        assert.equal(
+          platform.OS,
+          "android",
+          "non-Android must never require/configure the curve helper",
+        );
+        const math = require("../mesh/device-signing") as typeof import("../mesh/device-signing");
+        return {
+          deriveDeviceSigningPublicKey: (seed: Uint8Array) => {
+            calls.curveDerives++;
+            return math.deriveDeviceSigningPublicKey(seed);
+          },
+          signDeviceMessage: (message: Uint8Array, seed: Uint8Array) => {
+            calls.curveSigns++;
+            return math.signDeviceMessage(message, seed);
+          },
+        };
+      }
+      if (
+        ["expo-crypto", "expo-secure-store", "../api", "../auth", "../db", "../db-tx"].includes(
+          name,
+        )
+      )
+        return require(name);
+      throw new Error(`Unexpected platform-fixture import: ${name}`);
+    },
+  });
+  assert.equal(imports[0], "./_crypto-polyfill", "crypto initialization precedes Noble imports");
+  return { mod: exports as unknown as DeviceKeyModule, imports, calls };
 }
 
 const b64 = (bytes: Uint8Array) => Buffer.from(bytes).toString("base64");
@@ -613,6 +699,63 @@ async function main(): Promise<void> {
     assert.equal(secure.writes, 0);
   });
 
+  await test("captured signers survive cache clears without resetting the signing table", async () => {
+    const { seed: seedA, pub: pubA } = seedHealthy(1);
+    const mod = freshModule();
+    const signerA = await mod.getDeviceSigner();
+    const { ed25519: curve } =
+      require("@noble/curves/ed25519") as typeof import("@noble/curves/ed25519");
+    const pointPrototype = Object.getPrototypeOf(curve.Point.BASE) as {
+      precompute: typeof curve.Point.BASE.precompute;
+    };
+    const originalPrecompute = pointPrototype.precompute;
+    let configurations = 0;
+    pointPrototype.precompute = function (
+      this: typeof curve.Point.BASE,
+      windowSize = 8,
+      isLazy = true,
+    ) {
+      if (this === curve.Point.BASE) configurations++;
+      return originalPrecompute.call(this, windowSize, isLazy);
+    };
+    try {
+      mod.clearDeviceKey();
+      const { seed: seedB, pub: pubB } = seedHealthy(2);
+      const signerB = await mod.getDeviceSigner();
+      mod.clearDeviceKey();
+      assert.equal(mod.isDeviceKeyReady(), false);
+      assert.equal(signerA.pubkey_b64, pubA);
+      assert.equal(signerB.pubkey_b64, pubB);
+
+      let timerRan = false;
+      const timer = setTimeout(() => {
+        timerRan = true;
+      }, 0);
+      try {
+        const original = Uint8Array.of(1, 2, 3, 255);
+        const message = original.slice();
+        const pending = signerA.sign(message);
+        message.fill(0);
+        const signatureA = await pending;
+        const signatureB = await signerB.sign(original);
+        assert.equal(timerRan, false, "captured signing adds no macrotask gap");
+        assert.equal(b64(signatureA), b64(ed.sign(original, seedA)));
+        assert.equal(b64(signatureB), b64(ed.sign(original, seedB)));
+        assert.equal(
+          ed.verify(signatureA, original, new Uint8Array(Buffer.from(pubB, "base64"))),
+          false,
+        );
+      } finally {
+        clearTimeout(timer);
+      }
+      assert.equal(configurations, 0, "cache clears and signing never reconfigure BASE");
+      assert.equal(secure.reads, 2);
+      assert.equal(secure.writes, 0);
+    } finally {
+      pointPrototype.precompute = originalPrecompute;
+    }
+  });
+
   await test("registerDeviceKey reports the outcome and clears the pending flag only on success", async () => {
     const oldPub = pubOf(seedOf(1));
     meta.set(PUBKEY_KEY, oldPub);
@@ -638,6 +781,52 @@ async function main(): Promise<void> {
     assert.equal(fetchCalls, 2);
     assert.equal(meta.get("device_key_reregister_pending"), "");
     assert.equal((await mod.getDeviceKeyStatus()).reregisterPending, false);
+  });
+
+  for (const os of ["ios", "web"]) {
+    await test(`${os} keeps original Noble math without loading curves; captured signers remain stable`, async () => {
+      const { seed: seedA, pub: pubA } = seedHealthy(1);
+      const platform = { OS: os };
+      const { mod, calls } = platformModule(platform);
+      platform.OS = "android"; // Selection is captured at module import, before key health/signing.
+      const signerA = await mod.getDeviceSigner();
+      mod.clearDeviceKey();
+      const { seed: seedB, pub: pubB } = seedHealthy(2);
+      const signerB = await mod.getDeviceSigner();
+      mod.clearDeviceKey();
+      const message = Uint8Array.of(1, 2, 3, 255);
+      assert.equal(signerA.pubkey_b64, pubA);
+      assert.equal(signerB.pubkey_b64, pubB);
+      assert.equal(b64(await signerA.sign(message)), b64(ed.sign(message, seedA)));
+      assert.equal(b64(await signerB.sign(message)), b64(ed.sign(message, seedB)));
+      assert.deepEqual(calls, {
+        nobleDerives: 2,
+        nobleSigns: 2,
+        curveLoads: 0,
+        curveDerives: 0,
+        curveSigns: 0,
+      });
+      assert.equal(secure.writes, 0);
+    });
+  }
+
+  await test("Android captures its curve implementation once before platform/cache changes", async () => {
+    const { seed, pub } = seedHealthy();
+    const platform = { OS: "android" };
+    const { mod, calls } = platformModule(platform);
+    platform.OS = "ios";
+    const signer = await mod.getDeviceSigner();
+    mod.clearDeviceKey();
+    const message = Uint8Array.of(7, 8, 255);
+    assert.equal(signer.pubkey_b64, pub);
+    assert.equal(b64(await signer.sign(message)), b64(ed.sign(message, seed)));
+    assert.deepEqual(calls, {
+      nobleDerives: 0,
+      nobleSigns: 0,
+      curveLoads: 1,
+      curveDerives: 1,
+      curveSigns: 1,
+    });
   });
 
   console.log(`\n${passed} device-key regressions passed; ${failed} failed.`);

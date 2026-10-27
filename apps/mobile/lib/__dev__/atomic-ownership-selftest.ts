@@ -218,6 +218,8 @@ function fixture() {
     if (name === "./mesh/device-key") return deviceKey;
     if (name === "./event-sig") return signature;
     if (name === "./projection") return projection;
+    if (name === "./entry-date") return require("../entry-date");
+    if (name === "./currency-scope") return require("../currency-scope");
     if (name === "./money" || name === "./money-sql" || name === "./tabs/errors") return {};
     throw Error(`Unexpected append import ${name}`);
   });

@@ -73,6 +73,72 @@ export type Ed25519VerificationItem = {
   publicKeyBase64: string;
 };
 
+function canonicalBase64ByteLength(value: string): number | null {
+  if (value.length % 4 !== 0) return null;
+  const padding = value.endsWith("==") ? 2 : value.endsWith("=") ? 1 : 0;
+  if (/[^A-Za-z0-9+/]/.test(value.slice(0, value.length - padding))) return null;
+  if (padding > 0) {
+    const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    const last = alphabet.indexOf(value[value.length - padding - 1]);
+    if ((last & ((1 << (padding * 2)) - 1)) !== 0) return null;
+  }
+  return (value.length / 4) * 3 - padding;
+}
+
+/** Optional synchronous acceleration of ONE bounded public signature check.
+ * Only true is conclusive; null always requires the caller's original verifier.
+ * No private keys, authority decisions or negative-result caching live here.
+ * Keep bulk/history verification on the off-thread batch path below. */
+export function verifyEd25519Sync(item: Ed25519VerificationItem): true | null {
+  if (Platform.OS !== "android") return null;
+  try {
+    if (item == null || typeof item !== "object" || Array.isArray(item)) return null;
+    const { messageBase64, signatureBase64, publicKeyBase64 } = item;
+    if (
+      typeof messageBase64 !== "string" ||
+      messageBase64.length > Math.ceil((16 * 1024) / 3) * 4 ||
+      typeof signatureBase64 !== "string" ||
+      signatureBase64.length !== 88 ||
+      typeof publicKeyBase64 !== "string" ||
+      publicKeyBase64.length !== 44
+    ) {
+      return null;
+    }
+    const messageBytes = canonicalBase64ByteLength(messageBase64);
+    if (
+      messageBytes == null ||
+      messageBytes > 16 * 1024 ||
+      canonicalBase64ByteLength(signatureBase64) !== 64 ||
+      canonicalBase64ByteLength(publicKeyBase64) !== 32
+    ) {
+      return null;
+    }
+    const request = { messageBase64, signatureBase64, publicKeyBase64 };
+    const native = getNative();
+    const verify = native.verifyEd25519Sync;
+    if (typeof verify !== "function") return null;
+    const result: unknown = verify.call(native, request);
+    if (result === true) return true;
+    if (result != null && typeof result === "object") {
+      try {
+        // A mistakenly async native API is never accepted. Consume genuine
+        // Promise rejection without awaiting or invoking arbitrary thenables.
+        void Promise.prototype.then.call(
+          result,
+          () => undefined,
+          () => undefined,
+        );
+      } catch {
+        // A non-Promise object is simply a malformed result.
+      }
+    }
+    return null;
+  } catch {
+    // Missing/older builds, invalid input and native errors keep Noble fallback.
+    return null;
+  }
+}
+
 /** Optional off-thread public signature checks. Only true results may warm an
  * exact-byte success cache. False/null must fall back to the caller's existing
  * verifier, whose acceptance rules can be more permissive. No authority,

@@ -228,6 +228,12 @@ class KaataBtClassicModule : Module() {
       Ed25519BatchVerifier.verify(items)
     }
 
+    // Single-item public check only. Bulk work stays on the async batch path;
+    // false still requires the caller's original verifier for ZIP215 parity.
+    Function("verifyEd25519Sync") { item: Map<String, String> ->
+      Ed25519BatchVerifier.verify(listOf(item)).singleOrNull() == true
+    }
+
     Function("isAvailable") {
       try {
         (appCtx.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager)?.adapter != null
