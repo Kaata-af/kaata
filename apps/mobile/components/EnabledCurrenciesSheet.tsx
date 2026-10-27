@@ -19,7 +19,7 @@ import { useOverlayAnimation } from "../lib/use-overlay-animation";
 import { useSheetDrag } from "../lib/use-sheet-drag";
 import { colors } from "../lib/colors";
 import { fonts } from "../lib/fonts";
-import { rowDir, textDir } from "../lib/direction";
+import { ltrIsolate, rowDir, textDir } from "../lib/direction";
 import { getLocale, t } from "../lib/i18n";
 import { searchCurrencies } from "../lib/currency-catalog";
 import { icon } from "../lib/tokens";
@@ -136,6 +136,9 @@ export function EnabledCurrenciesSheet(props: {
                 {choices.map((option) => {
                   const checked = props.selected.includes(option.code);
                   const isDefault = option.code === props.defaultCurrency;
+                  const symbol = option.symbol.trim();
+                  const codeLabel =
+                    symbol && symbol !== option.code ? `${option.code} · ${symbol}` : option.code;
                   const disabled =
                     props.saving || props.conflicted || isDefault || (!checked && atLimit);
                   return (
@@ -173,11 +176,13 @@ export function EnabledCurrenciesSheet(props: {
                         size={icon.row}
                         color={checked ? colors.actionPrimary : colors.textSubtle}
                       />
-                      <Text style={styles.symbol}>{option.symbol}</Text>
-                      <View style={{ flex: 1 }}>
-                        <Text style={[styles.label, textDir(props.isRTL)]}>
-                          {option.code} · {option.label}
-                        </Text>
+                      <View style={styles.choiceText}>
+                        <Text style={[styles.label, textDir(props.isRTL)]}>{option.label}</Text>
+                        {codeLabel !== option.label ? (
+                          <Text style={[styles.code, textDir(props.isRTL)]}>
+                            {ltrIsolate(codeLabel)}
+                          </Text>
+                        ) : null}
                         {isDefault ? (
                           <Text style={[styles.defaultHint, textDir(props.isRTL)]}>
                             {t("vaultSettings.currencies.default")}
@@ -282,8 +287,14 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 12,
   },
-  symbol: { minWidth: 28, fontFamily: fonts.sansSemi, fontSize: 18, color: colors.textEmphasis },
+  choiceText: { flex: 1, minWidth: 0 },
   label: { fontFamily: fonts.sansMedium, fontSize: 15, color: colors.textDefault },
+  code: {
+    fontFamily: fonts.sansRegular,
+    fontSize: 12,
+    color: colors.textSubtle,
+    marginTop: 2,
+  },
   defaultHint: {
     fontFamily: fonts.sansRegular,
     fontSize: 12,

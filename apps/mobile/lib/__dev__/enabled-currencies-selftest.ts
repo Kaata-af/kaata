@@ -6,6 +6,7 @@ import * as scope from "../currency-scope";
 import * as settings from "../currency-settings";
 import { Mutex } from "../util/mutex";
 import { CURRENCIES, searchCurrencies } from "../currency-catalog";
+import { ltrIsolate } from "../bidi";
 
 function fixture() {
   const store = new Database(":memory:");
@@ -190,7 +191,7 @@ function fixture() {
     },
     "../lib/colors": require("../colors"),
     "../lib/fonts": { fonts: {} },
-    "../lib/direction": { rowDir: () => ({}), textDir: () => ({}) },
+    "../lib/direction": { ltrIsolate, rowDir: () => ({}), textDir: () => ({}) },
     "../lib/i18n": { getLocale: () => "en", t: (key: string) => key },
     "../lib/currency-catalog": { searchCurrencies },
     "../lib/tokens": { icon: { row: 22 } },

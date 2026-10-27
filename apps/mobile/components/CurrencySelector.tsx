@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { CURRENCIES, getCurrencyLabel, getCurrencyName, getCurrencySymbol } from "../lib/currency";
 import { colors } from "../lib/colors";
-import { textDir, useIsRTL } from "../lib/direction";
+import { ltrIsolate, textDir, useIsRTL } from "../lib/direction";
 import { fonts, sansLineHeight } from "../lib/fonts";
 import { t } from "../lib/i18n";
 import { radius, TOUCH_MIN, typography } from "../lib/tokens";
@@ -49,10 +49,12 @@ export function CurrencySelector(props: CurrencySelectorProps) {
   const options = [...new Set(props.allowedCurrencies ?? CURRENCIES.map((c) => c.code))].map(
     (code) => {
       const name = getCurrencyName(code);
+      const symbol = getCurrencySymbol(code).trim();
+      const codeLabel = symbol && symbol !== code ? `${code} · ${symbol}` : code;
       return {
         key: code,
-        leading: getCurrencySymbol(code),
-        label: name === code ? code : `${code} · ${name}`,
+        label: name,
+        hint: codeLabel === name ? undefined : ltrIsolate(codeLabel),
       };
     },
   );

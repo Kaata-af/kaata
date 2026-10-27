@@ -5,6 +5,7 @@ import { compileUI, deferred, flattenStyle, jsx, nodes, settleUI, uiHooks } from
 import { normalizeAmountInput, parseAmountInput } from "../money";
 import { ENTRY_NOTE_MAX_LENGTH } from "../types";
 import { calculatorDraft, calculatorKey } from "../calculator-input";
+import { ltrIsolate } from "../bidi";
 
 type PlatformOS = "android" | "ios";
 const safeAreaInsets = { top: 0, left: 0, right: 0, bottom: 34 };
@@ -20,6 +21,7 @@ const fontEdges = Object.fromEntries(
   ]),
 );
 const directionEdges = (rtl: boolean) => ({
+  ltrIsolate,
   useIsRTL: () => rtl,
   textDir: () => ({ textAlign: rtl ? "right" : "left", writingDirection: rtl ? "rtl" : "ltr" }),
   rowDir: () => ({ flexDirection: rtl ? "row-reverse" : "row" }),
