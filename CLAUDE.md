@@ -413,6 +413,14 @@ after its TestFlight upload; keep closed testing unchanged unless requested.
 Pushing `main` automatically redeploys the backend and web in Dokploy. No release
 database writes or repository tags are required.
 
+Shared-account safety is integrated into local `main` for the 2.3.0 preparation.
+Follow the rollout gate in
+[`docs/next-release-refinements.md`](docs/next-release-refinements.md#before-the-next-release)
+and [the preparation record](docs/2.3.0-release-preparation.md). Coordinate backend
+deployment with updated mobile apps: store Android code 73 cannot provide the
+new relinking history receipts. The October 27 request authorizes local commits
+only; builds, submissions, pushing and deployment remain deferred.
+
 **Store reviewers need a way to sign in. Play reviews closed-testing releases too.**
 
 - **What happened.** On 2026-10-02 Google rejected 2.1.0's alpha release (46) with "Login credentials are missing". Shared accounts, backup and account deletion sit behind Google/Apple sign-in, even though the ledger itself works offline.

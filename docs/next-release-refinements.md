@@ -1,5 +1,19 @@
 # Next release: user-feedback refinements
 
+## Before the next release
+
+- [x] **Integrate shared-account safety locally:** `codex/shared-account-safety`,
+  including Xiaomi-tested commit `20216a3` and subsequent fixes, is integrated
+  into `main` for 2.3.0. Its last pending change was release documentation.
+- [ ] **Coordinate deployment and mobile rollout before pushing:** `main`
+  automatically deploys the backend, and store Android code 73 cannot relink
+  previously shared contacts against the new history checks. Include the mobile
+  changes in both store builds, then recheck confirmed/pending balances,
+  unlinking, final reviews and relinking on the release candidate. Local commits
+  do not authorize builds, submissions or deployment. See the QA record below.
+
+## Shared-account safety status
+
 October 22 shared-account safety work is saved for review, without a deployment or
 store release. Confirmed shared balances now exclude pending proposals, unlinking
 preserves debt/history and final pending reviews while stopping new sharing and
