@@ -237,6 +237,7 @@ function compileModule(path: string, required: (name: string) => unknown): any {
 }
 
 async function main() {
+  await snapshotCurrencyRecovery();
   {
     const f = fixture();
     for (const currencies of [[], ["USD"], ["AFN", "AFN"], ["AFN", "usd"]]) {
@@ -415,6 +416,192 @@ async function main() {
   console.log(
     "initial-currencies: atomic mint, signed genesis-first replay, local/signed-in defaults, validation, rollback and existing-book preservation passed",
   );
+}
+
+async function snapshotCurrencyRecovery() {
+  const f = fixture();
+  try {
+    await f.create("Owner", "Shop", null, "AFN", ["AFN", "EUR"]);
+    const saved = f.sql.prepare("SELECT * FROM event_log ORDER BY author_seq").all() as any[];
+    const wire = saved.map((row) => ({
+      event_id: row.event_id,
+      event_type: row.event_type,
+      hlc: { pms: row.hlc_physical_ms, l: row.hlc_logical, did: row.hlc_device_id },
+      device_id: row.device_id,
+      account_id: row.actor_account_id,
+      target_id: row.target_id,
+      relationship_id: row.relationship_id,
+      schema_version: row.payload_schema,
+      payload: JSON.parse(row.payload_json),
+      author_seq: row.author_seq,
+      event_sig_b64: row.event_sig_b64,
+      signer_device_pubkey: row.signer_device_pubkey,
+      server_seq: row.author_seq,
+    }));
+    const vault = f.sql.prepare("SELECT * FROM vaults").get() as any;
+    const self = f.sql.prepare("SELECT id FROM users WHERE is_local_self=1").get() as {
+      id: string;
+    };
+    f.sql
+      .exec(`DELETE FROM event_log; DELETE FROM vault_settings; DELETE FROM vault_device_registry; DELETE FROM vault_members_mirror;
+      CREATE TABLE entries(id TEXT PRIMARY KEY,vault_id TEXT,relationship_id TEXT,type TEXT,amount_afn REAL,note TEXT,currency TEXT,created_at INTEGER,updated_at INTEGER,deleted_at INTEGER,proposed_by_user_id TEXT,current_event_id TEXT,is_deleted INTEGER,is_settled INTEGER,accepted_at INTEGER,disputed_at INTEGER,disputed_reason TEXT,settled_at INTEGER,field_hlcs TEXT);`);
+    const dbTx = {
+      getDb: async () => f.tx,
+      getAppMetaInTx: async (_: unknown, key: string) =>
+        (f.sql.prepare("SELECT value FROM app_meta WHERE key=?").get(key) as any)?.value ?? null,
+      setAppMetaInTx: async (_: unknown, key: string, value: string) =>
+        f.sql.prepare("INSERT OR REPLACE INTO app_meta VALUES(?,?)").run(key, value),
+    };
+    const mapping = compileUI("../projection/ingest-row", {
+      "../db-tx": dbTx,
+      "../events": require("../events"),
+      "../hlc": require("../hlc"),
+      "./index": {},
+    });
+    const pending = new Map<string, LedgerEvent>();
+    const received: LedgerEvent[] = [];
+    let cursor = 0;
+    const restore = compileUI("../restore", {
+      "./credit-policy-cache": {},
+      "./api": {},
+      "./currency-sync": {},
+      "./auth": {},
+      "./db-tx": dbTx,
+      "./hlc": require("../hlc"),
+      "./projection/field-hlc": { serializeFieldHLCs: JSON.stringify },
+      "./entry-date": require("../entry-date"),
+      "./currency-metadata": require("../currency-metadata"),
+      "./customer-group-restore": { seedSnapshotCustomerGroups: async () => {} },
+      // Keep the production wire mapper and real signed projection/role gate.
+      // Only durable queue scheduling is controlled at this restore boundary.
+      "./projection/ingest-row": {
+        mapPulledWireToEvent: mapping.mapPulledWireToEvent,
+        ingestPulledEvents: async (events: LedgerEvent[]) => {
+          for (const event of events) {
+            received.push(event);
+            pending.set(event.event_id, event);
+          }
+          return events.length;
+        },
+      },
+      "./projection/sweep": {
+        sweepVaultNow: async () => {
+          const ordered = [...pending.values()].sort((a, b) =>
+            require("../hlc").compareHLC(a.hlc, b.hlc),
+          );
+          pending.clear();
+          for (const event of ordered) await f.projection.applyEvent(event, { origin: "remote" });
+        },
+      },
+      "./sync/cursor": {
+        setLastPulledServerSeq: async (_: string, value: number) => {
+          cursor = value;
+        },
+      },
+    });
+    const snapshot = {
+      vault,
+      vault_id: vault.id,
+      shop_profile: null,
+      users: [],
+      relationships: [],
+      entries: [
+        {
+          id: "historical-usd",
+          vault_id: vault.id,
+          relationship_id: "person",
+          type: "debt",
+          amount_afn: 12.5,
+          note: null,
+          currency: "USD",
+          created_at: 1000,
+          recorded_at_ms: 2000,
+          occurred_at_hlc: wire[2].hlc,
+          updated_at: wire[2].hlc.pms,
+          deleted_at: null,
+          proposed_by_user_id: null,
+          current_event_id: null,
+          is_deleted: 0,
+          is_settled: 0,
+          accepted_at: null,
+          disputed_at: null,
+          disputed_reason: null,
+          settled_at: null,
+        },
+      ],
+      membership_events: [wire[0]],
+      // An unrelated setting cannot use this narrowly scoped field, even if
+      // it was correctly signed. The tail overlap is normal and idempotent.
+      enabled_currency_events: [wire[2], wire[1]],
+      events: [wire[2]],
+      snapshot_server_seq: 500,
+      generated_at_ms: Date.now(),
+      hlc_last: wire[2].hlc,
+    };
+    await restore.restoreFromSnapshot(snapshot, { localSelfId: self.id, setActiveDefault: false });
+    assert.deepEqual(
+      f.values(),
+      { enabled_currencies: '["AFN","EUR"]' },
+      "pre-cursor explicit choices survive without republishing other settings",
+    );
+    assert.equal(cursor, 500, "the normal snapshot cursor still skips old history");
+    assert.ok(
+      received.every(
+        (event) =>
+          event.event_type !== "vault_setting_set" || event.payload.key === "enabled_currencies",
+      ),
+    );
+    const enabled = received.find((event) => event.event_id === wire[2].event_id)!;
+    assert.equal(
+      enabled.event_sig_b64,
+      wire[2].event_sig_b64,
+      "restore forwards the original signature unchanged",
+    );
+    assert.equal(f.count("event_log"), 2, "tail overlap does not duplicate signed settings");
+    const historical = f.sql
+      .prepare("SELECT * FROM entries WHERE id='historical-usd'")
+      .get() as any;
+    assert.equal(historical.currency, "USD");
+    assert.equal(historical.created_at, 1000);
+    assert.equal(JSON.parse(historical.field_hlcs).recorded_at_ms.pms, 2000);
+    const currency = compileUI("../currency", {
+      "./db": {
+        getAppMeta: async () => null,
+        setAppMeta: async () => {},
+        listLedgerCurrencies: async () => ["AFN", "EUR", "USD"],
+      },
+      "./db-tx": dbTx,
+      "./i18n": { getLocale: () => "en" },
+      react: {},
+      "./currency-scope": require("../currency-scope"),
+      "./currency-settings": require("../currency-settings"),
+      "./currency-catalog": require("../currency-catalog"),
+    });
+    assert.deepEqual(
+      await currency.getEnabledCurrencies(vault.id),
+      ["AFN", "EUR"],
+      "disabled historical USD is not silently selectable after reinstall",
+    );
+    const newer = {
+      ...enabled,
+      event_id: randomUUID(),
+      author_seq: (enabled.author_seq ?? 0) + 1,
+      hlc: { ...enabled.hlc, pms: enabled.hlc.pms + 10 },
+      payload: { key: "enabled_currencies", value: '["AFN"]' },
+    } as LedgerEvent;
+    newer.event_sig_b64 = await f.signature.signEvent(newer, async (bytes) =>
+      ed.sign(bytes, new Uint8Array(32).fill(11)),
+    );
+    assert.equal((await f.projection.applyEvent(newer, { origin: "remote" })).applied, true);
+    await restore.restoreFromSnapshot(snapshot, { localSelfId: self.id, setActiveDefault: false });
+    assert.deepEqual(
+      await currency.getEnabledCurrencies(vault.id),
+      ["AFN"],
+      "an existing newer choice is not regressed by old snapshot history",
+    );
+  } finally {
+    f.sql.close();
+  }
 }
 void main().catch((err) => {
   console.error(err);

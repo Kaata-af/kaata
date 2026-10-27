@@ -96,6 +96,9 @@ export type Snapshot = {
   // fold its own membership (proof bundle) and MESH. Ingested idempotently by
   // event_id. Absent on pre-M5 server builds → treated as [].
   membership_events?: LedgerEvent[];
+  // The original signed enabled_currencies settings, independent of the
+  // snapshot cursor. Other private/client settings do not ride this field.
+  enabled_currency_events?: LedgerEvent[];
   // Settle-up (2026-07-27): every entry_settled chapter marker, cursor-
   // independent like the membership chain — the settlements projection is
   // mobile-only, so without these a snapshot restore keeps the entries but
@@ -632,10 +635,16 @@ export async function restoreFromSnapshot(
   const settlementEvents = (snapshot.settlement_events ?? []).map((ev) =>
     mapPulledWireToEvent(ev as unknown as PulledWireEvent, snapshot.vault.id),
   );
+  const enabledCurrencyEvents = (snapshot.enabled_currency_events ?? [])
+    .map((ev) => mapPulledWireToEvent(ev as unknown as PulledWireEvent, snapshot.vault.id))
+    .filter(
+      (ev) => ev.event_type === "vault_setting_set" && ev.payload?.key === "enabled_currencies",
+    );
   const tailEvents = snapshot.events.map((ev) =>
     mapPulledWireToEvent(ev as unknown as PulledWireEvent, snapshot.vault.id),
   );
   await ingestPulledEvents(membershipEvents, now);
+  await ingestPulledEvents(enabledCurrencyEvents, now);
   await ingestPulledEvents(settlementEvents, now);
   appliedEvents += await ingestPulledEvents(tailEvents, now);
 

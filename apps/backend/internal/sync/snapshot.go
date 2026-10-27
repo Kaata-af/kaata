@@ -67,6 +67,9 @@ type SnapshotResponse struct {
 	HLCLast           HLC                       `json:"hlc_last"`
 	Events            []PulledEvent             `json:"events"`
 	MembershipEvents  []PulledEvent             `json:"membership_events"`
+	// Recover the exact future-entry choices without publishing arbitrary
+	// vault/client settings or discarding their signed authority and HLCs.
+	EnabledCurrencyEvents []PulledEvent `json:"enabled_currency_events,omitempty"`
 	// SettlementEvents (2026-07-27): every entry_settled chapter marker for
 	// the vault, cursor-independent like MembershipEvents — the settlements
 	// projection is mobile-only, so a snapshot restore would otherwise lose
@@ -234,6 +237,11 @@ func (s *Service) LatestSnapshot(ctx context.Context, vaultID string) (*Snapshot
 		return nil, fmt.Errorf("read membership chain: %w", err)
 	}
 	s.resolveBindingsOnPulled(ctx, vaultID, membership)
+	enabledCurrencies, err := pullEnabledCurrencyEvents(ctx, s.pool, vaultID)
+	if err != nil {
+		return nil, fmt.Errorf("read enabled currency events: %w", err)
+	}
+	s.resolveBindingsOnPulled(ctx, vaultID, enabledCurrencies)
 
 	settlements, err := s.pullSettlementEvents(ctx, vaultID)
 	if err != nil {
@@ -283,15 +291,16 @@ func (s *Service) LatestSnapshot(ctx context.Context, vaultID string) (*Snapshot
 			AccountID:              vaultAccount,
 			VaultTrustAnchorPubkey: trustAnchorB64,
 		},
-		ShopProfile:      projectShopProfile(vaultID, projection.ShopProfile),
-		Users:            projectUsers(projection.Users),
-		Relationships:    projectRelationships(projection.Relationships),
-		CustomerGroups:   projectCustomerGroups(projection.CustomerGroups),
-		Entries:          projectEntries(projection.Entries),
-		HLCLast:          hlcLast,
-		Events:           tail,
-		MembershipEvents: membership,
-		SettlementEvents: settlements,
+		ShopProfile:           projectShopProfile(vaultID, projection.ShopProfile),
+		Users:                 projectUsers(projection.Users),
+		Relationships:         projectRelationships(projection.Relationships),
+		CustomerGroups:        projectCustomerGroups(projection.CustomerGroups),
+		Entries:               projectEntries(projection.Entries),
+		HLCLast:               hlcLast,
+		Events:                tail,
+		MembershipEvents:      membership,
+		EnabledCurrencyEvents: enabledCurrencies,
+		SettlementEvents:      settlements,
 	}
 	return resp, nil
 }
@@ -555,6 +564,29 @@ func (s *Service) pullSettlementEvents(ctx context.Context, vaultID string) ([]P
 		WHERE vault_id = $1::uuid
 		  AND redacted_at IS NULL
 		  AND event_type = 'entry_settled'
+		ORDER BY hlc_physical_ms ASC, hlc_logical ASC, hlc_device_id ASC, event_id ASC
+	`, vaultID)
+	if err != nil {
+		return nil, err
+	}
+	return scanPulledEvents(rows)
+}
+
+type snapshotEventQuerier interface {
+	Query(context.Context, string, ...any) (pgx.Rows, error)
+}
+
+// Only this signed setting rides cursor-independently. Historical entry
+// denominations stay untouched; a disabled historical currency must not be
+// silently re-enabled by the fresh-device fallback to used currencies.
+func pullEnabledCurrencyEvents(ctx context.Context, query snapshotEventQuerier, vaultID string) ([]PulledEvent, error) {
+	rows, err := query.Query(ctx, `
+		SELECT`+pulledEventColumns+`
+		FROM events
+		WHERE vault_id = $1::uuid
+		  AND redacted_at IS NULL
+		  AND event_type = 'vault_setting_set'
+		  AND payload->>'key' = 'enabled_currencies'
 		ORDER BY hlc_physical_ms ASC, hlc_logical ASC, hlc_device_id ASC, event_id ASC
 	`, vaultID)
 	if err != nil {
