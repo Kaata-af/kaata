@@ -32,6 +32,8 @@ react.useLayoutEffect = react.useEffect;
 let vault = "vault-a",
   account = "account-a";
 let selectedCurrency = "AFN";
+let enabledCurrencies = ["AFN"];
+const scopedCreditPolicies = new Map<string, Record<string, { limit: number }>>();
 const currencyListeners = new Set<(code: string) => void>();
 type KeyboardPayload = {
   duration: number;
@@ -234,6 +236,7 @@ const mocks: Record<string, any> = {
   },
   "../lib/selection-summary": selectionSummary,
   "../lib/multi-currency-view": { currencyBalances, personCurrencyRows, selectedPeopleByCurrency },
+  "../lib/tabs/link-status": require("../tabs/link-status"),
   "../lib/profile-settings-context": { ProfileSettingsSource: "ProfileSettingsSheet" },
   "../components/Toast": { useToast: () => toast, useToastOffset: () => 0 },
   "../components/SearchKeyboardMotion": {
@@ -252,6 +255,8 @@ const mocks: Record<string, any> = {
   },
   "../lib/currency": {
     applyVaultCurrency: asyncNoop,
+    getEnabledCurrencies: async () => [...enabledCurrencies],
+    getCurrencyLabel: (code: string) => code,
     getCurrentCurrencySymbol: () => selectedCurrency,
     getCurrentCurrencyCode: () => selectedCurrency,
     setCurrentCurrency: changeCurrency,
@@ -325,8 +330,10 @@ const mocks: Record<string, any> = {
     },
   },
   "../lib/credit-limits": {
-    creditStatusForBalance: () => "none",
-    readCreditPoliciesForPeople: async () => ({}),
+    creditStatusForBalance: (policy: { limit: number } | null, balance: number) =>
+      policy && balance > policy.limit ? "over" : "none",
+    readCreditPoliciesForPeople: async (_vault: string, currency: string) =>
+      scopedCreditPolicies.get(currency) ?? {},
     refreshCreditPolicies: asyncNoop,
   },
   "../lib/credit-policy-events": { onCreditPoliciesChanged: () => noop },
@@ -1159,6 +1166,242 @@ async function main() {
   render();
   assert.deepEqual(searchIds(), ["a", "b", "c"]);
   assert.deepEqual(options().props.preference, customerList.DEFAULT_CUSTOMER_LIST);
+  // The popup filters the existing all-currency snapshot; it does not change
+  // the default currency, top cards, or whole-contact selection/removal scope.
+  const currencyRichPeople = people.map((person) => {
+    const afn = { ...person, currency: "AFN" };
+    if (person.id === "a")
+      return {
+        ...afn,
+        currency_balances: [
+          { ...afn, tab_id: "joined-afn", tab_closed_at: null, tab_other_joined: 1 },
+          {
+            ...person,
+            currency: "USD",
+            balance: -100,
+            selection_totals: {
+              currency: "USD",
+              debtCount: 0,
+              creditCount: 1,
+              debtMinor: 0,
+              creditMinor: 10000,
+            },
+          },
+        ],
+      };
+    if (person.id === "c")
+      return {
+        ...afn,
+        currency_balances: [
+          afn,
+          {
+            ...person,
+            currency: "USD",
+            balance: 5,
+            selection_totals: {
+              currency: "USD",
+              debtCount: 1,
+              creditCount: 0,
+              debtMinor: 500,
+              creditMinor: 0,
+            },
+          },
+        ],
+      };
+    return {
+      ...afn,
+      currency_balances: [
+        afn,
+        {
+          ...person,
+          currency: "GBP",
+          balance: 0,
+          selection_totals: {
+            currency: "GBP",
+            debtCount: 1,
+            creditCount: 1,
+            debtMinor: 4000,
+            creditMinor: 4000,
+          },
+        },
+      ],
+    };
+  });
+  enabledCurrencies = ["AFN", "JPY"];
+  scopedCreditPolicies.set("AFN", { c: { limit: 10 } });
+  scopedCreditPolicies.set("USD", { c: { limit: 10 } });
+  peopleByCurrency.set("AFN", currencyRichPeople);
+  await reload();
+  await flush();
+  const fullCurrencyCards = initialSummary().props.balances;
+  const fullCurrencyPeople = initialSummary().props.people;
+  assert.deepEqual(
+    [...options().props.currencies].sort(),
+    ["AFN", "GBP", "JPY", "USD"],
+    "choices include unused enabled and disabled historical currencies",
+  );
+  assert.equal(searchRows().find((row) => row.props.person.id === "c")!.props.creditStatus, "over");
+  const currencyReadCount = listRequests.length;
+  const currencyInputRef = input().props.ref;
+  options().props.onChange({ ...options().props.preference, currency: "USD", sort: "amount_desc" });
+  render();
+  assert.equal(
+    selectedCurrency,
+    "AFN",
+    "a currency filter does not change the book default/view scope",
+  );
+  assert.equal(input().props.ref, currencyInputRef);
+  assert.deepEqual(searchIds(), ["a", "c"], "USD amount order compares only actual USD rows");
+  assert.deepEqual(
+    searchRows().map((row) => row.props.person.balance),
+    [-100, 5],
+  );
+  assert.ok(
+    searchRows().every(
+      (row) =>
+        row.props.person.currency_balances.length === 1 &&
+        row.props.person.currency_balances[0].currency === "USD",
+    ),
+  );
+  assert.equal(
+    searchRows()[0].props.sharedStatus,
+    "joined",
+    "an AFN shared identity remains visible beside private USD amounts",
+  );
+  assert.equal(
+    searchRows()[1].props.creditStatus,
+    "none",
+    "USD credit status does not inherit an AFN excess",
+  );
+  assert.equal(options().props.amountSortAvailable, true);
+  assert.deepEqual(initialSummary().props.balances, fullCurrencyCards);
+  assert.equal(
+    initialSummary().props.people,
+    fullCurrencyPeople,
+    "top cards retain the unfiltered snapshot",
+  );
+  options().props.onChange({ ...options().props.preference, direction: "collect" });
+  render();
+  assert.deepEqual(searchIds(), ["c"], "AFN collect cannot make a USD payable match collect");
+  options().props.onChange({ ...options().props.preference, direction: "pay" });
+  render();
+  assert.deepEqual(searchIds(), ["a"]);
+  assert.equal(
+    resultCounts().length,
+    0,
+    "currency and direction alone add no matching-query count",
+  );
+  options().props.onChange({ ...options().props.preference, direction: "all" });
+  render();
+  startFromContactMenu();
+  assert.deepEqual(
+    toolbar().props.financialSummaries.map((row: any) => [
+      row.currency,
+      row.summary.collect,
+      row.summary.pay,
+    ]),
+    [
+      ["AFN", 100, 0],
+      ["USD", 0, 100],
+    ],
+    "selection still reports every currency on the selected whole contact",
+  );
+  const currencyRemoval = askRemove();
+  assert.equal(
+    currencyRemoval.description,
+    "selection.removeContactsDescription",
+    "removal remains whole-contact, not a currency-specific ledger deletion",
+  );
+  currencyRemoval.onCancel();
+  render();
+  toolbar().props.onClose();
+  render();
+  assert.equal(
+    listRequests.length,
+    currencyReadCount,
+    "currency filtering and selection need no extra people read",
+  );
+  assert.equal(JSON.parse(metadata.get("customer_home:account-a:vault-a")!).currency, "USD");
+  await reload();
+  await flush();
+  assert.equal(
+    options().props.preference.currency,
+    "USD",
+    "the per-Kaata currency choice survives refresh",
+  );
+  options().props.onChange({ ...options().props.preference, direction: "collect", group: ["g"] });
+  render();
+  homeNodes()
+    .find((node) => node.props.accessibilityHint === "customers.currencyFilter.clear")!
+    .props.onPress();
+  render();
+  assert.equal(options().props.preference.currency, undefined);
+  assert.deepEqual(options().props.preference.group, ["g"]);
+  assert.equal(
+    options().props.preference.direction,
+    "collect",
+    "clearing only currency preserves other filters",
+  );
+  assert.equal(options().props.amountSortAvailable, false);
+  assert.equal(
+    options().props.preference.sort,
+    "recent",
+    "All currencies safely falls back from amount order",
+  );
+  options().props.onChange({
+    ...options().props.preference,
+    currency: "JPY",
+    group: "all",
+    direction: "all",
+  });
+  render();
+  assert.deepEqual(searchIds(), [], "unused enabled currency never manufactures zero balances");
+  assert.ok(
+    homeNodes().some(
+      (node) => node.type === "EmptyState" && node.props.title === "customers.noResults",
+    ),
+  );
+  homeNodes()
+    .find((node) => node.props.accessibilityLabel === "search.clearAll")!
+    .props.onPress();
+  render();
+  assert.deepEqual(options().props.preference, customerList.DEFAULT_CUSTOMER_LIST);
+  assert.deepEqual(initialSummary().props.balances, fullCurrencyCards);
+  const unknownCreditPeople = currencyRichPeople.map((person) =>
+    person.id === "c"
+      ? {
+          ...person,
+          currency_balances: person.currency_balances.map((row) =>
+            row.currency === "USD"
+              ? {
+                  ...row,
+                  balance: 999,
+                  tab_unsynced: 1,
+                  tab_id: "unknown-usd",
+                  tab_closed_at: null,
+                  tab_other_joined: 1,
+                }
+              : row,
+          ),
+        }
+      : person,
+  );
+  peopleByCurrency.set("AFN", unknownCreditPeople);
+  await reload();
+  await flush();
+  options().props.onChange({ ...options().props.preference, currency: "USD" });
+  render();
+  const unknownCreditRow = searchRows().find((row) => row.props.person.id === "c")!;
+  assert.equal(unknownCreditRow.props.person.tab_unsynced, 1);
+  assert.equal(
+    unknownCreditRow.props.creditStatus,
+    "none",
+    "an unknown shared USD balance cannot trigger a stale over-limit warning",
+  );
+  options().props.onChange(customerList.DEFAULT_CUSTOMER_LIST);
+  render();
+  enabledCurrencies = ["AFN"];
+  scopedCreditPolicies.clear();
   homeNodes()
     .find((node) => node.type === "HomeFilterPopover")!
     .props.onDismiss();

@@ -3,6 +3,8 @@
 import assert from "node:assert/strict";
 import { compileUI, flattenStyle, jsx, nodes, uiHooks, type UINode } from "./ui-fixture";
 import type { PersonWithBalance } from "../types";
+import { filterCustomerCurrencyRows } from "../customer-list";
+import { personSharedAccountStatus } from "../tabs/link-status";
 
 const hooks = uiHooks();
 const queued: (() => void)[] = [];
@@ -44,6 +46,7 @@ const a = { id: "a", name: "A", balance: 10, is_settled: 0 } as PersonWithBalanc
 const b = { id: "b", name: "B", balance: -20, is_settled: 0 } as PersonWithBalance;
 let props = {
   person: a,
+  sharedStatus: undefined as ReturnType<typeof personSharedAccountStatus> | undefined,
   selecting: false,
   onPress: (person: PersonWithBalance) => pressed.push(person.id),
   onLongPress: (person: PersonWithBalance) => held.push(person.id),
@@ -53,8 +56,12 @@ const render = () => (row = hooks.render(() => PersonRow(props)));
 const flush = () => {
   while (queued.length) queued.shift()!();
 };
-const reuse = (person: PersonWithBalance, selecting = false) => {
-  props = { ...props, person, selecting };
+const reuse = (
+  person: PersonWithBalance,
+  selecting = false,
+  sharedStatus?: ReturnType<typeof personSharedAccountStatus>,
+) => {
+  props = { ...props, person, selecting, sharedStatus };
   render();
 };
 const reset = () => {
@@ -127,6 +134,71 @@ for (rowRTL of [false, true]) {
     checks++;
   }
 }
+rowRTL = false;
+
+for (rowRTL of [false, true]) {
+  for (const status of ["joined", "waiting", "none"] as const) {
+    const usd = { ...a, currency: "USD", balance: -25, tab_id: null };
+    const contact = {
+      ...a,
+      currency: "AFN",
+      currency_balances: [
+        {
+          ...a,
+          currency: "AFN",
+          balance: 100,
+          tab_id: "afn-shared",
+          tab_closed_at: status === "none" ? 100 : null,
+          tab_other_joined: status === "joined" ? 1 : 0,
+        },
+        usd,
+      ],
+    } as PersonWithBalance;
+    const projected = filterCustomerCurrencyRows([contact], "USD")[0];
+    assert.equal(personSharedAccountStatus(projected), "none");
+    const fullContactStatus = personSharedAccountStatus(contact);
+    assert.equal(fullContactStatus, status);
+    reuse(projected, false, fullContactStatus);
+    assert.equal(
+      nodes(row!).some((node) => node.type === "SharedAccountBadge"),
+      status === "joined",
+      "full-contact joined identity survives projection onto an unlinked USD balance",
+    );
+    assert.equal(
+      JSON.stringify(row!).includes("tab.chip.waiting"),
+      status === "waiting",
+      "full-contact waiting identity survives projection without changing confirmed badge semantics",
+    );
+    const amounts = nodes(row!).filter(
+      (node) => node.type === "Text" && node.props.accessibilityLabel,
+    );
+    assert.deepEqual(
+      amounts.map((node) => node.props.children),
+      ["25"],
+    );
+    assert.equal(amounts[0].props.accessibilityLabel, "home.tab.pay, 25 USD");
+    assert.equal(
+      JSON.stringify(row!).includes('"children":"AFN"'),
+      false,
+      "badge identity does not restore hidden AFN amounts",
+    );
+    checks++;
+  }
+}
+const projectedWaiting = {
+  ...a,
+  currency: "USD",
+  tab_id: "waiting-usd",
+  tab_closed_at: null,
+  tab_other_joined: 0,
+} as PersonWithBalance;
+reuse(projectedWaiting, false, "none");
+assert.equal(
+  JSON.stringify(row!).includes("tab.chip.waiting"),
+  false,
+  "an explicit none status is authoritative rather than falling back",
+);
+checks++;
 rowRTL = false;
 
 reuse({ ...a, balance: 0, tab_id: "shared", tab_pending: 0, tab_pending_count: 1 });

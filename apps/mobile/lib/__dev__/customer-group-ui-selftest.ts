@@ -96,6 +96,10 @@ export async function customerGroupUIChecks() {
       },
       "./SheetSurface": { SheetSurface: "SheetSurface" },
       "../lib/colors": { colors },
+      "../lib/currency": {
+        getCurrencyLabel: (code: string) =>
+          code === "AFN" ? "AFN ؋" : code === "USD" ? "USD $" : code,
+      },
       "../lib/fonts": { fonts: {} },
       "../lib/direction": {
         rowDir: (rtl: boolean) => ({ flexDirection: rtl ? "row-reverse" : "row" }),
@@ -437,6 +441,133 @@ export async function customerGroupUIChecks() {
           node.props.accessibilityLabel === language.t("customers.sort.name_desc"),
       )!;
       assert.equal(afterSort.props.accessibilityState.checked, true);
+
+      const currencyOptions = (currencies: readonly string[] = ["AFN", "USD", "XYZ", "USD"]) =>
+        CustomerListOptions({
+          compact: true,
+          embedded,
+          currencies,
+          isRTL: locale !== "en",
+          preference,
+          amountSortAvailable: !!preference.currency && preference.currency !== "all",
+          groups: [{ id: "family", name: "Family", member_count: 1 }],
+          onChange: (next: CustomerListPreference) => {
+            preference = next;
+          },
+        });
+      assert.ok(!language.t("customers.currencyFilter").startsWith("customers."));
+      assert.ok(!language.t("customers.currencyFilter.all").startsWith("customers."));
+      assert.ok(!language.t("customers.sort.selectCurrencyHelp").startsWith("customers."));
+      const currencyGroup = (tree: any) =>
+        nodes(tree).find(
+          (node) =>
+            node.props.accessibilityRole === "radiogroup" &&
+            node.props.accessibilityLabel === language.t("customers.currencyFilter"),
+        );
+      const currencyRadios = (tree: any) =>
+        nodes(currencyGroup(tree)).filter((node) => node.props.accessibilityRole === "radio");
+      const allCurrencies = currencyOptions();
+      assert.deepEqual(
+        nodes(allCurrencies)
+          .filter((node) => node.props.accessibilityRole === "radiogroup")
+          .map((node) => node.props.accessibilityLabel),
+        [
+          language.t("customers.currencyFilter"),
+          language.t("customers.balanceFilter"),
+          language.t("customers.sort"),
+        ],
+        "currency, balance and order remain independent radio groups",
+      );
+      assert.deepEqual(
+        currencyRadios(allCurrencies).map((node) => node.props.accessibilityLabel),
+        [language.t("customers.currencyFilter.all"), "AFN ؋", "USD $", "XYZ"],
+        "currency choices deduplicate codes and label unknown historic codes honestly",
+      );
+      assert.deepEqual(
+        currencyRadios(allCurrencies).map((node) => node.props.accessibilityState.checked),
+        [true, false, false, false],
+      );
+      const strip = nodes(currencyGroup(allCurrencies)).find((node) => node.type === "ScrollView")!;
+      assert.equal(strip.props.horizontal, true);
+      assert.equal(
+        strip.props.keyboardShouldPersistTaps,
+        "handled",
+        "choosing a currency does not dismiss the native keyboard",
+      );
+      assert.equal(strip.props.nestedScrollEnabled, true);
+      assert.equal(flattenStyle(strip.props.contentContainerStyle).flexDirection, "row");
+      assert.equal(flattenStyle(strip.props.style).flexGrow, 0);
+      assert.equal(
+        nodes(allCurrencies).some((node) => node.type === "Modal"),
+        false,
+        "currency selection stays in the existing popup",
+      );
+      assert.ok(
+        nodes(allCurrencies).some(
+          (node) => node.props.children === language.t("customers.sort.selectCurrencyHelp"),
+        ),
+      );
+      for (const control of currencyRadios(allCurrencies)) {
+        const style = flattenStyle(control.props.style({ pressed: false }));
+        assert.ok(style.minHeight >= 44);
+        assert.equal(style.flexShrink, 0);
+        const label = nodes(control).find((node) => node.type === "Text")!;
+        assert.equal(label.props.numberOfLines, undefined);
+      }
+      const beforeCurrency = { ...preference };
+      currencyRadios(allCurrencies)
+        .find((node) => node.props.accessibilityLabel === "USD $")!
+        .props.onPress();
+      assert.deepEqual(
+        preference,
+        { ...beforeCurrency, currency: "USD" },
+        "currency selection retains sort, direction and groups",
+      );
+      const oneCurrency = currencyOptions();
+      assert.equal(
+        currencyRadios(oneCurrency).find((node) => node.props.accessibilityLabel === "USD $")!.props
+          .accessibilityState.checked,
+        true,
+      );
+      const smallest = nodes(oneCurrency).find(
+        (node) => node.props.accessibilityLabel === language.t("customers.sort.amount_asc"),
+      )!;
+      assert.ok(smallest, "a scoped currency exposes amount sorting in the same controls");
+      smallest.props.onPress();
+      assert.equal(preference.currency, "USD");
+      assert.equal(preference.sort, "amount_asc");
+      assert.deepEqual(preference.group, ["family"]);
+      assert.equal(preference.direction, "collect");
+      const beforeAll = { ...preference };
+      currencyRadios(currencyOptions())[0].props.onPress();
+      assert.deepEqual(preference, { ...beforeAll, currency: undefined });
+      assert.equal(
+        currencyGroup(currencyOptions(["AFN"])),
+        undefined,
+        "a sole implicit currency needs no redundant chooser",
+      );
+      const many = Array.from(
+        { length: 64 },
+        (_, index) =>
+          `A${String.fromCharCode(65 + Math.floor(index / 26))}${String.fromCharCode(65 + (index % 26))}`,
+      );
+      const manyOptions = currencyOptions(many);
+      assert.equal(
+        currencyRadios(manyOptions).length,
+        65,
+        "all available denominations remain reachable without a tall grid",
+      );
+      assert.equal(
+        nodes(currencyGroup(manyOptions)).filter((node) => node.type === "ScrollView").length,
+        1,
+      );
+      // Native callbacks are opaque to assertion-based TypeScript narrowing.
+      preference = { ...beforeAll, currency: "AFN" };
+      assert.equal(
+        currencyRadios(currencyOptions(["AFN"])).length,
+        2,
+        "an explicit one-currency filter still offers All to clear it",
+      );
     }
   }
   translate = (key: string) => key;

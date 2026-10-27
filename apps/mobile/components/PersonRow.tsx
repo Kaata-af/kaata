@@ -30,6 +30,7 @@ export const PersonRow = memo(function PersonRow(props: {
   onPress: (person: PersonWithBalance) => void;
   onLongPress?: (person: PersonWithBalance) => void;
   creditStatus?: CreditStatus;
+  sharedStatus?: ReturnType<typeof personSharedAccountStatus>;
   showDirection?: boolean;
   selecting?: boolean;
   selected?: boolean;
@@ -37,7 +38,7 @@ export const PersonRow = memo(function PersonRow(props: {
 }) {
   const isRTL = useIsRTL();
   const { person } = props;
-  const sharedStatus = personSharedAccountStatus(person);
+  const sharedStatus = props.sharedStatus ?? personSharedAccountStatus(person);
   const activePress = useRef<{ personId: string } | null>(null);
   // Deliberately settled (user drew the line, balance zero, nothing since) —
   // NOT the same as a balance that merely sums to zero. Settled rows get a

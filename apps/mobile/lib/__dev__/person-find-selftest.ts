@@ -26,6 +26,7 @@ let rtl = false,
   platform = "android",
   vaultId: string | null = "kaata";
 let selectedCurrency = "AFN";
+let enabledCurrencies = ["AFN"];
 const currencyListeners = new Set<(code: string) => void>();
 const changeCurrency = (code: string) => {
   selectedCurrency = code;
@@ -64,6 +65,7 @@ type FixturePerson = (typeof people)[number] & {
   tab_other_joined?: 0 | 1;
   currency?: string;
   currency_balances?: FixturePerson[];
+  selection_totals?: import("../types").PersonWithBalance["selection_totals"];
 };
 let peopleByVault: Map<string | null, FixturePerson[]>;
 let activeVaultsOverride: { id: string; name: string; currency: string }[] | null = null;
@@ -401,6 +403,8 @@ const libMocks: Record<string, any> = {
   "tabs/link-status": require("../tabs/link-status"),
   currency: {
     applyVaultCurrency: async () => {},
+    getEnabledCurrencies: async () => [...enabledCurrencies],
+    getCurrencyLabel: (code: string) => code,
     getCurrentCurrencySymbol: () => selectedCurrency,
     getCurrentCurrencyCode: () => selectedCurrency,
     setCurrentCurrency: changeCurrency,
@@ -650,6 +654,7 @@ function fixture(
   persistedAccountId = null;
   cachedAccountId = null;
   selectedCurrency = "AFN";
+  enabledCurrencies = ["AFN"];
   screenWidth = 390;
   screenFontScale = 1;
   routeParams = {};
@@ -1155,6 +1160,147 @@ async function main() {
     assert.ok(dialog.props.visible, "bulk removal waits for confirmation");
     return dialog;
   };
+
+  for (const nextRtl of [false, true]) {
+    fixture(home, "owner", nextRtl);
+    enabledCurrencies = ["AFN", "JPY"];
+    const amountRow = (
+      id: string,
+      name: string,
+      currency: string,
+      balance: number,
+    ): FixturePerson => ({
+      ...people[0],
+      id,
+      name,
+      currency,
+      balance,
+      last_entry_at: 100,
+      selection_totals: {
+        currency,
+        debtCount: balance > 0 ? 1 : 0,
+        creditCount: balance < 0 ? 1 : 0,
+        debtMinor: Math.round(Math.max(0, balance) * 100),
+        creditMinor: Math.round(Math.max(0, -balance) * 100),
+      },
+    });
+    const a = amountRow("currency-a", "Alfa", "AFN", 500);
+    const b = amountRow("currency-b", "Bravo", "AFN", -70);
+    const fullPeople = [
+      { ...a, currency_balances: [a, amountRow(a.id, a.name, "USD", -10)] },
+      { ...b, currency_balances: [b, amountRow(b.id, b.name, "USD", 50)] },
+    ];
+    peopleByVault.set("kaata", fullPeople);
+    await flush();
+    const cards = find("HomeBalanceSummary")!.props.balances;
+    const initialReads = homeReadScopes.length;
+    assert.deepEqual(
+      [...homeOptions().props.currencies].sort(),
+      ["AFN", "JPY", "USD"],
+      "both locales offer enabled and disabled historical denominations",
+    );
+    homeOptions().props.onChange({
+      ...homeOptions().props.preference,
+      currency: "USD",
+      sort: "amount_desc",
+    });
+    await flush();
+    assert.deepEqual(
+      homeIds(),
+      [b.id, a.id],
+      "USD amount sorting is independent of opposite AFN balances",
+    );
+    assert.equal(homeOptions().props.amountSortAvailable, true);
+    assert.ok(
+      homeRows().every(
+        (row) =>
+          row.props.person.currency === "USD" && row.props.person.currency_balances.length === 1,
+      ),
+    );
+    assert.equal(selectedCurrency, "AFN");
+    assert.equal(
+      homeReadScopes.length,
+      initialReads,
+      "local currency choices reuse the loaded snapshot",
+    );
+    assert.deepEqual(
+      find("HomeBalanceSummary")!.props.balances,
+      cards,
+      "cards stay whole-book when list currency changes",
+    );
+    homeOptions().props.onChange({ ...homeOptions().props.preference, direction: "collect" });
+    await flush();
+    assert.deepEqual(homeIds(), [b.id]);
+    assert.equal(resultCounts().length, 0);
+    assert.equal(JSON.parse(homePreferenceMeta.get("customer_home:local:kaata")!).currency, "USD");
+    const oldOptions = homeOptions().props;
+    vaultId = "other-currency-book";
+    peopleByVault.set(vaultId, [amountRow("other", "Other", "AFN", 7)]);
+    ledgerEvents.emitLedgerApplied(vaultId, "remote");
+    await runTimers();
+    assert.equal(
+      homeOptions().props.preference.currency,
+      undefined,
+      "another Kaata starts with its own All-currency preference",
+    );
+    assert.deepEqual(
+      [...homeOptions().props.currencies].sort(),
+      ["AFN", "JPY"],
+      "historical choices cannot leak between Kaatas",
+    );
+    oldOptions.onChange({ ...oldOptions.preference, currency: "USD" });
+    await flush();
+    assert.equal(
+      homePreferenceMeta.has("customer_home:local:other-currency-book"),
+      false,
+      "retained currency options cannot write the next Kaata's preference",
+    );
+    vaultId = "kaata";
+    ledgerEvents.emitLedgerApplied(vaultId, "remote");
+    await runTimers();
+    assert.equal(
+      homeOptions().props.preference.currency,
+      "USD",
+      "returning to the Kaata restores its persisted currency",
+    );
+    assert.equal(homeOptions().props.preference.direction, "collect");
+    assert.deepEqual(homeIds(), [b.id]);
+    await changeHomeQuery("Bravo");
+    // Chips expose the translated clear action as a hint, not their visible ISO label.
+    const currencyChip = homeRenderedNodes().find(
+      (node) => node.props.accessibilityHint === "customers.currencyFilter.clear",
+    )!;
+    assert.ok(currencyChip);
+    currencyChip.props.onPress();
+    await flush();
+    assert.equal(homeInput().props.value, "Bravo");
+    assert.equal(homeOptions().props.preference.direction, "collect");
+    assert.equal(homeOptions().props.preference.currency, undefined);
+    assert.equal(homeOptions().props.preference.sort, "recent");
+    assert.equal(homeOptions().props.amountSortAvailable, false);
+    assert.deepEqual(
+      homeIds(),
+      [b.id],
+      "clearing only USD keeps query/direction and restores every currency row",
+    );
+    assert.equal(homeRows()[0].props.person.currency_balances.length, 2);
+    byLabel("search.clearAll")!.props.onPress();
+    await flush();
+    homeOptions().props.onChange({ ...homeOptions().props.preference, currency: "JPY" });
+    await flush();
+    assert.deepEqual(
+      homeIds(),
+      [],
+      "an enabled denomination without ledger rows is an honest empty result",
+    );
+    assert.ok(find("EmptyState")?.props.title === "customers.noResults");
+    assert.deepEqual(find("HomeBalanceSummary")!.props.balances, cards);
+    byLabel("search.clearAll")!.props.onPress();
+    await flush();
+    assert.equal(homeOptions().props.preference.currency, undefined);
+    assert.deepEqual(homeIds().sort(), [a.id, b.id]);
+    assert.equal(homeInput().props.value, "");
+  }
 
   const activityNow = 1_720_000_000_000;
   const recencyPeople = [

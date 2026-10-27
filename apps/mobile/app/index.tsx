@@ -49,7 +49,13 @@ import { useAppMeta } from "../lib/app-meta-context";
 import { colors } from "../lib/colors";
 import { splitSearchQuery } from "../lib/contacts-merge";
 import { searchCustomerMatches } from "../lib/search";
-import { applyVaultCurrency, getCurrentCurrencyCode, useCurrency } from "../lib/currency";
+import {
+  applyVaultCurrency,
+  getCurrentCurrencyCode,
+  getCurrencyLabel,
+  getEnabledCurrencies,
+  useCurrency,
+} from "../lib/currency";
 import { VaultPickerSheet } from "../components/VaultPickerSheet";
 import { getSessionUser, type SessionUser, signOut } from "../lib/auth";
 import {
@@ -75,6 +81,7 @@ import {
 import { readCustomerGroups, type CustomerGroup } from "../lib/customer-groups";
 import {
   availableCustomerGroupFilter,
+  availableCustomerCurrencyFilter,
   DEFAULT_CUSTOMER_LIST,
   parseHomeCustomerListPreference,
   selectSearchCustomers,
@@ -105,6 +112,7 @@ import {
   openOemAutostartSettings,
 } from "../lib/battery-exemption";
 import type { PersonWithBalance, Self } from "../lib/types";
+import { personSharedAccountStatus } from "../lib/tabs/link-status";
 
 // Header profile-slot diameter. One constant for ALL THREE variants (Google
 // photo, initial-letter chip, signed-out icon) so the top-right chrome never
@@ -116,6 +124,7 @@ const PROFILE_SLOT_SIZE = 36;
 // Keep the add button at the 52px action height used by the other docks.
 const FAB_SIZE = 52;
 const EMPTY_PEOPLE: PersonWithBalance[] = [];
+const EMPTY_CURRENCIES: string[] = [];
 const EMPTY_SEARCH_RELEVANCE = new Map<string, number>();
 
 /**
@@ -184,6 +193,7 @@ export default function HomeScreen() {
     vaultId: string | null;
     accountId: string | null;
     currency: string;
+    currencies: string[];
   } | null>(null);
   const [customerQuery, setCustomerQuery] = useState("");
   const [filtersExpanded, setFiltersExpanded] = useState(false);
@@ -206,7 +216,9 @@ export default function HomeScreen() {
   const [groupByPerson, setGroupByPerson] = useState<Record<string, string[]>>({});
   const [savedListPreference, setListPreference] =
     useState<CustomerListPreference>(DEFAULT_CUSTOMER_LIST);
-  const [creditByPerson, setCreditByPerson] = useState<Record<string, CreditStatus>>({});
+  const [creditByCurrency, setCreditByCurrency] = useState<
+    Record<string, Record<string, CreditStatus>>
+  >({});
   const preferenceVersion = useRef(0),
     loadGeneration = useRef(0);
   const locale = getLocale();
@@ -352,14 +364,16 @@ export default function HomeScreen() {
       const peopleRead = listAllPeopleForSearch(requestedVault, requestedCurrency, {
         allCurrencies: true,
       });
-      const [s, searchList, balances, user, vaultId, shopRaw] = await Promise.all([
-        getLocalSelf(),
-        peopleRead,
-        peopleRead.then((people) => currencyBalances(people, requestedCurrency)),
-        getSessionUser(),
-        getActiveVaultId(),
-        getAppMeta("shop_mode_enabled"),
-      ]);
+      const [s, searchList, balances, user, vaultId, shopRaw, enabledCurrencies] =
+        await Promise.all([
+          getLocalSelf(),
+          peopleRead,
+          peopleRead.then((people) => currencyBalances(people, requestedCurrency)),
+          getSessionUser(),
+          getActiveVaultId(),
+          getAppMeta("shop_mode_enabled"),
+          requestedVault ? getEnabledCurrencies(requestedVault) : Promise.resolve([]),
+        ]);
       const [groupState, prefRaw, legacySearchRaw, creditPolicies] = await Promise.all([
         vaultId
           ? readCustomerGroups(vaultId)
@@ -381,7 +395,7 @@ export default function HomeScreen() {
               ].map(
                 async (code) => [code, await readCreditPoliciesForPeople(vaultId, code)] as const,
               ),
-            ).then(Object.fromEntries)
+            ).then((rows) => Object.fromEntries(rows))
           : Promise.resolve<Record<string, Record<string, CreditPolicy>>>({}),
       ]);
       if (!current() || requestedVault !== vaultId) return;
@@ -393,6 +407,14 @@ export default function HomeScreen() {
         vaultId: requestedVault,
         accountId: requestedAccount,
         currency: requestedCurrency,
+        currencies: [
+          ...new Set([
+            ...enabledCurrencies,
+            ...searchList.flatMap((person) =>
+              personCurrencyRows(person).map((row) => row.currency ?? requestedCurrency),
+            ),
+          ]),
+        ].filter((code) => /^[A-Z]{3}$/.test(code)),
       });
       setSummarySnapshot({ vaultId: requestedVault, accountId: requestedAccount, balances });
       setCustomerGroups(groupState.groups);
@@ -405,20 +427,28 @@ export default function HomeScreen() {
             ]),
           ),
       );
-      setCreditByPerson(
+      setCreditByCurrency(
         Object.fromEntries(
-          searchList.map((person) => {
-            const statuses = personCurrencyRows(person).map((row) =>
-              creditStatusForBalance(
-                creditPolicies[row.currency ?? requestedCurrency]?.[person.id] ?? null,
-                row.balance,
-              ),
-            );
-            return [
-              person.id,
-              statuses.includes("over") ? "over" : statuses.includes("near") ? "near" : "none",
-            ];
-          }),
+          Object.entries(creditPolicies).map(([code, policies]) => [
+            code,
+            Object.fromEntries(
+              searchList.flatMap((person) => {
+                const row = personCurrencyRows(person).find(
+                  (balance) => (balance.currency ?? requestedCurrency) === code,
+                );
+                return row
+                  ? [
+                      [
+                        person.id,
+                        row.tab_unsynced === 1
+                          ? "none"
+                          : creditStatusForBalance(policies[person.id] ?? null, row.balance),
+                      ],
+                    ]
+                  : [];
+              }),
+            ),
+          ]),
         ),
       );
       if (prefVersion === preferenceVersion.current) {
@@ -478,7 +508,7 @@ export default function HomeScreen() {
             setPeopleScope(null);
             setCustomerGroups([]);
             setGroupByPerson({});
-            setCreditByPerson({});
+            setCreditByCurrency({});
             setSelf(s ? { ...s, shop_name: null } : s);
             setLoadError(false);
             setLoaded(true);
@@ -700,7 +730,14 @@ export default function HomeScreen() {
     peopleScope?.currency === selectedCurrency &&
     selectedCurrency === getCurrentCurrencyCode();
   const visibleAllPeople = currentPeopleScope ? allPeople : EMPTY_PEOPLE;
-  const amountSortAvailable = useMemo(
+  const filterCurrencies = currentPeopleScope
+    ? (peopleScope?.currencies ?? EMPTY_CURRENCIES)
+    : EMPTY_CURRENCIES;
+  const currencyFilter = availableCustomerCurrencyFilter(
+    savedListPreference.currency,
+    filterCurrencies,
+  );
+  const allCurrencyAmountSortAvailable = useMemo(
     () =>
       new Set(
         visibleAllPeople.flatMap((person) =>
@@ -709,15 +746,42 @@ export default function HomeScreen() {
       ).size <= 1,
     [visibleAllPeople, selectedCurrency],
   );
+  const amountSortAvailable = !!currencyFilter || allCurrencyAmountSortAvailable;
   // A saved amount sort can outlive a book's first additional currency. Use a
   // valid order immediately, without comparing unlike amounts or saving on load.
-  const listPreference = useMemo<CustomerListPreference>(
+  const listPreference = useMemo<CustomerListPreference>(() => {
+    const { currency: _savedCurrency, ...allCurrenciesPreference } = savedListPreference;
+    const preference = currencyFilter
+      ? { ...savedListPreference, currency: currencyFilter }
+      : savedListPreference.currency === undefined
+        ? savedListPreference
+        : allCurrenciesPreference;
+    return !amountSortAvailable &&
+      (preference.sort === "amount_desc" || preference.sort === "amount_asc")
+      ? { ...preference, sort: DEFAULT_CUSTOMER_LIST.sort }
+      : preference;
+  }, [savedListPreference, currencyFilter, amountSortAvailable]);
+  const sharedStatusByPerson = useMemo(
     () =>
-      !amountSortAvailable &&
-      (savedListPreference.sort === "amount_desc" || savedListPreference.sort === "amount_asc")
-        ? { ...savedListPreference, sort: DEFAULT_CUSTOMER_LIST.sort }
-        : savedListPreference,
-    [savedListPreference, amountSortAvailable],
+      Object.fromEntries(
+        visibleAllPeople.map((person) => [person.id, personSharedAccountStatus(person)]),
+      ),
+    [visibleAllPeople],
+  );
+  const creditByPerson = useMemo<Record<string, CreditStatus>>(
+    () =>
+      Object.fromEntries(
+        visibleAllPeople.map((person) => {
+          const statuses = currencyFilter
+            ? [creditByCurrency[currencyFilter]?.[person.id] ?? "none"]
+            : Object.values(creditByCurrency).map((statuses) => statuses[person.id] ?? "none");
+          return [
+            person.id,
+            statuses.includes("over") ? "over" : statuses.includes("near") ? "near" : "none",
+          ];
+        }),
+      ),
+    [visibleAllPeople, creditByCurrency, currencyFilter],
   );
   const searchMatches = useMemo(
     () =>
@@ -894,6 +958,7 @@ export default function HomeScreen() {
   }, [effectiveGroup, listPreference.group]);
   const balanceFilter = listPreference.direction ?? "all";
   const listCustomized =
+    !!currencyFilter ||
     balanceFilter !== "all" ||
     effectiveGroup !== "all" ||
     listPreference.sort !== DEFAULT_CUSTOMER_LIST.sort;
@@ -920,7 +985,7 @@ export default function HomeScreen() {
     homeScrollPositions.current = { scope: homeScrollScope, offset: 0 };
   // Retained callbacks write their own scope's record, including account ABA.
   const homeScrollPosition = homeScrollPositions.current;
-  const listOrderKey = `${listPreference.sort}|${balanceFilter}|${JSON.stringify(effectiveGroup)}`;
+  const listOrderKey = `${listPreference.sort}|${balanceFilter}|${currencyFilter ?? "all"}|${JSON.stringify(effectiveGroup)}`;
   const shownListOrderKey = useRef(listOrderKey);
   useEffect(() => {
     if (shownListOrderKey.current === listOrderKey) return;
@@ -940,8 +1005,12 @@ export default function HomeScreen() {
     selectedCurrency === getCurrentCurrencyCode();
   const changeListPreference = (preference: CustomerListPreference) => {
     if (!isCurrentHome() || selectionBusyRef.current || homeInteraction.current.confirming) return;
+    const currency = availableCustomerCurrencyFilter(preference.currency, filterCurrencies);
+    const { currency: _requestedCurrency, ...allCurrenciesPreference } = preference;
+    preference = currency ? { ...preference, currency } : allCurrenciesPreference;
     if (
-      !amountSortAvailable &&
+      !currency &&
+      !allCurrencyAmountSortAvailable &&
       (preference.sort === "amount_desc" || preference.sort === "amount_asc")
     )
       preference = { ...preference, sort: DEFAULT_CUSTOMER_LIST.sort };
@@ -1371,6 +1440,13 @@ export default function HomeScreen() {
             onClear={() => changeListPreference({ ...listPreference, direction: "all" })}
           />
         ) : null}
+        {currencyFilter ? (
+          <CustomerFilterChip
+            label={`${t("customers.currencyFilter")}: ${getCurrencyLabel(currencyFilter)}`}
+            clearHint={t("customers.currencyFilter.clear")}
+            onClear={() => changeListPreference({ ...listPreference, currency: undefined })}
+          />
+        ) : null}
         <GroupFilterChip
           groupFilterLabel={groupFilterLabel}
           groupFilterCount={groupFilterCount}
@@ -1387,6 +1463,7 @@ export default function HomeScreen() {
         compact
         embedded
         amountSortAvailable={amountSortAvailable}
+        currencies={filterCurrencies}
         preference={listPreference}
         groups={customerGroups}
         isRTL={isRTL}
@@ -1704,7 +1781,8 @@ export default function HomeScreen() {
                   filtered={
                     customerQuery.trim().length > 0 ||
                     effectiveGroup !== "all" ||
-                    balanceFilter !== "all"
+                    balanceFilter !== "all" ||
+                    !!currencyFilter
                   }
                   controls={inlineControls}
                   selectionControls={selectionToolbar}
@@ -1718,6 +1796,7 @@ export default function HomeScreen() {
                     homeScrollPosition.offset = offset;
                   }}
                   creditByPerson={creditByPerson}
+                  sharedStatusByPerson={sharedStatusByPerson}
                   paddingBottom={24}
                   onPersonPress={openPerson}
                   onPersonLongPress={canAmend ? openHomePersonActions : undefined}
@@ -2193,6 +2272,7 @@ export default function HomeScreen() {
 type CustomerRowsProps = {
   people: PersonWithBalance[];
   creditByPerson: Record<string, CreditStatus>;
+  sharedStatusByPerson: Record<string, ReturnType<typeof personSharedAccountStatus>>;
   onPersonPress: (person: PersonWithBalance) => void;
   // Omitted for a viewer (read-only) — long-press opens the edit/delete sheet.
   onPersonLongPress?: (person: PersonWithBalance) => void;
@@ -2218,6 +2298,7 @@ function CustomerRows(props: CustomerRowsProps) {
   const {
     people,
     creditByPerson,
+    sharedStatusByPerson,
     onPersonPress,
     onPersonLongPress,
     selecting,
@@ -2235,6 +2316,7 @@ function CustomerRows(props: CustomerRowsProps) {
           <PersonRow
             person={item}
             creditStatus={creditByPerson[item.id] ?? "none"}
+            sharedStatus={sharedStatusByPerson[item.id]}
             onPress={onPersonPress}
             onLongPress={onPersonLongPress}
             selecting={selecting}
@@ -2247,6 +2329,7 @@ function CustomerRows(props: CustomerRowsProps) {
     [
       people,
       creditByPerson,
+      sharedStatusByPerson,
       onPersonPress,
       onPersonLongPress,
       selecting,

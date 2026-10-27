@@ -427,6 +427,10 @@ const en = {
   "customers.balanceFilter.help":
     "Matches any currency. A customer with different currency balances can appear in both filters.",
   "customers.balanceFilter.clear": "Clear balance filter",
+  "customers.currencyFilter": "Currency",
+  "customers.currencyFilter.all": "All currencies",
+  "customers.currencyFilter.clear": "Clear currency filter",
+  "customers.sort.selectCurrencyHelp": "Choose a currency above to sort by amount.",
   "customers.sort": "Sort customers",
   "customers.sort.multiCurrencyHelp":
     "Amount sorting is available when balances use a single currency.",
@@ -2598,6 +2602,10 @@ const fa: Partial<Record<Key, string>> = {
   "customers.balanceFilter.help":
     "بیلانس همهٔ ارزها در نظر گرفته می‌شود؛ یک مشتری می‌تواند در هر دو فیلتر ظاهر شود.",
   "customers.balanceFilter.clear": "پاک‌کردن فیلتر بیلانس",
+  "customers.currencyFilter": "ارز",
+  "customers.currencyFilter.all": "همهٔ ارزها",
+  "customers.currencyFilter.clear": "پاک‌کردن فیلتر ارز",
+  "customers.sort.selectCurrencyHelp": "برای ترتیب بر اساس مبلغ، یک ارز را از بالا انتخاب کنید.",
   "customers.sort": "ترتیب مشتری‌ها",
   "customers.sort.multiCurrencyHelp": "ترتیب بر اساس مبلغ فقط برای بیلانس‌های یک ارز در دسترس است.",
   "customers.sort.outstanding_name": "مانده‌دارها اول · الف تا ی",
@@ -4575,6 +4583,11 @@ const ps: Record<Key, string> = {
   "customers.balanceFilter.help":
     "د ټولو اسعارو بیلانسونه کتل کېږي؛ یو پېرودونکی په دواړو فلټرونو کې راتلای شي.",
   "customers.balanceFilter.clear": "د بیلانس فلټر پاک کړئ",
+  "customers.currencyFilter": "اسعار",
+  "customers.currencyFilter.all": "ټول اسعار",
+  "customers.currencyFilter.clear": "د اسعارو فلټر پاک کړئ",
+  "customers.sort.selectCurrencyHelp":
+    "د مبلغ له مخې د ترتیب لپاره له پورته څخه د اسعارو یو ډول وټاکئ.",
   "customers.sort.outstanding_name": "لومړی ناتصفیه شوي حسابونه · د الفبا په ترتیب",
   "customers.sort.recent": "وروستي فعالیتونه",
   "customers.sort.name_asc": "نوم · د الفبا په ترتیب",

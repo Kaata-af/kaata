@@ -585,6 +585,33 @@ async function main() {
     );
   }
   assert.equal(JSON.stringify(groupedAmountPeople), beforeGroupedAmountSort);
+  const groupedCurrencies = [
+    {
+      ...people[0],
+      currency: "AFN",
+      balance: 100,
+      last_entry_at: 900,
+      currency_balances: [
+        { ...people[0], currency: "AFN", balance: 100, last_entry_at: 900 },
+        { ...people[0], currency: "USD", balance: -25, last_entry_at: 10 },
+      ],
+    },
+    { ...people[3], currency: "USD", balance: -5, last_entry_at: 50 },
+  ];
+  assert.deepEqual(
+    selectCustomers(
+      groupedCurrencies,
+      "pay",
+      { sort: "amount_asc", group: ["g", "h"], currency: "USD" },
+      { a: ["g", "h"], d: ["g"] },
+      "en",
+    ).map((p) => [p.id, p.currency, p.balance]),
+    [
+      ["d", "USD", -5],
+      ["a", "USD", -25],
+    ],
+    "grouped legacy lists project currency before side matching and numeric sorting without netting",
+  );
   assert.deepEqual(ids("date_asc"), ["a", "b", "c"]);
   assert.equal(
     parseCustomerListPreference('{"sort":"date_desc","group":"all"}').sort,

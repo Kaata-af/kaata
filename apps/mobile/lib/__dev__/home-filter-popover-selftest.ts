@@ -33,11 +33,16 @@ const { CustomerListOptions } = compileUI("../../components/CustomerListSheet", 
     View: "View",
     Text: "Text",
     Pressable: "Pressable",
+    ScrollView: "ScrollView",
     StyleSheet: { create: (styles: unknown) => styles },
   },
   "./SheetSurface": { SheetSurface: "SheetSurface" },
   "@expo/vector-icons": { Ionicons: "Icon" },
   "../lib/colors": { colors },
+  "../lib/currency": {
+    getCurrencyLabel: (code: string) =>
+      code === "AFN" ? "AFN ؋" : code === "USD" ? "USD $" : code,
+  },
   "../lib/fonts": { fonts: {} },
   "../lib/direction": {
     rowDir: (rtl: boolean) => ({ flexDirection: rtl ? "row-reverse" : "row" }),
@@ -344,6 +349,55 @@ for (const isRTL of [false, true]) {
   assert.ok(flattenStyle(remainingSort.props.style({ pressed: false })).minHeight >= 44);
   remainingSort.props.onPress();
   assert.deepEqual(changed, { sort: "recent", group: ["family"], direction: "all" });
+
+  const currencyOptions = () =>
+    CustomerListOptions({
+      ...props,
+      embedded: true,
+      preference: changed,
+      currencies: ["AFN", "USD"],
+      amountSortAvailable: changed.currency !== undefined,
+    });
+  const allCurrencies = currencyOptions();
+  const currencyGroup = (tree: any) =>
+    nodes(tree).find(
+      (node) =>
+        node.props.accessibilityRole === "radiogroup" &&
+        node.props.accessibilityLabel === "customers.currencyFilter",
+    )!;
+  const strip = nodes(currencyGroup(allCurrencies)).find((node) => node.type === "ScrollView")!;
+  assert.ok(strip);
+  assert.equal(strip.props.horizontal, true);
+  assert.equal(strip.props.keyboardShouldPersistTaps, "handled");
+  assert.equal(bordered(allCurrencies).length, 0, "currency choices add no card inside the popup");
+  assert.ok(
+    nodes(allCurrencies).some(
+      (node) => node.props.children === "customers.sort.selectCurrencyHelp",
+    ),
+  );
+  choices(currencyGroup(allCurrencies))
+    .find((node) => node.props.accessibilityLabel === "USD $")!
+    .props.onPress();
+  assert.deepEqual(changed, {
+    sort: "recent",
+    group: ["family"],
+    direction: "all",
+    currency: "USD",
+  });
+  const scoped = currencyOptions();
+  assert.ok(
+    choices(scoped).some((node) => node.props.accessibilityLabel === "customers.sort.amount_asc"),
+  );
+  choices(scoped)
+    .find((node) => node.props.accessibilityLabel === "customers.sort.amount_asc")!
+    .props.onPress();
+  assert.equal(changed.currency, "USD");
+  assert.equal(changed.sort, "amount_asc");
+  choices(currencyGroup(currencyOptions()))
+    .find((node) => node.props.accessibilityLabel === "customers.currencyFilter.all")!
+    .props.onPress();
+  assert.equal(changed.currency, undefined);
+  assert.equal(changed.sort, "amount_asc");
 }
 
 console.log(

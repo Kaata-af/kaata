@@ -21,6 +21,7 @@ export type CustomerListPreference = {
   sort: CustomerSort;
   group: CustomerGroupFilter;
   direction?: CustomerBalanceFilter;
+  currency?: string;
 };
 export const DEFAULT_CUSTOMER_LIST: CustomerListPreference = {
   sort: "recent",
@@ -49,6 +50,62 @@ export function availableCustomerGroupFilter(
   const valid = new Set(available.map((g) => g.id));
   const ids = selectedCustomerGroupIds(filter).filter((id) => valid.has(id));
   return ids.length ? ids : "all";
+}
+
+function normalizeCustomerCurrency(currency: unknown): string | undefined {
+  if (typeof currency !== "string") return undefined;
+  const code = currency.trim().toUpperCase();
+  return code !== "ALL" && /^[A-Z]{3}$/.test(code) ? code : undefined;
+}
+
+export function availableCustomerCurrencyFilter(
+  currency: string | undefined,
+  codes: readonly string[],
+): string | undefined {
+  const code = normalizeCustomerCurrency(currency);
+  return code && codes.some((available) => normalizeCustomerCurrency(available) === code)
+    ? code
+    : undefined;
+}
+
+/** A specific denomination is a projection of an actual currency row. Missing
+ * rows never become foreign-currency zeros, including for never-tallied people. */
+export function filterCustomerCurrencyRows<T extends PersonWithBalance>(
+  people: readonly T[],
+  currency?: string,
+): T[] {
+  const code = normalizeCustomerCurrency(currency);
+  if (!code) return [...people];
+  return people.flatMap((person) => {
+    const rows = person.currency_balances ?? [person];
+    const row = rows.find((candidate) => normalizeCustomerCurrency(candidate.currency) === code);
+    if (!row) return [];
+    return [
+      {
+        ...person,
+        ...row,
+        id: person.id,
+        name: person.name,
+        phone: person.phone,
+        created_at: person.created_at,
+        archived_at: person.archived_at,
+        currency: code,
+        currency_balances: [row],
+        // Optional metadata must also come from this denomination: an absent
+        // value cannot inherit another currency's shared or settled state.
+        tab_confirmed_balance: row.tab_confirmed_balance,
+        tab_recorded_balance: row.tab_recorded_balance,
+        tab_pending_balance: row.tab_pending_balance,
+        tab_pending_count: row.tab_pending_count,
+        tab_close_pending: row.tab_close_pending,
+        tab_account_name: row.tab_account_name,
+        tab_unsynced: row.tab_unsynced,
+        last_entry_type: row.last_entry_type,
+        is_settled: row.is_settled,
+        selection_totals: row.selection_totals,
+      },
+    ];
+  });
 }
 
 export function toggleCustomerGroupFilter(
@@ -101,9 +158,11 @@ function parsePreference(
           .sort()
           .slice(0, 100)
       : null;
+    const currency = normalizeCustomerCurrency(value?.currency);
     return {
       sort: CUSTOMER_SORTS.includes(value?.sort) ? value.sort : fallback.sort,
       direction: CUSTOMER_BALANCE_FILTERS.includes(value?.direction) ? value.direction : "all",
+      ...(currency ? { currency } : {}),
       group: groupIds
         ? groupIds.length
           ? groupIds
@@ -307,7 +366,7 @@ function selectCustomerRows<T extends PersonWithBalance>(
   // Date sorts keep explicitly settled contacts after open ones.
   const openFirst = (a: T, b: T) => (a.is_settled === 1 ? 1 : 0) - (b.is_settled === 1 ? 1 : 0);
   const selected = selectedCustomerGroupIds(preference.group);
-  return people
+  return filterCustomerCurrencyRows(people, preference.currency)
     .filter(
       (p) =>
         matches(p) &&

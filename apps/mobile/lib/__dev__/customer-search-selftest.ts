@@ -6,6 +6,8 @@ import {
   DEFAULT_CUSTOMER_SEARCH,
   compareCustomerNames,
   customerSide,
+  availableCustomerCurrencyFilter,
+  filterCustomerCurrencyRows,
   parseCustomerListPreference,
   parseCustomerSearchPreference,
   parseHomeCustomerListPreference,
@@ -612,6 +614,233 @@ for (const sort of ["amount_asc", "amount_desc"] as const) {
   }
 }
 assert.equal(JSON.stringify(people), originalPeople, "search selection never mutates ledger rows");
+
+const usdMixedRow = person("mixed-currency", "Old child name", -100, 10, {
+  currency: "USD",
+  tab_id: "usd-tab",
+  tab_closed_at: null,
+  tab_pending: 2,
+  tab_other_joined: 1,
+  tab_pending_count: 3,
+  tab_pending_balance: 7,
+  selection_totals: {
+    currency: "USD",
+    debtCount: 1,
+    creditCount: 2,
+    debtMinor: 2000,
+    creditMinor: 12000,
+  },
+});
+const mixedCurrency = person("mixed-currency", "Mixed customer", 100, 999, {
+  currency: "AFN",
+  phone: "+93700000000",
+  tab_id: "afn-tab",
+  tab_unsynced: 1,
+  tab_close_pending: 1,
+  is_settled: 1,
+  tab_account_name: "AFN account",
+  currency_balances: [
+    person("mixed-currency", "Mixed customer", 100, 900, { currency: "AFN" }),
+    usdMixedRow,
+  ],
+});
+const currencyPeople = [
+  mixedCurrency,
+  person("usd-small", "Small", 5, 50, { currency: "USD" }),
+  person("afn-only", "AFN only", -8, 700, { currency: "AFN" }),
+  person("zero-history", "Zero history", 0, 20, { currency: "USD", is_settled: 0 }),
+  person("usd-settled", "Settled", 0, 30, { currency: "USD", is_settled: 1 }),
+  person("usd-pending", "Pending", 0, 40, {
+    currency: "USD",
+    tab_id: "pending-tab",
+    tab_pending_count: 1,
+    tab_pending_balance: 500,
+  }),
+  person("usd-unknown", "Unknown", 99999, 60, { currency: "USD", tab_unsynced: 1 }),
+  person("empty-usd", "Empty USD", 0, null, { currency: "USD" }),
+  person("empty-afn", "Empty AFN", 0, null, { currency: "AFN" }),
+  person("empty-authoritative", "No currency rows", 500, 80, {
+    currency: "USD",
+    currency_balances: [],
+  }),
+];
+const originalCurrencyPeople = JSON.stringify(currencyPeople);
+for (const row of currencyPeople) {
+  row.currency_balances?.forEach(Object.freeze);
+  if (row.currency_balances) Object.freeze(row.currency_balances);
+  Object.freeze(row);
+}
+Object.freeze(currencyPeople);
+const usdPeople = filterCustomerCurrencyRows(currencyPeople, " usd ");
+assert.deepEqual(
+  usdPeople.map((row) => row.id),
+  [
+    "mixed-currency",
+    "usd-small",
+    "zero-history",
+    "usd-settled",
+    "usd-pending",
+    "usd-unknown",
+    "empty-usd",
+  ],
+  "specific currency retains matching zero/history/pending/unknown rows and only matching-base empty contacts",
+);
+const projectedMixed = usdPeople[0];
+assert.notEqual(projectedMixed, mixedCurrency);
+assert.equal(projectedMixed.id, mixedCurrency.id);
+assert.equal(projectedMixed.name, mixedCurrency.name);
+assert.equal(projectedMixed.phone, mixedCurrency.phone);
+assert.equal(
+  projectedMixed.balance,
+  -100,
+  "opposite equal AFN/USD balances never cancel or convert",
+);
+assert.equal(projectedMixed.last_entry_at, 10, "currency recency replaces the merged maximum date");
+assert.equal(projectedMixed.currency, "USD");
+assert.deepEqual(projectedMixed.currency_balances, [usdMixedRow]);
+assert.equal(projectedMixed.selection_totals, usdMixedRow.selection_totals);
+assert.equal(projectedMixed.tab_id, "usd-tab");
+assert.equal(projectedMixed.tab_pending, 2);
+assert.equal(projectedMixed.tab_pending_count, 3);
+assert.equal(projectedMixed.tab_pending_balance, 7);
+assert.equal(projectedMixed.tab_other_joined, 1);
+for (const field of [
+  "tab_unsynced",
+  "tab_close_pending",
+  "tab_account_name",
+  "is_settled",
+] as const)
+  assert.equal(
+    projectedMixed[field],
+    undefined,
+    `${field}: absent currency metadata cannot inherit a foreign value`,
+  );
+for (const currency of [undefined, "all", "ALL", "invalid", "US$"])
+  assert.deepEqual(filterCustomerCurrencyRows(currencyPeople, currency), currencyPeople);
+assert.deepEqual(
+  filterCustomerCurrencyRows(currencyPeople, "EUR"),
+  [],
+  "foreign zeros are never manufactured",
+);
+for (const [currency, direction, expected] of [
+  ["USD", "pay", ["mixed-currency"]],
+  ["USD", "collect", ["usd-small"]],
+  ["AFN", "collect", ["mixed-currency"]],
+] as const) {
+  assert.deepEqual(
+    selectSearchCustomers(
+      currencyPeople,
+      { sort: "amount_asc", group: "all", currency, direction },
+      {},
+      "en",
+    ).map((row) => row.id),
+    expected,
+    `${currency}/${direction}: only the selected currency's known confirmed sign qualifies`,
+  );
+}
+for (const [sort, outstanding] of [
+  ["amount_asc", ["usd-small", "mixed-currency"]],
+  ["amount_desc", ["mixed-currency", "usd-small"]],
+] as const) {
+  assert.deepEqual(
+    selectSearchCustomers(currencyPeople, { sort, group: "all", currency: "USD" }, {}, "en").map(
+      (row) => row.id,
+    ),
+    [...outstanding, "usd-unknown", "empty-usd", "usd-pending", "usd-settled", "zero-history"],
+    `${sort}: a selected denomination safely sorts known magnitudes before unknown and zero rows`,
+  );
+}
+assert.deepEqual(
+  selectSearchCustomers(
+    [mixedCurrency, currencyPeople[1]],
+    { sort: "recent", group: "all", currency: "USD" },
+    {},
+    "en",
+  ).map((row) => row.id),
+  ["usd-small", "mixed-currency"],
+  "recent sorting uses selected-currency activity rather than the newest foreign tally",
+);
+assert.deepEqual(
+  selectSearchCustomers(
+    [...currencyPeople, mixedCurrency],
+    { sort: "name_asc", group: ["family", "shop"], currency: "USD", direction: "pay" },
+    { "mixed-currency": ["family", "shop"], "usd-small": "shop", "usd-unknown": "family" },
+    "en",
+    new Map([
+      ["usd-unknown", 20],
+      ["mixed-currency", 1],
+    ]),
+  ).map((row) => row.id),
+  ["mixed-currency"],
+  "currency, group OR, direction, relevance and deduplication compose on the same projected rows",
+);
+assert.deepEqual(
+  selectCustomers(
+    currencyPeople,
+    "pay",
+    { sort: "amount_asc", group: "all", currency: "USD" },
+    {},
+    "en",
+  ).map((row) => row.id),
+  ["mixed-currency"],
+  "legacy financial-side matching also runs after currency projection",
+);
+assert.deepEqual(
+  selectNeverTalliedCustomers(
+    currencyPeople,
+    { sort: "recent", group: "all", currency: "USD" },
+    {},
+    "en",
+  ).map((row) => row.id),
+  ["empty-usd"],
+  "neutral contacts remain available only in their actual matching base currency",
+);
+const currencyPreference = {
+  sort: "amount_asc",
+  group: ["family", "shop"],
+  direction: "pay",
+  currency: "USD",
+};
+for (const parser of [parseCustomerListPreference, parseCustomerSearchPreference]) {
+  assert.deepEqual(
+    parser('{"sort":"amount_asc","group":["shop","family"],"direction":"pay","currency":" usd "}'),
+    currencyPreference,
+  );
+  assert.deepEqual(parser(JSON.stringify(currencyPreference)), currencyPreference);
+  for (const currency of [null, "all", "ALL", "", 7, ["USD"], true, {}, "US", "USDX", "US$"])
+    assert.deepEqual(
+      parser(JSON.stringify({ ...currencyPreference, currency })),
+      {
+        sort: "amount_asc",
+        group: ["family", "shop"],
+        direction: "pay",
+      },
+      "missing/invalid/all currency stays omitted without changing existing preference shapes",
+    );
+}
+assert.deepEqual(
+  parseHomeCustomerListPreference(
+    null,
+    '{"sort":"outstanding_name","currency":"usd","direction":"pay"}',
+  ),
+  { sort: "recent", group: "all", direction: "pay", currency: "USD" },
+  "the existing inherited-sort migration preserves an explicit currency filter",
+);
+assert.equal(availableCustomerCurrencyFilter(" usd ", ["AFN", "USD"]), "USD");
+assert.equal(availableCustomerCurrencyFilter("USD", ["afn", "usd"]), "USD");
+assert.equal(
+  availableCustomerCurrencyFilter("EUR", ["AFN", "USD"]),
+  undefined,
+  "stale saved currency resets to All",
+);
+assert.equal(availableCustomerCurrencyFilter("USD", []), undefined);
+assert.equal(availableCustomerCurrencyFilter("all", ["AFN", "USD"]), undefined);
+assert.equal(availableCustomerCurrencyFilter("US$", ["US$"]), undefined);
+assert.equal(
+  JSON.stringify(currencyPeople),
+  originalCurrencyPeople,
+  "projection/filter/sort never mutates source money or metadata",
+);
 
 console.log(
   "PASS combined customer search: independent currency directions, confirmed/unknown/pending/settled filtering, preference migrations, all sorts, relevance/groups, deduplication and immutable balances",

@@ -11,6 +11,7 @@ import {
   View,
 } from "react-native";
 import { colors } from "../lib/colors";
+import { getCurrencyLabel } from "../lib/currency";
 import { fonts } from "../lib/fonts";
 import { rowDir, textDir } from "../lib/direction";
 import { t } from "../lib/i18n";
@@ -36,12 +37,21 @@ type CustomerListOptionsProps = {
   onChange: (preference: CustomerListPreference) => void;
   compact?: boolean;
   amountSortAvailable?: boolean;
+  currencies?: readonly string[];
   /** A parent popup already supplies the card and padding. */
   embedded?: boolean;
 };
 
 /** Shared in-flow controls, including inside the search sheet's own scroll area. */
 export function CustomerListOptions(props: CustomerListOptionsProps) {
+  const selectedCurrency =
+    props.preference.currency && props.preference.currency !== "all"
+      ? props.preference.currency
+      : undefined;
+  const currencies = [
+    ...new Set([...(props.currencies ?? []), ...(selectedCurrency ? [selectedCurrency] : [])]),
+  ];
+  const showCurrencies = currencies.length > 1 || selectedCurrency !== undefined;
   // Keep related choices on the same row rather than relying on wrap order.
   // Recent activity remains the first full-width choice; its reverse follows it.
   const sortRows: readonly (readonly CustomerSort[])[] = [
@@ -56,7 +66,7 @@ export function CustomerListOptions(props: CustomerListOptionsProps) {
     label: string,
     selected: boolean,
     onPress: () => void,
-    kind: "sort" | "balance" | "group",
+    kind: "sort" | "balance" | "group" | "currency",
     fullWidth = false,
   ) => (
     <Pressable
@@ -66,11 +76,12 @@ export function CustomerListOptions(props: CustomerListOptionsProps) {
       accessibilityState={{ checked: selected, selected }}
       onPress={onPress}
       style={({ pressed }) => [
-        kind === "group" ? styles.groupChoice : styles.sortChoice,
+        kind === "group" || kind === "currency" ? styles.groupChoice : styles.sortChoice,
         props.compact && styles.choiceCompact,
         kind === "balance" && styles.balanceChoice,
+        kind === "currency" && styles.currencyChoice,
         fullWidth && styles.fullChoice,
-        rowDir(props.isRTL),
+        rowDir(kind === "currency" ? false : props.isRTL),
         selected && (kind === "group" ? styles.groupSelected : styles.sortSelected),
         pressed && styles.pressed,
       ]}
@@ -92,6 +103,7 @@ export function CustomerListOptions(props: CustomerListOptionsProps) {
         style={[
           styles.choiceLabel,
           textDir(props.isRTL),
+          kind === "currency" && key !== "all" && styles.currencyLabel,
           selected && styles.selectedLabel,
           selected && styles.selectedLabelColor,
         ]}
@@ -110,9 +122,58 @@ export function CustomerListOptions(props: CustomerListOptionsProps) {
     );
   return (
     <View style={[styles.options, props.compact && styles.optionsCompact]}>
+      {showCurrencies
+        ? section(
+            <>
+              <View style={[styles.sectionHeading, rowDir(props.isRTL)]}>
+                <Ionicons name="cash-outline" size={18} color={colors.textSubtle} />
+                <Text style={[styles.section, textDir(props.isRTL)]}>
+                  {t("customers.currencyFilter")}
+                </Text>
+              </View>
+              <View
+                accessibilityRole="radiogroup"
+                accessibilityLabel={t("customers.currencyFilter")}
+              >
+                <ScrollView
+                  horizontal
+                  style={styles.currencyScroll}
+                  contentContainerStyle={styles.currencyChoices}
+                  keyboardShouldPersistTaps="handled"
+                  nestedScrollEnabled
+                  directionalLockEnabled
+                  showsHorizontalScrollIndicator={false}
+                >
+                  {choice(
+                    "all",
+                    t("customers.currencyFilter.all"),
+                    !selectedCurrency,
+                    () => props.onChange({ ...props.preference, currency: undefined }),
+                    "currency",
+                  )}
+                  {currencies.map((code) =>
+                    choice(
+                      code,
+                      getCurrencyLabel(code),
+                      selectedCurrency === code,
+                      () => props.onChange({ ...props.preference, currency: code }),
+                      "currency",
+                    ),
+                  )}
+                </ScrollView>
+              </View>
+            </>,
+          )
+        : null}
       {section(
         <>
-          <View style={[styles.sectionHeading, rowDir(props.isRTL)]}>
+          <View
+            style={[
+              styles.sectionHeading,
+              showCurrencies && props.embedded && styles.sectionBreak,
+              rowDir(props.isRTL),
+            ]}
+          >
             <Ionicons name="wallet-outline" size={18} color={colors.textSubtle} />
             <Text style={[styles.section, textDir(props.isRTL)]}>
               {t("customers.balanceFilter")}
@@ -176,7 +237,11 @@ export function CustomerListOptions(props: CustomerListOptionsProps) {
           </View>
           {props.amountSortAvailable === false ? (
             <Text style={[styles.help, textDir(props.isRTL)]}>
-              {t("customers.sort.multiCurrencyHelp")}
+              {t(
+                showCurrencies && !selectedCurrency
+                  ? "customers.sort.selectCurrencyHelp"
+                  : "customers.sort.multiCurrencyHelp",
+              )}
             </Text>
           ) : null}
         </>,
@@ -463,6 +528,16 @@ const styles = StyleSheet.create({
   },
   fullChoice: { flexBasis: "100%" },
   balanceChoice: { paddingHorizontal: 6, gap: 4 },
+  currencyScroll: { flexGrow: 0, maxWidth: "100%", direction: "ltr" },
+  currencyChoices: {
+    flexDirection: "row",
+    direction: "ltr",
+    gap: space.sm,
+    paddingVertical: 1,
+    alignItems: "stretch",
+  },
+  currencyChoice: { flexShrink: 0, minWidth: 80, maxWidth: 200 },
+  currencyLabel: { writingDirection: "ltr", textAlign: "left" },
   sortSelected: { backgroundColor: colors.bgSubtle, borderColor: colors.borderEmphasis },
   selectedLabelColor: { color: colors.textEmphasis },
   groupChoices: { flexWrap: "wrap", gap: space.sm },
