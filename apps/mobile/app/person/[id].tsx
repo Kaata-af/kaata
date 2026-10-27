@@ -94,6 +94,7 @@ import { getLocale, getShareLangPref, resolveShareLang, t, type LocaleCode } fro
 import { formatSettlementDate } from "../../lib/jalali";
 import { useCalendar } from "../../lib/calendar";
 import { shareKaataCurrenciesViaWhatsApp, type WhatsAppShareStage } from "../../lib/share";
+import { getBillLinksEnabled } from "../../lib/bill-link-settings";
 import { filterTallies, noteSearchTerms } from "../../lib/tally-search";
 import {
   filterTalliesByDate,
@@ -1063,48 +1064,45 @@ export default function PersonDetailScreen() {
     if (!person || !screenIsCurrent() || pingBusyRef.current || (lang == null && askLangVisible))
       return;
     if (currencyPeriods.length === 0) return;
-    if (
-      currencyPeriods.some(
-        (period) =>
-          period.person.tab_unsynced === 1 ||
-          period.priorPeriods.some((prior) => prior.link.last_synced_at == null),
-      )
-    ) {
-      toast.push(t("tab.notDownloaded"), "info");
-      return;
-    }
-    // Use the complete, coherent per-currency snapshot, including folded
-    // chapters. Search, date filters and selection only affect this screen.
-    const statements = currencyPeriods.map((period) => ({
-      currency: period.currency,
-      balance: period.person.balance,
-      entries: period.entries,
-      history: [
-        { kind: "pre_link" as const, entries: period.before, settledBoundaries: period.boundaries },
-        ...period.priorPeriods.map((prior) => ({
-          kind: "closed_shared" as const,
-          entries: prior.entries,
-          settlements: prior.settlements,
-        })),
-      ],
-      // A shared tab carries its own opening balance; the earlier private
-      // book's settlement lines do not belong on that statement.
-      settled: period.tab
-        ? { settledChapters: 0, settledBoundaryMs: null, settledBoundaries: [] }
-        : {
-            settledChapters: period.settlement.count,
-            settledBoundaryMs: period.settlement.lastSettledAtMs,
-            settledBoundaries: period.boundaries,
-          },
-    }));
+    const vault = getActiveVaultIdSyncMaybe();
+    if (!vault) return;
+    const account = getAccountIdSync();
+    const recipient = { id: person.id, name: person.name, phone: person.phone };
+    const sender = self;
+    const periods = currencyPeriods;
     pingBusyRef.current = true;
     const controller = new AbortController();
     pingAbortRef.current = controller;
+    const current = () => {
+      const valid =
+        pingAbortRef.current === controller &&
+        !controller.signal.aborted &&
+        getActiveVaultIdSyncMaybe() === vault &&
+        getAccountIdSync() === account &&
+        screenIsCurrent();
+      if (!valid) controller.abort();
+      return valid;
+    };
     setPingStage("preparing");
     try {
+      // Read this Kaata's current preference for each send, including a send
+      // resumed after the message-language picker closes.
+      const includeBillLink = await getBillLinksEnabled(vault);
+      if (!current()) return;
+      if (
+        periods.some(
+          (period) =>
+            period.person.tab_unsynced === 1 ||
+            (includeBillLink &&
+              period.priorPeriods.some((prior) => prior.link.last_synced_at == null)),
+        )
+      ) {
+        toast.push(t("tab.notDownloaded"), "info");
+        return;
+      }
       if (lang == null) {
         const pref = await getShareLangPref();
-        if (controller.signal.aborted) return;
+        if (!current()) return;
         if (pref === "ask") {
           pingLanguageChosen.current = false;
           setAskLangVisible(true);
@@ -1112,20 +1110,53 @@ export default function PersonDetailScreen() {
         }
         lang = resolveShareLang(pref);
       }
+      // A plain balance reminder never builds a bill or traverses earlier
+      // books. Both modes use the same coherent, unfiltered current balances.
+      const statements = includeBillLink
+        ? periods.map((period) => ({
+            currency: period.currency,
+            balance: period.person.balance,
+            entries: period.entries,
+            history: [
+              {
+                kind: "pre_link" as const,
+                entries: period.before,
+                settledBoundaries: period.boundaries,
+              },
+              ...period.priorPeriods.map((prior) => ({
+                kind: "closed_shared" as const,
+                entries: prior.entries,
+                settlements: prior.settlements,
+              })),
+            ],
+            // A shared opening already carries the earlier private balance.
+            settled: period.tab
+              ? { settledChapters: 0, settledBoundaryMs: null, settledBoundaries: [] }
+              : {
+                  settledChapters: period.settlement.count,
+                  settledBoundaryMs: period.settlement.lastSettledAtMs,
+                  settledBoundaries: period.boundaries,
+                },
+          }))
+        : periods.map((period) => ({
+            currency: period.currency,
+            balance: period.person.balance,
+            entries: [],
+          }));
       const ok = await shareKaataCurrenciesViaWhatsApp(
-        { id: person.id, name: person.name, phone: person.phone },
-        self,
+        recipient,
+        sender,
         statements,
         lang,
         (stage) => {
-          if (pingAbortRef.current === controller && !controller.signal.aborted)
-            setPingStage(stage);
+          if (current()) setPingStage(stage);
         },
         controller.signal,
+        { includeBillLink },
       );
-      if (!ok && !controller.signal.aborted) toast.push(t("share.whatsappUnavailable"), "error");
+      if (!ok && current()) toast.push(t("share.whatsappUnavailable"), "error");
     } catch (err) {
-      if (!controller.signal.aborted) {
+      if (current()) {
         console.warn("[person] WhatsApp reminder failed", err);
         toast.push(t("share.whatsappUnavailable"), "error");
       }
@@ -1133,7 +1164,7 @@ export default function PersonDetailScreen() {
       if (pingAbortRef.current === controller) {
         pingAbortRef.current = null;
         pingBusyRef.current = false;
-        setPingStage(null);
+        if (loadMounted.current) setPingStage(null);
       }
     }
   };

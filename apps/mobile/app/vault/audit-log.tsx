@@ -504,6 +504,10 @@ function humanizeKind(kind: string, payload: Record<string, unknown> | null): st
     case "vault_setting_set": {
       const k = payload && typeof payload.key === "string" ? payload.key : "";
       const v = payload && typeof payload.value === "string" ? payload.value : "";
+      if (k === "share_bill_links")
+        return t(
+          v === "false" ? "vaultSettings.billLinks.disabled" : "vaultSettings.billLinks.enabled",
+        );
       if (k === "currency")
         return v
           ? t("auditLog.kind.local.currencyChangedTo", { value: v })

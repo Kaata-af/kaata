@@ -27,6 +27,7 @@ import {
   Platform,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   View,
 } from "react-native";
@@ -71,6 +72,7 @@ import {
   getEnabledCurrencies,
 } from "../../lib/currency";
 import { captureCurrentSession, type SessionSnapshot } from "../../lib/auth";
+import { changeBillLinksEnabled, getBillLinksEnabled } from "../../lib/bill-link-settings";
 import {
   countArchivedPeople,
   getAppMeta,
@@ -193,6 +195,11 @@ export default function VaultSettingsScreen() {
   const currencySession = useRef<SessionSnapshot | null>(null);
   const [savingName, setSavingName] = useState(false);
   const [savingCurrency, setSavingCurrency] = useState(false);
+  const [billLinksEnabled, setBillLinksEnabled] = useState(true);
+  const billLinksValue = useRef(true);
+  const [savingBillLinks, setSavingBillLinks] = useState(false);
+  const billLinksSaving = useRef(false);
+  const billLinksOperation = useRef(0);
 
   const [archiveConfirm, setArchiveConfirm] = useState(false);
   const [leaveConfirm, setLeaveConfirm] = useState(false);
@@ -265,6 +272,9 @@ export default function VaultSettingsScreen() {
       currencyOperation.current++;
       currencySavingRef.current = false;
       setSavingCurrency(false);
+      billLinksOperation.current++;
+      billLinksSaving.current = false;
+      setSavingBillLinks(false);
       void (async () => {
         try {
           const session = await captureCurrentSession();
@@ -289,10 +299,11 @@ export default function VaultSettingsScreen() {
             router.back();
             return;
           }
-          const [defaultCode, enabled, accId] = await Promise.all([
+          const [defaultCode, enabled, accId, includeBillLinks] = await Promise.all([
             getDefaultEntryCurrency(targetVaultId, row.currency || "AFN"),
             getEnabledCurrencies(targetVaultId),
             getAppMeta("account_id"),
+            getBillLinksEnabled(targetVaultId),
           ]);
           if (
             cancelled ||
@@ -310,6 +321,8 @@ export default function VaultSettingsScreen() {
           if (!nameDirtyRef.current) setName(row.name);
           setCurrency(defaultCode);
           setEnabledCurrencies(enabled);
+          billLinksValue.current = includeBillLinks;
+          setBillLinksEnabled(includeBillLinks);
           setAccountId(accId);
 
           const count = await db.getFirstAsync<{ n: number }>(
@@ -399,6 +412,51 @@ export default function VaultSettingsScreen() {
       // throwing away what the user typed on a network hiccup is hostile.
     } finally {
       setSavingName(false);
+    }
+  }
+
+  async function commitBillLinks(next: boolean) {
+    const targetVaultId = vault?.id;
+    const session = currencySession.current;
+    if (
+      !targetVaultId ||
+      !session ||
+      !currencyFocused.current ||
+      currencyLoadedVault.current !== targetVaultId ||
+      !canEditCurrencies.current ||
+      billLinksSaving.current ||
+      busy !== null ||
+      next === billLinksValue.current
+    )
+      return;
+    const scopeVersion = currencyScopeVersion.current;
+    const operation = ++billLinksOperation.current;
+    const sameScope = () =>
+      currencyFocused.current &&
+      scopeVersion === currencyScopeVersion.current &&
+      currencyLoadedVault.current === targetVaultId;
+    const previous = billLinksValue.current;
+    billLinksSaving.current = true;
+    billLinksValue.current = next;
+    setBillLinksEnabled(next);
+    setSavingBillLinks(true);
+    try {
+      await changeBillLinksEnabled(targetVaultId, next, {
+        session,
+        shouldContinue: () => sameScope() && canEditCurrencies.current,
+      });
+      if (sameScope()) toast.push(t("vaultSettings.billLinks.saved"), "success");
+    } catch (error) {
+      if (sameScope()) {
+        billLinksValue.current = previous;
+        setBillLinksEnabled(previous);
+        toast.push(t("vaultSettings.billLinks.saveFailed"), "error");
+      }
+    } finally {
+      if (operation === billLinksOperation.current) {
+        billLinksSaving.current = false;
+        if (sameScope()) setSavingBillLinks(false);
+      }
     }
   }
 
@@ -967,6 +1025,32 @@ export default function VaultSettingsScreen() {
               <Text style={[styles.fieldHint, textDir(isRTL)]}>{t("currency.precisionHint")}</Text>
             </View>
           ) : null}
+          <View style={[styles.billSetting, rowDir(isRTL)]}>
+            <Ionicons name="receipt-outline" size={icon.row} color={colors.textSubtle} />
+            <View style={styles.billSettingText}>
+              <Text style={[styles.billSettingLabel, textDir(isRTL)]}>
+                {t("vaultSettings.billLinks.label")}
+              </Text>
+              <Text style={[styles.billSettingHint, textDir(isRTL)]}>
+                {t("vaultSettings.billLinks.hint")}
+              </Text>
+            </View>
+            <Switch
+              testID="vault-bill-links"
+              value={billLinksEnabled}
+              onValueChange={(next) => void commitBillLinks(next)}
+              disabled={!canRename || savingBillLinks || busy !== null}
+              accessibilityRole="switch"
+              accessibilityLabel={t("vaultSettings.billLinks.label")}
+              accessibilityHint={t("vaultSettings.billLinks.hint")}
+              accessibilityState={{
+                checked: billLinksEnabled,
+                disabled: !canRename || savingBillLinks || busy !== null,
+                busy: savingBillLinks,
+              }}
+              hitSlop={8}
+            />
+          </View>
 
           <SectionGap />
 
@@ -1289,5 +1373,22 @@ const styles = StyleSheet.create({
     color: colors.textSubtle,
     marginTop: 0,
     marginBottom: 12,
+  },
+  billSetting: {
+    alignItems: "center",
+    minHeight: 52,
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.borderSubtle,
+    gap: 12,
+  },
+  billSettingText: { flex: 1, minWidth: 0 },
+  billSettingLabel: { fontFamily: fonts.sansMedium, fontSize: 15, color: colors.textDefault },
+  billSettingHint: {
+    fontFamily: fonts.sansRegular,
+    fontSize: 12,
+    color: colors.textSubtle,
+    marginTop: 3,
   },
 });

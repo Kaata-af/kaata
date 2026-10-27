@@ -148,10 +148,9 @@ async function uploadSharedSnapshot(
 //
 // Message body uses the caller-chosen `lang` (from share_lang_pref — may
 // differ from the app UI language; most users keep the app in English but
-// message in Dari). The footer now carries a link to the FULL ledger on
-// kaata.af (a stored snapshot) instead of a "sent via" tagline, so the
-// customer can open the complete transaction list. The link is best-effort:
-// if the upload fails (offline), the message still sends without it.
+// message in Dari). Include a full ledger link by default; the Kaata's setting
+// can instead send balances with a public-site footer and no uploaded bill.
+// When enabled, the link is best-effort so offline sharing still works.
 // Returns true when WhatsApp opened.
 /** Settled-chapter context for the ping (see person/[id].tsx settle-up). */
 export type SettledInfo = {
@@ -163,6 +162,7 @@ export type SettledInfo = {
 };
 
 export type WhatsAppShareStage = "preparing" | "opening";
+export type WhatsAppShareOptions = { includeBillLink?: boolean };
 
 export type WhatsAppCurrencyStatement = {
   currency: string;
@@ -181,6 +181,62 @@ export type WhatsAppCurrencyStatement = {
   }[];
 };
 
+function currencyMessageLines(
+  personName: string,
+  accountWith: string,
+  sections: readonly { currency: string; balance: number }[],
+  lang: LocaleCode,
+): string[] {
+  const lines = [tIn(lang, "share.greeting", { name: personName }), ""];
+  if (sections.length === 1) {
+    // Keep the familiar single-currency reminder wording.
+    const section = sections[0];
+    if (section.balance > 0)
+      lines.push(
+        tIn(lang, "share.theyOwe.header", { accountWith }),
+        tIn(lang, "share.theyOwe.amount", {
+          amount: formatAmount(section.balance),
+          currency: section.currency,
+        }),
+        "",
+        tIn(lang, "share.theyOwe.cta"),
+      );
+    else if (section.balance < 0)
+      lines.push(
+        tIn(lang, "share.youOwe.header"),
+        tIn(lang, "share.youOwe.amount", {
+          amount: formatAmount(section.balance),
+          currency: section.currency,
+        }),
+        "",
+        tIn(lang, "share.youOwe.cta"),
+      );
+    else
+      lines.push(
+        tIn(lang, "share.currencySettled", { currency: section.currency }),
+        "",
+        tIn(lang, "share.settled.cta"),
+      );
+  } else {
+    lines.push(tIn(lang, "share.theyOwe.header", { accountWith }));
+    for (const section of sections)
+      lines.push(
+        section.balance === 0
+          ? tIn(lang, "share.currencySettled", { currency: section.currency })
+          : tIn(lang, section.balance > 0 ? "share.theyOwe.amount" : "share.youOwe.amount", {
+              amount: formatAmount(section.balance),
+              currency: section.currency,
+            }),
+      );
+    lines.push("");
+    if (sections.some((section) => section.balance > 0)) lines.push(tIn(lang, "share.theyOwe.cta"));
+    if (sections.some((section) => section.balance < 0)) lines.push(tIn(lang, "share.youOwe.cta"));
+    if (sections.every((section) => section.balance === 0))
+      lines.push(tIn(lang, "share.settled.cta"));
+  }
+  return lines;
+}
+
 /** One permanent bill with independent balances and complete currency sections.
  * The caller supplies one coherent customer snapshot; no implicit DB read can
  * expand an explicitly selected/scoped share into another set of tallies. */
@@ -191,11 +247,28 @@ export async function shareKaataCurrenciesViaWhatsApp(
   lang: LocaleCode,
   onStage?: (stage: WhatsAppShareStage) => void,
   signal?: AbortSignal,
+  options?: WhatsAppShareOptions,
 ): Promise<boolean> {
   if (signal?.aborted) return false;
   const recipient = { name: person.name, phone: person.phone };
   if (statements.length === 0) throw new Error("No bill currencies");
   const codes = new Set<string>();
+  const balances = statements.map((statement) => {
+    const code = requireCurrencyCode(statement.currency);
+    if (codes.has(code)) throw new Error("Duplicate bill currency");
+    codes.add(code);
+    if (statement.pending) throw new Error("Shared bill is not fully synced");
+    toMinorUnits(statement.balance);
+    const symbol = getCurrencySymbol(code);
+    return { currency: symbol === code ? code : `${symbol} ${code}`, balance: statement.balance };
+  });
+  const accountWith = self?.shop_name ?? self?.name ?? "Kaata";
+  if (options?.includeBillLink === false) {
+    onStage?.("preparing");
+    const lines = currencyMessageLines(person.name, accountWith, balances, lang);
+    lines.push("", tIn(lang, "share.footer"));
+    return openWhatsApp(recipient, lines, onStage, signal);
+  }
   const ids = new Set<string>();
   const version = statements.some((statement) =>
     statement.history?.some((group) => group.entries.some(countsTowardBalance)),
@@ -216,15 +289,10 @@ export async function shareKaataCurrenciesViaWhatsApp(
       date: entry.created_at,
     };
   };
-  const sections = statements.map((statement) => {
-    const code = requireCurrencyCode(statement.currency);
-    if (codes.has(code)) throw new Error("Duplicate bill currency");
-    codes.add(code);
-    if (statement.pending) throw new Error("Shared bill is not fully synced");
-    toMinorUnits(statement.balance);
+  const sections = statements.map((statement, index) => {
+    const code = statement.currency;
     assertSingleCurrency(statement.entries, code);
-    const symbol = getCurrencySymbol(code);
-    const currency = symbol === code ? code : `${symbol} ${code}`;
+    const currency = balances[index].currency;
     const entries = statement.entries
       .filter(countsTowardBalance)
       .map((entry) => billEntry(entry, code));
@@ -279,7 +347,6 @@ export async function shareKaataCurrenciesViaWhatsApp(
   });
   const calendar = getEffectiveCalendar();
   const qamariOffset = getQamariOffset();
-  const accountWith = self?.shop_name ?? self?.name ?? "Kaata";
   const snapshot = {
     v: version,
     shop: accountWith,
@@ -290,53 +357,7 @@ export async function shareKaataCurrenciesViaWhatsApp(
     currencies: sections,
     generated_at: Date.now(),
   };
-  const lines = [tIn(lang, "share.greeting", { name: person.name }), ""];
-  if (sections.length === 1) {
-    // Keep the familiar single-currency reminder wording.
-    const section = sections[0];
-    if (section.balance > 0)
-      lines.push(
-        tIn(lang, "share.theyOwe.header", { accountWith }),
-        tIn(lang, "share.theyOwe.amount", {
-          amount: formatAmount(section.balance),
-          currency: section.currency,
-        }),
-        "",
-        tIn(lang, "share.theyOwe.cta"),
-      );
-    else if (section.balance < 0)
-      lines.push(
-        tIn(lang, "share.youOwe.header"),
-        tIn(lang, "share.youOwe.amount", {
-          amount: formatAmount(section.balance),
-          currency: section.currency,
-        }),
-        "",
-        tIn(lang, "share.youOwe.cta"),
-      );
-    else
-      lines.push(
-        tIn(lang, "share.currencySettled", { currency: section.currency }),
-        "",
-        tIn(lang, "share.settled.cta"),
-      );
-  } else {
-    lines.push(tIn(lang, "share.theyOwe.header", { accountWith }));
-    for (const section of sections)
-      lines.push(
-        section.balance === 0
-          ? tIn(lang, "share.currencySettled", { currency: section.currency })
-          : tIn(lang, section.balance > 0 ? "share.theyOwe.amount" : "share.youOwe.amount", {
-              amount: formatAmount(section.balance),
-              currency: section.currency,
-            }),
-      );
-    lines.push("");
-    if (sections.some((section) => section.balance > 0)) lines.push(tIn(lang, "share.theyOwe.cta"));
-    if (sections.some((section) => section.balance < 0)) lines.push(tIn(lang, "share.youOwe.cta"));
-    if (sections.every((section) => section.balance === 0))
-      lines.push(tIn(lang, "share.settled.cta"));
-  }
+  const lines = currencyMessageLines(person.name, accountWith, balances, lang);
   onStage?.("preparing");
   const count = sections.reduce(
     (count, section) =>
@@ -381,6 +402,7 @@ async function openWhatsApp(
     ? `whatsapp://send?phone=${encodeURIComponent(phone)}&text=${encodeURIComponent(text)}`
     : `whatsapp://send?text=${encodeURIComponent(text)}`;
   onStage?.("opening");
+  if (signal?.aborted) return false;
   try {
     await Linking.openURL(url);
   } catch (err) {
@@ -392,7 +414,13 @@ async function openWhatsApp(
 }
 
 export async function shareKaataViaWhatsApp(
-  person: { id?: string; name: string; phone: string | null; currency?: string },
+  person: {
+    id?: string;
+    name: string;
+    phone: string | null;
+    currency?: string;
+    tab_unsynced?: number;
+  },
   balance: number,
   self: Self | null,
   entries: Entry[],
@@ -401,9 +429,16 @@ export async function shareKaataViaWhatsApp(
   onStage?: (stage: WhatsAppShareStage) => void,
   signal?: AbortSignal,
   currencyCode: string = getCurrentCurrencyCode(),
+  options?: WhatsAppShareOptions,
 ): Promise<boolean> {
   if (signal?.aborted) return false;
-  assertSingleCurrency([person, ...entries], currencyCode);
+  requireCurrencyCode(currencyCode);
+  toMinorUnits(balance);
+  if (person.tab_unsynced === 1) throw new Error("Shared bill is not fully synced");
+  assertSingleCurrency(
+    options?.includeBillLink === false ? [person] : [person, ...entries],
+    currencyCode,
+  );
   onStage?.("preparing");
   const accountWith = self?.shop_name ?? self?.name ?? "Kaata";
   // Freeze the selected currency before upload; changing the view while the
@@ -432,6 +467,11 @@ export async function shareKaataViaWhatsApp(
   // NOTE: the "N accounts settled together" trust line lives on the WEB page
   // only (statement card) — operator decision 2026-07-27: the prewritten
   // WhatsApp text stays short; the page carries the track record.
+
+  if (options?.includeBillLink === false) {
+    lines.push("", tIn(lang, "share.footer"));
+    return openWhatsApp(person, lines, onStage, signal);
+  }
 
   // "See the full ledger on kaata.af" + link. Falls back to the plain tagline
   // when the snapshot upload couldn't produce a link (offline / error).

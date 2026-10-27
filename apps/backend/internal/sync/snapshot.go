@@ -70,6 +70,9 @@ type SnapshotResponse struct {
 	// Recover the exact future-entry choices without publishing arbitrary
 	// vault/client settings or discarding their signed authority and HLCs.
 	EnabledCurrencyEvents []PulledEvent `json:"enabled_currency_events,omitempty"`
+	// Keep an explicit bill-link OFF choice across pre-cursor recovery without
+	// serializing arbitrary private/client settings or unsigned authority.
+	BillLinkEvents []PulledEvent `json:"bill_link_events,omitempty"`
 	// SettlementEvents (2026-07-27): every entry_settled chapter marker for
 	// the vault, cursor-independent like MembershipEvents — the settlements
 	// projection is mobile-only, so a snapshot restore would otherwise lose
@@ -242,6 +245,11 @@ func (s *Service) LatestSnapshot(ctx context.Context, vaultID string) (*Snapshot
 		return nil, fmt.Errorf("read enabled currency events: %w", err)
 	}
 	s.resolveBindingsOnPulled(ctx, vaultID, enabledCurrencies)
+	billLinks, err := pullBillLinkEvents(ctx, s.pool, vaultID)
+	if err != nil {
+		return nil, fmt.Errorf("read bill link events: %w", err)
+	}
+	s.resolveBindingsOnPulled(ctx, vaultID, billLinks)
 
 	settlements, err := s.pullSettlementEvents(ctx, vaultID)
 	if err != nil {
@@ -300,6 +308,7 @@ func (s *Service) LatestSnapshot(ctx context.Context, vaultID string) (*Snapshot
 		Events:                tail,
 		MembershipEvents:      membership,
 		EnabledCurrencyEvents: enabledCurrencies,
+		BillLinkEvents:        billLinks,
 		SettlementEvents:      settlements,
 	}
 	return resp, nil
@@ -587,6 +596,24 @@ func pullEnabledCurrencyEvents(ctx context.Context, query snapshotEventQuerier, 
 		  AND redacted_at IS NULL
 		  AND event_type = 'vault_setting_set'
 		  AND payload->>'key' = 'enabled_currencies'
+		ORDER BY hlc_physical_ms ASC, hlc_logical ASC, hlc_device_id ASC, event_id ASC
+	`, vaultID)
+	if err != nil {
+		return nil, err
+	}
+	return scanPulledEvents(rows)
+}
+
+// Preserve only this signed sharing preference, even when it predates the
+// snapshot cursor. Ordinary event verification and LWW still decide its value.
+func pullBillLinkEvents(ctx context.Context, query snapshotEventQuerier, vaultID string) ([]PulledEvent, error) {
+	rows, err := query.Query(ctx, `
+		SELECT`+pulledEventColumns+`
+		FROM events
+		WHERE vault_id = $1::uuid
+		  AND redacted_at IS NULL
+		  AND event_type = 'vault_setting_set'
+		  AND payload->>'key' = 'share_bill_links'
 		ORDER BY hlc_physical_ms ASC, hlc_logical ASC, hlc_device_id ASC, event_id ASC
 	`, vaultID)
 	if err != nil {

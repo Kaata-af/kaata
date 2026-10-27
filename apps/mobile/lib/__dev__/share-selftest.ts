@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import type { Entry } from "../types";
+import type { WhatsAppCurrencyStatement } from "../share";
 import { CURRENCIES } from "../currency-catalog";
 
 // Run the actual sharing module; replace only native/storage/network edges.
@@ -26,11 +27,21 @@ stub("react-native", {
   },
 });
 let backendWait: Promise<string> | null = null;
-stub("../api", { getBackendUrl: async () => backendWait ?? "https://example.invalid" });
+let backendReads = 0;
+stub("../api", {
+  getBackendUrl: async () => {
+    backendReads++;
+    return backendWait ?? "https://example.invalid";
+  },
+});
 let selectedCalendar = "jalali";
 let qamariOffset = 0;
+let calendarReads = 0;
 stub("../calendar", {
-  getEffectiveCalendar: () => selectedCalendar,
+  getEffectiveCalendar: () => {
+    calendarReads++;
+    return selectedCalendar;
+  },
   getQamariOffset: () => qamariOffset,
 });
 let selectedCurrency = "AFN";
@@ -792,8 +803,168 @@ async function main() {
     beforeCancel,
     "late all-currency uploads cannot open another app after leaving",
   );
+
+  // Deliberately omitting a bill must never inspect ledger history, even when
+  // that history is unavailable, invalid or beyond the public bill's limits.
+  const historyMustStayPrivate = () => {
+    throw new Error("balance-only sharing must not inspect bill data");
+  };
+  const balanceOnly = (currency: string, balance: number, pending = false) =>
+    Object.defineProperties(
+      { currency, balance, pending },
+      Object.fromEntries(
+        ["entries", "history", "settled", "toJSON"].map((key) => [
+          key,
+          { get: historyMustStayPrivate },
+        ]),
+      ),
+    ) as WhatsAppCurrencyStatement;
+  const noBill = { includeBillLink: false };
+  const beforeBalanceBackend = backendReads;
+  const beforeBalanceCalendar = calendarReads;
+  let balanceRequests = 0;
+  globalThis.fetch = (async () => {
+    balanceRequests++;
+    throw new Error("balance-only sharing must not use the network");
+  }) as typeof fetch;
+  const balanceStages: string[] = [];
+  assert.equal(
+    await shareKaataCurrenciesViaWhatsApp(
+      person,
+      { name: "Owner", shop_name: "Test shop" } as any,
+      [balanceOnly("AFN", 0.29), balanceOnly("USD", -0.01), balanceOnly("AUD", 0)],
+      "fa",
+      (stage) => balanceStages.push(stage),
+      undefined,
+      noBill,
+    ),
+    true,
+  );
+  const balanceText = new URL(opens.at(-1)!).searchParams.get("text")!;
+  assert.match(balanceText, /share.greeting.*Test person/);
+  assert.match(balanceText, /share.theyOwe.header.*Test shop/);
+  assert.match(balanceText, /share.theyOwe.amount.*"amount":"0.29".*AFN/);
+  assert.match(balanceText, /share.youOwe.amount.*"amount":"0.01".*USD/);
+  assert.match(balanceText, /share.currencySettled.*AUD/);
+  assert.match(balanceText, /share.theyOwe.cta/);
+  assert.match(balanceText, /share.youOwe.cta/);
+  assert.match(balanceText, /share.footer/);
+  assert.doesNotMatch(balanceText, /share.billUnavailable|share.fullLedger|example.invalid/);
+  assert.deepEqual(balanceStages, ["preparing", "opening"]);
+  await shareKaataCurrenciesViaWhatsApp(
+    person,
+    null,
+    allCodes.map((code) => balanceOnly(code, 0)),
+    "en",
+    undefined,
+    undefined,
+    noBill,
+  );
+  assert.match(
+    new URL(opens.at(-1)!).searchParams.get("text")!,
+    new RegExp(allCodes.at(-1)!),
+    "public bill section limits never shorten an intentional balance-only message",
+  );
+  const unreadableRows = new Proxy([] as Entry[], { get: historyMustStayPrivate });
+  assert.equal(
+    await shareKaataViaWhatsApp(
+      { ...person, currency: "USD" },
+      -0.29,
+      null,
+      unreadableRows,
+      "en",
+      new Proxy({} as any, { get: historyMustStayPrivate }),
+      undefined,
+      undefined,
+      "USD",
+      noBill,
+    ),
+    true,
+  );
+  const singleBalanceText = new URL(opens.at(-1)!).searchParams.get("text")!;
+  assert.match(singleBalanceText, /share.youOwe.amount.*"amount":"0.29".*USD/);
+  assert.match(singleBalanceText, /share.youOwe.cta/);
+  assert.match(singleBalanceText, /share.footer/);
+  assert.doesNotMatch(singleBalanceText, /share.billUnavailable|share.fullLedger/);
+
+  const beforeInvalidBalance = opens.length;
+  for (const invalid of [
+    balanceOnly("AFN", 1, true),
+    balanceOnly("not-an-iso-code", 1),
+    balanceOnly("AFN", NaN),
+    balanceOnly("AFN", Infinity),
+    balanceOnly("AFN", 0.001),
+    balanceOnly("AFN", Number.MAX_SAFE_INTEGER),
+  ])
+    await assert.rejects(
+      shareKaataCurrenciesViaWhatsApp(person, null, [invalid], "en", undefined, undefined, noBill),
+    );
+  await assert.rejects(
+    shareKaataCurrenciesViaWhatsApp(
+      person,
+      null,
+      [balanceOnly("AFN", 1), balanceOnly("AFN", 2)],
+      "en",
+      undefined,
+      undefined,
+      noBill,
+    ),
+    /Duplicate bill currency/,
+  );
+  await assert.rejects(
+    shareKaataViaWhatsApp(
+      { ...person, currency: "USD", tab_unsynced: 1 },
+      0,
+      null,
+      unreadableRows,
+      "en",
+      undefined,
+      undefined,
+      undefined,
+      "USD",
+      noBill,
+    ),
+    /not fully synced/,
+  );
+  assert.equal(opens.length, beforeInvalidBalance, "unknown or invalid money cannot be shared");
+
+  for (const abortStage of ["preparing", "opening"] as const) {
+    const controller = new AbortController();
+    assert.equal(
+      await shareKaataCurrenciesViaWhatsApp(
+        person,
+        null,
+        [balanceOnly("AFN", 1)],
+        "en",
+        (stage) => {
+          if (stage === abortStage) controller.abort();
+        },
+        controller.signal,
+        noBill,
+      ),
+      false,
+    );
+  }
+  const alreadyCancelled = new AbortController();
+  alreadyCancelled.abort();
+  assert.equal(
+    await shareKaataCurrenciesViaWhatsApp(
+      person,
+      null,
+      new Proxy([] as WhatsAppCurrencyStatement[], { get: historyMustStayPrivate }),
+      "en",
+      undefined,
+      alreadyCancelled.signal,
+      noBill,
+    ),
+    false,
+  );
+  assert.equal(opens.length, beforeInvalidBalance, "cancelled reminders never launch WhatsApp");
+  assert.equal(backendReads, beforeBalanceBackend, "bill links off never reads the backend URL");
+  assert.equal(calendarReads, beforeBalanceCalendar, "bill links off never builds a snapshot");
+  assert.equal(balanceRequests, 0, "bill links off never probes or uploads a bill");
   console.log(
-    "PASS: complete multi-currency WhatsApp bills, scoped selected rows, per-currency balances/chapters, no truncation, version/limit/offline fallback and abort guards",
+    "PASS: complete multi-currency WhatsApp bills, optional balance-only reminders without history/network access, scoped rows, exact balances/chapters, version/limit/offline fallback and abort guards",
   );
 }
 main()

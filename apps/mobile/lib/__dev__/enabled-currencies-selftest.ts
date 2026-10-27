@@ -191,6 +191,12 @@ function fixture() {
     "./currency-settings": settings,
     "./currency-scope": scope,
   }) as typeof import("../vault-router");
+  const billLinks = compileUI("../bill-link-settings", {
+    "./auth": auth,
+    "./db-tx": dbTx,
+    "./event-log": eventLog,
+    "./projection": { applyEventMutex: projectionMutex },
+  }) as typeof import("../bill-link-settings");
   const hooks = uiHooks();
   const sheetHooks = uiHooks();
   const rowRenders = new Map<string, number>();
@@ -356,6 +362,7 @@ function fixture() {
       StyleSheet: { create: (s: any) => s },
       Text: "Text",
       View: "View",
+      Switch: "Switch",
     },
     "react-native-safe-area-context": { SafeAreaView: "SafeAreaView" },
     "../../components/SettingsScreen": Object.fromEntries(
@@ -370,6 +377,7 @@ function fixture() {
     },
     "../../lib/event-log": eventLog,
     "../../lib/vault-router": router,
+    "../../lib/bill-link-settings": billLinks,
     "../../lib/auth": auth,
     "../../lib/colors": require("../colors"),
     "../../lib/db-tx": { ...dbTx, getActiveVaultId: async () => "v" },
@@ -431,6 +439,7 @@ function fixture() {
     tx,
     currency,
     router,
+    billLinks,
     projection,
     eventLog,
     authored,
@@ -667,7 +676,188 @@ function checkSearchAndLimit() {
   picker.store.close();
 }
 
+async function checkBillLinkSettings() {
+  type SettingsFixture = ReturnType<typeof fixture>;
+  const toggle = (f: SettingsFixture) =>
+    nodes(f.hooks.tree).find(
+      (node) => node.type === "Switch" && node.props.testID === "vault-bill-links",
+    )!;
+  const settle = async (f: SettingsFixture) => {
+    for (let i = 0; i < 3; i++) {
+      await settleUI();
+      f.hooks.render();
+    }
+  };
+  const load = async (f: SettingsFixture) => {
+    const read = f.tx.getFirstAsync;
+    f.tx.getFirstAsync = async (sql: string, ...args: any[]) =>
+      sql.includes("COUNT(*)") ? { n: 1 } : read(sql, ...args);
+    f.hooks.render(f.screen);
+    await settle(f);
+  };
+  const close = (f: SettingsFixture) => {
+    f.hooks.unmount();
+    f.store.close();
+  };
+
+  {
+    const f = fixture();
+    await load(f);
+    assert.equal(await f.billLinks.getBillLinksEnabled("v"), true);
+    assert.equal(
+      toggle(f).props.value,
+      true,
+      "An existing Kaata without a preference keeps bill links on",
+    );
+    assert.equal(toggle(f).props.accessibilityRole, "switch");
+    assert.equal(toggle(f).props.accessibilityLabel, "vaultSettings.billLinks.label");
+    assert.equal(toggle(f).props.accessibilityHint, "vaultSettings.billLinks.hint");
+    assert.equal(toggle(f).props.accessibilityState.checked, true);
+    assert.equal(toggle(f).props.disabled, false);
+    assert.equal(f.authored.length, 0, "Loading the default does not author a setting");
+    const pending = deferred<void>();
+    let attempts = 0;
+    f.beforeApply(() => {
+      attempts++;
+      return pending.promise;
+    });
+    const retainedChange = toggle(f).props.onValueChange;
+    retainedChange(false);
+    retainedChange(false);
+    retainedChange(true);
+    f.hooks.render();
+    assert.equal(toggle(f).props.value, false, "The switch immediately shows its pending value");
+    assert.equal(toggle(f).props.disabled, true);
+    assert.equal(toggle(f).props.accessibilityState.busy, true);
+    await settle(f);
+    assert.equal(attempts, 1, "Rapid toggles reserve one signed-setting operation before rerender");
+    assert.equal(
+      (
+        f.store
+          .prepare("SELECT value FROM vault_settings WHERE vault_id='v' AND key='share_bill_links'")
+          .get() as { value: string } | undefined
+      )?.value,
+      undefined,
+      "Pending optimistic UI does not persist early",
+    );
+    assert.equal(f.authored.length, 0);
+    pending.resolve();
+    await settle(f);
+    assert.equal(await f.billLinks.getBillLinksEnabled("v"), false);
+    assert.equal(toggle(f).props.value, false);
+    assert.equal(toggle(f).props.disabled, false);
+    assert.equal(toggle(f).props.accessibilityState.busy, false);
+    assert.equal(f.authored.length, 1);
+    assert.equal(f.authored[0].vault_id, "v");
+    assert.deepEqual(f.authored[0].payload, { key: "share_bill_links", value: "false" });
+    assert.equal(f.toasts.at(-1), "vaultSettings.billLinks.saved");
+    f.beforeApply(null);
+    toggle(f).props.onValueChange(false);
+    await settle(f);
+    assert.equal(f.authored.length, 1, "Repeating the committed value is a no-op");
+    toggle(f).props.onValueChange(true);
+    await settle(f);
+    assert.equal(await f.billLinks.getBillLinksEnabled("v"), true);
+    assert.equal(f.authored.length, 2, "A completed save releases the switch for its next change");
+    assert.ok(f.authored.every((event) => event.payload.key === "share_bill_links"));
+    close(f);
+  }
+
+  {
+    const f = fixture();
+    f.store
+      .prepare("INSERT INTO vault_settings(vault_id,key,value) VALUES(?,?,?)")
+      .run("v", "share_bill_links", "false");
+    await load(f);
+    assert.equal(toggle(f).props.value, false, "Settings loads the persisted OFF preference");
+    assert.equal(toggle(f).props.accessibilityState.checked, false);
+    assert.equal(f.authored.length, 0);
+    close(f);
+  }
+
+  {
+    const f = fixture();
+    await load(f);
+    f.beforeApply(() => {
+      throw Error("Synthetic bill-link setting failure");
+    });
+    toggle(f).props.onValueChange(false);
+    f.hooks.render();
+    assert.equal(toggle(f).props.value, false);
+    await settle(f);
+    assert.equal(toggle(f).props.value, true, "A refused save restores the previous switch value");
+    assert.equal(toggle(f).props.disabled, false);
+    assert.equal(await f.billLinks.getBillLinksEnabled("v"), true);
+    assert.equal(f.authored.length, 0);
+    assert.equal(f.toasts.at(-1), "vaultSettings.billLinks.saveFailed");
+    f.beforeApply(null);
+    toggle(f).props.onValueChange(false);
+    await settle(f);
+    assert.equal(toggle(f).props.value, false);
+    assert.equal(await f.billLinks.getBillLinksEnabled("v"), false);
+    assert.equal(f.authored.length, 1, "Failure releases the immediate guard for a retry");
+    close(f);
+  }
+
+  {
+    const f = fixture();
+    await load(f);
+    const retainedChange = toggle(f).props.onValueChange;
+    f.setRole("viewer");
+    f.hooks.render();
+    assert.equal(toggle(f).props.disabled, true);
+    assert.equal(toggle(f).props.accessibilityState.disabled, true);
+    retainedChange(false);
+    await settle(f);
+    assert.equal(toggle(f).props.value, true);
+    assert.equal(await f.billLinks.getBillLinksEnabled("v"), true);
+    assert.equal(f.authored.length, 0, "A retained callback cannot bypass a live read-only role");
+    close(f);
+  }
+
+  {
+    const f = fixture();
+    await load(f);
+    const pending = deferred<void>();
+    let attempts = 0;
+    f.beforeApply(() => {
+      attempts++;
+      return pending.promise;
+    });
+    const retainedChange = toggle(f).props.onValueChange;
+    retainedChange(false);
+    await settle(f);
+    assert.equal(attempts, 1);
+    assert.equal(toggle(f).props.value, false);
+    f.hooks.unmount();
+    const lateWrites = f.hooks.lateWrites;
+    pending.resolve();
+    await settleUI();
+    await settleUI();
+    retainedChange(false);
+    await settleUI();
+    assert.equal(await f.billLinks.getBillLinksEnabled("v"), true);
+    assert.equal(
+      f.authored.length,
+      0,
+      "The transaction preflight refuses a departed Settings screen",
+    );
+    assert.deepEqual(f.toasts, [], "A departed save does not publish success or failure feedback");
+    assert.equal(
+      f.hooks.lateWrites,
+      lateWrites,
+      "Pending completion cannot update unmounted Settings",
+    );
+    assert.equal(lateWrites, 0);
+    f.store.close();
+  }
+  console.log(
+    "PASS bill-link settings: default/persisted value, one signed rapid-toggle save, rollback/retry, read-only and departed transaction guards",
+  );
+}
+
 async function main() {
+  await checkBillLinkSettings();
   {
     const virtual = fixture();
     let selected = ["AFN", "USD"];
@@ -1215,4 +1405,15 @@ async function main() {
     "PASS enabled currencies: compact field, explicit draft Save/Cancel/back/backdrop, default and remote conflict checks, retry/duplicate/stale guards, keyboard dismissal and unchanged historical money",
   );
 }
-void main();
+const watchdog = setTimeout(() => {
+  console.error("Enabled-currencies UI checks did not finish within 30 seconds");
+  process.exitCode = 1;
+}, 30_000);
+void main().then(
+  () => clearTimeout(watchdog),
+  (error) => {
+    clearTimeout(watchdog);
+    console.error(error);
+    process.exitCode = 1;
+  },
+);

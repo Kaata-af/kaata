@@ -20,7 +20,7 @@ import * as money from "../money";
 import { tallyScrollTarget } from "../tally-viewport";
 import { compareTallyReviews } from "../tally-review-feedback";
 import { entryTypeFor } from "../tabs/direction";
-import { compileUI } from "./ui-fixture";
+import { compileUI, deferred } from "./ui-fixture";
 
 const { summarizeSelectionEntries } = compileUI("../selection-summary", {
   "./currency-totals": require("../currency-totals"),
@@ -163,6 +163,9 @@ const reminderOwner = () => `account:${accountId}`;
 let settlement: any, markers: any[], boundaries: number[];
 let preference = "en",
   preferenceReads = 0;
+let billLinksEnabled = true,
+  billLinksReadGate: Promise<boolean> | null = null;
+const billLinksReads: { vault: string; account: string }[] = [];
 const shares: any[] = [],
   seen: any[] = [],
   exports: any[] = [],
@@ -439,6 +442,12 @@ const mocks: Record<string, any> = {
       });
     },
   },
+  "../../lib/bill-link-settings": {
+    getBillLinksEnabled: async (vault: string) => {
+      billLinksReads.push({ vault, account: accountId });
+      return billLinksReadGate ?? billLinksEnabled;
+    },
+  },
   "../../lib/tally-search": { filterTallies, noteSearchTerms },
   "../../lib/tally-date-filter": { filterTalliesByDate, formatDateRangeLabel },
   "../../lib/tally-summary": { summarizeTallyFlows },
@@ -648,6 +657,9 @@ function fixture(shared = false) {
   deletionScopes.length = 0;
   deleteEntryImpl = async () => {};
   preferenceReads = 0;
+  billLinksEnabled = true;
+  billLinksReadGate = null;
+  billLinksReads.length = 0;
   shares.length = 0;
   seen.length = 0;
   exports.length = 0;
@@ -1627,6 +1639,222 @@ async function sharedClosureReviewTests() {
   );
 }
 
+async function billLinkPreferenceTests() {
+  fixture(true);
+  const earlier = {
+    link: { tab_id: "unrestored-earlier-book", last_synced_at: null },
+    entries: [tally("earlier-private-note", "Historical private note", 999, 1)],
+  };
+  priorPeriods = [earlier];
+  await flush();
+  assert.deepEqual(
+    billLinksReads,
+    [],
+    "Loading a customer does not cache the send-time preference",
+  );
+  pingButton().props.onPress();
+  await flush();
+  assert.equal(
+    shares.length,
+    0,
+    "Bill links retain the complete-history readiness check by default",
+  );
+  assert.equal(toasts.at(-1)?.[0], "tab.notDownloaded");
+  let historicalReadAttempts = 0;
+  Object.defineProperty(earlier.link, "last_synced_at", {
+    get: () => {
+      historicalReadAttempts++;
+      throw Error("A plain reminder must not inspect an earlier bill cache");
+    },
+  });
+  billLinksEnabled = false;
+  pingButton().props.onPress();
+  await flush();
+  assert.equal(
+    shares.length,
+    1,
+    "Known current balances can be sent without downloading old bill history",
+  );
+  assert.deepEqual(shares[0].args[6], { includeBillLink: false });
+  assert.deepEqual(shares[0].args[2], [{ currency: "AFN", balance: 5, entries: [] }]);
+  assert.equal(historicalReadAttempts, 0, "Link-free sends never inspect historical readiness");
+  assert.deepEqual(billLinksReads, [
+    { vault: "vault", account: "account" },
+    { vault: "vault", account: "account" },
+  ]);
+  shares[0].resolve(true);
+  await flush();
+  person = { ...person, tab_unsynced: 1 };
+  await ledgerRefresh();
+  await flush();
+  pingButton().props.onPress();
+  await flush();
+  assert.equal(
+    shares.length,
+    1,
+    "An unknown current balance remains blocked with bill links disabled",
+  );
+  assert.equal(toasts.at(-1)?.[0], "tab.notDownloaded");
+  assert.equal(historicalReadAttempts, 0);
+  unmount();
+
+  fixture();
+  billLinksEnabled = false;
+  const base = { ...person };
+  person = {
+    ...base,
+    currency: "AFN",
+    currency_balances: [
+      { ...base, currency: "AFN", balance: 3 },
+      { ...base, currency: "USD", balance: -7.25 },
+      { ...base, currency: "EUR", balance: 0 },
+    ],
+  };
+  await flush();
+  query("no matching tally");
+  dateControl().props.onChange(dateRangeBetween(Date.UTC(2026, 9, 26), Date.UTC(2026, 9, 26)));
+  await flush();
+  pingButton().props.onPress();
+  await flush();
+  assert.deepEqual(
+    shares[0].args[2],
+    [
+      { currency: "AFN", balance: 3, entries: [] },
+      { currency: "USD", balance: -7.25, entries: [] },
+      { currency: "EUR", balance: 0, entries: [] },
+    ],
+    "Plain reminders preserve every separate current balance, including zero, without serializing rows or histories",
+  );
+  assert.deepEqual(shares[0].args[6], { includeBillLink: false });
+  shares[0].resolve(true);
+  await flush();
+  unmount();
+
+  fixture();
+  await flush();
+  const pendingSetting = deferred<boolean>();
+  billLinksReadGate = pendingSetting.promise;
+  const firstTap = pingButton().props.onPress;
+  firstTap();
+  firstTap();
+  await flush();
+  assert.equal(
+    billLinksReads.length,
+    1,
+    "The preference read is covered by the same-frame share lock",
+  );
+  assert.equal(preferenceReads, 0);
+  assert.equal(shares.length, 0);
+  assert.equal(pingButton().props.accessibilityState.busy, true);
+  pendingSetting.resolve(false);
+  billLinksReadGate = null;
+  await flush();
+  assert.deepEqual(shares[0].args[6], { includeBillLink: false });
+  shares[0].resolve(true);
+  await flush();
+  pingButton().props.onPress();
+  await flush();
+  assert.equal(
+    billLinksReads.length,
+    2,
+    "Each later send rereads the setting rather than reusing the previous result",
+  );
+  assert.deepEqual(shares[1].args[6], { includeBillLink: true });
+  shares[1].resolve(true);
+  await flush();
+  unmount();
+
+  fixture();
+  await flush();
+  const failedSetting = deferred<boolean>();
+  billLinksReadGate = failedSetting.promise;
+  pingButton().props.onPress();
+  failedSetting.reject(Error("Synthetic preference read failure"));
+  await flush();
+  assert.equal(shares.length, 0, "A failed preference read cannot silently publish a bill link");
+  assert.equal(toasts.at(-1)?.[0], "share.whatsappUnavailable");
+  assert.equal(pingButton().props.accessibilityState.busy, false);
+  billLinksReadGate = null;
+  billLinksEnabled = false;
+  pingButton().props.onPress();
+  await flush();
+  assert.deepEqual(
+    shares[0].args[6],
+    { includeBillLink: false },
+    "Preference failures release the guard for a fresh retry",
+  );
+  shares[0].resolve(true);
+  await flush();
+  unmount();
+
+  fixture();
+  preference = "ask";
+  await flush();
+  pingButton().props.onPress();
+  await flush();
+  const picker = find("OptionSheet")!;
+  assert.equal(picker.props.visible, true);
+  billLinksEnabled = false;
+  picker.props.onSelect("fa");
+  advance(220);
+  await flush();
+  assert.equal(
+    billLinksReads.length,
+    2,
+    "The deferred language choice also gets the latest bill-link preference",
+  );
+  assert.equal(shares[0].args[3], "fa");
+  assert.deepEqual(shares[0].args[6], { includeBillLink: false });
+  shares[0].resolve(true);
+  await flush();
+  unmount();
+
+  for (const departure of ["vault", "account", "person", "currency", "blur", "unmount"] as const) {
+    fixture();
+    await flush();
+    const pending = deferred<boolean>();
+    billLinksReadGate = pending.promise;
+    const retainedTap = pingButton().props.onPress;
+    retainedTap();
+    await flush();
+    assert.deepEqual(billLinksReads, [{ vault: "vault", account: "account" }]);
+    if (departure === "vault") vaultId = "other-vault";
+    else if (departure === "account") accountId = "other-account";
+    else if (departure === "person") {
+      params = { id: "other-person" };
+      dirty = true;
+      await flush();
+    } else if (departure === "currency") {
+      selectedCurrency = "USD";
+      dirty = true;
+      await flush();
+    } else if (departure === "blur") blur();
+    else unmount();
+    pending.resolve(false);
+    if (departure === "unmount") for (let i = 0; i < 20; i++) await Promise.resolve();
+    else await flush();
+    retainedTap();
+    for (let i = 0; i < 4; i++) await Promise.resolve();
+    assert.equal(shares.length, 0, `${departure}: an old preference result cannot open WhatsApp`);
+    assert.equal(
+      preferenceReads,
+      0,
+      `${departure}: stale work stops before opening a language picker`,
+    );
+    assert.equal(
+      billLinksReads.length,
+      1,
+      `${departure}: retained taps cannot read a different Kaata's setting`,
+    );
+    assert.equal(toasts.length, 0, `${departure}: departed requests stay silent`);
+    if (departure === "unmount") assert.equal(slots.length, 0);
+    else unmount();
+  }
+  console.log(
+    "PASS: fresh per-Kaata bill-link preference, history-free all-currency reminders, current-cache guard, duplicate/language and stale-setting isolation",
+  );
+}
+
 async function main() {
   {
     fixture();
@@ -1882,6 +2110,7 @@ async function main() {
   await tallySelectionTests();
   await inlineSearchScopeTests();
   await notificationReminderFlowTests();
+  await billLinkPreferenceTests();
   for (const p of ["android", "ios"])
     for (const r of [false, true]) {
       platform = p;

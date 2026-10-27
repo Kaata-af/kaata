@@ -167,7 +167,17 @@ function fixture() {
       return {
         emitLedgerApplied() {
           assert.equal(sql.inTransaction, false);
-          assert.equal(count("vault_settings"), 2, "observers only see both committed settings");
+          assert.equal(
+            (
+              sql
+                .prepare(
+                  "SELECT COUNT(*) AS n FROM vault_settings WHERE key IN ('default_entry_currency','enabled_currencies')",
+                )
+                .get() as { n: number }
+            ).n,
+            2,
+            "observers only see both committed currency settings",
+          );
           notifications++;
         },
       };
@@ -196,18 +206,25 @@ function fixture() {
     "./projection": projection,
   }) as typeof import("../event-log");
   const session = () => ({ accountId: account, jwt: null, bindingVersion });
-  const router = compileUI("../vault-router", {
-    "./auth": {
-      captureCurrentSession: async () => session(),
-      applyForUnchangedLocalSession: async (
-        expected: ReturnType<typeof session>,
-        work: () => Promise<unknown>,
-      ) => {
-        if (expected.accountId !== account || expected.bindingVersion !== bindingVersion)
-          throw new Error("stale local session");
-        return work();
-      },
+  const auth = {
+    captureCurrentSession: async () => session(),
+    applyForUnchangedLocalSession: async (
+      expected: ReturnType<typeof session>,
+      work: () => Promise<unknown>,
+    ) => {
+      if (expected.accountId !== account || expected.bindingVersion !== bindingVersion)
+        throw new Error("stale local session");
+      return work();
     },
+  };
+  const billLinks = compileUI("../bill-link-settings", {
+    "./auth": auth,
+    "./db-tx": dbTx,
+    "./event-log": eventLog,
+    "./projection": projection,
+  }) as typeof import("../bill-link-settings");
+  const router = compileUI("../vault-router", {
+    "./auth": auth,
     "./db-tx": dbTx,
     "./effective-account": {},
     "./event-log": eventLog,
@@ -272,6 +289,7 @@ function fixture() {
     projection,
     helper,
     eventLog,
+    billLinks,
     router,
     session,
     create: profile.createSelfProfile as typeof import("../db").createSelfProfile,
@@ -310,6 +328,7 @@ function compileModule(path: string, required: (name: string) => unknown): any {
 }
 
 async function main() {
+  await billLinkSettings();
   await atomicCurrencySettings();
   await snapshotCurrencyRecovery();
   {
@@ -489,6 +508,208 @@ async function main() {
   }
   console.log(
     "initial-currencies: atomic mint, signed genesis-first replay, local/signed-in defaults, validation, rollback and existing-book preservation passed",
+  );
+}
+
+async function billLinkSettings() {
+  const f = fixture();
+  try {
+    await f.create("Owner", "Sharing preference", null, "AFN", ["AFN", "USD"]);
+    const vaultId = (f.sql.prepare("SELECT id FROM vaults").get() as { id: string }).id;
+    assert.equal(await f.billLinks.getBillLinksEnabled(vaultId), true, "old books default ON");
+    const raw = (value: string) =>
+      f.sql
+        .prepare(
+          "INSERT OR REPLACE INTO vault_settings(vault_id,key,value,hlc_pms,hlc_l,hlc_did,updated_at) VALUES(?,'share_bill_links',?,1,0,'old',1)",
+        )
+        .run(vaultId, value);
+    for (const value of ["", "False", "0", "null", '"false"', "corrupt"]) {
+      raw(value);
+      assert.equal(await f.billLinks.getBillLinksEnabled(vaultId), true, value);
+    }
+    raw("false");
+    assert.equal(await f.billLinks.getBillLinksEnabled(vaultId), false);
+    assert.equal(
+      await f.billLinks.getBillLinksEnabled("other-book"),
+      true,
+      "the preference is scoped to one Kaata",
+    );
+    f.sql.prepare("DELETE FROM vault_settings WHERE key='share_bill_links'").run();
+
+    const originalVault = f.sql.prepare("SELECT * FROM vaults").get();
+    await f.billLinks.changeBillLinksEnabled(vaultId, false, { session: f.session() });
+    assert.equal(await f.billLinks.getBillLinksEnabled(vaultId), false);
+    let transactionReady!: () => void;
+    let releaseTransaction!: () => void;
+    const ready = new Promise<void>((resolve) => {
+      transactionReady = resolve;
+    });
+    const release = new Promise<void>((resolve) => {
+      releaseTransaction = resolve;
+    });
+    const pendingWrite = f.projection.applyEventMutex.runExclusive(async () => {
+      await f.tx.withTransactionAsync(async () => {
+        await f.tx.runAsync(
+          "UPDATE vault_settings SET value='true' WHERE vault_id=? AND key='share_bill_links'",
+          vaultId,
+        );
+        transactionReady();
+        await release;
+        throw new Error("rollback pending bill preference");
+      });
+    });
+    const rolledBack = assert.rejects(pendingWrite, /rollback pending bill preference/);
+    await ready;
+    let readCompleted = false;
+    const pendingRead = f.billLinks.getBillLinksEnabled(vaultId).then((value) => {
+      readCompleted = true;
+      return value;
+    });
+    let readWaited = false;
+    try {
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      readWaited = !readCompleted;
+    } finally {
+      releaseTransaction();
+    }
+    await rolledBack;
+    const committedValue = await pendingRead;
+    assert.equal(readWaited, true, "a send waits for a committed preference");
+    assert.equal(
+      committedValue,
+      false,
+      "getter observes the saved OFF after pending projection rolls back",
+    );
+    const saved = f.sql
+      .prepare(
+        "SELECT * FROM event_log WHERE event_type='vault_setting_set' ORDER BY author_seq DESC LIMIT 1",
+      )
+      .get() as any;
+    const event = {
+      event_id: saved.event_id,
+      event_type: saved.event_type,
+      vault_id: saved.vault_id,
+      target_id: saved.target_id,
+      relationship_id: saved.relationship_id,
+      hlc: { pms: saved.hlc_physical_ms, l: saved.hlc_logical, did: saved.hlc_device_id },
+      device_id: saved.device_id,
+      actor_account_id: saved.actor_account_id,
+      payload_schema: saved.payload_schema,
+      payload: JSON.parse(saved.payload_json),
+      author_seq: saved.author_seq,
+    } as LedgerEvent;
+    assert.deepEqual(event.payload, { key: "share_bill_links", value: "false" });
+    assert.deepEqual(
+      f.signature.verifyEventSignature(event, saved.event_sig_b64, saved.signer_device_pubkey),
+      { valid: true },
+    );
+    assert.deepEqual(
+      f.sql.prepare("SELECT * FROM vaults").get(),
+      originalVault,
+      "sharing choice does not alter vault currency or financial metadata",
+    );
+    assert.equal(f.values().enabled_currencies, '["AFN","USD"]');
+    await f.billLinks.changeBillLinksEnabled(vaultId, true);
+    assert.equal(await f.billLinks.getBillLinksEnabled(vaultId), true);
+    const state = () => ({
+      settings: f.values(),
+      events: f.sql.prepare("SELECT * FROM event_log ORDER BY author_seq").all(),
+      meta: f.sql.prepare("SELECT * FROM app_meta ORDER BY key").all(),
+    });
+    const before = state();
+    const signerReads = f.counts().signerReads;
+    await assert.rejects(
+      f.billLinks.changeBillLinksEnabled(vaultId, "false" as unknown as boolean),
+      /Invalid/,
+    );
+    await assert.rejects(f.billLinks.changeBillLinksEnabled("", false), /Invalid/);
+    await assert.rejects(
+      f.billLinks.changeBillLinksEnabled(vaultId, false, { shouldContinue: () => false }),
+      /scope/,
+    );
+    assert.equal(
+      f.counts().signerReads,
+      signerReads,
+      "invalid/stale consent is refused before key access",
+    );
+    let current = true;
+    f.afterSigner(() => {
+      current = false;
+    });
+    await assert.rejects(
+      f.billLinks.changeBillLinksEnabled(vaultId, false, { shouldContinue: () => current }),
+      /scope/,
+    );
+    f.afterSigner(null);
+    const stale = f.session();
+    f.account("different-account");
+    f.account(null);
+    await assert.rejects(
+      f.billLinks.changeBillLinksEnabled(vaultId, false, { session: stale }),
+      /stale local session/,
+    );
+    await assert.rejects(
+      f.billLinks.changeBillLinksEnabled("missing-book", false),
+      /no longer exists/,
+    );
+    assert.deepEqual(
+      state(),
+      before,
+      "lost scope/session or missing Kaata leaves no signed setting/event/HLC changes",
+    );
+
+    f.sql.exec(
+      "CREATE TRIGGER fail_bill_choice BEFORE INSERT ON vault_settings WHEN NEW.key='share_bill_links' BEGIN SELECT RAISE(ABORT,'injected preference storage failure'); END;",
+    );
+    await assert.rejects(f.billLinks.changeBillLinksEnabled(vaultId, false), /injected/);
+    f.sql.exec("DROP TRIGGER fail_bill_choice");
+    assert.deepEqual(
+      state(),
+      before,
+      "write failure rolls back the signed preference and event together",
+    );
+    f.failSigner();
+    await assert.rejects(f.billLinks.changeBillLinksEnabled(vaultId, false));
+    assert.deepEqual(state(), before, "missing signer cannot make an unsigned preference");
+  } finally {
+    f.sql.close();
+  }
+  for (const role of ["manager", "editor", "viewer"] as const) {
+    const f = fixture();
+    try {
+      await f.create("Owner", "Role check", null, "AFN");
+      const vaultId = (f.sql.prepare("SELECT id FROM vaults").get() as { id: string }).id;
+      await f.eventLog.appendVaultMemberAdded({
+        targetVaultId: vaultId,
+        accountId: "paired-account",
+        role,
+      });
+      f.usePairedSigner();
+      f.account("paired-account");
+      if (role === "manager") {
+        await f.billLinks.changeBillLinksEnabled(vaultId, false);
+        assert.equal(
+          await f.billLinks.getBillLinksEnabled(vaultId),
+          false,
+          "manager can change the preference",
+        );
+      } else {
+        await assert.rejects(
+          f.billLinks.changeBillLinksEnabled(vaultId, false),
+          f.eventLog.RoleGateRejectionError,
+        );
+        assert.equal(
+          await f.billLinks.getBillLinksEnabled(vaultId),
+          true,
+          `${role} cannot change the preference`,
+        );
+      }
+    } finally {
+      f.sql.close();
+    }
+  }
+  console.log(
+    "bill-link-settings: explicit OFF, signed per-Kaata saves, manager role, rollback, scope and session guards passed",
   );
 }
 
@@ -753,6 +974,10 @@ async function snapshotCurrencyRecovery() {
   const f = fixture();
   try {
     await f.create("Owner", "Shop", null, "AFN", ["AFN", "EUR"]);
+    await f.billLinks.changeBillLinksEnabled(
+      (f.sql.prepare("SELECT id FROM vaults").get() as { id: string }).id,
+      false,
+    );
     const saved = f.sql.prepare("SELECT * FROM event_log ORDER BY author_seq").all() as any[];
     const wire = saved.map((row) => ({
       event_id: row.event_id,
@@ -864,7 +1089,8 @@ async function snapshotCurrencyRecovery() {
       // An unrelated setting cannot use this narrowly scoped field, even if
       // it was correctly signed. The tail overlap is normal and idempotent.
       enabled_currency_events: [wire[2], wire[1]],
-      events: [wire[2]],
+      bill_link_events: [wire[3], wire[1], wire[0]],
+      events: [wire[2], wire[3]],
       snapshot_server_seq: 500,
       generated_at_ms: Date.now(),
       hlc_last: wire[2].hlc,
@@ -872,23 +1098,35 @@ async function snapshotCurrencyRecovery() {
     await restore.restoreFromSnapshot(snapshot, { localSelfId: self.id, setActiveDefault: false });
     assert.deepEqual(
       f.values(),
-      { enabled_currencies: '["AFN","EUR"]' },
+      { enabled_currencies: '["AFN","EUR"]', share_bill_links: "false" },
       "pre-cursor explicit choices survive without republishing other settings",
+    );
+    assert.equal(
+      await f.billLinks.getBillLinksEnabled(vault.id),
+      false,
+      "a pre-cursor OFF survives reinstall recovery",
     );
     assert.equal(cursor, 500, "the normal snapshot cursor still skips old history");
     assert.ok(
       received.every(
         (event) =>
-          event.event_type !== "vault_setting_set" || event.payload.key === "enabled_currencies",
+          event.event_type !== "vault_setting_set" ||
+          ["enabled_currencies", "share_bill_links"].includes(event.payload.key),
       ),
     );
     const enabled = received.find((event) => event.event_id === wire[2].event_id)!;
+    const billLink = received.find((event) => event.event_id === wire[3].event_id)!;
+    assert.equal(
+      billLink.event_sig_b64,
+      wire[3].event_sig_b64,
+      "bill preference retains original signed authority",
+    );
     assert.equal(
       enabled.event_sig_b64,
       wire[2].event_sig_b64,
       "restore forwards the original signature unchanged",
     );
-    assert.equal(f.count("event_log"), 2, "tail overlap does not duplicate signed settings");
+    assert.equal(f.count("event_log"), 3, "tail overlap does not duplicate signed settings");
     const historical = f.sql
       .prepare("SELECT * FROM entries WHERE id='historical-usd'")
       .get() as any;
@@ -916,7 +1154,7 @@ async function snapshotCurrencyRecovery() {
     const newer = {
       ...enabled,
       event_id: randomUUID(),
-      author_seq: (enabled.author_seq ?? 0) + 1,
+      author_seq: (billLink.author_seq ?? 0) + 1,
       hlc: { ...enabled.hlc, pms: enabled.hlc.pms + 10 },
       payload: { key: "enabled_currencies", value: '["AFN"]' },
     } as LedgerEvent;
@@ -924,11 +1162,30 @@ async function snapshotCurrencyRecovery() {
       ed.sign(bytes, new Uint8Array(32).fill(11)),
     );
     assert.equal((await f.projection.applyEvent(newer, { origin: "remote" })).applied, true);
+    const newerBillLink = {
+      ...billLink,
+      event_id: randomUUID(),
+      author_seq: (newer.author_seq ?? 0) + 1,
+      hlc: { ...newer.hlc, pms: newer.hlc.pms + 10 },
+      payload: { key: "share_bill_links", value: "true" },
+    } as LedgerEvent;
+    newerBillLink.event_sig_b64 = await f.signature.signEvent(newerBillLink, async (bytes) =>
+      ed.sign(bytes, new Uint8Array(32).fill(11)),
+    );
+    assert.equal(
+      (await f.projection.applyEvent(newerBillLink, { origin: "remote" })).applied,
+      true,
+    );
     await restore.restoreFromSnapshot(snapshot, { localSelfId: self.id, setActiveDefault: false });
     assert.deepEqual(
       await currency.getEnabledCurrencies(vault.id),
       ["AFN"],
       "an existing newer choice is not regressed by old snapshot history",
+    );
+    assert.equal(
+      await f.billLinks.getBillLinksEnabled(vault.id),
+      true,
+      "newer sharing preference wins over old snapshot history",
     );
   } finally {
     f.sql.close();
