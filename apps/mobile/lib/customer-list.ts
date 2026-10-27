@@ -221,8 +221,8 @@ export function selectNeverTalliedCustomers<T extends PersonWithBalance>(
 }
 
 /** Search interleaves both financial sides and empty contacts. Relevance is a
- * coarse match tier, so literal matches stay above fuzzy suggestions while the
- * selected sort still orders equally relevant results. */
+ * coarse match tier, except an explicit amount sort orders confirmed amounts
+ * first and uses relevance only to break equal amounts/status tiers. */
 export function selectSearchCustomers<T extends PersonWithBalance>(
   people: readonly T[],
   preference: CustomerListPreference,
@@ -269,9 +269,17 @@ function matchesBalanceFilter(
   );
 }
 
-function amountSortBalance(person: PersonWithBalance): number {
+function amountSortRow(person: PersonWithBalance): PersonWithBalance {
   const rows = person.currency_balances;
-  return rows?.length === 1 ? rows[0].balance : person.balance;
+  return rows?.length === 1 ? rows[0] : person;
+}
+
+function amountSortTier(person: PersonWithBalance): number {
+  const row = amountSortRow(person);
+  // An unknown cached balance has no comparable magnitude. Pending deltas also
+  // cannot turn a confirmed zero into an outstanding amount.
+  if (row.tab_unsynced === 1 || !Number.isFinite(row.balance)) return 1;
+  return row.balance !== 0 && row.is_settled !== 1 ? 0 : 2;
 }
 
 function selectCustomerRows<T extends PersonWithBalance>(
@@ -286,8 +294,17 @@ function selectCustomerRows<T extends PersonWithBalance>(
   const byName = (a: T, b: T) =>
     compareCustomerNames(a.name, b.name, locale) || a.id.localeCompare(b.id);
   const byDate = (a: T, b: T) => activityAt(b) - activityAt(a);
-  // Ascending amount/date sorts are for finding debts to chase; settled
-  // customers (0, or an old closed account) must not bury the open ones.
+  const byAmount = (a: T, b: T, order: 1 | -1) => {
+    const tierA = amountSortTier(a);
+    const tierB = amountSortTier(b);
+    return (
+      tierA - tierB ||
+      (tierA === 0
+        ? order * (Math.abs(amountSortRow(a).balance) - Math.abs(amountSortRow(b).balance))
+        : 0)
+    );
+  };
+  // Date sorts keep explicitly settled contacts after open ones.
   const openFirst = (a: T, b: T) => (a.is_settled === 1 ? 1 : 0) - (b.is_settled === 1 ? 1 : 0);
   const selected = selectedCustomerGroupIds(preference.group);
   return people
@@ -306,6 +323,10 @@ function selectCustomerRows<T extends PersonWithBalance>(
     )
     .sort((a, b) => {
       const relevance = (relevanceById?.get(b.id) ?? 0) - (relevanceById?.get(a.id) ?? 0);
+      if (preference.sort === "amount_asc" || preference.sort === "amount_desc")
+        return (
+          byAmount(a, b, preference.sort === "amount_asc" ? 1 : -1) || relevance || byName(a, b)
+        );
       if (relevance) return relevance;
       switch (preference.sort) {
         case "outstanding_name":
@@ -314,14 +335,6 @@ function selectCustomerRows<T extends PersonWithBalance>(
           return byName(a, b);
         case "name_desc":
           return -byName(a, b);
-        case "amount_desc":
-          return Math.abs(amountSortBalance(b)) - Math.abs(amountSortBalance(a)) || byName(a, b);
-        case "amount_asc":
-          return (
-            openFirst(a, b) ||
-            Math.abs(amountSortBalance(a)) - Math.abs(amountSortBalance(b)) ||
-            byName(a, b)
-          );
         case "date_asc":
           return openFirst(a, b) || -byDate(a, b) || byName(a, b);
         default:

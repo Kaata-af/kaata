@@ -562,6 +562,29 @@ async function main() {
     ["b", "a", "c"],
     "smallest first lists open debts before a settled (zero) customer",
   );
+  const groupedAmountPeople = [
+    ...people,
+    { ...people[0], id: "zero", name: "A Zero", balance: 0, is_settled: 0 },
+    { ...people[0], id: "unknown", name: "A Unknown", balance: 99999, tab_unsynced: 1 },
+    newPerson,
+  ] as PersonWithBalance[];
+  const beforeGroupedAmountSort = JSON.stringify(groupedAmountPeople);
+  for (const sort of ["amount_asc", "amount_desc"] as const) {
+    assert.deepEqual(
+      selectCustomers(
+        groupedAmountPeople,
+        "collect",
+        { sort, group: ["g", "h"] },
+        { a: ["g", "h"], b: ["h"], c: ["g"], zero: ["g"], unknown: ["h"], new: ["g"] },
+        "en",
+      ).map((p) => p.id),
+      sort === "amount_asc"
+        ? ["b", "a", "unknown", "zero", "c"]
+        : ["a", "b", "unknown", "zero", "c"],
+      `${sort}: legacy grouped financial lists keep outstanding first, unknown next and zero/settled last`,
+    );
+  }
+  assert.equal(JSON.stringify(groupedAmountPeople), beforeGroupedAmountSort);
   assert.deepEqual(ids("date_asc"), ["a", "b", "c"]);
   assert.equal(
     parseCustomerListPreference('{"sort":"date_desc","group":"all"}').sort,

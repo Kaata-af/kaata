@@ -16,10 +16,10 @@ import { rowDir, textDir } from "../lib/direction";
 import { t } from "../lib/i18n";
 import {
   CUSTOMER_BALANCE_FILTERS,
-  CUSTOMER_SORTS,
   selectedCustomerGroupIds,
   toggleCustomerGroupFilter,
   type CustomerListPreference,
+  type CustomerSort,
 } from "../lib/customer-list";
 import type { CustomerGroup } from "../lib/customer-groups";
 import { radius, space, TOUCH_MIN, typography } from "../lib/tokens";
@@ -42,12 +42,22 @@ type CustomerListOptionsProps = {
 
 /** Shared in-flow controls, including inside the search sheet's own scroll area. */
 export function CustomerListOptions(props: CustomerListOptionsProps) {
+  // Keep related choices on the same row rather than relying on wrap order.
+  // Recent activity remains the first full-width choice; its reverse follows it.
+  const sortRows: readonly (readonly CustomerSort[])[] = [
+    ["recent"],
+    ["date_asc"],
+    ["name_asc", "name_desc"],
+    ...(props.amountSortAvailable === false ? [] : [["amount_asc", "amount_desc"] as const]),
+    ["outstanding_name"],
+  ];
   const choice = (
     key: string,
     label: string,
     selected: boolean,
     onPress: () => void,
     kind: "sort" | "balance" | "group",
+    fullWidth = false,
   ) => (
     <Pressable
       key={key}
@@ -58,8 +68,8 @@ export function CustomerListOptions(props: CustomerListOptionsProps) {
       style={({ pressed }) => [
         kind === "group" ? styles.groupChoice : styles.sortChoice,
         props.compact && styles.choiceCompact,
-        ((kind === "sort" && key === "recent") || (kind === "balance" && key === "all")) &&
-          styles.defaultSort,
+        kind === "balance" && styles.balanceChoice,
+        fullWidth && styles.fullChoice,
         rowDir(props.isRTL),
         selected && (kind === "group" ? styles.groupSelected : styles.sortSelected),
         pressed && styles.pressed,
@@ -76,14 +86,14 @@ export function CustomerListOptions(props: CustomerListOptionsProps) {
               : "square-outline"
         }
         size={18}
-        color={selected && kind !== "group" ? colors.textInverted : colors.textSubtle}
+        color={selected ? colors.textEmphasis : colors.textMuted}
       />
       <Text
         style={[
           styles.choiceLabel,
           textDir(props.isRTL),
           selected && styles.selectedLabel,
-          selected && kind !== "group" && styles.sortSelectedLabel,
+          selected && styles.selectedLabelColor,
         ]}
       >
         {label}
@@ -108,74 +118,82 @@ export function CustomerListOptions(props: CustomerListOptionsProps) {
               {t("customers.balanceFilter")}
             </Text>
           </View>
-          <Text style={[styles.help, textDir(props.isRTL)]}>
-            {t("customers.balanceFilter.help")}
-          </Text>
           <View
             accessibilityRole="radiogroup"
             accessibilityLabel={t("customers.balanceFilter")}
-            style={[
-              styles.sortChoices,
-              rowDir(props.isRTL),
-              props.compact && styles.choicesCompact,
-            ]}
+            style={[styles.choiceRows, props.compact && styles.rowsCompact]}
           >
-            {CUSTOMER_BALANCE_FILTERS.map((direction) =>
-              choice(
-                direction,
-                t(`customers.balanceFilter.${direction}`),
-                (props.preference.direction ?? "all") === direction,
-                () => props.onChange({ ...props.preference, direction }),
-                "balance",
-              ),
-            )}
+            <View style={[styles.choiceRow, rowDir(props.isRTL)]}>
+              {CUSTOMER_BALANCE_FILTERS.map((direction) =>
+                choice(
+                  direction,
+                  t(`customers.balanceFilter.${direction}`),
+                  (props.preference.direction ?? "all") === direction,
+                  () => props.onChange({ ...props.preference, direction }),
+                  "balance",
+                ),
+              )}
+            </View>
           </View>
+          {props.amountSortAvailable === false ? (
+            <Text style={[styles.help, textDir(props.isRTL)]}>
+              {t("customers.balanceFilter.help")}
+            </Text>
+          ) : null}
         </>,
       )}
       {section(
         <>
-          <View style={[styles.sectionHeading, rowDir(props.isRTL)]}>
+          <View
+            style={[
+              styles.sectionHeading,
+              props.embedded && styles.sectionBreak,
+              rowDir(props.isRTL),
+            ]}
+          >
             <Ionicons name="swap-vertical-outline" size={18} color={colors.textSubtle} />
             <Text style={[styles.section, textDir(props.isRTL)]}>{t("customers.sort")}</Text>
+          </View>
+          <View
+            accessibilityRole="radiogroup"
+            accessibilityLabel={t("customers.sort")}
+            style={[styles.choiceRows, props.compact && styles.rowsCompact]}
+          >
+            {sortRows.map((sorts) => (
+              <View key={sorts.join("-")} style={[styles.choiceRow, rowDir(props.isRTL)]}>
+                {sorts.map((sort) =>
+                  choice(
+                    sort,
+                    t(`customers.sort.${sort}`),
+                    props.preference.sort === sort,
+                    () => props.onChange({ ...props.preference, sort }),
+                    "sort",
+                    sorts.length === 1,
+                  ),
+                )}
+              </View>
+            ))}
           </View>
           {props.amountSortAvailable === false ? (
             <Text style={[styles.help, textDir(props.isRTL)]}>
               {t("customers.sort.multiCurrencyHelp")}
             </Text>
           ) : null}
-          <View
-            accessibilityRole="radiogroup"
-            accessibilityLabel={t("customers.sort")}
-            style={[
-              styles.sortChoices,
-              rowDir(props.isRTL),
-              props.compact && styles.choicesCompact,
-            ]}
-          >
-            {CUSTOMER_SORTS.filter(
-              (sort) =>
-                props.amountSortAvailable !== false ||
-                (sort !== "amount_desc" && sort !== "amount_asc"),
-            ).map((sort) =>
-              choice(
-                sort,
-                t(`customers.sort.${sort}`),
-                props.preference.sort === sort,
-                () => props.onChange({ ...props.preference, sort }),
-                "sort",
-              ),
-            )}
-          </View>
         </>,
       )}
       {props.groups.length > 0
         ? section(
             <>
-              <View style={[styles.sectionHeading, rowDir(props.isRTL)]}>
+              <View
+                style={[
+                  styles.sectionHeading,
+                  props.embedded && styles.sectionBreak,
+                  rowDir(props.isRTL),
+                ]}
+              >
                 <Ionicons name="people-outline" size={18} color={colors.textSubtle} />
                 <Text style={[styles.section, textDir(props.isRTL)]}>{t("groups.filter")}</Text>
               </View>
-              <Text style={[styles.help, textDir(props.isRTL)]}>{t("groups.filterHelp")}</Text>
               <View
                 style={[
                   styles.groupChoices,
@@ -206,6 +224,7 @@ export function CustomerListOptions(props: CustomerListOptionsProps) {
                   ),
                 )}
               </View>
+              <Text style={[styles.help, textDir(props.isRTL)]}>{t("groups.filterHelp")}</Text>
             </>,
           )
         : null}
@@ -407,8 +426,9 @@ const styles = StyleSheet.create({
   options: { padding: space.lg, gap: space.lg },
   optionsCompact: { padding: 0, gap: space.sm },
   sectionCompact: { padding: space.sm, gap: space.sm },
+  rowsCompact: { gap: 6 },
   choicesCompact: { gap: space.xs },
-  choiceCompact: { paddingHorizontal: space.sm, paddingVertical: space.xs, gap: space.xs },
+  choiceCompact: { paddingHorizontal: space.sm, paddingVertical: 7, gap: 6 },
   optionsSection: {
     padding: space.md,
     borderRadius: radius.lg,
@@ -418,12 +438,18 @@ const styles = StyleSheet.create({
     gap: space.md,
   },
   sectionHeading: { alignItems: "center", gap: space.sm },
+  sectionBreak: {
+    borderTopWidth: 1,
+    borderTopColor: colors.borderSubtle,
+    paddingTop: space.md,
+    marginTop: space.xs,
+  },
   section: { ...typography.labelBold, color: colors.textEmphasis, flexShrink: 1 },
   help: { ...typography.bodySm, color: colors.textSubtle },
-  sortChoices: { flexWrap: "wrap", gap: space.sm },
+  choiceRows: { gap: space.sm },
+  choiceRow: { gap: space.sm, alignItems: "stretch" },
   sortChoice: {
-    flexGrow: 1,
-    flexBasis: "45%",
+    flex: 1,
     minWidth: 0,
     maxWidth: "100%",
     minHeight: TOUCH_MIN,
@@ -431,13 +457,14 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     borderWidth: 1,
     borderColor: colors.borderDefault,
-    backgroundColor: colors.bgMuted,
+    backgroundColor: colors.bgDefault,
     alignItems: "center",
     gap: space.sm,
   },
-  defaultSort: { flexBasis: "100%" },
-  sortSelected: { backgroundColor: colors.bgInverted, borderColor: colors.bgInverted },
-  sortSelectedLabel: { color: colors.textInverted },
+  fullChoice: { flexBasis: "100%" },
+  balanceChoice: { paddingHorizontal: 6, gap: 4 },
+  sortSelected: { backgroundColor: colors.bgSubtle, borderColor: colors.borderEmphasis },
+  selectedLabelColor: { color: colors.textEmphasis },
   groupChoices: { flexWrap: "wrap", gap: space.sm },
   groupChoice: {
     minHeight: TOUCH_MIN,
@@ -447,12 +474,12 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     borderWidth: 1,
     borderColor: colors.borderDefault,
-    backgroundColor: colors.bgMuted,
+    backgroundColor: colors.bgDefault,
     alignItems: "center",
     gap: space.sm,
   },
-  groupSelected: { borderColor: colors.actionPrimary, backgroundColor: colors.bgSubtle },
+  groupSelected: { borderColor: colors.borderEmphasis, backgroundColor: colors.bgSubtle },
   choiceLabel: { ...typography.bodySm, color: colors.textDefault, flexShrink: 1 },
   selectedLabel: { fontFamily: fonts.sansSemi },
-  pressed: { opacity: 0.65 },
+  pressed: { opacity: 0.8 },
 });

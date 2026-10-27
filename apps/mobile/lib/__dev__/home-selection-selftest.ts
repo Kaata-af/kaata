@@ -505,9 +505,19 @@ const expectBottomDock = (selecting = false) => {
     homeNodes().some((node) => node.type === "KeyboardAvoidingView"),
     false,
   );
-  const surface = [keyboard.props.children].flat().find((node) => node?.props);
+  const surface = tree;
   const target = [surface.props.children].flat().find((node) => node?.type === "BlurTargetView")!;
   assert.ok(target, "Home provides a dedicated native blur target");
+  assert.ok(nodes(target).includes(keyboard), "the blur target includes the keyboard-aware body");
+  assert.ok(
+    nodes(target).some((node) => node.props.accessibilityLabel === "menu.title.profile"),
+    "the same target also blurs the top navigation",
+  );
+  assert.equal(
+    nodes(keyboard).some((node) => node.type === "HomeFilterPopover"),
+    false,
+    "the overlay is outside keyboard avoidance and covers the full header",
+  );
   assert.notEqual(
     target.props.accessible,
     true,
@@ -518,7 +528,7 @@ const expectBottomDock = (selecting = false) => {
     false,
     "the popup stays outside the content being blurred",
   );
-  const children = [target.props.children].flat().filter((node) => node?.props);
+  const children = [keyboard.props.children].flat().filter((node) => node?.props);
   const list = children.find((node) => nodes(node).some((child) => child.type === "ScrollView"));
   const dock = children.find((node) => nodes(node).some((child) => child.type === "TextInput"));
   assert.ok(list && dock && list !== dock, "The input is fixed outside the scrolling list");
@@ -933,6 +943,10 @@ async function main() {
     popup.props.blurTarget,
     homeNodes().find((node) => node.type === "BlurTargetView")!.props.ref,
   );
+  const blurredPage = homeNodes().find((node) => node.type === "BlurTargetView")!;
+  assert.equal(blurredPage.props.accessibilityElementsHidden, true);
+  assert.equal(blurredPage.props.importantForAccessibility, "no-hide-descendants");
+  assert.equal(popup.props.viewport.topInset, 0);
   assert.equal(initialSummary().props.active, false, "The filter popup pauses automatic balances");
   assert.equal(
     nodes(popup.props.children).find((node) => node.type === "CustomerListOptions")!.props
@@ -958,6 +972,11 @@ async function main() {
   );
   popup.props.onDismiss();
   render();
+  assert.equal(
+    homeNodes().find((node) => node.type === "BlurTargetView")!.props.importantForAccessibility,
+    "auto",
+    "closing filters restores navigation and customer accessibility",
+  );
   assert.equal(initialSummary().props.active, true, "Closing filters resumes eligible balances");
   assert.equal(
     homeNodes().some((node) => node.type === "HomeFilterPopover"),

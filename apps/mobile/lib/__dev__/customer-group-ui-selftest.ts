@@ -182,6 +182,54 @@ export async function customerGroupUIChecks() {
       nodes(radioGroups[0]).filter((node) => node.props.accessibilityRole === "radio").length,
       3,
     );
+    const rowChoices = (group: any) =>
+      [group.props.children]
+        .flat()
+        .filter((row) => row?.type === "View")
+        .map((row) => nodes(row).filter((node) => node.props.accessibilityRole === "radio"));
+    assert.deepEqual(
+      rowChoices(radioGroups[0]).map((row) => row.map((node) => node.props.accessibilityLabel)),
+      [
+        [
+          "customers.balanceFilter.all",
+          "customers.balanceFilter.collect",
+          "customers.balanceFilter.pay",
+        ],
+      ],
+      "All three balance choices share one equal-width row",
+    );
+    assert.deepEqual(
+      rowChoices(radioGroups[1]).map((row) => row.map((node) => node.props.accessibilityLabel)),
+      [
+        ["customers.sort.recent"],
+        ["customers.sort.date_asc"],
+        ["customers.sort.name_asc", "customers.sort.name_desc"],
+        ["customers.sort.amount_asc", "customers.sort.amount_desc"],
+        ["customers.sort.outstanding_name"],
+      ],
+      "chronological choices remain first, related name/amount choices share rows, and balance priority is a distinct mode",
+    );
+    assert.equal(
+      style(choice("customers.sort.recent")).flexBasis,
+      "100%",
+      "Recent activity stays first and full width",
+    );
+    for (const group of radioGroups)
+      for (const row of [group.props.children].flat().filter((node) => node?.type === "View")) {
+        const layout = flattenStyle(row.props.style);
+        assert.equal(layout.flexDirection, isRTL ? "row-reverse" : "row");
+        assert.equal(
+          layout.alignItems,
+          "stretch",
+          "paired targets grow to the same natural height",
+        );
+        for (const control of nodes(row).filter(
+          (node) => node.props.accessibilityRole === "radio",
+        )) {
+          assert.equal(style(control).flex, 1);
+          assert.equal(style(control).minWidth, 0, "paired labels can wrap on narrow phones");
+        }
+      }
     for (const direction of CUSTOMER_BALANCE_FILTERS) {
       const previous = { sort: preference.sort, group: preference.group };
       const control = choice(`customers.balanceFilter.${direction}`);
@@ -217,7 +265,12 @@ export async function customerGroupUIChecks() {
       assert.equal(preference.sort, sort);
       const selected = choice(`customers.sort.${sort}`);
       assert.equal(selected.props.accessibilityState.checked, true);
-      assert.equal(style(selected).backgroundColor, colors.bgInverted);
+      assert.equal(style(selected).backgroundColor, colors.bgSubtle);
+      assert.equal(style(selected).borderColor, colors.borderEmphasis);
+      assert.equal(
+        nodes(selected).find((node) => node.type === "Ionicons")?.props.color,
+        colors.textEmphasis,
+      );
       assert.equal(
         nodes(options()).filter(
           (node) =>
@@ -234,7 +287,7 @@ export async function customerGroupUIChecks() {
       const control = choice(label);
       assert.equal(control.props.accessibilityRole, "checkbox");
       assert.equal(control.props.accessibilityState.checked, true);
-      assert.equal(style(control).borderColor, colors.actionPrimary);
+      assert.equal(style(control).borderColor, colors.borderEmphasis);
       assert.ok(style(control).minHeight >= 44);
       assert.equal(style(control).maxWidth, "100%");
       assert.equal(style(control).flexDirection, isRTL ? "row-reverse" : "row");
@@ -292,12 +345,14 @@ export async function customerGroupUIChecks() {
         radios.map((node) => node.props.accessibilityState.checked),
         [false, false, true],
       );
-      assert.ok(
+      assert.equal(
         nodes(tree).some(
           (node) =>
             node.type === "Text" &&
             node.props.children === language.t("customers.balanceFilter.help"),
         ),
+        false,
+        "a single-currency book needs no multi-currency balance explanation",
       );
       assert.ok(
         radios.every((node) => flattenStyle(node.props.style({ pressed: false })).minHeight >= 44),
@@ -312,6 +367,14 @@ export async function customerGroupUIChecks() {
       assert.equal(updated[0].props.accessibilityState.checked, true);
       assert.ok(!language.t("customers.balanceFilter.clear").startsWith("customers."));
       const multipleCurrencies = renderOptions(false);
+      assert.ok(
+        nodes(multipleCurrencies).some(
+          (node) =>
+            node.type === "Text" &&
+            node.props.children === language.t("customers.balanceFilter.help"),
+        ),
+        "mixed-currency balances keep their any-currency explanation",
+      );
       const sortGroup = nodes(multipleCurrencies).find(
         (node) =>
           node.props.accessibilityRole === "radiogroup" &&
@@ -322,8 +385,8 @@ export async function customerGroupUIChecks() {
       );
       assert.deepEqual(
         availableSorts.map((node) => node.props.accessibilityLabel),
-        CUSTOMER_SORTS.filter((sort) => sort !== "amount_asc" && sort !== "amount_desc").map(
-          (sort) => language.t(`customers.sort.${sort}`),
+        (["recent", "date_asc", "name_asc", "name_desc", "outstanding_name"] as const).map((sort) =>
+          language.t(`customers.sort.${sort}`),
         ),
         "mixed-currency controls omit both amount orderings",
       );
@@ -332,6 +395,22 @@ export async function customerGroupUIChecks() {
           (node) => flattenStyle(node.props.style({ pressed: false })).minHeight >= 44,
         ),
       );
+      for (const node of nodes(tree).filter((node) =>
+        ["radio", "checkbox"].includes(node.props.accessibilityRole),
+      )) {
+        const label = nodes(node).find((child) => child.type === "Text")!;
+        assert.equal(
+          label.props.numberOfLines,
+          undefined,
+          `${locale}: labels remain complete at 320px/large text`,
+        );
+        assert.equal(flattenStyle(label.props.style).flexShrink, 1);
+        assert.equal(
+          flattenStyle(node.props.style({ pressed: false })).height,
+          undefined,
+          "long localized labels can grow their touch target rather than clip",
+        );
+      }
       const hasAmountHelp = (tree: any) =>
         nodes(tree).some(
           (node) =>

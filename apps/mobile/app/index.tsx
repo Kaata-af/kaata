@@ -997,7 +997,11 @@ export default function HomeScreen() {
         )
           return;
         setFilterViewport((previous) =>
-          previous.width === width && previous.height === height ? previous : { width, height },
+          previous.width === width &&
+          previous.height === height &&
+          previous.topInset === (insets.top ?? 0)
+            ? previous
+            : { width, height, topInset: insets.top ?? 0 },
         );
         const anchor = {
           x: x - surfaceX,
@@ -1015,7 +1019,7 @@ export default function HomeScreen() {
         );
       });
     });
-  }, [activeAccountId, activeVaultId, homeRequest, selectedCurrency]);
+  }, [activeAccountId, activeVaultId, homeRequest, selectedCurrency, insets.top]);
   useLayoutEffect(() => {
     // Opening measures after the expanded state commits. Closing invalidates
     // in-flight native measurements so hidden filters cannot repaint Home.
@@ -1375,6 +1379,8 @@ export default function HomeScreen() {
       </View>
     ) : null;
 
+  const filtersVisible =
+    keyboardLayoutShown && filtersExpanded && currentPeopleScope && currentVaultScope;
   const filterContent = (
     <>
       <CustomerListOptions
@@ -1413,8 +1419,16 @@ export default function HomeScreen() {
   if (loaded && !self) return <Redirect href="/onboarding" />;
 
   return (
-    <SafeAreaView style={styles.container} edges={["top"]}>
-      {/* Header — Phase 7 layout:
+    <View ref={overlaySurfaceRef} style={styles.container} onLayout={updateFilterAnchor}>
+      <BlurTargetView
+        ref={filterBlurTargetRef}
+        collapsable={false}
+        style={styles.body}
+        accessibilityElementsHidden={filtersVisible}
+        importantForAccessibility={filtersVisible ? "no-hide-descendants" : "auto"}
+      >
+        <SafeAreaView style={styles.container} edges={["top"]}>
+          {/* Header — Phase 7 layout:
             * top-LEFT: kaata name (vault switcher → VaultPickerSheet)
             * top-RIGHT: profile chip (unified settings → ProfileSettingsSheet)
           The hamburger menu is gone (Phase 7 founder feedback #1). The
@@ -1428,8 +1442,8 @@ export default function HomeScreen() {
           the title text and the avatar share the same vertical axis.
           Result: no phantom space below the title, no marginTop hacks
           on the avatar. */}
-      <View style={[styles.header, rowDir(isRTL)]}>
-        {/* Identity text block — top-LEFT. Phase 7 D-TOP-LEFT-SWITCHER:
+          <View style={[styles.header, rowDir(isRTL)]}>
+            {/* Identity text block — top-LEFT. Phase 7 D-TOP-LEFT-SWITCHER:
             tapping opens VaultPickerSheet. The chevron-down hint next
             to the title tells first-time users this is tappable;
             without it the text reads as pure header chrome.
@@ -1438,102 +1452,102 @@ export default function HomeScreen() {
             name truncates at numberOfLines:1 instead of pushing the
             profile button off-screen. hitSlop:8 widens the tap target
             without enlarging the visual box. */}
-        {vaults.length > 0 ? (
-          <Pressable
-            onPress={() => {
-              // Mutual exclusion: close the settings sheet first so the
-              // Android Modal stack stays at depth 1. The 220ms defer
-              // matches ProfileSettingsSheet's EXIT_DURATION_MS so the
-              // closing sheet's <Modal> unmounts BEFORE the picker's mounts.
-              // Without this defer, both Modals are mounted for ~180ms
-              // during the close animation and Android renders the second
-              // one blank-but-tappable (UX critique #5, same shape as the
-              // BottomSheet chained() defer).
-              // Re-read before showing the list. The live-refresh
-              // subscription above should already have kept `vaults` current,
-              // but this list is the one surface where a stale entry is
-              // actually confusing rather than merely late — it is how you
-              // recognise a kaata — and a rename that arrived from another
-              // phone has no other cue that it happened. One query on a user
-              // gesture makes the switcher correct independently of whether
-              // the event plumbing fired.
-              void load();
-              setVaultPickerVisible(true);
-            }}
-            hitSlop={8}
-            accessibilityRole="button"
-            accessibilityLabel={t("menu.title.vaultSwitcher")}
-            accessibilityValue={{ text: self?.shop_name ?? self?.name ?? "" }}
-            accessibilityState={{ expanded: vaultPickerVisible }}
-            style={({ pressed }) => [
-              styles.headerTitleBlock,
-              styles.kaataButton,
-              rowDir(isRTL),
-              pressed && styles.kaataButtonPressed,
-            ]}
-          >
-            <View style={styles.headerTitleTextCol}>
-              {self ? (
-                <Text
-                  style={[styles.headerTitle, styles.kaataButtonTitle, textDir(isRTL)]}
-                  numberOfLines={1}
-                  allowFontScaling={false}
-                >
-                  {self.shop_name ?? self.name}
-                </Text>
-              ) : null}
-            </View>
-            {/* The chevron makes the kaata list action visible. */}
-            <Ionicons
-              name="chevron-down"
-              size={icon.trailing}
-              color={colors.textSubtle}
-              style={isRTL ? { marginRight: 4 } : { marginLeft: 4 }}
-            />
-          </Pressable>
-        ) : (
-          // No kaatas yet — there's nothing to switch between, so the title is
-          // plain text: no chevron, not a button (Matee). The user's own name
-          // shows here (shop_name is null until a kaata exists).
-          <View style={[styles.headerTitleBlock, rowDir(isRTL)]}>
-            <View style={styles.headerTitleTextCol}>
-              {self ? (
-                <Text
-                  style={[styles.headerTitle, textDir(isRTL)]}
-                  numberOfLines={1}
-                  allowFontScaling={false}
-                >
-                  {self.shop_name ?? self.name}
-                </Text>
-              ) : null}
-            </View>
-          </View>
-        )}
+            {vaults.length > 0 ? (
+              <Pressable
+                onPress={() => {
+                  // Mutual exclusion: close the settings sheet first so the
+                  // Android Modal stack stays at depth 1. The 220ms defer
+                  // matches ProfileSettingsSheet's EXIT_DURATION_MS so the
+                  // closing sheet's <Modal> unmounts BEFORE the picker's mounts.
+                  // Without this defer, both Modals are mounted for ~180ms
+                  // during the close animation and Android renders the second
+                  // one blank-but-tappable (UX critique #5, same shape as the
+                  // BottomSheet chained() defer).
+                  // Re-read before showing the list. The live-refresh
+                  // subscription above should already have kept `vaults` current,
+                  // but this list is the one surface where a stale entry is
+                  // actually confusing rather than merely late — it is how you
+                  // recognise a kaata — and a rename that arrived from another
+                  // phone has no other cue that it happened. One query on a user
+                  // gesture makes the switcher correct independently of whether
+                  // the event plumbing fired.
+                  void load();
+                  setVaultPickerVisible(true);
+                }}
+                hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel={t("menu.title.vaultSwitcher")}
+                accessibilityValue={{ text: self?.shop_name ?? self?.name ?? "" }}
+                accessibilityState={{ expanded: vaultPickerVisible }}
+                style={({ pressed }) => [
+                  styles.headerTitleBlock,
+                  styles.kaataButton,
+                  rowDir(isRTL),
+                  pressed && styles.kaataButtonPressed,
+                ]}
+              >
+                <View style={styles.headerTitleTextCol}>
+                  {self ? (
+                    <Text
+                      style={[styles.headerTitle, styles.kaataButtonTitle, textDir(isRTL)]}
+                      numberOfLines={1}
+                      allowFontScaling={false}
+                    >
+                      {self.shop_name ?? self.name}
+                    </Text>
+                  ) : null}
+                </View>
+                {/* The chevron makes the kaata list action visible. */}
+                <Ionicons
+                  name="chevron-down"
+                  size={icon.trailing}
+                  color={colors.textSubtle}
+                  style={isRTL ? { marginRight: 4 } : { marginLeft: 4 }}
+                />
+              </Pressable>
+            ) : (
+              // No kaatas yet — there's nothing to switch between, so the title is
+              // plain text: no chevron, not a button (Matee). The user's own name
+              // shows here (shop_name is null until a kaata exists).
+              <View style={[styles.headerTitleBlock, rowDir(isRTL)]}>
+                <View style={styles.headerTitleTextCol}>
+                  {self ? (
+                    <Text
+                      style={[styles.headerTitle, textDir(isRTL)]}
+                      numberOfLines={1}
+                      allowFontScaling={false}
+                    >
+                      {self.shop_name ?? self.name}
+                    </Text>
+                  ) : null}
+                </View>
+              </View>
+            )}
 
-        {/* Non-tappable spacer fills the gap between the switcher and the
+            {/* Non-tappable spacer fills the gap between the switcher and the
             profile, pushing the avatar to the edge. The switcher Pressable
             hugs its content (name + chevron) instead of flex:1-ing across the
             whole row, so tapping the empty middle no longer opens the kaata
             picker (it used to: the switcher's tap target spanned to the avatar). */}
-        {/* Read-only badge — shown when I'm a viewer on this (shared) kaata, so
+            {/* Read-only badge — shown when I'm a viewer on this (shared) kaata, so
             the absent FAB / write actions are explained rather than mysterious. */}
-        {caps.resolved && !caps.canCreate && currentVaultScope ? (
-          <View style={[styles.readOnlyBadge, isRTL ? { marginRight: 8 } : { marginLeft: 8 }]}>
-            {/* Stays 12, NOT icon.trailing (16): this glyph is optically paired
+            {caps.resolved && !caps.canCreate && currentVaultScope ? (
+              <View style={[styles.readOnlyBadge, isRTL ? { marginRight: 8 } : { marginLeft: 8 }]}>
+                {/* Stays 12, NOT icon.trailing (16): this glyph is optically paired
                 to the 11px caption inside a 3px-padded micro-pill — a composed
                 graphic, per the tokens icon-scale exception. 16 would out-weigh
                 the label it annotates. */}
-            <Ionicons name="eye-outline" size={12} color={colors.textSubtle} />
-            <Text style={styles.readOnlyBadgeText} allowFontScaling={false}>
-              {t("readonly.badge")}
-            </Text>
-          </View>
-        ) : null}
+                <Ionicons name="eye-outline" size={12} color={colors.textSubtle} />
+                <Text style={styles.readOnlyBadgeText} allowFontScaling={false}>
+                  {t("readonly.badge")}
+                </Text>
+              </View>
+            ) : null}
 
-        <View style={{ flex: 1 }} pointerEvents="none" />
+            <View style={{ flex: 1 }} pointerEvents="none" />
 
-        <NotificationBell />
-        {/* Profile chip — top-RIGHT. Phase 7: opens the unified
+            <NotificationBell />
+            {/* Profile chip — top-RIGHT. Phase 7: opens the unified
             ProfileSettingsSheet (replaces the deprecated hamburger +
             ProfileMenuSheet). The icon is either the user's Google
             avatar image, an initial-letter chip if signed in without
@@ -1541,61 +1555,60 @@ export default function HomeScreen() {
             D-HEADER-CLEANUP: marginTop hack removed — the parent
             row's alignItems:"center" now handles vertical centering
             against the title. hitSlop:10 brings the tap area to ~52px. */}
-        <Pressable
-          onPress={() => {
-            if (profileOpening.current) return;
-            profileOpening.current = true;
-            Keyboard.dismiss();
-            setVaultPickerVisible(false);
-            setSettingsVisible(true);
-            router.push("/profile");
-          }}
-          hitSlop={10}
-          accessibilityRole="button"
-          accessibilityLabel={t("menu.title.profile")}
-          style={({ pressed }) => [
-            styles.profileBtn,
-            isRTL ? { marginRight: 12 } : { marginLeft: 12 },
-            pressed && { opacity: 0.5 },
-          ]}
-        >
-          {sessionUser?.picture_url ? (
-            <Image source={{ uri: sessionUser.picture_url }} style={styles.profileAvatar} />
-          ) : sessionUser ? (
-            // Signed-in but no photo URL (the steady state for Sign in with
-            // Apple) — metric-corrected initial-letter chip. Array.from takes
-            // the first GRAPHEME so a surrogate-pair/emoji name never renders
-            // half a codepoint (same rule as the settings sheet's initialFor).
-            // `||`: an email account's name starts EMPTY, and falls through to
-            // the address.
-            <InitialAvatar
-              size={PROFILE_SLOT_SIZE}
-              label={(
-                Array.from((sessionUser.name?.trim() || sessionUser.email || "?").trim())[0] ?? "?"
-              ).toUpperCase()}
-            />
-          ) : (
-            // Ionicons draws the person-circle glyph inset ~12% inside its
-            // box, so the box gets +4 over the slot to optically match the
-            // edge-to-edge photo/chip circles; margin -2 keeps the LAYOUT
-            // footprint at exactly PROFILE_SLOT_SIZE so the header row
-            // height is identical across all three auth states.
-            <Ionicons
-              name="person-circle-outline"
-              size={PROFILE_SLOT_SIZE + 4}
-              style={{ margin: -2 }}
-              color={colors.textSubtle}
-            />
-          )}
-        </Pressable>
-      </View>
+            <Pressable
+              onPress={() => {
+                if (profileOpening.current) return;
+                profileOpening.current = true;
+                Keyboard.dismiss();
+                setVaultPickerVisible(false);
+                setSettingsVisible(true);
+                router.push("/profile");
+              }}
+              hitSlop={10}
+              accessibilityRole="button"
+              accessibilityLabel={t("menu.title.profile")}
+              style={({ pressed }) => [
+                styles.profileBtn,
+                isRTL ? { marginRight: 12 } : { marginLeft: 12 },
+                pressed && { opacity: 0.5 },
+              ]}
+            >
+              {sessionUser?.picture_url ? (
+                <Image source={{ uri: sessionUser.picture_url }} style={styles.profileAvatar} />
+              ) : sessionUser ? (
+                // Signed-in but no photo URL (the steady state for Sign in with
+                // Apple) — metric-corrected initial-letter chip. Array.from takes
+                // the first GRAPHEME so a surrogate-pair/emoji name never renders
+                // half a codepoint (same rule as the settings sheet's initialFor).
+                // `||`: an email account's name starts EMPTY, and falls through to
+                // the address.
+                <InitialAvatar
+                  size={PROFILE_SLOT_SIZE}
+                  label={(
+                    Array.from((sessionUser.name?.trim() || sessionUser.email || "?").trim())[0] ??
+                    "?"
+                  ).toUpperCase()}
+                />
+              ) : (
+                // Ionicons draws the person-circle glyph inset ~12% inside its
+                // box, so the box gets +4 over the slot to optically match the
+                // edge-to-edge photo/chip circles; margin -2 keeps the LAYOUT
+                // footprint at exactly PROFILE_SLOT_SIZE so the header row
+                // height is identical across all three auth states.
+                <Ionicons
+                  name="person-circle-outline"
+                  size={PROFILE_SLOT_SIZE + 4}
+                  style={{ margin: -2 }}
+                  color={colors.textSubtle}
+                />
+              )}
+            </Pressable>
+          </View>
 
-      <UpdateBanner />
+          <UpdateBanner />
 
-      {/* Each host avoids only the keyboard overlap its native window leaves. */}
-      <SearchKeyboardFrame style={styles.body} avoidAndroidKeyboard>
-        <View ref={overlaySurfaceRef} style={styles.body} onLayout={updateFilterAnchor}>
-          <BlurTargetView ref={filterBlurTargetRef} collapsable={false} style={styles.body}>
+          {/* Each host avoids only the keyboard overlap its native window leaves. */}
+          <SearchKeyboardFrame style={styles.body} avoidAndroidKeyboard>
             <View style={styles.body}>
               {loaded && !activeVaultId ? (
                 // No kaatas yet — a fresh account that hasn't created one, or one where
@@ -1730,24 +1743,22 @@ export default function HomeScreen() {
                 {searchDock}
               </SearchKeyboardFooter>
             ) : null}
-          </BlurTargetView>
-          <HomeFilterPopover
-            visible={
-              keyboardLayoutShown && filtersExpanded && currentPeopleScope && currentVaultScope
-            }
-            contextKey={homeScrollScope}
-            anchor={filterAnchor}
-            viewport={filterViewport}
-            blurTarget={filterBlurTargetRef}
-            disabled={controlsDisabled}
-            onDismiss={() => {
-              if (isCurrentHome() && !selectionBusyRef.current) setFiltersExpanded(false);
-            }}
-          >
-            {filterContent}
-          </HomeFilterPopover>
-        </View>
-      </SearchKeyboardFrame>
+          </SearchKeyboardFrame>
+        </SafeAreaView>
+      </BlurTargetView>
+      <HomeFilterPopover
+        visible={filtersVisible}
+        contextKey={homeScrollScope}
+        anchor={filterAnchor}
+        viewport={filterViewport}
+        blurTarget={filterBlurTargetRef}
+        disabled={controlsDisabled}
+        onDismiss={() => {
+          if (isCurrentHome() && !selectionBusyRef.current) setFiltersExpanded(false);
+        }}
+      >
+        {filterContent}
+      </HomeFilterPopover>
 
       {/* Phase 7 — unified settings sheet replaces HamburgerMenuSheet +
           ProfileMenuSheet. Opens from the profile chip top-RIGHT. All
@@ -2175,7 +2186,7 @@ export default function HomeScreen() {
           </Text>
         </View>
       ) : null}
-    </SafeAreaView>
+    </View>
   );
 }
 

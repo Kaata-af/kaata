@@ -6,25 +6,26 @@ import { colors } from "../lib/colors";
 import { lift } from "../lib/tokens";
 
 export type FilterAnchor = { x: number; y: number; width: number; height: number };
-export type FilterViewport = { width: number; height: number };
+export type FilterViewport = { width: number; height: number; topInset?: number };
 
-/** Coordinates are relative to the same keyboard-aware overlay container. */
+/** Coordinates are relative to the full-screen host, including the navigation. */
 export function filterPopoverLayout(anchor: FilterAnchor, viewport: FilterViewport) {
   const gutter = 12;
   const gap = 8;
+  const top = gutter + Math.max(0, viewport.topInset ?? 0);
   const width = Math.max(0, viewport.width - gutter * 2);
-  const anchorY = Math.max(gutter + gap, Math.min(anchor.y, viewport.height));
+  const anchorY = Math.max(top + gap, Math.min(anchor.y, viewport.height));
   const left = (viewport.width - width) / 2;
   return {
     left,
     width,
     bottom: Math.max(gap, viewport.height - anchorY + gap),
-    maxHeight: Math.max(0, Math.min(480, anchorY - gutter - gap)),
+    maxHeight: Math.max(0, Math.min(480, anchorY - top - gap)),
     arrowLeft: Math.max(12, Math.min(anchor.x + anchor.width / 2 - left - 5, width - 22)),
   };
 }
 
-/** A local overlay: opening filters never changes the customer list's layout. */
+/** An anchored overlay: opening filters never changes the customer list's layout. */
 export function HomeFilterPopover(props: {
   visible: boolean;
   contextKey: string;

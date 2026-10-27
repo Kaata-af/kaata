@@ -937,15 +937,19 @@ async function main() {
     const keyboard = renderList(find("SearchKeyboardFrame")!);
     assert.equal(find("Keyboard"), undefined, "Home has one native-motion frame and no JS avoider");
     assert.equal(flattenStyle(keyboard.props.style).flex, 1);
-    const surface = [keyboard.props.children].flat().find((node) => node?.props);
+    const surface = tree;
     const target = [surface.props.children].flat().find((node) => node?.type === "BlurTargetView")!;
     assert.ok(target, "Home supplies a dedicated content blur target");
+    assert.ok(
+      nodes(target).some((node) => node.props.accessibilityLabel === "menu.title.profile"),
+      "the target contains the top navigation as well as the customer list",
+    );
     assert.notEqual(target.props.accessible, true);
     assert.equal(
       nodes(target).some((node) => node.type === "HomeFilterPopover"),
       false,
     );
-    const children = [target.props.children].flat().filter((node) => node?.props);
+    const children = [keyboard.props.children].flat().filter((node) => node?.props);
     const list = children.find((node) => nodes(node).some((child) => child.type === "ScrollView"));
     const dock = children.find((node) => nodes(node).some((child) => child.type === "TextInput"));
     assert.ok(list && dock && list !== dock, "Search is a fixed footer outside the scroll area");

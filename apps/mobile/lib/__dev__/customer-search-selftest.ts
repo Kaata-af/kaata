@@ -117,6 +117,55 @@ const pendingGiven = person("pending-given", "Ali Pending", 0, 100, {
   tab_pending_balance: 40,
   last_entry_type: "debt",
 });
+const amountTierPeople = [...extraPeople, pendingGiven];
+const beforeAmountTiers = JSON.stringify(amountTierPeople);
+for (const [sort, outstanding] of [
+  ["amount_asc", ["e", "b", "a", "d"]],
+  ["amount_desc", ["d", "a", "b", "e"]],
+] as const) {
+  const expected = [
+    ...outstanding,
+    "pending-zero",
+    "pending-stale",
+    "pending-given",
+    "settled-stale",
+    "empty",
+    "zero",
+    "c",
+  ];
+  assert.deepEqual(
+    selectSearchCustomers(amountTierPeople, { sort, group: "all" }, {}, "en").map((p) => p.id),
+    expected,
+    `${sort}: known collect/pay magnitudes precede unknown balances, then zero, no-entry and settled contacts`,
+  );
+  assert.deepEqual(
+    selectSearchCustomers(
+      [...changedStaleBalances, { ...pendingGiven, tab_pending_balance: -99999 }].map((p) =>
+        p.is_settled === 1 ? { ...p, balance: 99999 } : p,
+      ),
+      { sort, group: "all" },
+      {},
+      "en",
+    ).map((p) => p.id),
+    expected,
+    `${sort}: cached unknown amounts, stale settled amounts and pending-only deltas have no numeric rank`,
+  );
+  assert.deepEqual(
+    selectSearchCustomers(
+      [...amountTierPeople, people[0]],
+      { sort, group: ["family", "shop"], direction: "collect" },
+      { a: ["family", "shop"], e: "shop", d: "family", zero: "family", "pending-zero": "shop" },
+      "en",
+    ).map((p) => p.id),
+    sort === "amount_asc" ? ["e", "a"] : ["a", "e"],
+    `${sort}: group OR and confirmed-direction filters compose without duplicates or zero/unknown leakage`,
+  );
+}
+assert.equal(
+  JSON.stringify(amountTierPeople),
+  beforeAmountTiers,
+  "amount sorting leaves ledger metadata intact",
+);
 assert.equal(customerSide(pendingGiven), "collect", "an unconfirmed loan stays on its giving side");
 assert.equal(
   customerSide({ ...pendingGiven, tab_pending_balance: -40, last_entry_type: "payment" }),
@@ -239,6 +288,14 @@ for (const sort of CUSTOMER_SORTS) {
     ["e", 2],
   ]);
   const result = selectSearchCustomers(people, { sort, group: "all" }, {}, "en", relevance);
+  if (sort === "amount_asc" || sort === "amount_desc") {
+    assert.deepEqual(
+      result.map((p) => p.id),
+      ids(sort),
+      "explicit amount order wins over relevance, including a literal settled match",
+    );
+    continue;
+  }
   assert.equal(result[0].id, "c", "a literal settled match stays above fuzzy open suggestions");
   assert.deepEqual(
     result.slice(1, 3).map((p) => p.id),
@@ -470,10 +527,10 @@ assert.equal(
   "filtering never changes financial values, currencies, source order or pending metadata",
 );
 
-const soleCurrency = (id: string, balance: number) =>
+const soleCurrency = (id: string, balance: number, rowExtra: Partial<PersonWithBalance> = {}) =>
   person(id, id, 0, 10, {
     currency: "AFN",
-    currency_balances: [person(id, id, balance, 10, { currency: "USD" })],
+    currency_balances: [person(id, id, balance, 10, { currency: "USD", ...rowExtra })],
   });
 const amountPeople = [
   soleCurrency("usd-100", 100),
@@ -503,6 +560,57 @@ assert.deepEqual(
   "ascending sorts use absolute sole-currency amounts; legacy multi-currency comparison never sums denominations",
 );
 assert.equal(JSON.stringify(amountPeople), beforeAmountSort);
+const soleCurrencyStates = [
+  { ...soleCurrency("known-child", -3), tab_unsynced: 1 as const, is_settled: 1 as const },
+  soleCurrency("unknown-child", 99999, { tab_unsynced: 1 }),
+  soleCurrency("settled-child", -99999, { is_settled: 1 }),
+  soleCurrency("zero-child", 0),
+];
+const amountRelevancePeople = [
+  person("exact-zero", "Exact Zero", 0, 10),
+  person("fuzzy-small", "Z Small", -5, 10),
+  person("exact-large", "A Large", 100, 10),
+  person("equal-low", "A Equal", 5, 10),
+  person("exact-unknown", "Exact Unknown", 99999, 10, { tab_unsynced: 1 }),
+];
+const amountRelevance = new Map([
+  ["exact-zero", 10],
+  ["exact-unknown", 10],
+  ["exact-large", 9],
+  ["fuzzy-small", 1],
+]);
+for (const sort of ["amount_asc", "amount_desc"] as const) {
+  assert.deepEqual(
+    selectSearchCustomers(soleCurrencyStates, { sort, group: "all" }, {}, "en").map((p) => p.id),
+    ["known-child", "unknown-child", "settled-child", "zero-child"],
+    `${sort}: sole-currency status overrides stale base-wrapper flags without mixing denominations`,
+  );
+  assert.deepEqual(
+    selectSearchCustomers(
+      amountRelevancePeople,
+      { sort, group: "all" },
+      {},
+      "en",
+      amountRelevance,
+    ).map((p) => p.id),
+    sort === "amount_asc"
+      ? ["fuzzy-small", "equal-low", "exact-large", "exact-unknown", "exact-zero"]
+      : ["exact-large", "fuzzy-small", "equal-low", "exact-unknown", "exact-zero"],
+    `${sort}: magnitude and status win over search relevance; equal magnitudes use relevance`,
+  );
+  for (const locale of ["en", "fa", "ps"] as const) {
+    assert.deepEqual(
+      selectSearchCustomers(
+        [person("tie-b", "Same", -12, 10), person("tie-a", "Same", 12, 10)],
+        { sort, group: "all" },
+        {},
+        locale,
+      ).map((p) => p.id),
+      ["tie-a", "tie-b"],
+      `${locale}/${sort}: equal opposite magnitudes retain deterministic name/ID ties`,
+    );
+  }
+}
 assert.equal(JSON.stringify(people), originalPeople, "search selection never mutates ledger rows");
 
 console.log(

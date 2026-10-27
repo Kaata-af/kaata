@@ -103,6 +103,19 @@ for (const viewport of [
   }
 }
 
+for (const topInset of [24, 47, 59]) {
+  const fullWindow = { width: 440, height: 874, topInset };
+  // The host still spans the whole screen while keyboard avoidance moves its
+  // trigger upward. The panel follows that trigger, not the screen bottom.
+  const keyboardAnchor = { x: 310, y: 390, width: 52, height: 52 };
+  const layout = filterPopoverLayout(keyboardAnchor, fullWindow);
+  const bottom = fullWindow.height - layout.bottom;
+  assert.equal(bottom, keyboardAnchor.y - 8);
+  assert.ok(bottom - layout.maxHeight >= topInset + 12);
+  assert.equal(layout.width, fullWindow.width - 24);
+  assert.equal(layout.left, 12);
+}
+
 let props = {
   visible: true,
   contextKey: "account-a:vault-a:AFN",
@@ -224,6 +237,36 @@ for (const isRTL of [false, true]) {
     nodes(radioGroups[0]).filter((node) => node.props.accessibilityRole === "radio").length,
     customerList.CUSTOMER_BALANCE_FILTERS.length,
   );
+  const rows = (group: any) =>
+    [group.props.children]
+      .flat()
+      .filter((row) => row?.type === "View")
+      .map((row) => nodes(row).filter((node) => node.props.accessibilityRole === "radio"));
+  assert.deepEqual(
+    rows(radioGroups[0]).map((row) => row.map((node) => node.props.accessibilityLabel)),
+    [
+      [
+        "customers.balanceFilter.all",
+        "customers.balanceFilter.collect",
+        "customers.balanceFilter.pay",
+      ],
+    ],
+  );
+  assert.equal(
+    nodes(embedded).some((node) => node.props.children === "customers.balanceFilter.help"),
+    false,
+  );
+  assert.deepEqual(
+    rows(radioGroups[1]).map((row) => row.map((node) => node.props.accessibilityLabel)),
+    [
+      ["customers.sort.recent"],
+      ["customers.sort.date_asc"],
+      ["customers.sort.name_asc", "customers.sort.name_desc"],
+      ["customers.sort.amount_asc", "customers.sort.amount_desc"],
+      ["customers.sort.outstanding_name"],
+    ],
+    "the actual embedded popup keeps opposite name/amount choices together",
+  );
   choices(embedded)
     .find((node) => node.props.accessibilityLabel === "customers.sort.name_asc")!
     .props.onPress();
@@ -276,6 +319,24 @@ for (const isRTL of [false, true]) {
   );
   assert.ok(
     nodes(restricted).some((node) => node.props.children === "customers.sort.multiCurrencyHelp"),
+  );
+  assert.ok(
+    nodes(restricted).some((node) => node.props.children === "customers.balanceFilter.help"),
+  );
+  const restrictedSortGroup = nodes(restricted).find(
+    (node) =>
+      node.props.accessibilityRole === "radiogroup" &&
+      node.props.accessibilityLabel === "customers.sort",
+  )!;
+  assert.deepEqual(
+    rows(restrictedSortGroup).map((row) => row.map((node) => node.props.accessibilityLabel)),
+    [
+      ["customers.sort.recent"],
+      ["customers.sort.date_asc"],
+      ["customers.sort.name_asc", "customers.sort.name_desc"],
+      ["customers.sort.outstanding_name"],
+    ],
+    "hiding cross-currency amount sorts removes their whole row without mixing neighboring options",
   );
   const remainingSort = choices(restricted).find(
     (node) => node.props.accessibilityLabel === "customers.sort.recent",
