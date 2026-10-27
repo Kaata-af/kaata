@@ -44,6 +44,8 @@ export const PLAY_STORE_URL = "https://play.google.com/store/apps/details?id=af.
 // the button is that a confused user does not have to be told an address.
 // E.164 with the leading +; callers strip everything but digits for wa.me.
 export const SUPPORT_WHATSAPP_E164 = "+93781696644";
+// Both support transports use the same existing public support recipient.
+export const SUPPORT_SMS_E164 = SUPPORT_WHATSAPP_E164;
 
 // MESH_PARKED hard-disables the offline Bluetooth/Wi-Fi "Nearby sync" mesh (and
 // its persistent foreground-service notification) WITHOUT deleting any feature

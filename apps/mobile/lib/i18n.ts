@@ -1955,18 +1955,23 @@ const en = {
   // on purpose: it is diagnostic data we read, not prose they read.
   "diagnostics.title": "App health",
   "diagnostics.hint":
-    "Something not working? Tap Send to support — WhatsApp opens with this report already written, so we can see what’s happening and fix it. Or copy it and send it yourself.",
+    "Something not working? Send a report to support through WhatsApp or SMS, or copy it to share yourself.",
   "diagnostics.copyReport": "Copy report",
   "diagnostics.copying": "Copying…",
   "diagnostics.copied": "Copied ✓",
   "diagnostics.sendToSupport": "Send to support",
+  "diagnostics.sendSms": "Send by SMS",
+  "diagnostics.smsHint": "Opens a short report in your SMS app. Carrier charges may apply.",
+  "diagnostics.toast.smsUnavailable":
+    "SMS isn't available on this device. You can copy the short report below.",
+  "diagnostics.toast.smsFailed": "Couldn't open SMS. Try again or copy the report.",
   // The first line of the WhatsApp message, above the report. It exists so
   // the chat opens with something a PERSON would send rather than a wall of
   // diagnostics — and so the share-sheet fallback (user picks the recipient)
   // still reads as a message rather than a paste.
   "diagnostics.support.intro":
     "Hi Kaata — something isn’t working in the app. Here is my app health report.",
-  "diagnostics.toast.copied": "Copied — now send it to us on WhatsApp",
+  "diagnostics.toast.copied": "Report copied — send it to support",
   "diagnostics.toast.copyFailed": "Couldn’t auto-copy — copy the text below",
   "diagnostics.toast.sendFailed": "Couldn’t open WhatsApp — copy the report and send it to us",
   "diagnostics.fallbackHint": "Long-press the text below → Select all → Copy, then send it to us.",
@@ -3923,13 +3928,19 @@ const fa: Partial<Record<Key, string>> = {
   // taps and the screen it opens use the same words.
   "diagnostics.title": "وضعیت برنامه",
   "diagnostics.hint":
-    "مشکلی وجود دارد؟ روی «ارسال به پشتیبانی» بزنید — واتساپ با همین گزارش آماده باز می‌شود تا ببینیم چه شده و آن را درست کنیم. یا آن را کپی کنید و خودتان بفرستید.",
+    "مشکلی وجود دارد؟ گزارش را از طریق واتساپ یا پیامک به پشتیبانی بفرستید، یا آن را کپی کنید و خودتان به اشتراک بگذارید.",
   "diagnostics.copyReport": "کپی گزارش",
   "diagnostics.copying": "در حال کپی…",
   "diagnostics.copied": "کپی شد ✓",
   "diagnostics.sendToSupport": "ارسال به پشتیبانی",
+  "diagnostics.sendSms": "ارسال با پیامک",
+  "diagnostics.smsHint":
+    "گزارش کوتاهی در برنامهٔ پیامک باز می‌شود. هزینهٔ پیامک طبق تعرفهٔ شبکه است.",
+  "diagnostics.toast.smsUnavailable":
+    "پیامک در این دستگاه در دسترس نیست. گزارش کوتاه پایین را کپی کنید.",
+  "diagnostics.toast.smsFailed": "پیامک باز نشد. دوباره تلاش کنید یا گزارش را کپی کنید.",
   "diagnostics.support.intro": "سلام کاتا — برنامه مشکل دارد. این گزارش وضعیت برنامهٔ من است.",
-  "diagnostics.toast.copied": "کپی شد — حالا آن را در واتساپ برای ما بفرستید",
+  "diagnostics.toast.copied": "گزارش کپی شد — آن را به پشتیبانی بفرستید",
   "diagnostics.toast.copyFailed": "کپی خودکار نشد — متن پایین را کپی کنید",
   "diagnostics.toast.sendFailed": "واتساپ باز نشد — گزارش را کپی کنید و برای ما بفرستید",
   "diagnostics.fallbackHint":
@@ -5778,13 +5789,17 @@ const ps: Record<Key, string> = {
   "share.whatsappUnavailable": "واټس‌اپ پرانیستل نه شو. په دې ټیلیفون کې نصب دی؟",
   "diagnostics.title": "د اپ روغتیا",
   "diagnostics.hint":
-    "څه کار نه کوي؟ «ملاتړ ته یې ولېږئ» ووهئ — واټساپ به له دې چمتو راپور سره پرانیستل شي، څو ستونزه ووینو او سمه یې کړو. یا یې کاپي او پخپله راولېږئ.",
+    "څه کار نه کوي؟ راپور د واټساپ یا SMS له لارې ملاتړ ته ولېږئ، یا یې کاپي او پخپله شریک کړئ.",
   "diagnostics.copyReport": "راپور کاپي کړئ",
   "diagnostics.copying": "کاپي کېږي…",
   "diagnostics.copied": "کاپي شو ✓",
   "diagnostics.sendToSupport": "ملاتړ ته یې ولېږئ",
+  "diagnostics.sendSms": "په SMS یې ولېږئ",
+  "diagnostics.smsHint": "لنډ راپور ستاسو د SMS په اپ کې پرانیستل کېږي. د شبکې لګښت پرې راتلی شي.",
+  "diagnostics.toast.smsUnavailable": "په دې وسیله SMS نه شته. لاندې لنډ راپور کاپي کړئ.",
+  "diagnostics.toast.smsFailed": "SMS پرانیستل نه شو. بیا هڅه وکړئ یا راپور کاپي کړئ.",
   "diagnostics.support.intro": "سلام کاټه — په اپ کې څه کار نه کوي. دا زما د اپ د روغتیا راپور دی.",
-  "diagnostics.toast.copied": "کاپي شو — اوس یې په واټساپ کې راولېږئ",
+  "diagnostics.toast.copied": "راپور کاپي شو — ملاتړ ته یې ولېږئ",
   "diagnostics.toast.copyFailed": "په خپله کاپي نه شو — لاندې متن کاپي کړئ",
   "diagnostics.toast.sendFailed": "واټساپ پرانیستل نه شو — راپور کاپي او راولېږئ",
   "diagnostics.fallbackHint": "لاندې متن اوږد ونیسئ ← ټول وټاکئ ← کاپي کړئ، بیا یې راولېږئ.",

@@ -21,7 +21,7 @@ import * as Application from "expo-application";
 import * as Clipboard from "expo-clipboard";
 import Constants from "expo-constants";
 import { useRouter } from "expo-router";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   DevSettings,
   Platform,
@@ -35,15 +35,16 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { ScreenHeader } from "../components/SettingsScreen";
-import { trackingSafe, useIsRTL } from "../lib/direction";
+import { textDir, trackingSafe, useIsRTL } from "../lib/direction";
 import { tExtra } from "../lib/mobile-copy";
 import { t } from "../lib/i18n";
 import { useToast } from "../components/Toast";
 import { colors } from "../lib/colors";
 import { buildDiagnosticsReport } from "../lib/diagnostics-report";
+import { compactDiagnosticsForSms } from "../lib/diagnostics-sms";
 import { fonts, monoLineHeight, sansLineHeight } from "../lib/fonts";
 import { resetAllLocalData } from "../lib/db";
-import { openSupportWhatsApp } from "../lib/support";
+import { openSupportSms, openSupportWhatsApp } from "../lib/support";
 import { radius, TOUCH_MIN } from "../lib/tokens";
 // PARKED (Nearby sync / mesh): the live sync state + log and the mem-probe
 // memory-slope sampling belong to the mesh feature, which is hidden for now.
@@ -91,7 +92,11 @@ export default function DiagnosticsScreen() {
   const isRTL = useIsRTL();
   const [copyingReport, setCopyingReport] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [sendingReport, setSendingReport] = useState(false);
+  const [sendingReport, setSendingReport] = useState<"whatsapp" | "sms" | null>(null);
+  const reportActionBusy = useRef(false);
+  const actionVersion = useRef(0);
+  const mounted = useRef(true);
+  const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // When the clipboard write fails (rare), we drop the report into a selectable
   // text block so the user can long-press → Select all → Copy by hand.
   const [fallbackText, setFallbackText] = useState<string | null>(null);
@@ -149,59 +154,113 @@ export default function DiagnosticsScreen() {
   }, []);
 
   useEffect(() => {
+    mounted.current = true;
     void load();
+    return () => {
+      mounted.current = false;
+      actionVersion.current++;
+      reportActionBusy.current = false;
+      if (copiedTimer.current) clearTimeout(copiedTimer.current);
+    };
   }, [load]);
 
   // Copy the full App-health report (versions + account/backup/sync state +
   // memory + crash history) to the clipboard so the user can send it to us.
   // Best-effort; on a clipboard failure we fall back to a selectable text block.
   const onCopyReport = useCallback(async () => {
-    if (copyingReport) return;
+    if (!mounted.current || reportActionBusy.current) return;
+    reportActionBusy.current = true;
+    const version = ++actionVersion.current;
+    const current = () => mounted.current && actionVersion.current === version;
     setCopyingReport(true);
+    let report: string | null = null;
     try {
-      await Clipboard.setStringAsync(await buildDiagnosticsReport());
+      report = await buildDiagnosticsReport();
+      if (!current()) return;
+      await Clipboard.setStringAsync(report);
+      if (!current()) return;
       setFallbackText(null);
       setCopied(true);
-      setTimeout(() => setCopied(false), 5000);
+      if (copiedTimer.current) clearTimeout(copiedTimer.current);
+      copiedTimer.current = setTimeout(() => {
+        copiedTimer.current = null;
+        if (mounted.current) setCopied(false);
+      }, 5000);
       toast.push(t("diagnostics.toast.copied"), "success");
     } catch (err) {
+      if (!current()) return;
       console.warn("[diagnostics] copy report failed", err);
       try {
-        setFallbackText(await buildDiagnosticsReport());
+        const fallback = report ?? (await buildDiagnosticsReport());
+        if (!current()) return;
+        setFallbackText(fallback);
       } catch {
-        setFallbackText(null);
+        if (current()) setFallbackText(null);
       }
-      toast.push(t("diagnostics.toast.copyFailed"), "error");
+      if (current()) toast.push(t("diagnostics.toast.copyFailed"), "error");
     } finally {
-      setCopyingReport(false);
+      if (actionVersion.current === version) {
+        reportActionBusy.current = false;
+        if (mounted.current) setCopyingReport(false);
+      }
     }
-  }, [copyingReport, toast]);
+  }, [toast]);
 
-  // One tap, addressed. This used to open the OS share sheet with the report as
-  // the body, which left the hardest step to the user: knowing who to send it
-  // to. Someone who has just hit a bug is the last person who will go hunting
-  // for our number, so reports died in the share sheet. Now it opens the Kaata
-  // support chat directly, with a prewritten first line above the report so the
-  // message reads like something a person sent — and still reads that way in
-  // the share-sheet fallback below, where the user picks the recipient.
-  const onSendReport = useCallback(async () => {
-    if (sendingReport) return;
-    setSendingReport(true);
-    try {
-      const message = `${t("diagnostics.support.intro")}\n\n${await buildDiagnosticsReport()}`;
-      const handoff = await openSupportWhatsApp(message);
-      if (handoff === "failed") {
-        // No WhatsApp and no browser. Fall back to what this button did
-        // before, so the report is never trapped on the phone.
-        await Share.share({ message });
+  // Both composers address support directly. SMS gets a short text-only
+  // summary; WhatsApp and its share-sheet fallback keep the full report.
+  const onSendReport = useCallback(
+    async (channel: "whatsapp" | "sms") => {
+      if (!mounted.current || reportActionBusy.current) return;
+      reportActionBusy.current = true;
+      const version = ++actionVersion.current;
+      const current = () => mounted.current && actionVersion.current === version;
+      setSendingReport(channel);
+      let smsText: string | null = null;
+      try {
+        const report = await buildDiagnosticsReport();
+        if (!current()) return;
+        if (channel === "sms") {
+          smsText = compactDiagnosticsForSms(report);
+          const handoff = await openSupportSms(smsText, current);
+          if (!current()) return;
+          if (handoff === "unavailable" || handoff === "failed") {
+            setFallbackText(smsText);
+            toast.push(
+              t(
+                handoff === "unavailable"
+                  ? "diagnostics.toast.smsUnavailable"
+                  : "diagnostics.toast.smsFailed",
+              ),
+              "error",
+            );
+          } else {
+            setFallbackText(null);
+          }
+        } else {
+          const message = `${t("diagnostics.support.intro")}\n\n${report}`;
+          const handoff = await openSupportWhatsApp(message, current);
+          if (current() && handoff === "failed") {
+            // Keep the full report shareable when WhatsApp is unavailable.
+            await Share.share({ message });
+          }
+        }
+      } catch (err) {
+        if (!current()) return;
+        console.warn("[diagnostics] send report failed", err);
+        if (smsText) setFallbackText(smsText);
+        toast.push(
+          t(channel === "sms" ? "diagnostics.toast.smsFailed" : "diagnostics.toast.sendFailed"),
+          "error",
+        );
+      } finally {
+        if (actionVersion.current === version) {
+          reportActionBusy.current = false;
+          if (mounted.current) setSendingReport(null);
+        }
       }
-    } catch (err) {
-      console.warn("[diagnostics] send report failed", err);
-      toast.push(t("diagnostics.toast.sendFailed"), "error");
-    } finally {
-      setSendingReport(false);
-    }
-  }, [sendingReport, toast]);
+    },
+    [toast],
+  );
 
   // PARKED (mesh): live-update the sync log — push-driven on each new line, plus
   // a 2s poll so the running/paused snapshot stays fresh while the user watches.
@@ -251,6 +310,7 @@ export default function DiagnosticsScreen() {
         ? String(Constants.expoConfig.android.versionCode)
         : null);
   const jsBundleVersion = Constants.expoConfig?.version ?? null;
+  const reportBusy = copyingReport || sendingReport !== null;
 
   return (
     <SafeAreaView style={styles.root} edges={["top", "bottom"]}>
@@ -261,12 +321,16 @@ export default function DiagnosticsScreen() {
           regardless: the chevron is navigation, not content. */}
       <ScreenHeader title={t("diagnostics.title")} onBack={() => router.back()} isRTL={isRTL} />
       <ScrollView contentContainerStyle={styles.scroll}>
-        <Text style={styles.hint}>{t("diagnostics.hint")}</Text>
+        <Text style={[styles.hint, textDir(isRTL)]}>{t("diagnostics.hint")}</Text>
         <View style={styles.actionRow}>
           <Pressable
-            style={[styles.copyReport, copyingReport && { opacity: 0.6 }]}
+            testID="diagnostics-copy"
+            accessibilityRole="button"
+            accessibilityLabel={t("diagnostics.copyReport")}
+            accessibilityState={{ disabled: reportBusy, busy: copyingReport }}
+            style={[styles.copyReport, reportBusy && { opacity: 0.6 }]}
             onPress={onCopyReport}
-            disabled={copyingReport}
+            disabled={reportBusy}
           >
             <Text style={styles.copyReportText}>
               {copyingReport
@@ -277,16 +341,36 @@ export default function DiagnosticsScreen() {
             </Text>
           </Pressable>
           <Pressable
-            style={[styles.shareReport, sendingReport && { opacity: 0.6 }]}
-            onPress={onSendReport}
-            disabled={sendingReport}
+            testID="diagnostics-whatsapp"
+            accessibilityRole="button"
+            accessibilityLabel={t("diagnostics.sendToSupport")}
+            accessibilityState={{ disabled: reportBusy, busy: sendingReport === "whatsapp" }}
+            style={[styles.shareReport, reportBusy && { opacity: 0.6 }]}
+            onPress={() => void onSendReport("whatsapp")}
+            disabled={reportBusy}
           >
             <Ionicons name="logo-whatsapp" size={16} color={colors.textDefault} />
             <Text style={styles.shareReportText}>
-              {sendingReport ? "…" : t("diagnostics.sendToSupport")}
+              {sendingReport === "whatsapp" ? "…" : t("diagnostics.sendToSupport")}
             </Text>
           </Pressable>
         </View>
+        <Pressable
+          testID="diagnostics-sms"
+          accessibilityRole="button"
+          accessibilityLabel={t("diagnostics.sendSms")}
+          accessibilityHint={t("diagnostics.smsHint")}
+          accessibilityState={{ disabled: reportBusy, busy: sendingReport === "sms" }}
+          style={[styles.shareReport, styles.smsReport, reportBusy && { opacity: 0.6 }]}
+          onPress={() => void onSendReport("sms")}
+          disabled={reportBusy}
+        >
+          <Ionicons name="chatbubble-outline" size={16} color={colors.textDefault} />
+          <Text style={styles.shareReportText}>
+            {sendingReport === "sms" ? "…" : t("diagnostics.sendSms")}
+          </Text>
+        </Pressable>
+        <Text style={[styles.copyHint, textDir(isRTL)]}>{t("diagnostics.smsHint")}</Text>
 
         {fallbackText ? (
           <View style={styles.fallbackBox}>
@@ -483,6 +567,7 @@ const styles = StyleSheet.create({
     borderColor: colors.borderDefault,
   },
   shareReportText: { color: colors.textDefault, fontSize: 14, fontFamily: fonts.sansSemi },
+  smsReport: { alignSelf: "stretch", marginBottom: 6 },
   fallbackBox: {
     marginBottom: 12,
     padding: 10,

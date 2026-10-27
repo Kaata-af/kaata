@@ -10,6 +10,157 @@ import * as chain from "../trust/chain";
 import * as accountIds from "../trust/account-id";
 import * as verificationCache from "../trust/successful-verification-cache";
 import * as ownershipTransfer from "../trust/ownership-transfer";
+import { compactDiagnosticsForSms } from "../diagnostics-sms";
+
+function smsChecks() {
+  const installId = "12345678-1234-4abc-8def-1234567890ab";
+  const full = [
+    "Kaata — App health",
+    "App (native): 2.2.0 (build 37)",
+    "App (JS bundle): 2.1.9 (build 36)",
+    "Platform: android 35",
+    "Install: " + installId,
+    "Active kaata: abcd1234",
+    "Schema: 105_enabled_currencies (105 applied)",
+    "Sync: push=10-27 11:12:13 pull=never seq=12345",
+    "Unsent events: 12  ·  Rejected: 3",
+    "Last sync error: VaultNotRegisteredError @ 10-27 11:12:13",
+    "  Bearer PRIVATE_JWT customer=PRIVATE_CUSTOMER note=PRIVATE_NOTE",
+    "Device key: NOT READY (read_failed), no mirror; rotated 2x, last 10-27 11:12:13, 1 retired; 3 consecutive read failures; pending re-register+re-bind",
+    "Membership proof: anchor=yes genesis=yes currentMember=yes currentDevice=no activeMembers=2 conflicts=0",
+    "Last contact save error: storage_busy (create_person) @ 10-27 11:12:13",
+    "Recent exits (newest first):",
+    "  10-26 01:02:03 LOW_MEMORY rss=145.5MB imp=100",
+    "Account: PRIVATE_ACCOUNT",
+    "Backend: https://PRIVATE_HOST.invalid/?token=PRIVATE_TOKEN",
+    "Customer: PRIVATE_CUSTOMER",
+    "Note: PRIVATE_NOTE",
+    "Public key: PRIVATE_KEY",
+    "people=9 entries=87 kaatas=2",
+  ].join("\n");
+  function basicGsm(text: string) {
+    assert.ok(text.length <= 450, `SMS uses ${text.length} septets`);
+    for (const char of text) {
+      const code = char.charCodeAt(0);
+      assert.ok(char === "\n" || (code >= 32 && code <= 126), "ASCII only");
+      assert.equal(
+        "^{}\\[~]|`".includes(char),
+        false,
+        `not a single-septet GSM character: ${char}`,
+      );
+    }
+  }
+  const compact = compactDiagnosticsForSms(full);
+  basicGsm(compact);
+  for (const line of [
+    "Kaata App health",
+    "Native:2.2.0 b37",
+    "JS:2.1.9 b36",
+    "Platform:android 35",
+    `Install:${installId}`,
+    "Kaata:abcd1234",
+    "Schema:105/105",
+    "Sync:p=10-27 11:12:13 q=never seq=12345",
+    "Events:unsent=12 rejected=3",
+    "SyncErr:VaultNotRegisteredError",
+    "Key:NOT READY/read_failed no-mirror rot=2 read=3 pending",
+    "Proof:m=yes d=no",
+    "PersonErr:storage_busy/create_person",
+    "Exit:10-26 01:02:03 LOW_MEMORY",
+  ])
+    assert.ok(compact.split("\n").includes(line), line);
+  for (const privateValue of ["PRIVATE_", "Bearer", "people=", "entries=", "https://"])
+    assert.equal(compact.includes(privateValue), false, privateValue);
+
+  // Priorities survive even when every mandatory field reaches its maximum
+  // valid size and optional fields no longer all fit. Never slice identifiers.
+  const maxVersion = "1.2.3-" + "x".repeat(26);
+  const crowded = full
+    .replace("2.2.0 (build 37)", `${maxVersion} (build 123456789012)`)
+    .replace("2.1.9 (build 36)", `${maxVersion} (build 123456789012)`)
+    .replace("android 35", "android 1234567890.12345")
+    .replace("105_enabled_currencies (105 applied)", "999999_long_name (999999999 applied)")
+    .replace(
+      "push=10-27 11:12:13 pull=never seq=12345",
+      "push=10-27 11:12:13 pull=10-27 14:15:16 seq=999999999999",
+    )
+    .replace("12  ·  Rejected: 3", "999999999  ·  Rejected: 999999999");
+  const bounded = compactDiagnosticsForSms(crowded);
+  basicGsm(bounded);
+  assert.ok(
+    bounded.startsWith(
+      `Kaata App health\nNative:${maxVersion} b123456789012\nJS:${maxVersion} b123456789012\n`,
+    ),
+  );
+  assert.ok(bounded.includes(`Install:${installId}\n`));
+  assert.ok(bounded.includes("Events:unsent=999999999 rejected=999999999"));
+  assert.ok(bounded.includes("SyncErr:VaultNotRegisteredError"));
+  assert.equal(
+    bounded.endsWith("..."),
+    false,
+    "omit whole optional fields, never truncate report text",
+  );
+
+  // A malformed identity must not be shortened into a plausible correlation key.
+  const unsupported = compactDiagnosticsForSms(
+    [
+      "App (native): 1.2.3` (build 37)",
+      "App (JS bundle): نسخه😀 (build 36)",
+      "Install: " + installId + " PRIVATE_TOKEN",
+      "Platform: android 35😀",
+      "Active kaata: customer name",
+      "Schema: PRIVATE_SCHEMA (3 applied)",
+      "Last sync error: eyJhbGciOiJIUzI1NiJ9.PRIVATE_JWT @ 10-27 11:12:13",
+      "Device key: PRIVATE_KEY",
+      "Last contact save error: PRIVATE_NOTE (create_person) @ 10-27 11:12:13",
+      "Recent exits (newest first):",
+      "  10-26 01:02:03 PRIVATE_CUSTOMER rss=1MB imp=100",
+    ].join("\n"),
+  );
+  basicGsm(unsupported);
+  assert.ok(unsupported.includes("Native:? b37"));
+  assert.ok(unsupported.includes("JS:? b36"));
+  assert.ok(unsupported.includes("Install:?\n"));
+  assert.ok(unsupported.includes("SyncErr:other"));
+  assert.equal(unsupported.includes(installId), false);
+  assert.equal(unsupported.includes("PRIVATE_"), false);
+  assert.equal(unsupported.includes("PersonErr:"), false);
+  assert.equal(unsupported.includes("Exit:"), false);
+
+  const duplicate = compactDiagnosticsForSms(
+    full.replace(/\n/g, "\r\n") +
+      [
+        "\r\nInstall: 99999999-9999-4999-8999-999999999999",
+        "\r\n  App (native): 9.9.9 (build 999)",
+        "\r\nLast sync error: PRIVATE_JWT",
+      ].join(""),
+  );
+  assert.equal(duplicate, compact, "first exact labels win; indented text cannot inject fields");
+  const unavailable = compactDiagnosticsForSms(
+    [
+      "App (native): ? (build ?)",
+      "App (JS bundle): 2.2.0 (build 37)",
+      "Install: —",
+      "Active kaata: none",
+      "Unsent/rejected events: —",
+      "Last sync error: none",
+      "Membership proof: incomplete (event limit=2048); currentMember=unknown currentDevice=unknown",
+      "Recent exits: none recorded",
+    ].join("\n"),
+  );
+  basicGsm(unavailable);
+  assert.ok(unavailable.includes("Native:? b?"));
+  assert.ok(unavailable.includes("Kaata:none"));
+  assert.ok(unavailable.includes("Events:?"));
+  assert.ok(unavailable.includes("SyncErr:none"));
+  assert.ok(unavailable.includes("Proof:m=unknown d=unknown"));
+  assert.ok(unavailable.includes("Exit:none"));
+  basicGsm(compactDiagnosticsForSms(""));
+  basicGsm(compactDiagnosticsForSms(full + "\nUnknown: " + "😀PRIVATE_NOTE".repeat(10000)));
+  console.log(
+    "PASS diagnostics SMS: GSM septet budget, complete priority IDs/versions, structured statuses and private-content exclusion",
+  );
+}
 
 const eventSig = compileUI("../event-sig", {
   "@noble/hashes/sha512": require("@noble/hashes/sha512"),
@@ -101,7 +252,10 @@ function fixture() {
   });
   const report = compileUI("../diagnostics-report", {
     "expo-application": { nativeApplicationVersion: "2.2.0", nativeBuildVersion: "37" },
-    "expo-constants": { default: { expoConfig: { version: "2.2.0", ios: { buildNumber: "37" } } } },
+    "expo-constants": {
+      __esModule: true,
+      default: { expoConfig: { version: "2.2.0", ios: { buildNumber: "37" } } },
+    },
     "react-native": { Platform: { OS: "ios", Version: "18" } },
     "../constants/env": { MESH_PARKED: true },
     "./api": { getBackendUrl: async () => "https://synthetic.invalid" },
@@ -261,9 +415,20 @@ async function test(name: string, run: (f: ReturnType<typeof fixture>) => Promis
 }
 
 async function main() {
+  smsChecks();
   await test("real verified proof and active-kaata-only aggregate states without private content", async (f) => {
     f.populate();
+    const installId = "abcdef12-3456-4789-8abc-1234567890ab";
+    f.store.prepare("INSERT INTO app_meta VALUES ('install_id', ?)").run(installId);
     const text = await f.report();
+    const sms = compactDiagnosticsForSms(text);
+    assert.ok(sms.includes("Native:2.2.0 b37"));
+    assert.ok(sms.includes("JS:2.2.0 b37"));
+    assert.ok(sms.includes("Platform:ios 18"));
+    assert.ok(sms.includes(`Install:${installId}\n`));
+    assert.ok(sms.includes("Proof:m=yes d=yes"), "parse the actual report's verified proof flags");
+    assert.ok(sms.length <= 450);
+    assert.equal(sms.includes(secretContent), false);
     assert.ok(
       text.includes(
         "anchor=yes genesis=yes currentMember=yes currentDevice=yes activeMembers=2 conflicts=1",
