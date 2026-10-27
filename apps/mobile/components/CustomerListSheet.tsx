@@ -58,8 +58,7 @@ export function CustomerListOptions(props: CustomerListOptionsProps) {
       style={({ pressed }) => [
         kind === "group" ? styles.groupChoice : styles.sortChoice,
         props.compact && styles.choiceCompact,
-        ((kind === "sort" && key === "outstanding_name") ||
-          (kind === "balance" && key === "all")) &&
+        ((kind === "sort" && key === "recent") || (kind === "balance" && key === "all")) &&
           styles.defaultSort,
         rowDir(props.isRTL),
         selected && (kind === "group" ? styles.groupSelected : styles.sortSelected),

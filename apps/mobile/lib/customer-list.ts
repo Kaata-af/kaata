@@ -5,8 +5,8 @@ import type { Direction, PersonWithBalance } from "./types";
 // activity" by mixing settled customers in. A saved "date_desc" parses as
 // "recent", which orders open customers identically.
 export const CUSTOMER_SORTS = [
-  "outstanding_name",
   "recent",
+  "outstanding_name",
   "name_asc",
   "name_desc",
   "amount_desc",
