@@ -115,6 +115,7 @@ function fixture(
     "../../lib/event-log": { appendShopProfileUpdated: async () => stages.push("shop-event") },
     "../../lib/i18n": {
       getLocale: () => locale,
+      isPlaceholderSelfName: () => false,
       t: (key: string, values?: unknown) => key + (values ? ` ${JSON.stringify(values)}` : ""),
     },
     "../../lib/mesh/device-key": {

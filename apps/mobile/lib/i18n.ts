@@ -1354,7 +1354,8 @@ const en = {
   // complete this".
   "vaultNew.titleForced": "Name your Kaata to continue",
   "vaultNew.name.label": "Kaata name",
-  "vaultNew.name.placeholder": "e.g. Personal or Business",
+  "vaultNew.name.placeholder": "Your full name or name of your store/business",
+  "vaultNew.name.placeholderNamed": "{name} or name of your store/business",
   "vaultNew.name.required": "Name is required",
   "vaultNew.currency.label": "Default currency",
   "vaultNew.currency.hint":
@@ -3507,7 +3508,8 @@ const fa: Partial<Record<Key, string>> = {
   "vaultNew.title": "برای کاتای‌تان نام بگذارید",
   "vaultNew.titleForced": "برای ادامه، نام کاتا را بنویسید",
   "vaultNew.name.label": "نام کاتا",
-  "vaultNew.name.placeholder": "مثلاً شخصی یا کاری",
+  "vaultNew.name.placeholder": "نام مکمل شما یا نام دکان/تجارت شما",
+  "vaultNew.name.placeholderNamed": "{name} یا نام دکان/تجارت شما",
   "vaultNew.name.required": "نام لازم است",
   "vaultNew.currency.label": "ارز پیش‌فرض",
   "vaultNew.currency.hint":
@@ -5997,7 +5999,8 @@ const ps: Record<Key, string> = {
   "vaultNew.title": "خپلې کاټې ته نوم ورکړئ",
   "vaultNew.titleForced": "د دوام لپاره د خپلې کاټې نوم ولیکئ",
   "vaultNew.name.label": "د کاټې نوم",
-  "vaultNew.name.placeholder": "لکه شخصي یا کاروباري",
+  "vaultNew.name.placeholder": "ستاسو بشپړ نوم یا د دوکان/سوداګرۍ نوم",
+  "vaultNew.name.placeholderNamed": "{name} یا ستاسو د دوکان/سوداګرۍ نوم",
   "vaultNew.name.required": "نوم اړین دی",
   "vaultNew.currency.label": "اصلي اسعار",
   "vaultNew.currency.hint":

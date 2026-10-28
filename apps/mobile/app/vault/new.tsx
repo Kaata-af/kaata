@@ -61,7 +61,7 @@ import {
 import { getAppMeta, getLocalSelf, setAppMeta } from "../../lib/db";
 import { bidiIsolate, rowDir, textDir, useIsRTL } from "../../lib/direction";
 import { appendShopProfileUpdated } from "../../lib/event-log";
-import { getLocale, t } from "../../lib/i18n";
+import { getLocale, isPlaceholderSelfName, t } from "../../lib/i18n";
 import { ensureDeviceKey, getDevicePubkey } from "../../lib/mesh/device-key";
 import { gutter, icon, radius, space, typography } from "../../lib/tokens";
 import { buildLocalAccountId } from "../../lib/trust/account-id";
@@ -100,6 +100,7 @@ export default function VaultNewScreen() {
   const forced = params.forced === "1";
 
   const [shopName, setShopName] = useState("");
+  const [selfName, setSelfName] = useState("");
   const [currency, setCurrency] = useState<string>(DEFAULT_CURRENCY);
   const [enabledCurrencies, setEnabledCurrencies] = useState<string[]>([DEFAULT_CURRENCY]);
   const [enabledDraft, setEnabledDraft] = useState<CurrencyDraft | null>(null);
@@ -168,6 +169,21 @@ export default function VaultNewScreen() {
   // unlikely, but the hint UI shouldn't reactively appear/disappear under the
   // user mid-tap).
   const accountIdAtMount = useMemo(() => getAccountIdSync(), []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void getLocalSelf()
+      .then((self) => {
+        const name = self?.name.trim() ?? "";
+        if (!cancelled && name && !isPlaceholderSelfName(name)) setSelfName(name);
+      })
+      .catch(() => {
+        // The generic full-name hint also works before a profile is available.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -510,7 +526,11 @@ export default function VaultNewScreen() {
               editable={!creating}
               maxLength={NAME_MAX}
               autoCapitalize="words"
-              placeholder={t("vaultNew.name.placeholder")}
+              placeholder={
+                selfName
+                  ? t("vaultNew.name.placeholderNamed", { name: bidiIsolate(selfName) })
+                  : t("vaultNew.name.placeholder")
+              }
               onChangeText={(s) => {
                 if (!canEdit()) return;
                 form.current = { ...form.current, shopName: s };
