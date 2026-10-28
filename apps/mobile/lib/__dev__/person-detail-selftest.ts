@@ -88,7 +88,15 @@ const nodes = (n: any): Node[] =>
   Array.isArray(n)
     ? n.flatMap(nodes)
     : n?.props
-      ? [n, ...nodes(n.type === "SearchControlSlot" && !n.props.visible ? null : n.props.children)]
+      ? [
+          n,
+          ...nodes(
+            (n.type === "SearchControlSlot" && !n.props.visible) ||
+              (n.type === "SettledTalliesSection" && !n.props.expanded)
+              ? null
+              : n.props.children,
+          ),
+        ]
       : [];
 const kids = (n: any): Node[] => [n?.props?.children].flat(Infinity).filter((v) => v?.props);
 const words = (n: any): string =>
@@ -102,6 +110,13 @@ const words = (n: any): string =>
 const find = (type: string) => nodes(tree).find((n) => n.type === type);
 const tallies = () => nodes(tree).filter((n) => n.type === "EntryRow");
 const rowIds = () => tallies().map((n) => n.props.entry.id);
+const historyRows = (kind: "current" | "settled") =>
+  nodes(tree).find((node) => node.props.testID === `customer-${kind}-tallies`);
+const historyRowIds = (kind: "current" | "settled") =>
+  nodes(historyRows(kind))
+    .filter((node) => node.type === "EntryRow")
+    .map((node) => node.props.entry.id);
+const settledSection = () => find("SettledTalliesSection");
 const query = (value: string) => find("TextInput")!.props.onChangeText(value);
 const dateControl = () => find("TallyDateFilterSheet")!;
 const searchFooter = () => find("SearchKeyboardFooter")!;
@@ -152,6 +167,8 @@ const currencyPeriods = new Map<
 const personReads: any[][] = [],
   entryReads: any[][] = [],
   settledWrites: any[] = [];
+let settlementWriteImpl: (args: any) => Promise<void> = async () => {};
+let sharedSettlementImpl: (target: any) => Promise<void> = async () => {};
 let priorPeriods: any[] = [],
   historyReadGate: Promise<any[]> | null = null;
 let accountId = "account",
@@ -303,6 +320,7 @@ const components = Object.fromEntries(
     "CreditStatusBadge",
     "EntryRow",
     "SelectionToolbar",
+    "SettledTalliesSection",
     "SharedAccountBadge",
     "LinkAccountDialog",
     "OverflowMenu",
@@ -397,6 +415,7 @@ const mocks: Record<string, any> = {
   "../../lib/event-log": {
     appendEntrySettled: async (args: any) => {
       settledWrites.push(args);
+      await settlementWriteImpl(args);
     },
     RoleGateRejectionError: dummyError,
     SettleNotZeroError: dummyError,
@@ -524,6 +543,7 @@ const mocks: Record<string, any> = {
         name,
         async (target: any, entryId: string) => {
           sharedActions.push({ name, link: { ...target }, entryId });
+          if (name === "settleSharedTab") await sharedSettlementImpl(target);
         },
       ]),
     ),
@@ -660,6 +680,8 @@ function fixture(shared = false) {
   personReads.length = 0;
   entryReads.length = 0;
   settledWrites.length = 0;
+  settlementWriteImpl = async () => {};
+  sharedSettlementImpl = async () => {};
   selectedCurrency = "AFN";
   unmount();
   reminderRows = [];
@@ -2048,7 +2070,11 @@ async function unjoinedInvitationLedgerTests() {
       person.tab_close_pending = 1;
       await ledgerRefresh();
       await flush();
-      assert.deepEqual(rowIds(), ["new-rice", "new-tea"]);
+      assert.deepEqual(
+        rowIds(),
+        ["new-rice", "new-tea", "old-cash", "old-rice"],
+        "unacknowledged closure keeps its complete source visible",
+      );
       assert.equal(balanceValue(), "amount:3");
       assert.equal(
         tallies().find((row) => row.props.entry.id === "new-tea")?.props.onLongPress,
@@ -2346,7 +2372,380 @@ async function oneWayAccountUITests() {
   );
 }
 
+async function settledTalliesSectionTests() {
+  const openSettled = async () => {
+    assert.ok(settledSection(), "settled records have their own bottom section");
+    settledSection()!.props.onToggle();
+    await flush();
+  };
+  const clearCurrentChapter = async () => {
+    const action = nodes(tree).find((node) =>
+      node.props.accessibilityLabel?.startsWith("person.settle.row"),
+    );
+    assert.ok(action, "a coherent zero chapter has the existing explicit settlement action");
+    action.props.onPress();
+    await flush();
+    const confirm = nodes(tree).find(
+      (node) =>
+        node.type === "ConfirmDialog" &&
+        node.props.visible &&
+        node.props.title === "person.settle.confirm.title",
+    );
+    assert.ok(confirm);
+    await confirm.props.onConfirm();
+    await flush();
+  };
+  for (const os of ["ios", "android"]) {
+    platform = os;
+    fixture();
+    person.balance = 0;
+    entries[1] = { ...entries[1], amount_afn: 2 };
+    await flush();
+    assert.deepEqual(historyRowIds("current"), ["new-rice", "new-tea"]);
+    assert.equal(settledSection()!.props.count, 2, "count describes tallies, not account chapters");
+    assert.equal(settledSection()!.props.expanded, false);
+    assert.equal(historyRows("settled"), undefined, "collapsed records are not mounted");
+    assert.deepEqual(rowIds(), ["new-rice", "new-tea"], "zero alone never claims a settlement");
+    await openSettled();
+    assert.deepEqual(historyRowIds("current"), ["new-rice", "new-tea"]);
+    assert.deepEqual(historyRowIds("settled"), ["old-cash", "old-rice"]);
+    const current = historyRows("current")!,
+      archive = historyRows("settled")!;
+    assert.ok(
+      nodes(tree).indexOf(current) < nodes(tree).indexOf(archive),
+      "expanding history keeps settled tallies below current tallies",
+    );
+    assert.equal(
+      tallies().find((row) => row.props.entry.id === "old-rice")?.props.onLongPress,
+      undefined,
+      "settled history retains its read-only action guard",
+    );
+    settlementWriteImpl = async (args) => {
+      settlement = { count: 2, lastSettledAtMs: args.settledAtMs };
+      boundaries = [200, args.settledAtMs];
+    };
+    await clearCurrentChapter();
+    assert.equal(settledWrites.length, 1, "the existing settlement command is used once");
+    assert.equal(settledSection()!.props.count, 4);
+    assert.equal(
+      settledSection()!.props.expanded,
+      false,
+      "a confirmed settlement automatically moves the completed chapter behind the toggle",
+    );
+    assert.deepEqual(historyRowIds("current"), []);
+    assert.equal(historyRows("settled"), undefined);
+    await ledgerRefresh();
+    await flush();
+    assert.equal(settledSection()!.props.expanded, false, "refresh never reopens settled history");
+    await openSettled();
+    assert.deepEqual(historyRowIds("settled"), ["new-rice", "new-tea", "old-cash", "old-rice"]);
+    settledSection()!.props.onToggle();
+    await flush();
+    entries.unshift(tally("next-chapter", "new cash", 7, settlement.lastSettledAtMs + 1));
+    person.balance = 7;
+    await ledgerRefresh();
+    await flush();
+    assert.deepEqual(historyRowIds("current"), ["next-chapter"]);
+    assert.equal(settledSection()!.props.count, 4);
+    assert.equal(settledSection()!.props.expanded, false);
+    assert.ok(words(tree).includes("amount:7"), "moving rows never changes the displayed balance");
+    unmount();
+  }
+
+  fixture(true);
+  person.balance = 0;
+  entries = entries.map((entry) =>
+    entry.id === "new-tea" ? { ...entry, tab: { ...entry.tab, status: "accepted" } } : entry,
+  );
+  entries.unshift(
+    tally(
+      "backdated-new",
+      "recent sequence, old day",
+      5,
+      50,
+      { tab_id: "tab", seq: 6, status: "accepted", kind: "entry", by: "them", voided: false },
+      "payment",
+    ),
+  );
+  await flush();
+  assert.ok(
+    historyRowIds("current").includes("backdated-new"),
+    "a new shared sequence stays current even with a business date before the clearance",
+  );
+  assert.equal(settledSection()!.props.count, 2);
+  sharedSettlementImpl = async () => {
+    markers.push({ id: "new-clearance", through_seq: 6, settled_at_ms: 1000, actor_name: "Actor" });
+    link = { ...link, rev: 7 };
+  };
+  await clearCurrentChapter();
+  assert.equal(sharedActions.filter((action) => action.name === "settleSharedTab").length, 1);
+  assert.deepEqual(historyRowIds("current"), []);
+  assert.equal(settledSection()!.props.count, 5);
+  assert.equal(settledSection()!.props.expanded, false);
+  entries.unshift(
+    tally("unsent", "not confirmed", 999, 1, {
+      tab_id: "tab",
+      seq: 1,
+      status: "pending",
+      kind: "entry",
+      by: "me",
+      local_pending: true,
+      voided: false,
+    }),
+  );
+  entries.unshift(
+    tally("pending", "needs review", 5, 2, {
+      tab_id: "tab",
+      seq: 7,
+      status: "pending",
+      kind: "entry",
+      by: "them",
+      voided: false,
+    }),
+  );
+  entries.unshift(
+    tally("foreign-period", "unabsorbed earlier book", 3, 3, {
+      tab_id: "older-tab",
+      seq: 1,
+      status: "accepted",
+      kind: "entry",
+      by: "them",
+      voided: false,
+    }),
+  );
+  person.balance = 3;
+  await ledgerRefresh();
+  await flush();
+  assert.deepEqual(
+    new Set(historyRowIds("current")),
+    new Set(["foreign-period", "pending", "unsent"]),
+    "pending, unsent and foreign-period records never inherit another chapter's sequence boundary",
+  );
+  assert.equal(settledSection()!.props.count, 5);
+  unmount();
+
+  fixture(true);
+  person.balance = 0;
+  link = { ...link, role: "b", recording_mode: "notify_one_way", recording_mode_known: 1 };
+  entries = entries
+    .filter((entry) => entry.id !== "rejected-rice" && entry.id !== "voided-rice")
+    .map((entry) => ({ ...entry, tab: { ...entry.tab, tab_id: "tab", status: "recorded" } }));
+  entries.unshift(
+    tally(
+      "remote-repayment",
+      "publisher recorded repayment",
+      5,
+      500,
+      { tab_id: "tab", seq: 4, status: "recorded", kind: "entry", by: "them", voided: false },
+      "payment",
+    ),
+  );
+  await flush();
+  assert.equal(historyRowIds("current").length, 2);
+  assert.equal(settledSection()!.props.count, 2);
+  assert.equal(
+    nodes(tree).some((node) => node.props.accessibilityLabel?.startsWith("person.settle.row")),
+    false,
+    "a one-way recipient observes settlement without gaining a monetary action",
+  );
+  markers.push({
+    id: "remote-clearance",
+    through_seq: 4,
+    settled_at_ms: 1000,
+    actor_name: "Publisher",
+  });
+  link = { ...link, rev: 6 };
+  tabListeners.forEach((listener) => listener({ relationshipId: "relationship", origin: "pull" }));
+  await flush();
+  assert.deepEqual(historyRowIds("current"), []);
+  assert.equal(
+    settledSection()!.props.count,
+    4,
+    "an authoritative remote clearance automatically moves the recipient's completed chapter",
+  );
+  assert.equal(settledSection()!.props.expanded, false);
+  assert.equal(sharedActions.length, 0, "observing a clearance never posts a financial action");
+  unmount();
+
+  fixture();
+  const afn = { ...person, currency: "AFN", balance: 3 };
+  const usd = { ...person, currency: "USD", balance: 9 };
+  person = { ...afn, currency_balances: [afn, usd] };
+  entries.push({ ...tally("usd-old-unpaid", "dollars still owed", 9, 90), currency: "USD" });
+  currencyPeriods.set("USD", { settlement: { count: 1, lastSettledAtMs: 200 }, boundaries: [200] });
+  await flush();
+  assert.deepEqual(
+    new Set(historyRowIds("current")),
+    new Set(["new-rice", "new-tea", "usd-old-unpaid"]),
+  );
+  assert.equal(
+    settledSection()!.props.count,
+    2,
+    "an incoherent dollar boundary does not un-fold an independent cleared AFN chapter",
+  );
+  await openSettled();
+  assert.deepEqual(historyRowIds("settled"), ["old-cash", "old-rice"]);
+  assert.ok(
+    !historyRowIds("settled").includes("usd-old-unpaid"),
+    "a record that still explains money cannot be hidden as settled",
+  );
+  entries = entries.map((entry) =>
+    entry.id === "old-rice" ? { ...entry, amount_afn: 11 } : entry,
+  );
+  person = { ...afn, balance: 4, currency_balances: [{ ...afn, balance: 4 }, usd] };
+  await ledgerRefresh();
+  await flush();
+  assert.equal(settledSection()?.props.count ?? 0, 0);
+  assert.deepEqual(
+    new Set(historyRowIds("current")),
+    new Set(["new-rice", "new-tea", "old-cash", "old-rice", "usd-old-unpaid"]),
+    "a late edit reopens a formerly cleared chapter when its money no longer reconciles",
+  );
+  unmount();
+
+  for (const unknownFlag of ["tab_unsynced", "tab_close_pending"]) {
+    fixture();
+    person[unknownFlag] = 1;
+    await flush();
+    assert.equal(
+      settledSection()?.props.count ?? 0,
+      0,
+      "unknown balances and unacknowledged closure cannot hide their source records",
+    );
+    assert.deepEqual(historyRowIds("current"), ["new-rice", "new-tea", "old-cash", "old-rice"]);
+    unmount();
+  }
+
+  fixture();
+  await flush();
+  query("rice");
+  await flush();
+  assert.deepEqual(historyRowIds("current"), ["new-rice"]);
+  assert.deepEqual(historyRowIds("settled"), ["old-rice"]);
+  assert.equal(settledSection()!.props.expanded, true, "search reveals matching settled tallies");
+  assert.equal(
+    settledSection()!.props.disabled,
+    true,
+    "search results cannot be folded out of sight",
+  );
+  query("");
+  await flush();
+  assert.equal(
+    settledSection()!.props.expanded,
+    false,
+    "clearing search restores the collapsed choice",
+  );
+  await openSettled();
+  query("tea");
+  await flush();
+  query("");
+  await flush();
+  assert.equal(
+    settledSection()!.props.expanded,
+    true,
+    "temporary filtering preserves a manual open choice",
+  );
+  assert.deepEqual(historyRowIds("settled"), ["old-cash", "old-rice"]);
+  unmount();
+
+  fixture();
+  params = { id: "person", entryId: "old-rice", notificationKey: "settled-notice" };
+  await flush();
+  assert.equal(settledSection()!.props.expanded, true, "a notification opens its folded chapter");
+  assert.deepEqual(historyRowIds("current"), ["new-rice", "new-tea"]);
+  const scrolled: any[] = [];
+  const scroll = find("ScrollView")!;
+  scroll.props.ref.current = { scrollTo: (position: any) => scrolled.push(position) };
+  scroll.props.onLayout({ nativeEvent: { layout: { height: 400 } } });
+  const target = tallies().find((row) => row.props.entry.id === "old-rice")!;
+  const targetRow = nodes(tree).find((node) => node.props.onLayout && kids(node).includes(target))!;
+  historyRows("settled")!.props.onLayout({ nativeEvent: { layout: { y: 1000 } } });
+  // Layout order is native-defined: the current card can report after the archive.
+  historyRows("current")!.props.onLayout({ nativeEvent: { layout: { y: 200 } } });
+  targetRow.props.onLayout({ nativeEvent: { layout: { y: 90, height: 60 } } });
+  await flush();
+  assert.ok(scrolled.length > 0);
+  assert.equal(
+    scrolled.at(-1).y,
+    tallyScrollTarget({
+      top: 1090,
+      height: 60,
+      offset: 0,
+      viewport: 400,
+      bottomInset: 100,
+    }),
+    "settled notification scrolling uses its own card, never the active card's last layout",
+  );
+  const highlighted = tallies().find((row) => row.props.entry.id === "old-rice")!;
+  const highlightedRow = nodes(tree).find(
+    (node) => node.props.onLayout && kids(node).includes(highlighted),
+  )!;
+  assert.ok(nodes(highlightedRow).some((node) => node.type === "TallyHighlight"));
+
+  const oldCardLayout = historyRows("settled")!.props.onLayout;
+  const oldRowLayout = targetRow.props.onLayout;
+  settledSection()!.props.onToggle();
+  await flush();
+  assert.equal(settledSection()!.props.expanded, false);
+  scrolled.length = 0;
+  oldCardLayout({ nativeEvent: { layout: { y: 1000 } } });
+  oldRowLayout({ nativeEvent: { layout: { y: 90, height: 60 } } });
+  await flush();
+  assert.equal(scrolled.length, 0, "late layouts cannot revive a collapsed settled card");
+  entries.unshift(tally("active-growth", "new tallies above the archive", 4, 700));
+  person.balance = 7;
+  await ledgerRefresh();
+  await flush();
+  params = { id: "person", entryId: "old-rice", notificationKey: "settled-notice-after-growth" };
+  dirty = true;
+  await flush();
+  assert.equal(settledSection()!.props.expanded, true);
+  runFrames();
+  find("ScrollView")!.props.onContentSizeChange();
+  await flush();
+  assert.equal(scrolled.length, 0, "a reopened notification waits for its new card measurements");
+  oldCardLayout({ nativeEvent: { layout: { y: 1000 } } });
+  oldRowLayout({ nativeEvent: { layout: { y: 90, height: 60 } } });
+  runFrames();
+  find("ScrollView")!.props.onContentSizeChange();
+  await flush();
+  assert.equal(
+    scrolled.length,
+    0,
+    "callbacks from an earlier presentation stay invalid after reopening",
+  );
+  const reopenedTarget = tallies().find((row) => row.props.entry.id === "old-rice")!;
+  const reopenedRow = nodes(tree).find(
+    (node) => node.props.onLayout && kids(node).includes(reopenedTarget),
+  )!;
+  historyRows("settled")!.props.onLayout({ nativeEvent: { layout: { y: 1800 } } });
+  await flush();
+  assert.equal(scrolled.length, 0, "a fresh card cannot combine with a stale row position");
+  oldRowLayout({ nativeEvent: { layout: { y: 90, height: 60 } } });
+  await flush();
+  assert.equal(scrolled.length, 0);
+  reopenedRow.props.onLayout({ nativeEvent: { layout: { y: 90, height: 60 } } });
+  await flush();
+  assert.equal(scrolled.length, 1);
+  assert.equal(
+    scrolled[0].y,
+    tallyScrollTarget({
+      top: 1890,
+      height: 60,
+      offset: 0,
+      viewport: 400,
+      bottomInset: 100,
+    }),
+    "the new notification uses the archive's grown content position",
+  );
+  unmount();
+  console.log(
+    "PASS settled section: separate current/archive cards, explicit local/shared clearance, coherent currencies, safe pending/backdated history, refresh and notification coordinates",
+  );
+}
+
 async function main() {
+  await settledTalliesSectionTests();
   await oneWayAccountUITests();
   await unjoinedInvitationLedgerTests();
   await singleCurrencyBalanceTests();

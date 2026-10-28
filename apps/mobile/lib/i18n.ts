@@ -465,6 +465,9 @@ const en = {
   "person.settle.notZero": "Balance must be zero to settle.",
   "person.history.show": "{count} settled account(s) · view all",
   "person.history.hide": "Show current account only",
+  "person.history.seeSettled": "See settled tallies",
+  "person.history.hideSettled": "Hide settled tallies",
+  "person.history.settledCount": "Settled tallies: {count}",
   // Dated ruled-off line between chapters in the full-history view. {date}
   // is Solar Hijri with Afghan month names for fa, Gregorian for en.
   "person.history.settledOn": "Settled · {date}",
@@ -2753,6 +2756,9 @@ const fa: Partial<Record<Key, string>> = {
   "person.settle.notZero": "برای تصفیه، باقی‌مانده باید صفر باشد.",
   "person.history.show": "{count} حساب تصفیه‌شده · دیدن همه",
   "person.history.hide": "فقط حساب جاری",
+  "person.history.seeSettled": "دیدن ثبت‌های تصفیه‌شده",
+  "person.history.hideSettled": "پنهان کردن ثبت‌های تصفیه‌شده",
+  "person.history.settledCount": "ثبت‌های تصفیه‌شده: {count}",
   "person.history.settledOn": "تصفیه شد · {date}",
   "entry.settledLocked":
     "این ثبت زیر خط تصفیه است و قابل تغییر نیست. به جای آن یک ثبت اصلاحی اضافه کنید.",
@@ -4961,6 +4967,9 @@ const ps: Record<Key, string> = {
   "person.settle.notZero": "د تصفیې لپاره باید پاتې حساب صفر وي.",
   "person.history.show": "{count} تصفیه شوي حسابونه · ټول وګورئ",
   "person.history.hide": "یوازې اوسنی حساب وښایئ",
+  "person.history.seeSettled": "تصفیه شوي ثبتونه وګورئ",
+  "person.history.hideSettled": "تصفیه شوي ثبتونه پټ کړئ",
+  "person.history.settledCount": "تصفیه شوي ثبتونه: {count}",
   "person.history.settledOn": "تصفیه شوی · {date}",
   "person.freshChapter.title": "ټول حساب تصفیه شوی",
   "person.freshChapter.subtitle": "نوې پاڼه. پخوانی ګډ حساب مو لاندې ساتل شوی دی.",
