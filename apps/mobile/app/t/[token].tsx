@@ -339,7 +339,12 @@ export default function TabJoinScreen() {
         if (cancelled) return;
         // Raw err stays in the console; the user sees localized copy only.
         console.warn("[tab/join] preview failed", err);
-        if (err instanceof TabApiError && err.status === 404) {
+        if (err instanceof TabApiError && err.code === "recording_upgrade_required") {
+          setErrorMsg(t("tab.link.clientUpdate"));
+        } else if (err instanceof TabApiError && err.code === "notification_only_unsupported") {
+          setErrorMsg(t("tab.link.serverUpdate"));
+          setRetryable(true);
+        } else if (err instanceof TabApiError && err.status === 404) {
           setErrorMsg(t("tab.join.notFound"));
         } else {
           setErrorMsg(t("tab.link.failed"));
@@ -491,6 +496,14 @@ export default function TabJoinScreen() {
       }
     } catch (err) {
       joiningRef.current = false;
+      if (err instanceof TabApiError && err.code === "opening_source_changed") {
+        // Changing contacts or retrying this invitation cannot repair its
+        // stale carried balance. The sender must replace the unused link.
+        setErrorMsg(t("tab.join.openingChanged"));
+        setRetryable(false);
+        setStage("error");
+        return;
+      }
       // Land on the picker for THIS kaata whichever stage the tap came from:
       // the suggestion card and the list are both there to change the answer
       // or retry, and the message renders under them.
@@ -550,6 +563,10 @@ export default function TabJoinScreen() {
         setPickError(t("tab.join.alreadyLinked"));
       } else if (err instanceof TabClosedError) {
         setPickError(t("tab.join.closed"));
+      } else if (err instanceof TabApiError && err.code === "notification_only_unsupported") {
+        setPickError(t("tab.link.serverUpdate"));
+      } else if (err instanceof TabApiError && err.code === "recording_upgrade_required") {
+        setPickError(t("tab.link.clientUpdate"));
       } else if (err instanceof TabApiError && err.code === "shared_history_pending") {
         setPickError(t("tab.history.pending"));
       } else if (err instanceof TabApiError && err.code === "shared_history_changed") {
@@ -1051,6 +1068,15 @@ export default function TabJoinScreen() {
                 </Text>
               </View>
 
+              <Text style={[styles.hint, textDir(isRTL)]}>
+                {t(
+                  tab.recording_mode == null
+                    ? "tab.recordingMode.unknown"
+                    : tab.recording_mode === "notify"
+                      ? "tab.recordingMode.notifyHint"
+                      : "tab.recordingMode.reviewHint",
+                )}
+              </Text>
               <View style={{ height: 24 }} />
               {previewVault && joinable && plan ? (
                 // One tap: the kaata is unambiguous and the invitation's

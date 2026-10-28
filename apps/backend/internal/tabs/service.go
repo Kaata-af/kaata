@@ -55,8 +55,15 @@ var (
 	ErrNotFound                     = errors.New("tab not found")
 	ErrTabClosed                    = errors.New("tab is closed")
 	ErrSharedHistoryPending         = errors.New("review or cancel pending tallies in the previous shared account before linking again")
+	ErrInvalidRecordingMode         = errors.New("recording mode must be review or notify")
+	ErrReviewNotRequired            = errors.New("this tally was recorded without a review requirement")
+	ErrJoinRequired                 = errors.New("join this account before recording tallies")
+	ErrRecordedOpeningFinal         = errors.New("a joined opening is a fixed carry-over; add a correction tally instead")
+	ErrSettledRecord                = errors.New("a recorded tally in a cleared chapter cannot be cancelled")
+	ErrRecordedHistoryFinal         = errors.New("this recorded tally was carried into a later account; add a correction tally instead")
+	ErrOpeningSourceChanged         = errors.New("the opening balance source changed; ask the sender for a refreshed link")
 	ErrSharedHistoryChanged         = errors.New("shared account history changed; refresh the previous account before linking again")
-	ErrSharedHistoryOpeningRequired = errors.New("an opening tally is required to carry the previously accepted shared balance")
+	ErrSharedHistoryOpeningRequired = errors.New("an opening tally is required to carry the previously recorded shared balance")
 	ErrNotAuthor                    = errors.New("only the author can void an entry")
 	ErrOwnEntry                     = errors.New("cannot accept or dispute your own entry")
 	ErrAuthRequired                 = errors.New("authentication required")
@@ -212,6 +219,7 @@ type PartyMeta struct {
 // and how many of the other party's tallies await the caller's review.
 // A zero recorded balance alone does not mean the account was settled.
 type Tab struct {
+	RecordingMode string `json:"recording_mode"`
 	// UnjoinedInvitation is authoritative evidence that B never participated.
 	// Only a creator-side client may use it to retain its original private book.
 	UnjoinedInvitation bool                 `json:"unjoined_invitation"`
@@ -228,8 +236,11 @@ type Tab struct {
 	// Balance remains the recorded total for older clients. New clients show
 	// the accepted amount separately from proposals that await a final review.
 	ConfirmedBalance map[string]string `json:"confirmed_balance"`
-	PendingBalance   map[string]string `json:"pending_balance"`
-	PendingForYou    int               `json:"pending_for_you"`
+	// RecordedBalance counts accepted and notification-only records without
+	// claiming the latter were accepted. ConfirmedBalance stays review-only.
+	RecordedBalance map[string]string `json:"recorded_balance"`
+	PendingBalance  map[string]string `json:"pending_balance"`
+	PendingForYou   int               `json:"pending_for_you"`
 }
 
 // TabResponse carries entries and chapter markers with rev > after_rev.
@@ -295,6 +306,7 @@ type OpeningInput struct {
 // CreateInput — POST /v1/tabs. AccountID / InstallID come from the session
 // claims when present (nil for a web creator).
 type CreateInput struct {
+	RecordingMode            string
 	ExpectedHistoryRevisions map[string]int64
 	ExpectedPreviousTabID    *string
 	ExpectedPreviousRev      *int64
@@ -517,10 +529,11 @@ func msPtr(t *time.Time) *int64 {
 
 // tabRow is the locked tabs row a mutation starts from.
 type tabRow struct {
-	ID       string
-	Currency string
-	Rev      int64
-	ClosedAt *time.Time
+	RecordingMode string
+	ID            string
+	Currency      string
+	Rev           int64
+	ClosedAt      *time.Time
 }
 
 // lockTab takes the per-tab row lock that serializes every mutation — the
@@ -530,9 +543,9 @@ type tabRow struct {
 func lockTab(ctx context.Context, tx pgx.Tx, tabID string) (tabRow, error) {
 	var t tabRow
 	err := tx.QueryRow(ctx, `
-		SELECT id::text, currency, rev, closed_at FROM tabs
+		SELECT id::text, currency, rev, closed_at, recording_mode FROM tabs
 		 WHERE id = $1::uuid FOR UPDATE
-	`, tabID).Scan(&t.ID, &t.Currency, &t.Rev, &t.ClosedAt)
+	`, tabID).Scan(&t.ID, &t.Currency, &t.Rev, &t.ClosedAt, &t.RecordingMode)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
 		return tabRow{}, ErrNotFound
@@ -673,21 +686,21 @@ func loadEntryForUpdate(ctx context.Context, tx pgx.Tx, tabID, entryID string) (
 // in legacy Balance but are separated from ConfirmedBalance for new clients.
 func loadTab(ctx context.Context, q querier, tabID, you string) (Tab, error) {
 	var (
-		t                              Tab
-		createdAt                      time.Time
-		closedAt                       *time.Time
-		aLabel, bLabel                 string
-		aName, bName                   string
-		aPhone, bPhone                 string
-		aJoined, bJoined               *time.Time
-		aHistoryOrder, bHistoryOrder   *string
-		aBound, bBound                 bool
-		balanceA, confirmedA, pendingA int64
-		pending                        int
-		closedBy                       *string
+		t                                         Tab
+		createdAt                                 time.Time
+		closedAt                                  *time.Time
+		aLabel, bLabel                            string
+		aName, bName                              string
+		aPhone, bPhone                            string
+		aJoined, bJoined                          *time.Time
+		aHistoryOrder, bHistoryOrder              *string
+		aBound, bBound                            bool
+		balanceA, confirmedA, recordedA, pendingA int64
+		pending                                   int
+		closedBy                                  *string
 	)
 	err := q.QueryRow(ctx, `
-		SELECT `+tabstate.UnjoinedInvitationSQL+`, t.currency, t.rev, t.created_at, t.closed_at, t.closed_by, t.closed_reason,
+		SELECT `+tabstate.UnjoinedInvitationSQL+`, t.recording_mode, t.currency, t.rev, t.created_at, t.closed_at, t.closed_by, t.closed_reason,
 		       pa.label, pa.joined_at, pa.history_order::text, pa.account_id IS NOT NULL, COALESCE(aa.display_name, aa.name, ''), COALESCE(aa.phone_e164, ''),
 		       pb.label, pb.joined_at, pb.history_order::text, pb.account_id IS NOT NULL, COALESCE(ab.display_name, ab.name, ''), COALESCE(ab.phone_e164, ''),
 		       COALESCE((SELECT SUM(CASE WHEN e.direction = 'a_to_b' THEN e.amount_minor ELSE -e.amount_minor END)
@@ -696,6 +709,9 @@ func loadTab(ctx context.Context, q querier, tabID, you string) (Tab, error) {
 		       COALESCE((SELECT SUM(CASE WHEN e.direction = 'a_to_b' THEN e.amount_minor ELSE -e.amount_minor END)
 		                   FROM tab_entries e
 		                  WHERE e.tab_id = t.id AND e.kind <> 'void' AND e.voided_by_entry_id IS NULL AND e.status = 'accepted'), 0)::BIGINT,
+		       COALESCE((SELECT SUM(CASE WHEN e.direction = 'a_to_b' THEN e.amount_minor ELSE -e.amount_minor END)
+		                   FROM tab_entries e
+		                  WHERE e.tab_id = t.id AND e.kind <> 'void' AND e.voided_by_entry_id IS NULL AND e.status IN ('accepted','recorded')), 0)::BIGINT,
 		       COALESCE((SELECT SUM(CASE WHEN e.direction = 'a_to_b' THEN e.amount_minor ELSE -e.amount_minor END)
 		                   FROM tab_entries e
 		                  WHERE e.tab_id = t.id AND e.kind <> 'void' AND e.voided_by_entry_id IS NULL AND e.status = 'pending'), 0)::BIGINT,
@@ -708,8 +724,8 @@ func loadTab(ctx context.Context, q querier, tabID, you string) (Tab, error) {
 		  LEFT JOIN accounts aa ON aa.id=pa.account_id
 		  LEFT JOIN accounts ab ON ab.id=pb.account_id
 		 WHERE t.id = $1::uuid
-	`, tabID, you).Scan(&t.UnjoinedInvitation, &t.Currency, &t.Rev, &createdAt, &closedAt, &closedBy, &t.ClosedReason,
-		&aLabel, &aJoined, &aHistoryOrder, &aBound, &aName, &aPhone, &bLabel, &bJoined, &bHistoryOrder, &bBound, &bName, &bPhone, &balanceA, &confirmedA, &pendingA, &pending)
+	`, tabID, you).Scan(&t.UnjoinedInvitation, &t.RecordingMode, &t.Currency, &t.Rev, &createdAt, &closedAt, &closedBy, &t.ClosedReason,
+		&aLabel, &aJoined, &aHistoryOrder, &aBound, &aName, &aPhone, &bLabel, &bJoined, &bHistoryOrder, &bBound, &bName, &bPhone, &balanceA, &confirmedA, &recordedA, &pendingA, &pending)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
 		return Tab{}, ErrNotFound
@@ -730,6 +746,7 @@ func loadTab(ctx context.Context, q querier, tabID, you string) (Tab, error) {
 		"b": formatMinor(-balanceA),
 	}
 	t.ConfirmedBalance = map[string]string{"a": formatMinor(confirmedA), "b": formatMinor(-confirmedA)}
+	t.RecordedBalance = map[string]string{"a": formatMinor(recordedA), "b": formatMinor(-recordedA)}
 	t.PendingBalance = map[string]string{"a": formatMinor(pendingA), "b": formatMinor(-pendingA)}
 	t.PendingForYou = pending
 	return t, nil
@@ -979,7 +996,7 @@ func checkContactBinding(ctx context.Context, tx pgx.Tx, tabID, role, currency s
 		// The candidate tab is locked by Join/Bind. A rejected/cancelled
 		// opening cannot stand in for a reviewable carry-over proposal.
 		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM tab_entries WHERE tab_id=$1::uuid
-		 AND kind='opening' AND voided_by_entry_id IS NULL AND status IN ('pending','accepted'))`, tabID).Scan(&hasOpening); err != nil {
+		 AND kind='opening' AND voided_by_entry_id IS NULL AND status IN ('pending','accepted','recorded'))`, tabID).Scan(&hasOpening); err != nil {
 			return err
 		}
 	}
@@ -1000,8 +1017,9 @@ func checkContactBinding(ctx context.Context, tx pgx.Tx, tabID, role, currency s
 	return nil
 }
 
-// A counterparty-confirmed opening replaces earlier accepted periods. A
-// proposal/rejection/cancellation is never a replacement acknowledgement.
+// Count the effective recorded book, retaining the historical helper name.
+// Accepted or notification-only recorded openings checkpoint older periods;
+// proposals/rejections/cancellations do not. Recorded is never peer acceptance.
 // Pending reports cover every period, including absorbed legacy proposals.
 func sharedAcceptedHistory(ctx context.Context, q querier, vaultID, relationshipID, exceptTabID, currency string) (nonzero, pending bool, err error) {
 	err = q.QueryRow(ctx, `WITH periods AS (
@@ -1009,11 +1027,11 @@ func sharedAcceptedHistory(ctx context.Context, q querier, vaultID, relationship
  WHERE p.vault_id=$1::uuid AND p.relationship_id=$2::uuid AND p.tab_id::text<>$3 AND t.currency=$4
  ), checkpoint AS (
  SELECT MAX(p.history_order) AS history_order FROM periods p JOIN tab_entries e ON e.tab_id=p.tab_id
- WHERE e.kind='opening' AND e.status='accepted' AND e.voided_by_entry_id IS NULL
+ WHERE e.kind='opening' AND e.status IN ('accepted','recorded') AND e.voided_by_entry_id IS NULL
  ) SELECT COALESCE(SUM(CASE WHEN (p.role='a' AND e.direction='a_to_b') OR (p.role='b' AND e.direction='b_to_a') THEN e.amount_minor ELSE -e.amount_minor END),0)<>0,
  EXISTS(SELECT 1 FROM periods pp JOIN tab_entries pe ON pe.tab_id=pp.tab_id WHERE pe.kind<>'void' AND pe.voided_by_entry_id IS NULL AND pe.status='pending')
  FROM periods p JOIN tab_entries e ON e.tab_id=p.tab_id CROSS JOIN checkpoint c
- WHERE p.history_order>=COALESCE(c.history_order,0) AND e.kind<>'void' AND e.status='accepted' AND e.voided_by_entry_id IS NULL`, vaultID, relationshipID, exceptTabID, currency).Scan(&nonzero, &pending)
+ WHERE p.history_order>=COALESCE(c.history_order,0) AND e.kind<>'void' AND e.status IN ('accepted','recorded') AND e.voided_by_entry_id IS NULL`, vaultID, relationshipID, exceptTabID, currency).Scan(&nonzero, &pending)
 	return
 }
 
@@ -1021,6 +1039,125 @@ func tabCurrency(ctx context.Context, q querier, tabID string) (string, error) {
 	var code string
 	err := q.QueryRow(ctx, `SELECT currency FROM tabs WHERE id=$1::uuid`, tabID).Scan(&code)
 	return code, err
+}
+
+// An authoritative opening freezes its recorded source in either party's book.
+// Lock source IDs in a canonical order BEFORE taking row locks: taking a newer
+// row after Void has locked an older row would deadlock with Join's history
+// validation. A recorded Void always takes its own source-ID lock.
+func recordingSourceTabs(ctx context.Context, tx pgx.Tx, tabID string, destinationVault, destinationRelationship *string) ([]string, error) {
+	currency, err := tabCurrency(ctx, tx, tabID)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := tx.Query(ctx, `SELECT DISTINCT history.tab_id::text
+	 FROM tab_parties history JOIN tabs book ON book.id=history.tab_id
+	 WHERE book.currency=$2 AND (EXISTS(SELECT 1 FROM tab_parties current
+	   WHERE current.tab_id=$1::uuid AND current.vault_id=history.vault_id
+	     AND current.relationship_id=history.relationship_id)
+	   OR (history.vault_id=$3::uuid AND history.relationship_id=$4::uuid))
+	 UNION SELECT $1::text ORDER BY 1`, tabID, currency, destinationVault, destinationRelationship)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
+func lockRecordingSource(ctx context.Context, tx pgx.Tx, tabID string) error {
+	_, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, "recorded-source:"+tabID)
+	return err
+}
+
+func lockRecordingSources(ctx context.Context, tx pgx.Tx, tabID string, destinationVault, destinationRelationship *string) (map[string]bool, error) {
+	ids, err := recordingSourceTabs(ctx, tx, tabID, destinationVault, destinationRelationship)
+	if err != nil {
+		return nil, err
+	}
+	locked := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		if err := lockRecordingSource(ctx, tx, id); err != nil {
+			return nil, err
+		}
+		locked[id] = true
+	}
+	return locked, nil
+}
+
+func validateRecordingSources(ctx context.Context, tx pgx.Tx, tabID string, destinationVault, destinationRelationship *string, locked map[string]bool) error {
+	ids, err := recordingSourceTabs(ctx, tx, tabID, destinationVault, destinationRelationship)
+	if err != nil {
+		return err
+	}
+	// A binding can change while the locks are acquired. Retry from a fresh
+	// receipt instead of acquiring a missing source lock while holding rows.
+	for _, id := range ids {
+		if !locked[id] {
+			return ErrSharedHistoryChanged
+		}
+	}
+	return nil
+}
+
+func recordedEntryCarriedForward(ctx context.Context, tx pgx.Tx, tabID string) (bool, error) {
+	var carried bool
+	err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM tab_parties source
+	 JOIN tabs original ON original.id=source.tab_id
+	 JOIN tab_parties later ON later.vault_id=source.vault_id AND later.relationship_id=source.relationship_id
+	   AND later.history_order>source.history_order
+	 JOIN tabs destination ON destination.id=later.tab_id AND destination.currency=original.currency
+	 JOIN tab_entries opening ON opening.tab_id=destination.id
+	 WHERE source.tab_id=$1::uuid AND opening.kind='opening'
+	   AND opening.status IN ('accepted','recorded') AND opening.voided_by_entry_id IS NULL)`, tabID).Scan(&carried)
+	return carried, err
+}
+
+// Store provenance, not a calculated/replacement amount. Private offsets may be
+// part of the visible opening, so the server must reject a stale proposal rather
+// than silently changing it. checkContactBinding has locked this source history.
+func saveNotifyOpeningSource(ctx context.Context, tx pgx.Tx, tabID string) error {
+	_, err := tx.Exec(ctx, `UPDATE tabs candidate SET notify_opening_source_revisions=(
+	 SELECT COALESCE(jsonb_object_agg(source.id::text,source.rev),'{}'::jsonb)
+	 FROM tab_parties creator
+	 JOIN tab_parties history ON history.vault_id=creator.vault_id AND history.relationship_id=creator.relationship_id
+	 JOIN tabs source ON source.id=history.tab_id AND source.currency=candidate.currency
+	 WHERE creator.tab_id=candidate.id AND creator.role='a'
+	   AND source.id<>candidate.id AND source.closed_at IS NOT NULL)
+	 WHERE candidate.id=$1::uuid AND candidate.recording_mode='notify'
+	 AND candidate.notify_opening_source_revisions IS NOT NULL
+	 AND EXISTS(SELECT 1 FROM tab_entries opening WHERE opening.tab_id=candidate.id
+	   AND opening.kind='opening' AND opening.status='pending' AND opening.voided_by_entry_id IS NULL)`, tabID)
+	return err
+}
+
+func validateNotifyOpeningSource(ctx context.Context, tx pgx.Tx, tabID string) error {
+	var valid bool
+	err := tx.QueryRow(ctx, `SELECT NOT EXISTS(SELECT 1 FROM tab_entries opening
+	 WHERE opening.tab_id=candidate.id AND opening.kind='opening' AND opening.status='pending'
+	   AND opening.voided_by_entry_id IS NULL)
+	 OR COALESCE(candidate.notify_opening_source_revisions=(
+	 SELECT COALESCE(jsonb_object_agg(source.id::text,source.rev),'{}'::jsonb)
+	 FROM tab_parties creator
+	 JOIN tab_parties history ON history.vault_id=creator.vault_id AND history.relationship_id=creator.relationship_id
+	 JOIN tabs source ON source.id=history.tab_id AND source.currency=candidate.currency
+	 WHERE creator.tab_id=candidate.id AND creator.role='a'
+	   AND source.id<>candidate.id AND source.closed_at IS NOT NULL),false)
+	 FROM tabs candidate WHERE candidate.id=$1::uuid`, tabID).Scan(&valid)
+	if err != nil {
+		return err
+	}
+	if !valid {
+		return ErrOpeningSourceChanged
+	}
+	return nil
 }
 
 // insertEntry writes one tab_entries row under the held lock and returns it
@@ -1112,6 +1249,13 @@ func (s *Service) poke(ctx context.Context, tabID string) {
 // visible kind='opening' entry (D7) so the counterparty sees exactly what was
 // carried over — never a silent history merge.
 func (s *Service) Create(ctx context.Context, in CreateInput) (CreateResult, error) {
+	mode := in.RecordingMode
+	if mode == "" {
+		mode = "review"
+	}
+	if mode != "review" && mode != "notify" {
+		return CreateResult{}, ErrInvalidRecordingMode
+	}
 	currency := strings.TrimSpace(in.Currency)
 	if !credit.ValidCurrency(currency) {
 		return CreateResult{}, ErrInvalidCurrency
@@ -1164,8 +1308,9 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (CreateResult, err
 		return CreateResult{}, err
 	}
 	if err := tx.QueryRow(ctx, `
-		INSERT INTO tabs (currency) VALUES ($1) RETURNING id::text
-	`, currency).Scan(&tabID); err != nil {
+		INSERT INTO tabs (currency,recording_mode,notify_opening_source_revisions)
+		VALUES ($1,$2,CASE WHEN $2='notify' AND $3 THEN '{}'::jsonb ELSE NULL END) RETURNING id::text
+	`, currency, mode, in.Opening != nil).Scan(&tabID); err != nil {
 		return CreateResult{}, fmt.Errorf("insert tab: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `
@@ -1198,6 +1343,11 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (CreateResult, err
 
 	if err := setLinkBoundary(ctx, tx, tabID, "a", in.LinkedAtMS); err != nil {
 		return CreateResult{}, err
+	}
+	if mode == "notify" && in.Opening != nil {
+		if err := saveNotifyOpeningSource(ctx, tx, tabID); err != nil {
+			return CreateResult{}, err
+		}
 	}
 	if err := s.finishLinkCredit(ctx, tx, linkCredit); err != nil {
 		return CreateResult{}, err
@@ -1329,6 +1479,10 @@ func (s *Service) Join(ctx context.Context, p Party, in JoinInput) (TabResponse,
 	if err != nil {
 		return TabResponse{}, err
 	}
+	recordingSources, err := lockRecordingSources(ctx, tx, p.TabID, linkVault, linkRelationship)
+	if err != nil {
+		return TabResponse{}, err
+	}
 	selectedParty := p
 	locked, err := lockOpenTab(ctx, tx, p.TabID)
 	if err != nil {
@@ -1341,6 +1495,9 @@ func (s *Service) Join(ctx context.Context, p Party, in JoinInput) (TabResponse,
 	if !sameCreditVault(selectedParty, p) {
 		return TabResponse{}, ErrNotFound
 	}
+	if err := validateRecordingSources(ctx, tx, p.TabID, linkVault, linkRelationship, recordingSources); err != nil {
+		return TabResponse{}, err
+	}
 	if err := checkPartyClaim(ctx, tx, p, in.AccountID); err != nil {
 		return TabResponse{}, err
 	}
@@ -1352,6 +1509,11 @@ func (s *Service) Join(ctx context.Context, p Party, in JoinInput) (TabResponse,
 	}
 	if err := checkSameAccount(ctx, tx, p.TabID, p.Role, in.AccountID, in.VaultID); err != nil {
 		return TabResponse{}, err
+	}
+	if p.Role == "b" && locked.RecordingMode == "notify" {
+		if err := validateNotifyOpeningSource(ctx, tx, p.TabID); err != nil {
+			return TabResponse{}, err
+		}
 	}
 	if _, err := tx.Exec(ctx, `
 		UPDATE tab_parties
@@ -1369,11 +1531,26 @@ func (s *Service) Join(ctx context.Context, p Party, in JoinInput) (TabResponse,
 	if err := setLinkBoundary(ctx, tx, p.TabID, p.Role, in.LinkedAtMS); err != nil {
 		return TabResponse{}, err
 	}
+	if p.Role == "a" && locked.RecordingMode == "notify" && (p.VaultID == nil || p.RelationshipID == nil) {
+		if err := saveNotifyOpeningSource(ctx, tx, p.TabID); err != nil {
+			return TabResponse{}, err
+		}
+	}
 	if err := s.finishLinkCredit(ctx, tx, linkCredit); err != nil {
 		return TabResponse{}, err
 	}
-	if _, err := bumpRev(ctx, tx, p.TabID, p.Role, p.pushEvent("updated", "")); err != nil {
+	joinRev, err := bumpRev(ctx, tx, p.TabID, p.Role, p.pushEvent("updated", ""))
+	if err != nil {
 		return TabResponse{}, err
+	}
+	// The first actual B Join records the carried source in notify mode.
+	// It is a Join audit transition, never an individual acceptance/review.
+	if p.Role == "b" && locked.RecordingMode == "notify" {
+		if _, err := tx.Exec(ctx, `UPDATE tab_entries SET status='recorded',status_at_ms=$2,rev=$3
+		 WHERE tab_id=$1::uuid AND kind='opening' AND created_by='a'
+		   AND status='pending' AND voided_by_entry_id IS NULL`, p.TabID, nowMS(), joinRev); err != nil {
+			return TabResponse{}, fmt.Errorf("record joined opening: %w", err)
+		}
 	}
 	resp, err := fullResponse(ctx, tx, p.TabID, p.Role)
 	if err != nil {
@@ -1461,6 +1638,11 @@ func (s *Service) Bind(ctx context.Context, p Party, in BindInput) (TabResponse,
 	if err := setLinkBoundary(ctx, tx, p.TabID, p.Role, in.LinkedAtMS); err != nil {
 		return TabResponse{}, err
 	}
+	if p.Role == "a" && locked.RecordingMode == "notify" && (p.VaultID == nil || p.RelationshipID == nil) {
+		if err := saveNotifyOpeningSource(ctx, tx, p.TabID); err != nil {
+			return TabResponse{}, err
+		}
+	}
 	if err := s.finishLinkCredit(ctx, tx, linkCredit); err != nil {
 		return TabResponse{}, err
 	}
@@ -1525,7 +1707,8 @@ func (s *Service) SetLabel(ctx context.Context, p Party, label string) (TabRespo
 // Append adds a tally. Idempotent on the client-minted id: a replay by the
 // same tab + author returns the existing row with Created=false; the same id
 // in another tab or from the other party is ErrIDTaken. The tally counts the
-// moment it lands (status 'pending', D6).
+// moment it lands for credit exposure. Review accounts create a proposal;
+// notify accounts create a recorded claim without a peer-review requirement.
 func (s *Service) Append(ctx context.Context, p Party, in AppendInput) (AppendResult, error) {
 	if _, err := uuid.Parse(in.ID); err != nil {
 		return AppendResult{}, ErrIDTaken
@@ -1615,6 +1798,15 @@ func (s *Service) Append(ctx context.Context, p Party, in AppendInput) (AppendRe
 	if locked.ClosedAt != nil {
 		return AppendResult{}, ErrTabClosed
 	}
+	if locked.RecordingMode == "notify" && p.Role == "b" {
+		var joined bool
+		if err := tx.QueryRow(ctx, `SELECT joined_at IS NOT NULL FROM tab_parties WHERE tab_id=$1::uuid AND role='b'`, p.TabID).Scan(&joined); err != nil {
+			return AppendResult{}, err
+		}
+		if !joined {
+			return AppendResult{}, ErrJoinRequired
+		}
+	}
 	delta := partyCreditDelta(p, in.Direction, minor)
 	if err := s.admitCreditDelta(ctx, tx, p, delta); err != nil {
 		if errors.Is(err, credit.ErrLimit) {
@@ -1642,8 +1834,12 @@ func (s *Service) Append(ctx context.Context, p Party, in AppendInput) (AppendRe
 	if err != nil {
 		return AppendResult{}, err
 	}
+	status := "pending"
+	if locked.RecordingMode == "notify" {
+		status = "recorded"
+	}
 	e, err := insertEntry(ctx, tx, p.TabID, in.ID, seq, rev, p.Role, in.Direction, minor, "entry", note,
-		in.OccurredAtMS, "pending", nil, nil, p.actorAccount(), p.evidenceRole())
+		in.OccurredAtMS, status, nil, nil, p.actorAccount(), p.evidenceRole())
 	if err != nil {
 		return AppendResult{}, err
 	}
@@ -1861,7 +2057,24 @@ func (s *Service) setStatus(ctx context.Context, p Party, entryID, status string
 	if err := lockPartyCredit(ctx, tx, p); err != nil {
 		return EntryResponse{}, err
 	}
-	if _, err := lockTab(ctx, tx, p.TabID); err != nil {
+	var recordingSources map[string]bool
+	if status == "accepted" {
+		var kind string
+		if err := tx.QueryRow(ctx, `SELECT kind FROM tab_entries WHERE tab_id=$1::uuid AND id=$2::uuid`, p.TabID, entryID).Scan(&kind); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return EntryResponse{}, ErrEntryNotFound
+			}
+			return EntryResponse{}, err
+		}
+		if kind == "opening" {
+			recordingSources, err = lockRecordingSources(ctx, tx, p.TabID, nil, nil)
+			if err != nil {
+				return EntryResponse{}, err
+			}
+		}
+	}
+	locked, err := lockTab(ctx, tx, p.TabID)
+	if err != nil {
 		return EntryResponse{}, err
 	}
 	p, err = recheckParty(ctx, tx, p, rankEditor, false)
@@ -1870,6 +2083,11 @@ func (s *Service) setStatus(ctx context.Context, p Party, entryID, status string
 	}
 	if !sameCreditVault(selectedParty, p) {
 		return EntryResponse{}, ErrNotFound
+	}
+	if recordingSources != nil {
+		if err := validateRecordingSources(ctx, tx, p.TabID, nil, nil, recordingSources); err != nil {
+			return EntryResponse{}, err
+		}
 	}
 	e, err := loadEntryForUpdate(ctx, tx, p.TabID, entryID)
 	if err != nil {
@@ -1880,6 +2098,9 @@ func (s *Service) setStatus(ctx context.Context, p Party, entryID, status string
 	}
 	if e.CreatedBy == p.Role {
 		return EntryResponse{}, ErrOwnEntry
+	}
+	if locked.RecordingMode == "notify" || e.Status == "recorded" {
+		return EntryResponse{}, ErrReviewNotRequired
 	}
 	// Lost acknowledgements and duplicate OS callbacks must not emit another alert.
 	if e.Status == status && (reason == nil || (e.DisputeReason != nil && *e.DisputeReason == *reason)) {
@@ -1977,6 +2198,18 @@ func (s *Service) Void(ctx context.Context, p Party, entryID string) (VoidRespon
 	if err := lockPartyCredit(ctx, tx, p); err != nil {
 		return VoidResponse{}, err
 	}
+	var originalStatus string
+	if err := tx.QueryRow(ctx, `SELECT status FROM tab_entries WHERE tab_id=$1::uuid AND id=$2::uuid`, p.TabID, entryID).Scan(&originalStatus); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return VoidResponse{}, ErrEntryNotFound
+		}
+		return VoidResponse{}, err
+	}
+	if originalStatus == "recorded" {
+		if err := lockRecordingSource(ctx, tx, p.TabID); err != nil {
+			return VoidResponse{}, err
+		}
+	}
 	if _, err := lockTab(ctx, tx, p.TabID); err != nil {
 		return VoidResponse{}, err
 	}
@@ -1997,8 +2230,27 @@ func (s *Service) Void(ctx context.Context, p Party, entryID string) (VoidRespon
 	if orig.CreatedBy != p.Role {
 		return VoidResponse{}, ErrNotAuthor
 	}
-	if orig.Status != "pending" {
+	if orig.Status != "pending" && orig.Status != "recorded" {
 		return VoidResponse{}, ErrReviewFinal
+	}
+	if orig.Status == "recorded" {
+		if orig.Kind == "opening" {
+			return VoidResponse{}, ErrRecordedOpeningFinal
+		}
+		var settled bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM tab_settlements WHERE tab_id=$1::uuid AND through_seq >= $2)`, p.TabID, orig.Seq).Scan(&settled); err != nil {
+			return VoidResponse{}, err
+		}
+		if settled {
+			return VoidResponse{}, ErrSettledRecord
+		}
+		carried, err := recordedEntryCarriedForward(ctx, tx, p.TabID)
+		if err != nil {
+			return VoidResponse{}, err
+		}
+		if carried {
+			return VoidResponse{}, ErrRecordedHistoryFinal
+		}
 	}
 	admission, err := s.beginPartyCredit(ctx, tx, p)
 	if err != nil {
@@ -2019,7 +2271,7 @@ func (s *Service) Void(ctx context.Context, p Party, entryID string) (VoidRespon
 }
 
 // withdrawPendingEntry runs under the tab lock after the caller verifies that
-// orig is its own live pending monetary entry. The accepted void is a creator
+// orig is its own withdrawable pending/recorded monetary entry. The accepted void is a creator
 // withdrawal audit row, never a fabricated counterparty review.
 func withdrawPendingEntry(ctx context.Context, tx pgx.Tx, p Party, orig Entry) (VoidResponse, error) {
 	entryID := orig.ID

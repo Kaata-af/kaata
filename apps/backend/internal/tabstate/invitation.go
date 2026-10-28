@@ -11,4 +11,4 @@ const UnjoinedInvitationSQL = `(t.closed_reason IS DISTINCT FROM 'account_delete
    AND untouched_peer.joined_at IS NULL AND untouched_peer.account_id IS NULL AND NOT untouched_peer.account_bound_once)
  AND NOT EXISTS(SELECT 1 FROM tab_entries participation WHERE participation.tab_id=t.id
    AND (participation.created_by='b' OR participation.reviewer_party='b'
-     OR (participation.kind<>'void' AND participation.status<>'pending'))))`
+     OR (participation.kind<>'void' AND participation.status IN ('accepted','disputed')))))`

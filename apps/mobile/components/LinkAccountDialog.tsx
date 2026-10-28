@@ -23,7 +23,7 @@ import {
   TabAuthUnavailableError,
   TabPermissionError,
 } from "../lib/tabs/errors";
-import type { TabLink } from "../lib/tabs/types";
+import type { TabLink, TabRecordingMode } from "../lib/tabs/types";
 import { radius, TOUCH_MIN, typography } from "../lib/tokens";
 import { getCurrentCurrencyCode } from "../lib/currency";
 import { getAccountIdSync, getActiveVaultIdSyncMaybe } from "../lib/db-tx";
@@ -49,6 +49,7 @@ export function LinkAccountDialog(props: {
   const [language, setLanguage] = useState<LocaleCode>(getLocale);
   const [askLanguage, setAskLanguage] = useState(false);
   const [languageReady, setLanguageReady] = useState(false);
+  const [recordingMode, setRecordingMode] = useState<TabRecordingMode>("notify");
   const target = useRef<TabLink | null>(null);
   const busyRef = useRef(false);
   const generation = useRef(0);
@@ -80,6 +81,7 @@ export function LinkAccountDialog(props: {
     setLanguageReady(false);
     setLanguage(getLocale());
     setAskLanguage(false);
+    setRecordingMode(props.link?.recording_mode ?? "notify");
     void getShareLangPref()
       .then((pref) => {
         if (generation.current !== run) return;
@@ -124,7 +126,9 @@ export function LinkAccountDialog(props: {
       let fresh = target.current;
       if (!fresh) {
         try {
-          fresh = (await linkContact(props.person.id, { myLabel: props.myLabel, currency })).link;
+          fresh = (
+            await linkContact(props.person.id, { myLabel: props.myLabel, currency, recordingMode })
+          ).link;
         } catch (err) {
           if (!(err instanceof TabAlreadyLinkedError)) throw err;
           // Another phone (or a lost create response) already linked it.
@@ -149,10 +153,14 @@ export function LinkAccountDialog(props: {
         toast.push(t("tab.copied"), "success");
       } else {
         // Use the object returned by creation, not the parent's stale link state.
-        const text = tIn(language, "tab.invite.message", {
-          name: fresh.my_label || props.myLabel,
-          url: fresh.invite_url,
-        });
+        const text = tIn(
+          language,
+          fresh.recording_mode === "notify" ? "tab.invite.notifyMessage" : "tab.invite.message",
+          {
+            name: fresh.my_label || props.myLabel,
+            url: fresh.invite_url,
+          },
+        );
         const opened = await shareTabLinkOnWhatsApp(fresh, props.person, text);
         if (!active()) return;
         if (opened)
@@ -171,17 +179,21 @@ export function LinkAccountDialog(props: {
       } else {
         if (target.current?.invite_url && action !== "copy") setShareFailed(true);
         setError(
-          err instanceof TabApiError && err.code === "shared_history_pending"
-            ? t("tab.history.pending")
-            : err instanceof TabApiError && err.code === "shared_history_changed"
-              ? t("tab.history.changed")
-              : err instanceof TabApiError && err.code === "shared_history_opening_required"
-                ? t("tab.history.openingRequired")
-                : err instanceof TabPermissionError
-                  ? t("entry.roleDenied")
-                  : target.current?.invite_url
-                    ? t(action === "copy" ? "entry.saveFailed" : "share.whatsappUnavailable")
-                    : t("tab.link.failed"),
+          err instanceof TabApiError && err.code === "notification_only_unsupported"
+            ? t("tab.link.serverUpdate")
+            : err instanceof TabApiError && err.code === "recording_upgrade_required"
+              ? t("tab.link.clientUpdate")
+              : err instanceof TabApiError && err.code === "shared_history_pending"
+                ? t("tab.history.pending")
+                : err instanceof TabApiError && err.code === "shared_history_changed"
+                  ? t("tab.history.changed")
+                  : err instanceof TabApiError && err.code === "shared_history_opening_required"
+                    ? t("tab.history.openingRequired")
+                    : err instanceof TabPermissionError
+                      ? t("entry.roleDenied")
+                      : target.current?.invite_url
+                        ? t(action === "copy" ? "entry.saveFailed" : "share.whatsappUnavailable")
+                        : t("tab.link.failed"),
         );
       }
     } finally {
@@ -204,10 +216,67 @@ export function LinkAccountDialog(props: {
                 {t(ready ? "tab.link.ready" : "tab.link.confirm.title")}
               </Text>
               <Text style={[styles.description, textDir(rtl)]}>
-                {t(ready ? "tab.link.readyBody" : "tab.link.confirm.body", {
-                  name: props.person.name,
-                })}
+                {t(
+                  ready
+                    ? "tab.link.readyBody"
+                    : recordingMode === "notify"
+                      ? "tab.link.confirm.notifyBody"
+                      : "tab.link.confirm.body",
+                  {
+                    name: props.person.name,
+                  },
+                )}
               </Text>
+              {ready ? (
+                <Text style={[styles.description, textDir(rtl)]}>
+                  {target.current?.recording_mode_known === 0
+                    ? t("tab.recordingMode.unknown")
+                    : t("tab.recordingMode.fixed", {
+                        mode: t(
+                          (target.current?.recording_mode ?? "review") === "notify"
+                            ? "tab.recordingMode.notify"
+                            : "tab.recordingMode.review",
+                        ),
+                      })}
+                </Text>
+              ) : (
+                <View
+                  style={styles.language}
+                  accessibilityRole="radiogroup"
+                  accessibilityLabel={t("tab.recordingMode.label")}
+                >
+                  {(["notify", "review"] as const).map((mode) => (
+                    <Pressable
+                      key={mode}
+                      disabled={busy}
+                      accessibilityRole="radio"
+                      accessibilityLabel={t(
+                        mode === "notify" ? "tab.recordingMode.notify" : "tab.recordingMode.review",
+                      )}
+                      accessibilityState={{ checked: recordingMode === mode, disabled: busy }}
+                      onPress={() => {
+                        if (!busyRef.current) setRecordingMode(mode);
+                      }}
+                      style={[styles.modeOption, recordingMode === mode && styles.selected]}
+                    >
+                      <Text style={[styles.modeLabel, textDir(rtl)]}>
+                        {t(
+                          mode === "notify"
+                            ? "tab.recordingMode.notify"
+                            : "tab.recordingMode.review",
+                        )}
+                      </Text>
+                      <Text style={[styles.hint, textDir(rtl)]}>
+                        {t(
+                          mode === "notify"
+                            ? "tab.recordingMode.notifyHint"
+                            : "tab.recordingMode.reviewHint",
+                        )}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              )}
               {askLanguage ? (
                 <View style={styles.language}>
                   <Text style={[styles.hint, textDir(rtl)]}>{t("share.askLang.title")}</Text>
@@ -217,6 +286,7 @@ export function LinkAccountDialog(props: {
                         key={lang}
                         disabled={busy}
                         accessibilityRole="radio"
+                        accessibilityLabel={t(`settings.language.option.${lang}`)}
                         accessibilityState={{ checked: language === lang, disabled: busy }}
                         onPress={() => setLanguage(lang)}
                         style={[styles.languageOption, language === lang && styles.selected]}
@@ -305,6 +375,14 @@ const styles = StyleSheet.create({
     borderColor: colors.borderDefault,
   },
   selected: { backgroundColor: colors.bgMuted, borderColor: colors.actionPrimary },
+  modeOption: {
+    borderWidth: 1,
+    borderColor: colors.borderDefault,
+    borderRadius: radius.sm,
+    padding: 12,
+    gap: 4,
+  },
+  modeLabel: { ...typography.body, color: colors.textEmphasis },
   optionText: { ...typography.body, color: colors.textEmphasis, textAlign: "center" },
   error: { ...typography.bodySm, color: colors.danger, marginTop: 16 },
   actions: { marginTop: 20, gap: 8 },

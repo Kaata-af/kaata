@@ -236,6 +236,7 @@ function reset() {
   for (const marker of [
     "CREATE TABLE IF NOT EXISTS tab_links",
     "CREATE TABLE IF NOT EXISTS tab_failed_ops",
+    "CREATE TABLE IF NOT EXISTS tab_settlements",
     "ALTER TABLE tab_entries ADD COLUMN author_account_id",
     "ALTER TABLE tab_entries ADD COLUMN author_member_role",
     "ALTER TABLE tab_links ADD COLUMN history_order",
@@ -596,7 +597,12 @@ async function main() {
     await flows.joinTabAsContact("token", wire(), { vaultId: VAULT, personId: PERSON }, "B");
     assert.equal(requests[0].body.expected_previous_tab_id, "prior");
     assert.equal(requests[0].body.expected_previous_rev, 5);
-    assert.deepEqual(requests[0].auth, { token: "token", jwt: "fixture-jwt" });
+    assert.deepEqual(requests[0].auth, {
+      token: "token",
+      jwt: "fixture-jwt",
+      recordingMode: "review",
+      requireRecordingSupport: true,
+    });
     reset();
     await seedLink("open", { closed_at: null });
     await assert.rejects(
@@ -614,6 +620,34 @@ async function main() {
       "closed invitations cannot even create an unwanted contact",
     );
   });
+  await test("unidentified restored modes block new local financial intent until refreshed", async () => {
+    fixture.exec(
+      "CREATE TABLE users(display_name TEXT,is_local_self INTEGER); INSERT INTO users VALUES('A',1)",
+    );
+    const link = await seedLink("unknown", { closed_at: null, recording_mode_known: 0 });
+    const before = count("tab_entries");
+    await assert.rejects(
+      flows.addTabEntry(PERSON, "debt", 10, null),
+      (error: any) => error.code === "notification_only_unsupported",
+    );
+    await assert.rejects(
+      flows.unlinkContact(link),
+      (error: any) => error.code === "notification_only_unsupported",
+    );
+    assert.equal(count("tab_entries"), before);
+    assert.equal(
+      count("tab_outbox"),
+      0,
+      "a failed refresh cannot optimistically change source money or close the account",
+    );
+    assert.equal((await tabsDb.getTabLink(link.tab_id))!.closed_at, null);
+    syncStep = async () => {
+      fixture.prepare("UPDATE tab_links SET recording_mode_known=1,recording_mode='review'").run();
+    };
+    await flows.addTabEntry(PERSON, "debt", 10, null);
+    assert.equal(count("tab_outbox"), 1, "explicit metadata restores the existing review workflow");
+    assert.equal(count("tab_entries"), before + 1);
+  });
   await test("definite failed join rolls back its newly created contact; ambiguous timeouts preserve it", async () => {
     joinError = new errors.TabApiError(409, "same_account", "refused");
     await assert.rejects(
@@ -625,6 +659,132 @@ async function main() {
     joinError = new errors.TabApiError(503, "unavailable", "uncertain");
     await assert.rejects(flows.joinTabAsContact("token", wire(), newTarget, "B"));
     assert.deepEqual(archived, [], "a possible server binding must remain recoverable");
+    reset();
+    joinError = new errors.TabApiError(
+      503,
+      "notification_only_unsupported",
+      "feature preflight refused",
+    );
+    await assert.rejects(flows.joinTabAsContact("token", wire(), newTarget, "B"));
+    assert.deepEqual(
+      archived,
+      ["new-person"],
+      "known unsupported capability cannot have claimed the new contact",
+    );
+  });
+  await test("a stale carried opening refuses Join and cleans only a newly created contact", async () => {
+    const prior = await seedLink();
+    seedEntry(prior, "saved-source", "a", "recorded");
+    const saved = fixture.prepare("SELECT * FROM tab_entries").all();
+    const metadata = fixture.prepare("SELECT * FROM tab_links").all();
+    joinError = new errors.TabApiError(409, "opening_source_changed", "source changed");
+    await assert.rejects(
+      flows.joinTabAsContact("token", { ...wire(), recording_mode: "notify" }, newTarget, "B"),
+      (error: any) => error.code === "opening_source_changed",
+    );
+    assert.equal(archived.length, 1, "a definite refusal cannot leave a phantom new contact");
+    assert.deepEqual(fixture.prepare("SELECT * FROM tab_entries").all(), saved);
+    assert.deepEqual(fixture.prepare("SELECT * FROM tab_links").all(), metadata);
+    assert.equal(count("tab_outbox"), 0);
+    reset();
+    const existing = await seedLink();
+    seedEntry(existing, "saved-source", "a", "recorded");
+    const before = fixture.prepare("SELECT * FROM tab_entries").all();
+    joinError = new errors.TabApiError(409, "opening_source_changed", "source changed");
+    await assert.rejects(
+      flows.joinTabAsContact(
+        "token",
+        { ...wire(), recording_mode: "notify" },
+        { vaultId: VAULT, personId: PERSON },
+        "B",
+      ),
+      (error: any) => error.code === "opening_source_changed",
+    );
+    assert.equal(archived.length, 0, "an existing contact is never rolled back");
+    assert.deepEqual(fixture.prepare("SELECT * FROM tab_entries").all(), before);
+    assert.equal(count("relationships"), 1);
+  });
+  await test("the shipped Join handler stops a stale invitation with sender recovery guidance", async () => {
+    const screen = ts.createSourceFile(
+      "join.tsx",
+      readFileSync(require.resolve("../../app/t/[token]"), "utf8"),
+      ts.ScriptTarget.Latest,
+      true,
+      ts.ScriptKind.TSX,
+    );
+    let handler: ts.FunctionDeclaration | undefined;
+    const visit = (node: ts.Node) => {
+      if (ts.isFunctionDeclaration(node) && node.name?.text === "runJoin") handler = node;
+      ts.forEachChild(node, visit);
+    };
+    visit(screen);
+    assert.ok(handler, "exercise the actual screen handler rather than a copied error map");
+    const emitted = ts.transpileModule(handler.getText(screen), {
+      compilerOptions: { target: ts.ScriptTarget.ES2022 },
+    }).outputText;
+    for (const code of ["opening_source_changed", "network"]) {
+      const state = { stage: "preview", error: "", retryable: true, pickError: "", pickerReads: 0 };
+      const joiningRef = { current: false };
+      const bindings = {
+        ...errors,
+        token: "token",
+        tab: { ...wire(), recording_mode: "notify" },
+        joiningRef,
+        getLocalSelf: async () => ({ name: "Me" }),
+        joinTabAsContact: async () => {
+          throw new errors.TabApiError(code === "network" ? 0 : 409, code, code);
+        },
+        t: (key: string) => key,
+        setPickError: (value: string) => {
+          state.pickError = value;
+        },
+        setPhoneError: () => {},
+        setStage: (value: string) => {
+          state.stage = value;
+        },
+        setErrorMsg: (value: string) => {
+          state.error = value;
+        },
+        setRetryable: (value: boolean) => {
+          state.retryable = value;
+        },
+        setVaultId: () => {},
+        setContactsAttempt: () => {},
+        loadFacts: async () => {
+          state.pickerReads++;
+          return [];
+        },
+        console: { warn() {} },
+      };
+      const run = new Function(...Object.keys(bindings), emitted + "\nreturn runJoin;")(
+        ...Object.values(bindings),
+      );
+      await run({ vaultId: VAULT, personId: PERSON }, "Sender");
+      assert.equal(joiningRef.current, false);
+      if (code === "opening_source_changed") {
+        assert.equal(state.stage, "error");
+        assert.equal(state.error, "tab.join.openingChanged");
+        assert.equal(
+          state.retryable,
+          false,
+          "the same stale invitation has no misleading Retry button",
+        );
+        assert.equal(
+          state.pickerReads,
+          0,
+          "choosing another local contact cannot repair sender history",
+        );
+        assert.equal(state.pickError, null);
+      } else {
+        assert.equal(
+          state.stage,
+          "pick",
+          "ordinary transport failures keep their existing retry flow",
+        );
+        assert.equal(state.pickError, "entry.saveFailed");
+        assert.equal(state.pickerReads, 1);
+      }
+    }
   });
   await test("a preflight failure after local contact creation also cleans up before any join request", async () => {
     afterCreatePerson = async () => {

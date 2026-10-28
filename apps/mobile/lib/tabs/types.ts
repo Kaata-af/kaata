@@ -16,11 +16,12 @@
 
 /** Which side of the tab: the creator is `a`, the invitee is `b`. */
 export type TabRole = "a" | "b";
+export type TabRecordingMode = "review" | "notify";
 /** Value moved from X to Y. The target now owes the source more. */
 export type TabDirection = "a_to_b" | "b_to_a";
-/** Only server-acknowledged accepted tallies affect the confirmed balance;
- * pending entries remain a separate recorded claim. */
-export type TabEntryStatus = "pending" | "accepted" | "disputed";
+/** Accepted means peer-reviewed. Recorded means saved without peer approval;
+ * pending and unsent changes remain separate from either saved balance. */
+export type TabEntryStatus = "pending" | "accepted" | "disputed" | "recorded";
 /** `opening` is the carried-over balance at link time (D7); `void` is the
  *  visible cancellation row that references the original (D5). */
 export type TabEntryKind = "entry" | "opening" | "void";
@@ -77,6 +78,9 @@ export type WireParty = {
 };
 
 export type WireTab = {
+  recording_mode?: TabRecordingMode;
+  recorded_balance?: Record<TabRole, string>;
+  confirmed_balance?: Record<TabRole, string>;
   /** Authoritative proof that the invited party has never participated. */
   unjoined_invitation?: boolean;
   id: string;
@@ -103,6 +107,7 @@ export type OpeningRequest = {
 };
 
 export type CreateRequest = {
+  recording_mode?: TabRecordingMode;
   expected_previous_tab_id?: string | null;
   expected_previous_rev?: number;
   expected_history_revisions?: Record<string, number>;
@@ -151,7 +156,7 @@ export type EntryResponse = {
 
 export type VoidResponse = { voided: WireEntry; void: WireEntry };
 
-/** One participant ruled off a reviewed zero-balance chapter; not a payment. */
+/** One participant ruled off a saved zero-balance chapter; not a payment. */
 export type TabSettlement = {
   id: string;
   rev: number;
@@ -189,6 +194,10 @@ export type MineResponse = {
 // Local cache rows (§4.1). Column-for-column with migration 028 in lib/db.ts.
 
 export type TabLink = {
+  /** Immutable per-link policy. Missing legacy metadata means review. */
+  recording_mode?: TabRecordingMode;
+  /** Only fresh old-server discovery is unknown; migrated legacy links are review. */
+  recording_mode_known?: 0 | 1;
   /** NULL until refreshed from a server that supplies participation metadata. */
   unjoined_invitation?: 0 | 1 | null;
   /** Server-assigned order when this party first bound to its local scope. */
@@ -258,6 +267,8 @@ export type TabOutboxRow = {
  * mapped `Entry` as `entry.tab`. Absent on ordinary local entries.
  */
 export type TabEntryMeta = TabReviewEvidence & {
+  recording_mode?: TabRecordingMode;
+  recording_mode_known?: 0 | 1;
   /** Local derived carry adjustment for pending totals, never review evidence. */
   pending_balance_adjustment?: number;
   pending_balance_excluded?: boolean;

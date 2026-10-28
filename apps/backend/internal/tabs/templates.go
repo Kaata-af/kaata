@@ -21,6 +21,7 @@ a{display:block;color:#171717;text-decoration:none;padding:12px;margin-top:8px;b
 <div class="brand" dir="ltr">kaata.</div>
 <h1>{{if eq .Language "ps"}}په کاټه کې ګډ حساب{{else if .RTL}}حساب مشترک در کاتا{{else}}Share an account in Kaata{{end}}</h1>
 <p>{{if eq .Language "ps"}}د ګډون لپاره دا بلنه په اپ کې پرانیزئ او خپل حساب ته ننوځئ. ستاسو کاټه په اپ کې پاتې کېږي.{{else if .RTL}}برای پیوستن، این دعوت را در برنامه باز کنید و وارد حساب خود شوید. معلومات حساب در وب نشان داده نمی‌شود.{{else}}Open this invitation in the app and sign in to join. Your ledger stays in the app.{{end}}</p>
+{{if eq .RecordingMode "notify"}}<p>{{if eq .Language "ps"}}په دې حساب کې ثبتونه د هر ثبت له جلا تایید پرته لیکل کېږي او تاسو ته خبر درکول کېږي. ګډون د هر ثبت د منلو معنا نه لري.{{else if .RTL}}در این حساب، ثبت‌ها بدون تأیید جداگانه درج می‌شوند و به شما خبر داده می‌شود. پیوستن به این حساب به معنی تأیید هر ثبت نیست.{{else}}Tallies in this account are recorded without individual approval, and you receive notifications. Joining does not mean you accepted each tally.{{end}}</p>{{end}}
 <a class="primary" id="open" href="#">{{if eq .Language "ps"}}په کاټه کې پرانیزئ{{else if .RTL}}باز کردن در کاتا{{else}}Open in Kaata{{end}}</a>
 <p>{{if eq .Language "ps"}}کاټه نه لرئ؟ نصب یې کړئ، بیا دې لینک ته راشئ.{{else if .RTL}}برنامه را ندارید؟ پس از نصب، این لینک را دوباره باز کنید.{{else}}New to Kaata? Install it, then return to this link.{{end}}</p>
 <div class="stores"><a href="{{.AppStoreURL}}" rel="noreferrer">App Store</a><a href="{{.PlayURL}}" rel="noreferrer">Google Play</a></div>

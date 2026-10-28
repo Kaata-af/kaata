@@ -144,6 +144,10 @@ import type { Entry, PersonWithBalance, Self } from "../../lib/types";
 // only" sentence for a tab tally as for a local one), a closed tab names
 // itself, and no credential means "go online" rather than a generic failure.
 function tabErrorMessage(err: unknown): string {
+  if (err instanceof TabApiError && err.code === "notification_only_unsupported")
+    return t("tab.link.serverUpdate");
+  if (err instanceof TabApiError && err.code === "recording_upgrade_required")
+    return t("tab.link.clientUpdate");
   if (err instanceof TabApiError && err.code === "shared_history_opening_required")
     return t("tab.history.openingRequired");
   if (err instanceof TabApiError && err.code === "shared_history_pending")
@@ -1678,10 +1682,24 @@ export default function PersonDetailScreen() {
 
   // Inline withdrawal of a pending tally; reviewed rows are immutable.
   async function onVoid(target: Entry) {
-    if (target.tab?.by !== "me" || target.tab.status !== "pending" || target.tab.voided) return;
+    if (
+      target.tab?.by !== "me" ||
+      (target.tab.status !== "pending" &&
+        !(target.tab.status === "recorded" && target.tab.kind === "entry")) ||
+      target.tab.voided
+    )
+      return;
     try {
       const reviewLink = await reviewLinkFor(target);
       if (!reviewLink) return;
+      if (
+        target.tab.status === "recorded" &&
+        (await listTabSettlements(reviewLink.tab_id)).some(
+          (s) => s.through_seq >= (target.tab?.seq ?? 0),
+        )
+      )
+        return;
+      if (!screenIsCurrent()) return;
       await voidEntry(reviewLink, target.id);
       if (!screenIsCurrent()) return;
       toast.push(t("tab.voided"), "success");
@@ -1801,6 +1819,14 @@ export default function PersonDetailScreen() {
         );
         const boundary = period?.settlement.lastSettledAtMs;
         const inSettledChapter = !entry.tab && boundary != null && entry.created_at <= boundary;
+        const tabSettlements =
+          entry.tab?.tab_id === period?.financialTab?.tab_id
+            ? (period?.sharedSettlements ?? [])
+            : (period?.priorPeriods.find((prior) => prior.link.tab_id === entry.tab?.tab_id)
+                ?.settlements ?? []);
+        const recordedInSettledChapter =
+          entry.tab?.status === "recorded" &&
+          tabSettlements.some((s) => s.through_seq >= (entry.tab?.seq ?? 0));
         const canOpenSheet =
           canAmend &&
           !inSettledChapter &&
@@ -1839,7 +1865,11 @@ export default function PersonDetailScreen() {
               selfAccountId={getAccountIdSync()}
               onAccept={canAmend && entry.tab ? guardedSearchAction(onAccept) : undefined}
               onReject={canAmend && entry.tab ? guardedSearchAction(onReject) : undefined}
-              onCancel={canAmend && entry.tab ? guardedSearchAction(onVoid) : undefined}
+              onCancel={
+                canAmend && entry.tab && !recordedInSettledChapter
+                  ? guardedSearchAction(onVoid)
+                  : undefined
+              }
               showFullNote={searchTerms.length > 0}
             />
             {highlight?.id === entry.id ? (
@@ -1999,6 +2029,18 @@ export default function PersonDetailScreen() {
                       },
                     ]
                   : []),
+                {
+                  label: t("notificationSettings.contact.title"),
+                  icon: "notifications-outline",
+                  onPress: () => {
+                    if (!screenIsCurrent()) return;
+                    dismissSearchKeyboard();
+                    router.push({
+                      pathname: "/notification-settings",
+                      params: { personId: person.id, vaultId: activeVaultId ?? "" },
+                    });
+                  },
+                },
                 {
                   label: t("reminders.title"),
                   icon: "alarm-outline",
@@ -2344,10 +2386,21 @@ export default function PersonDetailScreen() {
                             ) : null}
                             {financialTabHistory && person.tab_unsynced !== 1 ? (
                               <Text style={[styles.unsyncedNote, textDir(isRTL)]}>
-                                {t("tab.balance.confirmed", {
-                                  amount: signedSharedAmount(person.tab_confirmed_balance ?? 0),
-                                  currency: getCurrencyLabel(code),
-                                })}
+                                {financialTabHistory.recording_mode_known === 0
+                                  ? t("tab.recordingMode.unknown")
+                                  : t(
+                                      financialTabHistory.recording_mode === "notify"
+                                        ? "tab.balance.recorded"
+                                        : "tab.balance.confirmed",
+                                      {
+                                        amount: signedSharedAmount(
+                                          financialTabHistory.recording_mode === "notify"
+                                            ? person.balance
+                                            : (person.tab_confirmed_balance ?? 0),
+                                        ),
+                                        currency: getCurrencyLabel(code),
+                                      },
+                                    )}
                               </Text>
                             ) : null}
                             {(person.tab_pending_count ?? 0) > 0 && person.tab_unsynced !== 1 ? (
@@ -2950,6 +3003,17 @@ export default function PersonDetailScreen() {
       <BottomSheet
         visible={linkedSheetVisible}
         title={`${person.name} · ${getCurrencyLabel(managementCurrency ?? person.currency ?? selectedCurrency)}`}
+        description={
+          managementLink?.recording_mode_known === 0
+            ? t("tab.recordingMode.unknown")
+            : t("tab.recordingMode.fixed", {
+                mode: t(
+                  managementLink?.recording_mode === "notify"
+                    ? "tab.recordingMode.notify"
+                    : "tab.recordingMode.review",
+                ),
+              })
+        }
         onDismiss={() => setLinkedSheetVisible(false)}
         actions={[
           ...(managementLink?.role === "a" && managementLink.invite_url

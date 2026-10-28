@@ -81,6 +81,7 @@ import {
   TabCurrencyMismatchError,
   TabInputError,
   TabPermissionError,
+  TabReviewFinalError,
   TabSameAccountError,
   TabSameKaataError,
   isRetryableTabError,
@@ -93,6 +94,7 @@ import type {
   TabLink,
   TabOutboxRow,
   TabResponse,
+  TabRecordingMode,
   WireEntry,
   WireTab,
 } from "./types";
@@ -174,6 +176,33 @@ async function relationshipInVault(personId: string, vaultId: string): Promise<s
 
 function requireOpen(link: TabLink): void {
   if (link.closed_at != null) throw new TabClosedError();
+}
+
+/** Restored books with omitted mode metadata are readable, but their write
+ * contract must be resolved before changing any financial or local intent. */
+async function knownRecordingLink(link: TabLink, session: SessionSnapshot): Promise<TabLink> {
+  if (link.recording_mode_known !== 0) return link;
+  await applyForCurrentSession(session, async () => {});
+  await syncTab(link.tab_id);
+  return applyForCurrentSession(session, async () => {
+    const fresh = await getTabLink(link.tab_id);
+    if (
+      !fresh ||
+      fresh.vault_id !== link.vault_id ||
+      fresh.relationship_id !== link.relationship_id ||
+      fresh.currency !== link.currency ||
+      fresh.role !== link.role ||
+      getActiveVaultIdSyncMaybe() !== link.vault_id
+    )
+      throw new TabAuthUnavailableError();
+    if (fresh.recording_mode_known === 0)
+      throw new TabApiError(
+        503,
+        "notification_only_unsupported",
+        "Resolve the account recording mode before changing it",
+      );
+    return fresh;
+  });
 }
 
 /** Resolve the previous shared period before copying its balance. The server
@@ -267,6 +296,16 @@ async function newOp(
 ): Promise<string> {
   const session = opts.session ?? (await captureCurrentSession());
   if (!session.jwt) throw new TabAuthUnavailableError();
+  link = await knownRecordingLink(link, session);
+  if (op === "append" || op === "label") requireOpen(link);
+  await assertVaultAction(link.vault_id, op === "append" ? "entry.create" : "entry.amend");
+  if ((op === "accept" || op === "dispute") && link.recording_mode === "notify")
+    throw new TabApiError(
+      409,
+      "review_not_required",
+      "Notification-only tallies do not have peer reviews",
+    );
+  if (op === "void" && link.recording_mode === "notify") opts = { ...opts, deferFinancial: true };
   await applyForCurrentSession(session, async () => {
     if (getActiveVaultIdSyncMaybe() !== link.vault_id) throw new TabAuthUnavailableError();
     await queueTabMutation(
@@ -383,7 +422,13 @@ async function joinFailure(
   afterPush: boolean,
   scope: { session: SessionSnapshot; vaultId: string },
 ): Promise<unknown> {
-  if (createdPersonId && err instanceof TabApiError && !isRetryableTabError(err)) {
+  if (
+    createdPersonId &&
+    err instanceof TabApiError &&
+    (!isRetryableTabError(err) ||
+      err.code === "notification_only_unsupported" ||
+      err.code === "recording_upgrade_required")
+  ) {
     try {
       await applyForCurrentSession(scope.session, async () => {
         if (getActiveVaultIdSyncMaybe() !== scope.vaultId) return;
@@ -424,7 +469,12 @@ async function joinFailure(
  */
 export async function linkContact(
   personId: string,
-  opts: { myLabel: string; openingNote?: string | null; currency?: string },
+  opts: {
+    myLabel: string;
+    openingNote?: string | null;
+    currency?: string;
+    recordingMode?: TabRecordingMode;
+  },
 ): Promise<{ link: TabLink; inviteUrl: string }> {
   const session = await captureCurrentSession();
   if (!session.jwt) throw new TabAuthUnavailableError();
@@ -476,6 +526,7 @@ export async function linkContact(
   const resp = await createTab(
     {
       ...historyReceipt,
+      ...(opts.recordingMode ? { recording_mode: opts.recordingMode } : {}),
       linked_at_ms: now,
       currency,
       label,
@@ -499,6 +550,7 @@ export async function linkContact(
 
   const link: TabLink = {
     tab_id: resp.tab.id,
+    recording_mode: resp.tab.recording_mode ?? "review",
     vault_id: vaultId,
     relationship_id: relId,
     role: "a",
@@ -691,7 +743,16 @@ export async function joinTabAsContact(
   };
   let resp: TabResponse;
   try {
-    resp = await joinTab({ token, jwt: session.jwt }, tab.id, req);
+    resp = await joinTab(
+      {
+        token,
+        jwt: session.jwt,
+        recordingMode: tab.recording_mode ?? "review",
+        requireRecordingSupport: tab.recording_mode == null,
+      },
+      tab.id,
+      req,
+    );
   } catch (err) {
     if (!(err instanceof TabApiError && err.code === "currency_mismatch")) {
       throw await joinFailure(err, createdPersonId, currency, tab, false, failureScope);
@@ -709,7 +770,16 @@ export async function joinTabAsContact(
       await applyForCurrentSession(session, async () => {
         if (getActiveVaultIdSyncMaybe() !== target.vaultId) throw new TabAuthUnavailableError();
       });
-      resp = await joinTab({ token, jwt: session.jwt }, tab.id, req);
+      resp = await joinTab(
+        {
+          token,
+          jwt: session.jwt,
+          recordingMode: tab.recording_mode ?? "review",
+          requireRecordingSupport: tab.recording_mode == null,
+        },
+        tab.id,
+        req,
+      );
     } catch (retryErr) {
       throw await joinFailure(retryErr, createdPersonId, currency, tab, true, failureScope);
     }
@@ -718,6 +788,7 @@ export async function joinTabAsContact(
   const them = me === "a" ? "b" : "a";
   const link: TabLink = {
     tab_id: resp.tab.id,
+    recording_mode: resp.tab.recording_mode ?? "review",
     vault_id: target.vaultId,
     relationship_id: relId,
     role: me,
@@ -774,14 +845,17 @@ export async function addTabEntry(
   },
 ): Promise<{ entryId: string; duplicateHint: DuplicateHint | null; pendingAdmission?: boolean }> {
   const currency = requireCurrencyCode(expected?.currency ?? getLedgerCurrencyCode());
-  const link = await getTabLinkForPerson(personId, currency);
-  if (!link) throw new TabInputError("not_linked");
+  const cachedLink = await getTabLinkForPerson(personId, currency);
+  if (!cachedLink) throw new TabInputError("not_linked");
+  let link: TabLink = cachedLink;
   requireOpen(link);
   const session = expected?.session ?? (await captureCurrentSession());
   if (expected && link.vault_id !== expected.vaultId) throw new TabAuthUnavailableError();
   if (typeof amount !== "number" || parseAmountInput(String(amount)) !== amount) {
     throw new TabInputError("amount_invalid");
   }
+  link = await knownRecordingLink(link, session);
+  requireOpen(link);
   await assertVaultAction(link.vault_id, "entry.create");
   const admission = await needsSharedCreditAdmission(link);
   const cleanNote = note?.trim().slice(0, ENTRY_NOTE_MAX_LENGTH) || null;
@@ -908,6 +982,12 @@ async function finishSharedCreditMutation(link: TabLink, opId: string): Promise<
 
 /** Accept the other party's tally: optimistic unless a hard limit requires confirmation. */
 export async function acceptEntry(link: TabLink, entryId: string): Promise<void> {
+  if (link.recording_mode === "notify")
+    throw new TabApiError(
+      409,
+      "review_not_required",
+      "Notification-only tallies do not have peer reviews",
+    );
   const session = await captureCurrentSession();
   await assertVaultAction(link.vault_id, "entry.amend");
   const deferred = await needsSharedCreditAdmission(link);
@@ -922,6 +1002,12 @@ export async function acceptEntry(link: TabLink, entryId: string): Promise<void>
 
 /** Reject the other party's tally, with an optional reason (≤ 300 chars). */
 export async function disputeEntry(link: TabLink, entryId: string, reason: string): Promise<void> {
+  if (link.recording_mode === "notify")
+    throw new TabApiError(
+      409,
+      "review_not_required",
+      "Notification-only tallies do not have peer reviews",
+    );
   const session = await captureCurrentSession();
   const clean = reason.trim();
   if (clean.length > REASON_MAX) throw new TabInputError("reason_too_long");
@@ -936,12 +1022,39 @@ export async function disputeEntry(link: TabLink, entryId: string, reason: strin
   void syncTab(link.tab_id);
 }
 
-/** Cancel my pending tally. The cache and server both refuse reviewed rows. */
+/** Withdraw an own pending or ordinary recorded tally. Reviewed records,
+ * joined openings and settled recorded chapters remain immutable. */
 export async function voidEntry(link: TabLink, entryId: string): Promise<void> {
   const session = await captureCurrentSession();
+  link = await knownRecordingLink(link, session);
   await assertVaultAction(link.vault_id, "entry.amend");
+  const db = await getDb();
+  const recorded = await db.getFirstAsync<{
+    status: string;
+    kind: string;
+    created_by: string;
+    voided_by_entry_id: string | null;
+    seq: number;
+  }>(
+    "SELECT status,kind,created_by,voided_by_entry_id,seq FROM tab_entries WHERE id=? AND tab_id=?",
+    entryId,
+    link.tab_id,
+  );
+  if (recorded?.status === "recorded") {
+    if (
+      recorded.kind !== "entry" ||
+      recorded.created_by !== link.role ||
+      recorded.voided_by_entry_id != null ||
+      (await db.getFirstAsync(
+        "SELECT 1 FROM tab_settlements WHERE tab_id=? AND through_seq>=? LIMIT 1",
+        link.tab_id,
+        recorded.seq,
+      ))
+    )
+      throw new TabReviewFinalError();
+  }
   const opId = Crypto.randomUUID();
-  const deferred = await needsSharedCreditAdmission(link);
+  const deferred = link.recording_mode === "notify" || (await needsSharedCreditAdmission(link));
   await newOp(link, "void", { entry_id: entryId }, opId, { deferFinancial: deferred, session });
   // No markReviewed: a party gets no notice about its OWN pending tally (the
   // creation notice went to the other side), so there is nothing to read
@@ -1015,6 +1128,8 @@ export async function unlinkContact(link: TabLink): Promise<void> {
  * caller shares next. Returns the new invite URL and stores it on the link.
  */
 export async function regenerateInviteLink(link: TabLink): Promise<string> {
+  const session = await captureCurrentSession();
+  link = await knownRecordingLink(link, session);
   requireOpen(link);
   if (link.role !== "a") throw new TabPermissionError();
   await assertVaultAction(link.vault_id, "entry.amend");

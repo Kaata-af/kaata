@@ -93,17 +93,26 @@ export function buildPersonCurrenciesCsv(statements: readonly PersonStatement[])
       !!statement.archivedSharedPeriods?.length,
   );
   const tables = statements.map((statement) =>
-    personCsvLines(statement, { currency: true, shared }),
+    personCsvLines(statement, {
+      currency: true,
+      shared,
+      recorded: statements.some((st) =>
+        st.rows.some((row) => row.kind === "entry" && row.entry.tab?.status === "recorded"),
+      ),
+    }),
   );
   return BOM + [tables[0][0], ...tables.flatMap((rows) => rows.slice(1))].join(CRLF) + CRLF;
 }
 
 function personCsvLines(
   st: PersonStatement,
-  options: { currency?: boolean; shared?: boolean } = {},
+  options: { currency?: boolean; shared?: boolean; recorded?: boolean } = {},
 ): string[] {
   const { locale, calendar, currencyCode: code } = st;
   const qamari = calendar === "qamari";
+  const recordedColumn =
+    options.recorded ??
+    st.rows.some((row) => row.kind === "entry" && row.entry.tab?.status === "recorded");
   const shared =
     options.shared ??
     (st.rows.some((r) => (r.kind === "entry" ? r.entry.tab : r.shared)) ||
@@ -132,6 +141,7 @@ function personCsvLines(
             tIn(locale, "export.record.acknowledgedBalance"),
             tIn(locale, "export.record.pendingBalance"),
             tIn(locale, "export.record.privateBalance"),
+            ...(recordedColumn ? [tIn(locale, "export.record.recordedBalance")] : []),
             ...EVIDENCE_KEYS.map((k) => tIn(locale, k)),
           ]
         : []),
@@ -165,6 +175,7 @@ function personCsvLines(
                 totals.acknowledged,
                 totals.pending,
                 totals.private,
+                ...(recordedColumn ? [totals.recorded ?? 0] : []),
                 ...(row.shared
                   ? clearanceEvidence(row.shared.tabId, row.ms)
                   : EVIDENCE_KEYS.map(() => "")),
@@ -196,6 +207,7 @@ function personCsvLines(
               totals.acknowledged,
               totals.pending,
               totals.private,
+              ...(recordedColumn ? [totals.recorded ?? 0] : []),
               ...evidenceCells(e.tab, locale).map(guardText),
             ]
           : []),
@@ -231,6 +243,7 @@ function personCsvLines(
         "",
         "",
         "",
+        ...(recordedColumn ? [""] : []),
         ...(entry ? evidenceCells(undefined, locale) : EVIDENCE_KEYS.map(() => "")),
         ...(qamari ? [qamariDate(ms)] : []),
         entry?.id ?? "",
@@ -262,6 +275,7 @@ function personCsvLines(
             "",
             "",
             "",
+            ...(recordedColumn ? [""] : []),
             ...clearanceEvidence(period.link.tab_id, row.ms),
             ...(qamari ? [qamariDate(row.ms)] : []),
             row.shared?.settlement.id ?? "",
@@ -289,6 +303,7 @@ function personCsvLines(
           "",
           "",
           "",
+          ...(recordedColumn ? [""] : []),
           ...evidenceCells(entry.tab, locale).map(guardText),
           ...(qamari ? [qamariDate(entry.created_at)] : []),
           entry.id,
@@ -309,16 +324,24 @@ export function buildVaultCurrenciesCsv(reports: readonly VaultReport[]): string
   if (reports.length === 0) throw new Error("No currency reports");
   if (reports.length === 1) return buildVaultCsv(reports[0]);
   const shared = reports.some((report) => report.journal.some((row) => row.tab));
-  const tables = reports.map((report) => vaultCsvLines(report, { currency: true, shared }));
+  const tables = reports.map((report) =>
+    vaultCsvLines(report, {
+      currency: true,
+      shared,
+      recorded: reports.some((r) => r.journal.some((row) => row.tab?.status === "recorded")),
+    }),
+  );
   return BOM + [tables[0][0], ...tables.flatMap((table) => table.slice(1))].join(CRLF) + CRLF;
 }
 
 function vaultCsvLines(
   report: VaultReport,
-  options: { currency?: boolean; shared?: boolean } = {},
+  options: { currency?: boolean; shared?: boolean; recorded?: boolean } = {},
 ): string[] {
   const { locale, currencyCode: code } = report;
   const qamari = report.calendar === "qamari";
+  const recordedColumn =
+    options.recorded ?? report.journal.some((row) => row.tab?.status === "recorded");
   const shared = options.shared ?? report.journal.some((r) => r.tab);
   const amountHeader = (
     key:
@@ -348,6 +371,7 @@ function vaultCsvLines(
             tIn(locale, "export.record.acknowledgedBalance"),
             tIn(locale, "export.record.pendingBalance"),
             tIn(locale, "export.record.privateBalance"),
+            ...(recordedColumn ? [tIn(locale, "export.record.recordedBalance")] : []),
             ...EVIDENCE_KEYS.map((k) => tIn(locale, k)),
           ]
         : []),
@@ -378,6 +402,7 @@ function vaultCsvLines(
               totals.acknowledged,
               totals.pending,
               totals.private,
+              ...(recordedColumn ? [totals.recorded ?? 0] : []),
               ...evidenceCells(row.tab, locale).map(guardText),
             ]
           : []),

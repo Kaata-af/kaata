@@ -67,14 +67,11 @@ func (h *Handler) Notifications(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if h.svc.push == nil {
-		httpx.JSON(w, 200, map[string]bool{"enabled": false})
-		return
-	}
 	var req struct {
-		InstallID string `json:"install_id"`
-		Token     string `json:"token"`
-		Locale    string `json:"locale"`
+		InstallID   string          `json:"install_id"`
+		Token       string          `json:"token"`
+		Locale      string          `json:"locale"`
+		Preferences json.RawMessage `json:"preferences"`
 	}
 	if !decodeBody(w, r, &req) {
 		return
@@ -82,6 +79,19 @@ func (h *Handler) Notifications(w http.ResponseWriter, r *http.Request) {
 	if _, err := uuid.Parse(req.InstallID); err != nil || (req.Token != "" && !expoTokenRE.MatchString(req.Token)) {
 		httpx.ErrorCode(w, 400, "invalid_body", "invalid notification registration")
 		return
+	}
+	var preferences []byte
+	if len(req.Preferences) != 0 {
+		policy, err := decodeNotificationPreferences(req.Preferences)
+		if err != nil {
+			httpx.ErrorCode(w, 400, "invalid_body", "invalid notification preferences")
+			return
+		}
+		preferences, err = json.Marshal(policy)
+		if err != nil {
+			writeServiceError(w, err)
+			return
+		}
 	}
 	req.Locale = applocale.Normalize(req.Locale)
 	claims, ok := auth.ClaimsFromContext(r.Context())
@@ -115,11 +125,14 @@ func (h *Handler) Notifications(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		_, err = tx.Exec(r.Context(), `INSERT INTO tab_push_subscriptions
-   (tab_id,role,install_id,token,locale,account_id,capability_hash)
-   VALUES($1::uuid,$2,$3::uuid,$4,$5,$6::uuid,$7)
+   (tab_id,role,install_id,token,locale,account_id,capability_hash,preferences)
+   VALUES($1::uuid,$2,$3::uuid,$4,$5,$6::uuid,$7,$8::jsonb)
    ON CONFLICT(tab_id,install_id) DO UPDATE SET role=EXCLUDED.role,token=EXCLUDED.token,
-    locale=EXCLUDED.locale,account_id=EXCLUDED.account_id,capability_hash=EXCLUDED.capability_hash,renewed_at=NOW()`,
-			p.TabID, p.Role, req.InstallID, req.Token, req.Locale, claims.AccountID, nil)
+    locale=EXCLUDED.locale,account_id=EXCLUDED.account_id,capability_hash=EXCLUDED.capability_hash,
+    preferences=CASE WHEN tab_push_subscriptions.account_id IS DISTINCT FROM EXCLUDED.account_id
+      THEN EXCLUDED.preferences ELSE COALESCE(EXCLUDED.preferences,tab_push_subscriptions.preferences) END,
+    renewed_at=NOW()`,
+			p.TabID, p.Role, req.InstallID, req.Token, req.Locale, claims.AccountID, nil, preferences)
 		if err == nil {
 			err = tx.Commit(r.Context())
 		}
@@ -128,7 +141,9 @@ func (h *Handler) Notifications(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	httpx.JSON(w, 200, map[string]bool{"enabled": true})
+	// Persist privacy choices and revocations even while the provider is off;
+	// enabling push later must not resurrect an installation's old policy.
+	httpx.JSON(w, 200, map[string]bool{"enabled": h.svc.push != nil})
 }
 
 type pushEvent struct {
@@ -166,11 +181,46 @@ func queuePush(ctx context.Context, tx pgx.Tx, tabID, actor string, rev int64, e
 	if err != nil {
 		return err
 	}
+	// Evaluate personal choices when the event happens as well as at delivery.
+	// Unmuting before the worker runs must not replay activity that was muted.
+	// Malformed preferences suppress only the alert, never the financial event.
+	rows, err := tx.Query(ctx, `SELECT id::text,preferences FROM tab_push_subscriptions
+ WHERE tab_id=$1::uuid AND role<>$2 AND renewed_at>NOW()-INTERVAL '30 days'
+ AND account_id IS DISTINCT FROM $3::uuid AND install_id IS DISTINCT FROM $4::uuid`,
+		tabID, actor, event.ActorAccountID, event.ActorInstallID)
+	if err != nil {
+		return err
+	}
+	eligible := []string{}
+	now := time.Now()
+	for rows.Next() {
+		var subscriptionID string
+		var raw []byte
+		if err := rows.Scan(&subscriptionID, &raw); err != nil {
+			rows.Close()
+			return err
+		}
+		if len(raw) > 0 {
+			policy, err := decodeNotificationPreferences(raw)
+			if err != nil || !policy.permits(event.Kind, now) {
+				continue
+			}
+		}
+		eligible = append(eligible, subscriptionID)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if len(eligible) == 0 {
+		return nil
+	}
 	_, err = tx.Exec(ctx, `INSERT INTO tab_push_outbox(subscription_id,rev,event_kind,entry_id)
   SELECT id,$2,$4,NULLIF($5,'')::uuid FROM tab_push_subscriptions WHERE tab_id=$1::uuid AND role<>$3
    AND renewed_at>NOW()-INTERVAL '30 days'
  AND account_id IS DISTINCT FROM $6::uuid AND install_id IS DISTINCT FROM $7::uuid
- ON CONFLICT DO NOTHING`, tabID, rev, actor, event.Kind, event.EntryID, event.ActorAccountID, event.ActorInstallID)
+ AND id=ANY($8::uuid[])
+ ON CONFLICT DO NOTHING`, tabID, rev, actor, event.Kind, event.EntryID, event.ActorAccountID, event.ActorInstallID, eligible)
 	return err
 }
 
@@ -221,7 +271,8 @@ func (p *pushClient) post(ctx context.Context, path string, body any, out any) e
 // checks, "handled means read": a notice the subscription's account already
 // read in the app (a review reads it server-side) must not ring the phone
 // afterwards, and an entry_created request to review a tally is moot once
-// that tally is no longer pending (reviewed or voided). Closing a tab stops
+// that tally is reviewed or voided. Notification-only recorded tallies need
+// no review and remain eligible. Closing a tab stops
 // all remote alerts, including outcomes of its remaining pending reviews;
 // the durable inbox and live history still record those decisions.
 // An invalid job is deleted.
@@ -237,9 +288,12 @@ func (s *Service) deliverPush(ctx context.Context) (bool, error) {
 	var receipt *string
 	var attempts int
 	var valid bool
+	var preferencesJSON []byte
+	var entryStatus string
 	err = tx.QueryRow(ctx, `SELECT o.id,o.rev,o.subscription_id::text,s.tab_id::text,s.role,s.token,s.locale,
-  o.receipt_id,o.attempts,o.event_kind,COALESCE(o.entry_id::text,''),
-  COALESCE(s.account_id=p.account_id OR EXISTS(SELECT 1 FROM vault_members vm WHERE vm.vault_id=p.vault_id AND vm.account_id=s.account_id AND vm.accepted_at IS NOT NULL AND vm.revoked_at IS NULL AND vm.role IN ('owner','manager','editor')),FALSE),
+  o.receipt_id,o.attempts,o.event_kind,COALESCE(o.entry_id::text,''),s.preferences,
+  COALESCE((SELECT e.status FROM tab_entries e WHERE e.id=o.entry_id AND e.tab_id=s.tab_id),''),
+  (t.recording_mode='review' AND COALESCE(s.account_id=p.account_id OR EXISTS(SELECT 1 FROM vault_members vm WHERE vm.vault_id=p.vault_id AND vm.account_id=s.account_id AND vm.accepted_at IS NOT NULL AND vm.revoked_at IS NULL AND vm.role IN ('owner','manager','editor')),FALSE)),
 	  s.renewed_at>NOW()-INTERVAL '30 days' AND o.created_at>NOW()-INTERVAL '24 hours'
 	  AND t.closed_at IS NULL
 	  AND EXISTS(SELECT 1 FROM auth_credentials ac WHERE ac.install_id=s.install_id AND ac.account_id=s.account_id AND ac.revoked_at IS NULL)
@@ -248,7 +302,7 @@ func (s *Service) deliverPush(ctx context.Context) (bool, error) {
  AND NOT EXISTS(SELECT 1 FROM tab_notifications n JOIN tab_notification_reads nr ON nr.notification_id=n.id
    WHERE n.tab_id=s.tab_id AND n.rev=o.rev AND nr.account_id=s.account_id)
  AND (o.event_kind<>'entry_created' OR EXISTS(SELECT 1 FROM tab_entries e JOIN tabs t ON t.id=e.tab_id
-   WHERE e.id=o.entry_id AND e.tab_id=s.tab_id AND e.status='pending' AND e.voided_by_entry_id IS NULL AND t.closed_at IS NULL))
+   WHERE e.id=o.entry_id AND e.tab_id=s.tab_id AND e.status IN ('pending','recorded') AND e.voided_by_entry_id IS NULL AND t.closed_at IS NULL))
 	  AND COALESCE((
    (s.account_id IS NOT NULL AND (s.account_id=p.account_id OR EXISTS(
     SELECT 1 FROM vault_members vm WHERE vm.vault_id=p.vault_id AND vm.account_id=s.account_id
@@ -256,14 +310,30 @@ func (s *Service) deliverPush(ctx context.Context) (bool, error) {
   FROM tab_push_outbox o JOIN tab_push_subscriptions s ON s.id=o.subscription_id
   JOIN tabs t ON t.id=s.tab_id
   JOIN tab_parties p ON p.tab_id=s.tab_id AND p.role=s.role
-  WHERE o.next_at<=NOW() ORDER BY o.next_at,o.id LIMIT 1 FOR UPDATE OF o SKIP LOCKED`).Scan(
-		&id, &rev, &subID, &tabID, &role, &token, &locale, &receipt, &attempts, &kind, &entryID, &canReview, &valid)
+  WHERE o.next_at<=NOW() ORDER BY o.next_at,o.id LIMIT 1 FOR UPDATE OF o,s SKIP LOCKED`).Scan(
+		&id, &rev, &subID, &tabID, &role, &token, &locale, &receipt, &attempts, &kind, &entryID, &preferencesJSON, &entryStatus, &canReview, &valid)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
 	}
 	if err != nil {
 		return false, err
 	}
+	var preferences *NotificationPreferences
+	// The subscription is leased with the job. Saving a newer preference waits
+	// for an in-flight send, so it cannot acknowledge before an old policy sends.
+	if len(preferencesJSON) != 0 {
+		policy, policyErr := decodeNotificationPreferences(preferencesJSON)
+		if policyErr != nil {
+			// A malformed policy cannot cause an unexpected private preview or
+			// audible alert. A future successful registration replaces it.
+			valid = false
+		} else {
+			preferences = &policy
+			valid = valid && policy.permits(kind, time.Now())
+			canReview = canReview && policy.allowsReviewActions()
+		}
+	}
+	canReview = canReview && (kind != "entry_created" || entryStatus == "pending")
 	if !valid {
 		_, err = tx.Exec(ctx, `DELETE FROM tab_push_outbox WHERE id=$1`, id)
 	} else {
@@ -283,6 +353,9 @@ func (s *Service) deliverPush(ctx context.Context) (bool, error) {
 			if err == nil {
 				body = detailedPushBody(kind, locale, actor, minor, direction, currency, role, canReview)
 			}
+			if preferences != nil {
+				body = notificationBodyWithPreferences(*preferences, kind, locale, actor, minor, direction, currency, role, canReview)
+			}
 			data := map[string]any{"tab_id": tabID, "rev": rev, "kind": kind, "role": role}
 			var actorID *string
 			if err := tx.QueryRow(ctx, "SELECT actor_account_id::text FROM tab_notifications WHERE tab_id=$1::uuid AND rev=$2", tabID, rev).Scan(&actorID); err == nil && actorID != nil {
@@ -291,7 +364,7 @@ func (s *Service) deliverPush(ctx context.Context) (bool, error) {
 			if entryID != "" {
 				data["entry_id"] = entryID
 			}
-			payload := pushPayload(token, body, data)
+			payload := notificationPayloadWithPreferences(token, body, data, preferences)
 			if kind == "entry_created" && canReview {
 				// Do not put buttons on an entry already reviewed/voided/closed.
 				var current bool

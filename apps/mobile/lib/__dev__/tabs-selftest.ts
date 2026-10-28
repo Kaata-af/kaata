@@ -416,6 +416,7 @@ const server = {
     const other = direction.otherRole(you);
     return {
       id: TAB,
+      recording_mode: "review",
       currency: "AFN",
       rev: this.rev,
       created_at_ms: 1_000,
@@ -909,6 +910,8 @@ async function main(): Promise<void> {
       "other_label",
       "other_joined_at",
       "unjoined_invitation",
+      "recording_mode",
+      "recording_mode_known",
       "invite_url",
       "rev",
       "closed_at",
@@ -1637,6 +1640,11 @@ async function main(): Promise<void> {
     assert.equal(errors.isRetryableTabError(e(429, "rate_limited")), true);
     assert.equal(errors.isRetryableTabError(e(500)), true);
     assert.equal(errors.isRetryableTabError(e(503)), true);
+    assert.equal(
+      errors.isRetryableTabError(e(426, "recording_upgrade_required")),
+      true,
+      "an upgrade requirement cannot discard financial intent",
+    );
     for (const [status, code] of [
       [404, "tab_not_found"],
       [409, "tab_closed"],
@@ -3133,6 +3141,357 @@ async function main(): Promise<void> {
     }
   });
 
+  await test("pulls expose peer cancellations once without restore or acknowledgement replay", async () => {
+    const cacheLink = link({ recording_mode: "notify", last_synced_at: 1000 });
+    await tabsDb.upsertTabLink(cacheLink);
+    const row = server.seed({
+      id: "peer-recorded",
+      created_by: "b",
+      direction: "b_to_a",
+      amount: "12",
+      status: "recorded",
+    });
+    const wire = () => ({ ...server.view("a"), recording_mode: "notify" as const });
+    await tabsDb.upsertTabFromWire(cacheLink, { tab: wire(), entries: [row], full: true });
+    assert.equal(storedLink().recording_mode, "notify");
+    assert.equal(
+      (await tabsDb.listTabEntriesAsEntries(cacheLink))[0].tab?.recording_mode,
+      "notify",
+    );
+    const seen: import("../tabs/types").TabAppliedEvent[] = [];
+    const stop = events.onTabApplied((event) => seen.push(event));
+    try {
+      const cancelled = { ...row, rev: row.rev + 1, voided_by_entry_id: "peer-withdrawal" };
+      await tabsDb.upsertTabFromWire(cacheLink, {
+        tab: { ...wire(), rev: cancelled.rev },
+        entries: [cancelled],
+        full: false,
+      });
+      assert.deepEqual(seen.at(-1)?.changes, [
+        { entryId: row.id, rev: cancelled.rev, kind: "entry_voided" },
+      ]);
+      const cancellationCount = () =>
+        seen
+          .flatMap((event) => event.changes ?? [])
+          .filter((change) => change.kind === "entry_voided").length;
+      const delivered = cancellationCount();
+      await tabsDb.upsertTabFromWire(cacheLink, {
+        tab: { ...wire(), rev: cancelled.rev },
+        entries: [cancelled],
+        full: false,
+      });
+      assert.equal(
+        cancellationCount(),
+        delivered,
+        "the same server receipt is not a second cancellation",
+      );
+      fixture.prepare("UPDATE tab_links SET last_synced_at=NULL").run();
+      fixture.prepare("DELETE FROM tab_entries").run();
+      await tabsDb.upsertTabFromWire(cacheLink, {
+        tab: { ...wire(), rev: cancelled.rev },
+        entries: [cancelled],
+        full: true,
+      });
+      assert.ok(
+        !seen.at(-1)?.changes?.some((change) => change.kind === "entry_voided"),
+        "restore cannot announce old cancellations as new",
+      );
+    } finally {
+      stop();
+    }
+  });
+  await test("notification-only requests require explicit capability and advertise their distinct recording semantics", async () => {
+    const api = require("../tabs/api") as typeof import("../tabs/api");
+    const priorFetch = globalThis.fetch;
+    let supported = false,
+      creates = 0,
+      writes = 0;
+    const seenHeaders: HeadersInit[] = [];
+    globalThis.fetch = (async (url: string | URL | Request, init: RequestInit = {}) => {
+      seenHeaders.push(init.headers ?? {});
+      if (String(url).endsWith("/v1/sync/capabilities"))
+        return reply(200, { multi_currency: true, notification_only_tallies: supported });
+      if (String(url).endsWith("/v1/tabs")) creates++;
+      else writes++;
+      return reply(200, {
+        tab: { ...server.view("a"), recording_mode: "notify" },
+        entries: [],
+        full: true,
+      });
+    }) as typeof fetch;
+    const req = {
+      currency: "AFN",
+      label: "Shop",
+      vault_id: VAULT,
+      relationship_id: REL,
+      opening: null,
+      recording_mode: "notify" as const,
+    };
+    const unsupported = (error: unknown) =>
+      error instanceof errors.TabApiError &&
+      error.code === "notification_only_unsupported" &&
+      errors.isRetryableTabError(error);
+    try {
+      await assert.rejects(api.createTab(req, { jwt: "jwt-1" }), unsupported);
+      assert.equal(creates, 0, "an old server cannot silently create a review link");
+      const auth = await api.resolveTabAuth(link({ recording_mode: "notify" }));
+      await assert.rejects(
+        api.fetchTab(auth, TAB, 0),
+        unsupported,
+        "an old GET cannot rewrite notify participation metadata",
+      );
+      await assert.rejects(
+        api.appendTabEntry(auth, TAB, {
+          id: "notify-entry",
+          direction: "a_to_b",
+          amount: "5",
+          note: null,
+          occurred_at_ms: 1,
+        }),
+        unsupported,
+      );
+      await assert.rejects(
+        api.joinTab({ token: "invite", jwt: "jwt-1", recordingMode: "notify" }, TAB, {
+          label: "B",
+          vault_id: VAULT,
+          relationship_id: REL,
+        }),
+        unsupported,
+      );
+      await assert.rejects(
+        api.joinTab({ token: "invite", jwt: "jwt-1", requireRecordingSupport: true }, TAB, {
+          label: "B",
+          vault_id: VAULT,
+          relationship_id: REL,
+        }),
+        unsupported,
+        "a mode-omitted preview cannot silently join a rolled-back server",
+      );
+      assert.equal(writes, 0, "rollback cannot write notify tallies with old review semantics");
+      supported = true;
+      const response = await api.createTab(req, { jwt: "jwt-1" });
+      assert.equal(response.tab.recording_mode, "notify");
+      assert.equal(creates, 1);
+      assert.ok(
+        seenHeaders.every((headers) => new Headers(headers).get("X-Kaata-Tab-Recording") === "1"),
+      );
+      supported = false;
+      await api.createTab({ ...req, recording_mode: "review" }, { jwt: "jwt-1" });
+      assert.equal(creates, 2, "legacy review creation stays compatible without the new feature");
+    } finally {
+      globalThis.fetch = priorFetch;
+    }
+  });
+  await test("notify reads share a short capability receipt while every write probes afresh", async () => {
+    const api = require("../tabs/api") as typeof import("../tabs/api");
+    const priorFetch = globalThis.fetch;
+    const auth = { jwt: "capability-cache-fixture", recordingMode: "notify" as const };
+    let probes = 0,
+      supported = true,
+      upgrade = false;
+    globalThis.fetch = (async (url: string | URL | Request) => {
+      if (String(url).endsWith("/capabilities")) {
+        probes++;
+        await sleep(5);
+        return reply(200, { notification_only_tallies: supported });
+      }
+      if (upgrade) return errorReply(426, "recording_upgrade_required");
+      return reply(200, {
+        tab: { ...server.view("a"), recording_mode: "notify" },
+        entries: [],
+        full: true,
+      });
+    }) as typeof fetch;
+    try {
+      await Promise.all([
+        api.fetchTab(auth, TAB, 0),
+        api.fetchTab(auth, "other", 0),
+        api.fetchTab(auth, "third", 0),
+      ]);
+      assert.equal(probes, 1, "concurrent contacts share one read preflight");
+      await api.fetchTab(auth, TAB, 0);
+      assert.equal(probes, 1, "the frequent foreground poll reuses a positive receipt");
+      await api.setTabLabel(auth, TAB, "A");
+      await api.setTabLabel(auth, TAB, "B");
+      assert.equal(probes, 3, "writes cannot use the cached read receipt");
+      upgrade = true;
+      await assert.rejects(
+        api.fetchTab(auth, TAB, 0),
+        (error: any) => error.code === "recording_upgrade_required",
+      );
+      upgrade = false;
+      supported = false;
+      await assert.rejects(
+        api.fetchTab(auth, TAB, 0),
+        (error: any) => error.code === "notification_only_unsupported",
+      );
+      assert.equal(probes, 4, "an explicit server upgrade error invalidates the read receipt");
+      supported = true;
+      await api.fetchTab(auth, TAB, 0);
+      supported = false;
+      await assert.rejects(
+        api.setTabLabel(auth, TAB, "C"),
+        (error: any) => error.code === "notification_only_unsupported",
+      );
+      await assert.rejects(
+        api.fetchTab(auth, TAB, 0),
+        (error: any) => error.code === "notification_only_unsupported",
+      );
+      assert.equal(probes, 7, "unsupported writes also invalidate the cached read receipt");
+    } finally {
+      globalThis.fetch = priorFetch;
+    }
+  });
+  await test("old-server recovery remains readable but cannot write until explicit mode metadata arrives", async () => {
+    const api = require("../tabs/api") as typeof import("../tabs/api");
+    const priorFetch = globalThis.fetch;
+    let explicit = false,
+      writes = 0;
+    server.seed({
+      id: "saved",
+      created_by: "b",
+      direction: "b_to_a",
+      amount: "3",
+      status: "accepted",
+    });
+    globalThis.fetch = (async (url: string | URL | Request, init: RequestInit = {}) => {
+      const pathname = new URL(String(url)).pathname;
+      if (pathname.endsWith("/capabilities"))
+        return reply(200, { multi_currency: true, notification_only_tallies: explicit });
+      if (init.method === "POST") writes++;
+      const response = await fakeFetch(String(url), init as any);
+      const body = (await response.json()) as any;
+      const metadata = (tab: any) => {
+        const copy = { ...tab, unjoined_invitation: false };
+        if (!explicit) delete copy.recording_mode;
+        return copy;
+      };
+      if (body.tab) body.tab = metadata(body.tab);
+      if (body.tabs)
+        body.tabs = body.tabs.map((item: any) => ({ ...item, tab: metadata(item.tab) }));
+      return reply(response.status, body);
+    }) as typeof fetch;
+    server.mine = [{ tab: server.view("a"), role: "a", vault_id: VAULT, relationship_id: REL }];
+    try {
+      await sync.reconcileTabsFromServer();
+      assert.equal(count("tab_entries", "WHERE id='saved'"), 1, "legacy evidence remains readable");
+      assert.equal(storedLink().recording_mode_known, 0);
+      assert.equal(
+        storedLink().unjoined_invitation,
+        null,
+        "old canonical participation is not irreversible proof",
+      );
+      const auth = await api.resolveTabAuth(storedLink());
+      const unsupported = (error: any) => error.code === "notification_only_unsupported";
+      await assert.rejects(
+        api.appendTabEntry(auth, TAB, {
+          id: "ambiguous",
+          direction: "a_to_b",
+          amount: "5",
+          note: null,
+          occurred_at_ms: 1,
+        }),
+        unsupported,
+      );
+      await assert.rejects(
+        api.bindTab("invite", TAB, { vault_id: VAULT, relationship_id: REL }, "review", false),
+        unsupported,
+      );
+      await tabsDb.enqueueTabOp({
+        id: "queued-recovered",
+        tab_id: TAB,
+        op: "append",
+        payload: JSON.stringify({
+          id: "queued-recovered",
+          direction: "a_to_b",
+          amount: "5",
+          note: null,
+          occurred_at_ms: 1,
+        }),
+        created_at: 1,
+        attempts: 0,
+        next_at: null,
+        last_error: null,
+      });
+      const unresolved = await sync.syncTab(TAB);
+      assert.equal(unresolved.ok, false);
+      assert.equal(
+        writes,
+        0,
+        "neither direct calls nor queued intent can write an unidentified mode",
+      );
+      assert.equal(count("tab_outbox"), 1);
+      explicit = true;
+      await sync.syncTab(TAB);
+      assert.equal(
+        storedLink().recording_mode_known,
+        1,
+        "equal-revision explicit metadata resolves mode",
+      );
+      assert.equal(storedLink().recording_mode, "review");
+      assert.equal(writes, 1);
+      assert.equal(count("tab_outbox"), 0);
+      assert.equal(count("tab_entries", "WHERE id='queued-recovered'"), 1);
+    } finally {
+      globalThis.fetch = priorFetch;
+    }
+  });
+  await test("server rollback keeps notification-only financial intent and optimistic source queued", async () => {
+    const priorFetch = globalThis.fetch;
+    const notifyLink = link({ recording_mode: "notify" });
+    await tabsDb.upsertTabLink(notifyLink);
+    await tabsDb.insertOptimisticEntry(notifyLink, {
+      id: "queued-notify",
+      type: "debt",
+      amount: 25,
+      note: "Offline",
+      occurred_at: 100,
+    });
+    await tabsDb.enqueueTabOp({
+      id: "queued-notify",
+      tab_id: TAB,
+      op: "append",
+      payload: JSON.stringify({
+        id: "queued-notify",
+        direction: "a_to_b",
+        amount: "25",
+        note: "Offline",
+        occurred_at_ms: 100,
+      }),
+      created_at: 100,
+      attempts: 0,
+      next_at: null,
+      last_error: null,
+    });
+    let writes = 0;
+    globalThis.fetch = (async (url: string | URL | Request, init: RequestInit = {}) => {
+      if (String(url).endsWith("/v1/sync/capabilities"))
+        return reply(200, { multi_currency: true, notification_only_tallies: false });
+      if (init.method === "POST") writes++;
+      return reply(200, {
+        tab: { ...server.view("a"), recording_mode: "notify" },
+        entries: [],
+        full: true,
+      });
+    }) as typeof fetch;
+    try {
+      const result = await sync.syncTab(TAB);
+      assert.equal(result.failed, 1);
+      assert.equal(writes, 0);
+      assert.equal(count("tab_outbox"), 1);
+      assert.equal(
+        count("tab_entries", "WHERE id='queued-notify' AND amount_minor=2500 AND local_pending=1"),
+        1,
+      );
+      assert.equal(
+        count("tab_failed_ops"),
+        0,
+        "unsupported feature is retryable, never a final refusal",
+      );
+    } finally {
+      globalThis.fetch = priorFetch;
+    }
+  });
   await test("notification action: validate IDs, queue once, keep receipt after acknowledgement", async () => {
     const { parseTabReview, TAB_ACCEPT, TAB_REJECT } = require("../tabs/notification-data");
     const data = {

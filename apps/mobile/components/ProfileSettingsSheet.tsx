@@ -118,7 +118,7 @@ export type ProfileSettingsProps = {
 
   // Dismiss
   onDismiss: () => void;
-  onNavigate?: (path: "/sign-in" | "/guide" | "/dev/btc-test") => void;
+  onNavigate?: (path: "/sign-in" | "/guide" | "/dev/btc-test" | "/notification-settings") => void;
 };
 
 /** Content of the native /profile modal, presented like /person/new. */
@@ -181,7 +181,7 @@ export function ProfileSettingsSheet(props: ProfileSettingsProps) {
       action();
     };
   }
-  const navigate = (path: "/sign-in" | "/guide" | "/dev/btc-test") =>
+  const navigate = (path: "/sign-in" | "/guide" | "/dev/btc-test" | "/notification-settings") =>
     props.onNavigate ? props.onNavigate(path) : router.replace(path);
 
   const membersCount = useMembersCount(props.activeVaultId, props.visible);
@@ -302,6 +302,15 @@ export function ProfileSettingsSheet(props: ProfileSettingsProps) {
             />
           </>
         )}
+
+        <SectionGap />
+        <NavRow
+          icon="notifications-outline"
+          label={t("notificationSettings.title")}
+          onPress={chained(() => navigate("/notification-settings"))}
+          isRTL={isRTL}
+          isLast
+        />
 
         {/* ============ CURRENT KAATA ============
                   Settings for the ACTIVE kaata (rename, currency, members, archive),

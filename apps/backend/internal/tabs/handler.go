@@ -10,6 +10,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/matee/kaata-backend/internal/auth"
 	"github.com/matee/kaata-backend/internal/credit"
@@ -90,6 +91,20 @@ func mapServiceError(err error) (int, string, string) {
 		return http.StatusConflict, "settlement_empty", err.Error()
 	case errors.Is(err, ErrReviewFinal):
 		return http.StatusConflict, "review_final", err.Error()
+	case errors.Is(err, ErrReviewNotRequired):
+		return http.StatusConflict, "review_not_required", err.Error()
+	case errors.Is(err, ErrJoinRequired):
+		return http.StatusConflict, "join_required", err.Error()
+	case errors.Is(err, ErrRecordedOpeningFinal):
+		return http.StatusConflict, "recorded_opening_final", err.Error()
+	case errors.Is(err, ErrSettledRecord):
+		return http.StatusConflict, "settled_record", err.Error()
+	case errors.Is(err, ErrRecordedHistoryFinal):
+		return http.StatusConflict, "recorded_history_final", err.Error()
+	case errors.Is(err, ErrOpeningSourceChanged):
+		return http.StatusConflict, "opening_source_changed", err.Error()
+	case errors.Is(err, ErrInvalidRecordingMode):
+		return http.StatusBadRequest, "invalid_recording_mode", err.Error()
 	case errors.Is(err, ErrTabClosed):
 		return http.StatusConflict, "tab_closed", err.Error()
 	case errors.Is(err, ErrNotAuthor):
@@ -201,7 +216,32 @@ func (h *Handler) partyOr404(w http.ResponseWriter, r *http.Request) (Party, boo
 		writeServiceError(w, err)
 		return Party{}, false
 	}
+	if !h.recordingCompatible(w, r, p.TabID) {
+		return Party{}, false
+	}
 	return p, true
+}
+
+// Run only after authorization: unsupported clients must not receive an
+// unknown financial state, and outsiders retain the uniform not-found reply.
+func (h *Handler) recordingCompatible(w http.ResponseWriter, r *http.Request, tabID string) bool {
+	if r.Header.Get("X-Kaata-Tab-Recording") == "1" {
+		return true
+	}
+	var mode string
+	err := h.svc.pool.QueryRow(r.Context(), `SELECT recording_mode FROM tabs WHERE id=$1::uuid`, tabID).Scan(&mode)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			err = ErrNotFound
+		}
+		writeServiceError(w, err)
+		return false
+	}
+	if mode == "notify" {
+		httpx.ErrorCode(w, http.StatusUpgradeRequired, "recording_upgrade_required", "Update Kaata to open notification-only tallies")
+		return false
+	}
+	return true
 }
 
 // accountFromClaims returns the session account + install as nullable
@@ -227,6 +267,7 @@ type openingRequest struct {
 }
 
 type createRequest struct {
+	RecordingMode            string           `json:"recording_mode"`
 	ExpectedHistoryRevisions map[string]int64 `json:"expected_history_revisions"`
 	ExpectedPreviousTabID    *string          `json:"expected_previous_tab_id"`
 	ExpectedPreviousRev      *int64           `json:"expected_previous_rev"`
@@ -302,6 +343,10 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	if !decodeBody(w, r, &req) {
 		return
 	}
+	if req.RecordingMode == "notify" && r.Header.Get("X-Kaata-Tab-Recording") != "1" {
+		httpx.ErrorCode(w, http.StatusUpgradeRequired, "recording_upgrade_required", "Update Kaata to create notification-only tallies")
+		return
+	}
 	vaultID, ok := optionalUUID(w, "vault_id", req.VaultID)
 	if !ok {
 		return
@@ -312,6 +357,7 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 	accountID, installID := accountFromClaims(r)
 	in := CreateInput{
+		RecordingMode:            req.RecordingMode,
 		ExpectedHistoryRevisions: req.ExpectedHistoryRevisions,
 		ExpectedPreviousTabID:    req.ExpectedPreviousTabID,
 		ExpectedPreviousRev:      req.ExpectedPreviousRev,
@@ -358,6 +404,14 @@ func (h *Handler) Mine(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeServiceError(w, err)
 		return
+	}
+	if r.Header.Get("X-Kaata-Tab-Recording") != "1" {
+		for _, item := range res.Tabs {
+			if item.Tab.RecordingMode == "notify" {
+				httpx.ErrorCode(w, http.StatusUpgradeRequired, "recording_upgrade_required", "Update Kaata to open notification-only tallies")
+				return
+			}
+		}
 	}
 	if r.Header.Get("X-Kaata-Currencies") != "1" {
 		// A previous app caches one shared link per customer and labels its
@@ -432,6 +486,9 @@ func (h *Handler) ByToken(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if !h.recordingCompatible(w, r, p.TabID) {
+		return
+	}
 	res, err := h.svc.Get(r.Context(), p, 0)
 	if err != nil {
 		writeServiceError(w, err)
@@ -471,6 +528,9 @@ func (h *Handler) invitationParty(w http.ResponseWriter, r *http.Request, token 
 	}
 	p.ActorAccountID = claims.AccountID
 	p.ActorInstallID = installIDFromClaims(claims)
+	if !h.recordingCompatible(w, r, p.TabID) {
+		return Party{}, false
+	}
 	return p, true
 }
 

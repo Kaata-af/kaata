@@ -11,6 +11,96 @@ import { getAppMeta } from "./db";
 
 // Source-of-truth English strings. All other locales must use the same keys.
 const en = {
+  "tab.recordingMode.unknown":
+    "Refresh this account’s tally settings before making changes. Existing records remain visible.",
+  "notificationSettings.syncPending":
+    "Some shared-alert changes are waiting to sync. Connect to the internet to apply them.",
+  "tab.link.clientUpdate": "Update Kaata to use notification-only tallies.",
+  "notificationSettings.title": "Notifications",
+  "notificationSettings.contact.title": "Notification settings",
+  "notificationSettings.description":
+    "Personal settings for this phone. Your tallies and approval history stay unchanged.",
+  "notificationSettings.contact.hint":
+    "Applies to this contact in this Kaata, across all currencies.",
+  "notificationSettings.useDefaults": "Use app settings",
+  "notificationSettings.useDefaults.hint": "Turn off to customize alerts for this contact.",
+  "notificationSettings.enabled": "Allow notifications",
+  "notificationSettings.enabled.hint":
+    "Pauses alerts, not your notification inbox or reminder tasks.",
+  "notificationSettings.masterOff":
+    "App notifications are paused. Enable them in app notification settings first.",
+  "notificationSettings.types": "Notify me about",
+  "notificationSettings.tallies": "New tallies",
+  "notificationSettings.reviews": "Accept / reject decisions",
+  "notificationSettings.cancellations": "Cancelled tallies",
+  "notificationSettings.connections": "Linked-account updates",
+  "notificationSettings.reminders": "Customer reminders",
+  "notificationSettings.delivery": "Alert style",
+  "notificationSettings.sound": "Sound",
+  "notificationSettings.vibration": "Vibration",
+  "notificationSettings.foreground": "Banners while using Kaata",
+  "notificationSettings.foreground.hint":
+    "Shared updates stay in the inbox even when banners are off.",
+  "notificationSettings.reviewActions": "Accept / reject buttons",
+  "notificationSettings.reviewActions.hint":
+    "Only on approval-required tallies with full previews, so you can see the amount first.",
+  "notificationSettings.privacy": "Privacy",
+  "notificationSettings.previews": "Notification previews",
+  "notificationSettings.preview.full": "Names and amounts",
+  "notificationSettings.preview.name": "Names only",
+  "notificationSettings.preview.private": "Hide all details",
+  "notificationSettings.preview.hint":
+    "Controls what appears on your lock screen. Full details stay inside Kaata.",
+  "notificationSettings.quietHours": "Quiet hours",
+  "notificationSettings.quietHours.hint":
+    "Silences alerts during these local hours. Updates still appear in your inbox.",
+  "notificationSettings.quiet.start": "From",
+  "notificationSettings.quiet.end": "Until",
+  "notificationSettings.quiet.allowReminders": "Keep scheduled reminders on",
+  "notificationSettings.quiet.allowReminders.hint":
+    "A reminder you scheduled can still alert during quiet hours.",
+  "notificationSettings.quiet.bypass": "Allow during quiet hours",
+  "notificationSettings.quiet.invalid": "Start and end times must be different.",
+  "notificationSettings.permission": "Phone permission",
+  "notificationSettings.permission.granted": "Notifications are allowed on this phone.",
+  "notificationSettings.permission.denied": "Notifications are blocked in your phone settings.",
+  "notificationSettings.permission.notAsked": "Allow notifications to receive alerts.",
+  "notificationSettings.permission.unavailable": "Remote alerts need the installed Kaata app.",
+  "notificationSettings.permission.request": "Allow notifications",
+  "notificationSettings.permission.settings": "Open phone settings",
+  "notificationSettings.saveFailed": "Couldn’t save notification settings. Please try again.",
+  "notificationSettings.scopeChanged":
+    "This account or Kaata changed. Reopen notification settings.",
+  "notificationSettings.reset": "Restore recommended settings",
+  "notificationSettings.reset.title": "Restore recommended settings?",
+  "notificationSettings.reset.body": "This changes only your alerts on this phone.",
+  "notificationSettings.channel.soundVibration": "Sound and vibration",
+  "notificationSettings.channel.sound": "Sound only",
+  "notificationSettings.channel.vibration": "Vibration only",
+  "notificationSettings.channel.silent": "Silent",
+  "notificationSettings.alert.private": "You have a new update in Kaata.",
+  "notificationSettings.alert.tally": "{name} added a tally.",
+  "notificationSettings.alert.review": "{name} reviewed a tally.",
+  "notificationSettings.alert.cancellation": "{name} cancelled a tally.",
+  "notificationSettings.alert.connection": "A linked account was updated.",
+  "tab.notify.detail.recorded": "{name} recorded a tally ({amount}).",
+  "tab.recordingMode.label": "Tally recording",
+  "tab.recordingMode.notify": "Notifications only",
+  "tab.recordingMode.notifyHint":
+    "Tallies are recorded immediately. The other person does not need to approve each one.",
+  "tab.recordingMode.review": "Require approval",
+  "tab.recordingMode.reviewHint":
+    "Each tally stays pending until the other person accepts or rejects it.",
+  "tab.recordingMode.fixed": "This link uses {mode}. To change it, unlink and create a new link.",
+  "tab.status.recorded": "Recorded without approval",
+  "export.record.recordedBalance": "Recorded without approval",
+  "export.record.recorded": "Recorded without approval",
+  "tab.balance.recorded": "Recorded: {amount}",
+  "tab.link.serverUpdate": "This feature needs a server update. Please try again later.",
+  "tab.link.confirm.notifyBody":
+    "{name} will see this account and receive updates. Tallies are recorded without per-tally approval. The current balance becomes one opening tally when they join.",
+  "tab.invite.notifyMessage":
+    "{name} shares Kaata updates with you. Join once to see recorded tallies and receive notifications. You do not need to approve each tally:\n{url}",
   "selection.start": "Select",
   "selection.contacts": "Select contacts",
   "selection.tallies": "Select tallies",
@@ -1889,7 +1979,7 @@ const en = {
   "export.col.id": "Entry ID",
   "export.record.title": "Shared record with recorded acknowledgements",
   "export.record.explanation":
-    "The balance counts confirmed shared tallies and private entries separately identified here. Pending net changes exclude acknowledged amounts already carried into a proposed opening. Pending amounts are not acknowledged debt. Rejected and cancelled tallies contribute zero. Missing reviewer details were not recorded. Names are account labels, not verified legal identities.",
+    "The balance counts accepted tallies, tallies recorded without approval, and private entries separately identified here. Recorded without approval does not mean the other person agreed. Pending net changes exclude amounts already carried into a proposed opening. Pending amounts are not acknowledged debt. Rejected and cancelled tallies contribute zero. Missing reviewer details were not recorded. Names are account labels, not verified legal identities.",
   "export.record.acknowledgedBalance": "Acknowledged net balance",
   "export.record.pendingBalance": "Pending net balance",
   "export.record.privateBalance": "Private net balance",
@@ -2154,6 +2244,8 @@ const en = {
   "tab.join.createKaata": "Create a {currency} kaata",
   "tab.join.done": "Linked with {name}",
   "tab.join.closed": "This shared account was closed.",
+  "tab.join.openingChanged":
+    "The tallies behind this invitation have changed. Ask the sender to cancel this link and send a new one. Your existing tallies are unchanged.",
   // Collapses unknown / regenerated / revoked — the server answers all three
   // with the same 404 by design (uniform 404).
   "tab.join.notFound": "This link is not valid any more.",
@@ -2225,6 +2317,96 @@ type Key = keyof typeof en;
 // Missing keys fall back to English; half-translated UI doesn't break. Add a
 // new key here as soon as you add it to the en table.
 const fa: Partial<Record<Key, string>> = {
+  "tab.recordingMode.unknown":
+    "پیش از تغییرات، تنظیمات ثبت این حساب را تازه کنید. ثبت‌های موجود همچنان دیده می‌شوند.",
+  "notificationSettings.syncPending":
+    "بعضی تغییرات هشدارهای حساب وصل‌شده در انتظار همگام‌سازی است. برای تطبیق آن به انترنت وصل شوید.",
+  "tab.link.clientUpdate": "برای استفاده از ثبت‌های بدون نیاز به تأیید، کاتا را به‌روز کنید.",
+  "notificationSettings.title": "اطلاعیه‌ها",
+  "notificationSettings.contact.title": "تنظیمات اطلاعیه‌ها",
+  "notificationSettings.description":
+    "تنظیمات شخصی این تلفون. ثبت‌ها و سابقۀ تأیید شما تغییر نمی‌کند.",
+  "notificationSettings.contact.hint": "برای این مخاطب در این کاتا، در تمام اسعار تطبیق می‌شود.",
+  "notificationSettings.useDefaults": "استفاده از تنظیمات برنامه",
+  "notificationSettings.useDefaults.hint": "برای تنظیم جداگانۀ اطلاعیه‌های این مخاطب خاموش کنید.",
+  "notificationSettings.enabled": "اجازه‌دادن اطلاعیه‌ها",
+  "notificationSettings.enabled.hint":
+    "فقط هشدارها متوقف می‌شوند؛ سابقۀ اطلاعیه‌ها و یادآورها باقی می‌مانند.",
+  "notificationSettings.masterOff":
+    "اطلاعیه‌های برنامه متوقف است. نخست آن را در تنظیمات اطلاعیه‌های برنامه فعال کنید.",
+  "notificationSettings.types": "دریافت اطلاعیه برای",
+  "notificationSettings.tallies": "ثبت‌های جدید",
+  "notificationSettings.reviews": "تصمیم‌های تأیید یا رد",
+  "notificationSettings.cancellations": "ثبت‌های لغوشده",
+  "notificationSettings.connections": "تغییرات حساب‌های وصل‌شده",
+  "notificationSettings.reminders": "یادآوری‌های مخاطبین",
+  "notificationSettings.delivery": "نوع هشدار",
+  "notificationSettings.sound": "صدا",
+  "notificationSettings.vibration": "لرزش",
+  "notificationSettings.foreground": "نمایش هشدار هنگام استفاده از کاتا",
+  "notificationSettings.foreground.hint":
+    "حتی با خاموش‌بودن هشدارها، تغییرات حساب در سابقۀ اطلاعیه‌ها می‌مانند.",
+  "notificationSettings.reviewActions": "دکمه‌های تأیید و رد",
+  "notificationSettings.reviewActions.hint":
+    "فقط برای ثبت‌های نیازمند تأیید و با نمایش کامل جزئیات، تا مبلغ را پیش از تصمیم ببینید.",
+  "notificationSettings.privacy": "حریم خصوصی",
+  "notificationSettings.previews": "نمایش جزئیات اطلاعیه",
+  "notificationSettings.preview.full": "نام‌ها و مبلغ‌ها",
+  "notificationSettings.preview.name": "فقط نام‌ها",
+  "notificationSettings.preview.private": "پنهان‌کردن تمام جزئیات",
+  "notificationSettings.preview.hint":
+    "مشخص می‌کند چه چیزی روی صفحۀ قفل دیده شود. جزئیات کامل در کاتا باقی می‌ماند.",
+  "notificationSettings.quietHours": "ساعت‌های خاموشی",
+  "notificationSettings.quietHours.hint":
+    "در این ساعت‌های محلی هشدار نمی‌آید؛ تغییرات در سابقۀ اطلاعیه‌ها دیده می‌شوند.",
+  "notificationSettings.quiet.start": "از",
+  "notificationSettings.quiet.end": "تا",
+  "notificationSettings.quiet.allowReminders": "یادآورهای تعیین‌شده فعال بمانند",
+  "notificationSettings.quiet.allowReminders.hint":
+    "یادآوری که خودتان تعیین کرده‌اید، در ساعت‌های خاموشی هم هشدار می‌دهد.",
+  "notificationSettings.quiet.bypass": "اجازه در ساعت‌های خاموشی",
+  "notificationSettings.quiet.invalid": "ساعت آغاز و پایان باید متفاوت باشد.",
+  "notificationSettings.permission": "اجازۀ تلفون",
+  "notificationSettings.permission.granted": "اطلاعیه‌ها در این تلفون مجاز است.",
+  "notificationSettings.permission.denied": "اطلاعیه‌ها در تنظیمات تلفون مسدود است.",
+  "notificationSettings.permission.notAsked": "برای دریافت هشدار، به اطلاعیه‌ها اجازه بدهید.",
+  "notificationSettings.permission.unavailable":
+    "هشدارهای حساب وصل‌شده به نسخۀ نصب‌شدۀ کاتا نیاز دارد.",
+  "notificationSettings.permission.request": "اجازه‌دادن اطلاعیه‌ها",
+  "notificationSettings.permission.settings": "بازکردن تنظیمات تلفون",
+  "notificationSettings.saveFailed": "تنظیمات اطلاعیه‌ها ذخیره نشد. دوباره کوشش کنید.",
+  "notificationSettings.scopeChanged":
+    "حساب یا کاتا تغییر کرده است. تنظیمات اطلاعیه‌ها را دوباره باز کنید.",
+  "notificationSettings.reset": "بازگرداندن تنظیمات پیشنهادی",
+  "notificationSettings.reset.title": "تنظیمات پیشنهادی بازگردانده شود؟",
+  "notificationSettings.reset.body": "فقط هشدارهای شما در این تلفون تغییر می‌کند.",
+  "notificationSettings.channel.soundVibration": "صدا و لرزش",
+  "notificationSettings.channel.sound": "فقط صدا",
+  "notificationSettings.channel.vibration": "فقط لرزش",
+  "notificationSettings.channel.silent": "بی‌صدا",
+  "notificationSettings.alert.private": "در کاتا یک تغییر جدید دارید.",
+  "notificationSettings.alert.tally": "{name} یک ثبت اضافه کرد.",
+  "notificationSettings.alert.review": "{name} دربارۀ یک ثبت تصمیم گرفت.",
+  "notificationSettings.alert.cancellation": "{name} یک ثبت را لغو کرد.",
+  "notificationSettings.alert.connection": "یک حساب وصل‌شده تغییر کرد.",
+  "tab.notify.detail.recorded": "{name} یک مبلغ ({amount}) ثبت کرد.",
+  "tab.recordingMode.label": "شیوۀ ثبت حساب",
+  "tab.recordingMode.notify": "فقط اطلاع‌رسانی",
+  "tab.recordingMode.notifyHint":
+    "ثبت‌ها فوری در حساب می‌آیند. طرف مقابل نیاز نیست هر ثبت را تأیید کند.",
+  "tab.recordingMode.review": "نیاز به تأیید",
+  "tab.recordingMode.reviewHint": "هر ثبت تا تأیید یا رد طرف مقابل در انتظار می‌ماند.",
+  "tab.recordingMode.fixed":
+    "این اتصال از «{mode}» استفاده می‌کند. برای تغییر آن، اتصال را قطع کرده و دوباره وصل شوید.",
+  "tab.status.recorded": "ثبت‌شده، بدون نیاز به تأیید",
+  "export.record.recordedBalance": "ثبت‌شده، بدون نیاز به تأیید",
+  "export.record.recorded": "ثبت‌شده، بدون نیاز به تأیید",
+  "tab.balance.recorded": "ثبت‌شده: {amount}",
+  "tab.link.serverUpdate": "این قابلیت به به‌روزرسانی سرور نیاز دارد. بعداً دوباره کوشش کنید.",
+  "tab.link.confirm.notifyBody":
+    "{name} این حساب و تغییرات آن را می‌بیند. ثبت‌ها به تأیید جداگانه نیاز ندارند. با پیوستن او، ماندۀ فعلی به‌عنوان یک ثبت آغازین درج می‌شود.",
+  "tab.invite.notifyMessage":
+    "{name} تغییرات کاتا را با شما شریک می‌سازد. یک بار بپیوندید تا ثبت‌ها را ببینید و اطلاعیه بگیرید. نیاز نیست هر ثبت را تأیید کنید:\n{url}",
   "selection.start": "انتخاب",
   "selection.contacts": "انتخاب مخاطبین",
   "selection.tallies": "انتخاب ثبت‌ها",
@@ -3897,7 +4079,7 @@ const fa: Partial<Record<Key, string>> = {
   "export.col.id": "نمبر ثبت",
   "export.record.title": "سابقهٔ مشترک با تأییدهای ثبت‌شده",
   "export.record.explanation":
-    "مانده شامل ثبت‌های مشترک تأییدشده و ثبت‌های شخصی است که اینجا جدا مشخص شده‌اند. تغییر خالصِ در انتظار، ماندهٔ تأییدشده‌ای را که در ماندهٔ آغازین پیشنهادی انتقال یافته دوباره نمی‌شمارد. مبالغ در انتظار، بدهی تأییدشده نیستند. ثبت‌های رد یا لغوشده در جمع سهم ندارند. جزئیات خالیِ بررسی‌کننده ثبت نشده‌اند. نام‌ها نام حساب‌اند، نه هویت حقوقی تأییدشده.",
+    "مانده شامل ثبت‌های تأییدشده، ثبت‌های بدون نیاز به تأیید و ثبت‌های شخصی است که اینجا جدا مشخص شده‌اند. ثبت بدون نیاز به تأیید به معنای موافقت طرف مقابل نیست. تغییر خالص در انتظار، مبالغ انتقال‌یافته به ماندهٔ آغازین پیشنهادی را دوباره نمی‌شمارد. مبالغ در انتظار بدهی تأییدشده نیستند. ثبت‌های رد یا لغوشده در جمع سهم ندارند. جزئیات خالی بررسی‌کننده ثبت نشده‌اند. نام‌ها نام حساب‌اند، نه هویت حقوقی تأییدشده.",
   "export.record.acknowledgedBalance": "باقی‌ماندهٔ خالص تأییدشده",
   "export.record.pendingBalance": "تغییر خالصِ در انتظار",
   "export.record.privateBalance": "باقی‌ماندهٔ خالص خصوصی",
@@ -4121,6 +4303,8 @@ const fa: Partial<Record<Key, string>> = {
   "tab.join.createKaata": "ساختن کاتا به {currency}",
   "tab.join.done": "با {name} پیوند شد",
   "tab.join.closed": "این حساب مشترک بسته شده است.",
+  "tab.join.openingChanged":
+    "ثبت‌های مربوط به این دعوت‌نامه تغییر کرده‌اند. از فرستنده بخواهید این پیوند را لغو کند و لینک نو بفرستد. ثبت‌های موجود شما تغییر نکرده‌اند.",
   "tab.join.notFound": "این لینک دیگر معتبر نیست.",
   "tab.join.currencyMismatch": "کاتای شما به {kaata} است؛ این حساب به {tab} است.",
   "tab.join.sameKaata": "حساب مشترک با کاتای خودتان ساخته نمی‌شود.",
@@ -4165,6 +4349,92 @@ const fa: Partial<Record<Key, string>> = {
 
 // Pashto. Complete key coverage is enforced against the English source table.
 const ps: Record<Key, string> = {
+  "tab.recordingMode.unknown":
+    "له بدلونونو مخکې د دې حساب د ثبت امستنې تازه کړئ. شته ثبتونه لا هم لیدل کېږي.",
+  "notificationSettings.syncPending":
+    "د نښلولي حساب د خبرتیاوو ځینې بدلونونه همغږۍ ته په تمه دي. د پلي کېدو لپاره یې له انټرنېټ سره ونښلئ.",
+  "tab.link.clientUpdate": "د بې تاییده ثبتونو د کارولو لپاره کاټا تازه کړئ.",
+  "notificationSettings.title": "خبرتیاوې",
+  "notificationSettings.contact.title": "د خبرتیاوو امستنې",
+  "notificationSettings.description":
+    "د دې ټیلیفون شخصي امستنې. ثبتونه او د تایید مخینه مو نه بدلېږي.",
+  "notificationSettings.contact.hint": "په دې کاټا کې د دې اړیکې پر ټولو اسعارو پلي کېږي.",
+  "notificationSettings.useDefaults": "د اپ امستنې کارول",
+  "notificationSettings.useDefaults.hint": "د دې اړیکې د خبرتیاوو د جلا امستلو لپاره یې بند کړئ.",
+  "notificationSettings.enabled": "خبرتیاوې فعالول",
+  "notificationSettings.enabled.hint": "یوازې خبرتیاوې دروي؛ د خبرتیاوو مخینه او یادونې پاتې کېږي.",
+  "notificationSettings.masterOff":
+    "د اپ خبرتیاوې بندې دي. لومړی یې د اپ د خبرتیاوو په امستنو کې فعالې کړئ.",
+  "notificationSettings.types": "په دې اړه خبر راکړئ",
+  "notificationSettings.tallies": "نوي ثبتونه",
+  "notificationSettings.reviews": "د منلو او ردولو پرېکړې",
+  "notificationSettings.cancellations": "لغوه شوي ثبتونه",
+  "notificationSettings.connections": "د نښلول شوو حسابونو بدلونونه",
+  "notificationSettings.reminders": "د اړیکو یادونې",
+  "notificationSettings.delivery": "د خبرتیا ډول",
+  "notificationSettings.sound": "غږ",
+  "notificationSettings.vibration": "رپېدل",
+  "notificationSettings.foreground": "د کاټا د کارولو پر مهال خبرتیاوې",
+  "notificationSettings.foreground.hint":
+    "که خبرتیاوې بندې هم وي، د ګډ حساب بدلونونه په مخینه کې پاتې کېږي.",
+  "notificationSettings.reviewActions": "د منلو او ردولو تڼۍ",
+  "notificationSettings.reviewActions.hint":
+    "یوازې د تایید غوښتونکو ثبتونو له بشپړو جزیاتو سره، څو لومړی مبلغ ووینئ.",
+  "notificationSettings.privacy": "محرمیت",
+  "notificationSettings.previews": "د خبرتیا جزیات",
+  "notificationSettings.preview.full": "نومونه او مبلغونه",
+  "notificationSettings.preview.name": "یوازې نومونه",
+  "notificationSettings.preview.private": "ټول جزیات پټول",
+  "notificationSettings.preview.hint":
+    "ټاکي چې په قلف شوې پرده څه ښکاره شي. بشپړ جزیات په کاټا کې پاتې کېږي.",
+  "notificationSettings.quietHours": "د چوپتیا ساعتونه",
+  "notificationSettings.quietHours.hint":
+    "په دې سیمه‌ییزو ساعتونو کې خبرتیا نه راځي؛ بدلونونه په مخینه کې لیدل کېږي.",
+  "notificationSettings.quiet.start": "له",
+  "notificationSettings.quiet.end": "تر",
+  "notificationSettings.quiet.allowReminders": "ټاکل شوې یادونې فعالې ساتل",
+  "notificationSettings.quiet.allowReminders.hint":
+    "هغه یادونه چې تاسې ټاکلې، د چوپتیا په ساعتونو کې هم خبر درکوي.",
+  "notificationSettings.quiet.bypass": "د چوپتیا په ساعتونو کې اجازه",
+  "notificationSettings.quiet.invalid": "د پیل او پای وختونه باید جلا وي.",
+  "notificationSettings.permission": "د ټیلیفون اجازه",
+  "notificationSettings.permission.granted": "په دې ټیلیفون کې خبرتیاوو ته اجازه شته.",
+  "notificationSettings.permission.denied": "خبرتیاوې د ټیلیفون په امستنو کې بندې دي.",
+  "notificationSettings.permission.notAsked": "د خبرتیاوو د ترلاسه کولو لپاره اجازه ورکړئ.",
+  "notificationSettings.permission.unavailable":
+    "د نښلولي حساب خبرتیاوې د کاټا نصب شوې نسخې ته اړتیا لري.",
+  "notificationSettings.permission.request": "خبرتیاوو ته اجازه ورکول",
+  "notificationSettings.permission.settings": "د ټیلیفون امستنې پرانیستل",
+  "notificationSettings.saveFailed": "د خبرتیاوو امستنې خوندي نه شوې. بیا هڅه وکړئ.",
+  "notificationSettings.scopeChanged": "دا حساب یا کاټا بدله شوې. د خبرتیاوو امستنې بیا پرانیزئ.",
+  "notificationSettings.reset": "سپارښتل شوې امستنې بېرته راوستل",
+  "notificationSettings.reset.title": "سپارښتل شوې امستنې بېرته راوستل شي؟",
+  "notificationSettings.reset.body": "یوازې په دې ټیلیفون کې ستاسې خبرتیاوې بدلوي.",
+  "notificationSettings.channel.soundVibration": "غږ او رپېدل",
+  "notificationSettings.channel.sound": "یوازې غږ",
+  "notificationSettings.channel.vibration": "یوازې رپېدل",
+  "notificationSettings.channel.silent": "چوپ",
+  "notificationSettings.alert.private": "په کاټا کې نوی بدلون لرئ.",
+  "notificationSettings.alert.tally": "{name} یو ثبت زیات کړ.",
+  "notificationSettings.alert.review": "{name} یو ثبت وکوت.",
+  "notificationSettings.alert.cancellation": "{name} یو ثبت لغوه کړ.",
+  "notificationSettings.alert.connection": "یو نښلول شوی حساب بدل شو.",
+  "tab.notify.detail.recorded": "{name} یو مبلغ ({amount}) ثبت کړ.",
+  "tab.recordingMode.label": "د حساب ثبتولو ډول",
+  "tab.recordingMode.notify": "یوازې خبر ورکول",
+  "tab.recordingMode.notifyHint": "ثبتونه سمدستي په حساب کې راځي. بل کس اړ نه دی هر ثبت تایید کړي.",
+  "tab.recordingMode.review": "تایید ته اړتیا",
+  "tab.recordingMode.reviewHint": "هر ثبت د بل کس تر منلو یا ردولو پورې په تمه پاتې کېږي.",
+  "tab.recordingMode.fixed": "دا اړیکه «{mode}» کاروي. د بدلولو لپاره یې پرې او بیا ونښلوئ.",
+  "tab.status.recorded": "بې له تاییده ثبت شوی",
+  "export.record.recordedBalance": "بې له تاییده ثبت شوی",
+  "export.record.recorded": "بې له تاییده ثبت شوی",
+  "tab.balance.recorded": "ثبت شوی: {amount}",
+  "tab.link.serverUpdate": "دا ځانګړنه د سرور تازه کولو ته اړتیا لري. وروسته بیا هڅه وکړئ.",
+  "tab.link.confirm.notifyBody":
+    "{name} دا حساب او بدلونونه یې ویني. هر ثبت جلا تایید ته اړتیا نه لري. د هغه په یوځای کېدو اوسنی پاتې حساب د پیل په یوه ثبت کې راځي.",
+  "tab.invite.notifyMessage":
+    "{name} د کاټا بدلونونه درسره شریکوي. یو ځل یوځای شئ، ثبتونه وګورئ او خبرتیاوې ترلاسه کړئ. د هر ثبت تایید ته اړتیا نشته:\n{url}",
   "onboarding.subtitle": "ستاسو او د هغو خلکو ترمنځ یوه شخصي کاټه چې باور پرې لرئ.",
   "onboarding.name.label": "ستاسې نوم",
   "onboarding.name.placeholder": "سلطان",
@@ -5436,6 +5706,8 @@ const ps: Record<Key, string> = {
   "tab.join.createKaata": "په {currency} کاټه جوړه کړئ",
   "tab.join.done": "له {name} سره ونښلول شو",
   "tab.join.closed": "دا ګډ حساب تړل شوی.",
+  "tab.join.openingChanged":
+    "د دې بلنې اړوند راکړې ورکړې بدلې شوې دي. له لېږونکي وغواړئ چې دا تړاو لغوه کړي او نوی لینک درولېږي. ستاسو اوسنۍ راکړې ورکړې نه دي بدلې شوې.",
   "tab.join.notFound": "دا لینک نور اعتبار نه لري.",
   "tab.join.currencyMismatch": "ستاسو کاټه په {kaata} ده؛ دا حساب په {tab} دی.",
   "tab.join.sameKaata": "له خپلې کاټې سره حساب نه شئ شریکولای.",
@@ -5929,7 +6201,7 @@ const ps: Record<Key, string> = {
   "export.col.id": "د راکړې ورکړې پېژند",
   "export.record.title": "د ثبت شویو منلو سره ګډ ریکارډ",
   "export.record.explanation":
-    "په پاتې حساب کې تایید شوې ګډې راکړې ورکړې او دلته جلا ښودل شوي شخصي ثبتونه شمېرل کېږي. په تمه خالص بدلون هغه تایید شوی پاتې حساب بیا نه شمېري چې وړاندیز شوي لومړني پاتې حساب ته لېږدول شوی وي. په تمه مبلغونه تایید شوی پور نه دی. رد شوي او لغوه شوي ثبتونه صفر شمېرل کېږي. د بیاکتونکي ورک جزییات نه دي ثبت شوي. نومونه د حساب نومونه دي، تایید شوي قانوني هویتونه نه دي.",
+    "په پاتې حساب کې منل شوي ثبتونه، بې له تاییده ثبت شوي مبلغونه او دلته جلا ښودل شوي شخصي ثبتونه شمېرل کېږي. بې له تاییده ثبت د بل کس د موافقې معنا نه لري. په تمه خالص بدلون لومړني وړاندیز شوي حساب ته لېږدول شوي مبلغونه بیا نه شمېري. په تمه مبلغونه تایید شوی پور نه دی. رد شوي او لغوه شوي ثبتونه صفر شمېرل کېږي. د بیاکتونکي ورک جزییات نه دي ثبت شوي. نومونه د حساب نومونه دي، تایید شوي قانوني هویتونه نه دي.",
   "export.record.acknowledgedBalance": "منل شوی خالص پاتې حساب",
   "export.record.pendingBalance": "په تمه خالص بدلون",
   "export.record.privateBalance": "شخصي خالص پاتې حساب",

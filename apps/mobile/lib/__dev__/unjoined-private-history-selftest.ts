@@ -143,6 +143,30 @@ const data = compile<typeof import("../export/data")>("../export/data", (name) =
   if (name === "../currency-totals") return require("../currency-totals");
   return {};
 });
+const evidence = compile<typeof import("../export/evidence")>("../export/evidence", () => ({
+  tIn: (_locale: string, key: string) => key,
+}));
+const csv = compile<typeof import("../export/csv")>("../export/csv", (name) => {
+  if (name === "../i18n") return { tIn: (_locale: string, key: string) => key };
+  if (name === "./evidence") return evidence;
+  if (name === "./shared-record") return require("../export/shared-record");
+  if (name === "./data") return { isoDate: String, shamsiDate: String, qamariDate: String };
+  if (name === "../jalali") return { formatSettlementDate: String };
+  if (name === "./note")
+    return { noteFor: (note: string | null) => note ?? "", clearanceNote: () => "Clearance" };
+  return {};
+});
+const pdfEvidence = compile<{ recordDetailHtml(entry: Entry, locale: string): string }>(
+  "../export/pdf",
+  (name) => {
+    if (name === "../i18n") return { tIn: (_locale: string, key: string) => key };
+    if (name === "./evidence") return evidence;
+    if (name === "../colors") return require("../colors");
+    if (name === "./shared-record") return require("../export/shared-record");
+    return {};
+  },
+  ["recordDetailHtml"],
+);
 
 function reset(
   options: {
@@ -843,6 +867,226 @@ async function main() {
         );
       }
     }
+  });
+  await test("old-server recording metadata cannot erase source money or downgrade a known notification link", async () => {
+    store.exec("UPDATE tab_links SET recording_mode='notify'");
+    const link = (await tabDb.getTabLink("invite"))!;
+    const tab: import("../tabs/types").WireTab = {
+      id: "invite",
+      currency: "AFN",
+      rev: 3,
+      created_at_ms: 500,
+      closed_at_ms: null,
+      closed_by: null,
+      you: "a",
+      parties: {
+        a: { label: "Owner", bound: true, joined_at_ms: 500 },
+        b: { label: "", bound: false, joined_at_ms: null },
+      },
+      balance: { a: "170", b: "-170" },
+      pending_for_you: 0,
+      unjoined_invitation: false,
+    };
+    const entry: import("../tabs/types").WireEntry = {
+      id: "new-recorded",
+      seq: 2,
+      rev: 3,
+      created_by: "a",
+      direction: "a_to_b",
+      amount: "50",
+      kind: "entry",
+      note: null,
+      occurred_at_ms: 550,
+      created_at_ms: 550,
+      status: "recorded",
+      status_at_ms: null,
+      dispute_reason: null,
+      voided_by_entry_id: null,
+      voids_entry_id: null,
+    };
+    const before = snapshot();
+    await assert.rejects(
+      tabDb.upsertTabFromWire(link, { tab, entries: [entry], full: true }),
+      (error: any) => error.code === "notification_only_unsupported",
+    );
+    await assert.rejects(
+      tabDb.upsertTabFromWire(link, { tab, entries: [], full: false }),
+      (error: any) => error.code === "notification_only_unsupported",
+    );
+    assert.deepEqual(
+      await tabDb.getTabLink("invite"),
+      link,
+      "wrong old participation proof never becomes irreversible local state",
+    );
+    assert.deepEqual(snapshot(), before);
+    const unseen = { ...link, tab_id: "unseen" };
+    await assert.rejects(
+      tabDb.upsertTabFromWire(unseen, {
+        tab: { ...tab, id: "unseen" },
+        entries: [entry],
+        full: true,
+      }),
+    );
+    assert.equal(
+      await tabDb.getTabLink("unseen"),
+      null,
+      "unsupported history fails before creating a cache binding",
+    );
+    assert.equal((await db.getPerson("person", "AFN"))!.balance, 120);
+  });
+  await test("recording-mode migration leaves legacy books and financial evidence unchanged", async () => {
+    store.exec(
+      "ALTER TABLE tab_links DROP COLUMN recording_mode; ALTER TABLE tab_links DROP COLUMN recording_mode_known; CREATE TABLE IF NOT EXISTS schema_migrations(name TEXT PRIMARY KEY,applied_at INTEGER)",
+    );
+    const before = snapshot();
+    const metadata = store
+      .prepare("SELECT rev,last_synced_at FROM tab_links WHERE tab_id='invite'")
+      .get();
+    const migration = /async function runMigration046[\s\S]*?\n}/.exec(source)?.[0];
+    assert.ok(migration);
+    const run = new Function(
+      "columnExists",
+      "MIGRATION_046",
+      ts.transpileModule(migration, {
+        compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+      }).outputText + "\nreturn runMigration046;",
+    )(
+      async (_db: unknown, table: string, column: string) =>
+        (store.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).some(
+          (row) => row.name === column,
+        ),
+      "046_tab_recording_mode",
+    );
+    await run(sqlite);
+    assert.equal((await tabDb.getTabLink("invite"))!.recording_mode, "review");
+    assert.equal((await tabDb.getTabLink("invite"))!.recording_mode_known, 1);
+    assert.deepEqual(
+      store.prepare("SELECT rev,last_synced_at FROM tab_links WHERE tab_id='invite'").get(),
+      metadata,
+    );
+    assert.deepEqual(snapshot(), before);
+  });
+  await test("notification-only joined openings count once without claiming peer acceptance", async () => {
+    for (const sign of [1, -1]) {
+      reset({ joined: true });
+      store.prepare("UPDATE tab_links SET recording_mode='notify' WHERE tab_id='invite'").run();
+      store
+        .prepare("UPDATE tab_entries SET status='recorded',direction=? WHERE id='opening'")
+        .run(sign > 0 ? "a_to_b" : "b_to_a");
+      const before = snapshot();
+      const person = (await db.getPerson("person", "AFN"))!;
+      assert.equal(person.balance, sign * 120);
+      assert.equal(person.tab_confirmed_balance, 0);
+      assert.equal(person.tab_pending_balance, 0);
+      assert.equal(person.tab_pending_count, 0);
+      const rows = await db.listEntries("person", "AFN");
+      assert.deepEqual(recordTotals(rows), {
+        acknowledged: 0,
+        pending: 0,
+        private: 0,
+        recorded: sign * 120,
+      });
+      assert.equal(rows[0].accepted_at, null);
+      assert.ok(
+        evidence
+          .evidenceCells(rows[0].tab, "en")
+          .slice(7, 13)
+          .every((value) => value === ""),
+      );
+      const statement = (await data.buildPersonStatement("person", "en", "AFN", "AFN", 1000))!;
+      assert.equal(statement.balance, sign * 120);
+      const lines = csv
+        .buildPersonCsv(statement)
+        .replace(/^\uFEFF/, "")
+        .split("\r\n");
+      const header = lines[0].split(",");
+      const current = lines.find((line) => line.endsWith(",opening"))!.split(",");
+      assert.equal(current[header.indexOf("export.record.recordedBalance")], String(sign * 120));
+      assert.equal(current[header.indexOf("export.record.acknowledgedBalance")], "0");
+      assert.equal(current[header.indexOf("export.record.status")], "export.record.recorded");
+      const html = pdfEvidence.recordDetailHtml(rows[0], "en");
+      assert.ok(html.includes("export.record.recorded"));
+      assert.ok(!html.includes("export.record.reviewer"));
+      assert.ok(!html.includes("export.record.reviewedAt"));
+      const report = await data.buildVaultReport("vault", "Book", "AFN", "en", 1000);
+      assert.equal(report.totals.net, sign * 120);
+      assert.ok(csv.buildVaultCsv(report).includes("export.record.recordedBalance"));
+      assert.equal(
+        await credit.creditBalanceInTx(sqlite as any, "vault", "relationship", "AFN"),
+        sign * 12000,
+      );
+      assert.equal((await db.getPerson("person", "USD"))!.balance, 70);
+      assert.deepEqual(snapshot(), before);
+    }
+  });
+  await test("notification-only entries before joining preserve the original source through close and join", async () => {
+    store.exec(`UPDATE tab_links SET recording_mode='notify';
+      INSERT INTO tab_entries(id,tab_id,seq,rev,created_by,direction,amount_minor,kind,occurred_at,created_at,status)
+      VALUES('new-recorded','invite',2,2,'a','a_to_b',5000,'entry',550,550,'recorded');`);
+    const before = snapshot();
+    const assertBalance = async () => {
+      const person = (await db.getPerson("person", "AFN"))!;
+      assert.equal(person.balance, 170);
+      assert.equal(person.tab_pending_balance, 0);
+      assert.equal(person.tab_pending_count, 0);
+      assert.equal(
+        await credit.creditBalanceInTx(sqlite as any, "vault", "relationship", "AFN"),
+        17000,
+      );
+    };
+    await assertBalance();
+    const rows = await db.listEntries("person", "AFN");
+    assert.ok(rows.every((entry) => entry.id !== "opening"));
+    assert.deepEqual(recordTotals(rows), {
+      acknowledged: 0,
+      pending: 0,
+      private: 120,
+      recorded: 50,
+    });
+    assert.deepEqual(snapshot(), before);
+    store.exec(
+      "UPDATE tab_links SET closed_at=600; UPDATE tab_entries SET voided_by_entry_id='withdrawn' WHERE id='opening'",
+    );
+    await assertBalance();
+    store.exec(
+      "UPDATE tab_links SET closed_at=NULL,other_joined_at=650,unjoined_invitation=0; UPDATE tab_entries SET status='recorded',voided_by_entry_id=NULL WHERE id='opening'",
+    );
+    await assertBalance();
+    assert.deepEqual(recordTotals(await db.listEntries("person", "AFN")), {
+      acknowledged: 0,
+      pending: 0,
+      private: 0,
+      recorded: 170,
+    });
+  });
+  await test("recorded notification rows stay unconfirmed while sending and never become review decisions", async () => {
+    reset({ joined: true });
+    store.exec(
+      "UPDATE tab_links SET recording_mode='notify'; UPDATE tab_entries SET status='recorded',local_pending=1 WHERE id='opening'",
+    );
+    const person = (await db.getPerson("person", "AFN"))!;
+    assert.equal(person.balance, 0);
+    assert.equal(person.tab_confirmed_balance, 0);
+    assert.equal(person.tab_pending_balance, 120);
+    store.exec("UPDATE tab_entries SET local_pending=0 WHERE id='opening'");
+    const link = (await tabDb.getTabLink("invite"))!;
+    const before = snapshot();
+    await assert.rejects(tabDb.applyOptimisticStatus(link, "opening", "accepted", null));
+    await assert.rejects(tabDb.applyOptimisticStatus(link, "opening", "disputed", ""));
+    await assert.rejects(tabDb.applyOptimisticVoid(link, "opening", "forbidden"));
+    assert.deepEqual(
+      snapshot(),
+      before,
+      "a recorded opening cannot be reviewed or withdrawn after joining",
+    );
+    store.exec(`INSERT INTO tab_entries(id,tab_id,seq,rev,created_by,direction,amount_minor,kind,occurred_at,created_at,status)
+      VALUES('cleared-record','invite',2,2,'a','b_to_a',12000,'entry',650,650,'recorded');
+      INSERT INTO tab_settlements(id,tab_id,rev,through_seq,settled_at_ms,created_by,actor_name,semantics_version)
+      VALUES('clear','invite',3,2,700,'a','Owner','recorded_zero_v1');`);
+    const settled = snapshot();
+    await assert.rejects(tabDb.applyOptimisticVoid(link, "cleared-record", "forbidden"));
+    assert.deepEqual(snapshot(), settled, "a closed chapter cannot be un-zeroed by cancellation");
+    assert.equal((await db.listAllPeople("vault", "AFN"))[0].is_settled, 1);
   });
   store.close();
   console.log(`${passed} passed, ${failed} failed`);

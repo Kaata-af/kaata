@@ -28,6 +28,7 @@ let openResult = true,
   copyFails = false;
 let create: () => Promise<{ link: TabLink }>;
 const fresh = {
+  recording_mode: "notify",
   tab_id: "new-tab",
   invite_url: "https://kaata.af/t/fresh",
   my_label: "Shop",
@@ -243,7 +244,11 @@ async function main() {
   reset("+93700000000", "ask");
   await settle();
   assertOneModal();
-  const languages = nodes(tree).filter((n) => n.props.accessibilityRole === "radio");
+  const languages = nodes(tree).filter(
+    (n) =>
+      n.props.accessibilityRole === "radio" &&
+      !n.props.accessibilityLabel?.startsWith("tab.recordingMode."),
+  );
   assert.equal(languages.length, 3);
   languages[2].props.onPress();
   await settle();
@@ -253,19 +258,37 @@ async function main() {
   reset("+93700000000", "ask");
   await settle();
   nodes(tree)
-    .filter((n) => n.props.accessibilityRole === "radio")[1]
+    .filter(
+      (n) =>
+        n.props.accessibilityRole === "radio" &&
+        !n.props.accessibilityLabel?.startsWith("tab.recordingMode."),
+    )[1]
     .props.onPress();
   await settle();
   await tap("tab.link.whatsapp");
   assert.equal(shares[0].text, "ps:Shop:" + fresh.invite_url);
   reset("+93700000000", "ps");
   await settle();
-  assert.equal(nodes(tree).filter((n) => n.props.accessibilityRole === "radio").length, 0);
+  assert.equal(
+    nodes(tree).filter(
+      (n) =>
+        n.props.accessibilityRole === "radio" &&
+        !n.props.accessibilityLabel?.startsWith("tab.recordingMode."),
+    ).length,
+    0,
+  );
   await tap("tab.link.whatsapp");
   assert.equal(shares[0].text, "ps:Shop:" + fresh.invite_url);
   reset("+93700000000", "en");
   await settle();
-  assert.equal(nodes(tree).filter((n) => n.props.accessibilityRole === "radio").length, 0);
+  assert.equal(
+    nodes(tree).filter(
+      (n) =>
+        n.props.accessibilityRole === "radio" &&
+        !n.props.accessibilityLabel?.startsWith("tab.recordingMode."),
+    ).length,
+    0,
+  );
   await tap("tab.link.whatsapp");
   assert.equal(shares[0].text, "en:Shop:" + fresh.invite_url);
   console.log("PASS: ask-language is inline; explicit preference is respected");
@@ -360,6 +383,24 @@ async function main() {
     createArguments[0][1].currency,
     "USD",
     "Link creation targets the explicit action currency",
+  );
+  assert.equal(
+    createArguments[0][1].recordingMode,
+    "notify",
+    "new links default to notifications without per-tally approval",
+  );
+  reset("+93700000000");
+  await settle();
+  const reviewMode = nodes(tree).find(
+    (node) => node.props.accessibilityLabel === "tab.recordingMode.review",
+  )!;
+  reviewMode.props.onPress();
+  await settle();
+  await tap("tab.link.whatsapp");
+  assert.equal(
+    createArguments[0][1].recordingMode,
+    "review",
+    "explicit approval mode remains available",
   );
   for (const owner of ["account", "vault"]) {
     reset("+93700000000");

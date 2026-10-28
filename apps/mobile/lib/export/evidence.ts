@@ -14,9 +14,11 @@ export function recordStatus(tab: TabEntryMeta | undefined, locale: LocaleCode):
       ? "export.record.cancelled"
       : tab.status === "accepted"
         ? "export.record.accepted"
-        : tab.status === "disputed"
-          ? "export.record.rejected"
-          : "export.record.pending",
+        : tab.status === "recorded"
+          ? "export.record.recorded"
+          : tab.status === "disputed"
+            ? "export.record.rejected"
+            : "export.record.pending",
   );
 }
 
@@ -51,7 +53,7 @@ export const EVIDENCE_KEYS = [
 export function evidenceCells(tab: TabEntryMeta | undefined, locale: LocaleCode): string[] {
   if (!tab) return [recordStatus(tab, locale), ...EVIDENCE_KEYS.slice(1).map(() => "")];
   // A queued offline review is intent, not a server-recorded acknowledgement.
-  const reviewed = !tab.local_pending && tab.status !== "pending";
+  const reviewed = !tab.local_pending && (tab.status === "accepted" || tab.status === "disputed");
   return [
     recordStatus(tab, locale),
     tIn(locale, tab.local_pending ? "export.record.awaitingSync" : "export.record.saved"),

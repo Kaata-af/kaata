@@ -819,6 +819,12 @@ export default function AccountScreen() {
           {/* ============ PREFERENCES (personal) ============ */}
           <SectionHeader label={t("account.preferences.section")} isRTL={isRTL} />
           <NavRow
+            icon="notifications-outline"
+            label={t("notificationSettings.title")}
+            onPress={() => router.push("/notification-settings")}
+            isRTL={isRTL}
+          />
+          <NavRow
             icon="language-outline"
             label={t("settings.language.label")}
             trailing={languageValue}

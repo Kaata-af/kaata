@@ -176,6 +176,7 @@ export function isRetryableTabError(err: unknown): boolean {
     err.status === 401 ||
     err.status === 408 ||
     err.status === 429 ||
+    (err.status === 426 && err.code === "recording_upgrade_required") ||
     err.status >= 500
   );
 }

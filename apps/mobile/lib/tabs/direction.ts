@@ -41,7 +41,7 @@ export type BalanceRow = {
   direction: TabDirection;
   amount_minor: number;
   kind: TabEntryKind;
-  status?: "pending" | "accepted" | "disputed";
+  status?: "pending" | "accepted" | "disputed" | "recorded";
   voided_by_entry_id: string | null;
   local_pending?: number;
   local_action_pending?: number;
@@ -119,5 +119,13 @@ export function tabConfirmedBalanceSql(roleExpr: string, alias = "te"): string {
   return recorded.replaceAll(
     `${alias}.status <> 'disputed'`,
     `${alias}.status = 'accepted' AND ${alias}.local_pending = 0 AND COALESCE(${alias}.local_action_pending, 0) = 0`,
+  );
+}
+
+/** Saved notification-only records affect the book without peer acceptance. */
+export function tabFinancialBalanceSql(roleExpr: string, alias = "te"): string {
+  return tabBalanceSql(roleExpr, alias).replaceAll(
+    `${alias}.status <> 'disputed'`,
+    `${alias}.status IN ('accepted','recorded') AND ${alias}.local_pending = 0 AND COALESCE(${alias}.local_action_pending, 0) = 0`,
   );
 }

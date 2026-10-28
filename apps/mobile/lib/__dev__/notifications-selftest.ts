@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import ts from "typescript";
 import type { TabLink } from "../tabs/types";
+import { defaultNotificationPolicy, type NotificationPolicy } from "../notification-policy";
 
 const saved = new Map<string, NodeJS.Module | undefined>();
 function stub(name: string, exports: object) {
@@ -54,6 +55,11 @@ const emitApplied = (ev: unknown) => {
   for (const fn of appliedListeners) fn(ev);
 };
 let currentEntry: any;
+let deliveryPolicy: NotificationPolicy = { ...defaultNotificationPolicy(), previews: "full" };
+let preferenceVersion = 0;
+let preferencesSupported = true;
+let onTabPolicyRead: (() => Promise<void>) | null = null;
+const preferenceListeners = new Set<() => void>();
 let onEntryRead: (() => void) | null = null;
 // tab_entries rows by id for the tray sweep; anything else answers currentEntry.
 const rows = new Map<string, any>();
@@ -95,6 +101,7 @@ stub("../db", {
 stub("../db-tx", {
   getInstallIdSync: () => "install",
   getAccountIdSync: () => accountId,
+  getSessionAccountIdSync: () => (signedIn ? accountId : null),
   getDb: async () => ({
     getFirstAsync: async (sql: string, ...args: unknown[]) => {
       const row = rows.get(String(args[0])) ?? currentEntry;
@@ -128,6 +135,24 @@ stub("../auth", {
   },
 });
 stub("../use-vault-role", { readVaultRole: async () => "editor", canPerformAction: () => true });
+stub("../notification-preferences", {
+  notificationPolicyForContact: async () => deliveryPolicy,
+  notificationPolicyForTab: async () => {
+    const work = onTabPolicyRead;
+    onTabPolicyRead = null;
+    if (work) await work();
+    return deliveryPolicy;
+  },
+  notificationPreferencesRevision: () => preferenceVersion,
+  notificationOwnerScope: () => (signedIn ? `account:${accountId}` : "local:install"),
+  onNotificationPreferencesChanged: (listener: () => void) => {
+    preferenceListeners.add(listener);
+    return () => preferenceListeners.delete(listener);
+  },
+});
+stub("../notification-capabilities", {
+  notificationPreferencesSupported: async () => preferencesSupported,
+});
 stub("../i18n", {
   getLocale: () => locale,
   subscribeLocale: (fn: () => void) => {
@@ -253,6 +278,9 @@ async function settled() {
   for (let i = 0; i < 20; i++) await new Promise<void>((resolve) => setImmediate(resolve));
 }
 function reset() {
+  deliveryPolicy = { ...defaultNotificationPolicy(), previews: "full" };
+  preferencesSupported = true;
+  onTabPolicyRead = null;
   locale = "en";
   registrationResult = async () => ({ enabled: true });
   meta.clear();
@@ -631,6 +659,7 @@ async function main() {
       state.currentState = "active";
       const reminder = response("default", {
         kind: "customer_reminder",
+        owner_scope: `account:${accountId}`,
         reminder_id: "r1",
       }).notification;
       assert.deepEqual(await handler.handleNotification(reminder), {
@@ -667,7 +696,11 @@ async function main() {
         assert.equal(
           (
             await handler.handleNotification(
-              response("default", { tab_id: TAB, kind: "customer_reminder" }).notification,
+              response("default", {
+                tab_id: TAB,
+                kind: "customer_reminder",
+                owner_scope: `account:${accountId}`,
+              }).notification,
             )
           ).shouldShowBanner,
           true,
@@ -757,6 +790,210 @@ async function main() {
     await settled();
     assert.equal(onEntryRead, null, "the close raced the shipped fallback path");
     assert.equal(scheduled.length, 0);
+  });
+  await test("settings register full per-contact policy and unsupported servers lose old full-detail subscriptions", async () => {
+    granted = true;
+    deliveryPolicy = { ...deliveryPolicy, tallies: false, sound: false, previews: "private" };
+    await notify.ensureTabNotificationPermission();
+    assert.deepEqual(registrations.at(-1).options.preferences, deliveryPolicy);
+    preferencesSupported = false;
+    await notify.ensureTabNotificationPermission();
+    assert.equal(registrations.at(-1).options.token, "");
+    assert.equal(registrations.at(-1).options.preferences, undefined);
+    assert.equal(meta.get("tab_push_error"), "settings_unsupported");
+    assert.equal(meta.get("tab_push_active:" + TAB), "0");
+  });
+  await test("a policy read from an old preference generation cannot start an HTTP registration", async () => {
+    granted = true;
+    let release!: () => void;
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    onTabPolicyRead = () => blocked;
+    const old = notify.ensureTabNotificationPermission();
+    await settled();
+    assert.equal(onTabPolicyRead, null, "the old registration is waiting on its policy read");
+    deliveryPolicy = { ...deliveryPolicy, previews: "private" };
+    preferenceVersion++;
+    const latest = notify.ensureTabNotificationPermission();
+    release();
+    await Promise.all([old, latest]);
+    assert.equal(registrations.length, 1, "only the latest privacy snapshot reaches the server");
+    assert.equal(registrations[0].options.preferences.previews, "private");
+  });
+  await test("master, categories, quiet hours, foreground and sound independently control OS presentation", async () => {
+    state.currentState = "background";
+    deliveryPolicy.enabled = false;
+    assert.equal(
+      (await handler.handleNotification(response("default").notification)).shouldShowBanner,
+      false,
+    );
+    deliveryPolicy.enabled = true;
+    for (const [key, kind] of [
+      ["tallies", "entry_created"],
+      ["reviews", "entry_accepted"],
+      ["cancellations", "entry_voided"],
+      ["connections", "joined"],
+      ["reminders", "customer_reminder"],
+    ] as const) {
+      deliveryPolicy[key] = false;
+      assert.equal(
+        (
+          await handler.handleNotification(
+            response("default", { ...payload, kind, owner_scope: `account:${accountId}` })
+              .notification,
+          )
+        ).shouldShowBanner,
+        false,
+      );
+      deliveryPolicy[key] = true;
+    }
+    deliveryPolicy.sound = false;
+    const silent = await handler.handleNotification(response("default").notification);
+    assert.equal(silent.shouldShowBanner, true);
+    assert.equal(silent.shouldPlaySound, false);
+    state.currentState = "active";
+    deliveryPolicy.foreground = true;
+    assert.equal(
+      (await handler.handleNotification(response("default").notification)).shouldShowBanner,
+      true,
+    );
+    deliveryPolicy.time_zone = "UTC";
+    const now = new Date(),
+      minute = now.getUTCHours() * 60 + now.getUTCMinutes();
+    deliveryPolicy.quiet_hours = {
+      enabled: true,
+      start_minute: (minute + 1439) % 1440,
+      end_minute: (minute + 1) % 1440,
+      allow_reminders: true,
+    };
+    assert.equal(
+      (await handler.handleNotification(response("default").notification)).shouldShowBanner,
+      false,
+    );
+    const reminder = response("default", {
+      kind: "customer_reminder",
+      owner_scope: `account:${accountId}`,
+    }).notification;
+    assert.equal((await handler.handleNotification(reminder)).shouldShowBanner, true);
+    deliveryPolicy.quiet_hours.allow_reminders = false;
+    assert.equal((await handler.handleNotification(reminder)).shouldShowBanner, false);
+  });
+  await test("old-account reminders and signed-out shared alerts never show", async () => {
+    state.currentState = "background";
+    for (const owner_scope of [undefined, "account:previous"]) {
+      assert.equal(
+        (
+          await handler.handleNotification(
+            response("default", { kind: "customer_reminder", owner_scope }).notification,
+          )
+        ).shouldShowBanner,
+        false,
+      );
+    }
+    signedIn = false;
+    assert.equal(
+      (await handler.handleNotification(response("default").notification)).shouldShowBanner,
+      false,
+    );
+  });
+  await test("recorded fallback alerts honor previews and never offer approval", async () => {
+    state.currentState = "background";
+    links = [{ ...link, recording_mode: "notify" }];
+    currentEntry = {
+      created_by: "a",
+      status: "recorded",
+      amount_minor: 12345,
+      direction: "a_to_b",
+      author_name: "Private Person",
+      author_account_id: "peer",
+    };
+    for (const [previews, body] of [
+      ["full", "tab.notify.detail.recorded"],
+      ["name", "notificationSettings.alert.tally"],
+      ["private", "notificationSettings.alert.private"],
+    ] as const) {
+      deliveryPolicy = { ...deliveryPolicy, previews, sound: false, vibration: false };
+      emitApplied({
+        tabId: TAB,
+        origin: "pull",
+        changes: [{ entryId: ENTRY, rev: 2, kind: "entry_created" }],
+      });
+      await settled();
+      assert.equal(scheduled.at(-1).content.body, body);
+      assert.equal(scheduled.at(-1).content.categoryIdentifier, undefined);
+      assert.equal(scheduled.at(-1).content.sound, undefined);
+      assert.equal(scheduled.at(-1).trigger.channelId, "tab-updates-s0-v0");
+      assert.ok(!JSON.stringify(scheduled.at(-1).content.data).includes("Private Person"));
+    }
+    await responseListener(response("tab-accept"));
+    await settled();
+    assert.equal(
+      queued.size,
+      0,
+      "a stale notification button cannot approve a notify-mode opening",
+    );
+  });
+  await test("account or privacy changes during an entry read suppress stale local alerts", async () => {
+    state.currentState = "background";
+    currentEntry = {
+      created_by: "a",
+      status: "pending",
+      amount_minor: 100,
+      direction: "a_to_b",
+      author_name: "Writer",
+      author_account_id: "peer",
+    };
+    for (const race of ["privacy", "account"] as const) {
+      onEntryRead = () => {
+        if (race === "privacy") {
+          deliveryPolicy = { ...deliveryPolicy, previews: "private" };
+          preferenceVersion++;
+        } else {
+          accountId = "replacement";
+          bindingVersion++;
+        }
+      };
+      emitApplied({
+        tabId: TAB,
+        origin: "pull",
+        changes: [{ entryId: ENTRY, rev: 2, kind: "entry_created" }],
+      });
+      await settled();
+      assert.equal(
+        scheduled.length,
+        0,
+        "stale sensitive content never reaches the native scheduler",
+      );
+    }
+  });
+  await test("peer cancellations follow cancellation preference without author self-alerts", async () => {
+    state.currentState = "background";
+    currentEntry = {
+      created_by: "a",
+      status: "recorded",
+      amount_minor: 100,
+      direction: "a_to_b",
+      author_name: "Writer",
+      voided_by_entry_id: "void",
+    };
+    const event = {
+      tabId: TAB,
+      origin: "pull",
+      changes: [{ entryId: ENTRY, rev: 2, kind: "entry_voided" }],
+    };
+    deliveryPolicy.cancellations = false;
+    emitApplied(event);
+    await settled();
+    assert.equal(scheduled.length, 0);
+    deliveryPolicy.cancellations = true;
+    emitApplied(event);
+    await settled();
+    assert.equal(scheduled.length, 1);
+    currentEntry.created_by = "b";
+    emitApplied(event);
+    await settled();
+    assert.equal(scheduled.length, 1);
   });
   await test("Expo Go skips native registration and tray dismissal", async () => {
     expoGo = true;

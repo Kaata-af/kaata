@@ -2,7 +2,7 @@ import type { Entry } from "../types";
 import { balanceContribution, countsTowardBalance } from "../export/shared-record";
 import type { TabLink } from "./types";
 import { sumAmounts } from "../money";
-import { tabConfirmedBalanceSql } from "./direction";
+import { tabFinancialBalanceSql } from "./direction";
 import { effectiveEntryCurrencySql } from "../currency-scope";
 import { entryRecordedAtSql } from "../entry-date";
 import { signedEntryMinorSumSql } from "../money-sql";
@@ -42,7 +42,9 @@ export function retainedPrivateHistorySql(selected = "tl"): string {
       AND proposed.kind='opening' AND proposed.status<>'disputed' AND proposed.voided_by_entry_id IS NULL
       AND (CASE WHEN proposed.direction=CASE WHEN ${selected}.role='a' THEN 'a_to_b' ELSE 'b_to_a' END
         THEN proposed.amount_minor ELSE -proposed.amount_minor END)
-        <> ((${effectiveConfirmedBalanceSql(selected)}) + (${unjoinedOpeningPrivateAdjustmentSql(selected)}))))`;
+        <> ((${effectiveFinancialBalanceSql(selected)})
+          - (SELECT ${tabFinancialBalanceSql(`${selected}.role`)} FROM tab_entries te WHERE te.tab_id=${selected}.tab_id)
+          + (${unjoinedOpeningPrivateAdjustmentSql(selected)}))))`;
 }
 
 /** Editing can resume only after the server has closed the invitation and
@@ -156,29 +158,34 @@ export function effectiveConfirmedSql(
   link = "hl",
   selected = "tl",
   pending = false,
+  financial = false,
 ): string {
   return `${entry}.kind IN ('entry','opening') AND ${entry}.voided_by_entry_id IS NULL
-    AND ${pending ? `(${entry}.status = 'pending' OR (${entry}.status = 'accepted' AND (${entry}.local_pending <> 0 OR COALESCE(${entry}.local_action_pending, 0) <> 0)))` : `${entry}.status = 'accepted' AND ${entry}.local_pending = 0 AND COALESCE(${entry}.local_action_pending, 0) = 0`}
+    AND ${pending ? `(${entry}.status = 'pending' OR (${entry}.status IN ('accepted','recorded') AND (${entry}.local_pending <> 0 OR COALESCE(${entry}.local_action_pending, 0) <> 0)))` : `${entry}.status ${financial ? "IN ('accepted','recorded')" : "= 'accepted'"} AND ${entry}.local_pending = 0 AND COALESCE(${entry}.local_action_pending, 0) = 0`}
     AND ${scope(link, selected)} AND ${link}.currency = ${selected}.currency
     AND ((${unknownHistorySql(selected)} AND ${link}.tab_id = ${selected}.tab_id)
       OR (NOT (${unknownHistorySql(selected)}) AND NOT EXISTS(
         SELECT 1 FROM tab_links cp JOIN tab_entries ce ON ce.tab_id = cp.tab_id
         WHERE ${scope("cp", selected)} AND cp.currency = ${selected}.currency
           AND CAST(cp.history_order AS INTEGER) > CAST(${link}.history_order AS INTEGER)
-          AND ce.kind = 'opening' AND ce.status = 'accepted' AND ce.voided_by_entry_id IS NULL
+          AND ce.kind = 'opening' AND ce.status IN ('accepted','recorded') AND ce.voided_by_entry_id IS NULL
           AND ce.local_pending = 0 AND COALESCE(ce.local_action_pending, 0) = 0)))`;
+}
+
+export function effectiveFinancialSql(entry = "te", link = "hl", selected = "tl"): string {
+  return effectiveConfirmedSql(entry, link, selected, false, true);
 }
 
 export function effectivePendingBalanceSql(selected = "tl"): string {
   const sign = `CASE WHEN te.direction = CASE WHEN hl.role = 'a' THEN 'a_to_b' ELSE 'b_to_a' END THEN te.amount_minor ELSE -te.amount_minor END`;
-  const currentConfirmed = `(SELECT ${tabConfirmedBalanceSql(`${selected}.role`)} FROM tab_entries te WHERE te.tab_id=${selected}.tab_id)`;
+  const currentConfirmed = `(SELECT ${tabFinancialBalanceSql(`${selected}.role`)} FROM tab_entries te WHERE te.tab_id=${selected}.tab_id)`;
   return `COALESCE((SELECT SUM(${sign}) FROM tab_links hl JOIN tab_entries te ON te.tab_id=hl.tab_id
     WHERE ${effectiveConfirmedSql("te", "hl", selected, true)} AND te.kind <> 'opening'),0)
     + COALESCE((SELECT SUM(${sign}) FROM tab_links hl JOIN tab_entries te ON te.tab_id=hl.tab_id
       WHERE hl.tab_id=${selected}.tab_id AND ${effectiveConfirmedSql("te", "hl", selected, true)} AND te.kind='opening'),0)
     - CASE WHEN EXISTS(SELECT 1 FROM tab_entries po WHERE po.tab_id=${selected}.tab_id AND po.kind='opening'
-        AND po.voided_by_entry_id IS NULL AND (po.status='pending' OR (po.status='accepted' AND (po.local_pending<>0 OR COALESCE(po.local_action_pending,0)<>0))))
-      THEN (${effectiveConfirmedBalanceSql(selected)} - ${currentConfirmed}) ELSE 0 END
+        AND po.voided_by_entry_id IS NULL AND (po.status='pending' OR (po.status IN ('accepted','recorded') AND (po.local_pending<>0 OR COALESCE(po.local_action_pending,0)<>0))))
+      THEN (${effectiveFinancialBalanceSql(selected)} - ${currentConfirmed}) ELSE 0 END
     - (${unjoinedOpeningPrivateAdjustmentSql(selected)})`;
 }
 
@@ -187,6 +194,13 @@ export function effectiveConfirmedBalanceSql(selected = "tl"): string {
       THEN te.amount_minor ELSE -te.amount_minor END)
     FROM tab_links hl JOIN tab_entries te ON te.tab_id = hl.tab_id
     WHERE ${effectiveConfirmedSql("te", "hl", selected)}), 0)`;
+}
+
+export function effectiveFinancialBalanceSql(selected = "tl"): string {
+  return `COALESCE((SELECT SUM(CASE WHEN te.direction = CASE WHEN hl.role = 'a' THEN 'a_to_b' ELSE 'b_to_a' END
+      THEN te.amount_minor ELSE -te.amount_minor END)
+    FROM tab_links hl JOIN tab_entries te ON te.tab_id = hl.tab_id
+    WHERE ${effectiveFinancialSql("te", "hl", selected)}), 0)`;
 }
 
 /** Credit admission keeps pending-inclusive exposure, but a rejected or

@@ -364,6 +364,38 @@ for (const isRTL of [false, true]) {
     0,
     "viewer/closed tab has no cancellation",
   );
+  assert.equal(
+    labelled(
+      opened({ ...selfProps, tab: { ...selfProps.tab, status: "recorded", kind: "entry" } }),
+      "tab.cancel",
+    ).length,
+    1,
+    "the author may cancel an ordinary recorded tally",
+  );
+  assert.equal(
+    labelled(
+      opened({ ...selfProps, tab: { ...selfProps.tab, status: "recorded", kind: "opening" } }),
+      "tab.cancel",
+    ).length,
+    0,
+    "joined recorded openings cannot erase the private baseline",
+  );
+  assert.equal(
+    labelled(
+      opened({ ...selfProps, tab: { ...selfProps.tab, recording_mode_known: 0 } }),
+      "tab.cancel",
+    ).length,
+    0,
+    "uncertain recovered modes cannot cancel through a review control",
+  );
+  assert.equal(
+    labelled(
+      opened({ ...base, tab: { by: "them", status: "pending", recording_mode_known: 0 } }),
+      "tab.accept",
+    ).length,
+    0,
+    "uncertain recovered modes never imply a pending approval workflow",
+  );
   for (const authorId of ["colleague", undefined, null]) {
     const colleague = opened({
       ...selfProps,
@@ -384,6 +416,8 @@ for (const isRTL of [false, true]) {
     { key: "pending", tab: { by: "me", status: "pending" }, review: false },
     { key: "accepted", tab: { by: "them", status: "accepted" }, review: false },
     { key: "accepted", tab: { by: "me", status: "accepted" }, review: false },
+    { key: "recorded", tab: { by: "them", status: "recorded" }, review: false },
+    { key: "recorded", tab: { by: "me", status: "recorded" }, review: false },
     {
       key: "disputed",
       tab: { by: "them", status: "disputed", dispute_reason: "Wrong amount" },
@@ -407,11 +441,13 @@ for (const isRTL of [false, true]) {
     const statusColor =
       c.key === "sending"
         ? colors.textMuted
-        : c.key === "accepted"
-          ? colors.reviewAccepted
-          : c.key === "disputed"
-            ? colors.reviewRejected
-            : colors.reviewPending;
+        : c.key === "recorded"
+          ? colors.textMuted
+          : c.key === "accepted"
+            ? colors.reviewAccepted
+            : c.key === "disputed"
+              ? colors.reviewRejected
+              : colors.reviewPending;
 
     // "I gave" keeps its pay tile; a rejected tally's tile goes grey.
     const tile = c.key === "disputed" ? colors.bgSubtle : colors.payBg;
@@ -579,7 +615,7 @@ for (const isRTL of [false, true]) {
       ? /^(ثبت‌شده توسط|رد شده:|بررسی‌کننده:|در ماندهٔ)/
       : /^(Added by|Rejected:|Reviewed by|Not included)/;
     const metas = nodes(tree).filter((n) => n.type === "Text" && metaPattern.test(words(n)));
-    const reviewed = !tab.local_pending && tab.status !== "pending";
+    const reviewed = !tab.local_pending && (tab.status === "accepted" || tab.status === "disputed");
     assert.deepEqual(
       metas.map(words),
       [

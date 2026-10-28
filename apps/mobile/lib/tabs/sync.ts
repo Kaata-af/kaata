@@ -188,11 +188,17 @@ async function withAuthFallback<T>(
     if (!jwtRefused || !link.party_token) throw err;
     // Legacy signed-out tabs can be claimed once with a session + token.
     // Never retry a rejected session as an anonymous write capability.
-    await bindTab(link.party_token, link.tab_id, {
-      vault_id: link.vault_id,
-      relationship_id: link.relationship_id,
-      linked_at_ms: link.linked_at,
-    });
+    await bindTab(
+      link.party_token,
+      link.tab_id,
+      {
+        vault_id: link.vault_id,
+        relationship_id: link.relationship_id,
+        linked_at_ms: link.linked_at,
+      },
+      link.recording_mode,
+      link.recording_mode_known !== 0,
+    );
     return { value: await fn(auth), auth };
   }
 }
@@ -260,8 +266,9 @@ async function runSyncTab(tabId: string): Promise<SyncTabResult> {
   let session: SessionSnapshot | null = null;
   try {
     session = await captureCurrentSession();
-    const link = await getTabLink(tabId);
-    if (!link) return { ...result, ok: false, error: "no_link" };
+    const cachedLink = await getTabLink(tabId);
+    if (!cachedLink) return { ...result, ok: false, error: "no_link" };
+    let link: TabLink = cachedLink;
     // Offline is not an error worth recording — it is the normal state of a
     // shop with patchy data; the outbox waits and nothing is lost.
     if (!(await isOnline())) return { ...result, ok: false, error: "offline" };
@@ -276,6 +283,24 @@ async function runSyncTab(tabId: string): Promise<SyncTabResult> {
         () => {},
       );
       return { ...result, ok: false, error: "auth_unavailable" };
+    }
+
+    // A restored old-server binding may be a review book or a new notify
+    // book whose mode was omitted. Read explicit metadata before flushing
+    // any durable intent; a capability probe alone cannot identify the book.
+    if (link.recording_mode_known === 0) {
+      await applyForCurrentSession(session, async () => {});
+      const response = await fetchTab(auth, tabId, 0);
+      await applyForCurrentSession(session, () => upsertTabFromWire(link!, response));
+      const refreshed = await getTabLink(tabId);
+      if (!refreshed || refreshed.recording_mode_known === 0)
+        throw new TabApiError(
+          503,
+          "notification_only_unsupported",
+          "Account recording mode requires a server update",
+        );
+      link = refreshed;
+      auth = await applyForCurrentSession(session, () => resolveTabAuth(refreshed));
     }
 
     // Stop unwanted incoming activity before waiting out an older append's
@@ -608,11 +633,17 @@ async function runReconcileTabsFromServer(): Promise<void> {
       if (!link.party_token || boundSessions.get(link.tab_id) === jwt) continue;
       try {
         await applyForCurrentSession(session, async () => {});
-        await bindTab(link.party_token, link.tab_id, {
-          vault_id: link.vault_id,
-          relationship_id: link.relationship_id,
-          linked_at_ms: link.linked_at,
-        });
+        await bindTab(
+          link.party_token,
+          link.tab_id,
+          {
+            vault_id: link.vault_id,
+            relationship_id: link.relationship_id,
+            linked_at_ms: link.linked_at,
+          },
+          link.recording_mode,
+          link.recording_mode_known !== 0,
+        );
         await applyForCurrentSession(session, async () => {
           boundSessions.set(link.tab_id, jwt);
         });
@@ -656,11 +687,16 @@ async function runReconcileTabsFromServer(): Promise<void> {
           const participationChanged =
             typeof t.tab.unjoined_invitation === "boolean" &&
             (t.tab.unjoined_invitation ? 1 : 0) !== (existing.unjoined_invitation ?? null);
+          const modeChanged =
+            t.tab.recording_mode != null &&
+            (t.tab.recording_mode !== (existing.recording_mode ?? "review") ||
+              existing.recording_mode_known === 0);
           return (
             existing.last_synced_at == null ||
             t.tab.rev > existing.rev ||
             orderChanged ||
             participationChanged ||
+            modeChanged ||
             (t.tab.closed_at_ms != null && existing.closed_at == null)
           );
         }
@@ -691,6 +727,8 @@ async function runReconcileTabsFromServer(): Promise<void> {
         try {
           await upsertTabLink({
             tab_id: t.tab.id,
+            recording_mode: t.tab.recording_mode ?? "review",
+            recording_mode_known: t.tab.recording_mode != null ? 1 : 0,
             vault_id: t.vault_id,
             relationship_id: t.relationship_id,
             role: me,
@@ -701,7 +739,7 @@ async function runReconcileTabsFromServer(): Promise<void> {
             other_label: t.tab.parties[them].label,
             other_joined_at: t.tab.parties[them].joined_at_ms,
             unjoined_invitation:
-              typeof t.tab.unjoined_invitation === "boolean"
+              t.tab.recording_mode != null && typeof t.tab.unjoined_invitation === "boolean"
                 ? t.tab.unjoined_invitation
                   ? 1
                   : 0

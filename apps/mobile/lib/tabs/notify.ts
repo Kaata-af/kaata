@@ -5,7 +5,7 @@ import { isRunningInExpoGo } from "expo";
 import Constants from "expo-constants";
 import * as TaskManager from "expo-task-manager";
 import { getAppMeta, setAppMeta } from "../db";
-import { getAccountIdSync, getInstallIdSync } from "../db-tx";
+import { getAccountIdSync, getInstallIdSync, getSessionAccountIdSync } from "../db-tx";
 import { applyForCurrentSession, captureCurrentSession } from "../auth";
 import { getLocale, subscribeLocale, t, tIn, type LocaleCode } from "../i18n";
 import { getTabLink, listTabLinks, queueNotificationReview } from "./db";
@@ -18,6 +18,19 @@ import { parseTabReview, TAB_ACCEPT, TAB_REJECT } from "./notification-data";
 import { notificationVars } from "./notification-text";
 import type { TabEntryRow } from "./types";
 import type { NotificationResponse, NotificationTaskPayload } from "expo-notifications";
+import {
+  notificationAllowed,
+  notificationChannel,
+  notificationTimeZone,
+} from "../notification-policy";
+import { notificationPreferencesSupported } from "../notification-capabilities";
+import {
+  notificationPolicyForContact,
+  notificationPolicyForTab,
+  notificationOwnerScope,
+  notificationPreferencesRevision,
+  onNotificationPreferencesChanged,
+} from "../notification-preferences";
 
 const TASK = "kaata-tab-notification-actions";
 const CHANNEL = "tab-updates";
@@ -25,6 +38,8 @@ const ASKED = "tab_notify_asked";
 let nextRegistration = 0;
 let registrationAccount: string | null = null;
 let registrationLocale: LocaleCode | null = null;
+let registrationPreferences = -1;
+let registrationTimeZone: string | null = null;
 let registering: Promise<void> | null = null;
 let notificationsPromise: Promise<typeof import("expo-notifications")> | null = null;
 const processing = new Map<string, Promise<void>>();
@@ -51,6 +66,25 @@ async function configure(n: typeof import("expo-notifications")) {
     description: t("tab.notify.channelDescription"),
     importance: n.AndroidImportance.DEFAULT,
   });
+  if (Platform.OS === "android") {
+    for (const sound of [false, true])
+      for (const vibration of [false, true]) {
+        const key = sound
+          ? vibration
+            ? "notificationSettings.channel.soundVibration"
+            : "notificationSettings.channel.sound"
+          : vibration
+            ? "notificationSettings.channel.vibration"
+            : "notificationSettings.channel.silent";
+        await n.setNotificationChannelAsync(notificationChannel({ sound, vibration }), {
+          name: `${t("tab.notify.channel")} · ${t(key)}`,
+          importance: n.AndroidImportance.DEFAULT,
+          sound: sound ? "default" : null,
+          enableVibrate: vibration,
+          vibrationPattern: vibration ? [0, 250, 250, 250] : [],
+        });
+      }
+  }
   // Stable locale-specific IDs let a message use its registration's locale,
   // even if another device has since changed the account language.
   for (const locale of ["en", "fa", "ps"] as const) {
@@ -80,7 +114,13 @@ async function review(action: string, data: unknown, notificationId: string) {
   const work = (async () => {
     const session = await captureCurrentSession();
     const link = await getTabLink(parsed.tabId);
-    if (!link || link.role !== parsed.role) return;
+    if (
+      !link ||
+      link.role !== parsed.role ||
+      link.recording_mode === "notify" ||
+      link.recording_mode_known === 0
+    )
+      return;
     // Never turn a signed-out tap into an operation for a later account.
     await resolveTabAuth(link);
     await applyForCurrentSession(session, async () => {
@@ -156,23 +196,46 @@ async function bootstrap() {
   n.setNotificationHandler({
     handleNotification: async (notification) => {
       const data = notification.request.content.data;
+      const owner = notificationOwnerScope(),
+        revision = notificationPreferencesRevision();
+      const link =
+        typeof data?.tab_id === "string" ? await getTabLink(data.tab_id).catch(() => null) : null;
+      const policy =
+        data?.kind === "customer_reminder"
+          ? await notificationPolicyForContact(
+              typeof data.vault_id === "string" && typeof data.person_id === "string"
+                ? { vaultId: data.vault_id, personId: data.person_id }
+                : undefined,
+            )
+          : link
+            ? await notificationPolicyForTab(link)
+            : await notificationPolicyForContact();
       // A customer reminder is an alarm the user set for themselves: it must
       // alert even while Kaata is open, where it used to be silently dropped.
       // Shared-account notices do not alert in the foreground, their own
       // author, or a closed relationship. Server delivery applies the same
       // close gate; this also catches an already-sent, late arrival.
+      const closed = await isClosedTabNotice(data).catch(() => false);
       const show =
-        data?.kind === "customer_reminder" ||
-        ((AppState.currentState === "background" || AppState.currentState === "inactive") &&
-          !(
-            typeof data?.actor_account_id === "string" &&
-            data.actor_account_id === getAccountIdSync()
-          ) &&
-          !(await isClosedTabNotice(data).catch(() => false)));
+        owner === notificationOwnerScope() &&
+        revision === notificationPreferencesRevision() &&
+        (data?.kind === "customer_reminder"
+          ? data.owner_scope === owner
+          : getSessionAccountIdSync() != null) &&
+        notificationAllowed(policy, String(data?.kind ?? "updated")) &&
+        (data?.kind === "customer_reminder" ||
+          ((policy.foreground ||
+            AppState.currentState === "background" ||
+            AppState.currentState === "inactive") &&
+            !(
+              typeof data?.actor_account_id === "string" &&
+              data.actor_account_id === getAccountIdSync()
+            ) &&
+            !closed));
       return {
         shouldShowBanner: show,
         shouldShowList: show,
-        shouldPlaySound: show,
+        shouldPlaySound: show && policy.sound,
         shouldSetBadge: false,
       };
     },
@@ -197,17 +260,35 @@ export function syncTabPushSubscriptions(): Promise<void> {
   // on the server. The follow-up always reads the latest account and locale.
   if (registering) {
     return registering.then(() => {
-      if (getAccountIdSync() !== registrationAccount || getLocale() !== registrationLocale)
+      if (
+        getAccountIdSync() !== registrationAccount ||
+        getLocale() !== registrationLocale ||
+        notificationPreferencesRevision() !== registrationPreferences ||
+        notificationTimeZone() !== registrationTimeZone
+      )
         return syncTabPushSubscriptions();
     });
   }
   const account = getAccountIdSync();
   const locale = getLocale();
-  const current = () => account === getAccountIdSync() && locale === getLocale();
-  if (account !== registrationAccount || locale !== registrationLocale) {
+  const preferencesRevision = notificationPreferencesRevision();
+  const timeZone = notificationTimeZone();
+  const current = () =>
+    account === getAccountIdSync() &&
+    locale === getLocale() &&
+    preferencesRevision === notificationPreferencesRevision() &&
+    timeZone === notificationTimeZone();
+  if (
+    account !== registrationAccount ||
+    locale !== registrationLocale ||
+    preferencesRevision !== registrationPreferences ||
+    timeZone !== registrationTimeZone
+  ) {
     nextRegistration = 0;
     registrationAccount = account;
     registrationLocale = locale;
+    registrationPreferences = preferencesRevision;
+    registrationTimeZone = timeZone;
   }
   if (!account) return Promise.resolve();
   if (Date.now() < nextRegistration) return Promise.resolve();
@@ -218,14 +299,19 @@ export function syncTabPushSubscriptions(): Promise<void> {
     const n = await notifications();
     if (!n) return;
     await configure(n);
+    const globalPolicy = await notificationPolicyForContact();
     let permission = await n.getPermissionsAsync();
+    const allowed = () =>
+      permission.granted ||
+      (permission.ios != null && permission.ios.status === n.IosAuthorizationStatus.PROVISIONAL);
     if (!current()) return;
     // Upgrades/restores already have links, so the create/join hook may never
     // run again. Ask once during a signed-in FOREGROUND sweep as well. Never
     // prompt from a notification's headless/background execution.
     if (
       AppState.currentState === "active" &&
-      !permission.granted &&
+      globalPolicy.enabled &&
+      !allowed() &&
       permission.canAskAgain &&
       (await getAppMeta(ASKED)) !== "1"
     ) {
@@ -236,18 +322,36 @@ export function syncTabPushSubscriptions(): Promise<void> {
     }
     const projectId = Constants.easConfig?.projectId ?? Constants.expoConfig?.extra?.eas?.projectId;
     if (!projectId) return;
-    const token = permission.granted ? (await n.getExpoPushTokenAsync({ projectId })).data : "";
+    const token = allowed() ? (await n.getExpoPushTokenAsync({ projectId })).data : "";
     let enabled = false;
     let failed = false;
+    let supported: boolean | undefined;
     for (const link of links) {
       if (!current()) return;
       try {
         const auth = await resolveTabAuth(link);
         if (!current()) return;
+        supported ??= await notificationPreferencesSupported(auth.jwt);
+        if (!current()) return;
+        if (!supported) {
+          // Remove an old full-preview subscription rather than pretending an
+          // unsupported server can honor new privacy/mute settings.
+          await registerTabNotifications(auth, link.tab_id, {
+            install_id: getInstallIdSync(),
+            token: "",
+            locale,
+          });
+          failed = true;
+          await setAppMeta("tab_push_active:" + link.tab_id, "0");
+          continue;
+        }
+        const preferences = await notificationPolicyForTab(link);
+        if (!current()) return;
         const result = await registerTabNotifications(auth, link.tab_id, {
           install_id: getInstallIdSync(),
           token,
           locale,
+          preferences,
         });
         if (!current()) return;
         const active = result.enabled && !!token;
@@ -263,10 +367,12 @@ export function syncTabPushSubscriptions(): Promise<void> {
     await setAppMeta(
       "tab_push_error",
       failed
-        ? "registration_failed"
+        ? supported === false
+          ? "settings_unsupported"
+          : "registration_failed"
         : enabled
           ? ""
-          : permission.granted
+          : allowed()
             ? "server_disabled"
             : "permission_denied",
     );
@@ -293,20 +399,29 @@ export async function ensureTabNotificationPermission() {
 // Foreground pulls only refresh UI. Background fallback alerts are used only
 // when remote delivery is unavailable, and never for our own write/ack.
 onTabApplied((ev) => {
-  if (AppState.currentState === "active" || ev.origin !== "pull" || !ev.changes?.length) return;
+  if (ev.origin !== "pull" || !ev.changes?.length) return;
+  const account = getAccountIdSync(),
+    preferenceRevision = notificationPreferencesRevision();
+  const stillCurrent = () =>
+    account === getAccountIdSync() && preferenceRevision === notificationPreferencesRevision();
   void (async () => {
+    const session = await captureCurrentSession();
+    if (!session.jwt || !stillCurrent()) return;
     const registered = Number(await getAppMeta("tab_push_active:" + ev.tabId));
     if (registered && Date.now() - registered < 2 * 3600_000) return;
     const n = await notifications();
     const link = await getTabLink(ev.tabId);
-    if (!n || !link || link.closed_at != null) return;
+    if (!n || !link || link.closed_at != null || !stillCurrent()) return;
+    const policy = await notificationPolicyForTab(link);
+    if (AppState.currentState === "active" && !policy.foreground) return;
     await configure(n);
     const { readVaultRole, canPerformAction } = await import("../use-vault-role");
-    const canReview = canPerformAction(
-      await readVaultRole(link.vault_id, getAccountIdSync()),
-      "entry.amend",
-    );
+    const canReview =
+      canPerformAction(await readVaultRole(link.vault_id, getAccountIdSync()), "entry.amend") &&
+      link.recording_mode !== "notify" &&
+      link.recording_mode_known !== 0;
     for (const change of ev.changes!) {
+      if (!notificationAllowed(policy, change.kind)) continue;
       let body =
         change.kind === "entry_created"
           ? t("tab.notify.newEntries", { count: 1 })
@@ -327,22 +442,24 @@ onTabApplied((ev) => {
       );
       // A pull/ack can race a local write. Never alert the writer or replay
       // stale state as a new tally. Remote push is the main background path.
-      if (AppState.currentState === "active") return;
+      if (AppState.currentState === "active" && !policy.foreground) return;
       if (
         change.kind === "entry_created" &&
         (!entry ||
           entry.created_by === link.role ||
           entry.author_account_id === getAccountIdSync() ||
           entry.local_pending ||
-          entry.status !== "pending" ||
+          (entry.status !== "pending" && entry.status !== "recorded") ||
           entry.voided_by_entry_id)
       )
         continue;
-      if (change.kind === "entry_voided") continue; // our side's own cancellation
+      if (change.kind === "entry_voided" && (!entry || entry.created_by === link.role)) continue;
       if (entry) {
         body = t(
           change.kind === "entry_created"
-            ? "tab.notify.detail.new"
+            ? entry.status === "recorded"
+              ? "tab.notify.detail.recorded"
+              : "tab.notify.detail.new"
             : change.kind === "entry_accepted"
               ? "tab.notify.detail.accepted"
               : change.kind === "entry_rejected"
@@ -351,25 +468,54 @@ onTabApplied((ev) => {
           notificationVars(link, entry, t("tab.them")),
         );
       }
+      if (policy.previews === "private") body = t("notificationSettings.alert.private");
+      else if (policy.previews === "name") {
+        body = t(
+          change.kind === "entry_created"
+            ? "notificationSettings.alert.tally"
+            : change.kind === "entry_voided"
+              ? "notificationSettings.alert.cancellation"
+              : "notificationSettings.alert.review",
+          entry ? notificationVars(link, entry, t("tab.them")) : { name: t("tab.them") },
+        );
+      }
       // A local unlink can finish while the entry and native adapters load.
       const current = await getTabLink(ev.tabId);
-      if (!current || current.closed_at != null) return;
-      await n.scheduleNotificationAsync({
-        identifier: `tab:${ev.tabId}:${change.entryId}:${change.rev}`,
-        content: {
-          title: t("tab.notify.fallbackTitle"),
-          body,
-          data: {
-            tab_id: ev.tabId,
-            entry_id: change.entryId,
-            rev: change.rev,
-            role: link.role,
-            kind: change.kind,
+      if (!current || current.closed_at != null || !stillCurrent()) return;
+      const latestPolicy = await notificationPolicyForTab(current);
+      if (!stillCurrent() || JSON.stringify(latestPolicy) !== JSON.stringify(policy)) return;
+      const identifier = `tab:${ev.tabId}:${change.entryId}:${change.rev}`;
+      await applyForCurrentSession(session, async () => {
+        if (!stillCurrent()) return;
+        await n.scheduleNotificationAsync({
+          identifier,
+          content: {
+            title: t("tab.notify.fallbackTitle"),
+            body,
+            sound: policy.sound ? "default" : undefined,
+            vibrate: policy.vibration ? [0, 250, 250, 250] : [],
+            data: {
+              tab_id: ev.tabId,
+              entry_id: change.entryId,
+              rev: change.rev,
+              role: link.role,
+              kind: change.kind,
+            },
+            categoryIdentifier:
+              canReview &&
+              policy.review_actions &&
+              policy.previews === "full" &&
+              entry?.status === "pending" &&
+              change.kind === "entry_created"
+                ? "tab-review-" + getLocale()
+                : undefined,
           },
-          categoryIdentifier:
-            canReview && change.kind === "entry_created" ? "tab-review-" + getLocale() : undefined,
-        },
-        trigger: { channelId: CHANNEL },
+          trigger: { channelId: notificationChannel(policy) },
+        });
+        if (!stillCurrent()) {
+          await n.dismissNotificationAsync(identifier).catch(() => undefined);
+          await n.cancelScheduledNotificationAsync?.(identifier).catch(() => undefined);
+        }
       });
     }
   })().catch(() => undefined);
@@ -450,12 +596,18 @@ async function sweepTray(): Promise<void> {
       data.entry_id,
       data.tab_id,
     );
-    const moot = row != null && (row.status !== "pending" || row.voided_by_entry_id != null);
+    const moot =
+      row != null &&
+      ((row.status !== "pending" && row.status !== "recorded") || row.voided_by_entry_id != null);
     if (moot) await n.dismissNotificationAsync(s.request.identifier).catch(() => undefined);
   }
 }
 AppState.addEventListener("change", (state) => {
-  if (state === "active") void sweepTray().catch(() => undefined);
+  if (state === "active") {
+    nextRegistration = 0;
+    void syncTabPushSubscriptions();
+    void sweepTray().catch(() => undefined);
+  }
 });
 onTabApplied((ev) => {
   if (ev.origin === "pull") void sweepTray().catch(() => undefined);
@@ -465,6 +617,28 @@ onTabApplied((ev) => {
       .catch(() => undefined);
 });
 setTabNotifyHook(ensureTabNotificationPermission);
+
+onNotificationPreferencesChanged(() => {
+  nextRegistration = 0;
+  const owner = notificationOwnerScope();
+  // Remove previously rendered details/actions after changing privacy or muting.
+  // Inbox history is independent and remains available inside the app.
+  const clear = async () => {
+    const n = await notifications();
+    if (!n) return;
+    for (const shown of await n.getPresentedNotificationsAsync()) {
+      if (notificationOwnerScope() !== owner) return;
+      if (typeof shown.request.content.data?.tab_id === "string")
+        await n.dismissNotificationAsync(shown.request.identifier).catch(() => undefined);
+    }
+  };
+  void clear().catch(() => undefined);
+  // A server send leased under the previous policy finishes before the new
+  // registration is acknowledged. Clear once more after that handoff.
+  void syncTabPushSubscriptions()
+    .then(clear)
+    .catch(() => undefined);
+});
 setTabPushRefreshHook(syncTabPushSubscriptions);
 // Refresh server-side push copy on a language change even when the regular
 // hourly subscription refresh would otherwise be throttled.

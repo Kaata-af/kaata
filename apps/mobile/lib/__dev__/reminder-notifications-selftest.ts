@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import * as schedule from "../reminder-schedule";
 import { compileUI, deferred, settleUI } from "./ui-fixture";
+import * as notificationPolicy from "../notification-policy";
 
 async function main() {
   let expoGo = false,
@@ -23,6 +24,8 @@ async function main() {
     channels: any[] = [],
     sql: any[] = [];
   const prefix = "kaata-customer-reminder:";
+  let deliveryPolicy = notificationPolicy.defaultNotificationPolicy();
+  const contactPolicies = new Map<string, notificationPolicy.NotificationPolicy>();
   const make = (id: string, spec: any, extra: any = {}) => ({
     id,
     owner_scope: owner,
@@ -71,6 +74,15 @@ async function main() {
     },
   };
   const module = compileUI("../reminder-notifications", {
+    "./notification-policy": notificationPolicy,
+    "./notification-preferences": {
+      notificationPolicyForContact: async (contact?: { vaultId: string; personId: string }) =>
+        (contact && contactPolicies.get(`${contact.vaultId}:${contact.personId}`)) ||
+        deliveryPolicy,
+      onNotificationPreferencesChanged: () => () => {},
+      notificationOwnerScope: () => owner,
+      notificationPreferencesRevision: () => 0,
+    },
     expo: { isRunningInExpoGo: () => expoGo },
     "react-native": {
       Platform: {
@@ -440,7 +452,7 @@ async function main() {
   assert.equal(handlers.length, 1);
   assert.deepEqual(
     await handlers[0].handleNotification({
-      request: { content: { data: { kind: "customer_reminder" } } },
+      request: { content: { data: { kind: "customer_reminder", owner_scope: owner } } },
     }),
     { shouldShowBanner: true, shouldShowList: true, shouldPlaySound: true, shouldSetBadge: false },
   );
@@ -462,6 +474,89 @@ async function main() {
     handlers.length,
     1,
     "native builds never replace their existing handler through reminder access",
+  );
+
+  // Alert delivery choices never rewrite tasks or their financial context.
+  platform = "android";
+  zone = "UTC";
+  owner = "account:a";
+  deliveryPolicy = {
+    ...notificationPolicy.defaultNotificationPolicy(),
+    time_zone: "UTC",
+    previews: "private",
+    sound: false,
+    vibration: false,
+    quiet_hours: {
+      enabled: true,
+      start_minute: 22 * 60,
+      end_minute: 7 * 60,
+      allow_reminders: false,
+    },
+  };
+  const futureNight = new Date();
+  futureNight.setUTCDate(futureNight.getUTCDate() + 2);
+  futureNight.setUTCHours(23, 30, 0, 0);
+  rows = [
+    make("quiet-once", { kind: "once", at: futureNight.getTime() }),
+    make("quiet-daily", { kind: "daily", hour: 23, minute: 0 }),
+    make("daytime", { kind: "daily", hour: 10, minute: 0 }),
+    make("contact-muted", { kind: "daily", hour: 10, minute: 0 }, { person_id: "muted-person" }),
+  ];
+  contactPolicies.set("kaata:muted-person", { ...deliveryPolicy, enabled: false });
+  const unchangedTasks = JSON.stringify(rows);
+  await module.reconcileReminderNotifications();
+  assert.equal(
+    scheduled.has(prefix + "quiet-once"),
+    false,
+    "future one-offs are checked at their occurrence, not at scheduling time",
+  );
+  assert.equal(
+    scheduled.has(prefix + "quiet-daily"),
+    false,
+    "recurring quiet-hour alarms remain silent",
+  );
+  assert.equal(
+    scheduled.has(prefix + "contact-muted"),
+    false,
+    "one contact can mute reminders independently",
+  );
+  const daytime = scheduled.get(prefix + "daytime");
+  assert.ok(daytime);
+  assert.equal(
+    daytime.content.body,
+    "reminders.notifyBody",
+    "private reminders contain no contact name",
+  );
+  assert.equal(daytime.content.sound, undefined);
+  assert.equal(daytime.trigger.channelId, "customer-reminders-s0-v0");
+  assert.equal(
+    JSON.stringify(rows),
+    unchangedTasks,
+    "muting and privacy never modify reminder tasks",
+  );
+  deliveryPolicy.quiet_hours.allow_reminders = true;
+  await module.reconcileReminderNotifications();
+  assert.ok(
+    scheduled.has(prefix + "quiet-once") && scheduled.has(prefix + "quiet-daily"),
+    "explicit reminder exceptions retain the user's chosen alarm time",
+  );
+  deliveryPolicy.enabled = false;
+  await module.reconcileReminderNotifications();
+  assert.equal(
+    [...scheduled.keys()].filter((id) => id.startsWith(prefix)).length,
+    0,
+    "master pause cancels only owned native alarms",
+  );
+  assert.equal(JSON.stringify(rows), unchangedTasks);
+  deliveryPolicy = notificationPolicy.defaultNotificationPolicy();
+  assert.equal(
+    (
+      await handlers[0].handleNotification({
+        request: { content: { data: { kind: "customer_reminder", owner_scope: "account:old" } } },
+      })
+    ).shouldShowBanner,
+    false,
+    "a late alarm from a previous account never shows",
   );
 
   // The actual physical-device helper is single-flight, excludes transferable

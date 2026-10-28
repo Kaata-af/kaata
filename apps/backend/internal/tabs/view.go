@@ -24,12 +24,13 @@ const (
 
 // No financial fields: this template is only an app invitation.
 type viewData struct {
-	Token       string
-	Lang        string
-	RTL         bool
-	Origin      string
-	PlayURL     string
-	AppStoreURL string
+	RecordingMode string
+	Token         string
+	Lang          string
+	RTL           bool
+	Origin        string
+	PlayURL       string
+	AppStoreURL   string
 }
 
 // viewTmpl / notFoundTmpl are html/template ON PURPOSE: {{.Token}},
@@ -47,7 +48,7 @@ func (h *Handler) View(w http.ResponseWriter, r *http.Request) {
 	rtl := locale.RTL(lang)
 	token := chi.URLParam(r, "token")
 
-	_, err := h.svc.PartyByToken(r.Context(), token, "")
+	party, err := h.svc.PartyByToken(r.Context(), token, "")
 	if errors.Is(err, ErrNotFound) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusNotFound)
@@ -61,6 +62,11 @@ func (h *Handler) View(w http.ResponseWriter, r *http.Request) {
 	}
 	data := viewData{Token: token, Lang: lang, RTL: rtl, Origin: h.webBaseURL,
 		PlayURL: playStoreURL, AppStoreURL: appStoreURL}
+	if err := h.svc.pool.QueryRow(r.Context(), `SELECT recording_mode FROM tabs WHERE id=$1::uuid`, party.TabID).Scan(&data.RecordingMode); err != nil {
+		log.Printf("tabs: view recording mode lookup failed: %v", err)
+		httpx.Error(w, http.StatusInternalServerError, "could not load tab")
+		return
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := viewTmpl.Execute(w, data); err != nil {
 		log.Printf("tabs: view render failed: %v", err)

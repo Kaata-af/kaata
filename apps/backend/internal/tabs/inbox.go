@@ -85,7 +85,7 @@ func (s *Service) listInbox(ctx context.Context, accountID, locale string, befor
  COALESCE(e.amount_minor,0),COALESCE(e.direction,''),t.currency,
  (p.account_id=$1::uuid OR EXISTS(SELECT 1 FROM vault_members vm WHERE vm.vault_id=p.vault_id
    AND vm.account_id=$1::uuid AND vm.accepted_at IS NOT NULL AND vm.revoked_at IS NULL
-   AND vm.role IN ('owner','manager','editor')))
+   AND vm.role IN ('owner','manager','editor'))) AND t.recording_mode='review' AND COALESCE(e.status='pending',FALSE)
  FROM tab_notifications n JOIN tab_parties p ON p.tab_id=n.tab_id AND p.role=n.recipient_role
  JOIN tabs t ON t.id=n.tab_id LEFT JOIN tab_entries e ON e.id=n.entry_id AND e.tab_id=n.tab_id
  LEFT JOIN tab_notification_reads nr ON nr.notification_id=n.id AND nr.account_id=$1::uuid

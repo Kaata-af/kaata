@@ -351,7 +351,11 @@ function recordDetailHtml(entry: Entry, locale: LocaleCode): string {
   // Names on historical records may be absent; do not substitute the current
   // party owner. That would claim a review by somebody who may never have acted.
   if (!values[3]) values[3] = tIn(locale, "export.record.unknown");
-  if (!tab.local_pending && tab.status !== "pending" && !values[7]) {
+  if (
+    !tab.local_pending &&
+    (tab.status === "accepted" || tab.status === "disputed") &&
+    !values[7]
+  ) {
     values[7] = tIn(locale, "export.record.unknown");
   }
   const details = EVIDENCE_KEYS.flatMap((key, i) =>
@@ -514,6 +518,7 @@ function personStatementBody(st: PersonStatement): string {
   const summaryHtml = shared
     ? `<div class="cards">
 ${card({ tone: "flat", label: tIn(locale, "export.record.acknowledgedBalance"), value: `${fmtSigned(totals.acknowledged)} ${sym}` })}
+${totals.recorded != null ? card({ tone: "flat", label: tIn(locale, "export.record.recordedBalance"), value: `${fmtSigned(totals.recorded)} ${sym}` }) : ""}
 ${card({ tone: "flat", label: tIn(locale, "export.record.pendingBalance"), value: `${fmtSigned(totals.pending)} ${sym}` })}
 ${card({ tone: "flat", label: tIn(locale, "export.doc.balance"), value: `${fmtSigned(st.balance)} ${sym}`, color: balanceColor, note: balanceNote })}
 </div>

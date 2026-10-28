@@ -44,27 +44,27 @@ func creditBalanceWithProjection(ctx context.Context, tx pgx.Tx, vaultID, relati
 	 WHERE p.vault_id=$1::uuid AND p.relationship_id=$2::uuid AND t.currency=$3
 	 AND NOT (p.role='a' AND `+tabstate.UnjoinedInvitationSQL+`
 	   AND NOT EXISTS(SELECT 1 FROM tab_entries opening WHERE opening.tab_id=p.tab_id
-	     AND opening.kind='opening' AND opening.voided_by_entry_id IS NULL AND opening.status IN ('pending','accepted')))
+	     AND opening.kind='opening' AND opening.voided_by_entry_id IS NULL AND opening.status IN ('pending','accepted','recorded')))
 	 ORDER BY p.history_order DESC NULLS LAST,t.created_at DESC,t.id DESC,p.role DESC LIMIT 1`, vaultID, relationshipID, code).Scan(&boundary)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return 0, err
 	}
 	sum := new(big.Int)
 	var tabSum string
-	// Credit exposure remains pending-inclusive. A live opening replaces
+	// Credit exposure includes pending and recorded claims. A live opening replaces
 	// earlier periods, but rejecting/withdrawing it reveals that earlier
 	// exposure instead of turning a previously accepted loan into zero.
 	if err := tx.QueryRow(ctx, `WITH periods AS (
 		 SELECT p.tab_id,p.role,p.history_order FROM tab_parties p JOIN tabs t ON t.id=p.tab_id WHERE p.vault_id=$1::uuid AND p.relationship_id=$2::uuid AND t.currency=$3
 		), checkpoint AS (
 		 SELECT MAX(p.history_order) AS history_order FROM periods p JOIN tab_entries e ON e.tab_id=p.tab_id
-		 WHERE e.kind='opening' AND e.voided_by_entry_id IS NULL AND e.status IN ('pending','accepted')
+		 WHERE e.kind='opening' AND e.voided_by_entry_id IS NULL AND e.status IN ('pending','accepted','recorded')
 		)
 		 SELECT COALESCE(SUM(CASE WHEN (p.role='a' AND e.direction='a_to_b') OR (p.role='b' AND e.direction='b_to_a')
 		   THEN e.amount_minor ELSE -e.amount_minor END),0)::text
 		 FROM periods p JOIN tab_entries e ON e.tab_id=p.tab_id CROSS JOIN checkpoint c
 		 WHERE p.history_order>=COALESCE(c.history_order,0) AND e.kind<>'void'
-		   AND e.voided_by_entry_id IS NULL AND e.status IN ('pending','accepted')`, vaultID, relationshipID, code).Scan(&tabSum); err != nil {
+		   AND e.voided_by_entry_id IS NULL AND e.status IN ('pending','accepted','recorded')`, vaultID, relationshipID, code).Scan(&tabSum); err != nil {
 		return 0, err
 	}
 	if _, ok := sum.SetString(tabSum, 10); !ok {

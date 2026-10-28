@@ -31,6 +31,7 @@ const EXIT_DURATION_MS = 220;
 export function BottomSheet(props: {
   visible: boolean;
   title?: string;
+  description?: string;
   actions: SheetAction[];
   onDismiss: () => void;
 }) {
@@ -76,6 +77,9 @@ export function BottomSheet(props: {
           <View style={styles.sheet}>
             <SheetHandle panHandlers={drag.panHandlers} onDismiss={drag.dismiss} />
             {props.title ? <Text style={[styles.title, textDir(isRTL)]}>{props.title}</Text> : null}
+            {props.description ? (
+              <Text style={[styles.description, textDir(isRTL)]}>{props.description}</Text>
+            ) : null}
             {props.actions.map((a, i) => {
               const color = a.destructive ? colors.danger : colors.textEmphasis;
               return (
@@ -152,6 +156,13 @@ const styles = StyleSheet.create({
     // whose names are Persian script, so gating tracking on the app's locale
     // would still shred those names. Content we didn't author gets no tracking
     // in either language. (textTransform is harmless — Persian has no case.)
+  },
+  description: {
+    fontSize: 13,
+    fontFamily: fonts.sansRegular,
+    color: colors.textSubtle,
+    paddingHorizontal: 20,
+    paddingBottom: 10,
   },
   row: {
     flexDirection: "row",

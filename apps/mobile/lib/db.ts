@@ -75,7 +75,8 @@ import type { DuplicateHint, TabDirection } from "./tabs/types";
 import { TabLinkedEntryError } from "./tabs/errors";
 import {
   effectiveConfirmedBalanceSql,
-  effectiveConfirmedSql,
+  effectiveFinancialBalanceSql,
+  effectiveFinancialSql,
   effectivePendingBalanceSql,
   effectiveSharedPeriods,
   privateEntryCurrentSql,
@@ -142,6 +143,7 @@ const MIGRATION_042 = "042_ledger_currencies";
 const MIGRATION_043 = "043_person_default_currency";
 const MIGRATION_044 = "044_entry_original_currency";
 const MIGRATION_045 = "045_unjoined_invitation";
+const MIGRATION_046 = "046_tab_recording_mode";
 
 // Phase 5 mesh: app_meta keys used by the lib/mesh package. They are NOT
 // referenced from db.ts directly — the table itself is the generic key/value
@@ -581,6 +583,7 @@ export async function initDb(opts: { installId?: string } = {}): Promise<void> {
   }
   if (!(await hasRunMigration(db, MIGRATION_044))) await runMigration044(db);
   if (!(await hasRunMigration(db, MIGRATION_045))) await runMigration045(db);
+  if (!(await hasRunMigration(db, MIGRATION_046))) await runMigration046(db);
 }
 
 async function hasRunMigration(db: SQLite.SQLiteDatabase, name: string): Promise<boolean> {
@@ -3280,6 +3283,8 @@ async function runMigration028(db: SQLite.SQLiteDatabase): Promise<void> {
         other_label     TEXT NOT NULL DEFAULT '',
         other_joined_at INTEGER,
         unjoined_invitation INTEGER,
+        recording_mode TEXT NOT NULL DEFAULT 'review',
+        recording_mode_known INTEGER NOT NULL DEFAULT 1,
         invite_url      TEXT,
         rev             INTEGER NOT NULL DEFAULT 0,
         closed_at       INTEGER,
@@ -3760,6 +3765,24 @@ async function runMigration045(db: SQLite.SQLiteDatabase): Promise<void> {
     await db.runAsync(
       "INSERT INTO schema_migrations(name,applied_at) VALUES (?,?)",
       MIGRATION_045,
+      Date.now(),
+    );
+  });
+}
+
+async function runMigration046(db: SQLite.SQLiteDatabase): Promise<void> {
+  await db.withTransactionAsync(async () => {
+    if (!(await columnExists(db, "tab_links", "recording_mode")))
+      await db.execAsync(
+        "ALTER TABLE tab_links ADD COLUMN recording_mode TEXT NOT NULL DEFAULT 'review'",
+      );
+    if (!(await columnExists(db, "tab_links", "recording_mode_known")))
+      await db.execAsync(
+        "ALTER TABLE tab_links ADD COLUMN recording_mode_known INTEGER NOT NULL DEFAULT 1",
+      );
+    await db.runAsync(
+      "INSERT INTO schema_migrations(name,applied_at) VALUES (?,?)",
+      MIGRATION_046,
       Date.now(),
     );
   });
@@ -4468,7 +4491,7 @@ const TAB_PERSON_COLUMNS = `
  */
 const PERSON_BALANCE_SQL = `
             CASE WHEN tl.tab_id IS NOT NULL THEN
-              (${effectiveConfirmedBalanceSql()})
+              (${effectiveFinancialBalanceSql()})
               + ${signedEntryMinorSumSql("e", privateEntryCurrentSql("e"))}
             ELSE (${signedEntryMinorSumSql("e")}) END / 100.0 AS balance`;
 
@@ -4556,7 +4579,7 @@ async function selectAllPeopleRaw(
                        THEN te.amount_minor ELSE 0 END) AS credit_minor
          FROM tab_links stl INNER JOIN tab_links hl ON hl.vault_id=stl.vault_id AND hl.relationship_id=stl.relationship_id
          INNER JOIN tab_entries te ON te.tab_id = hl.tab_id
-        WHERE stl.vault_id = ? AND stl.currency=${currencySqlLiteral(currencyCode)} AND ${effectiveConfirmedSql("te", "hl", "stl")}
+        WHERE stl.vault_id = ? AND stl.currency=${currencySqlLiteral(currencyCode)} AND ${effectiveFinancialSql("te", "hl", "stl")}
         GROUP BY stl.tab_id
      )
      SELECT u.id            AS id,
@@ -4608,7 +4631,7 @@ async function selectAllPeopleRaw(
                   AND (tp.status='pending' OR tp.local_pending<>0 OR COALESCE(tp.local_action_pending,0)<>0)
                   AND NOT (tp.kind='opening' AND ${retainedPrivateHistorySql("pl")})) THEN 0
               WHEN ftl.tab_id IS NOT NULL
-               AND ((${effectiveConfirmedBalanceSql()})
+               AND ((${effectiveFinancialBalanceSql()})
                     + ${signedEntryMinorSumSql("e", privateEntryCurrentSql("e"))}) = 0
                AND EXISTS (SELECT 1 FROM tab_settlements s WHERE s.tab_id = ftl.tab_id
                     AND s.through_seq >= COALESCE((SELECT MAX(te.seq) FROM tab_entries te WHERE te.tab_id = ftl.tab_id), 0))

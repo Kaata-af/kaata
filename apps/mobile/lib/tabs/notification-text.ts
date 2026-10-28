@@ -6,7 +6,9 @@ import type { TabEntryRow, TabLink } from "./types";
  * balance perspective, even for rejected/voided tallies (never computed as 0). */
 export function notificationVars(link: TabLink, entry: TabEntryRow, fallback: string) {
   const label = (
-    entry.created_by !== link.role && entry.status === "pending" ? entry.author_name || "" : ""
+    entry.created_by !== link.role && (entry.status === "pending" || entry.status === "recorded")
+      ? entry.author_name || ""
+      : ""
   )
     .replace(/[\p{Cc}\p{Cf}]/gu, "")
     .trim();

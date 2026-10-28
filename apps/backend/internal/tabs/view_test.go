@@ -26,3 +26,23 @@ func TestAppOnlyInvitation(t *testing.T) {
 		}
 	}
 }
+
+func TestNotificationOnlyInvitationExplainsRecordingWithoutAcceptance(t *testing.T) {
+	for _, lang := range []string{"en", "fa", "ps"} {
+		var notice, legacy strings.Builder
+		data := viewData{Token: "synthetic", Lang: lang, RTL: lang != "en", RecordingMode: "notify"}
+		if err := viewTmpl.Execute(&notice, data); err != nil {
+			t.Fatal(err)
+		}
+		data.RecordingMode = "review"
+		if err := viewTmpl.Execute(&legacy, data); err != nil {
+			t.Fatal(err)
+		}
+		if notice.String() == legacy.String() {
+			t.Fatalf("%s invitation does not disclose notification-only recording", lang)
+		}
+		if strings.Contains(notice.String(), "confirmed_balance") || strings.Contains(notice.String(), "recorded_balance") {
+			t.Fatal("invitation disclosed financial data")
+		}
+	}
+}

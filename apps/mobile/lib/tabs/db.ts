@@ -263,8 +263,8 @@ export async function upsertTabLink(link: TabLink): Promise<void> {
   await db.runAsync(
     `INSERT INTO tab_links (tab_id, vault_id, relationship_id, role, currency, party_token,
                             my_label, other_label, other_joined_at, invite_url, rev, closed_at,
-                            linked_at, last_synced_at, last_error, history_order, unjoined_invitation)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            linked_at, last_synced_at, last_error, history_order, unjoined_invitation, recording_mode, recording_mode_known)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(tab_id) DO UPDATE SET
        vault_id = excluded.vault_id, relationship_id = excluded.relationship_id,
        role = excluded.role, currency = excluded.currency, party_token = excluded.party_token,
@@ -273,7 +273,8 @@ export async function upsertTabLink(link: TabLink): Promise<void> {
        rev = excluded.rev, closed_at = excluded.closed_at, linked_at = excluded.linked_at,
        last_synced_at = excluded.last_synced_at, last_error = excluded.last_error,
        history_order = COALESCE(excluded.history_order, tab_links.history_order),
-       unjoined_invitation = excluded.unjoined_invitation`,
+       unjoined_invitation = excluded.unjoined_invitation, recording_mode = excluded.recording_mode,
+       recording_mode_known = excluded.recording_mode_known`,
     link.tab_id,
     link.vault_id,
     link.relationship_id,
@@ -291,6 +292,8 @@ export async function upsertTabLink(link: TabLink): Promise<void> {
     link.last_error,
     link.history_order ?? null,
     link.unjoined_invitation ?? null,
+    link.recording_mode ?? "review",
+    link.recording_mode_known ?? 1,
   );
 }
 
@@ -371,10 +374,28 @@ type PrevRow = Pick<TabEntryRow, "id" | "created_by" | "status" | "voided_by_ent
  * order with upsertTabLink; the FK on tab_entries needs it to exist first.
  */
 export async function upsertTabFromWire(
-  link: Pick<TabLink, "tab_id" | "vault_id" | "relationship_id" | "party_token" | "linked_at">,
+  link: Pick<
+    TabLink,
+    | "tab_id"
+    | "vault_id"
+    | "relationship_id"
+    | "party_token"
+    | "linked_at"
+    | "recording_mode"
+    | "recording_mode_known"
+  >,
   resp: TabResponse,
   opts: { origin?: TabAppliedEvent["origin"]; advanceCursor?: boolean } = {},
 ): Promise<{ newFromThem: number; statusChangedOnMine: number }> {
+  if (
+    resp.entries.some((entry) => entry.status === "recorded") &&
+    resp.tab.recording_mode !== "notify"
+  )
+    throw new TabApiError(
+      503,
+      "notification_only_unsupported",
+      "Recorded tallies require explicit notification-only metadata",
+    );
   // The cursor means "every row with rev <= cursor is cached". Only a PULL can
   // promise that: an op ack (append/accept/dispute) carries one row and the
   // tab's current rev, and rows the other party wrote between the old cursor
@@ -396,8 +417,8 @@ export async function upsertTabFromWire(
   await transaction(async () => {
     await db.runAsync(
       `INSERT OR IGNORE INTO tab_links (tab_id, vault_id, relationship_id, role, currency,
-                                        party_token, linked_at, rev)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 0)`,
+                                        party_token, linked_at, recording_mode, recording_mode_known, rev)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
       link.tab_id,
       link.vault_id,
       link.relationship_id,
@@ -405,12 +426,36 @@ export async function upsertTabFromWire(
       resp.tab.currency,
       link.party_token,
       link.linked_at,
+      link.recording_mode ?? "review",
+      link.recording_mode_known ?? 1,
     );
     const stored = await db.getFirstAsync<TabLink>(
       `SELECT * FROM tab_links WHERE tab_id = ?`,
       link.tab_id,
     );
     if (!stored) throw new Error(`tab_links row missing after upsert: ${link.tab_id}`);
+    if (stored.recording_mode === "notify" && resp.tab.recording_mode !== "notify")
+      throw new TabApiError(
+        503,
+        "notification_only_unsupported",
+        "A legacy response cannot downgrade notification-only history",
+      );
+    const recordingMode = resp.tab.recording_mode ?? stored.recording_mode ?? "review";
+    if (
+      (recordingMode !== "review" && recordingMode !== "notify") ||
+      resp.entries.some((entry) => entry.status === "recorded" && recordingMode !== "notify")
+    )
+      throw new TabApiError(
+        503,
+        "notification_only_unsupported",
+        "Recording semantics must be confirmed before replacing financial history",
+      );
+    if (
+      resp.entries.some(
+        (entry) => !["pending", "accepted", "disputed", "recorded"].includes(entry.status),
+      )
+    )
+      throw new TabApiError(426, "recording_upgrade_required", "Unknown shared tally status");
     // An older response must not erase rows from a newer full pull while
     // retaining its higher cursor (which would prevent fetching them again).
     if (resp.tab.rev < stored.rev) return;
@@ -503,23 +548,35 @@ export async function upsertTabFromWire(
       if (!before) {
         if (e.created_by === them && e.kind !== "void") {
           newFromThem++;
-          if (stored.last_synced_at != null && e.status === "pending" && !e.voided_by_entry_id)
+          if (
+            stored.last_synced_at != null &&
+            (e.status === "pending" || e.status === "recorded") &&
+            !e.voided_by_entry_id
+          )
             changes.push({ entryId: e.id, rev: e.rev, kind: "entry_created" });
         }
+      } else if (
+        e.created_by === them &&
+        stored.last_synced_at != null &&
+        before.voided_by_entry_id == null &&
+        e.voided_by_entry_id != null
+      ) {
+        changes.push({ entryId: e.id, rev: e.rev, kind: "entry_voided" });
       } else if (e.created_by === me) {
         const wasVoided = before.voided_by_entry_id != null;
         const isVoided = e.voided_by_entry_id != null;
         if (before.status !== e.status || wasVoided !== isVoided) {
           statusChangedOnMine++;
-          changes.push({
-            entryId: e.id,
-            rev: e.rev,
-            kind: isVoided
-              ? "entry_voided"
-              : e.status === "accepted"
-                ? "entry_accepted"
-                : "entry_rejected",
-          });
+          if (isVoided || e.status === "accepted" || e.status === "disputed")
+            changes.push({
+              entryId: e.id,
+              rev: e.rev,
+              kind: isVoided
+                ? "entry_voided"
+                : e.status === "accepted"
+                  ? "entry_accepted"
+                  : "entry_rejected",
+            });
         }
       }
     }
@@ -530,19 +587,24 @@ export async function upsertTabFromWire(
       link.tab_id,
     );
     const meta = {
+      recording_mode: recordingMode,
+      recording_mode_known:
+        resp.tab.recording_mode != null ? (1 as const) : (stored.recording_mode_known ?? 1),
       my_label: resp.tab.parties[me].label,
       other_label: resp.tab.parties[them].label,
       other_joined_at: resp.tab.parties[them].joined_at_ms,
       unjoined_invitation:
         // Participation is irreversible. A late equal-revision metadata
         // response must never make a once-bound invitation private again.
-        stored.unjoined_invitation === 0
-          ? (0 as const)
-          : typeof resp.tab.unjoined_invitation === "boolean"
-            ? resp.tab.unjoined_invitation
-              ? (1 as const)
-              : (0 as const)
-            : null,
+        resp.tab.recording_mode == null && stored.recording_mode_known === 0
+          ? null
+          : stored.unjoined_invitation === 0
+            ? (0 as const)
+            : typeof resp.tab.unjoined_invitation === "boolean"
+              ? resp.tab.unjoined_invitation
+                ? (1 as const)
+                : (0 as const)
+              : null,
       closed_at: resp.tab.closed_at_ms,
       closed_reason: resp.tab.closed_reason ?? null,
     };
@@ -553,6 +615,8 @@ export async function upsertTabFromWire(
       meta.my_label !== stored.my_label ||
       meta.other_label !== stored.other_label ||
       meta.other_joined_at !== stored.other_joined_at ||
+      meta.recording_mode !== (stored.recording_mode ?? "review") ||
+      meta.recording_mode_known !== (stored.recording_mode_known ?? 1) ||
       meta.unjoined_invitation !== (stored.unjoined_invitation ?? null) ||
       meta.closed_at !== stored.closed_at ||
       meta.closed_reason !== (stored.closed_reason ?? null) ||
@@ -566,7 +630,7 @@ export async function upsertTabFromWire(
       `UPDATE tab_links
           SET rev = MAX(rev, ?), currency = ?, my_label = ?, other_label = ?,
               other_joined_at = ?, closed_at = ?, closed_reason = ?, last_synced_at = ?, last_error = NULL,
-              history_order = COALESCE(?, history_order), unjoined_invitation = ?
+              history_order = COALESCE(?, history_order), unjoined_invitation = ?, recording_mode = ?, recording_mode_known = ?
         WHERE tab_id = ?`,
       advanceCursor ? resp.tab.rev : stored.rev,
       resp.tab.currency,
@@ -578,6 +642,8 @@ export async function upsertTabFromWire(
       now,
       resp.tab.parties[me].history_order ?? null,
       meta.unjoined_invitation,
+      meta.recording_mode,
+      meta.recording_mode_known,
       link.tab_id,
     );
   });
@@ -630,6 +696,8 @@ function rowToEntry(link: TabLink, r: TabEntryRow, cancellation?: TabEntryRow): 
     disputed_reason: r.status === "disputed" ? r.dispute_reason : null,
     settled_at: null,
     tab: {
+      recording_mode: link.recording_mode ?? "review",
+      recording_mode_known: link.recording_mode_known ?? 1,
       author_name: r.author_name ?? "",
       author_account_id: r.author_account_id ?? null,
       author_member_role: r.author_member_role ?? null,
@@ -696,9 +764,9 @@ export async function countPendingForMe(link: TabLink): Promise<number> {
 }
 
 /**
- * This device's own tally before the server has seen it: counts in the
- * balance at once (D6 — a tally counts the moment it lands), renders with
- * "Sending…", and is replaced by the server row of the same id on ack.
+ * This device's own tally before the server has seen it: renders with
+ * "Sending…" and is replaced by the server row of the same id on ack.
+ * Financial balances only count its server-confirmed accepted/recorded form.
  * seq -1 / rev 0 mark it as unordered until then.
  */
 export async function insertOptimisticEntry(
@@ -783,7 +851,9 @@ export async function applyOptimisticVoid(
   const db = await getDb();
   const result = await db.runAsync(
     `UPDATE tab_entries SET voided_by_entry_id = ?, local_action_pending = 1
-      WHERE id = ? AND tab_id = ? AND status = 'pending'
+      WHERE id = ? AND tab_id = ? AND status IN ('pending','recorded')
+        AND (status='pending' OR (kind='entry' AND NOT EXISTS(SELECT 1 FROM tab_settlements s
+          WHERE s.tab_id=tab_entries.tab_id AND s.through_seq>=tab_entries.seq)))
         AND kind <> 'void' AND voided_by_entry_id IS NULL AND created_by = ?`,
     marker,
     entryId,

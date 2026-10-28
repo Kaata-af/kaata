@@ -196,7 +196,9 @@ export const EntryRow = memo(function EntryRow(props: {
         ? { label: t("tab.status.disputed"), color: colors.reviewRejected }
         : tab.status === "accepted"
           ? { label: t("tab.status.accepted"), color: colors.reviewAccepted }
-          : { label: t("tab.status.pending"), color: colors.reviewPending };
+          : tab.status === "recorded"
+            ? { label: t("tab.status.recorded"), color: colors.textMuted }
+            : { label: t("tab.status.pending"), color: colors.reviewPending };
   const statusLabel = status?.label ?? null;
   // Visibility rules for the inline actions (docs/mutual-tab-design.md):
   // the other party's pending tally offers Accept/Reject even while collapsed;
@@ -208,8 +210,15 @@ export const EntryRow = memo(function EntryRow(props: {
     !voided &&
     !tab.local_pending &&
     tab.status === "pending" &&
+    tab.recording_mode_known !== 0 &&
+    tab.recording_mode !== "notify" &&
     !!(props.onAccept || props.onReject);
-  const showCancel = rowOpen && tab?.by === "me" && pending && !!props.onCancel;
+  const showCancel =
+    rowOpen &&
+    tab?.by === "me" &&
+    tab.recording_mode_known !== 0 &&
+    (pending || (tab.status === "recorded" && tab.kind === "entry")) &&
+    !!props.onCancel;
   // Side A/B is not authorship: a store can have several writers.
   const byLine = tab
     ? namedByLine(
@@ -457,7 +466,10 @@ export const EntryRow = memo(function EntryRow(props: {
             {rowOpen && disputeLine ? (
               <Text style={[styles.byLine, textDir(isRTL)]}>{disputeLine}</Text>
             ) : null}
-            {rowOpen && tab && !tab.local_pending && tab.status !== "pending" ? (
+            {rowOpen &&
+            tab &&
+            !tab.local_pending &&
+            (tab.status === "accepted" || tab.status === "disputed") ? (
               <Text style={[styles.byLine, textDir(isRTL)]}>
                 {namedByLine("tab.reviewedBy", tab.reviewer_name || t("export.record.unknown"))}
                 {tab.status_at != null ? ` · ${formatTimestamp(tab.status_at)}` : ""}

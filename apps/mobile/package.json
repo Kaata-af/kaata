@@ -50,6 +50,7 @@
     "selftest:shared-closure-sync": "tsx lib/__dev__/shared-closure-sync-selftest.ts",
     "selftest:unjoined-private-history": "tsx lib/__dev__/unjoined-private-history-selftest.ts",
     "selftest:notifications": "tsx lib/__dev__/notifications-selftest.ts",
+    "selftest:notification-settings": "tsx lib/__dev__/notification-settings-selftest.ts",
     "selftest:inbox": "tsx lib/__dev__/inbox-selftest.ts",
     "selftest:inbox-reads": "tsx lib/__dev__/inbox-reads-selftest.ts",
     "selftest:notification-navigation": "tsx lib/__dev__/notification-navigation-selftest.ts",
