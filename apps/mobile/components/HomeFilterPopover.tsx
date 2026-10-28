@@ -33,6 +33,8 @@ export function HomeFilterPopover(props: {
   viewport: FilterViewport;
   blurTarget: RefObject<ViewInstance | null>;
   disabled?: boolean;
+  keyboardVisible?: boolean;
+  onDismissKeyboard?: () => void;
   onDismiss: () => void;
   children: ReactNode;
 }) {
@@ -63,6 +65,12 @@ export function HomeFilterPopover(props: {
     if (!props.visible) return;
     const back = BackHandler.addEventListener("hardwareBackPress", () => {
       if (!current()) return false;
+      // A Back press during native keyboard dismissal belongs to the keyboard,
+      // so the popup remains open until a subsequent press.
+      if (latest.current.keyboardVisible && latest.current.onDismissKeyboard) {
+        latest.current.onDismissKeyboard();
+        return true;
+      }
       dismiss();
       return true;
     });

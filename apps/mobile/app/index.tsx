@@ -1076,7 +1076,6 @@ export default function HomeScreen() {
     const trigger = filterTriggerRef.current;
     if (
       !filtersExpandedRef.current ||
-      !homeInteraction.current.searchOpen ||
       !isCurrentHome() ||
       !surface?.measureInWindow ||
       !trigger?.measureInWindow
@@ -1087,7 +1086,6 @@ export default function HomeScreen() {
       trigger.measureInWindow((x, y, triggerWidth, triggerHeight) => {
         if (
           !filtersExpandedRef.current ||
-          !homeInteraction.current.searchOpen ||
           !isCurrentHome() ||
           request !== filterMeasureVersion.current ||
           overlaySurfaceRef.current !== surface ||
@@ -1122,12 +1120,11 @@ export default function HomeScreen() {
     // Opening measures after the expanded state commits. Closing invalidates
     // in-flight native measurements so hidden filters cannot repaint Home.
     filterMeasureVersion.current++;
-    if (!keyboardLayoutShown) {
-      setFiltersExpanded(false);
+    if (!filtersExpanded) {
       setFilterAnchor(null);
       return;
     }
-    if (filtersExpanded) updateFilterAnchor();
+    updateFilterAnchor();
   }, [keyboardLayoutShown, filtersExpanded, updateFilterAnchor]);
   useEffect(() => {
     let alive = true;
@@ -1135,6 +1132,8 @@ export default function HomeScreen() {
     const syncLayout = (shown: boolean) => {
       if (!current()) return;
       setKeyboardShown(shown);
+      // A delayed native show event must not restore search underneath filters.
+      if (shown && filtersExpandedRef.current) dismissKeyboard();
     };
     const finishHide = () => {
       if (!current()) return;
@@ -1144,6 +1143,7 @@ export default function HomeScreen() {
       searchInputRef.current?.blur();
       setSearchFocused(false);
       setKeyboardShown(false);
+      if (filtersExpandedRef.current) updateFilterAnchor();
     };
     const show = Keyboard.addListener(
       Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow",
@@ -1170,7 +1170,14 @@ export default function HomeScreen() {
       finishShow?.remove();
       didHide?.remove();
     };
-  }, [activeAccountId, activeVaultId, homeRequest, selectedCurrency]);
+  }, [
+    activeAccountId,
+    activeVaultId,
+    homeRequest,
+    selectedCurrency,
+    dismissKeyboard,
+    updateFilterAnchor,
+  ]);
   const visibleBalances =
     summarySnapshot?.vaultId === getActiveVaultIdSyncMaybe() &&
     summarySnapshot?.accountId === getAccountIdSync()
@@ -1285,6 +1292,10 @@ export default function HomeScreen() {
     selectionBusy || confirmRemoveIds !== null || !currentVaultScope || !currentPeopleScope;
   const createButtonDisabled = !canCreate || controlsDisabled;
   const prepareSearchKeyboard = () => {
+    if (isCurrentHome() && filtersExpandedRef.current) {
+      dismissKeyboard();
+      return;
+    }
     if (
       Platform.OS === "android" &&
       isCurrentHome() &&
@@ -1342,7 +1353,7 @@ export default function HomeScreen() {
           </Pressable>
         ) : null}
       </View>
-      {keyboardLayoutShown ? (
+      {keyboardLayoutShown || filtersExpanded ? (
         <Pressable
           ref={filterTriggerRef}
           onLayout={updateFilterAnchor}
@@ -1357,13 +1368,17 @@ export default function HomeScreen() {
           onPress={() => {
             if (
               !isCurrentHome() ||
-              !homeInteraction.current.searchOpen ||
+              (!homeInteraction.current.searchOpen && !filtersExpandedRef.current) ||
               selectionBusyRef.current ||
               homeInteraction.current.confirming
             )
               return;
-            setFiltersExpanded(!filtersExpanded);
+            const expanded = !filtersExpandedRef.current;
+            filtersExpandedRef.current = expanded;
+            filterMeasureVersion.current++;
+            setFiltersExpanded(expanded);
             setFilterAnchor(null);
+            if (expanded) dismissKeyboard();
           }}
           style={[
             styles.filterButton,
@@ -1491,8 +1506,7 @@ export default function HomeScreen() {
       </View>
     ) : null;
 
-  const filtersVisible =
-    keyboardLayoutShown && filtersExpanded && currentPeopleScope && currentVaultScope;
+  const filtersVisible = filtersExpanded && currentPeopleScope && currentVaultScope;
   const filterContent = (
     <>
       <CustomerListOptions
@@ -1868,6 +1882,8 @@ export default function HomeScreen() {
         viewport={filterViewport}
         blurTarget={filterBlurTargetRef}
         disabled={controlsDisabled}
+        keyboardVisible={keyboardShown}
+        onDismissKeyboard={dismissKeyboard}
         onDismiss={() => {
           if (isCurrentHome() && !selectionBusyRef.current) setFiltersExpanded(false);
         }}

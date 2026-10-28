@@ -36,6 +36,13 @@ let screenWidth = 390,
   screenFontScale = 1;
 let routeParams: { mode?: string } = {};
 let keyboardDismissals = 0;
+let searchInputBlurs = 0,
+  searchInputFocuses = 0,
+  searchInputFocused = false;
+let filterViewportHeight = 600,
+  filterTriggerY = 548,
+  delayFilterMeasurements = false;
+const pendingFilterMeasurements: (() => void)[] = [];
 let reducedMotion = false,
   homeToastOffset = 0;
 const scheduledKeyboardLayouts: unknown[] = [];
@@ -144,13 +151,31 @@ const react = {
 };
 const jsx = (type: string, props: any, key?: string | number): Node => {
   if (props?.ref && !props.ref.current && type === "View")
-    props.ref.current = { measureInWindow: (callback: any) => callback(0, 0, screenWidth, 600) };
+    props.ref.current = {
+      measureInWindow: (callback: any) => callback(0, 0, screenWidth, filterViewportHeight),
+    };
   if (props?.ref && !props.ref.current && type === "Pressable")
     props.ref.current = {
-      measureInWindow: (callback: any) => callback(screenWidth - 130, 548, 52, 52),
+      measureInWindow: (callback: any) => {
+        const x = screenWidth - 130,
+          y = filterTriggerY;
+        const complete = () => callback(x, y, 52, 52);
+        if (delayFilterMeasurements) pendingFilterMeasurements.push(complete);
+        else complete();
+      },
     };
   if (props?.ref && !props.ref.current && type === "TextInput")
-    props.ref.current = { blur: () => {}, focus: () => {}, isFocused: () => false };
+    props.ref.current = {
+      blur: () => {
+        searchInputBlurs++;
+        searchInputFocused = false;
+      },
+      focus: () => {
+        searchInputFocuses++;
+        searchInputFocused = true;
+      },
+      isFocused: () => searchInputFocused,
+    };
   return {
     type,
     key,
@@ -659,6 +684,13 @@ function fixture(
   screenFontScale = 1;
   routeParams = {};
   keyboardDismissals = 0;
+  searchInputBlurs = 0;
+  searchInputFocuses = 0;
+  searchInputFocused = false;
+  filterViewportHeight = 600;
+  filterTriggerY = 548;
+  delayFilterMeasurements = false;
+  pendingFilterMeasurements.length = 0;
   reducedMotion = false;
   homeToastOffset = 0;
   scheduledKeyboardLayouts.length = 0;
@@ -994,10 +1026,10 @@ async function main() {
     assert.ok(nodes(rowChildren[0]).some((node) => node.type === "TextInput"));
     assert.equal(
       byLabel("customers.listOptions") != null,
-      dock.props.keyboardShown,
-      "Filter controls are available only while search is open",
+      dock.props.keyboardShown || find("HomeFilterPopover")!.props.visible,
+      "Filter controls remain available while search or its popup is open",
     );
-    if (dock.props.keyboardShown)
+    if (dock.props.keyboardShown || find("HomeFilterPopover")!.props.visible)
       assert.equal(rowChildren[1].props.accessibilityLabel, "customers.listOptions");
     assert.equal(
       nodes(list).some((node) => node.type === "HomeBalanceSummary"),
@@ -1923,6 +1955,114 @@ async function main() {
       changedScope + ": retained confirmation cannot remove a same-ID customer in another scope",
     );
   }
+
+  for (const nextPlatform of ["android", "ios"])
+    for (const nextRtl of [false, true]) {
+      fixture(home, "owner", nextRtl, nextPlatform);
+      await flush();
+      await changeHomeQuery("Ahmad");
+      searchInputFocused = true;
+      homeInput().props.onPress();
+      homeInput().props.onFocus();
+      keyboardEvent(nextPlatform === "ios" ? "keyboardWillShow" : "keyboardDidShow");
+      await flush();
+
+      const blursBeforeOpen = searchInputBlurs,
+        dismissalsBeforeOpen = keyboardDismissals;
+      byLabel("customers.listOptions")!.props.onPress();
+      await flush();
+      assert.equal(searchInputBlurs, blursBeforeOpen + 1, "Opening filters blurs the search input");
+      assert.equal(
+        keyboardDismissals,
+        dismissalsBeforeOpen + 1,
+        "Opening filters requests native keyboard dismissal",
+      );
+      assert.equal(searchInputFocused, false);
+      assert.equal(find("HomeFilterPopover")!.props.visible, true);
+      assert.equal(find("HomeFilterPopover")!.props.keyboardVisible, true);
+      assert.equal(find("HomeFilterPopover")!.props.anchor.y, 548);
+      assert.equal(find("CustomerListOptions")!.props.compact, true);
+
+      // Native dismissal is asynchronous: the existing popup must survive the
+      // keyboard event and follow the footer's newly available screen space.
+      filterViewportHeight = 844;
+      filterTriggerY = 728;
+      keyboardEvent(nextPlatform === "ios" ? "keyboardWillHide" : "keyboardDidHide");
+      keyboardEvent("keyboardDidHide");
+      await flush();
+      const popup = find("HomeFilterPopover")!;
+      assert.equal(popup.props.visible, true, "Hiding the keyboard does not close filters");
+      assert.equal(popup.props.keyboardVisible, false);
+      assert.ok(find("CustomerListOptions"), "Filter choices remain usable after keyboard hide");
+      assert.equal(popup.props.anchor.y, 728, "The popup follows the footer after keyboard hide");
+      assert.equal(popup.props.viewport.height, 844);
+      assert.ok(byLabel("customers.listOptions"), "An open popup retains its anchor button");
+      assert.equal(byLabel("common.hideKeyboard"), undefined);
+      assert.equal(homeInput().props.value, "Ahmad");
+      expectBottomDock();
+
+      // Focus/show callbacks already in the native queue can arrive after the
+      // popup opens. They must dismiss again instead of restoring editable search.
+      searchInputFocused = true;
+      const dismissalsBeforeLateFocus = keyboardDismissals;
+      homeInput().props.onFocus();
+      await flush();
+      assert.equal(searchInputFocused, false, "A late focus cannot reclaim the popup's keyboard");
+      assert.ok(keyboardDismissals > dismissalsBeforeLateFocus);
+      assert.equal(find("HomeBalanceSummary")!.props.searchOpen, false);
+      const dismissalsBeforeLateShow = keyboardDismissals;
+      keyboardEvent(nextPlatform === "ios" ? "keyboardWillShow" : "keyboardDidShow");
+      if (nextPlatform === "ios") keyboardEvent("keyboardDidShow");
+      await flush();
+      assert.ok(
+        keyboardDismissals > dismissalsBeforeLateShow,
+        "Late show events are dismissed again",
+      );
+      assert.equal(find("HomeFilterPopover")!.props.visible, true);
+      keyboardEvent(nextPlatform === "ios" ? "keyboardWillHide" : "keyboardDidHide");
+      keyboardEvent("keyboardDidHide");
+      await flush();
+      assert.equal(find("HomeFilterPopover")!.props.visible, true);
+      assert.equal(find("HomeFilterPopover")!.props.keyboardVisible, false);
+      assert.equal(homeInput().props.value, "Ahmad");
+
+      const options = find("CustomerListOptions")!;
+      options.props.onChange({ ...options.props.preference, sort: "name_desc" });
+      await flush();
+      assert.equal(find("HomeFilterPopover")!.props.visible, true);
+      assert.equal(find("CustomerListOptions")!.props.preference.sort, "name_desc");
+      assert.equal(homeInput().props.value, "Ahmad");
+      assert.equal(searchInputFocused, false, "Choosing a filter does not reopen the keyboard");
+
+      // An outstanding native anchor measurement must not revive a popup after
+      // it closes, even if it arrives after the footer has hidden its trigger.
+      delayFilterMeasurements = true;
+      byLabel("customers.listOptions")!.props.onLayout();
+      assert.ok(pendingFilterMeasurements.length > 0);
+      const focusesBeforeClose = searchInputFocuses;
+      find("HomeFilterPopover")!.props.onDismiss();
+      await flush();
+      for (const complete of pendingFilterMeasurements.splice(0)) complete();
+      await flush();
+      assert.equal(find("HomeFilterPopover")!.props.visible, false);
+      assert.equal(find("HomeFilterPopover")!.props.anchor, null);
+      assert.equal(find("CustomerListOptions"), undefined);
+      assert.equal(byLabel("customers.listOptions"), undefined, "Idle Home hides filters again");
+      assert.equal(
+        searchInputFocuses,
+        focusesBeforeClose,
+        "Closing filters does not refocus search",
+      );
+      assert.equal(searchInputFocused, false);
+      assert.equal(homeInput().props.value, "Ahmad");
+      assert.equal(
+        JSON.parse(homePreferenceMeta.get("customer_home:local:kaata")!).sort,
+        "name_desc",
+        "Closing filters preserves the chosen sort",
+      );
+      assert.equal(routes.length, 0);
+      assert.equal(writes.length, 0);
+    }
 
   for (const nextRole of ["viewer", "owner", "editor", "clerk"] as const)
     for (const nextPlatform of ["android", "ios"])

@@ -5,6 +5,7 @@ import { compileUI, flattenStyle, jsx, nodes, uiHooks } from "./ui-fixture";
 const hooks = uiHooks();
 const backHandlers = new Set<() => boolean>();
 let dismissals = 0;
+let keyboardDismissals = 0;
 const { HomeFilterPopover, filterPopoverLayout } = compileUI("../../components/HomeFilterPopover", {
   react: hooks.react,
   "react/jsx-runtime": { jsx, jsxs: jsx },
@@ -126,6 +127,8 @@ let props = {
   anchor: { x: 260, y: 548, width: 52, height: 52 },
   viewport: { width: 390, height: 620 },
   disabled: false,
+  keyboardVisible: false,
+  onDismissKeyboard: () => keyboardDismissals++,
   blurTarget: { current: null },
   onDismiss: () => dismissals++,
   children: CustomerListOptions({ ...optionsProps, embedded: true }),
@@ -166,6 +169,15 @@ oldDismiss();
 assert.equal(dismissals, 1);
 assert.equal([...backHandlers][0](), true);
 assert.equal(dismissals, 2, "Android Back dismisses the popup before leaving Home");
+props = { ...props, keyboardVisible: true };
+render();
+assert.equal([...backHandlers][0](), true);
+assert.equal(keyboardDismissals, 1, "Back dismisses a remaining keyboard first");
+assert.equal(dismissals, 2, "The filters stay open while the keyboard closes");
+props = { ...props, keyboardVisible: false };
+render();
+assert.equal([...backHandlers][0](), true);
+assert.equal(dismissals, 3, "A subsequent Back closes filters after the keyboard is hidden");
 props = { ...props, disabled: true };
 render();
 assert.equal(
@@ -175,11 +187,11 @@ assert.equal(
 );
 assert.equal(backdrop().props.disabled, true, "busy state reaches the shared blur backdrop");
 backdrop().props.onDismiss();
-assert.equal(dismissals, 2, "A busy selection freezes popup actions");
+assert.equal(dismissals, 3, "A busy selection freezes popup actions");
 props = { ...props, disabled: false, contextKey: "account-b:vault-b:USD" };
 render();
 oldDismiss();
-assert.equal(dismissals, 2, "A retained backdrop callback cannot dismiss another account's popup");
+assert.equal(dismissals, 3, "A retained backdrop callback cannot dismiss another account's popup");
 props = { ...props, visible: false };
 render();
 assert.equal(hooks.tree, null);
@@ -189,7 +201,7 @@ render();
 const dismissedAfterUnmount = backdrop().props.onDismiss;
 hooks.unmount();
 dismissedAfterUnmount();
-assert.equal(dismissals, 2);
+assert.equal(dismissals, 3);
 assert.equal(backHandlers.size, 0);
 
 for (const isRTL of [false, true]) {
