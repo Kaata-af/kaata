@@ -35,7 +35,7 @@ import { createSelfProfile, getAppMeta, setAppMeta } from "../../lib/db";
 import { bidiIsolate, rowDir, textDir, useIsRTL } from "../../lib/direction";
 import { EventSigningUnavailableError } from "../../lib/event-log";
 import { t } from "../../lib/i18n";
-import { fetchTabPreview } from "../../lib/tabs/link";
+import { fetchSharedInvitation } from "../../lib/tabs/link";
 import { icon, typography } from "../../lib/tokens";
 import { useOnboardingKeyboardScroll } from "../../lib/use-onboarding-keyboard-scroll";
 
@@ -166,9 +166,11 @@ export default function OnboardingKaataScreen() {
           setPresetCurrency(stashed);
         }
         if (!(await getSessionJWT()) || !canPreset()) return;
-        const preview = await fetchTabPreview(token);
+        const invitation = await fetchSharedInvitation(token);
+        const code =
+          invitation.kind === "group" ? invitation.group.currencies[0] : invitation.tab.currency;
         if (!canPreset()) return;
-        const code = preview.tab.currency;
+        if (!code) return;
         if (!CURRENCIES.some((c) => c.code === code)) return;
         await setAppMeta("pending_tab_currency", code);
         if (!canPreset()) return;

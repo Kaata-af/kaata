@@ -185,6 +185,7 @@ function kaataFixture(
     pending?: string;
     stashedCurrency?: string;
     preview?: Promise<{ tab: { currency: string } }>;
+    groupCurrencies?: string[];
   } = {},
 ) {
   const hooks = uiHooks();
@@ -258,8 +259,10 @@ function kaataFixture(
     },
     "../../lib/event-log": { EventSigningUnavailableError: class extends Error {} },
     "../../lib/tabs/link": {
-      fetchTabPreview: async () => {
-        if (options.preview) return options.preview;
+      fetchSharedInvitation: async () => {
+        if (options.groupCurrencies)
+          return { kind: "group", group: { currencies: options.groupCurrencies }, tabs: [] };
+        if (options.preview) return { kind: "tab", ...(await options.preview) };
         throw new Error("No invitation");
       },
     },
@@ -440,6 +443,20 @@ async function main() {
     "the pending link still presets the single currency field",
   );
   preset.hooks.unmount();
+  const groupPreset = kaataFixture({ pending: "g_shared", groupCurrencies: ["USD", "AFN"] });
+  await groupPreset.flush();
+  await groupPreset.flush();
+  assert.equal(groupPreset.defaultSheet().props.selectedCode, "USD");
+  assert.equal(
+    nodes(groupPreset.hooks.tree).filter((node) => node.type === "CurrencyPickerSheet").length,
+    1,
+  );
+  assert.equal(
+    nodes(groupPreset.hooks.tree).some((node) => node.type === "EnabledCurrenciesSheet"),
+    false,
+    "A group invitation does not reintroduce a multi-currency onboarding form",
+  );
+  groupPreset.hooks.unmount();
   {
     const latePreset = deferred<{ tab: { currency: string } }>();
     const editing = kaataFixture({ pending: "shared", preview: latePreset.promise });

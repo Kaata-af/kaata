@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import ts from "typescript";
-import { TabAlreadyLinkedError, TabAuthUnavailableError } from "../tabs/errors";
+import { TabAlreadyLinkedError, TabAuthUnavailableError, TabApiError } from "../tabs/errors";
 import type { TabLink } from "../tabs/types";
 
 type Element = { type: string; props: Record<string, any> };
@@ -29,6 +29,8 @@ let openResult = true,
   copyFails = false;
 let create: () => Promise<{ link: TabLink }>;
 const fresh = {
+  group_id: "group",
+  currency: "AFN",
   recording_mode: "notify",
   tab_id: "new-tab",
   invite_url: "https://kaata.af/t/fresh",
@@ -36,6 +38,9 @@ const fresh = {
   role: "a",
   closed_at: null,
 } as TabLink;
+let recoveredLinks: TabLink[] = [fresh];
+type PendingSettings = { myLabel: string; recordingMode: "notify" | "review" | "notify_one_way" };
+let pendingSettings: Promise<PendingSettings | null> | null = null;
 const equal = (a: any[], b: any[]) =>
   a.length === b.length && a.every((v, i) => Object.is(v, b[i]));
 function render() {
@@ -106,25 +111,36 @@ const mocks: Record<string, any> = {
   "./Button": { Button: "Button" },
   "./Toast": { useToast: () => ({ push() {} }) },
   "../lib/colors": { colors: {} },
-  "../lib/currency": { getCurrentCurrencyCode: () => "AFN" },
+  "../lib/currency": {
+    getCurrentCurrencyCode: () => "AFN",
+    getCurrencyLabel: (code: string) => code,
+  },
   "../lib/db-tx": { getAccountIdSync: () => accountId, getActiveVaultIdSyncMaybe: () => vaultId },
   "../lib/direction": { useIsRTL: () => locale !== "en", rowDir: () => ({}), textDir: () => ({}) },
   "../lib/i18n": {
     getLocale: () => locale,
     getShareLangPref: async () => pref,
     resolveShareLang: (p: string) => (p === "auto" ? locale : p),
-    t: (k: string) => k,
+    t: (k: string, vars?: Record<string, string>) =>
+      k === "tab.group.currencies" ? `${k}:${vars?.currencies}` : k,
     tIn: (lang: string, key: string, vars: any) => {
       invitationMessages.push(key);
       return lang + ":" + vars.name + ":" + vars.url;
     },
   },
-  "../lib/tabs/db": { getTabLinkForPerson: async () => fresh },
+  "../lib/tabs/db": { listOpenTabLinksForPerson: async () => recoveredLinks },
   "../lib/tabs/link": {
-    linkContact: async (...args: any[]) => {
+    getPendingContactGroupSettings: async () => (pendingSettings ? await pendingSettings : null),
+    linkContactGroup: async (...args: any[]) => {
       createCalls++;
       createArguments.push(args);
-      return create();
+      const created = await create();
+      return {
+        ...created,
+        group: { id: "group", currencies: ["AFN", "USD"] },
+        links: [created.link, { ...created.link, currency: "USD" }],
+        inviteUrl: created.link.invite_url,
+      };
     },
     shareTabLinkOnWhatsApp: async (link: TabLink, person: any, text: string) => {
       shares.push({ link, phone: person.phone, text });
@@ -166,7 +182,12 @@ async function tap(key: string) {
   button(key).props.onPress();
   await settle();
 }
-function reset(phone: string | null, preference = "auto", existing: TabLink | null = null) {
+function reset(
+  phone: string | null,
+  preference = "auto",
+  existing: TabLink | null = null,
+  pending: Promise<PendingSettings | null> | null = null,
+) {
   accountId = "account";
   vaultId = "vault";
   createArguments.length = 0;
@@ -183,6 +204,8 @@ function reset(phone: string | null, preference = "auto", existing: TabLink | nu
   openResult = true;
   copyFails = false;
   create = async () => ({ link: fresh });
+  recoveredLinks = [fresh];
+  pendingSettings = pending;
   props = {
     visible: true,
     person: { id: "person", name: "Ahmad", phone },
@@ -207,6 +230,80 @@ function assertOneModal() {
 }
 
 async function main() {
+  for (const [code, key] of [
+    ["shared_account_pending", "tab.group.pending"],
+    ["shared_account_source_unsynced", "tab.group.syncFirst"],
+    ["shared_history_pending", "tab.history.pending"],
+  ] as const) {
+    reset(null);
+    create = async () => {
+      throw new TabApiError(409, code, "Synthetic preparation guard");
+    };
+    await settle();
+    await tap("tab.link.action");
+    assert.ok(
+      nodes(tree).some(
+        (node) => node.props.accessibilityRole === "alert" && node.props.children === key,
+      ),
+      `${code} explains the required recovery step`,
+    );
+    assert.equal(linkedCalls + dismissals + shares.length + copied.length, 0);
+    assert.equal(button("tab.link.action").props.disabled, false, "The invitation can be retried");
+  }
+
+  reset(
+    null,
+    "auto",
+    null,
+    Promise.resolve({ myLabel: "Original label", recordingMode: "review" }),
+  );
+  await settle();
+  assert.equal(
+    nodes(tree).find((node) => node.props.accessibilityLabel === "tab.recordingMode.review")!.props
+      .accessibilityState.checked,
+    true,
+    "Retrying an unfinished invitation restores its original recording contract",
+  );
+  await tap("tab.link.action");
+  assert.equal(createArguments[0][1].recordingMode, "review");
+  let resolvePending!: (settings: PendingSettings) => void;
+  reset(
+    null,
+    "auto",
+    null,
+    new Promise((resolve) => {
+      resolvePending = resolve;
+    }),
+  );
+  await settle();
+  assert.equal(button("tab.link.action").props.disabled, true);
+  nodes(tree)
+    .find((node) => node.props.accessibilityLabel === "tab.recordingMode.oneWay")!
+    .props.onPress();
+  resolvePending({ myLabel: "Original label", recordingMode: "review" });
+  await settle();
+  assert.equal(
+    nodes(tree).find((node) => node.props.accessibilityLabel === "tab.recordingMode.oneWay")!.props
+      .accessibilityState.checked,
+    true,
+    "A late local draft read cannot overwrite a newer user choice",
+  );
+  await tap("tab.link.action");
+  assert.equal(createCalls, 0, "A changed mode cannot send a conflicting retry");
+  assert.ok(
+    nodes(tree).some(
+      (node) =>
+        node.props.accessibilityRole === "alert" && node.props.children === "tab.group.pendingMode",
+    ),
+  );
+  nodes(tree)
+    .find((node) => node.props.accessibilityLabel === "tab.recordingMode.review")!
+    .props.onPress();
+  await settle();
+  await tap("tab.link.action");
+  assert.equal(createCalls, 1);
+  assert.equal(createArguments[0][1].recordingMode, "review");
+
   reset("+93700000000");
   await settle();
   assertOneModal();
@@ -226,6 +323,14 @@ async function main() {
   await settle();
   await tap("tab.link.action");
   assertOneModal();
+  assert.ok(
+    nodes(tree).some(
+      (node) =>
+        node.props.testID === "shared-account-currencies" &&
+        node.props.children === "tab.group.currencies:AFN · USD",
+    ),
+    "One created invitation names both currencies without choosing between them",
+  );
   assert.equal(shares.length, 0);
   assert.equal(dismissals, 0);
   await tap("tab.share.copy");
@@ -332,6 +437,25 @@ async function main() {
   console.log("PASS: another phone's existing link is recovered and shared");
 
   reset("+93700000000");
+  recoveredLinks = [{ ...fresh, group_id: null }];
+  create = async () => {
+    throw new TabAlreadyLinkedError(fresh.tab_id);
+  };
+  await settle();
+  await tap("tab.link.whatsapp");
+  assert.equal(
+    shares.length,
+    0,
+    "A legacy currency link cannot silently substitute for an all-currency invitation",
+  );
+  assert.ok(
+    nodes(tree).some(
+      (node) =>
+        node.props.accessibilityRole === "alert" && node.props.children === "tab.group.conflict",
+    ),
+  );
+
+  reset("+93700000000");
   create = async () => {
     throw Error("offline");
   };
@@ -386,8 +510,8 @@ async function main() {
   await tap("tab.link.whatsapp");
   assert.equal(
     createArguments[0][1].currency,
-    "USD",
-    "Link creation targets the explicit action currency",
+    undefined,
+    "A new shared account never narrows its currencies to a selected action currency",
   );
   assert.equal(
     createArguments[0][1].recordingMode,
@@ -418,7 +542,7 @@ async function main() {
     )!;
     oneWay.props.onPress();
     await settle();
-    assert.ok(nodes(tree).some((node) => node.props.children === "tab.link.confirm.oneWayBody"));
+    assert.ok(nodes(tree).some((node) => node.props.children === "tab.group.confirm.oneWayBody"));
     create = async () => ({ link: { ...fresh, recording_mode: "notify_one_way" } });
     await tap("tab.link.whatsapp");
     assert.equal(createArguments[0][1].recordingMode, "notify_one_way");
@@ -452,7 +576,9 @@ async function main() {
     assert.equal(shares.length, 0, "A late create cannot share from another account/book");
     assert.equal(linkedCalls, 0);
   }
-  console.log("PASS: explicit currency creation and late account/book scopes remain isolated");
+  console.log(
+    "PASS: new invitations cover all currencies while late account/book scopes remain isolated",
+  );
 
   reset("+93700000000");
   create = async () => {

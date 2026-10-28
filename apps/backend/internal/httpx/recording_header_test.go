@@ -18,4 +18,7 @@ func TestRecordingCapabilityIsAllowedInPreflight(t *testing.T) {
 	if !strings.Contains(response.Header().Get("Access-Control-Allow-Headers"), "X-Kaata-Tab-One-Way") {
 		t.Fatal("one-way capability header is not allowed in browser preflight")
 	}
+	if !strings.Contains(response.Header().Get("Access-Control-Allow-Headers"), "X-Kaata-Tab-Group") {
+		t.Fatal("group capability header is not allowed in browser preflight")
+	}
 }

@@ -144,7 +144,7 @@ export function setTabNotifyHook(fn: (() => Promise<void>) | null): void {
   notifyHook = fn;
 }
 
-function askNotifyPermission(): void {
+export function askNotifyPermission(): void {
   if (!notifyHook) return;
   void notifyHook().catch((err) => {
     if (__DEV__) console.warn("[tabs.link] notify hook failed", err);
@@ -156,18 +156,21 @@ function askNotifyPermission(): void {
 
 /** Refuse when the active user's vault role cannot perform `action`. A
  *  token-only (never signed in) install resolves to owner, as everywhere. */
-async function assertVaultAction(vaultId: string, action: VaultAction): Promise<void> {
+export async function assertVaultAction(vaultId: string, action: VaultAction): Promise<void> {
   const role = await readVaultRole(vaultId, getAccountIdSync());
   if (!canPerformAction(role, action)) throw new TabPermissionError();
 }
 
-function cleanLabel(label: string): string {
+export function cleanLabel(label: string): string {
   const trimmed = label.trim().slice(0, LABEL_MAX);
   if (!trimmed) throw new TabInputError("label_required");
   return trimmed;
 }
 
-async function relationshipInVault(personId: string, vaultId: string): Promise<string | null> {
+export async function relationshipInVault(
+  personId: string,
+  vaultId: string,
+): Promise<string | null> {
   const db = await getDb();
   const row = await db.getFirstAsync<{ id: string }>(
     `SELECT id FROM relationships
@@ -227,7 +230,7 @@ async function knownRecordingLink(link: TabLink, session: SessionSnapshot): Prom
 /** Resolve the previous shared period before copying its balance. The server
  * checks the receipt again under its contact lock, so a concurrent final review
  * cannot silently turn a stale opening into a new acknowledgement. */
-async function prepareSharedHistory(
+export async function prepareSharedHistory(
   relationshipId: string,
   vaultId: string,
   currency: string,
@@ -355,7 +358,7 @@ async function newOp(
  * stale or missing server phone only costs the other side a suggestion, never
  * the link.
  */
-async function resendSelfPhone(): Promise<void> {
+export async function resendSelfPhone(): Promise<void> {
   try {
     const self = await getLocalSelf();
     if (self?.phone) void updateAccountPhone(self.phone).catch(() => undefined);
@@ -391,7 +394,7 @@ const RETRY_PUSH_CAP_MS = 10_000;
  * wait is bounded: the drain continues in the background and the result says
  * what had landed by the cap (`timedOut`).
  */
-async function pushVaultBestEffort(
+export async function pushVaultBestEffort(
   vaultId: string,
   opts: { capMs?: number } = {},
 ): Promise<{ pushed: number; timedOut: boolean }> {
@@ -435,11 +438,11 @@ async function pushVaultBestEffort(
  * keeps the rollback on the FINAL failure only (the currency retry in
  * joinTabAsContact asks the server twice).
  */
-async function joinFailure(
+export async function joinFailure(
   err: unknown,
   createdPersonId: string | null,
   vaultCurrency: string,
-  tab: WireTab,
+  tab: Pick<WireTab, "id" | "currency">,
   afterPush: boolean,
   scope: { session: SessionSnapshot; vaultId: string },
 ): Promise<unknown> {
@@ -1148,6 +1151,7 @@ export async function setMyLabel(link: TabLink, label: string): Promise<void> {
  * (syncAllTabs sweeps queued ops on closed links too).
  */
 export async function unlinkContact(link: TabLink): Promise<void> {
+  if (link.group_id) return (await import("./groups")).unlinkTabGroup(link);
   const session = await captureCurrentSession();
   await assertVaultAction(link.vault_id, "entry.amend");
   await newOp(link, "close", { withdraw_unjoined_opening: true }, undefined, { session });
@@ -1160,6 +1164,7 @@ export async function unlinkContact(link: TabLink): Promise<void> {
  * caller shares next. Returns the new invite URL and stores it on the link.
  */
 export async function regenerateInviteLink(link: TabLink): Promise<string> {
+  if (link.group_id) return (await import("./groups")).regenerateTabGroupInvite(link);
   const session = await captureCurrentSession();
   link = await knownRecordingLink(link, session);
   requireOpen(link);
@@ -1169,6 +1174,43 @@ export async function regenerateInviteLink(link: TabLink): Promise<string> {
   const { invite_url } = await regenerateTabLink(auth, link.tab_id);
   await setTabInviteUrl(link.tab_id, invite_url);
   return invite_url;
+}
+
+// Lazy group flows preserve the legacy module's startup and test boundaries.
+export async function linkContactGroup(
+  ...args: Parameters<typeof import("./groups").linkContactGroup>
+) {
+  return (await import("./groups")).linkContactGroup(...args);
+}
+export async function fetchSharedInvitation(
+  ...args: Parameters<typeof import("./groups").fetchSharedInvitation>
+) {
+  return (await import("./groups")).fetchSharedInvitation(...args);
+}
+export async function getPendingContactGroupSettings(
+  ...args: Parameters<typeof import("./groups").getPendingContactGroupSettings>
+) {
+  return (await import("./groups")).getPendingContactGroupSettings(...args);
+}
+export async function joinTabGroupAsContact(
+  ...args: Parameters<typeof import("./groups").joinTabGroupAsContact>
+) {
+  return (await import("./groups")).joinTabGroupAsContact(...args);
+}
+export async function fetchContactTabGroup(
+  ...args: Parameters<typeof import("./groups").fetchContactTabGroup>
+) {
+  return (await import("./groups")).fetchContactTabGroup(...args);
+}
+export async function unlinkTabGroup(
+  ...args: Parameters<typeof import("./groups").unlinkTabGroup>
+) {
+  return (await import("./groups")).unlinkTabGroup(...args);
+}
+export async function regenerateTabGroupInvite(
+  ...args: Parameters<typeof import("./groups").regenerateTabGroupInvite>
+) {
+  return (await import("./groups")).regenerateTabGroupInvite(...args);
 }
 
 /**

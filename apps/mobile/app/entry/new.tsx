@@ -36,7 +36,6 @@ import { getAccountIdSync, getActiveVaultIdSyncMaybe, getInstallIdSync } from ".
 import {
   DEFAULT_CURRENCY,
   currencyNeedsPrecisionHint,
-  getEnabledCurrencies,
   getCurrencyLabel,
   setCurrentCurrency,
 } from "../../lib/currency";
@@ -50,7 +49,7 @@ import {
   EntryEditChangedError,
   EntryEditCurrencyDisabledError,
 } from "../../lib/db";
-import { getPersonEntryCurrency } from "../../lib/person-currency";
+import { getPersonEntryCurrency, getPersonEnabledCurrencies } from "../../lib/person-currency";
 import { rowDir, textDir, trackingSafe, useIsRTL } from "../../lib/direction";
 import { EventSigningUnavailableError, RoleGateRejectionError } from "../../lib/event-log";
 import { EntryCurrencyBaselineRequiredError } from "../../lib/projection/errors";
@@ -263,7 +262,7 @@ export default function EntryFormScreen({
   async function refreshEnabledCurrencies(attempt: UIAttempt) {
     if (!attempt.vaultId) return;
     const read = ++enabledCurrencyRead.current;
-    const codes = await getEnabledCurrencies(attempt.vaultId);
+    const codes = await getPersonEnabledCurrencies(attempt.vaultId, attempt.personId);
     if (!isCurrent(attempt) || read !== enabledCurrencyRead.current) return;
     const linkCodes = [
       ...new Set([...codes, ...(editingEntry?.currency ? [editingEntry.currency] : [])]),
@@ -272,7 +271,12 @@ export default function EntryFormScreen({
     const byCurrency = new Map<string, TabLink>();
     for (const link of openLinks)
       if (!byCurrency.has(link.currency)) byCurrency.set(link.currency, link);
-    const links = Object.fromEntries(linkCodes.map((code) => [code, byCurrency.get(code) ?? null]));
+    const groupContract = openLinks.find((link) => link.group_id);
+    // Missing currencies inherit only the account's write permission. Saving
+    // still resolves or creates their own currency-specific shared link.
+    const links = Object.fromEntries(
+      linkCodes.map((code) => [code, byCurrency.get(code) ?? groupContract ?? null]),
+    );
     if (!isCurrent(attempt) || read !== enabledCurrencyRead.current) return;
     enabledCurrencyRef.current = codes;
     setEnabledCurrencies(codes);
@@ -592,7 +596,7 @@ export default function EntryFormScreen({
         });
         return;
       }
-      const enabled = await getEnabledCurrencies(vaultId);
+      const enabled = await getPersonEnabledCurrencies(vaultId, attempt.personId);
       if (!isCurrent(attempt)) return;
       enabledCurrencyRef.current = enabled;
       setEnabledCurrencies(enabled);
@@ -607,10 +611,19 @@ export default function EntryFormScreen({
           ? await getTabLinkForPerson(attempt.personId, editingEntry.currency)
           : link;
       if (!isCurrent(attempt)) return;
-      const blockedLink = !canWriteSharedTallies(link)
-        ? link
-        : !canWriteSharedTallies(sourceLink)
-          ? sourceLink
+      const groupContract =
+        !link || !sourceLink
+          ? (await listOpenTabLinksForPerson(attempt.personId)).find(
+              (candidate) => candidate.group_id,
+            )
+          : null;
+      if (!isCurrent(attempt)) return;
+      const currencyPermission = link ?? groupContract;
+      const sourcePermission = sourceLink ?? groupContract;
+      const blockedLink = !canWriteSharedTallies(currencyPermission)
+        ? currencyPermission
+        : !canWriteSharedTallies(sourcePermission)
+          ? sourcePermission
           : null;
       if (blockedLink) {
         setSaveError(
@@ -751,6 +764,29 @@ export default function EntryFormScreen({
         errorKey = "entry.roleDenied";
       } else if (err instanceof TabApiError && err.code === "one_way_read_only") {
         errorKey = "tab.recordingMode.oneWayReadOnly";
+      } else if (err instanceof TabApiError && err.code === "shared_account_currency_history") {
+        errorKey = "tab.group.currencyHistory";
+      } else if (err instanceof TabApiError && err.code === "shared_account_pending") {
+        errorKey = "tab.group.pending";
+      } else if (err instanceof TabApiError && err.code === "shared_account_source_unsynced") {
+        errorKey = "tab.group.syncFirst";
+      } else if (err instanceof TabApiError && err.code === "shared_history_pending") {
+        errorKey = "tab.history.pending";
+      } else if (
+        err instanceof TabApiError &&
+        ["shared_account_unsupported", "multi_currency_tabs_unsupported"].includes(err.code)
+      ) {
+        errorKey = "tab.link.serverUpdate";
+      } else if (err instanceof TabApiError && err.code === "shared_account_upgrade_required") {
+        errorKey = "tab.link.clientUpdate";
+      } else if (err instanceof TabApiError && err.code === "shared_account_closed") {
+        errorKey = "tab.closed";
+      } else if (err instanceof TabApiError && err.code === "shared_account_conflict") {
+        errorKey = "tab.group.conflict";
+      } else if (err instanceof TabApiError && err.code === "shared_account_changed") {
+        errorKey = "tab.history.changed";
+      } else if (err instanceof TabApiError && err.status === 0) {
+        errorKey = "tab.needsConnection";
       } else if (err instanceof TabApiError && err.code === "credit_limit_exceeded") {
         errorKey = "credit.blocked";
       } else if (err instanceof TabInputError) {

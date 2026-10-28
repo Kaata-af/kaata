@@ -380,6 +380,16 @@ const mocks: Record<string, any> = {
       selectedCurrency = code;
     },
   },
+  "../../lib/person-currency": {
+    getPersonEnabledCurrencies: async () => [
+      ...new Set([
+        ...enabledEntryCurrencies,
+        ...[...currencyPeriods.values()].flatMap((period) =>
+          period.tab?.group_id && period.tab.closed_at == null ? [period.tab.currency] : [],
+        ),
+      ]),
+    ],
+  },
   "../../lib/db": {
     getPerson: async (...args: any[]) => {
       personReads.push(args);
@@ -506,6 +516,12 @@ const mocks: Record<string, any> = {
     }),
   },
   "../../lib/tabs/db": {
+    listOpenTabLinksForPerson: async () => [
+      ...(link?.closed_at == null && link ? [link] : []),
+      ...[...currencyPeriods.values()].flatMap((period) =>
+        period.tab?.closed_at == null && period.tab ? [period.tab] : [],
+      ),
+    ],
     getTabLink: async (id: string) => {
       if (tabLinkReadGate) return tabLinkReadGate;
       const target = tabLinksById.get(id) ?? (link?.tab_id === id ? link : null);
@@ -2851,7 +2867,111 @@ async function customerHeaderIdentityTests() {
   );
 }
 
+async function groupedSharingUITests() {
+  for (const os of ["android", "ios"]) {
+    platform = os;
+    fixture();
+    const afn = { ...person, currency: "AFN" };
+    const usd = { ...person, currency: "USD", balance: 2 };
+    person = { ...afn, currency_balances: [afn, usd] };
+    await flush();
+    find("OverflowMenu")!
+      .props.actions.find((action: any) => action.icon === "link-outline")
+      .onPress();
+    await flush();
+    assert.equal(find("LinkAccountDialog")!.props.visible, true);
+    assert.equal(
+      nodes(tree).some(
+        (node) =>
+          node.type === "OptionSheet" &&
+          node.props.visible &&
+          node.props.title === "entry.currency.label",
+      ),
+      false,
+      "A new multi-currency shared account opens one invitation without selecting a currency",
+    );
+    unmount();
+
+    fixture(true);
+    link = {
+      ...link,
+      group_id: "group",
+      role: "a",
+      recording_mode: "notify",
+      invite_url: "https://kaata.af/t/g_invite",
+    };
+    const afnLink = link;
+    const usdLink = { ...link, tab_id: "usd-group", currency: "USD" };
+    person = {
+      ...person,
+      currency: "AFN",
+      currency_balances: [
+        { ...person, currency: "AFN" },
+        { ...person, currency: "USD", balance: 2 },
+      ],
+    };
+    currencyPeriods.set("AFN", { tab: afnLink, financialTab: afnLink });
+    currencyPeriods.set("USD", { tab: usdLink, financialTab: usdLink });
+    await flush();
+    find("OverflowMenu")!
+      .props.actions.find((action: any) => action.icon === "link-outline")
+      .onPress();
+    await flush();
+    const management = nodes(tree).find(
+      (node) =>
+        node.type === "BottomSheet" &&
+        node.props.visible &&
+        node.props.title?.includes("AFN · USD"),
+    )!;
+    assert.ok(management, "A group has one management surface naming every currency");
+    management.props.actions.find((action: any) => action.label === "tab.share.again").onPress();
+    await flush();
+    assert.deepEqual(find("LinkAccountDialog")!.props.currencies, ["AFN", "USD"]);
+    find("LinkAccountDialog")!.props.onDismiss();
+    await flush();
+    management.props.actions.find((action: any) => action.label === "tab.unlink").onPress();
+    await flush();
+    const close = nodes(tree).find(
+      (node) =>
+        node.type === "ConfirmDialog" &&
+        node.props.visible &&
+        node.props.title === "tab.unlink.title",
+    )!;
+    assert.ok(close.props.description.includes("AFN · USD"));
+    assert.ok(close.props.description.includes("tab.group.unlinkBody"));
+    await close.props.onConfirm();
+    await flush();
+    assert.equal(
+      sharedActions.filter((action) => action.name === "unlinkContact").length,
+      1,
+      "The UI submits one group close, never individual partial closes",
+    );
+    assert.equal(sharedActions.at(-1)?.link.group_id, "group");
+    unmount();
+
+    fixture(true);
+    link = { ...link, group_id: "group", role: "b", recording_mode: "notify_one_way" };
+    enabledEntryCurrencies = ["AFN", "EUR"];
+    await flush();
+    assert.equal(
+      nodes(tree).some(
+        (node) =>
+          node.type === "Pressable" &&
+          ["person.action.iReceived", "person.action.iGave"].includes(words(node)),
+      ),
+      false,
+      "A one-way recipient cannot create private tallies by selecting a missing group currency",
+    );
+    unmount();
+  }
+  platform = "ios";
+  console.log(
+    "PASS grouped sharing UI: no initial currency picker, one group invitation/management/close and account-wide recipient permissions",
+  );
+}
+
 async function main() {
+  await groupedSharingUITests();
   await customerHeaderIdentityTests();
   await settledTalliesSectionTests();
   await oneWayAccountUITests();
@@ -3084,10 +3204,12 @@ async function main() {
         node.type === "OptionSheet" &&
         node.props.visible &&
         node.props.title === "entry.currency.label",
-    )!;
-    linkChoice.props.onSelect("USD");
-    advance(220);
-    await flush();
+    );
+    assert.equal(
+      linkChoice,
+      undefined,
+      "A single legacy shared currency opens its own management directly",
+    );
     const managed = nodes(tree).find(
       (node) =>
         node.type === "BottomSheet" && node.props.visible && node.props.title.includes("USD"),

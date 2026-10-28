@@ -40,6 +40,7 @@ import { SearchKeyboardFooter, SearchKeyboardFrame } from "../../components/Sear
 import { SelectionToolbar } from "../../components/SelectionToolbar";
 import { SettledTalliesSection } from "../../components/SettledTalliesSection";
 import { personCurrencyRows, selectedEntriesByCurrency } from "../../lib/multi-currency-view";
+import { getPersonEnabledCurrencies } from "../../lib/person-currency";
 import { sharedAccountLinkStatus } from "../../lib/tabs/link-status";
 import { canWriteSharedTallies, isNotificationOnlyMode } from "../../lib/tabs/recording-mode";
 import { useCustomerGroups } from "../../lib/use-customer-groups";
@@ -53,7 +54,6 @@ import {
   getCurrentCurrencyCode,
   getCurrencyLabel,
   getCurrencySymbol,
-  getEnabledCurrencies,
   setCurrentCurrency,
   useCurrency,
 } from "../../lib/currency";
@@ -110,6 +110,7 @@ import {
   getTabLink,
   getFinancialTabLinkForPerson,
   getLatestTabLinkForPerson,
+  listOpenTabLinksForPerson,
   listPreLinkEntries,
   listFailedTabEntries,
   listTabSettlements,
@@ -621,10 +622,22 @@ export default function PersonDetailScreen() {
   const [managementCurrency, setManagementCurrency] = useState<string | null>(null);
   const [linkCurrencyVisible, setLinkCurrencyVisible] = useState(false);
   const linkCurrencyBusy = useRef(false);
+  const openGroupLink = currencyPeriods
+    .map((period) => period.tab)
+    .find((candidate) => candidate?.group_id && candidate.closed_at == null);
+  const legacyLinkedPeriods = currencyPeriods.filter(
+    (period) => period.tab && !period.tab.group_id && period.tab.closed_at == null,
+  );
   const managementLink =
     managementCurrency == null
-      ? link
+      ? (openGroupLink ?? link)
       : (currencyPeriods.find((period) => period.currency === managementCurrency)?.tab ?? null);
+  const managementCurrencies = managementLink?.group_id
+    ? currencyPeriods
+        .filter((period) => period.tab?.group_id === managementLink.group_id)
+        .map((period) => period.currency)
+    : [managementCurrency ?? person?.currency ?? selectedCurrency];
+  const managementCurrencyLabel = managementCurrencies.map(getCurrencyLabel).join(" · ");
   const [confirmRegenerate, setConfirmRegenerate] = useState(false);
   const [confirmUnlink, setConfirmUnlink] = useState(false);
 
@@ -1343,11 +1356,12 @@ export default function PersonDetailScreen() {
         periods,
         writableCurrencies,
       } = await applyEventMutex.runExclusive(async () => {
-        const [allPerson, list, s, enabledCurrencies] = await Promise.all([
+        const [allPerson, list, s, enabledCurrencies, openLinks] = await Promise.all([
           getPerson(id, currency, { allCurrencies: true }),
           listEntries(id, currency, { allCurrencies: true }),
           getLocalSelf(),
-          vault ? getEnabledCurrencies(vault) : Promise.resolve([]),
+          vault ? getPersonEnabledCurrencies(vault, id) : Promise.resolve([]),
+          listOpenTabLinksForPerson(id),
         ]);
         const rows = allPerson ? personCurrencyRows(allPerson) : [];
         const details = await Promise.all(
@@ -1406,7 +1420,9 @@ export default function PersonDetailScreen() {
           priorPeriods: details.flatMap((detail) => detail.priorPeriods),
           periods: details,
           writableCurrencies: enabledCurrencies.filter((code) => {
-            const tab = details.find((period) => period.currency === code)?.tab;
+            const tab =
+              details.find((period) => period.currency === code)?.tab ??
+              openLinks.find((candidate) => candidate.group_id && candidate.closed_at == null);
             return canWriteSharedTallies(tab?.closed_at == null ? tab : null);
           }),
         };
@@ -2154,15 +2170,25 @@ export default function PersonDetailScreen() {
                           }),
                       },
                       {
-                        label: link ? t("tab.join.title") : t("tab.link.title"),
+                        label:
+                          openGroupLink || legacyLinkedPeriods.length > 0
+                            ? t("tab.join.title")
+                            : t("tab.link.title"),
                         icon: "link-outline" as const,
                         onPress: () => {
-                          if (currencyPeriods.length > 1) {
+                          if (!screenIsCurrent() || !canAmend || selectionBusyRef.current) return;
+                          if (openGroupLink) {
+                            setManagementCurrency(openGroupLink.currency);
+                            setLinkedSheetVisible(true);
+                          } else if (legacyLinkedPeriods.length > 1) {
                             linkCurrencyBusy.current = false;
                             setLinkCurrencyVisible(true);
+                          } else if (legacyLinkedPeriods.length === 1) {
+                            setManagementCurrency(legacyLinkedPeriods[0].currency);
+                            setLinkedSheetVisible(true);
                           } else {
-                            setManagementCurrency(person.currency ?? selectedCurrency);
-                            link ? setLinkedSheetVisible(true) : setInviteVisible(true);
+                            setManagementCurrency(null);
+                            setInviteVisible(true);
                           }
                         },
                       },
@@ -3136,6 +3162,7 @@ export default function PersonDetailScreen() {
         myLabel={myLabel}
         link={managementLink?.closed_at == null ? managementLink : null}
         currency={managementCurrency ?? person.currency ?? selectedCurrency}
+        currencies={managementLink?.group_id ? managementCurrencies : undefined}
         onLinked={(created) => {
           void load();
         }}
@@ -3153,7 +3180,7 @@ export default function PersonDetailScreen() {
           either side's right and closes the tab for both. */}
       <BottomSheet
         visible={linkedSheetVisible}
-        title={`${person.name} · ${getCurrencyLabel(managementCurrency ?? person.currency ?? selectedCurrency)}`}
+        title={`${person.name} · ${managementCurrencyLabel}`}
         description={
           managementLink?.recording_mode_known === 0
             ? t("tab.recordingMode.unknown")
@@ -3198,7 +3225,7 @@ export default function PersonDetailScreen() {
       <ConfirmDialog
         visible={confirmRegenerate}
         title={t("tab.regenerate.title")}
-        description={`${getCurrencyLabel(managementCurrency ?? person.currency ?? selectedCurrency)} · ${t("tab.regenerate.body", { name: person.name })}`}
+        description={`${managementCurrencyLabel} · ${t("tab.regenerate.body", { name: person.name })}`}
         confirmLabel={t("tab.regenerate.ok")}
         onConfirm={() => void onRegenerate()}
         onCancel={() => setConfirmRegenerate(false)}
@@ -3206,7 +3233,7 @@ export default function PersonDetailScreen() {
       <ConfirmDialog
         visible={confirmUnlink}
         title={t("tab.unlink.title", { name: person.name })}
-        description={`${getCurrencyLabel(managementCurrency ?? person.currency ?? selectedCurrency)} · ${t("tab.unlink.body")}`}
+        description={`${managementCurrencyLabel} · ${t(managementLink?.group_id ? "tab.group.unlinkBody" : "tab.unlink.body")}`}
         confirmLabel={t("tab.unlink")}
         destructive
         onConfirm={() => void onUnlink()}
@@ -3219,14 +3246,14 @@ export default function PersonDetailScreen() {
         <OptionSheet
           visible={linkCurrencyVisible}
           title={t("entry.currency.label")}
-          options={currencyPeriods.map((period) => ({
+          options={legacyLinkedPeriods.map((period) => ({
             key: period.currency,
             label: getCurrencyLabel(period.currency),
           }))}
           selected={managementCurrency ?? person.currency ?? selectedCurrency}
           onSelect={(code) => {
             if (!screenIsCurrent() || !canAmend || linkCurrencyBusy.current) return;
-            const target = currencyPeriods.find((period) => period.currency === code);
+            const target = legacyLinkedPeriods.find((period) => period.currency === code);
             if (!target) return;
             linkCurrencyBusy.current = true;
             setLinkCurrencyVisible(false);

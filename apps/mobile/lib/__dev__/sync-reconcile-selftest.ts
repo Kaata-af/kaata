@@ -157,6 +157,7 @@ async function tabParticipationReconcileTests(): Promise<void> {
       "./errors": require("../tabs/errors"),
       "./wire": require("../tabs/wire"),
       "./history": require("../tabs/history"),
+      "./recording-mode": require("../tabs/recording-mode"),
       "./events": { emitTabApplied() {} },
       "../ledger-events": { emitLedgerApplied() {} },
       "../projection": { applyEventMutex: new Mutex() },

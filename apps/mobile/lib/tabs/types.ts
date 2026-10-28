@@ -61,6 +61,8 @@ export type WireEntry = TabReviewEvidence & {
 };
 
 export type WireParty = {
+  /** Authoritative source cutover for this denomination's bound contact. */
+  linked_at_ms?: number | null;
   history_order?: string | null;
   account_name?: string;
   /** How this party names ITSELF; shown to the other side. */
@@ -78,6 +80,8 @@ export type WireParty = {
 };
 
 export type WireTab = {
+  /** New shared accounts contain independent immutable currency legs. */
+  group_id?: string | null;
   recording_mode?: TabRecordingMode;
   recorded_balance?: Record<TabRole, string>;
   confirmed_balance?: Record<TabRole, string>;
@@ -180,7 +184,61 @@ export type TabResponse = {
   full: boolean;
 };
 
+export type WireTabGroup = {
+  id: string;
+  recording_mode: TabRecordingMode;
+  rev: number;
+  created_at_ms: number;
+  closed_at_ms: number | null;
+  closed_by: TabRole | null;
+  you: TabRole;
+  currencies: string[];
+  parties: Record<
+    TabRole,
+    WireParty & {
+      vault_id: string | null;
+      relationship_id: string | null;
+    }
+  >;
+};
+
+export type TabGroupResponse = {
+  group: WireTabGroup;
+  tabs: TabResponse[];
+  invite_url?: string;
+};
+
+export type GroupCurrencyRequest = Pick<
+  CreateRequest,
+  | "currency"
+  | "opening"
+  | "linked_at_ms"
+  | "expected_previous_tab_id"
+  | "expected_previous_rev"
+  | "expected_history_revisions"
+>;
+export type CreateTabGroupRequest = {
+  request_id: string;
+  invite_token: string;
+  label: string;
+  vault_id: string;
+  relationship_id: string;
+  recording_mode: TabRecordingMode;
+  currencies: GroupCurrencyRequest[];
+};
+export type JoinTabGroupRequest = Omit<
+  JoinRequest,
+  "expected_previous_tab_id" | "expected_previous_rev" | "expected_history_revisions"
+> & {
+  token: string;
+  currencies: Array<Omit<GroupCurrencyRequest, "opening">>;
+};
+export type SharedInvitation =
+  | ({ kind: "group" } & TabGroupResponse)
+  | { kind: "tab"; tab: WireTab; entries: WireEntry[] };
+
 export type MineResponse = {
+  groups?: WireTabGroup[];
   tabs: Array<{
     tab: WireTab;
     role: TabRole;
@@ -194,6 +252,7 @@ export type MineResponse = {
 // Local cache rows (§4.1). Column-for-column with migration 028 in lib/db.ts.
 
 export type TabLink = {
+  group_id?: string | null;
   /** Immutable per-link policy. Missing legacy metadata means review. */
   recording_mode?: TabRecordingMode;
   /** Only fresh old-server discovery is unknown; migrated legacy links are review. */

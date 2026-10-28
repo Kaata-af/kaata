@@ -103,6 +103,29 @@ const en = {
   "export.record.recorded": "Recorded without approval",
   "tab.balance.recorded": "Recorded: {amount}",
   "tab.link.serverUpdate": "This feature needs a server update. Please try again later.",
+  "tab.group.currencies": "Shared currencies: {currencies}",
+  "tab.group.pendingMode":
+    "An invitation was started using “{mode}”. Finish with that mode. To use another mode, stop sharing and link again.",
+  "tab.group.readyBody":
+    "One invitation shares this account in every listed currency. Each currency keeps its own balance.",
+  "tab.group.confirm.notifyBody":
+    "Share all currencies with {name} in one account. Each currency keeps its own balance. Both of you can record changes without approving each tally.",
+  "tab.group.confirm.reviewBody":
+    "Share all currencies with {name} in one account. Each currency keeps its own balance. Both of you can add tallies, and the other person reviews each one.",
+  "tab.group.confirm.oneWayBody":
+    "Share all currencies with {name} in one account. Each currency keeps its own balance. Only you add tallies; the other person views the account and receives notifications.",
+  "tab.group.balances": "Balances by currency",
+  "tab.group.joinToSee":
+    "Join this shared account to see the balances and tallies for each currency.",
+  "tab.group.unlinkBody":
+    "Stop sharing every currency in this account. Existing tallies and balances stay in both people's history.",
+  "tab.group.conflict":
+    "This customer already has separate shared accounts. Manage those accounts before creating one shared account for all currencies.",
+  "tab.group.currencyHistory":
+    "To include this currency's earlier tallies, stop sharing this account and link it again.",
+  "tab.group.pending":
+    "The shared invitation is still pending. Retry it before changing this contact’s tallies.",
+  "tab.group.syncFirst": "Sync this Kaata before linking so all existing tallies are included.",
   "tab.link.confirm.notifyBody":
     "{name} will see this account and receive updates. Tallies are recorded without per-tally approval. The current balance becomes one opening tally when they join.",
   "tab.link.confirm.oneWayBody":
@@ -2424,6 +2447,29 @@ const fa: Partial<Record<Key, string>> = {
   "export.record.recorded": "ثبت‌شده، بدون نیاز به تأیید",
   "tab.balance.recorded": "ثبت‌شده: {amount}",
   "tab.link.serverUpdate": "این قابلیت به به‌روزرسانی سرور نیاز دارد. بعداً دوباره کوشش کنید.",
+  "tab.group.currencies": "اسعار مشترک: {currencies}",
+  "tab.group.pendingMode":
+    "دعوت‌نامه با روش «{mode}» آغاز شده است. آن را با همین روش تکمیل کنید. برای روش دیگر، اشتراک را متوقف کرده و دوباره پیوند دهید.",
+  "tab.group.readyBody":
+    "یک دعوت‌نامه این حساب را با تمام اسعار نشان‌داده‌شده شریک می‌سازد. ماندۀ هر نوع اسعار جدا می‌ماند.",
+  "tab.group.confirm.notifyBody":
+    "تمام اسعار را در یک حساب با {name} شریک سازید. ماندۀ هر نوع اسعار جدا می‌ماند. هر دوی شما می‌توانید بدون تأیید جداگانۀ هر ثبت، تغییرات را درج کنید.",
+  "tab.group.confirm.reviewBody":
+    "تمام اسعار را در یک حساب با {name} شریک سازید. ماندۀ هر نوع اسعار جدا می‌ماند. هر دوی شما می‌توانید ثبت اضافه کنید و شخص مقابل هر ثبت را بررسی می‌کند.",
+  "tab.group.confirm.oneWayBody":
+    "تمام اسعار را در یک حساب با {name} شریک سازید. ماندۀ هر نوع اسعار جدا می‌ماند. فقط شما ثبت اضافه می‌کنید؛ شخص مقابل حساب را می‌بیند و اطلاعیه می‌گیرد.",
+  "tab.group.balances": "مانده‌ها به تفکیک اسعار",
+  "tab.group.joinToSee": "به این حساب مشترک بپیوندید تا مانده‌ها و ثبت‌های هر نوع اسعار را ببینید.",
+  "tab.group.unlinkBody":
+    "اشتراک تمام اسعار این حساب متوقف شود. ثبت‌ها و مانده‌های موجود در تاریخچۀ هر دو نفر باقی می‌ماند.",
+  "tab.group.conflict":
+    "این مشتری از قبل حساب‌های مشترک جداگانه دارد. پیش از ساختن یک حساب مشترک برای تمام اسعار، آن حساب‌ها را مدیریت کنید.",
+  "tab.group.currencyHistory":
+    "برای شامل ساختن ثبت‌های قبلی این اسعار، اشتراک حساب را متوقف کرده و دوباره پیوند دهید.",
+  "tab.group.pending":
+    "دعوت مشترک هنوز در انتظار تکمیل است. پیش از تغییر ثبت‌های این طرف، آن را دوباره امتحان کنید.",
+  "tab.group.syncFirst":
+    "پیش از پیوند دادن، این کاتا را همگام کنید تا تمام ثبت‌های موجود شامل شوند.",
   "tab.link.confirm.notifyBody":
     "{name} این حساب و تغییرات آن را می‌بیند. ثبت‌ها به تأیید جداگانه نیاز ندارند. با پیوستن او، ماندۀ فعلی به‌عنوان یک ثبت آغازین درج می‌شود.",
   "tab.link.confirm.oneWayBody":
@@ -4468,6 +4514,29 @@ const ps: Record<Key, string> = {
   "export.record.recorded": "بې له تاییده ثبت شوی",
   "tab.balance.recorded": "ثبت شوی: {amount}",
   "tab.link.serverUpdate": "دا ځانګړنه د سرور تازه کولو ته اړتیا لري. وروسته بیا هڅه وکړئ.",
+  "tab.group.currencies": "ګډ اسعار: {currencies}",
+  "tab.group.pendingMode":
+    "یو بلنلیک د «{mode}» په ډول پیل شوی. په همدا ډول یې بشپړ کړئ. د بل ډول لپاره شریکول بند او بیا یې ونښلوئ.",
+  "tab.group.readyBody":
+    "یو بلنلیک دا حساب په ټولو لیکل شویو اسعارو کې شریکوي. د هر ډول اسعارو پاتې حساب جلا پاتې کېږي.",
+  "tab.group.confirm.notifyBody":
+    "ټول اسعار په یوه حساب کې له {name} سره شریک کړئ. د هر ډول اسعارو پاتې حساب جلا وي. دواړه کسان د هر ثبت له جلا تایید پرته بدلونونه ثبتولای شي.",
+  "tab.group.confirm.reviewBody":
+    "ټول اسعار په یوه حساب کې له {name} سره شریک کړئ. د هر ډول اسعارو پاتې حساب جلا وي. دواړه کسان ثبتونه زیاتولای شي او بل کس هر ثبت ګوري.",
+  "tab.group.confirm.oneWayBody":
+    "ټول اسعار په یوه حساب کې له {name} سره شریک کړئ. د هر ډول اسعارو پاتې حساب جلا وي. یوازې تاسو ثبتونه زیاتوئ؛ بل کس حساب ګوري او خبرتیاوې ترلاسه کوي.",
+  "tab.group.balances": "د اسعارو له مخې پاتې حسابونه",
+  "tab.group.joinToSee":
+    "د هر ډول اسعارو د پاتې حساب او ثبتونو د لیدلو لپاره له دې ګډ حساب سره یوځای شئ.",
+  "tab.group.unlinkBody":
+    "د دې حساب د ټولو اسعارو شریکول بند کړئ. اوسني ثبتونه او پاتې حسابونه د دواړو کسانو په تاریخچه کې پاتې کېږي.",
+  "tab.group.conflict":
+    "دا پېرودونکی له مخکې جلا ګډ حسابونه لري. د ټولو اسعارو لپاره د یوه ګډ حساب تر جوړولو مخکې هغه حسابونه اداره کړئ.",
+  "tab.group.currencyHistory":
+    "د دې اسعارو د پخوانیو ثبتونو د شاملولو لپاره، د حساب شریکول بند او بیا یې ونښلوئ.",
+  "tab.group.pending":
+    "ګډ بلنلیک لا هم بشپړېدو ته په تمه دی. د دې کس د ثبتونو تر بدلولو مخکې بیا هڅه وکړئ.",
+  "tab.group.syncFirst": "تر نښلولو مخکې دا کاټه همغږې کړئ، څو ټول اوسني ثبتونه پکې شامل شي.",
   "tab.link.confirm.notifyBody":
     "{name} دا حساب او بدلونونه یې ویني. هر ثبت جلا تایید ته اړتیا نه لري. د هغه په یوځای کېدو اوسنی پاتې حساب د پیل په یوه ثبت کې راځي.",
   "tab.link.confirm.oneWayBody":

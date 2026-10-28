@@ -128,7 +128,7 @@ stub("../auth", {
   SessionChangedError,
   getSessionJWT: async () => session.jwt,
   captureCurrentSession: async () => {
-    return { jwt: session.jwt };
+    return { jwt: session.jwt, accountId: dbTx.getAccountIdSync() };
   },
   applyForCurrentSession: async <T>(snapshot: { jwt: string | null }, work: () => Promise<T>) => {
     if (!session.jwt || snapshot.jwt !== session.jwt) throw new SessionChangedError();
@@ -4339,6 +4339,365 @@ async function main(): Promise<void> {
       sqlite.getAllAsync = originalRead;
       dbTx.setActiveVaultIdCache(VAULT);
     }
+  });
+
+  await test("group cache applies every denomination atomically and retains independent source cutovers", async () => {
+    const groupDDL = /"(ALTER TABLE tab_links ADD COLUMN group_id TEXT)"/.exec(dbSource)?.[1];
+    assert.ok(groupDDL, "group metadata is an additive shipped migration");
+    fixture.exec(groupDDL);
+    const records = ["AFN", "USD"].map((currency, index) => ({
+      link: link({
+        tab_id: `group-${currency}`,
+        group_id: "group",
+        currency,
+        linked_at: 123 + index,
+      }),
+      response: {
+        tab: {
+          ...server.view("a"),
+          id: `group-${currency}`,
+          group_id: "group",
+          currency,
+          parties: {
+            ...server.view("a").parties,
+            a: { ...server.view("a").parties.a, linked_at_ms: 123 + index },
+          },
+        },
+        entries: [] as WireEntry[],
+        full: true,
+      },
+    }));
+    fixture.exec(`CREATE TRIGGER fail_group_usd BEFORE INSERT ON tab_links
+      WHEN NEW.currency='USD' BEGIN SELECT RAISE(ABORT,'synthetic group failure'); END;`);
+    const beforeEmits = ledgerEmits.length;
+    await assert.rejects(
+      tabsDb.upsertTabGroupFromWire(
+        records.map((row) => row.link),
+        records.map((row) => row.response),
+      ),
+      /synthetic group failure/,
+    );
+    assert.equal((fixture.prepare("SELECT COUNT(*) n FROM tab_links").get() as { n: number }).n, 0);
+    assert.equal(ledgerEmits.length, beforeEmits, "No partial group is announced before commit");
+    fixture.exec("DROP TRIGGER fail_group_usd");
+    await tabsDb.upsertTabGroupFromWire(
+      records.map((row) => row.link),
+      records.map((row) => row.response),
+    );
+    assert.deepEqual(
+      fixture.prepare("SELECT currency,linked_at,group_id FROM tab_links ORDER BY currency").all(),
+      [
+        { currency: "AFN", linked_at: 123, group_id: "group" },
+        { currency: "USD", linked_at: 124, group_id: "group" },
+      ],
+    );
+    assert.equal((await tabsDb.getTabGroupLinkForPerson(CONTACT))?.group_id, "group");
+    const saved = tabCacheSnapshot();
+    const wrong = records.map((row) => ({ ...row.link, relationship_id: "another-contact" }));
+    await assert.rejects(
+      tabsDb.upsertTabGroupFromWire(
+        wrong,
+        records.map((row) => row.response),
+      ),
+      (error: any) => error.code === "shared_account_conflict",
+    );
+    assert.deepEqual(tabCacheSnapshot(), saved);
+    await tabsDb.upsertTabGroupFromWire(
+      records.map((row) => ({ ...row.link, invite_url: "https://kaata.af/t/g_new" })),
+      records.map((row) => row.response),
+      { revision: 2 },
+    );
+    await tabsDb.upsertTabGroupFromWire(
+      records.map((row) => ({ ...row.link, invite_url: "https://kaata.af/t/g_old" })),
+      records.map((row) => row.response),
+      { revision: 1 },
+    );
+    assert.equal(
+      (await tabsDb.getTabLink(records[0].link.tab_id))?.invite_url,
+      "https://kaata.af/t/g_new",
+      "An older group reply cannot replace a freshly regenerated invitation",
+    );
+    await tabsDb.upsertTabGroupFromWire(
+      records.map((row) => ({ ...row.link, invite_url: null })),
+      records.map((row) => row.response),
+      { revision: 2 },
+    );
+    assert.equal(
+      (await tabsDb.getTabLink(records[0].link.tab_id))?.invite_url,
+      "https://kaata.af/t/g_new",
+      "A GET with no explicit URL preserves the current invitation at the same revision",
+    );
+  });
+
+  await test("an unused multi-currency group preserves original recorded balances through cancellation", async () => {
+    fixture.exec("ALTER TABLE tab_links ADD COLUMN group_id TEXT");
+    const afn = await db.createEntry(CONTACT, "debt", 100, "original AFN");
+    const usd = (
+      await db.createEntryDetailed(CONTACT, "payment", 20, "original USD", { currency: "USD" })
+    ).entry_id;
+    const originals = fixture.prepare("SELECT * FROM entries ORDER BY id").all();
+    const boundary = Date.now() + 1000;
+    const currencies = ["AFN", "USD"];
+    const links = currencies.map((currency) =>
+      link({
+        tab_id: `unused-${currency}`,
+        group_id: "unused-group",
+        currency,
+        linked_at: boundary,
+        unjoined_invitation: 1,
+        other_joined_at: null,
+      }),
+    );
+    const responses = currencies.map((currency, index) => ({
+      full: true,
+      tab: {
+        ...server.view("a"),
+        id: links[index].tab_id,
+        group_id: "unused-group",
+        currency,
+        rev: 1,
+        unjoined_invitation: true,
+        parties: {
+          a: { ...server.parties.a, linked_at_ms: boundary, history_order: "1" },
+          b: { ...server.parties.b, joined_at_ms: null },
+        },
+      },
+      entries: [
+        {
+          id: `opening-${currency}`,
+          seq: 1,
+          rev: 1,
+          created_by: "a" as const,
+          direction: index === 0 ? ("a_to_b" as const) : ("b_to_a" as const),
+          amount: index === 0 ? "100" : "20",
+          kind: "opening" as const,
+          note: null,
+          occurred_at_ms: boundary,
+          created_at_ms: boundary,
+          status: "pending" as const,
+          status_at_ms: null,
+          dispute_reason: null,
+          voids_entry_id: null,
+          voided_by_entry_id: null as string | null,
+        },
+      ],
+    }));
+    const pendingKey = `tab_group_create:null:${VAULT}:${REL}`;
+    await db.setAppMeta(
+      pendingKey,
+      JSON.stringify({
+        request_id: "unused-group",
+        vault_id: VAULT,
+        relationship_id: REL,
+        currencies: currencies.map((currency) => ({ currency })),
+      }),
+    );
+    await tabsDb.upsertTabGroupFromWire(links, responses);
+    assert.equal(
+      await db.getAppMeta(pendingKey),
+      "",
+      "Discovery of the exact complete group releases a lost-create fence",
+    );
+    assert.equal((await db.getPerson(CONTACT, "AFN"))?.balance, 100);
+    assert.equal((await db.getPerson(CONTACT, "USD"))?.balance, -20);
+    assert.deepEqual(
+      (await db.listEntries(CONTACT, "AFN")).map((entry) => entry.id),
+      [afn],
+    );
+    assert.deepEqual(
+      (await db.listEntries(CONTACT, "USD")).map((entry) => entry.id),
+      [usd],
+    );
+    assert.deepEqual(fixture.prepare("SELECT * FROM entries ORDER BY id").all(), originals);
+    for (const response of responses) {
+      response.tab.rev = 2;
+      response.tab.closed_at_ms = boundary + 1000;
+      response.tab.closed_by = "a";
+      response.entries[0].rev = 2;
+      response.entries[0].voided_by_entry_id = `withdrawal-${response.tab.currency}`;
+    }
+    await tabsDb.upsertTabGroupFromWire(links, responses);
+    assert.equal((await db.getPerson(CONTACT, "AFN"))?.balance, 100);
+    assert.equal((await db.getPerson(CONTACT, "USD"))?.balance, -20);
+    assert.deepEqual(
+      fixture.prepare("SELECT * FROM entries ORDER BY id").all(),
+      originals,
+      "Canceling an unused invitation changes no original money",
+    );
+    await db.updateEntry(afn, 100, "editable again");
+    assert.equal((await db.getPerson(CONTACT, "AFN"))?.balance, 100);
+    const realNow = Date.now;
+    const behindClock = boundary - 5000;
+    try {
+      Date.now = () => behindClock;
+      const after = await db.createEntry(CONTACT, "debt", 7, "after sharing stopped");
+      const recorded = JSON.parse(
+        (
+          fixture
+            .prepare(
+              "SELECT payload_json FROM event_log WHERE target_id=? AND event_type='entry_created'",
+            )
+            .get(after) as { payload_json: string }
+        ).payload_json,
+      );
+      assert.equal(
+        recorded.recorded_at_ms,
+        boundary + 1,
+        "Recording order stays after the exact shared cutover even with an older device clock",
+      );
+      assert.equal(
+        recorded.occurred_at_ms,
+        behindClock,
+        "The user's business date stays independent of the recording-order floor",
+      );
+      assert.equal(
+        (await db.getPerson(CONTACT, "AFN"))?.balance,
+        107,
+        "A behind-clock tally after close is never absorbed by the old group",
+      );
+    } finally {
+      Date.now = realNow;
+    }
+  });
+
+  await test("a restored group remains incomplete until every retained financial period has synced", async () => {
+    fixture.exec("ALTER TABLE tab_links ADD COLUMN group_id TEXT");
+    const older = link({
+      tab_id: "older",
+      history_order: "1",
+      linked_at: 10,
+      closed_at: 20,
+      last_synced_at: null,
+    });
+    await tabsDb.upsertTabLink(older);
+    const latest = link({
+      tab_id: "latest",
+      group_id: "restored-group",
+      history_order: "2",
+      linked_at: 30,
+      other_joined_at: 31,
+      unjoined_invitation: 0,
+    });
+    const entry = (id: string, status: "pending" | "accepted") => ({
+      id,
+      seq: 1,
+      rev: 1,
+      created_by: "a" as const,
+      direction: "a_to_b" as const,
+      amount: "100",
+      kind: "opening" as const,
+      note: null,
+      occurred_at_ms: 30,
+      created_at_ms: 30,
+      status,
+      status_at_ms: null,
+      dispute_reason: null,
+      voids_entry_id: null,
+      voided_by_entry_id: null,
+    });
+    await tabsDb.upsertTabGroupFromWire(
+      [latest],
+      [
+        {
+          full: true,
+          tab: {
+            ...server.view("a"),
+            id: "latest",
+            group_id: "restored-group",
+            rev: 1,
+            unjoined_invitation: false,
+            parties: {
+              a: { ...server.parties.a, linked_at_ms: 30, history_order: "2" },
+              b: { ...server.parties.b, joined_at_ms: 31 },
+            },
+          },
+          entries: [entry("pending-new-opening", "pending")],
+        },
+      ],
+    );
+    assert.equal(
+      (await db.getPerson(CONTACT))?.tab_unsynced,
+      1,
+      "The selected latest leg alone cannot advertise an older missing balance as complete",
+    );
+    await assert.rejects(db.listEntriesForExport(VAULT), /still syncing/);
+    await tabsDb.upsertTabFromWire(older, {
+      full: true,
+      tab: {
+        ...server.view("a"),
+        id: "older",
+        rev: 1,
+        closed_at_ms: 20,
+        parties: { a: { ...server.parties.a, history_order: "1" }, b: server.parties.b },
+      },
+      entries: [entry("acknowledged-old-opening", "accepted")],
+    });
+    assert.equal((await db.getPerson(CONTACT))?.tab_unsynced, 0);
+    assert.equal(
+      (await db.getPerson(CONTACT))?.balance,
+      100,
+      "Once the retained prior period arrives, its acknowledged debt is restored",
+    );
+  });
+
+  await test("pending invitations and active groups cannot append or alter private financial records", async () => {
+    const id = await db.createEntry(CONTACT, "debt", 5, "original");
+    const before = fixture.prepare("SELECT * FROM entries ORDER BY id").all();
+    const count = (fixture.prepare("SELECT COUNT(*) n FROM event_log").get() as { n: number }).n;
+    await db.setAppMeta(`tab_group_create:null:${VAULT}:${REL}`, "pending immutable request");
+    for (const action of [
+      () =>
+        eventLog.appendEntryCreated({
+          relationshipId: REL,
+          type: "debt",
+          amountAfn: 8,
+          note: null,
+          currency: "USD",
+        }),
+      () => eventLog.appendEntryAmended({ entryId: id, changes: { note: "changed" } }),
+      () => eventLog.appendEntryDeleted({ entryId: id }),
+      () => eventLog.appendEntrySettled({ relationshipId: REL }),
+    ])
+      await assert.rejects(action(), (error: any) => error.code === "shared_account_pending");
+    assert.deepEqual(fixture.prepare("SELECT * FROM entries ORDER BY id").all(), before);
+    assert.equal(
+      (fixture.prepare("SELECT COUNT(*) n FROM event_log").get() as { n: number }).n,
+      count,
+    );
+    await db.setAppMeta(`tab_group_create:null:${VAULT}:${REL}`, "");
+    const joinKey = `tab_group_pending_join:null:${VAULT}:${REL}`;
+    await db.setAppMeta(joinKey, "pending recipient join");
+    await assert.rejects(
+      eventLog.appendEntryCreated({ relationshipId: REL, type: "debt", amountAfn: 8, note: null }),
+      (error: any) => error.code === "shared_account_pending",
+    );
+    await assert.rejects(
+      eventLog.appendEntryAmended({ entryId: id, changes: { note: "changed" } }),
+      (error: any) => error.code === "shared_account_pending",
+    );
+    await db.setAppMeta(joinKey, "");
+    fixture.exec("ALTER TABLE tab_links ADD COLUMN group_id TEXT");
+    await tabsDb.upsertTabLink(link({ group_id: "group" }));
+    await assert.rejects(
+      eventLog.appendEntryCreated({
+        relationshipId: REL,
+        type: "debt",
+        amountAfn: 8,
+        note: null,
+        currency: "USD",
+      }),
+      (error: any) => error.code === "shared_tally_required",
+    );
+    await assert.rejects(db.createEntryDetailed(CONTACT, "debt", 8, null, { currency: "USD" }));
+    assert.deepEqual(
+      fixture.prepare("SELECT * FROM entries ORDER BY id").all(),
+      before,
+      "A missing group currency never falls back to a private entry",
+    );
+    assert.equal(
+      (fixture.prepare("SELECT COUNT(*) n FROM event_log").get() as { n: number }).n,
+      count,
+    );
   });
 
   console.log(`\n${passed} tab regressions passed; ${failed} failed.`);

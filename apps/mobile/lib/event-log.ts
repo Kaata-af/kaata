@@ -61,7 +61,7 @@ import {
 import type { EntryType } from "./types";
 import { parseAmountInput } from "./money";
 import { signedEntryMinorSumSql } from "./money-sql";
-import { TabLinkedEntryError } from "./tabs/errors";
+import { TabApiError, TabLinkedEntryError } from "./tabs/errors";
 import { unjoinedInvitationSql } from "./tabs/history";
 import { isValidEntryDate } from "./entry-date";
 import {
@@ -157,6 +157,50 @@ export { EventSigningUnavailableError } from "./projection";
 
 // ---------- public append helpers (Phase 1 entry_* writes) ----------
 
+async function assertPrivateGroupWrite(relationshipId: string, vaultId: string, tx?: SQLiteTx) {
+  const db = tx ?? (await getDb());
+  const pending = await db.getFirstAsync<{ value: string }>(
+    "SELECT value FROM app_meta WHERE key=?",
+    `tab_group_create:${getAccountIdSync()}:${vaultId}:${relationshipId}`,
+  );
+  if (pending?.value)
+    throw new TabApiError(
+      409,
+      "shared_account_pending",
+      "Retry the pending invitation before changing private tallies",
+    );
+  const pendingJoin = await db.getFirstAsync<{ value: string }>(
+    "SELECT value FROM app_meta WHERE key=?",
+    `tab_group_pending_join:${getAccountIdSync()}:${vaultId}:${relationshipId}`,
+  );
+  if (pendingJoin?.value)
+    throw new TabApiError(
+      409,
+      "shared_account_pending",
+      "Recover the pending invitation before changing private tallies",
+    );
+  const links = await db.getAllAsync<{
+    group_id?: string | null;
+    vault_id?: string;
+    closed_at: number | null;
+    linked_at: number;
+  }>("SELECT * FROM tab_links WHERE relationship_id=?", relationshipId);
+  const scoped = links.filter((link) => link.vault_id == null || link.vault_id === vaultId);
+  if (scoped.some((link) => !!link.group_id && link.closed_at == null))
+    throw new TabApiError(
+      409,
+      "shared_tally_required",
+      "Use the shared account for this customer's tallies",
+    );
+  return scoped.reduce(
+    (floor, link) =>
+      link.group_id && Number.isSafeInteger(link.linked_at)
+        ? Math.max(floor, link.linked_at)
+        : floor,
+    -1,
+  );
+}
+
 export async function appendEntryCreated(args: {
   relationshipId: string;
   type: EntryType;
@@ -173,9 +217,9 @@ export async function appendEntryCreated(args: {
   }
   const entryId = Crypto.randomUUID();
   const eventId = Crypto.randomUUID();
-  const recordedAtMs = Date.now();
+  const deviceNow = Date.now();
   const currency = requireCurrencyCode(args.currency ?? getLedgerCurrencyCode());
-  const occurredAtMs = args.occurredAtMs ?? recordedAtMs;
+  const occurredAtMs = args.occurredAtMs ?? deviceNow;
   if (!isValidEntryDate(occurredAtMs)) throw new Error("Invalid entry date");
   const installId = getInstallIdSync();
   const authorUserId = requireLocalSelfUserId();
@@ -188,6 +232,10 @@ export async function appendEntryCreated(args: {
   // a later account_bound event covers retroactive re-attribution.
   const accountId = getAccountIdSync();
 
+  // A phone with an older clock must still append after a completed shared
+  // period. The user's business date remains independent of recording order.
+  const boundary = await assertPrivateGroupWrite(args.relationshipId, vaultId);
+  const recordedAtMs = Math.max(deviceNow, boundary + 1);
   const event: EntryCreatedEvent = {
     event_id: eventId,
     event_type: "entry_created",
@@ -215,7 +263,19 @@ export async function appendEntryCreated(args: {
     },
   };
 
-  const result = await applyEvent(event, { origin: "local" });
+  const result = await applyEvent(event, {
+    origin: "local",
+    preflightAbort: async (tx) => {
+      const latestBoundary = await assertPrivateGroupWrite(args.relationshipId, vaultId, tx);
+      if (recordedAtMs <= latestBoundary)
+        throw new TabApiError(
+          409,
+          "shared_account_changed",
+          "The shared history changed; retry this tally",
+        );
+      return false;
+    },
+  });
   if (!result.applied) {
     if (result.reason === "credit_admission")
       return { event_id: eventId, entry_id: entryId, pending_admission: true };
@@ -253,6 +313,7 @@ export async function appendEntrySettled(args: {
   settledAtMs?: number;
 }): Promise<{ event_id: string }> {
   const currency = requireCurrencyCode(args.currency ?? getLedgerCurrencyCode());
+  await assertPrivateGroupWrite(args.relationshipId, getActiveVaultIdSync());
   // Real shared history uses server sequence settlements even after close.
   // An untouched invitation keeps the original private chapters, provided
   // no ordinary shared tally would be skipped by this local-only zero check.
@@ -305,6 +366,7 @@ export async function appendEntrySettled(args: {
     // exactly zero — the invariant that keeps every chapter self-contained
     // is enforced where it can't race.
     preflightAbort: async (tx) => {
+      await assertPrivateGroupWrite(args.relationshipId, vaultId, tx);
       const row = await tx.getFirstAsync<{ bal: number }>(
         `SELECT ${signedEntryMinorSumSql("e")} AS bal
            FROM entries e WHERE relationship_id = ? AND ${entryCurrencyMatchesSql("e", currency)}`,
@@ -390,6 +452,7 @@ export async function appendEntryAmended(args: {
     is_deleted: number | null;
   }>("SELECT relationship_id, is_deleted FROM entries WHERE id = ?", args.entryId);
   if (!row || row.is_deleted === 1) return null;
+  await assertPrivateGroupWrite(row.relationship_id, vaultId);
 
   const event: EntryAmendedEvent = {
     event_id: eventId,
@@ -417,6 +480,7 @@ export async function appendEntryAmended(args: {
     // pre-flight SELECT above and the tx open, abort without inserting the
     // event_log row.
     preflightAbort: async (tx) => {
+      await assertPrivateGroupWrite(row.relationship_id, vaultId, tx);
       args.guard?.();
       await args.preflight?.(tx);
       const r = await tx.getFirstAsync<{ is_deleted: number | null }>(
@@ -456,6 +520,7 @@ export async function appendEntryDeleted(args: {
   // entry_deleted event already won — appending a second would just churn
   // the log.
   if (row.is_deleted === 1) return null;
+  await assertPrivateGroupWrite(row.relationship_id, vaultId);
 
   const event: EntryDeletedEvent = {
     event_id: eventId,
@@ -481,6 +546,7 @@ export async function appendEntryDeleted(args: {
     // the pre-flight SELECT and the tx open. Abort the second delete to
     // keep the log clean (sticky tombstone).
     preflightAbort: async (tx) => {
+      await assertPrivateGroupWrite(row.relationship_id, vaultId, tx);
       const r = await tx.getFirstAsync<{ is_deleted: number | null }>(
         "SELECT is_deleted FROM entries WHERE id = ?",
         args.entryId,

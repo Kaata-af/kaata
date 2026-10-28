@@ -27,6 +27,10 @@ import type {
   WireTab,
   SettlementResponse,
   TabRecordingMode,
+  TabGroupResponse,
+  CreateTabGroupRequest,
+  JoinTabGroupRequest,
+  GroupCurrencyRequest,
 } from "./types";
 
 export { TabApiError, TabAuthUnavailableError } from "./errors";
@@ -42,6 +46,7 @@ const BY_TOKEN_PATH = "/v1/tabs/by-token";
 /** Read/write authority always comes from the signed-in account. */
 export type TabAuth = {
   jwt: string;
+  groupId?: string;
   role?: TabLink["role"];
   recordingMode?: TabRecordingMode;
   requireRecordingSupport?: boolean;
@@ -105,7 +110,7 @@ async function request<T>(
   body?: unknown,
 ): Promise<T> {
   const requestedMode =
-    method === "POST" && path === "/v1/tabs"
+    method === "POST" && (path === "/v1/tabs" || path === "/v1/tab-groups")
       ? (body as CreateRequest | undefined)?.recording_mode
       : auth?.recordingMode;
   if (requestedMode != null && !isTabRecordingMode(requestedMode))
@@ -121,6 +126,7 @@ async function request<T>(
     "X-Kaata-Currencies": "1",
     "X-Kaata-Tab-Recording": "1",
     "X-Kaata-Tab-One-Way": "1",
+    "X-Kaata-Tab-Group": "1",
   };
   if (body !== undefined) headers["Content-Type"] = "application/json";
   const authz = authorization(auth);
@@ -131,6 +137,7 @@ async function request<T>(
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   let res: Response;
   try {
+    if (auth?.groupId) await ensureTabGroupSupport(auth);
     // A previous server accepts this payload but treats every currency as
     // the book's old default. Keep changes queued until support is known.
     if (method === "POST" && auth?.jwt)
@@ -155,7 +162,7 @@ async function request<T>(
       signal: controller.signal,
     });
   } catch (err) {
-    if (err instanceof TabApiError) throw err;
+    if (err instanceof TabApiError || err instanceof TabAuthUnavailableError) throw err;
     const aborted = err instanceof Error && err.name === "AbortError";
     throw new TabApiError(
       0,
@@ -209,6 +216,15 @@ async function request<T>(
     ? [payload.tab]
     : (payload?.tabs ?? []).map((item: { tab: WireTab }) => item.tab);
   if (
+    auth?.groupId &&
+    (tabs.length !== 1 || tabs.some((tab: WireTab) => tab.group_id !== auth.groupId))
+  )
+    throw new TabApiError(
+      503,
+      "shared_account_unsupported",
+      "The shared account metadata is unavailable",
+    );
+  if (
     tabs.some(
       (tab: WireTab) => tab.recording_mode != null && !isTabRecordingMode(tab.recording_mode),
     )
@@ -247,6 +263,7 @@ export async function resolveTabAuth(link: TabLink): Promise<TabAuth> {
   if (jwt)
     return {
       jwt,
+      ...(link.group_id ? { groupId: link.group_id } : {}),
       role: link.role,
       recordingMode: link.recording_mode ?? "review",
       recordingKnown: link.recording_mode_known !== 0,
@@ -258,6 +275,104 @@ export async function resolveTabAuth(link: TabLink): Promise<TabAuth> {
 export async function createTab(req: CreateRequest, auth?: TabAuth): Promise<CreateResponse> {
   return request<CreateResponse>("POST", "/v1/tabs", auth ?? (await requireJwt()), req);
 }
+
+export async function ensureTabGroupSupport(auth?: TabAuth): Promise<void> {
+  const credentials = auth ?? (await requireJwt());
+  const baseUrl = await getBackendUrl();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  try {
+    const probe = await fetch(`${baseUrl}/v1/sync/capabilities`, {
+      headers: { Authorization: `Bearer ${credentials.jwt}`, "X-Kaata-Tab-Group": "1" },
+      signal: controller.signal,
+    });
+    if (probe.status === 401) throw new TabAuthUnavailableError();
+    const capabilities = probe.ok ? await probe.json() : null;
+    if (capabilities?.multi_currency_tabs !== true)
+      throw new TabApiError(
+        503,
+        "shared_account_unsupported",
+        "Multi-currency sharing requires a server update",
+      );
+  } catch (error) {
+    if (error instanceof TabApiError || error instanceof TabAuthUnavailableError) throw error;
+    throw new TabApiError(0, "network", "Unable to check multi-currency sharing support");
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function requestGroup(
+  method: "GET" | "POST",
+  path: string,
+  body?: unknown,
+  auth?: TabAuth,
+): Promise<TabGroupResponse> {
+  const credentials = auth ?? (await requireJwt());
+  await ensureTabGroupSupport(credentials);
+  const result = await request<TabGroupResponse>(method, path, credentials, body);
+  const group = result?.group;
+  const requestedMode =
+    (body as { recording_mode?: TabRecordingMode } | undefined)?.recording_mode ??
+    credentials.recordingMode;
+  const privatePreview = path === "/v1/tab-groups/by-token" && result?.tabs?.length === 0;
+  if (
+    !group?.id ||
+    !Number.isSafeInteger(group.rev) ||
+    group.rev < 0 ||
+    !isTabRecordingMode(group.recording_mode) ||
+    !group.parties?.a ||
+    !group.parties?.b ||
+    (requestedMode != null && group.recording_mode !== requestedMode) ||
+    (group.you !== "a" && group.you !== "b") ||
+    !Array.isArray(group.currencies) ||
+    group.currencies.length === 0 ||
+    !Array.isArray(result.tabs) ||
+    (!privatePreview && result.tabs.length !== group.currencies.length) ||
+    new Set(group.currencies).size !== group.currencies.length ||
+    group.currencies.some((currency) => !/^[A-Z]{3}$/.test(currency)) ||
+    new Set(result.tabs.map((item) => item.tab?.currency)).size !== result.tabs.length ||
+    result.tabs.some(
+      (item) =>
+        !item.tab ||
+        item.tab.group_id !== group.id ||
+        item.tab.you !== group.you ||
+        item.tab.recording_mode !== group.recording_mode ||
+        !group.currencies.includes(item.tab.currency) ||
+        item.full !== true ||
+        !Array.isArray(item.entries),
+    )
+  )
+    throw new TabApiError(
+      503,
+      "shared_account_invalid",
+      "Incomplete multi-currency account response",
+    );
+  return result;
+}
+
+export const createTabGroup = (body: CreateTabGroupRequest, auth?: TabAuth) =>
+  requestGroup("POST", "/v1/tab-groups", body, auth);
+export const fetchTabGroupByToken = (token: string) =>
+  requestGroup("POST", "/v1/tab-groups/by-token", { token: token.replace(/^g_/, "") });
+export const fetchTabGroup = (groupId: string, auth?: TabAuth) =>
+  requestGroup("GET", `/v1/tab-groups/${encodeURIComponent(groupId)}`, undefined, auth);
+export const joinTabGroup = (groupId: string, body: JoinTabGroupRequest, auth?: TabAuth) =>
+  requestGroup("POST", `/v1/tab-groups/${encodeURIComponent(groupId)}/join`, body, auth);
+export const ensureTabGroupCurrency = (
+  groupId: string,
+  body: GroupCurrencyRequest,
+  auth?: TabAuth,
+) => requestGroup("POST", `/v1/tab-groups/${encodeURIComponent(groupId)}/currencies`, body, auth);
+export const closeTabGroup = (groupId: string, auth?: TabAuth) =>
+  requestGroup(
+    "POST",
+    `/v1/tab-groups/${encodeURIComponent(groupId)}/close`,
+    { withdraw_unjoined_opening: true },
+    auth,
+  );
+export const regenerateTabGroupLink = (groupId: string, auth?: TabAuth) =>
+  requestGroup("POST", `/v1/tab-groups/${encodeURIComponent(groupId)}/regenerate-link`, {}, auth);
 
 /** GET /v1/tabs/mine — every tab a party of which is bound to this account or
  *  one of its kaatas. JWT only. */

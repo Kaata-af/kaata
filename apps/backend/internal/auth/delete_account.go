@@ -74,6 +74,29 @@ func (s *Service) hardDeleteAccount(ctx context.Context, accountID string, expir
 		return fmt.Errorf("lock deleted account: %w", err)
 	}
 
+	// Group operations lock the group before its financial tabs. Take the same
+	// order so deletion cannot miss a currency added while gathering affected tabs.
+	groupRows, err := tx.Query(ctx, `SELECT g.id::text FROM tab_groups g WHERE EXISTS(
+ SELECT 1 FROM tabs t JOIN tab_parties p ON p.tab_id=t.id
+ LEFT JOIN vaults v ON v.vault_id=p.vault_id
+ WHERE t.group_id=g.id AND(p.account_id=$1::uuid OR v.owner_account_id=$1::uuid OR EXISTS(
+ SELECT 1 FROM vault_members m WHERE m.vault_id=p.vault_id AND m.account_id=$1::uuid AND m.accepted_at IS NOT NULL AND m.revoked_at IS NULL))) ORDER BY g.id FOR UPDATE OF g`, accountID)
+	if err != nil {
+		return fmt.Errorf("lock shared account groups: %w", err)
+	}
+	groupIDs := []string{}
+	for groupRows.Next() {
+		var id string
+		if err = groupRows.Scan(&id); err != nil {
+			groupRows.Close()
+			return err
+		}
+		groupIDs = append(groupIDs, id)
+	}
+	groupRows.Close()
+	if err = groupRows.Err(); err != nil {
+		return err
+	}
 	// Lock affected tabs in stable order before membership/vault rows change.
 	// Include staff membership so a concurrent review sees one complete state.
 	rows, err := tx.Query(ctx, `
@@ -149,6 +172,17 @@ func (s *Service) hardDeleteAccount(ctx context.Context, accountID string, expir
 		// need a new revision to observe the detached account and closure.
 		if _, err := tx.Exec(ctx, `UPDATE tabs SET rev = rev + 1 WHERE id = $1::uuid`, tabID); err != nil {
 			return fmt.Errorf("advance shared tally revision: %w", err)
+		}
+	}
+
+	for _, groupID := range groupIDs {
+		if _, err = tx.Exec(ctx, `UPDATE tab_groups g SET
+   closed_at=CASE WHEN EXISTS(SELECT 1 FROM tabs t WHERE t.group_id=g.id AND t.closed_reason='account_deleted') THEN COALESCE(g.closed_at,NOW()) ELSE g.closed_at END,
+   closed_by=CASE WHEN g.closed_at IS NULL THEN(SELECT t.closed_by FROM tabs t WHERE t.group_id=g.id AND t.closed_reason='account_deleted' ORDER BY t.id LIMIT 1) ELSE g.closed_by END,
+   invite_token_hash=CASE WHEN EXISTS(SELECT 1 FROM tabs t WHERE t.group_id=g.id AND t.closed_reason='account_deleted') THEN encode(gen_random_bytes(32),'hex') ELSE g.invite_token_hash END,
+   b_account_bound_once=g.b_account_bound_once OR COALESCE(g.b_account_id=$2::uuid,FALSE),rev=rev+1
+   WHERE g.id=$1::uuid`, groupID, accountID); err != nil {
+			return fmt.Errorf("retire shared account group: %w", err)
 		}
 	}
 

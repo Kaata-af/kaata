@@ -132,6 +132,7 @@ const eventLog = compile("../event-log", (name) => {
 const tabDb = {
   getLatestTabLinkForPerson: async () => null,
   getTabLinkForPerson: async () => null,
+  getTabGroupLinkForPerson: async () => null,
 };
 const db = compile("../db", (name) => {
   if (name === "expo-crypto") return { randomUUID };

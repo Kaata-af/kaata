@@ -71,6 +71,12 @@ func noStore(w http.ResponseWriter) {
 // identical for every not-yours / unknown case).
 func mapServiceError(err error) (int, string, string) {
 	switch {
+	case errors.Is(err, ErrGroupChanged):
+		return http.StatusConflict, "shared_account_changed", err.Error()
+	case errors.Is(err, ErrGroupCurrencyHistory):
+		return http.StatusConflict, "shared_account_currency_history", err.Error()
+	case errors.Is(err, ErrGroupOperation):
+		return http.StatusConflict, "shared_account_operation_required", err.Error()
 	case errors.Is(err, credit.ErrLimit):
 		return http.StatusConflict, "credit_limit_exceeded", "credit limit exceeded"
 	case errors.Is(err, ErrAuthRequired):
@@ -241,12 +247,16 @@ func recordingHeadersSupportMode(mode, version, oneWay string) bool {
 
 func (h *Handler) recordingCompatible(w http.ResponseWriter, r *http.Request, tabID string) bool {
 	var mode string
-	err := h.svc.pool.QueryRow(r.Context(), `SELECT recording_mode FROM tabs WHERE id=$1::uuid`, tabID).Scan(&mode)
+	var groupID *string
+	err := h.svc.pool.QueryRow(r.Context(), `SELECT recording_mode,group_id::text FROM tabs WHERE id=$1::uuid`, tabID).Scan(&mode, &groupID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			err = ErrNotFound
 		}
 		writeServiceError(w, err)
+		return false
+	}
+	if groupID != nil && !groupHeaders(w, r, mode) {
 		return false
 	}
 	if !recordingHeadersSupportMode(mode, r.Header.Get("X-Kaata-Tab-Recording"), r.Header.Get("X-Kaata-Tab-One-Way")) {
@@ -418,6 +428,9 @@ func (h *Handler) Mine(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for _, item := range res.Tabs {
+		if item.Tab.GroupID != nil && !groupHeaders(w, r, item.Tab.RecordingMode) {
+			return
+		}
 		if !recordingHeadersSupportMode(item.Tab.RecordingMode, r.Header.Get("X-Kaata-Tab-Recording"), r.Header.Get("X-Kaata-Tab-One-Way")) {
 			httpx.ErrorCode(w, http.StatusUpgradeRequired, "recording_upgrade_required", "Update Kaata to open this shared account")
 			return
@@ -482,6 +495,14 @@ func (h *Handler) ByToken(w http.ResponseWriter, r *http.Request) {
 		Token string `json:"token"`
 	}
 	if !decodeBody(w, r, &req) {
+		return
+	}
+	if strings.HasPrefix(req.Token, "g_") {
+		if _, err := h.svc.PreviewGroup(r.Context(), req.Token, claims.AccountID); err != nil {
+			writeServiceError(w, err)
+			return
+		}
+		httpx.ErrorCode(w, http.StatusUpgradeRequired, "shared_account_upgrade_required", "Update Kaata to open this multi-currency shared account")
 		return
 	}
 	p, err := h.svc.PartyByToken(r.Context(), req.Token, "")
@@ -556,6 +577,9 @@ func (h *Handler) Join(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if !h.ungroupedManagement(w, r, p) {
+		return
+	}
 	vaultID, ok := optionalUUID(w, "vault_id", req.VaultID)
 	if !ok {
 		return
@@ -598,6 +622,9 @@ func (h *Handler) Bind(w http.ResponseWriter, r *http.Request) {
 	}
 	p, ok := h.invitationParty(w, r, req.Token)
 	if !ok {
+		return
+	}
+	if !h.ungroupedManagement(w, r, p) {
 		return
 	}
 	vaultID, ok := optionalUUID(w, "vault_id", req.VaultID)
@@ -738,6 +765,9 @@ func (h *Handler) Close(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if !h.ungroupedManagement(w, r, p) {
+		return
+	}
 	var req struct {
 		WithdrawUnjoinedOpening bool `json:"withdraw_unjoined_opening"`
 	}
@@ -758,6 +788,9 @@ func (h *Handler) RegenerateLink(w http.ResponseWriter, r *http.Request) {
 	noStore(w)
 	p, ok := h.partyOr404(w, r)
 	if !ok {
+		return
+	}
+	if !h.ungroupedManagement(w, r, p) {
 		return
 	}
 	token, err := h.svc.RegenerateLink(r.Context(), p)

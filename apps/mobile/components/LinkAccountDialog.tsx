@@ -15,8 +15,12 @@ import {
   tIn,
   type LocaleCode,
 } from "../lib/i18n";
-import { getTabLinkForPerson } from "../lib/tabs/db";
-import { linkContact, shareTabLinkOnWhatsApp } from "../lib/tabs/link";
+import { listOpenTabLinksForPerson } from "../lib/tabs/db";
+import {
+  getPendingContactGroupSettings,
+  linkContactGroup,
+  shareTabLinkOnWhatsApp,
+} from "../lib/tabs/link";
 import {
   TabAlreadyLinkedError,
   TabApiError,
@@ -25,7 +29,7 @@ import {
 } from "../lib/tabs/errors";
 import type { TabLink, TabRecordingMode } from "../lib/tabs/types";
 import { radius, TOUCH_MIN, typography } from "../lib/tokens";
-import { getCurrentCurrencyCode } from "../lib/currency";
+import { getCurrentCurrencyCode, getCurrencyLabel } from "../lib/currency";
 import { getAccountIdSync, getActiveVaultIdSyncMaybe } from "../lib/db-tx";
 
 const recordingModeLabel = {
@@ -47,6 +51,7 @@ export function LinkAccountDialog(props: {
   myLabel: string;
   link: TabLink | null;
   currency?: string;
+  currencies?: readonly string[];
   onLinked: (link: TabLink) => void;
   onDismiss: () => void;
   onAuthRequired: () => void;
@@ -60,16 +65,26 @@ export function LinkAccountDialog(props: {
   const [language, setLanguage] = useState<LocaleCode>(getLocale);
   const [askLanguage, setAskLanguage] = useState(false);
   const [languageReady, setLanguageReady] = useState(false);
+  const [pendingSettingsReady, setPendingSettingsReady] = useState(false);
   const [recordingMode, setRecordingMode] = useState<TabRecordingMode>("notify");
+  const [sharedCurrencies, setSharedCurrencies] = useState<readonly string[]>([]);
   const target = useRef<TabLink | null>(null);
+  const modeVersion = useRef(0);
+  const pendingMode = useRef<TabRecordingMode | null>(null);
   const busyRef = useRef(false);
   const generation = useRef(0);
   const authTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasPhone = !!props.person.phone?.trim();
   const currency = props.currency ?? getCurrentCurrencyCode();
+  const groupMode = !props.link || !!props.link.group_id;
   const vaultId = getActiveVaultIdSyncMaybe(),
     accountId = getAccountIdSync();
-  const context = JSON.stringify([vaultId, accountId, props.person.id, currency]);
+  const context = JSON.stringify([
+    vaultId,
+    accountId,
+    props.person.id,
+    groupMode ? "group" : currency,
+  ]);
   const currentContext = useRef(context);
   currentContext.current = context;
 
@@ -93,6 +108,23 @@ export function LinkAccountDialog(props: {
     setLanguage(getLocale());
     setAskLanguage(false);
     setRecordingMode(props.link?.recording_mode ?? "notify");
+    const modeRead = ++modeVersion.current;
+    pendingMode.current = null;
+    setPendingSettingsReady(!!props.link);
+    if (!props.link) {
+      void getPendingContactGroupSettings(props.person.id)
+        .then((pending) => {
+          if (generation.current !== run || currentContext.current !== context) return;
+          pendingMode.current = pending?.recordingMode ?? null;
+          if (pending && modeVersion.current === modeRead) setRecordingMode(pending.recordingMode);
+          setPendingSettingsReady(true);
+        })
+        .catch(() => {
+          if (generation.current === run && currentContext.current === context)
+            setPendingSettingsReady(true);
+        });
+    }
+    setSharedCurrencies(props.currencies ?? (props.link ? [props.link.currency] : []));
     void getShareLangPref()
       .then((pref) => {
         if (generation.current !== run) return;
@@ -118,12 +150,17 @@ export function LinkAccountDialog(props: {
     if (
       busyRef.current ||
       !languageReady ||
+      !pendingSettingsReady ||
       !props.visible ||
       currentContext.current !== context ||
       getActiveVaultIdSyncMaybe() !== vaultId ||
       getAccountIdSync() !== accountId
     )
       return;
+    if (!target.current && pendingMode.current && pendingMode.current !== recordingMode) {
+      setError(t("tab.group.pendingMode", { mode: t(recordingModeLabel[pendingMode.current]) }));
+      return;
+    }
     busyRef.current = true;
     setBusy(true);
     setError(null);
@@ -137,15 +174,26 @@ export function LinkAccountDialog(props: {
       let fresh = target.current;
       if (!fresh) {
         try {
-          fresh = (
-            await linkContact(props.person.id, { myLabel: props.myLabel, currency, recordingMode })
-          ).link;
+          const created = await linkContactGroup(props.person.id, {
+            myLabel: props.myLabel,
+            recordingMode,
+          });
+          fresh = created.link;
+          if (!active()) return;
+          setSharedCurrencies(created.group.currencies);
         } catch (err) {
           if (!(err instanceof TabAlreadyLinkedError)) throw err;
-          // Another phone (or a lost create response) already linked it.
-          // Reuse that invitation, never create a second opening balance.
-          fresh = await getTabLinkForPerson(props.person.id, currency);
+          // A new invitation covers the whole contact. A legacy currency link
+          // cannot stand in for that agreement or silently absorb its history.
+          const recovered = await listOpenTabLinksForPerson(props.person.id);
+          if (!active()) return;
+          fresh = recovered.find((link) => link.group_id) ?? null;
           if (!fresh) throw err;
+          setSharedCurrencies(
+            recovered
+              .filter((link) => link.group_id === fresh!.group_id)
+              .map((link) => link.currency),
+          );
         }
         if (!active()) return;
         target.current = fresh;
@@ -195,22 +243,44 @@ export function LinkAccountDialog(props: {
         if (target.current?.invite_url && action !== "copy") setShareFailed(true);
         setError(
           err instanceof TabApiError &&
-            (err.code === "notification_only_unsupported" ||
+            (err.code === "shared_account_unsupported" ||
+              err.code === "multi_currency_tabs_unsupported" ||
+              err.code === "notification_only_unsupported" ||
               err.code === "one_way_tallies_unsupported")
             ? t("tab.link.serverUpdate")
-            : err instanceof TabApiError && err.code === "recording_upgrade_required"
+            : err instanceof TabApiError &&
+                (err.code === "recording_upgrade_required" ||
+                  err.code === "shared_account_upgrade_required")
               ? t("tab.link.clientUpdate")
-              : err instanceof TabApiError && err.code === "shared_history_pending"
-                ? t("tab.history.pending")
-                : err instanceof TabApiError && err.code === "shared_history_changed"
-                  ? t("tab.history.changed")
-                  : err instanceof TabApiError && err.code === "shared_history_opening_required"
-                    ? t("tab.history.openingRequired")
-                    : err instanceof TabPermissionError
-                      ? t("entry.roleDenied")
-                      : target.current?.invite_url
-                        ? t(action === "copy" ? "entry.saveFailed" : "share.whatsappUnavailable")
-                        : t("tab.link.failed"),
+              : err instanceof TabAlreadyLinkedError ||
+                  (err instanceof TabApiError &&
+                    [
+                      "group_binding_conflict",
+                      "group_legacy_conflict",
+                      "group_conflict",
+                      "shared_account_conflict",
+                    ].includes(err.code))
+                ? t("tab.group.conflict")
+                : err instanceof TabApiError && err.code === "shared_account_pending"
+                  ? t("tab.group.pending")
+                  : err instanceof TabApiError && err.code === "shared_account_source_unsynced"
+                    ? t("tab.group.syncFirst")
+                    : err instanceof TabApiError && err.code === "shared_history_pending"
+                      ? t("tab.history.pending")
+                      : err instanceof TabApiError && err.code === "shared_history_changed"
+                        ? t("tab.history.changed")
+                        : err instanceof TabApiError &&
+                            err.code === "shared_history_opening_required"
+                          ? t("tab.history.openingRequired")
+                          : err instanceof TabPermissionError
+                            ? t("entry.roleDenied")
+                            : target.current?.invite_url
+                              ? t(
+                                  action === "copy"
+                                    ? "entry.saveFailed"
+                                    : "share.whatsappUnavailable",
+                                )
+                              : t("tab.link.failed"),
         );
       }
     } finally {
@@ -235,17 +305,32 @@ export function LinkAccountDialog(props: {
               <Text style={[styles.description, textDir(rtl)]}>
                 {t(
                   ready
-                    ? "tab.link.readyBody"
-                    : recordingMode === "notify_one_way"
-                      ? "tab.link.confirm.oneWayBody"
-                      : recordingMode === "notify"
-                        ? "tab.link.confirm.notifyBody"
-                        : "tab.link.confirm.body",
+                    ? groupMode
+                      ? "tab.group.readyBody"
+                      : "tab.link.readyBody"
+                    : groupMode
+                      ? recordingMode === "notify_one_way"
+                        ? "tab.group.confirm.oneWayBody"
+                        : recordingMode === "notify"
+                          ? "tab.group.confirm.notifyBody"
+                          : "tab.group.confirm.reviewBody"
+                      : recordingMode === "notify_one_way"
+                        ? "tab.link.confirm.oneWayBody"
+                        : recordingMode === "notify"
+                          ? "tab.link.confirm.notifyBody"
+                          : "tab.link.confirm.body",
                   {
                     name: props.person.name,
                   },
                 )}
               </Text>
+              {groupMode && sharedCurrencies.length > 0 ? (
+                <Text testID="shared-account-currencies" style={[styles.description, textDir(rtl)]}>
+                  {t("tab.group.currencies", {
+                    currencies: [...new Set(sharedCurrencies)].map(getCurrencyLabel).join(" · "),
+                  })}
+                </Text>
+              ) : null}
               {ready ? (
                 <Text style={[styles.description, textDir(rtl)]}>
                   {target.current?.recording_mode_known === 0
@@ -272,7 +357,10 @@ export function LinkAccountDialog(props: {
                       accessibilityLabel={t(recordingModeLabel[mode])}
                       accessibilityState={{ checked: recordingMode === mode, disabled: busy }}
                       onPress={() => {
-                        if (!busyRef.current) setRecordingMode(mode);
+                        if (!busyRef.current) {
+                          modeVersion.current++;
+                          setRecordingMode(mode);
+                        }
                       }}
                       style={[styles.modeOption, recordingMode === mode && styles.selected]}
                     >
@@ -315,7 +403,7 @@ export function LinkAccountDialog(props: {
                 <Button
                   fullWidth
                   loading={busy}
-                  disabled={!languageReady}
+                  disabled={!languageReady || !pendingSettingsReady}
                   label={t(
                     ready
                       ? "tab.share.whatsapp"

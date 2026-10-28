@@ -389,6 +389,32 @@ async function main() {
   await migrationChecks();
   {
     const f = await fixture();
+    f.sql.exec(`ALTER TABLE tab_links ADD COLUMN group_id TEXT;
+      INSERT INTO relationships(id,vault_id,user_a_id,user_b_id,created_at,archived_at) VALUES('archived-group','v1','self','person',0,5),('other-group','v1','self','someone-else',1,NULL);
+      INSERT INTO tab_links(tab_id,vault_id,relationship_id,currency,closed_at,group_id) VALUES
+        ('group-aud','v1','r1','AUD',NULL,'group'),
+        ('legacy-cad','v1','r1','CAD',NULL,NULL),
+        ('closed-gbp','v1','r1','GBP',5,'group'),
+        ('foreign-chf','v2','r2','CHF',NULL,'foreign'),
+        ('archived-jpy','v1','archived-group','JPY',NULL,'archived'),
+        ('other-cny','v1','other-group','CNY',NULL,'other');`);
+    const settings = f.sql.prepare("SELECT * FROM vault_settings ORDER BY key").all();
+    const events = f.rows().length;
+    assert.deepEqual(await f.personCurrency.getPersonEnabledCurrencies("v1", "person"), [
+      "AFN",
+      "USD",
+      "EUR",
+      "AUD",
+    ]);
+    assert.deepEqual(
+      f.sql.prepare("SELECT * FROM vault_settings ORDER BY key").all(),
+      settings,
+      "A contact's shared currencies never rewrite signed Kaata-wide settings",
+    );
+    assert.equal(f.rows().length, events, "Reading group currency choices appends no signed event");
+  }
+  {
+    const f = await fixture();
     f.sql.exec("UPDATE entries SET currency='USD',amount_afn=0,is_settled=1 WHERE id='old-money'");
     const eventsBefore = f.rows().length;
     assert.equal(

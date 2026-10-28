@@ -171,7 +171,10 @@ function fixture({
     "./auth": {},
     "./db-tx": {
       getDb: async () => ({
-        getAllAsync: async () => [],
+        getAllAsync: async (sql: string) =>
+          sql.includes("SELECT tl.*")
+            ? [...linkedCurrencies].map(([currency, link]) => ({ ...link, currency }))
+            : [],
         getFirstAsync: async (_sql: string, requestedVault: string, requestedPerson: string) => {
           personCurrencyReads.push([requestedVault, requestedPerson]);
           const gate = personCurrencyGate;
@@ -354,7 +357,10 @@ function fixture({
         getTabLinkForPerson: async (_id: string, code: string) =>
           duplicateGate
             ? duplicateGate.promise
-            : (linkedCurrencies.get(code) ?? { other_label: "Peer" }),
+            : (linkedCurrencies.get(code) ??
+              ([...linkedCurrencies.values()].some((link) => link.group_id)
+                ? null
+                : { other_label: "Peer" })),
       },
       "../../lib/tabs/recording-mode": require("../tabs/recording-mode"),
       "../../lib/tabs/errors": {
@@ -417,6 +423,7 @@ function fixture({
     render();
   };
   const flush = async () => {
+    await settleUI();
     await settleUI();
     render();
   };
@@ -849,6 +856,61 @@ async function main() {
         f.hooks.unmount();
         cases++;
       }
+  for (const os of ["android", "ios"] as const) {
+    const f = fixture({ os });
+    const globalCurrencies = ["AFN"];
+    f.setEnabledCurrencies(globalCurrencies);
+    f.setCurrencyLink("USD", {
+      group_id: "group",
+      role: "a",
+      recording_mode: "notify",
+      recording_mode_known: 1,
+    });
+    await f.ready();
+    const picker = () => nodes(f.hooks.tree).find((node) => node.type === "CurrencySelector")!;
+    assert.deepEqual(
+      picker().props.allowedCurrencies,
+      ["AFN", "USD"],
+      "The contact can use its shared currency without changing the whole Kaata",
+    );
+    assert.deepEqual(globalCurrencies, ["AFN"]);
+    picker().props.onChange("USD");
+    f.render();
+    await f.button().props.onPress();
+    assert.equal(
+      f.writes[0][4].currency,
+      "USD",
+      "The selected denomination stays on its own financial write",
+    );
+    f.hooks.unmount();
+    cases++;
+
+    const recipient = fixture({ os });
+    recipient.setEnabledCurrencies(["AFN", "EUR"]);
+    recipient.setCurrencyLink("AFN", {
+      group_id: "group",
+      role: "b",
+      recording_mode: "notify_one_way",
+      recording_mode_known: 1,
+    });
+    await recipient.ready();
+    const recipientPicker = nodes(recipient.hooks.tree).find(
+      (node) => node.type === "CurrencySelector",
+    )!;
+    recipientPicker.props.onChange("EUR");
+    recipient.render();
+    assert.equal(
+      recipient.button().props.disabled,
+      true,
+      "A missing currency leg never escapes the group's read-only permission",
+    );
+    await recipient.button().props.onPress();
+    recipient.render();
+    assert.equal(recipient.writes.length, 0);
+    assert.ok(words(recipient.hooks.tree).includes("tab.recordingMode.oneWayReadOnly"));
+    recipient.hooks.unmount();
+    cases++;
+  }
   {
     const f = fixture();
     f.setEnabledCurrencies(["AFN", "USD"]);
@@ -3447,6 +3509,9 @@ async function main() {
     [new TabAuthUnavailableError(), "tab.needsConnection"],
     [new TabClosedError(), "tab.closed"],
     [new TabPermissionError(), "entry.roleDenied"],
+    [new TabApiError("shared_account_pending"), "tab.group.pending"],
+    [new TabApiError("shared_account_source_unsynced"), "tab.group.syncFirst"],
+    [new TabApiError("shared_history_pending"), "tab.history.pending"],
     [new TabApiError("credit_limit_exceeded"), "credit.blocked"],
     [new Error("storage failed"), "entry.saveFailed"],
   ] as const) {

@@ -218,6 +218,7 @@ const tabs = compile<typeof import("../tabs/db")>("../tabs/db", (name) => {
   if (name === "../entry-date") return require("../entry-date");
   if (name === "./direction") return require("../tabs/direction");
   if (name === "./history") return require("../tabs/history");
+  if (name === "./recording-mode") return require("../tabs/recording-mode");
   if (name === "./errors") return require("../tabs/errors");
   if (name === "./wire") return require("../tabs/wire");
   throw Error(`unexpected tab import ${name}`);

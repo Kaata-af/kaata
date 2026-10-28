@@ -67,12 +67,13 @@ import {
   getLatestTabLinkForPerson,
   getTabLink,
   getTabLinkForPerson,
+  getTabGroupLinkForPerson,
   listTabEntriesAsEntries,
 } from "./tabs/db";
 import type { TabLink } from "./tabs/types";
 import { entryTypeFor, tabBalanceSql } from "./tabs/direction";
 import type { DuplicateHint, TabDirection } from "./tabs/types";
-import { TabLinkedEntryError } from "./tabs/errors";
+import { TabApiError, TabLinkedEntryError } from "./tabs/errors";
 import {
   effectiveConfirmedBalanceSql,
   effectiveFinancialBalanceSql,
@@ -144,6 +145,7 @@ const MIGRATION_043 = "043_person_default_currency";
 const MIGRATION_044 = "044_entry_original_currency";
 const MIGRATION_045 = "045_unjoined_invitation";
 const MIGRATION_046 = "046_tab_recording_mode";
+const MIGRATION_047 = "047_multi_currency_tab_groups";
 
 // Phase 5 mesh: app_meta keys used by the lib/mesh package. They are NOT
 // referenced from db.ts directly — the table itself is the generic key/value
@@ -584,6 +586,7 @@ export async function initDb(opts: { installId?: string } = {}): Promise<void> {
   if (!(await hasRunMigration(db, MIGRATION_044))) await runMigration044(db);
   if (!(await hasRunMigration(db, MIGRATION_045))) await runMigration045(db);
   if (!(await hasRunMigration(db, MIGRATION_046))) await runMigration046(db);
+  if (!(await hasRunMigration(db, MIGRATION_047))) await runMigration047(db);
 }
 
 async function hasRunMigration(db: SQLite.SQLiteDatabase, name: string): Promise<boolean> {
@@ -3788,6 +3791,19 @@ async function runMigration046(db: SQLite.SQLiteDatabase): Promise<void> {
   });
 }
 
+async function runMigration047(db: SQLite.SQLiteDatabase): Promise<void> {
+  await db.withTransactionAsync(async () => {
+    if (!(await columnExists(db, "tab_links", "group_id")))
+      await db.execAsync("ALTER TABLE tab_links ADD COLUMN group_id TEXT");
+    await db.execAsync("CREATE INDEX IF NOT EXISTS idx_tab_links_group ON tab_links(group_id)");
+    await db.runAsync(
+      "INSERT INTO schema_migrations(name,applied_at) VALUES (?,?)",
+      MIGRATION_047,
+      Date.now(),
+    );
+  });
+}
+
 async function getLocalSelfUserId(db: SQLite.SQLiteDatabase): Promise<string | null> {
   const row = await db.getFirstAsync<{ id: string }>(
     "SELECT id FROM users WHERE is_local_self = 1 LIMIT 1",
@@ -4471,7 +4487,10 @@ const TAB_PERSON_COLUMNS = `
             (${effectivePendingBalanceSql()}) / 100.0 AS tab_pending_balance,
             tl.closed_at AS tab_closed_at,
             CASE WHEN tl.other_joined_at IS NOT NULL THEN 1 ELSE 0 END AS tab_other_joined,
-            CASE WHEN tl.tab_id IS NOT NULL AND (tl.last_synced_at IS NULL OR (${unknownHistorySql()})) THEN 1 ELSE 0 END AS tab_unsynced,
+            CASE WHEN tl.tab_id IS NOT NULL AND ((${unknownHistorySql()}) OR EXISTS (
+              SELECT 1 FROM tab_links history WHERE history.vault_id=tl.vault_id
+                AND history.relationship_id=tl.relationship_id AND history.currency=tl.currency
+                AND history.last_synced_at IS NULL)) THEN 1 ELSE 0 END AS tab_unsynced,
             (SELECT MAX(tn.occurred_at) FROM tab_entries tn
               WHERE tn.tab_id = tl.tab_id AND tn.kind <> 'void'
                 AND NOT (tn.kind='opening' AND ${retainedPrivateHistorySql()})) AS tab_last_at,
@@ -5426,7 +5445,12 @@ export async function createEntryDetailed(
   const vaultId = expected?.vaultId ?? getActiveVaultIdSync();
   const credit = await import("./credit-limits");
   const warning = await credit.creditWarning(personId, type, amountAfn, vaultId, currency);
-  const link = await getTabLinkForPerson(personId, currency);
+  let link = await getTabLinkForPerson(personId, currency);
+  if (!link && (await getTabGroupLinkForPerson(personId))) {
+    const { ensureContactGroupCurrency } = await import("./tabs/groups");
+    link = await ensureContactGroupCurrency(personId, currency, { session, vaultId });
+    if (!link) throw new Error("Shared currency could not be prepared");
+  }
   if (link) {
     const { addTabEntry } = await import("./tabs/link");
     const r = await addTabEntry(personId, type, amountAfn, note, {
@@ -5446,6 +5470,15 @@ export async function createEntryDetailed(
   const db = await getDb();
   const relId = await credit.relationshipForCredit(personId, vaultId);
   if (!relId) throw new Error(`no active relationship for person ${personId}`);
+  if (
+    (await getAppMeta(`tab_group_create:${session.accountId}:${vaultId}:${relId}`)) ||
+    (await getAppMeta(`tab_group_pending_join:${session.accountId}:${vaultId}:${relId}`))
+  )
+    throw new TabApiError(
+      409,
+      "shared_account_pending",
+      "Retry the pending invitation before recording private tallies",
+    );
   const saved = await applyForUnchangedLocalSession(session, async () => {
     if (getActiveVaultIdSync() !== vaultId) throw new SessionChangedError();
     return appendEntryCreated({

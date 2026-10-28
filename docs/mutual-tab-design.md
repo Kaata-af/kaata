@@ -1,3 +1,11 @@
+## October 28: one invitation for multiple currencies
+
+New shared customer accounts group the existing currency-specific tabs behind
+one invitation and one explicit Join. Currency balances, history, credit and
+review rules remain separate. Existing independent links are not silently
+converted. See [multi-currency shared accounts](multi-currency-shared-accounts.md)
+for the protocol, source-preservation rules, compatibility and rollout.
+
 ## October 28: three immutable tally recording modes
 
 Each shared link fixes its recording mode when it is created. Existing links and

@@ -261,6 +261,9 @@ func main() {
 	syncSvc := syncapi.NewService(pool)
 	syncH := syncapi.NewHandler(syncSvc)
 	tabsSvc.SetCreditBalanceReader(syncapi.CreditBalance)
+	tabsSvc.SetGroupCurrencyHistoryReader(syncapi.HasCurrencyHistory)
+	tabsSvc.SetGroupSourceLatestRecordedAtReader(syncapi.GroupSourceLatestRecordedAt)
+	tabsSvc.SetGroupSourceCurrenciesReader(syncapi.GroupSourceCurrencies)
 
 	// Membership-cache invalidation: when a vault management call changes a
 	// member's standing (revoke, role change, leave, unarchive, …) the sync
@@ -407,6 +410,13 @@ func main() {
 		pr.Use(authenticator.OptionalMiddleware())
 		pr.With(httpx.RateLimitPerIP(httpx.TabCreateLimit, httpx.TabCreateWindow)).
 			Post("/v1/tabs", tabsH.Create)
+		pr.With(httpx.RateLimitPerIP(httpx.TabCreateLimit, httpx.TabCreateWindow)).Post("/v1/tab-groups", tabsH.CreateGroup)
+		pr.With(httpx.RateLimitPerIP(httpx.TabReadLimit, httpx.TabReadWindow)).Post("/v1/tab-groups/by-token", tabsH.GroupByToken)
+		pr.With(httpx.RateLimitPerAccountOrIP(httpx.TabReadLimit, httpx.TabReadWindow), httpx.RateLimitPerIP(httpx.TabReadIPCeiling, httpx.TabReadWindow)).Get("/v1/tab-groups/{group_id}", tabsH.GetGroup)
+		pr.With(httpx.RateLimitPerIP(httpx.TabJoinLimit, httpx.TabJoinWindow)).Post("/v1/tab-groups/{group_id}/join", tabsH.JoinGroup)
+		pr.With(httpx.RateLimitPerIP(httpx.TabJoinLimit, httpx.TabJoinWindow)).Post("/v1/tab-groups/{group_id}/close", tabsH.CloseGroup)
+		pr.With(httpx.RateLimitPerIP(httpx.TabCreateLimit, httpx.TabCreateWindow)).Post("/v1/tab-groups/{group_id}/regenerate-link", tabsH.RegenerateGroup)
+		pr.With(httpx.RateLimitPerIP(httpx.TabCreateLimit, httpx.TabCreateWindow)).Post("/v1/tab-groups/{group_id}/currencies", tabsH.EnsureGroupCurrency)
 		// Signed-in reads are budgeted per account (shops behind one carrier
 		// NAT no longer share a single budget) under a looser per-IP ceiling.
 		pr.With(httpx.RateLimitPerAccountOrIP(httpx.TabWriteLimit, httpx.TabWriteWindow),

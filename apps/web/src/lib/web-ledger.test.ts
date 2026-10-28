@@ -81,6 +81,7 @@ test("browser signs device admission and safely retries a lost save response wit
       assert.equal(body.device_id, installID);
       assert.equal(body.vault_id, vaultID);
       assert.equal(new Headers(init?.headers).get("X-Kaata-Currencies"), "1");
+      assert.equal(new Headers(init?.headers).get("X-Kaata-Tab-Group"), "1");
       const accepted: { event_id: string; server_seq: number }[] = [];
       const duplicates: string[] = [];
       for (const event of body.events) {

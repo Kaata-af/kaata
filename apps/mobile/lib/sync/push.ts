@@ -396,6 +396,34 @@ export async function pushEvents(vaultId: string): Promise<PushResult> {
         );
       }
       for (const r of rejectedList) {
+        if (r.reason === "shared_tally_required") {
+          // The original signed intent remains on this device. It must never
+          // be retried as a private transfer into an account shared by both
+          // parties, nor silently converted into a shared acknowledgement.
+          await db.runAsync(
+            "UPDATE event_log SET rejected_at=?,last_reject_reason=? WHERE event_id=?",
+            now,
+            r.reason,
+            r.event_id,
+          );
+          await db.runAsync(
+            "UPDATE credit_admission_intents SET status='refused',reason=? WHERE event_id=?",
+            r.reason,
+            r.event_id,
+          );
+          await db.runAsync(
+            "INSERT INTO projection_conflicts(kind,detail_json,vault_id,created_at) VALUES(?,?,?,?)",
+            "event_rejected_by_server",
+            JSON.stringify({
+              event_id: r.event_id,
+              event_type: rowById.get(r.event_id)?.event_type,
+              reason: r.reason,
+            }),
+            vaultId,
+            now,
+          );
+          continue;
+        }
         if (r.reason === "credit_limit_exceeded") {
           // Only a deferred, unapplied intent may become permanently refused.
           // Already-visible historical evidence retains the existing retry rule.

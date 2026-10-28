@@ -67,7 +67,12 @@ import {
   type MergedSection,
 } from "../../lib/contacts-merge";
 import { splitName, type DeviceContact } from "../../lib/contacts-sync";
-import { getCurrencySymbol, applyVaultCurrency, selectLedgerCurrency } from "../../lib/currency";
+import {
+  getCurrencyLabel,
+  getCurrencySymbol,
+  applyVaultCurrency,
+  selectLedgerCurrency,
+} from "../../lib/currency";
 import { getAppMeta, getLocalSelf, setAppMeta } from "../../lib/db";
 import { getActiveVaultIdSyncMaybe, setActiveVaultId } from "../../lib/db-tx";
 import { toAsciiDigits } from "../../lib/digits";
@@ -88,6 +93,7 @@ import {
   getPersonIdForRelationship,
   getTabLink,
   listVaultContactsForJoin,
+  listVaultContactsForGroupJoin,
   type TabJoinCandidate,
 } from "../../lib/tabs/db";
 import { otherRole } from "../../lib/tabs/direction";
@@ -99,7 +105,8 @@ import {
   type VaultFacts,
 } from "../../lib/tabs/join-plan";
 import {
-  fetchTabPreview,
+  fetchSharedInvitation,
+  joinTabGroupAsContact,
   joinTabAsContact,
   listVaultFactsForJoin,
   switchVaultCurrencyForTab,
@@ -113,13 +120,38 @@ import {
   TabSameKaataError,
   type JoinTarget,
 } from "../../lib/tabs/link";
-import type { WireEntry, WireTab } from "../../lib/tabs/types";
+import type { TabGroupResponse, WireEntry, WireTab } from "../../lib/tabs/types";
 import { wireToMinor } from "../../lib/tabs/wire";
 import { icon, radius, TOUCH_MIN } from "../../lib/tokens";
 import { useDeviceContacts } from "../../lib/use-device-contacts";
 import { VaultHasOpenTabError } from "../../lib/vault-router";
 
 type Stage = "loading" | "preview" | "pick" | "joining" | "error";
+
+/** Group invitations disclose the sender and currencies before Join, never
+ * balances or private history. This adapter only feeds the existing contact
+ * and Kaata chooser; group previews render their own nonfinancial summary. */
+function groupPreviewTab(invitation: TabGroupResponse): WireTab {
+  const existing = invitation.tabs[0]?.tab;
+  if (existing) return existing;
+  const group = invitation.group;
+  const currency = group.currencies[0];
+  if (!currency) throw new TabApiError(404, "not_found", "Shared account not found");
+  return {
+    id: group.id,
+    group_id: group.id,
+    currency,
+    recording_mode: group.recording_mode,
+    rev: group.rev,
+    created_at_ms: group.created_at_ms,
+    closed_at_ms: group.closed_at_ms,
+    closed_by: group.closed_by,
+    you: group.you,
+    parties: group.parties,
+    balance: { a: "0", b: "0" },
+    pending_for_you: 0,
+  };
+}
 
 const PENDING_TOKEN_KEY = "pending_tab_token";
 // The tab's currency, stashed WITH the token: vault/new and onboarding/kaata
@@ -179,10 +211,15 @@ export default function TabJoinScreen() {
   const isRTL = useIsRTL();
   const { token: tokenParam } = useLocalSearchParams<{ token: string }>();
   const token = typeof tokenParam === "string" ? tokenParam : null;
+  const currentToken = useRef(token);
+  currentToken.current = token;
+  const loadedToken = useRef<string | null>(null);
+  const invitationVersion = useRef(0);
 
   const [stage, setStage] = useState<Stage>("loading");
   const [tab, setTab] = useState<WireTab | null>(null);
   const [entries, setEntries] = useState<WireEntry[]>([]);
+  const [groupInvitation, setGroupInvitation] = useState<TabGroupResponse | null>(null);
   const [errorMsg, setErrorMsg] = useState("");
   // Only a transport failure is worth a Retry button; a closed or unknown tab
   // is a verdict the server will repeat forever (lib/tabs/errors.ts).
@@ -275,6 +312,14 @@ export default function TabJoinScreen() {
   // ---- preview -----------------------------------------------------------
   useEffect(() => {
     let cancelled = false;
+    invitationVersion.current++;
+    joiningRef.current = false;
+    loadedToken.current = null;
+    setStage("loading");
+    setTab(null);
+    setEntries([]);
+    setGroupInvitation(null);
+    setRetryable(false);
     void (async () => {
       if (!token) {
         setErrorMsg(t("tab.join.notFound"));
@@ -307,14 +352,28 @@ export default function TabJoinScreen() {
         await setAppMeta(PENDING_TOKEN_KEY, "");
         await setAppMeta(PENDING_CURRENCY_KEY, "");
 
-        const preview = await fetchTabPreview(token);
+        const invitation = await fetchSharedInvitation(token);
+        const preview =
+          invitation.kind === "group"
+            ? { tab: groupPreviewTab(invitation), entries: invitation.tabs[0]?.entries ?? [] }
+            : invitation;
         if (cancelled) return;
         // Already joined on THIS device: the link row is the proof (a join
         // from another device of a shared kaata would arrive via /mine). Go
         // straight to the contact rather than offering to join twice.
         const existing = await getTabLink(preview.tab.id);
+        const completeGroup =
+          invitation.kind !== "group" ||
+          (invitation.tabs.length > 0 &&
+            (await Promise.all(invitation.tabs.map((item) => getTabLink(item.tab.id)))).every(
+              (item) => item?.group_id === invitation.group.id && item.closed_at == null,
+            ));
         if (cancelled) return;
-        if (preview.tab.parties[preview.tab.you].joined_at_ms != null && existing) {
+        if (
+          preview.tab.parties[preview.tab.you].joined_at_ms != null &&
+          existing &&
+          completeGroup
+        ) {
           const personId = await getPersonIdForRelationship(existing.relationship_id);
           if (cancelled) return;
           if (personId) {
@@ -331,6 +390,8 @@ export default function TabJoinScreen() {
         }
         setTab(preview.tab);
         setEntries(preview.entries);
+        setGroupInvitation(invitation.kind === "group" ? invitation : null);
+        loadedToken.current = token;
         setStage("preview");
         // Resolve the kaata plan while the preview is on screen, so Join
         // answers at once — and so the one-tap card can appear at all.
@@ -339,11 +400,17 @@ export default function TabJoinScreen() {
         if (cancelled) return;
         // Raw err stays in the console; the user sees localized copy only.
         console.warn("[tab/join] preview failed", err);
-        if (err instanceof TabApiError && err.code === "recording_upgrade_required") {
+        if (
+          err instanceof TabApiError &&
+          (err.code === "recording_upgrade_required" ||
+            err.code === "shared_account_upgrade_required")
+        ) {
           setErrorMsg(t("tab.link.clientUpdate"));
         } else if (
           err instanceof TabApiError &&
-          (err.code === "notification_only_unsupported" ||
+          (err.code === "shared_account_unsupported" ||
+            err.code === "multi_currency_tabs_unsupported" ||
+            err.code === "notification_only_unsupported" ||
             err.code === "one_way_tallies_unsupported")
         ) {
           setErrorMsg(t("tab.link.serverUpdate"));
@@ -359,6 +426,8 @@ export default function TabJoinScreen() {
     })();
     return () => {
       cancelled = true;
+      invitationVersion.current++;
+      if (loadedToken.current === token) loadedToken.current = null;
     };
   }, [token, router, attempt, loadFacts]);
 
@@ -384,6 +453,22 @@ export default function TabJoinScreen() {
   const liveEntryCount = entries.filter(
     (e) => e.kind !== "void" && e.voided_by_entry_id == null,
   ).length;
+  const previewBalances = groupInvitation
+    ? groupInvitation.tabs.map((item) => {
+        let amount: number | null = null;
+        try {
+          amount = fromMinorUnits(wireToMinor(item.tab.balance[item.tab.you]));
+        } catch {
+          // An unavailable amount is never presented as a cleared currency.
+        }
+        return {
+          currency: item.tab.currency,
+          amount,
+          count: item.entries.filter((entry) => entry.kind !== "void" && !entry.voided_by_entry_id)
+            .length,
+        };
+      })
+    : [{ currency: tab?.currency ?? "", amount: balance, count: liveEntryCount }];
 
   // D9: every kaata sorted against the tab's currency.
   const plan = useMemo(
@@ -410,7 +495,7 @@ export default function TabJoinScreen() {
   useEffect(() => {
     if (!targetVaultId) return;
     let cancelled = false;
-    void listVaultContactsForJoin(targetVaultId)
+    void (groupInvitation ? listVaultContactsForGroupJoin : listVaultContactsForJoin)(targetVaultId)
       .then((rows) => {
         if (!cancelled) setContacts({ vaultId: targetVaultId, rows });
       })
@@ -421,7 +506,7 @@ export default function TabJoinScreen() {
     return () => {
       cancelled = true;
     };
-  }, [targetVaultId, contactsAttempt]);
+  }, [targetVaultId, contactsAttempt, groupInvitation?.group.id]);
   const contactRows = contacts && contacts.vaultId === targetVaultId ? contacts.rows : null;
 
   // Who the invitation is from, as far as this device can tell. Needs the
@@ -469,18 +554,27 @@ export default function TabJoinScreen() {
 
   // ---- join --------------------------------------------------------------
   async function runJoin(target: JoinTarget, displayName: string) {
-    if (!token || !tab || joiningRef.current) return;
+    const version = invitationVersion.current;
+    const current = () =>
+      currentToken.current === token &&
+      loadedToken.current === token &&
+      invitationVersion.current === version;
+    if (!token || !tab || joiningRef.current || !current()) return;
     joiningRef.current = true;
     setPickError(null);
     setPhoneError(null);
     setStage("joining");
     try {
       const self = await getLocalSelf();
+      if (!current()) return;
       // How I will appear to the other party. The shop name is the name they
       // know me by; the personal name is the fallback for a kaata that never
       // got one.
       const myLabel = self?.shop_name?.trim() || self?.name?.trim() || "";
-      const link = await joinTabAsContact(token, tab, target, myLabel);
+      const link = groupInvitation
+        ? (await joinTabGroupAsContact(token, groupInvitation, target, myLabel)).link
+        : await joinTabAsContact(token, tab, target, myLabel);
+      if (!current()) return;
       const personId =
         "personId" in target
           ? target.personId
@@ -488,10 +582,10 @@ export default function TabJoinScreen() {
       await clearPendingStash();
       queuePendingToast(t("tab.join.done", { name: displayName }), "success");
       if (personId) {
-        await selectLedgerCurrency(tab.currency, target.vaultId);
+        if (!groupInvitation) await selectLedgerCurrency(tab.currency, target.vaultId);
         router.replace({
           pathname: "/person/[id]",
-          params: { id: personId, currency: tab.currency },
+          params: groupInvitation ? { id: personId } : { id: personId, currency: tab.currency },
         });
       } else {
         // The link committed but the contact could not be resolved (torn local
@@ -499,6 +593,7 @@ export default function TabJoinScreen() {
         router.replace("/");
       }
     } catch (err) {
+      if (!current()) return;
       joiningRef.current = false;
       if (err instanceof TabApiError && err.code === "opening_source_changed") {
         // Changing contacts or retrying this invitation cannot repair its
@@ -569,11 +664,36 @@ export default function TabJoinScreen() {
         setPickError(t("tab.join.closed"));
       } else if (
         err instanceof TabApiError &&
-        (err.code === "notification_only_unsupported" || err.code === "one_way_tallies_unsupported")
+        (err.code === "shared_account_unsupported" ||
+          err.code === "multi_currency_tabs_unsupported" ||
+          err.code === "notification_only_unsupported" ||
+          err.code === "one_way_tallies_unsupported")
       ) {
         setPickError(t("tab.link.serverUpdate"));
-      } else if (err instanceof TabApiError && err.code === "recording_upgrade_required") {
+      } else if (
+        err instanceof TabApiError &&
+        (err.code === "recording_upgrade_required" ||
+          err.code === "shared_account_upgrade_required")
+      ) {
         setPickError(t("tab.link.clientUpdate"));
+      } else if (
+        err instanceof TabApiError &&
+        [
+          "group_binding_conflict",
+          "group_legacy_conflict",
+          "group_conflict",
+          "shared_account_conflict",
+        ].includes(err.code)
+      ) {
+        setPickError(t("tab.group.conflict"));
+      } else if (err instanceof TabApiError && err.code === "shared_account_changed") {
+        setPickError(t("tab.history.changed"));
+      } else if (err instanceof TabApiError && err.code === "shared_account_closed") {
+        setPickError(t("tab.join.closed"));
+      } else if (err instanceof TabApiError && err.code === "shared_account_pending") {
+        setPickError(t("tab.group.pending"));
+      } else if (err instanceof TabApiError && err.code === "shared_account_source_unsynced") {
+        setPickError(t("tab.group.syncFirst"));
       } else if (err instanceof TabApiError && err.code === "shared_history_pending") {
         setPickError(t("tab.history.pending"));
       } else if (err instanceof TabApiError && err.code === "shared_history_changed") {
@@ -1045,34 +1165,60 @@ export default function TabJoinScreen() {
 
               <View style={styles.card}>
                 <Text style={[styles.cardLabel, textDir(isRTL), trackingSafe(isRTL)]}>
-                  {t("tab.join.balanceLabel")}
+                  {groupInvitation && groupInvitation.tabs.length === 0
+                    ? t("tab.group.currencies", {
+                        currencies: groupInvitation.group.currencies
+                          .map(getCurrencyLabel)
+                          .join(" · "),
+                      })
+                    : t(groupInvitation ? "tab.group.balances" : "tab.join.balanceLabel")}
                 </Text>
                 {/* Direction colours (emerald/garnet) are the ONE thing they
                     are allowed to mean here, exactly as on the person screen:
                     positive = they owe me. The sign is carried in the glyph,
                     never in the colour alone. */}
-                <View style={[styles.balanceRow, rowDir(isRTL)]}>
-                  <Text
-                    style={[
-                      styles.balance,
-                      {
-                        color:
-                          balance > 0
-                            ? colors.collectStrong
-                            : balance < 0
-                              ? colors.payStrong
-                              : colors.textMuted,
-                      },
-                    ]}
+                {previewBalances.map((item) => (
+                  <View
+                    key={item.currency}
+                    testID={
+                      groupInvitation ? `group-invitation-balance-${item.currency}` : undefined
+                    }
                   >
-                    {balance === 0 ? "" : balance > 0 ? "+" : "−"}
-                    {formatAmount(Math.abs(balance))}
+                    <View style={[styles.balanceRow, rowDir(isRTL)]}>
+                      <Text
+                        style={[
+                          styles.balance,
+                          {
+                            color:
+                              item.amount != null && item.amount > 0
+                                ? colors.collectStrong
+                                : item.amount != null && item.amount < 0
+                                  ? colors.payStrong
+                                  : colors.textMuted,
+                          },
+                        ]}
+                      >
+                        {item.amount == null
+                          ? "…"
+                          : `${item.amount === 0 ? "" : item.amount > 0 ? "+" : "−"}${formatAmount(Math.abs(item.amount))}`}
+                      </Text>
+                      <Text style={styles.balanceSymbol}>
+                        {groupInvitation ? getCurrencyLabel(item.currency) : symbol}
+                      </Text>
+                    </View>
+                    <Text style={[styles.cardMeta, textDir(isRTL)]}>
+                      {t("tab.join.entries", { count: item.count })}
+                    </Text>
+                  </View>
+                ))}
+                {groupInvitation && groupInvitation.tabs.length === 0 ? (
+                  <Text
+                    testID="group-invitation-join-to-see"
+                    style={[styles.cardMeta, textDir(isRTL)]}
+                  >
+                    {t("tab.group.joinToSee")}
                   </Text>
-                  <Text style={styles.balanceSymbol}>{symbol}</Text>
-                </View>
-                <Text style={[styles.cardMeta, textDir(isRTL)]}>
-                  {t("tab.join.entries", { count: liveEntryCount })}
-                </Text>
+                ) : null}
               </View>
 
               <Text style={[styles.hint, textDir(isRTL)]}>

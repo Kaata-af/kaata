@@ -78,6 +78,54 @@ function clampError(err: string): string {
   return err.length > LAST_ERROR_MAX ? err.slice(0, LAST_ERROR_MAX) : err;
 }
 
+/** A lost create reply may be recovered by discovery rather than the dialog.
+ * Release its private-write fence only after the exact request's complete
+ * currency binding has been received from the server and cached. */
+async function clearRecoveredGroupIntent(link: TabLink): Promise<void> {
+  if (!link.group_id) return;
+  const db = await getDb();
+  const key = `${link.role === "a" ? "tab_group_create" : "tab_group_pending_join"}:${getAccountIdSync()}:${link.vault_id}:${link.relationship_id}`;
+  const saved = await db.getFirstAsync<{ value: string }>(
+    "SELECT value FROM app_meta WHERE key=?",
+    key,
+  );
+  if (!saved?.value) return;
+  let request: {
+    request_id?: string;
+    vault_id?: string;
+    relationship_id?: string;
+    currencies?: { currency: string }[];
+  };
+  try {
+    const draft = JSON.parse(saved.value);
+    request = link.role === "a" ? draft : { ...draft.body, request_id: draft.group_id };
+  } catch {
+    return;
+  }
+  if (
+    request.request_id !== link.group_id ||
+    request.vault_id !== link.vault_id ||
+    request.relationship_id !== link.relationship_id ||
+    !Array.isArray(request.currencies) ||
+    !request.currencies.length
+  )
+    return;
+  const received = await db.getAllAsync<TabLink>(
+    "SELECT * FROM tab_links WHERE group_id=? AND vault_id=? AND relationship_id=? AND role=?",
+    link.group_id,
+    link.vault_id,
+    link.relationship_id,
+    link.role,
+  );
+  if (
+    !request.currencies.every((item) =>
+      received.some((row) => row.currency === item.currency && row.last_synced_at != null),
+    )
+  )
+    return;
+  await db.runAsync("UPDATE app_meta SET value='' WHERE key=? AND value=?", key, saved.value);
+}
+
 // ---------------------------------------------------------------------------
 // tab_links
 
@@ -139,6 +187,29 @@ export async function listOpenTabLinksForPerson(personId: string): Promise<TabLi
     personId,
     vaultId,
   );
+}
+
+/** One account-level agreement, with its independently denominated legs. */
+export async function getTabGroupLinkForPerson(personId: string): Promise<TabLink | null> {
+  const vaultId = getActiveVaultIdSyncMaybe();
+  if (!vaultId) return null;
+  const db = await getDb();
+  const links = await db.getAllAsync<TabLink>(
+    `SELECT tl.* FROM tab_links tl JOIN relationships r ON r.id=tl.relationship_id
+      WHERE r.user_b_id=? AND r.vault_id=? AND r.archived_at IS NULL
+        AND tl.closed_at IS NULL ORDER BY r.created_at DESC`,
+    personId,
+    vaultId,
+  );
+  const grouped = links.filter((link) => !!link.group_id);
+  const ids = new Set(grouped.map((link) => link.group_id));
+  if (ids.size > 1)
+    throw new TabApiError(
+      409,
+      "shared_account_conflict",
+      "The contact has conflicting shared accounts",
+    );
+  return grouped[0] ?? null;
 }
 
 /**
@@ -322,6 +393,8 @@ export async function upsertTabLink(link: TabLink): Promise<void> {
       "notification_only_unsupported",
       "A cache update cannot change this shared account's recording mode",
     );
+  if (link.group_id !== undefined)
+    await db.runAsync("UPDATE tab_links SET group_id=? WHERE tab_id=?", link.group_id, link.tab_id);
 }
 
 /** Record (or clear, with null) the last sync failure for the App health line. */
@@ -412,7 +485,13 @@ export async function upsertTabFromWire(
     | "recording_mode_known"
   >,
   resp: TabResponse,
-  opts: { origin?: TabAppliedEvent["origin"]; advanceCursor?: boolean } = {},
+  opts: {
+    origin?: TabAppliedEvent["origin"];
+    advanceCursor?: boolean;
+    /** Internal group transaction: caller owns the writer lock and commit. */
+    inGroupTransaction?: boolean;
+    suppressNotify?: boolean;
+  } = {},
 ): Promise<{ newFromThem: number; statusChangedOnMine: number }> {
   if (resp.tab.recording_mode != null && !isTabRecordingMode(resp.tab.recording_mode))
     throw new TabApiError(426, "recording_upgrade_required", "Unknown shared tally recording mode");
@@ -443,7 +522,7 @@ export async function upsertTabFromWire(
   let vaultId = link.vault_id;
   let relationshipId = link.relationship_id;
 
-  await transaction(async () => {
+  const write = async () => {
     await db.runAsync(
       `INSERT OR IGNORE INTO tab_links (tab_id, vault_id, relationship_id, role, currency,
                                         party_token, linked_at, recording_mode, recording_mode_known, rev)
@@ -463,6 +542,12 @@ export async function upsertTabFromWire(
       link.tab_id,
     );
     if (!stored) throw new Error(`tab_links row missing after upsert: ${link.tab_id}`);
+    if (stored.group_id && resp.tab.group_id && stored.group_id !== resp.tab.group_id)
+      throw new TabApiError(
+        409,
+        "shared_account_conflict",
+        "A currency leg cannot change its shared account",
+      );
     if (
       stored.recording_mode_known !== 0 &&
       (isNotificationOnlyMode(stored.recording_mode) || resp.tab.recording_mode != null) &&
@@ -506,6 +591,16 @@ export async function upsertTabFromWire(
     // reading as the party that owns these rows.
     const me = stored.role;
     const them = otherRole(me);
+    const groupCutover = resp.tab.group_id ? resp.tab.parties[me].linked_at_ms : undefined;
+    if (
+      resp.tab.group_id &&
+      (typeof groupCutover !== "number" || !Number.isSafeInteger(groupCutover) || groupCutover < 0)
+    )
+      throw new TabApiError(
+        503,
+        "shared_account_invalid",
+        "The shared currency source boundary is missing",
+      );
 
     const prevRows = await db.getAllAsync<PrevRow>(
       `SELECT id, created_by, status, voided_by_entry_id FROM tab_entries WHERE tab_id = ?`,
@@ -622,6 +717,7 @@ export async function upsertTabFromWire(
       link.tab_id,
     );
     const meta = {
+      group_id: resp.tab.group_id ?? stored.group_id ?? null,
       recording_mode: recordingMode,
       recording_mode_known:
         resp.tab.recording_mode != null ? (1 as const) : (stored.recording_mode_known ?? 1),
@@ -644,6 +740,8 @@ export async function upsertTabFromWire(
       closed_reason: resp.tab.closed_reason ?? null,
     };
     if (
+      meta.group_id !== (stored.group_id ?? null) ||
+      (groupCutover !== undefined && groupCutover !== stored.linked_at) ||
       (resp.tab.parties[me].history_order != null &&
         resp.tab.parties[me].history_order !== (stored.history_order ?? null)) ||
       (resp.tab.parties[them].account_name ?? "") !== (stored.other_account_name ?? "") ||
@@ -681,9 +779,24 @@ export async function upsertTabFromWire(
       meta.recording_mode_known,
       link.tab_id,
     );
-  });
+    if (typeof groupCutover === "number")
+      await db.runAsync(
+        "UPDATE tab_links SET linked_at=? WHERE tab_id=?",
+        groupCutover,
+        link.tab_id,
+      );
+    if (meta.group_id !== null || stored.group_id !== undefined)
+      await db.runAsync(
+        "UPDATE tab_links SET group_id=? WHERE tab_id=?",
+        meta.group_id,
+        link.tab_id,
+      );
+    if (meta.group_id) await clearRecoveredGroupIntent({ ...stored, group_id: meta.group_id });
+  };
+  if (opts.inGroupTransaction) await write();
+  else await transaction(write);
 
-  if (changed) {
+  if (changed && !opts.suppressNotify) {
     notifyTabChanged(vaultId, {
       tabId: link.tab_id,
       relationshipId,
@@ -695,6 +808,87 @@ export async function upsertTabFromWire(
     });
   }
   return { newFromThem, statusChangedOnMine };
+}
+
+/** Bind and populate every currency together. No observer sees half a group. */
+export async function upsertTabGroupFromWire(
+  links: readonly TabLink[],
+  responses: readonly TabResponse[],
+  options: { revision?: number } = {},
+): Promise<void> {
+  if (
+    !links.length ||
+    links.length !== responses.length ||
+    new Set(links.map((link) => link.currency)).size !== links.length ||
+    new Set(links.map((link) => link.group_id)).size !== 1 ||
+    !links[0].group_id ||
+    (options.revision != null && (!Number.isSafeInteger(options.revision) || options.revision < 0))
+  )
+    throw new TabApiError(503, "shared_account_invalid", "Incomplete shared account binding");
+  const events: TabAppliedEvent[] = [];
+  await transaction(async () => {
+    const db = await getDb();
+    const revisionKey = `tab_group_revision:${getAccountIdSync()}:${links[0].vault_id}:${links[0].relationship_id}:${links[0].group_id}`;
+    const receipt =
+      options.revision == null
+        ? null
+        : await db.getFirstAsync<{ value: string }>(
+            "SELECT value FROM app_meta WHERE key=?",
+            revisionKey,
+          );
+    const savedRevision = Number(receipt?.value ?? -1);
+    const staleInvitation = options.revision != null && options.revision < savedRevision;
+    for (let index = 0; index < links.length; index++) {
+      const link = links[index],
+        response = responses[index];
+      if (
+        response.tab.id !== link.tab_id ||
+        response.tab.currency !== link.currency ||
+        response.tab.group_id !== link.group_id
+      )
+        throw new TabApiError(503, "shared_account_invalid", "Currency binding mismatch");
+      const previous = await getTabLink(link.tab_id);
+      if (
+        previous &&
+        (previous.vault_id !== link.vault_id ||
+          previous.relationship_id !== link.relationship_id ||
+          previous.role !== link.role ||
+          (previous.group_id != null && previous.group_id !== link.group_id))
+      )
+        throw new TabApiError(
+          409,
+          "shared_account_conflict",
+          "The shared currency belongs to another contact",
+        );
+      if (!previous) await upsertTabLink(link);
+      else {
+        if (link.invite_url && !staleInvitation)
+          await setTabInviteUrl(link.tab_id, link.invite_url);
+        await (
+          await getDb()
+        ).runAsync("UPDATE tab_links SET linked_at=? WHERE tab_id=?", link.linked_at, link.tab_id);
+      }
+      const counts = await upsertTabFromWire(previous ?? link, response, {
+        origin: "local",
+        inGroupTransaction: true,
+        suppressNotify: true,
+      });
+      events.push({
+        tabId: link.tab_id,
+        relationshipId: link.relationship_id,
+        vaultId: link.vault_id,
+        ...counts,
+        origin: "local",
+      });
+    }
+    if (options.revision != null && !staleInvitation)
+      await db.runAsync(
+        "INSERT OR REPLACE INTO app_meta(key,value) VALUES(?,?)",
+        revisionKey,
+        String(options.revision),
+      );
+  });
+  for (const event of events) notifyTabChanged(event.vaultId, event);
 }
 
 /** A single wire entry into the cache (append / accept / dispute acks). */
@@ -1004,6 +1198,20 @@ export async function listVaultContactsForJoin(
       GROUP BY u.id
       ORDER BY u.display_name COLLATE NOCASE`,
     currency,
+    vaultId,
+  );
+}
+
+/** Group invitations own the entire contact; an open legacy denomination
+ * cannot be silently merged. Closed history remains selectable for receipts. */
+export async function listVaultContactsForGroupJoin(vaultId: string): Promise<TabJoinCandidate[]> {
+  return (await getDb()).getAllAsync<TabJoinCandidate>(
+    `SELECT u.id,u.display_name AS name,u.phone_e164 AS phone,
+      CASE WHEN EXISTS(SELECT 1 FROM tab_links tl WHERE tl.relationship_id=r.id
+        AND tl.vault_id=r.vault_id AND tl.closed_at IS NULL) THEN 1 ELSE 0 END AS linked
+     FROM relationships r JOIN users u ON u.id=r.user_b_id
+     WHERE r.vault_id=? AND r.archived_at IS NULL
+     GROUP BY u.id ORDER BY u.display_name COLLATE NOCASE`,
     vaultId,
   );
 }

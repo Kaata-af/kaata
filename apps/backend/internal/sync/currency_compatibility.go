@@ -147,7 +147,7 @@ func validateCurrencyPayload(event PushEvent) error {
 }
 
 func (h *Handler) CurrencyCapabilities(w http.ResponseWriter, r *http.Request) {
-	httpx.JSON(w, http.StatusOK, map[string]bool{"multi_currency": true, "person_default_currency": true, "entry_currency_edit": true, "notification_only_tallies": true, "one_way_tallies": true, "notification_preferences": true})
+	httpx.JSON(w, http.StatusOK, map[string]bool{"multi_currency": true, "person_default_currency": true, "entry_currency_edit": true, "notification_only_tallies": true, "one_way_tallies": true, "notification_preferences": true, "multi_currency_tabs": true})
 }
 
 func isEntryCurrencyEdit(eventType string, raw json.RawMessage) bool {
@@ -255,6 +255,9 @@ func (h *Handler) allowCurrencyClient(w http.ResponseWriter, r *http.Request, va
 	}
 	if corrected && r.Header.Get("X-Kaata-Entry-Currency-Edit") != "1" {
 		return requireEntryCurrencyEditClient(w, r)
+	}
+	if !h.allowSharedGroupClient(w, r, vaultID) {
+		return false
 	}
 	if r.Header.Get("X-Kaata-Currencies") == "1" {
 		return true

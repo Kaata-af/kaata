@@ -286,6 +286,10 @@ func (s *Service) PushEvents(ctx context.Context, in PushInput) (*PushResponse, 
 	if archived && role != "owner" {
 		return nil, ErrVaultArchived
 	}
+	sharedScopes, err := sharedGroupPushScopes(ctx, tx, in.VaultID)
+	if err != nil {
+		return nil, err
+	}
 
 	var curSeq int64
 	if err := tx.QueryRow(ctx, `
@@ -576,6 +580,14 @@ func (s *Service) PushEvents(ctx context.Context, in PushInput) (*PushResponse, 
 		eventActor := in.AccountID
 		if ev.ActorAccountID != nil && *ev.ActorAccountID != "" {
 			eventActor = *ev.ActorAccountID
+		}
+		privateShared, err := privateSharedGroupMutation(ctx, tx, in.VaultID, ev, sharedScopes, creditState)
+		if err != nil {
+			return nil, fmt.Errorf("shared account admission: %w", err)
+		}
+		if privateShared {
+			rejected = append(rejected, RejectedEvent{EventID: ev.EventID, Reason: RejectReasonSharedTallyRequired})
+			continue
 		}
 		if err := creditAdmit(ctx, tx, in.VaultID, ev, eventRole, eventActor, creditState); err != nil {
 			if errors.Is(err, credit.ErrLimit) {

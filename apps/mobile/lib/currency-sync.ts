@@ -4,6 +4,7 @@ const supported = new Map<string, number>();
 export const CURRENCY_SYNC_HEADERS = {
   "X-Kaata-Currencies": "1",
   "X-Kaata-Entry-Currency-Edit": "1",
+  "X-Kaata-Tab-Group": "1",
 } as const;
 
 /** Compare frozen legacy denominations before sending/receiving old untagged

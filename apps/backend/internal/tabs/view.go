@@ -6,8 +6,10 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/matee/kaata-backend/internal/httpx"
 	"github.com/matee/kaata-backend/internal/locale"
@@ -47,6 +49,31 @@ func (h *Handler) View(w http.ResponseWriter, r *http.Request) {
 	lang := locale.FromAcceptLanguage(r.Header.Get("Accept-Language"))
 	rtl := locale.RTL(lang)
 	token := chi.URLParam(r, "token")
+
+	if strings.HasPrefix(token, "g_") {
+		raw, err := groupToken(token)
+		var mode string
+		var closed *time.Time
+		if err == nil {
+			err = h.svc.pool.QueryRow(r.Context(), `SELECT recording_mode,closed_at FROM tab_groups WHERE invite_token_hash=$1`, hashPartyToken(raw)).Scan(&mode, &closed)
+		}
+		if errors.Is(err, ErrNotFound) || errors.Is(err, pgx.ErrNoRows) || closed != nil {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			w.WriteHeader(http.StatusNotFound)
+			_ = notFoundTmpl.Execute(w, viewData{Origin: h.webBaseURL, Lang: lang, RTL: rtl})
+			return
+		}
+		if err != nil {
+			log.Printf("tabs: group invitation lookup failed: %v", err)
+			httpx.Error(w, http.StatusInternalServerError, "could not load tab")
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		if err = viewTmpl.Execute(w, viewData{RecordingMode: mode, Token: token, Lang: lang, RTL: rtl, Origin: h.webBaseURL, PlayURL: playStoreURL, AppStoreURL: appStoreURL}); err != nil {
+			log.Printf("tabs: group invitation render failed: %v", err)
+		}
+		return
+	}
 
 	party, err := h.svc.PartyByToken(r.Context(), token, "")
 	if errors.Is(err, ErrNotFound) {

@@ -621,6 +621,64 @@ async function run() {
     console.log(
       "PASS currency-edit push: older-server deferral, ordered dependency hold, untouched signatures and upgrade retry",
     );
+    const sharedVault = randomUUID(),
+      sharedIntent = randomUUID();
+    insert.run(
+      sharedIntent,
+      "entry_created",
+      sharedVault,
+      randomUUID(),
+      800,
+      installId,
+      installId,
+      "self",
+      JSON.stringify({ amount_afn: 8, currency: "AFN" }),
+      800,
+      1,
+      "original-signature",
+      "original-public-key",
+    );
+    fixture.prepare("UPDATE event_log SET applied_at=1 WHERE event_id=?").run(sharedIntent);
+    const proof = () =>
+      fixture
+        .prepare(
+          "SELECT payload_json,event_sig_b64,signer_device_pubkey,author_seq,applied_at FROM event_log WHERE event_id=?",
+        )
+        .get(sharedIntent);
+    const originalProof = proof();
+    let sharedUploads = 0;
+    globalThis.fetch = async (url, options) => {
+      if (String(url).endsWith("/capabilities")) return Response.json({ multi_currency: true });
+      sharedUploads++;
+      assert.equal((options?.headers as Record<string, string>)["X-Kaata-Tab-Group"], "1");
+      return Response.json({
+        accepted: [],
+        duplicates: [],
+        rejected: [{ event_id: sharedIntent, reason: "shared_tally_required" }],
+      });
+    };
+    assert.deepEqual(await pushEvents(sharedVault), { pushed: 0, duplicates: 0, rejected: 1 });
+    assert.ok(
+      (
+        fixture
+          .prepare("SELECT rejected_at FROM event_log WHERE event_id=?")
+          .get(sharedIntent) as any
+      ).rejected_at,
+    );
+    assert.deepEqual(
+      proof(),
+      originalProof,
+      "A refused private transfer retains its signed original and recorded local evidence",
+    );
+    assert.deepEqual(await pushEvents(sharedVault), { pushed: 0, duplicates: 0, rejected: 0 });
+    assert.equal(
+      sharedUploads,
+      1,
+      "A private transfer into a shared account is not retried or converted",
+    );
+    console.log(
+      "PASS shared account push refusal: immutable signed intent and one permanent receipt",
+    );
   } finally {
     globalThis.fetch = realFetch;
     fixture.close();

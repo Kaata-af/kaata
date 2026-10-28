@@ -133,10 +133,13 @@ type Poker interface {
 // Service owns every tab read and write. One *pgxpool.Pool, no caches: a
 // tab is small and every request is one short transaction.
 type Service struct {
-	pool          *pgxpool.Pool
-	poker         Poker
-	push          *pushClient
-	creditBalance credit.BalanceReader
+	groupCurrencyHistory        func(context.Context, pgx.Tx, string, string, string) (bool, error)
+	groupSourceLatestRecordedAt func(context.Context, pgx.Tx, string, string, string) (int64, error)
+	groupSourceCurrencies       func(context.Context, pgx.Tx, string, string) ([]string, error)
+	pool                        *pgxpool.Pool
+	poker                       Poker
+	push                        *pushClient
+	creditBalance               credit.BalanceReader
 }
 
 // NewService constructs the service over the shared pool.
@@ -151,6 +154,16 @@ func (s *Service) SetPoker(p Poker) {
 }
 
 func (s *Service) SetCreditBalanceReader(read credit.BalanceReader) { s.creditBalance = read }
+
+func (s *Service) SetGroupCurrencyHistoryReader(read func(context.Context, pgx.Tx, string, string, string) (bool, error)) {
+	s.groupCurrencyHistory = read
+}
+func (s *Service) SetGroupSourceLatestRecordedAtReader(read func(context.Context, pgx.Tx, string, string, string) (int64, error)) {
+	s.groupSourceLatestRecordedAt = read
+}
+func (s *Service) SetGroupSourceCurrenciesReader(read func(context.Context, pgx.Tx, string, string) ([]string, error)) {
+	s.groupSourceCurrencies = read
+}
 
 // querier is the subset of pgx shared by *pgxpool.Pool and pgx.Tx, so the
 // read helpers below serve both the request path and the inside of a
@@ -202,6 +215,7 @@ type PartyMeta struct {
 	AccountName string `json:"account_name"`
 	Label       string `json:"label"`
 	JoinedAtMS  *int64 `json:"joined_at_ms"`
+	LinkedAtMS  *int64 `json:"linked_at_ms,omitempty"`
 	// Decimal string preserves BIGINT ordering on JavaScript clients.
 	HistoryOrder *string `json:"history_order"`
 	// Bound is true when a session account is attached — the phone can
@@ -220,7 +234,8 @@ type PartyMeta struct {
 // and how many of the other party's tallies await the caller's review.
 // A zero recorded balance alone does not mean the account was settled.
 type Tab struct {
-	RecordingMode string `json:"recording_mode"`
+	GroupID       *string `json:"group_id,omitempty"`
+	RecordingMode string  `json:"recording_mode"`
 	// UnjoinedInvitation is authoritative evidence that B never participated.
 	// Only a creator-side client may use it to retain its original private book.
 	UnjoinedInvitation bool                 `json:"unjoined_invitation"`
@@ -288,7 +303,8 @@ type MineItem struct {
 
 // MineResponse lists every open or closed tab the account is a party of.
 type MineResponse struct {
-	Tabs []MineItem `json:"tabs"`
+	Groups []GroupMeta `json:"groups,omitempty"`
+	Tabs   []MineItem  `json:"tabs"`
 }
 
 // --------------------------------------------------------------------------
@@ -298,15 +314,16 @@ type MineResponse struct {
 // OpeningInput is the optional D7 opening balance: one visible, disputable
 // kind='opening' entry authored by the creator at link time.
 type OpeningInput struct {
-	Direction    string
-	Amount       string
-	Note         *string
-	OccurredAtMS int64
+	Direction    string  `json:"direction"`
+	Amount       string  `json:"amount"`
+	Note         *string `json:"note"`
+	OccurredAtMS int64   `json:"occurred_at_ms"`
 }
 
 // CreateInput — POST /v1/tabs. AccountID / InstallID come from the session
 // claims when present (nil for a web creator).
 type CreateInput struct {
+	GroupID                  *string
 	RecordingMode            string
 	ExpectedHistoryRevisions map[string]int64
 	ExpectedPreviousTabID    *string
@@ -703,15 +720,16 @@ func loadTab(ctx context.Context, q querier, tabID, you string) (Tab, error) {
 		aPhone, bPhone                            string
 		aJoined, bJoined                          *time.Time
 		aHistoryOrder, bHistoryOrder              *string
+		aLinked, bLinked                          *int64
 		aBound, bBound                            bool
 		balanceA, confirmedA, recordedA, pendingA int64
 		pending                                   int
 		closedBy                                  *string
 	)
 	err := q.QueryRow(ctx, `
-		SELECT `+tabstate.UnjoinedInvitationSQL+`, t.recording_mode, t.currency, t.rev, t.created_at, t.closed_at, t.closed_by, t.closed_reason,
-		       pa.label, pa.joined_at, pa.history_order::text, pa.account_id IS NOT NULL, COALESCE(aa.display_name, aa.name, ''), COALESCE(aa.phone_e164, ''),
-		       pb.label, pb.joined_at, pb.history_order::text, pb.account_id IS NOT NULL, COALESCE(ab.display_name, ab.name, ''), COALESCE(ab.phone_e164, ''),
+		SELECT t.group_id::text, `+tabstate.UnjoinedInvitationSQL+`, t.recording_mode, t.currency, t.rev, t.created_at, t.closed_at, t.closed_by, t.closed_reason,
+		       pa.label, pa.joined_at, pa.linked_at_ms,pa.history_order::text, pa.account_id IS NOT NULL, COALESCE(aa.display_name, aa.name, ''), COALESCE(aa.phone_e164, ''),
+		       pb.label, pb.joined_at,pb.linked_at_ms, pb.history_order::text, pb.account_id IS NOT NULL, COALESCE(ab.display_name, ab.name, ''), COALESCE(ab.phone_e164, ''),
 		       COALESCE((SELECT SUM(CASE WHEN e.direction = 'a_to_b' THEN e.amount_minor ELSE -e.amount_minor END)
 		                   FROM tab_entries e
 		                  WHERE e.tab_id = t.id AND e.kind <> 'void' AND e.voided_by_entry_id IS NULL AND e.status <> 'disputed'), 0)::BIGINT,
@@ -733,8 +751,8 @@ func loadTab(ctx context.Context, q querier, tabID, you string) (Tab, error) {
 		  LEFT JOIN accounts aa ON aa.id=pa.account_id
 		  LEFT JOIN accounts ab ON ab.id=pb.account_id
 		 WHERE t.id = $1::uuid
-	`, tabID, you).Scan(&t.UnjoinedInvitation, &t.RecordingMode, &t.Currency, &t.Rev, &createdAt, &closedAt, &closedBy, &t.ClosedReason,
-		&aLabel, &aJoined, &aHistoryOrder, &aBound, &aName, &aPhone, &bLabel, &bJoined, &bHistoryOrder, &bBound, &bName, &bPhone, &balanceA, &confirmedA, &recordedA, &pendingA, &pending)
+	`, tabID, you).Scan(&t.GroupID, &t.UnjoinedInvitation, &t.RecordingMode, &t.Currency, &t.Rev, &createdAt, &closedAt, &closedBy, &t.ClosedReason,
+		&aLabel, &aJoined, &aLinked, &aHistoryOrder, &aBound, &aName, &aPhone, &bLabel, &bJoined, &bLinked, &bHistoryOrder, &bBound, &bName, &bPhone, &balanceA, &confirmedA, &recordedA, &pendingA, &pending)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
 		return Tab{}, ErrNotFound
@@ -747,8 +765,8 @@ func loadTab(ctx context.Context, q querier, tabID, you string) (Tab, error) {
 	t.ClosedBy = closedBy
 	t.You = you
 	t.Parties = map[string]PartyMeta{
-		"a": {Label: aLabel, AccountName: aName, JoinedAtMS: msPtr(aJoined), HistoryOrder: aHistoryOrder, Bound: aBound, Phone: aPhone},
-		"b": {Label: bLabel, AccountName: bName, JoinedAtMS: msPtr(bJoined), HistoryOrder: bHistoryOrder, Bound: bBound, Phone: bPhone},
+		"a": {Label: aLabel, AccountName: aName, JoinedAtMS: msPtr(aJoined), LinkedAtMS: aLinked, HistoryOrder: aHistoryOrder, Bound: aBound, Phone: aPhone},
+		"b": {Label: bLabel, AccountName: bName, JoinedAtMS: msPtr(bJoined), LinkedAtMS: bLinked, HistoryOrder: bHistoryOrder, Bound: bBound, Phone: bPhone},
 	}
 	t.Balance = map[string]string{
 		"a": formatMinor(balanceA),
@@ -1258,6 +1276,23 @@ func (s *Service) poke(ctx context.Context, tabID string) {
 // visible kind='opening' entry (D7) so the counterparty sees exactly what was
 // carried over — never a silent history merge.
 func (s *Service) Create(ctx context.Context, in CreateInput) (CreateResult, error) {
+	tx, err := s.beginMutation(ctx, in.AccountID)
+	if err != nil {
+		return CreateResult{}, fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	result, err := s.createTx(ctx, tx, in)
+	if err != nil {
+		return CreateResult{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return CreateResult{}, fmt.Errorf("commit tx: %w", err)
+	}
+	s.poke(ctx, result.Tab.ID)
+	return result, nil
+}
+
+func (s *Service) createTx(ctx context.Context, tx pgx.Tx, in CreateInput) (CreateResult, error) {
 	mode := in.RecordingMode
 	if mode == "" {
 		mode = "review"
@@ -1289,7 +1324,7 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (CreateResult, err
 			return CreateResult{}, ErrInvalidOccurredAt
 		}
 	}
-	if err := checkVaultBinding(ctx, s.pool, in.VaultID, in.AccountID); err != nil {
+	if err := checkVaultBinding(ctx, tx, in.VaultID, in.AccountID); err != nil {
 		return CreateResult{}, err
 	}
 
@@ -1302,12 +1337,6 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (CreateResult, err
 		return CreateResult{}, err
 	}
 
-	tx, err := s.beginMutation(ctx, in.AccountID)
-	if err != nil {
-		return CreateResult{}, fmt.Errorf("begin tx: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-
 	linkCredit, err := s.beginLinkCredit(ctx, tx, in.VaultID, in.RelationshipID, in.AccountID, currency)
 	if err != nil {
 		return CreateResult{}, err
@@ -1316,10 +1345,19 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (CreateResult, err
 	if err := checkContactBinding(ctx, tx, "", "a", currency, in.VaultID, in.RelationshipID, in.ExpectedPreviousTabID, in.ExpectedPreviousRev, in.Opening != nil, in.ExpectedHistoryRevisions); err != nil {
 		return CreateResult{}, err
 	}
+	if in.VaultID != nil && in.RelationshipID != nil {
+		var grouped bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM tab_groups g WHERE g.closed_at IS NULL AND ((g.a_vault_id=$1::uuid AND g.a_relationship_id=$2::uuid)OR(g.b_vault_id=$1::uuid AND g.b_relationship_id=$2::uuid)) AND ($3::uuid IS NULL OR g.id<>$3::uuid))`, *in.VaultID, *in.RelationshipID, in.GroupID).Scan(&grouped); err != nil {
+			return CreateResult{}, err
+		}
+		if grouped {
+			return CreateResult{}, ErrGroupOperation
+		}
+	}
 	if err := tx.QueryRow(ctx, `
-		INSERT INTO tabs (currency,recording_mode,notify_opening_source_revisions)
-		VALUES ($1,$2,CASE WHEN $2 IN ('notify','notify_one_way') AND $3 THEN '{}'::jsonb ELSE NULL END) RETURNING id::text
-	`, currency, mode, in.Opening != nil).Scan(&tabID); err != nil {
+		INSERT INTO tabs (currency,recording_mode,notify_opening_source_revisions,group_id)
+		VALUES ($1,$2,CASE WHEN $2 IN ('notify','notify_one_way') AND $3 THEN '{}'::jsonb ELSE NULL END,$4::uuid) RETURNING id::text
+	`, currency, mode, in.Opening != nil, in.GroupID).Scan(&tabID); err != nil {
 		return CreateResult{}, fmt.Errorf("insert tab: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `
@@ -1365,13 +1403,6 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (CreateResult, err
 	if err != nil {
 		return CreateResult{}, err
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return CreateResult{}, fmt.Errorf("commit tx: %w", err)
-	}
-	// Other members of the creator's kaata learn about the new tab on their
-	// next /mine reconcile; the poke just makes that sooner.
-	s.poke(ctx, tabID)
-
 	return CreateResult{Tab: tab, Entries: entries, MyToken: myToken, InviteToken: inviteToken}, nil
 }
 
@@ -1423,6 +1454,32 @@ func (s *Service) Mine(ctx context.Context, accountID string) (MineResponse, err
 		}
 		out.Tabs = append(out.Tabs, MineItem{Tab: tab, Role: h.role, VaultID: h.vaultID, RelationshipID: h.relationship, LinkedAtMS: h.linkedAt, HistoryOrder: h.historyOrder})
 	}
+	groups := map[string]*GroupMeta{}
+	for _, item := range out.Tabs {
+		if item.Tab.GroupID == nil {
+			continue
+		}
+		id := *item.Tab.GroupID
+		meta := groups[id]
+		if meta == nil {
+			g, err := loadGroup(ctx, s.pool, id, false)
+			if err != nil {
+				return MineResponse{}, err
+			}
+			meta = &GroupMeta{ID: id, RecordingMode: g.Mode, Rev: g.Rev, CreatedAtMS: g.Created.UnixMilli(), ClosedAtMS: msPtr(g.Closed), ClosedBy: g.ClosedBy, You: item.Role, Currencies: []string{}, Parties: map[string]GroupPartyMeta{"a": {PartyMeta: item.Tab.Parties["a"], VaultID: g.AVault, RelationshipID: g.ARel}, "b": {PartyMeta: item.Tab.Parties["b"], VaultID: g.BVault, RelationshipID: g.BRel}}}
+			groups[id] = meta
+		}
+		meta.Currencies = append(meta.Currencies, item.Tab.Currency)
+	}
+	ids := []string{}
+	for id := range groups {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	for _, id := range ids {
+		sort.Strings(groups[id].Currencies)
+		out.Groups = append(out.Groups, *groups[id])
+	}
 	return out, nil
 }
 
@@ -1462,6 +1519,23 @@ func (s *Service) Get(ctx context.Context, p Party, afterRev int64) (TabResponse
 // regenerate the link). 409 same_kaata when vault_id equals the other
 // party's vault_id.
 func (s *Service) Join(ctx context.Context, p Party, in JoinInput) (TabResponse, error) {
+	tx, err := s.beginMutation(ctx, in.AccountID)
+	if err != nil {
+		return TabResponse{}, fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	result, err := s.joinTx(ctx, tx, p, in)
+	if err != nil {
+		return TabResponse{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return TabResponse{}, fmt.Errorf("commit tx: %w", err)
+	}
+	s.poke(ctx, p.TabID)
+	return result, nil
+}
+
+func (s *Service) joinTx(ctx context.Context, tx pgx.Tx, p Party, in JoinInput) (TabResponse, error) {
 	label, err := validLabel(in.Label)
 	if err != nil {
 		return TabResponse{}, err
@@ -1469,15 +1543,9 @@ func (s *Service) Join(ctx context.Context, p Party, in JoinInput) (TabResponse,
 	if !p.allows(rankEditor) {
 		return TabResponse{}, ErrRoleInsufficient
 	}
-	if err := checkVaultBinding(ctx, s.pool, in.VaultID, in.AccountID); err != nil {
+	if err := checkVaultBinding(ctx, tx, in.VaultID, in.AccountID); err != nil {
 		return TabResponse{}, err
 	}
-
-	tx, err := s.beginMutation(ctx, in.AccountID)
-	if err != nil {
-		return TabResponse{}, fmt.Errorf("begin tx: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
 
 	linkVault, linkRelationship := creditLinkDestination(p, in.VaultID, in.RelationshipID)
 	code, err := tabCurrency(ctx, tx, p.TabID)
@@ -1486,6 +1554,9 @@ func (s *Service) Join(ctx context.Context, p Party, in JoinInput) (TabResponse,
 	}
 	linkCredit, err := s.beginLinkCredit(ctx, tx, linkVault, linkRelationship, in.AccountID, code)
 	if err != nil {
+		return TabResponse{}, err
+	}
+	if err := checkGroupLinkDestination(ctx, tx, p.TabID, linkVault, linkRelationship); err != nil {
 		return TabResponse{}, err
 	}
 	recordingSources, err := lockRecordingSources(ctx, tx, p.TabID, linkVault, linkRelationship)
@@ -1565,10 +1636,6 @@ func (s *Service) Join(ctx context.Context, p Party, in JoinInput) (TabResponse,
 	if err != nil {
 		return TabResponse{}, err
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return TabResponse{}, fmt.Errorf("commit tx: %w", err)
-	}
-	s.poke(ctx, p.TabID)
 	return resp, nil
 }
 
@@ -1597,6 +1664,9 @@ func (s *Service) Bind(ctx context.Context, p Party, in BindInput) (TabResponse,
 	}
 	linkCredit, err := s.beginLinkCredit(ctx, tx, linkVault, linkRelationship, &in.AccountID, code)
 	if err != nil {
+		return TabResponse{}, err
+	}
+	if err := checkGroupLinkDestination(ctx, tx, p.TabID, linkVault, linkRelationship); err != nil {
 		return TabResponse{}, err
 	}
 	selectedParty := p
@@ -2326,46 +2396,59 @@ func withdrawPendingEntry(ctx context.Context, tx pgx.Tx, p Party, orig Entry) (
 // same lock as Join. It may also clean up an already-closed legacy invitation.
 // Old callers omit the flag and retain the original idempotent close behavior.
 func (s *Service) Close(ctx context.Context, p Party, withdrawUnjoinedOpening ...bool) (TabResponse, error) {
-	if !p.allows(rankEditor) {
-		return TabResponse{}, ErrRoleInsufficient
-	}
-
 	tx, err := s.beginMutation(ctx, p.actorAccount())
 	if err != nil {
 		return TabResponse{}, fmt.Errorf("begin tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	result, changed, err := s.closeTx(ctx, tx, p, withdrawUnjoinedOpening...)
+	if err != nil {
+		return TabResponse{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return TabResponse{}, fmt.Errorf("commit tx: %w", err)
+	}
+	if changed {
+		s.poke(ctx, p.TabID)
+	}
+	return result, nil
+}
+
+func (s *Service) closeTx(ctx context.Context, tx pgx.Tx, p Party, withdrawUnjoinedOpening ...bool) (TabResponse, bool, error) {
+	if !p.allows(rankEditor) {
+		return TabResponse{}, false, ErrRoleInsufficient
+	}
 
 	selectedParty := p
 	if err := lockPartyCredit(ctx, tx, p); err != nil {
-		return TabResponse{}, err
+		return TabResponse{}, false, err
 	}
 	t, err := lockTab(ctx, tx, p.TabID)
 	if err != nil {
-		return TabResponse{}, err
+		return TabResponse{}, false, err
 	}
 	p, err = recheckParty(ctx, tx, p, rankEditor, false)
 	if err != nil {
-		return TabResponse{}, err
+		return TabResponse{}, false, err
 	}
 	if !sameCreditVault(selectedParty, p) {
-		return TabResponse{}, ErrNotFound
+		return TabResponse{}, false, ErrNotFound
 	}
 	changed := false
 	if p.Role == "a" && len(withdrawUnjoinedOpening) > 0 && withdrawUnjoinedOpening[0] {
 		current, err := loadTab(ctx, tx, p.TabID, p.Role)
 		if err != nil {
-			return TabResponse{}, err
+			return TabResponse{}, false, err
 		}
 		if current.UnjoinedInvitation {
 			entries, err := loadEntries(ctx, tx, p.TabID, 0)
 			if err != nil {
-				return TabResponse{}, err
+				return TabResponse{}, false, err
 			}
 			for _, entry := range entries {
 				if entry.CreatedBy == "a" && entry.Kind == "opening" && entry.Status == "pending" && entry.VoidedByEntryID == nil {
 					if _, err := withdrawPendingEntry(ctx, tx, p, entry); err != nil {
-						return TabResponse{}, err
+						return TabResponse{}, false, err
 					}
 					changed = true
 				}
@@ -2378,24 +2461,18 @@ func (s *Service) Close(ctx context.Context, p Party, withdrawUnjoinedOpening ..
 		if _, err := tx.Exec(ctx, `
 		UPDATE tabs SET closed_at = NOW(), closed_by = $2 WHERE id = $1::uuid
 	`, p.TabID, p.Role); err != nil {
-			return TabResponse{}, fmt.Errorf("close tab: %w", err)
+			return TabResponse{}, false, fmt.Errorf("close tab: %w", err)
 		}
 		if _, err := bumpRev(ctx, tx, p.TabID, p.Role, p.pushEvent("updated", "")); err != nil {
-			return TabResponse{}, err
+			return TabResponse{}, false, err
 		}
 		changed = true
 	}
 	resp, err := fullResponse(ctx, tx, p.TabID, p.Role)
 	if err != nil {
-		return TabResponse{}, err
+		return TabResponse{}, false, err
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return TabResponse{}, fmt.Errorf("commit tx: %w", err)
-	}
-	if changed {
-		s.poke(ctx, p.TabID)
-	}
-	return resp, nil
+	return resp, changed, nil
 }
 
 // RegenerateLink rotates party B's token (party A only). B's existing

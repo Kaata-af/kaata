@@ -691,12 +691,14 @@ async function runReconcileTabsFromServer(): Promise<void> {
             t.tab.recording_mode != null &&
             (t.tab.recording_mode !== (existing.recording_mode ?? "review") ||
               existing.recording_mode_known === 0);
+          const groupChanged = t.tab.group_id != null && t.tab.group_id !== existing.group_id;
           return (
             existing.last_synced_at == null ||
             t.tab.rev > existing.rev ||
             orderChanged ||
             participationChanged ||
             modeChanged ||
+            groupChanged ||
             (t.tab.closed_at_ms != null && existing.closed_at == null)
           );
         }
@@ -727,6 +729,7 @@ async function runReconcileTabsFromServer(): Promise<void> {
         try {
           await upsertTabLink({
             tab_id: t.tab.id,
+            ...(t.tab.group_id != null ? { group_id: t.tab.group_id } : {}),
             recording_mode: t.tab.recording_mode ?? "review",
             recording_mode_known: t.tab.recording_mode != null ? 1 : 0,
             vault_id: t.vault_id,

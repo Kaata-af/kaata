@@ -42,6 +42,13 @@ func newHTTPFixture(t *testing.T) *httpFixture {
 	r.Group(func(pr chi.Router) {
 		pr.Use(authenticator.OptionalMiddleware())
 		pr.Post("/v1/tabs", h.Create)
+		pr.Post("/v1/tab-groups", h.CreateGroup)
+		pr.Post("/v1/tab-groups/by-token", h.GroupByToken)
+		pr.Get("/v1/tab-groups/{group_id}", h.GetGroup)
+		pr.Post("/v1/tab-groups/{group_id}/join", h.JoinGroup)
+		pr.Post("/v1/tab-groups/{group_id}/close", h.CloseGroup)
+		pr.Post("/v1/tab-groups/{group_id}/regenerate-link", h.RegenerateGroup)
+		pr.Post("/v1/tab-groups/{group_id}/currencies", h.EnsureGroupCurrency)
 		pr.Get("/v1/tabs/mine", h.Mine)
 		pr.Get("/v1/tabs/inbox", h.Inbox)
 		pr.Post("/v1/tabs/inbox/read", h.ReadInbox)

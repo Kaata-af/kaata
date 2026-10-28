@@ -125,7 +125,11 @@ type PendingWrite = {
 };
 const IDENTITY_KEY = "kaata_web_signing_v1";
 const PENDING_KEY = "kaata_web_pending_v1";
-const HEADERS = { "X-Kaata-Currencies": "1", "X-Kaata-Entry-Currency-Edit": "1" };
+const HEADERS = {
+  "X-Kaata-Currencies": "1",
+  "X-Kaata-Entry-Currency-Edit": "1",
+  "X-Kaata-Tab-Group": "1",
+};
 let identityPromise: Promise<Identity> | undefined;
 let identityInstallID: string | undefined;
 let inFlight: Promise<unknown> = Promise.resolve();

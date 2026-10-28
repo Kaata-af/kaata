@@ -845,6 +845,10 @@ async function main() {
       const bindings = {
         ...errors,
         token: "token",
+        currentToken: { current: "token" },
+        loadedToken: { current: "token" },
+        invitationVersion: { current: 1 },
+        groupInvitation: null,
         tab: { ...wire(), recording_mode: "notify" },
         joiningRef,
         getLocalSelf: async () => ({ name: "Me" }),

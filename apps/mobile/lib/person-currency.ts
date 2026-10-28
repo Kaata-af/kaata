@@ -56,14 +56,39 @@ export function resolvePersonEntryCurrency(
   return recorded.length === 1 && enabled.includes(recorded[0]) ? recorded[0] : defaultCurrency;
 }
 
+/** Joining an account permits its denominations for this contact, without
+ * changing the owner's signed choices for every other customer in the Kaata. */
+export async function getPersonEnabledCurrencies(
+  vaultId: string,
+  personId: string,
+): Promise<string[]> {
+  const { getEnabledCurrencies } = require("./currency") as typeof import("./currency");
+  const enabled = await getEnabledCurrencies(vaultId);
+  const rows = await (
+    await getDb()
+  ).getAllAsync<{ currency: string; group_id?: string | null }>(
+    `SELECT tl.* FROM tab_links tl JOIN relationships r ON r.id=tl.relationship_id
+      WHERE r.vault_id=? AND r.user_b_id=? AND r.archived_at IS NULL AND tl.closed_at IS NULL`,
+    vaultId,
+    personId,
+  );
+  return [
+    ...new Set([
+      ...enabled,
+      ...rows
+        .filter((row) => row.group_id && isValidCurrencyCode(row.currency))
+        .map((row) => row.currency),
+    ]),
+  ];
+}
+
 /** Read only when beginning a new draft; a user's explicit draft choice wins afterward. */
 export async function getPersonEntryCurrency(vaultId: string, personId: string): Promise<string> {
   return applyEventMutex.runExclusive(async () => {
-    const { getDefaultEntryCurrency, getEnabledCurrencies } =
-      require("./currency") as typeof import("./currency");
+    const { getDefaultEntryCurrency } = require("./currency") as typeof import("./currency");
     const preference = await readPreference(vaultId, personId);
     const defaultCurrency = await getDefaultEntryCurrency(vaultId);
-    const enabled = await getEnabledCurrencies(vaultId);
+    const enabled = await getPersonEnabledCurrencies(vaultId, personId);
     const override = preference?.currency ?? null;
     if (!preference || override !== null || enabled.length <= 1)
       return resolvePersonEntryCurrency(override, enabled, defaultCurrency);
