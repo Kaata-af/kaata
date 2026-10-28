@@ -608,10 +608,10 @@ const en = {
   "personEdit.lastName.label": "Last name",
   "personEdit.phone.label": "WhatsApp number",
   "personEdit.currency.label": "Default tally currency",
-  "personEdit.currency.inherit": "Use Kaata default ({currency})",
-  "personEdit.currency.inherited": "Kaata default",
+  "personEdit.currency.inherit": "Automatic (otherwise {currency})",
+  "personEdit.currency.inherited": "Automatic",
   "personEdit.currency.hint":
-    "Used for new tallies with this person. Existing tallies keep their currency.",
+    "Automatic uses this person's only recorded currency if enabled, otherwise the Kaata default. Existing tallies keep their currency.",
   "personEdit.currency.unavailable":
     "{currency} is no longer enabled. New tallies use the Kaata default.",
   "personEdit.save": "Save changes",
@@ -1795,7 +1795,7 @@ const en = {
   "auditLog.kind.local.currencyChanged": "Currency changed",
   "auditLog.kind.local.currencyChangedTo": "Currency changed to {value}",
   "auditLog.kind.local.personDefaultCurrencySet": "Contact default currency: {code}",
-  "auditLog.kind.local.personDefaultCurrencyReset": "Contact now uses Kaata default currency",
+  "auditLog.kind.local.personDefaultCurrencyReset": "Contact now uses automatic currency selection",
   "auditLog.kind.local.renamed": "Kaata renamed",
   "auditLog.kind.local.renamedTo": "Renamed to {value}",
   "auditLog.kind.local.settingChanged": "Setting changed",
@@ -2782,9 +2782,10 @@ const fa: Partial<Record<Key, string>> = {
   "personEdit.lastName.label": "تخلص",
   "personEdit.phone.label": "شماره واتساپ",
   "personEdit.currency.label": "ارز پیش‌فرض ثبت‌ها",
-  "personEdit.currency.inherit": "پیش‌فرض کاتا ({currency})",
-  "personEdit.currency.inherited": "پیش‌فرض کاتا",
-  "personEdit.currency.hint": "برای ثبت‌های تازه با این شخص. ارز ثبت‌های قبلی تغییر نمی‌کند.",
+  "personEdit.currency.inherit": "خودکار (در غیر آن {currency})",
+  "personEdit.currency.inherited": "خودکار",
+  "personEdit.currency.hint":
+    "خودکار، تنها ارز ثبت‌شدهٔ این شخص را در صورت فعال بودن انتخاب می‌کند؛ در غیر آن پیش‌فرض کاتا. ارز ثبت‌های قبلی تغییر نمی‌کند.",
   "personEdit.currency.unavailable":
     "{currency} دیگر فعال نیست. ثبت‌های تازه با ارز پیش‌فرض کاتا انجام می‌شود.",
   "personEdit.save": "ذخیره تغییرات",
@@ -3813,7 +3814,7 @@ const fa: Partial<Record<Key, string>> = {
   "auditLog.kind.local.currencyChangedTo": "ارز به {value} تغییر کرد",
   "auditLog.kind.local.personDefaultCurrencySet": "ارز پیش‌فرض این شخص: {code}",
   "auditLog.kind.local.personDefaultCurrencyReset":
-    "این شخص اکنون از ارز پیش‌فرض کاتا استفاده می‌کند",
+    "ارز این شخص اکنون به‌صورت خودکار انتخاب می‌شود",
   "auditLog.kind.local.renamed": "نام کاتا تغییر کرد",
   "auditLog.kind.local.renamedTo": "تغییر نام به {value}",
   "auditLog.kind.local.settingChanged": "تنظیم تغییر کرد",
@@ -4705,10 +4706,10 @@ const ps: Record<Key, string> = {
   "personEdit.lastName.label": "تخلص",
   "personEdit.phone.label": "د WhatsApp شمېره",
   "personEdit.currency.label": "د راکړو ورکړو اصلي اسعار",
-  "personEdit.currency.inherit": "د کاټې اصلي اسعار ({currency})",
-  "personEdit.currency.inherited": "د کاټې اصلي اسعار",
+  "personEdit.currency.inherit": "اتومات (که نه، {currency})",
+  "personEdit.currency.inherited": "اتومات",
   "personEdit.currency.hint":
-    "له دې کس سره د نویو راکړو ورکړو لپاره. د پخوانیو راکړو ورکړو اسعار نه بدلېږي.",
+    "اتومات د دې کس یوازیني ثبت شوي اسعار ټاکي که فعال وي؛ که نه، د کاټې اصلي اسعار کاروي. د پخوانیو راکړو ورکړو اسعار نه بدلېږي.",
   "personEdit.currency.unavailable":
     "{currency} نور فعال نه دي. نوې راکړې ورکړې د کاټې په اصلي اسعارو کېږي.",
   "personEdit.save": "بدلونونه خوندي کړئ",
@@ -5024,7 +5025,7 @@ const ps: Record<Key, string> = {
   "auditLog.kind.local.currencyChanged": "د پیسو ډول بدل شو",
   "auditLog.kind.local.currencyChangedTo": "د پیسو ډول {value} ته بدل شو",
   "auditLog.kind.local.personDefaultCurrencySet": "د دې کس اصلي اسعار: {code}",
-  "auditLog.kind.local.personDefaultCurrencyReset": "دا کس اوس د کاټې اصلي اسعار کاروي",
+  "auditLog.kind.local.personDefaultCurrencyReset": "د دې کس اسعار اوس په اتومات ډول ټاکل کېږي",
   "auditLog.kind.local.renamed": "د کاټې نوم بدل شو",
   "auditLog.kind.local.renamedTo": "نوم {value} ته بدل شو",
   "auditLog.kind.local.settingChanged": "امستنه بدله شوه",

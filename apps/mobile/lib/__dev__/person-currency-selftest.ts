@@ -45,6 +45,7 @@ async function fixture() {
     CREATE TABLE vault_settings(vault_id TEXT,key TEXT,value TEXT,hlc_pms INTEGER,hlc_l INTEGER,hlc_did TEXT,updated_at INTEGER,PRIMARY KEY(vault_id,key));
     CREATE TABLE relationships(id TEXT PRIMARY KEY,vault_id TEXT,user_a_id TEXT,user_b_id TEXT,context TEXT,created_at INTEGER,updated_at INTEGER,archived_at INTEGER,field_hlcs TEXT,default_entry_currency TEXT,group_id TEXT,group_ids TEXT);
     CREATE TABLE entries(id TEXT PRIMARY KEY,vault_id TEXT,relationship_id TEXT,type TEXT,amount_afn REAL,note TEXT,currency TEXT,created_at INTEGER,updated_at INTEGER,deleted_at INTEGER,proposed_by_user_id TEXT,current_event_id TEXT,is_deleted INTEGER,is_settled INTEGER,accepted_at INTEGER,disputed_at INTEGER,disputed_reason TEXT,settled_at INTEGER,field_hlcs TEXT);
+    CREATE TABLE tab_links(tab_id TEXT PRIMARY KEY,vault_id TEXT,relationship_id TEXT,currency TEXT,closed_at INTEGER);
     CREATE TABLE vault_members_mirror(vault_id TEXT,account_id TEXT,role TEXT,accepted_at INTEGER,revoked_at INTEGER,display_name TEXT,PRIMARY KEY(vault_id,account_id));
     CREATE TABLE event_log(event_id TEXT PRIMARY KEY,event_type TEXT,vault_id TEXT,target_id TEXT,relationship_id TEXT,hlc_physical_ms INTEGER,hlc_logical INTEGER,hlc_device_id TEXT,device_id TEXT,author_user_id_local_only TEXT NOT NULL,actor_account_id TEXT,payload_json TEXT,payload_schema INTEGER,appended_at INTEGER,server_acked_at INTEGER,rejected_at INTEGER,origin TEXT,event_sig_b64 TEXT,signer_device_pubkey TEXT,ingested_at INTEGER,applied_at INTEGER,author_seq INTEGER,quarantine_reason TEXT,tombstone_reason TEXT);
     CREATE UNIQUE INDEX author_slot ON event_log(vault_id,device_id,author_seq);
@@ -355,6 +356,121 @@ async function fixture() {
 
 async function main() {
   await migrationChecks();
+  {
+    const f = await fixture();
+    f.sql.exec("UPDATE entries SET currency='USD',amount_afn=0,is_settled=1 WHERE id='old-money'");
+    const eventsBefore = f.rows().length;
+    assert.equal(
+      await f.personCurrency.getPersonEntryCurrency("v1", "person"),
+      "USD",
+      "one recorded denomination is automatic even when settled or zero",
+    );
+    f.sql.exec(
+      "INSERT INTO entries(id,vault_id,relationship_id,type,amount_afn,currency,created_at) VALUES('usd-debt','v1','r1','debt',10,'USD',20),('usd-payment','v1','r1','payment',10,'USD',30)",
+    );
+    assert.equal(
+      await f.personCurrency.getPersonEntryCurrency("v1", "person"),
+      "USD",
+      "multiple tallies in the same currency still form one denomination, including a net-zero balance",
+    );
+    assert.equal(
+      await f.personCurrency.getPersonDefaultCurrency("v1", "person"),
+      null,
+      "inference does not persist a manual override",
+    );
+    assert.equal(f.rows().length, eventsBefore, "opening a draft creates no preference event");
+    f.sql.exec(
+      "INSERT INTO entries(id,vault_id,relationship_id,type,amount_afn,currency,created_at) VALUES('other-book','v2','r2','debt',20,'EUR',20)",
+    );
+    assert.equal(
+      await f.personCurrency.getPersonEntryCurrency("v1", "person"),
+      "USD",
+      "other books cannot affect inference for the same person",
+    );
+    f.sql.exec(
+      "INSERT INTO relationships(id,vault_id,user_a_id,user_b_id,created_at,archived_at) VALUES('archived','v1','self','person',0,5),('other','v1','self','someone-else',1,NULL); INSERT INTO entries(id,vault_id,relationship_id,type,amount_afn,currency,created_at) VALUES('archived-money','v1','archived','debt',10,'AFN',1),('other-person','v1','other','debt',30,'EUR',1)",
+    );
+    assert.equal(
+      await f.personCurrency.getPersonEntryCurrency("v1", "person"),
+      "USD",
+      "archived relationships and other contacts are excluded",
+    );
+    f.sql.exec(
+      "INSERT INTO entries(id,vault_id,relationship_id,type,amount_afn,currency,created_at,deleted_at) VALUES('deleted-eur','v1','r1','debt',5,'EUR',20,30)",
+    );
+    assert.equal(
+      await f.personCurrency.getPersonEntryCurrency("v1", "person"),
+      "USD",
+      "deleted currency history is excluded",
+    );
+    f.sql.exec("UPDATE entries SET deleted_at=NULL WHERE id='deleted-eur'");
+    assert.equal(
+      await f.personCurrency.getPersonEntryCurrency("v1", "person"),
+      "AFN",
+      "several recorded currencies use the book default",
+    );
+    f.sql.exec("UPDATE entries SET deleted_at=30 WHERE relationship_id='r1'");
+    assert.equal(
+      await f.personCurrency.getPersonEntryCurrency("v1", "person"),
+      "AFN",
+      "empty history uses the book default",
+    );
+    f.sql.exec(
+      "UPDATE entries SET deleted_at=NULL,currency=NULL WHERE id='old-money'; UPDATE vault_settings SET value='EUR' WHERE vault_id='v1' AND key='default_entry_currency'",
+    );
+    assert.equal(
+      await f.personCurrency.getPersonEntryCurrency("v1", "person"),
+      "AFN",
+      "untagged history retains the original currency after the book default changes",
+    );
+  }
+  {
+    const f = await fixture();
+    f.sql.exec("UPDATE entries SET currency='USD' WHERE id='old-money'");
+    await f.personCurrency.changePersonDefaultCurrency("v1", "person", "EUR");
+    assert.equal(
+      await f.personCurrency.getPersonEntryCurrency("v1", "person"),
+      "EUR",
+      "an explicit contact choice wins over inferred history",
+    );
+    await f.personCurrency.changePersonDefaultCurrency("v1", "person", null);
+    assert.equal(
+      await f.personCurrency.getPersonEntryCurrency("v1", "person"),
+      "USD",
+      "resetting to Automatic uses the sole recorded currency",
+    );
+    f.sql.exec(
+      "UPDATE vault_settings SET value='[\"AFN\",\"EUR\"]' WHERE vault_id='v1' AND key='enabled_currencies'",
+    );
+    assert.equal(
+      await f.personCurrency.getPersonEntryCurrency("v1", "person"),
+      "AFN",
+      "a disabled historical currency cannot be chosen for a new tally",
+    );
+  }
+  {
+    const f = await fixture();
+    f.sql.exec(
+      "DELETE FROM entries; INSERT INTO tab_links VALUES('usd','v1','r1','USD',NULL),('foreign','v2','r2','EUR',NULL),('other','v1','someone-else','EUR',NULL)",
+    );
+    assert.equal(
+      await f.personCurrency.getPersonEntryCurrency("v1", "person"),
+      "USD",
+      "shared account currency is known even before its entries download",
+    );
+    f.sql.exec("UPDATE tab_links SET closed_at=30 WHERE tab_id='usd'");
+    assert.equal(
+      await f.personCurrency.getPersonEntryCurrency("v1", "person"),
+      "USD",
+      "closed shared history still records its currency",
+    );
+    f.sql.exec("INSERT INTO tab_links VALUES('eur','v1','r1','EUR',NULL)");
+    assert.equal(
+      await f.personCurrency.getPersonEntryCurrency("v1", "person"),
+      "AFN",
+      "multiple shared-account currencies do not imply a single default",
+    );
+  }
   {
     const f = await fixture();
     assert.equal(await f.personCurrency.getPersonDefaultCurrency("v1", "person"), null);
