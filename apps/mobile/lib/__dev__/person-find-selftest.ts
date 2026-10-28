@@ -45,6 +45,7 @@ let filterViewportHeight = 600,
 const pendingFilterMeasurements: (() => void)[] = [];
 let reducedMotion = false,
   homeToastOffset = 0;
+let homeToastBottomOffset: number | undefined;
 let reviewPromptOptions: {
   context: { installId: string; accountId: string | null; vaultId: string | null } | null;
   ready: boolean;
@@ -644,7 +645,14 @@ const componentMocks: Record<string, any> = {
   SelectionToolbar: { SelectionToolbar: "SelectionToolbar", SelectionMark: "SelectionMark" },
   SelectionMark: { SelectionMark: "SelectionMark" },
   ProfileSettingsSheet: { ProfileSettingsSheet: "Settings" },
-  Toast: { useToast: () => toast, useToastOffset: () => homeToastOffset },
+  Toast: {
+    useToast: () => toast,
+    useToastOffset: (bottom?: number) => {
+      homeToastBottomOffset = bottom;
+      return homeToastOffset;
+    },
+    TOAST_LIFT: 72,
+  },
   UpdateBanner: { UpdateBanner: "UpdateBanner" },
   VaultPickerSheet: { VaultPickerSheet: "VaultPicker" },
   CountryPickerSheet: { CountryPickerSheet: "CountryPicker" },
@@ -719,6 +727,7 @@ function fixture(
   pendingFilterMeasurements.length = 0;
   reducedMotion = false;
   homeToastOffset = 0;
+  homeToastBottomOffset = undefined;
   reviewPromptOptions = null;
   reviewInteractionCancels = 0;
   scheduledKeyboardLayouts.length = 0;
@@ -1016,18 +1025,33 @@ async function main() {
     );
     const children = [keyboard.props.children].flat().filter((node) => node?.props);
     const list = children.find((node) => nodes(node).some((child) => child.type === "ScrollView"));
-    const dock = children.find((node) => nodes(node).some((child) => child.type === "TextInput"));
-    assert.ok(list && dock && list !== dock, "Search is a fixed footer outside the scroll area");
-    assert.equal(dock.type, "SearchKeyboardFooter");
+    const dockHost = children.find((node) => node.props.testID === "home-toast-dock");
+    assert.ok(
+      list && dockHost && list !== dockHost,
+      "Search is a fixed footer outside the scroll area",
+    );
+    assert.equal(dockHost.type, "AnimatedView");
+    const dock = nodes(dockHost).find((node) => node.type === "SearchKeyboardFooter")!;
+    assert.ok(dock, "Native keyboard motion stays inside the toast-lift host");
     assert.equal(dock.props.closedPadding, 12);
+    assert.equal(
+      homeToastBottomOffset,
+      12,
+      "Toast clearance uses the homepage's own bottom spacing",
+    );
     assert.equal(dock.props.openPadding, 8);
     assert.equal(flattenStyle(list.props.style).flex, 1, "The list fills the space above the dock");
-    assert.ok(children.indexOf(dock) > children.indexOf(list));
+    assert.ok(children.indexOf(dockHost) > children.indexOf(list));
     assert.notEqual(
-      flattenStyle(dock.props.style).position,
+      flattenStyle(dockHost.props.style).position,
       "absolute",
       "The dock reserves its own height",
     );
+    const hostStyle = flattenStyle(dockHost.props.style);
+    assert.equal(hostStyle.backgroundColor, colors.bgDefault);
+    assert.equal(hostStyle.paddingBottom, 84, "Opaque background covers the toast lift");
+    assert.equal(hostStyle.paddingBottom + hostStyle.marginBottom, 0, "The skirt adds no idle gap");
+    assert.equal(nodes(dockHost).filter((node) => node.type === "SearchKeyboardFooter").length, 1);
     assert.equal(
       flattenStyle(dock.props.style).backgroundColor,
       colors.bgDefault,
@@ -2384,6 +2408,61 @@ async function main() {
       changedScope + ": retained confirmation cannot remove a same-ID customer in another scope",
     );
   }
+
+  for (const nextPlatform of ["android", "ios"])
+    for (const nextRtl of [false, true]) {
+      fixture(home, "owner", nextRtl, nextPlatform);
+      await flush();
+      const dockHost = () => nodes(tree).find((node) => node.props.testID === "home-toast-dock")!;
+      const offset = () => flattenStyle(dockHost().props.style).transform[0].translateY;
+      const nativeInput = homeInput().props.ref.current;
+      const ids = homeIds();
+      const reads = homeReadScopes.length;
+      assert.equal(offset(), 0, "An empty toast queue leaves the dock at its normal position");
+      homeToastOffset = -72;
+      dirty = true;
+      await flush();
+      expectBottomDock();
+      assert.equal(offset(), -72, "A toast lifts the whole homepage dock");
+      assert.ok(nodes(dockHost()).includes(homeInput()), "Search moves with the lifted dock");
+      assert.ok(
+        nodes(dockHost()).some((node) => node.props.accessibilityLabel === "personAdd.new"),
+      );
+      assert.equal(
+        homeInput().props.ref.current,
+        nativeInput,
+        "Toast motion preserves the native input",
+      );
+      assert.deepEqual(homeIds(), ids);
+      assert.equal(
+        homeReadScopes.length,
+        reads,
+        "Toast motion never reloads the customer snapshot",
+      );
+
+      homeInput().props.onPress();
+      homeInput().props.onFocus();
+      keyboardEvent(nextPlatform === "ios" ? "keyboardWillShow" : "keyboardDidShow");
+      await flush();
+      assert.equal(offset(), 0, "A toast cannot lift the dock again above the keyboard");
+      byLabel("customers.listOptions")!.props.onPress();
+      await flush();
+      keyboardEvent(nextPlatform === "ios" ? "keyboardWillHide" : "keyboardDidHide");
+      keyboardEvent("keyboardDidHide");
+      await flush();
+      assert.equal(find("HomeFilterPopover")!.props.visible, true);
+      assert.equal(offset(), 0, "Open filters keep their dock anchor steady after keyboard hide");
+      find("HomeFilterPopover")!.props.onDismiss();
+      await flush();
+      assert.equal(offset(), -72, "A still-visible toast lifts the dock again after filters close");
+      homeToastOffset = 0;
+      dirty = true;
+      await flush();
+      assert.equal(offset(), 0, "Dismissal or expiry returns the dock to its normal position");
+      assert.equal(homeInput().props.ref.current, nativeInput);
+      assert.equal(find("SearchKeyboardFooter")!.props.closedPadding, 12);
+      assert.equal(find("SearchKeyboardFooter")!.props.openPadding, 8);
+    }
 
   for (const nextPlatform of ["android", "ios"])
     for (const nextRtl of [false, true]) {

@@ -117,9 +117,8 @@ const SWIPE_DISMISS_DURATION = 180;
 const VIEWPORT_BOTTOM_MARGIN = 24; // matches the viewport's `bottom: 24 + insets.bottom`
 const TOAST_HEIGHT_SINGLE = 52; // single-line: 14 + 22 + 14 + (1+1) border
 // Distance from the safe-area bottom to the *visible* bottom edge of the lifted
-// UI. Ping bar uses paddingBottom = 20 + insets.bottom; FAB uses
-// bottom = 20 + insets.bottom. Both anchor at the same 20px offset, so a single
-// constant works for both.
+// UI. Customer actions use paddingBottom = 20 + insets.bottom. Other docks
+// pass their own offset to useToastOffset so their controls clear the same toast.
 const BUTTON_OFFSET_ABOVE_SAFE_AREA = 20;
 const LIFT_GAP = 16; // breathing room between toast top and lifted UI bottom
 // iOS line-box growth of the toast message text: styles.message is
@@ -229,12 +228,12 @@ export function useToast(): ToastContextValue {
 // Math (insets-bottom cancels out — see below):
 //   - Toast viewport's bottom edge sits at (24 + insets.bottom) above the screen.
 //   - Single-line toast is 52px tall → toast TOP at (76 + insets.bottom) above the screen.
-//   - The consuming UI's visible bottom sits at (12 + insets.bottom) above the
-//     screen (ping bar paddingBottom; the FAB's similar). Same insets term.
+//   - By default, the consuming UI's visible bottom sits at (20 + insets.bottom)
+//     above the screen. The Home dock instead passes its 12px offset.
 //   - For the lifted bottom to clear the toast top by GAP, we need translateY
 //     such that:
-//         (12 + insets.bottom) + lift  =  (76 + insets.bottom) + GAP
-//     → lift = 64 + GAP. The insets.bottom on each side cancels.
+//         (20 + insets.bottom) + lift  =  (76 + insets.bottom) + GAP
+//     → lift = 56 + GAP. The insets.bottom on each side cancels.
 // This is the bug we had before: an extra insets.bottom term that snuck in
 // added 24-34px of phantom gap depending on device.
 // The 2×TOAST_TEXT_LINE_DELTA term budgets the iOS line-box growth of a
@@ -246,16 +245,19 @@ const BASE_LIFT =
   BUTTON_OFFSET_ABOVE_SAFE_AREA +
   2 * TOAST_TEXT_LINE_DELTA;
 
-/** How far useToastOffset() lifts bottom-anchored UI while a toast is shown.
+/** Default lift for UI resting 20px above the safe-area bottom.
  * An opaque full-width dock extends its own background below the screen edge
- * by at least this much, so the lift never opens a see-through, tappable gap. */
+ * by at least its actual lift, including any custom offset correction, so the
+ * lift never opens a see-through, tappable gap. */
 export const TOAST_LIFT = BASE_LIFT + LIFT_GAP; // constant — no insets dependence
 
-export function useToastOffset(): Animated.Value {
+export function useToastOffset(
+  bottomOffsetAboveSafeArea = BUTTON_OFFSET_ABOVE_SAFE_AREA,
+): Animated.Value {
   const translateY = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    const lift = TOAST_LIFT;
+    const lift = TOAST_LIFT + BUTTON_OFFSET_ABOVE_SAFE_AREA - bottomOffsetAboveSafeArea;
     let animation: Animated.CompositeAnimation | null = null;
     // Dampened spring: higher friction prevents overshoot/oscillation that
     // previously left the button hanging mid-screen when rapid toast pushes
@@ -275,12 +277,13 @@ export function useToastOffset(): Animated.Value {
     };
     // Catch up if a toast is already visible when this consumer mounts.
     if (currentVisibleCount > 0) apply(currentVisibleCount);
+    else translateY.setValue(0);
     visibleCountListeners.add(apply);
     return () => {
       visibleCountListeners.delete(apply);
       animation?.stop();
     };
-  }, [translateY]);
+  }, [translateY, bottomOffsetAboveSafeArea]);
 
   return translateY;
 }

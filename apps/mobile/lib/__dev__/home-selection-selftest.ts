@@ -111,6 +111,8 @@ const archived: { id: string; scope: { vaultId: string; accountId: string } }[] 
 let archivePending: ReturnType<typeof deferred<void>> | null = null;
 let keyboardDismissals = 0;
 let keyboardOpen = false;
+let homeToastOffset = 0;
+let homeToastBottomOffset: number | undefined;
 let nativeSearchFocused = false;
 let nativeSearchBlurCalls = 0;
 let searchMatchRuns = 0;
@@ -261,7 +263,14 @@ const mocks: Record<string, any> = {
   "../lib/multi-currency-view": { currencyBalances, personCurrencyRows, selectedPeopleByCurrency },
   "../lib/tabs/link-status": require("../tabs/link-status"),
   "../lib/profile-settings-context": { ProfileSettingsSource: "ProfileSettingsSheet" },
-  "../components/Toast": { useToast: () => toast, useToastOffset: () => 0 },
+  "../components/Toast": {
+    useToast: () => toast,
+    useToastOffset: (bottom?: number) => {
+      homeToastBottomOffset = bottom;
+      return homeToastOffset;
+    },
+    TOAST_LIFT: 72,
+  },
   "../components/SearchKeyboardMotion": {
     SearchKeyboardFrame: "SearchKeyboardFrame",
     SearchKeyboardFooter: "SearchKeyboardFooter",
@@ -573,17 +582,24 @@ const expectBottomDock = (selecting = false) => {
   );
   const children = [keyboard.props.children].flat().filter((node) => node?.props);
   const list = children.find((node) => nodes(node).some((child) => child.type === "ScrollView"));
-  const dock = children.find((node) => nodes(node).some((child) => child.type === "TextInput"));
-  assert.ok(list && dock && list !== dock, "The input is fixed outside the scrolling list");
-  assert.equal(dock.type, "SearchKeyboardFooter");
+  const dockHost = children.find((node) => node.props.testID === "home-toast-dock");
+  assert.ok(list && dockHost && list !== dockHost, "The input is fixed outside the scrolling list");
+  assert.equal(dockHost.type, "AnimatedView");
+  const dock = nodes(dockHost).find((node) => node.type === "SearchKeyboardFooter")!;
+  assert.ok(dock, "Keyboard movement keeps its own footer inside the lifted dock");
   assert.equal(dock.props.closedPadding, 12);
+  assert.equal(homeToastBottomOffset, 12, "Home's toast lift clears its 12px bottom spacing");
   assert.equal(dock.props.openPadding, 8);
   assert.equal(
     flattenStyle(list.props.style).flex,
     1,
     "The list uses the space above the reserved dock",
   );
-  assert.notEqual(flattenStyle(dock.props.style).position, "absolute");
+  assert.notEqual(flattenStyle(dockHost.props.style).position, "absolute");
+  const hostStyle = flattenStyle(dockHost.props.style);
+  assert.equal(hostStyle.backgroundColor, colors.bgDefault);
+  assert.equal(hostStyle.paddingBottom, 84, "The raised dock keeps an opaque background below it");
+  assert.equal(hostStyle.paddingBottom + hostStyle.marginBottom, 0, "No skirt gap remains at rest");
   assert.equal(
     flattenStyle(dock.props.style).backgroundColor,
     colors.bgDefault,
@@ -602,7 +618,7 @@ const expectBottomDock = (selecting = false) => {
     "the actual search field stays readable on the neutral canvas",
   );
   assert.ok(
-    children.indexOf(dock) > children.indexOf(list),
+    children.indexOf(dockHost) > children.indexOf(list),
     "Search follows the list at the bottom",
   );
   assert.equal(
@@ -926,6 +942,31 @@ async function main() {
   assert.ok(searchSortRuns > 0, "Inline results are sorted on the homepage");
   expectPage();
   expectBottomDock();
+  const toastDock = () => homeNodes().find((node) => node.props.testID === "home-toast-dock")!;
+  const toastDockOffset = () => flattenStyle(toastDock().props.style).transform[0].translateY;
+  const inputBeforeToast = input().props.ref.current;
+  const sortRunsBeforeToast = searchSortRuns;
+  const matchesBeforeToast = searchMatchRuns;
+  const rowsBeforeToast = homeRows().map((row) => row.props.person);
+  homeToastOffset = -72;
+  render();
+  assert.equal(toastDockOffset(), -72, "The toast moves Home search and Add as one dock");
+  assert.ok(nodes(toastDock()).includes(input()));
+  assert.ok(nodes(toastDock()).includes(addButton()!));
+  assert.equal(input().props.ref.current, inputBeforeToast);
+  assert.deepEqual(
+    homeRows().map((row) => row.props.person),
+    rowsBeforeToast,
+  );
+  assert.equal(searchSortRuns, sortRunsBeforeToast, "Toast motion does not rerun customer sorting");
+  assert.equal(
+    searchMatchRuns,
+    matchesBeforeToast,
+    "Toast motion does not rerun customer matching",
+  );
+  homeToastOffset = 0;
+  render();
+  assert.equal(toastDockOffset(), 0, "An empty queue restores the ordinary dock position");
   assert.equal(filterTrigger(), undefined, "Idle Home has no filter button");
   assert.equal(
     homeNodes().some((node) => node.type === "HomeFilterPopover"),

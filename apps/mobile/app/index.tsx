@@ -6,6 +6,7 @@ import { Redirect, useFocusEffect, useLocalSearchParams, useRouter } from "expo-
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Animated,
   AppState,
   BackHandler,
   Image,
@@ -45,7 +46,7 @@ import {
 } from "../lib/multi-currency-view";
 import type { VaultListItem } from "../components/ProfileSettingsSheet";
 import { ProfileSettingsSource } from "../lib/profile-settings-context";
-import { useToast } from "../components/Toast";
+import { TOAST_LIFT, useToast, useToastOffset } from "../components/Toast";
 import { UpdateBanner } from "../components/UpdateBanner";
 import { useAppMeta } from "../lib/app-meta-context";
 import { colors } from "../lib/colors";
@@ -129,6 +130,9 @@ const PROFILE_SLOT_SIZE = 36;
 
 // Keep the add button at the 52px action height used by the other docks.
 const FAB_SIZE = 52;
+// Keep an opaque surface below the raised controls so taps cannot reach
+// customers through the space where the footer normally sits.
+const HOME_DOCK_SKIRT = TOAST_LIFT + 12;
 const EMPTY_PEOPLE: PersonWithBalance[] = [];
 const EMPTY_CURRENCIES: string[] = [];
 const EMPTY_SEARCH_RELEVANCE = new Map<string, number>();
@@ -163,6 +167,7 @@ async function applyFullSync(enabled: boolean): Promise<void> {
 export default function HomeScreen() {
   const router = useRouter();
   const toast = useToast();
+  const toastOffset = useToastOffset(12);
   // Phase 5.1: ?menu=sync deep-link from the foreground-service notification
   // tap auto-opens the hamburger menu on focus. We don't currently scroll
   // to the Sync section — every section is on a single sheet, so opening
@@ -1993,15 +1998,27 @@ export default function HomeScreen() {
               )}
             </View>
             {activeVaultId ? (
-              <SearchKeyboardFooter
-                style={styles.homeFooter}
-                closedPadding={12 + insets.bottom}
-                openPadding={8}
-                keyboardShown={keyboardLayoutShown}
-                onLayout={updateFilterAnchor}
+              <Animated.View
+                testID="home-toast-dock"
+                style={[
+                  styles.homeToastDock,
+                  {
+                    transform: [
+                      { translateY: keyboardLayoutShown || filtersExpanded ? 0 : toastOffset },
+                    ],
+                  },
+                ]}
               >
-                {searchDock}
-              </SearchKeyboardFooter>
+                <SearchKeyboardFooter
+                  style={styles.homeFooter}
+                  closedPadding={12 + insets.bottom}
+                  openPadding={8}
+                  keyboardShown={keyboardLayoutShown}
+                  onLayout={updateFilterAnchor}
+                >
+                  {searchDock}
+                </SearchKeyboardFooter>
+              </Animated.View>
             ) : null}
           </SearchKeyboardFrame>
         </SafeAreaView>
@@ -2928,6 +2945,11 @@ const styles = StyleSheet.create({
     backgroundColor: colors.bgDefault,
   },
   divider: { height: 1, backgroundColor: colors.borderDefault },
+  homeToastDock: {
+    backgroundColor: colors.bgDefault,
+    paddingBottom: HOME_DOCK_SKIRT,
+    marginBottom: -HOME_DOCK_SKIRT,
+  },
   homeFooter: {
     paddingHorizontal: 16,
     paddingTop: 8,

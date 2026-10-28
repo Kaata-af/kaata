@@ -9,6 +9,13 @@ const contextValues = new Map<object, unknown>();
 const announcements: string[] = [];
 const timers = new Map<number, () => void>();
 let nextTimer = 0;
+class AnimatedValue {
+  constructor(public value: number) {}
+  setValue(value: number) {
+    this.value = value;
+  }
+}
+const springs: { value: AnimatedValue; target: number; stopped: boolean }[] = [];
 const hook =
   (name: keyof typeof providerHooks.react) =>
   (...args: any[]) =>
@@ -23,37 +30,56 @@ const react = {
   },
   useContext: (context: { Provider: object }) => contextValues.get(context.Provider),
 };
-const { ToastProvider, ToastHost, useToast, queuePendingToast } = compileUI(
-  "../../components/Toast",
-  {
-    react,
-    "react/jsx-runtime": { jsx, jsxs: jsx },
-    "@expo/vector-icons": { Ionicons: "Icon" },
-    "react-native": {
-      AccessibilityInfo: {
-        announceForAccessibility: (message: string) => announcements.push(message),
+const { ToastProvider, ToastHost, useToast, useToastOffset, TOAST_LIFT, queuePendingToast } =
+  compileUI(
+    "../../components/Toast",
+    {
+      react,
+      "react/jsx-runtime": { jsx, jsxs: jsx },
+      "@expo/vector-icons": { Ionicons: "Icon" },
+      "react-native": {
+        AccessibilityInfo: {
+          announceForAccessibility: (message: string) => announcements.push(message),
+        },
+        Animated: {
+          Value: AnimatedValue,
+          spring: (
+            value: AnimatedValue,
+            options: { toValue: number; useNativeDriver: boolean },
+          ) => {
+            assert.equal(options.useNativeDriver, true);
+            const spring = { value, target: options.toValue, stopped: false };
+            springs.push(spring);
+            return {
+              start: () => {
+                value.value = options.toValue;
+              },
+              stop: () => {
+                spring.stopped = true;
+              },
+            };
+          },
+        },
+        Platform: { OS: "ios", select: (options: any) => options.ios },
+        StyleSheet: { create: (styles: unknown) => styles },
+        Text: "Text",
+        View: "View",
       },
-      Animated: {},
-      Platform: { OS: "ios", select: (options: any) => options.ios },
-      StyleSheet: { create: (styles: unknown) => styles },
-      Text: "Text",
-      View: "View",
+      "react-native-gesture-handler": {},
+      "react-native-safe-area-context": { useSafeAreaInsets: () => ({ bottom: 20 }) },
+      "../lib/colors": { colors: {} },
+      "../lib/direction": {},
+      "../lib/fonts": { fonts: {}, sansLineHeight: (_size: number, height: number) => height },
     },
-    "react-native-gesture-handler": {},
-    "react-native-safe-area-context": { useSafeAreaInsets: () => ({ bottom: 20 }) },
-    "../lib/colors": { colors: {} },
-    "../lib/direction": {},
-    "../lib/fonts": { fonts: {}, sansLineHeight: (_size: number, height: number) => height },
-  },
-  {
-    setTimeout: (callback: () => void, delay: number) => {
-      assert.equal(delay, 2500, "The existing feedback duration is preserved");
-      const id = ++nextTimer;
-      timers.set(id, callback);
-      return id;
+    {
+      setTimeout: (callback: () => void, delay: number) => {
+        assert.equal(delay, 2500, "The existing feedback duration is preserved");
+        const id = ++nextTimer;
+        timers.set(id, callback);
+        return id;
+      },
     },
-  },
-);
+  );
 
 let rootViewport: UINode | null = null;
 const renderProvider = () => {
@@ -165,7 +191,71 @@ assert.deepEqual(announcements, [
 assert.equal(timers.size, 1, "Moving back to root retains the original expiry");
 expire(nextTimer);
 assert.deepEqual(messages(rootViewport), []);
+
+// Different resting heights must clear the same toast without adding the
+// device's safe-area inset again. The offset channel does not rerender Home.
+const makeOffset = (bottom?: number) => {
+  const hooks = uiHooks();
+  let offset: AnimatedValue;
+  const render = (nextBottom = bottom) => {
+    currentHooks = hooks;
+    hooks.render(() => {
+      offset = useToastOffset(nextBottom);
+      return jsx("Dock", {});
+    });
+    return offset!;
+  };
+  return { render, unmount: hooks.unmount, offset: render() };
+};
+const customer = makeOffset();
+const home = makeOffset(12);
+assert.equal(springs.length, 0, "Empty feedback leaves resting controls in place");
+toast.push("First feedback");
+renderProvider();
+const firstOffsetTimer = nextTimer;
+assert.equal(customer.offset.value, -TOAST_LIFT, "Existing customer lift stays unchanged");
+assert.equal(home.offset.value, customer.offset.value - 8, "Home compensates for its lower dock");
+assert.equal(
+  12 - home.offset.value,
+  20 - customer.offset.value,
+  "Both docks clear the same toast top",
+);
+const late = makeOffset(12);
+assert.equal(late.offset.value, home.offset.value, "A newly mounted dock catches up immediately");
+const previousSprings = springs.slice();
+toast.push("Second feedback");
+renderProvider();
+assert.ok(
+  previousSprings.every((spring) => spring.stopped),
+  "Rapid feedback stops older springs",
+);
+expire(firstOffsetTimer);
+assert.ok(
+  home.offset.value < 0,
+  "One expired message does not drop controls over the remaining toast",
+);
+assert.equal(home.render(20), home.offset, "Changing dock geometry retains its animated value");
+assert.equal(home.offset.value, customer.offset.value, "Live geometry changes update the lift");
+expire(nextTimer);
+assert.equal(customer.offset.value, 0);
+assert.equal(home.offset.value, 0);
+assert.equal(late.offset.value, 0);
+home.offset.setValue(-10); // Native drawing sampled during the return spring.
+home.render(12);
+assert.equal(home.offset.value, 0, "Idle geometry changes cannot stop the dock partway down");
+customer.unmount();
+home.unmount();
+late.unmount();
+const completedSpringCount = springs.length;
+toast.push("Feedback after unmount");
+renderProvider();
+assert.equal(
+  springs.length,
+  completedSpringCount,
+  "Unmounted docks do not keep offset subscriptions",
+);
+expire(nextTimer);
 providerHooks.unmount();
 console.log(
-  "Toast host selftest passed: single queue, native-sheet host transfer, cleanup, dismissal and expiry.",
+  "Toast host selftest passed: single queue, native-sheet host transfer, geometry-aware dock lift, interrupted spring cleanup, dismissal and expiry.",
 );
