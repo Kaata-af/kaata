@@ -491,6 +491,61 @@ for (const locale of ["en", "fa", "ps"] as const) {
     );
     f.hooks.unmount();
   });
+  check(`${locale}: memory preserves exact fractions until the tally is saved`, () => {
+    const f = fixture({ locale, expression: "1/3" });
+    const addThird = f.key("M+").props.onPress;
+    addThird();
+    addThird();
+    addThird();
+    f.render();
+    f.press("AC", "MR");
+    assert.equal(f.result().amount, "1", "three thirds must not become 0.99 in memory");
+    f.replace("1/3");
+    f.press("M−", "M−", "M−", "AC", "MR");
+    assert.equal(f.result().display, "0", "exact cancellation does not leave a phantom cent");
+    assert.equal(f.result().canApply, false);
+    f.press("MC");
+    f.replace("0.004");
+    f.press("M+", "M+", "M+", "AC", "MR", "*", "2", "5", "0", "=");
+    assert.equal(f.result().amount, "3", "sub-cent memory values survive later multiplication");
+    f.press("MC");
+    f.replace("-0.004");
+    f.press("M+", "AC", "MR", "*", "2", "5", "0", "=");
+    assert.equal(f.result().display, "-1", "a displayed zero must not discard an exact negative");
+    assert.equal(f.result().canApply, false);
+    f.press("MC");
+    f.replace("7");
+    f.press("M+");
+    for (const invalid of ["300+", "1/0", "1..2", "9".repeat(257)]) {
+      f.replace(invalid);
+      f.press("M+", "M−", "AC", "MR");
+      assert.equal(f.result().amount, "7", "an unavailable draft cannot corrupt memory");
+    }
+    f.replace(`1/${"3".repeat(150)}`);
+    f.press("M+");
+    assert.ok(words(f.hooks.tree).includes(f.translate("calculator.tooLarge")));
+    f.press("AC", "MR");
+    assert.equal(f.result().amount, "7", "an unrepresentable exact sum cannot replace good memory");
+    f.hooks.unmount();
+  });
+  check(`${locale}: failed repeated equals cannot leave a stale savable result or history`, () => {
+    const f = fixture({ locale, expression: `1+1/${"3".repeat(120)}` });
+    f.press("=");
+    assert.equal(f.result().canApply, true);
+    assert.equal(f.recorded.length, 1);
+    f.press("=");
+    assert.equal(f.result().status, "error");
+    assert.equal(f.result().amount, null);
+    assert.equal(f.result().canApply, false);
+    assert.equal(
+      f.recorded.length,
+      1,
+      "an errored repeated operation never records the old result",
+    );
+    f.press("AC", "7", "=");
+    assert.equal(f.result().amount, "7", "Clear restores ordinary calculation after the limit");
+    f.hooks.unmount();
+  });
   check(`${locale}: history retains its expression across hiding`, () => {
     const f = fixture({ locale });
     f.labelled("calculator.history").props.onPress();

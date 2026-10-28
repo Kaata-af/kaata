@@ -2,7 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useEffect, useRef, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import { colors } from "../lib/colors";
-import { evaluateCalculation } from "../lib/calculator";
+import { calculationOperand, evaluateCalculation } from "../lib/calculator";
 import {
   calculatorDraft,
   calculatorKey,
@@ -131,14 +131,19 @@ export function EntryCalculator(props: Props) {
       const current = evaluateCalculation(props.getDraft().expression);
       if (current.status !== "valid") return;
       const next = evaluateCalculation(
-        `(${memoryRef.current ?? "0"})${key === "M+" ? "+" : "-"}(${current.value})`,
+        `(${memoryRef.current ?? "0"})${key === "M+" ? "+" : "-"}(${calculationOperand(current)})`,
       );
       if (next.status !== "valid") {
         setCommandError(t("calculator.tooLarge"));
         return;
       }
-      memoryRef.current = next.value;
-      setMemory(next.value);
+      const operand = calculationOperand(next);
+      if (evaluateCalculation(operand).status !== "valid") {
+        setCommandError(t("calculator.tooLarge"));
+        return;
+      }
+      memoryRef.current = operand;
+      setMemory(operand);
       setCommandError(null);
       return;
     }

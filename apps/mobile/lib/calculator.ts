@@ -45,6 +45,31 @@ export type CalculationResult =
   | (UnavailableCalculation & { status: "incomplete" })
   | (UnavailableCalculation & { status: "error"; code: CalculationErrorCode });
 
+/** Continue arithmetic with the exact result, even when its monetary preview
+ * rounded to cents (including a signed sub-cent value displayed as zero).
+ * The compact operand uses the same bounded parser syntax as typed input;
+ * callers still evaluate the complete next expression before accepting it.
+ */
+export function calculationOperand(result: ValidCalculation): string {
+  if (!result.rounded) return result.value;
+  const ratio = `(${result.exactValue.numerator}/${result.exactValue.denominator})`;
+  const numerator = BigInt(result.exactValue.numerator);
+  const denominator = BigInt(result.exactValue.denominator);
+  const magnitude = numerator < 0n ? -numerator : numerator;
+  let decimal = `${numerator < 0n ? "-" : ""}${magnitude / denominator}.`;
+  let remainder = magnitude % denominator;
+  // Prefer a short finite decimal (1.005 instead of 201/200). Bounded long
+  // division also handles repeating fractions without ever growing an operand
+  // beyond the shorter supported representation or the expression budget.
+  const limit = Math.min(ratio.length, MAX_CALCULATION_LENGTH);
+  while (remainder !== 0n && decimal.length < limit) {
+    remainder *= 10n;
+    decimal += String(remainder / denominator);
+    remainder %= denominator;
+  }
+  return remainder === 0n && decimal.length < ratio.length ? decimal : ratio;
+}
+
 /** Normalize presentation, preserving malformed input for an honest error.
  * A decimal comma follows money.ts's unambiguous 0–2 fractional digit rule.
  * Arabic thousands marks are accepted only as complete three-digit groups;

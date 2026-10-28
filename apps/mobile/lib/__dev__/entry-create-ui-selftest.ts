@@ -2496,6 +2496,52 @@ async function main() {
   // The custom keypad edits the visible amount directly. Save stays in its
   // fixed footer, using the current expression even before React rerenders.
   for (const os of ["android", "ios"] as const)
+    for (const rtl of [false, true])
+      for (const mode of ["create", "edit"] as const) {
+        const f = mode === "create" ? fixture({ os, rtl }) : editFixture(os, rtl, "Keep this note");
+        await f.ready();
+        const preview = () =>
+          nodes(f.hooks.tree).find((node) => node.props.testID === "entry-calculation-result")!;
+        const replace = (expression: string) => {
+          f.input().props.onChangeText(expression);
+          f.render();
+        };
+        const previousSave = f.button().props.onPress;
+        replace("300");
+        assert.equal(words(preview()), "= 300");
+        const reservedHeight = flattenStyle(preview().props.style).minHeight;
+        assert.ok(reservedHeight > 0);
+        for (const expression of ["300+", "300-", "300*", "300/", "(", "(300+20", "1/0", "1..2"]) {
+          replace(expression);
+          assert.equal(
+            words(preview()),
+            "",
+            `${mode}/${os}: no fake answer or minus for ${expression}`,
+          );
+          assert.equal(preview().props.accessible, false);
+          assert.equal(preview().props.accessibilityLabel, undefined);
+          assert.equal(flattenStyle(preview().props.style).minHeight, reservedHeight);
+          assert.equal(f.button().props.disabled, true);
+        }
+        replace("300+");
+        await previousSave();
+        assert.equal(f.writes.length, 0, "a captured Save cannot reuse the old complete amount");
+        for (const [expression, expected, applicable] of [
+          ["", "= 0", false],
+          ["300+20", "= 320", true],
+          ["0.1+0.2", "= 0.30", true],
+          ["1-2", "= -1", false],
+          ["-0.004", "= 0", false],
+        ] as const) {
+          replace(expression);
+          assert.equal(words(preview()), expected);
+          assert.equal(preview().props.accessible, true);
+          assert.equal(f.button().props.disabled, !applicable);
+        }
+        f.hooks.unmount();
+        cases++;
+      }
+  for (const os of ["android", "ios"] as const)
     for (const rtl of [false, true]) {
       const f = fixture({ os, rtl });
       await f.ready();

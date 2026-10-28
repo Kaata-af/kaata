@@ -1,4 +1,4 @@
-import { evaluateCalculation, normalizeCalculationInput } from "./calculator";
+import { calculationOperand, evaluateCalculation, normalizeCalculationInput } from "./calculator";
 
 export type CalculatorDraft = {
   expression: string;
@@ -24,20 +24,31 @@ export function selectCalculation(
   start: number,
   end: number,
 ): CalculatorDraft {
-  const from = Math.max(0, Math.min(draft.expression.length, start));
+  const from = Math.max(
+    0,
+    Math.min(draft.expression.length, Number.isFinite(start) ? Math.floor(start) : 0),
+  );
   return {
     ...draft,
-    selection: { start: from, end: Math.max(from, Math.min(draft.expression.length, end)) },
+    selection: {
+      start: from,
+      end: Math.max(
+        from,
+        Math.min(draft.expression.length, Number.isFinite(end) ? Math.floor(end) : from),
+      ),
+    },
   };
 }
 
 function insert(draft: CalculatorDraft, text: string): CalculatorDraft {
   const { start, end } = draft.selection;
   const expression = draft.expression.slice(0, start) + text + draft.expression.slice(end);
-  return {
-    ...calculatorDraft(expression),
-    selection: { start: start + text.length, end: start + text.length },
-  };
+  const next = calculatorDraft(expression);
+  // Normalization trims pasted whitespace. Never leave the native caret beyond
+  // the normalized expression, or a subsequent backspace can delete nothing.
+  const leadingWhitespace = expression.length - expression.trimStart().length;
+  const caret = start + text.length - leadingWhitespace;
+  return selectCalculation(next, caret, caret);
 }
 
 function repeatOperation(expression: string): CalculatorDraft["repeat"] {
@@ -113,9 +124,12 @@ export function calculateDraft(draft: CalculatorDraft): CalculatorDraft {
   const result = evaluateCalculation(draft.expression);
   if (result.status !== "valid" || result.value === null) return draft;
   if (draft.evaluated && draft.repeat) {
-    const expression = `${result.value}${draft.repeat.operator}${draft.repeat.operand}`;
-    if (evaluateCalculation(expression).status !== "valid") return draft;
-    return { ...calculatorDraft(expression), evaluated: true, repeat: draft.repeat };
+    const expression = `${calculationOperand(result)}${draft.repeat.operator}${draft.repeat.operand}`;
+    const next = calculatorDraft(expression);
+    // A failed repeat is still the user's new calculation. Keeping the old
+    // successful draft would leave its stale amount eligible for saving.
+    if (evaluateCalculation(expression).status !== "valid") return next;
+    return { ...next, evaluated: true, repeat: draft.repeat };
   }
   return { ...draft, evaluated: true, repeat: repeatOperation(draft.expression) };
 }
@@ -125,9 +139,13 @@ export function calculatorKey(draft: CalculatorDraft, key: string): CalculatorDr
   if (key === "=") return calculateDraft(draft);
   let current = draft;
   if (draft.evaluated) {
-    const value = evaluateCalculation(draft.expression).value ?? draft.expression;
+    const result = evaluateCalculation(draft.expression);
+    const value = result.value ?? draft.expression;
+    // Arithmetic continues the exact answer. Backspace deliberately edits the
+    // displayed monetary answer, rather than an invisible rational expression.
+    const continuation = result.status === "valid" ? calculationOperand(result) : value;
     current = calculatorDraft(
-      /[+*/%\-]/.test(key) || key === "delete" || key === "sign" ? value : "",
+      key === "delete" ? value : /[+*/%\-]/.test(key) || key === "sign" ? continuation : "",
     );
   }
   if (key === "delete") {
@@ -141,7 +159,19 @@ export function calculatorKey(draft: CalculatorDraft, key: string): CalculatorDr
   if (key === "sign") {
     const selected = operandSelection(current);
     const operand = current.expression.slice(selected.selection.start, selected.selection.end);
-    if (!operand) return insert(current, "-");
+    if (!operand) {
+      const before = current.expression.slice(0, current.selection.start);
+      const sign = /([+\-])\s*$/.exec(before);
+      if (sign) {
+        const prefix = before.slice(0, sign.index).trimEnd();
+        if (prefix === "" || /[+*/(\-]$/.test(prefix))
+          return insert(
+            selectCalculation(current, sign.index, current.selection.end),
+            sign[1] === "-" ? "" : "-",
+          );
+      }
+      return insert(current, "-");
+    }
     if (operand.trimStart().startsWith("-") && singleOperand(operand))
       return insert(selected, operand.trimStart().slice(1).trimStart());
     return insert(
@@ -150,11 +180,30 @@ export function calculatorKey(draft: CalculatorDraft, key: string): CalculatorDr
     );
   }
   if (key === "()") {
-    const before = current.expression.slice(0, current.selection.start);
+    const { start, end } = current.selection;
+    if (start !== end) return insert(current, `(${current.expression.slice(start, end)})`);
+    const before = current.expression.slice(0, start).trimEnd();
     const unclosed = (before.match(/\(/g)?.length ?? 0) - (before.match(/\)/g)?.length ?? 0);
-    key = unclosed > 0 && /[\d)%]$/.test(before) ? ")" : "(";
+    key = unclosed > 0 && /(?:[\d)%]|\d\.)$/.test(before) ? ")" : "(";
   }
   const before = current.expression.slice(0, current.selection.start);
+  const significantBefore = before.trimEnd();
+  let operatorStart = significantBefore.length;
+  if (/[+*/\-]$/.test(significantBefore)) {
+    operatorStart--;
+    while (operatorStart > 0 && /[+*/\-\s]/.test(significantBefore[operatorStart - 1]))
+      operatorStart--;
+  }
+  if (current.selection.start === current.selection.end) {
+    // Binary operators and percentages need an operand. A leading unary sign
+    // or an opening group does not supply one.
+    if (
+      /^[*/]$/.test(key) &&
+      !/(?:[\d)%]|\d\.)$/.test(significantBefore.slice(0, operatorStart).trimEnd())
+    )
+      return current;
+    if (key === "%" && !/(?:[\d)%]|\d\.)$/.test(significantBefore)) return current;
+  }
   if (key === ".") {
     const number = /[\d.]*$/.exec(before)?.[0] ?? "";
     const after = current.expression.slice(current.selection.end);
@@ -165,18 +214,17 @@ export function calculatorKey(draft: CalculatorDraft, key: string): CalculatorDr
   if (
     /^[+*/\-]$/.test(key) &&
     current.selection.start === current.selection.end &&
-    /[+*/\-]$/.test(before)
+    /[+*/\-]$/.test(significantBefore)
   ) {
     // Minus after multiplication/division is a negative operand; other
     // accidental operator taps replace the pending operator.
-    if (key !== "-" || /[+\-]$/.test(before)) {
-      let from = before.length - 1;
-      while (from > 0 && /[+*/\-\s]/.test(before[from - 1])) from--;
-      current = selectCalculation(current, from, current.selection.end);
+    if (key === "-" && /[*/]\s*-\s*$/.test(significantBefore)) return current;
+    if (key !== "-" || /[+\-]$/.test(significantBefore)) {
+      current = selectCalculation(current, operatorStart, current.selection.end);
     }
   }
-  if (key === "(" && /[\d)%]$/.test(before)) key = "*(";
-  if (/^\d/.test(key) && /[)%]$/.test(before)) key = `*${key}`;
+  if (key === "(" && /(?:[\d)%]|\d\.)$/.test(significantBefore)) key = "*(";
+  if (/^\d/.test(key) && /[)%]$/.test(significantBefore)) key = `*${key}`;
   if (/^\d+$/.test(key) && current.expression === "0") current = selectCalculation(current, 0, 1);
   if (current.expression === "" && key === "00") key = "0";
   return insert(current, key);

@@ -61,6 +61,29 @@ for (const [sequence, expected] of [
 check("operator replacement treats pasted whitespace like keypad input", () => {
   value(calculatorKey(calculatorKey(calculatorDraft("10 * -"), "/"), "2"), "5");
 });
+check("an unfinished addition stays incomplete until the operand is supplied", () => {
+  const draft = keys(["3", "0", "0", "+"]);
+  const result = evaluateCalculation(draft.expression);
+  assert.equal(result.status, "incomplete");
+  assert.equal(result.value, null);
+  assert.equal(result.canApply, false);
+  assert.equal(calculatorKey(draft, "="), draft);
+  value(calculatorKey(draft, "5"), "305");
+});
+check("operators that need a left operand cannot create a broken initial expression", () => {
+  for (const prefix of ["", "-", "(", "(-", "10+(", "10+(-"])
+    for (const key of ["*", "/", "%"])
+      assert.equal(calculatorKey(calculatorDraft(prefix), key).expression, prefix);
+  value(keys(["*", "/", "%", "2"]), "2");
+});
+check("a repeated negative operand key preserves pending multiplication and division", () => {
+  value(keys(["1", "0", "*", "-", "-", "2"]), "-20");
+  value(keys(["1", "0", "/", "-", "-", "2"]), "-5");
+});
+check("pending operator replacement also works before a pasted space at the caret", () => {
+  const draft = selectCalculation(calculatorDraft("10 + 2"), 5, 5);
+  value(calculatorKey(draft, "*"), "20");
+});
 
 check("decimal starts a fractional amount and cannot repeat", () => {
   value(keys([".", "2", ".", "5"]), "0.25");
@@ -86,6 +109,18 @@ check("digit after a closed parenthesis or percent starts multiplication", () =>
   value(keys(["2", "()", "3", "()", "4"]), "24");
   value(keys(["5", "0", "%", "2"]), "1");
 });
+check("parenthesis closes a completed trailing-decimal operand", () => {
+  const draft = keys(["()", "2", ".", "()"]);
+  assert.equal(draft.expression, "(2.)");
+  value(draft, "2");
+  value(keys(["2", ".", "()", "3", "()"]), "6");
+});
+check("parenthesis wraps the selected expression rather than discarding it", () => {
+  const draft = selectCalculation(calculatorDraft("10+2*3"), 3, 6);
+  const grouped = calculatorKey(draft, "()");
+  assert.equal(grouped.expression, "10+(2*3)");
+  value(grouped, "16");
+});
 
 check("delete removes one character at the caret", () => {
   value(calculatorKey(selectCalculation(calculatorDraft("123+456"), 2, 2), "delete"), "469");
@@ -100,6 +135,24 @@ check("delete at the start is a no-op", () => {
   const draft = selectCalculation(calculatorDraft("123"), 0, 0);
   assert.equal(calculatorKey(draft, "delete"), draft);
 });
+check("deleting pasted spaced operands keeps the caret within the normalized expression", () => {
+  let draft = calculatorKey(calculatorDraft("10 + 2"), "delete");
+  assert.equal(draft.expression, "10 +");
+  assert.deepEqual(draft.selection, { start: 4, end: 4 });
+  draft = calculatorKey(draft, "3");
+  assert.equal(draft.expression, "10 +3");
+  assert.deepEqual(draft.selection, { start: 5, end: 5 });
+  value(draft, "13");
+  draft = calculatorKey(draft, "delete");
+  assert.equal(draft.expression, "10 +");
+  assert.deepEqual(draft.selection, { start: 4, end: 4 });
+});
+check("deleting a leading spaced operand adjusts its caret after normalization", () => {
+  const draft = calculatorKey(selectCalculation(calculatorDraft("1 + 2"), 0, 2), "delete");
+  assert.equal(draft.expression, "+ 2");
+  assert.deepEqual(draft.selection, { start: 0, end: 0 });
+  value(draft, "2");
+});
 check("AC clears expression, selection, evaluated state and repeated operation", () => {
   const draft = calculatorKey(keys(["1", "0", "+", "2", "=", "="]), "AC");
   assert.deepEqual(draft, calculatorDraft());
@@ -113,6 +166,14 @@ check("selection clamps native indices to the actual expression", () => {
     start: 3,
     end: 3,
   });
+  assert.deepEqual(selectCalculation(calculatorDraft("123"), NaN, Infinity).selection, {
+    start: 0,
+    end: 0,
+  });
+  assert.deepEqual(selectCalculation(calculatorDraft("123"), 1.8, 2.9).selection, {
+    start: 1,
+    end: 2,
+  });
 });
 
 check("sign toggles a number on and off", () => {
@@ -120,6 +181,13 @@ check("sign toggles a number on and off", () => {
   value(draft, "-12");
   draft = calculatorKey(draft, "sign");
   value(draft, "12");
+});
+check("sign toggles a pending negative operand without changing the binary operator", () => {
+  value(keys(["1", "0", "*", "sign", "2"]), "-20");
+  value(keys(["1", "0", "*", "sign", "sign", "2"]), "20");
+  value(keys(["1", "0", "-", "sign", "2"]), "12");
+  value(keys(["1", "0", "-", "sign", "sign", "2"]), "8");
+  assert.equal(keys(["sign", "sign"]).expression, "");
 });
 check("sign toggles an operand without changing its binary minus", () => {
   let draft = calculatorKey(calculatorDraft("10-2"), "sign");
@@ -199,6 +267,52 @@ check("operator after equals continues the result and replaces repeated operatio
   value(draft, "36");
   draft = calculatorKey(draft, "=");
   value(draft, "108");
+});
+check("equals continuation keeps exact intermediate precision instead of rounded money", () => {
+  value(keys(["1", "/", "3", "=", "*", "3", "="]), "1");
+  value(keys(["1", "/", "3", "=", "+", "1", "/", "3", "=", "+", "1", "/", "3", "="]), "1");
+  value(keys(["0", ".", "0", "0", "4", "=", "*", "1", "0", "0", "0", "="]), "4");
+  value(keys(["0", ".", "0", "0", "4", "sign", "=", "*", "1", "0", "0", "0", "="]), "-4");
+});
+check("repeated equals uses exact fractional answers without cumulative expression growth", () => {
+  let draft = calculatorDraft("1/3");
+  let denominator = 3n;
+  for (let index = 0; index < 40; index++) {
+    draft = calculateDraft(draft);
+    const result = evaluateCalculation(draft.expression);
+    assert.equal(result.status, "valid");
+    assert.deepEqual(result.exactValue, { numerator: "1", denominator: String(denominator) });
+    assert.ok(draft.expression.length < 40, draft.expression);
+    denominator *= 3n;
+  }
+});
+check(
+  "a repeat beyond the arithmetic budget exposes the error instead of the old savable amount",
+  () => {
+    const draft = calculateDraft(calculatorDraft(`1+1/${"3".repeat(120)}`));
+    assert.equal(evaluateCalculation(draft.expression).canApply, true);
+    const repeated = calculateDraft(draft);
+    assert.notEqual(repeated, draft);
+    assert.equal(repeated.evaluated, false);
+    assert.equal(repeated.repeat, null);
+    const result = evaluateCalculation(repeated.expression);
+    assert.equal(result.status, "error");
+    assert.equal(result.status === "error" && result.code, "too_complex");
+    assert.equal(result.canApply, false);
+    assert.equal(result.amount, null);
+  },
+);
+check("sign after equals negates exact fractions and backspace edits the displayed answer", () => {
+  const draft = keys(["1", "/", "3", "="]);
+  value(keys(["sign", "*", "3", "="], draft.expression), "-1");
+  const signed = calculatorKey(draft, "sign");
+  assert.deepEqual(evaluateCalculation(signed.expression).exactValue, {
+    numerator: "-1",
+    denominator: "3",
+  });
+  const deleted = calculatorKey(draft, "delete");
+  assert.equal(deleted.expression, "0.3");
+  value(deleted, "0.30");
 });
 check("digit or decimal after equals starts a new calculation", () => {
   const evaluated = keys(["1", "0", "+", "2", "="]);

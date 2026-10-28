@@ -135,6 +135,9 @@ export default function EntryFormScreen({
   );
   const calculationRef = useRef(calculation);
   const calculationResult = evaluateCalculation(calculation.expression);
+  const hasCalculationPreview =
+    calculationResult.status === "valid" ||
+    (calculationResult.status === "incomplete" && calculationResult.normalizedExpression === "");
   const amount = calculationResult.canApply ? calculationResult.amount : "";
   const [note, setNote] = useState(editingEntry?.note ?? "");
   const [currency, setCurrency] = useState<string>(editingEntry?.currency ?? DEFAULT_CURRENCY);
@@ -1089,12 +1092,16 @@ export default function EntryFormScreen({
                       }}
                     />
                     <Text
-                      accessibilityLabel={t("calculator.result")}
+                      testID="entry-calculation-result"
+                      accessible={hasCalculationPreview}
+                      accessibilityLabel={
+                        hasCalculationPreview ? t("calculator.result") : undefined
+                      }
                       style={styles.calculatedValue}
                       numberOfLines={1}
                       adjustsFontSizeToFit
                     >
-                      = {calculationResult.display ?? (calculation.expression ? "—" : "0")}
+                      {hasCalculationPreview ? `= ${calculationResult.display ?? "0"}` : ""}
                     </Text>
                   </View>
                 </View>
@@ -1395,6 +1402,7 @@ const styles = StyleSheet.create({
     fontFamily: fonts.monoMedium,
     fontSize: 17,
     lineHeight: sansLineHeight(17, 25),
+    minHeight: sansLineHeight(17, 25),
     color: colors.textEmphasis,
     textAlign: "right",
     writingDirection: "ltr",
