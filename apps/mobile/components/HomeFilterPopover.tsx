@@ -20,7 +20,7 @@ export function filterPopoverLayout(anchor: FilterAnchor, viewport: FilterViewpo
     left,
     width,
     bottom: Math.max(gap, viewport.height - anchorY + gap),
-    maxHeight: Math.max(0, Math.min(480, anchorY - top - gap)),
+    height: Math.max(0, anchorY - top - gap),
     arrowLeft: Math.max(12, Math.min(anchor.x + anchor.width / 2 - left - 5, width - 22)),
   };
 }
@@ -110,7 +110,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.bgDefault,
     ...lift,
   },
-  scroll: { flexShrink: 1, minHeight: 0, borderRadius: 14 },
+  scroll: { flex: 1, minHeight: 0, borderRadius: 14 },
   content: { padding: 8, gap: 8 },
   arrow: {
     position: "absolute",
