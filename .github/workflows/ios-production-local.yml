@@ -70,7 +70,7 @@ jobs:
           const prod = eas.build.production;
           assert.equal(app.version, '2.3.0');
           assert.equal(app.ios.bundleIdentifier, 'af.kaata.app');
-          assert.equal(app.ios.buildNumber, '44');
+          assert.equal(app.ios.buildNumber, '45');
           assert.equal(app.owner, 'mateesaafi');
           assert.equal(app.extra.eas.projectId, 'a612156b-0f0b-47ea-ac66-b54d880d98aa');
           assert.equal(eas.cli.appVersionSource, 'local');
@@ -85,7 +85,7 @@ jobs:
           assert.equal(prod.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID,
             '987359341353-dgceg8n94aem9pgorclo11l4nr5906i8.apps.googleusercontent.com');
           assert.equal(fs.existsSync('credentials.json'), false);
-          console.log(`Verified testing source ${actual}, iOS 2.3.0 (44).`);
+          console.log(`Verified testing source ${actual}, iOS 2.3.0 (45).`);
           NODE
           xcodebuild -version
           test "$(xcodebuild -version | head -n 1)" = 'Xcode 26.6'
@@ -128,7 +128,7 @@ jobs:
               root = infos[0].removesuffix('Info.plist')
               assert info['CFBundleIdentifier'] == 'af.kaata.app'
               assert info['CFBundleShortVersionString'] == '2.3.0'
-              assert info['CFBundleVersion'] == '44'
+              assert info['CFBundleVersion'] == '45'
               assert info['MinimumOSVersion'] == '16.4'
               assert sorted(info['UIDeviceFamily']) == [1, 2]
               assert sorted(info['CFBundleLocalizations']) == ['en', 'fa', 'ps']
@@ -150,13 +150,13 @@ jobs:
               'lockfileSha256': hashlib.sha256(pathlib.Path('package-lock.json').read_bytes()).hexdigest(),
           }
           (out / 'candidate-receipt.json').write_text(json.dumps(receipt, indent=2) + '\n')
-          print(json.dumps({'version': '2.3.0', 'build': '44', 'ipaBytes': len(raw), 'ipaSha256': receipt['ipaSha256'], 'requiresFinalArtifactVerification': True}))
+          print(json.dumps({'version': '2.3.0', 'build': '45', 'ipaBytes': len(raw), 'ipaSha256': receipt['ipaSha256'], 'requiresFinalArtifactVerification': True}))
           PY
 
       - name: Keep only the IPA and its non-secret identity receipt
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: kaata-ios-2.3.0-44-candidate-${{ github.run_id }}-${{ github.run_attempt }}
+          name: kaata-ios-2.3.0-45-candidate-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             ${{ runner.temp }}/kaata-ios-output/Kaata.ipa
             ${{ runner.temp }}/kaata-ios-output/candidate-receipt.json
