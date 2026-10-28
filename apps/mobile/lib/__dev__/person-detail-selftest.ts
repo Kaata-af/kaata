@@ -121,6 +121,7 @@ const query = (value: string) => find("TextInput")!.props.onChangeText(value);
 const dateControl = () => find("TallyDateFilterSheet")!;
 const searchFooter = () => find("SearchKeyboardFooter")!;
 const pingButton = () => nodes(tree).find((n) => n.props.testID === "whatsapp-reminder")!;
+const byTestId = (id: string) => nodes(tree).find((node) => node.props.testID === id);
 
 const flattenStyle = (value: any): any =>
   Array.isArray(value) ? Object.assign({}, ...value.filter(Boolean).map(flattenStyle)) : value;
@@ -573,7 +574,7 @@ const mocks: Record<string, any> = {
     icon: {},
     radius: {},
     TOUCH_MIN: 44,
-    typography: { heading: { fontSize: 20 } },
+    typography: { heading: { fontSize: 20 }, title: { fontSize: 16 } },
   },
   "../../lib/use-vault-role": {
     useVaultPermission: () => true,
@@ -2744,7 +2745,114 @@ async function settledTalliesSectionTests() {
   );
 }
 
+async function customerHeaderIdentityTests() {
+  const originalPlatform = platform;
+  const originalRTL = rtl;
+  const assertHeader = (sideWidth: number) => {
+    const header = byTestId("customer-header")!;
+    const back = byTestId("customer-header-back")!;
+    const identity = byTestId("customer-header-identity")!;
+    const actions = byTestId("customer-header-actions")!;
+    const name = byTestId("customer-header-name")!;
+    assert.deepEqual(kids(header), [back, identity, actions]);
+    assert.equal(flattenStyle(back.props.style).width, sideWidth);
+    assert.equal(
+      flattenStyle(actions.props.style).width,
+      sideWidth,
+      "Equal navigation side slots keep the customer centered despite unequal action counts",
+    );
+    assert.equal(flattenStyle(identity.props.style).flex, 1);
+    assert.equal(flattenStyle(identity.props.style).minWidth, 0);
+    assert.equal(flattenStyle(name.props.style).textAlign, "center");
+    assert.equal(name.props.accessibilityRole, "header");
+    assert.equal(name.props.numberOfLines, 1);
+    assert.equal(name.props.ellipsizeMode, "tail");
+    assert.equal(words(name), person.name, "Truncation retains the full name for accessibility");
+    assert.equal(
+      nodes(tree).filter((node) => node.type === "Text" && words(node) === person.name).length,
+      1,
+      "The customer name appears once, in the fixed navigation bar",
+    );
+    assert.equal(
+      nodes(tree).some((node) => node.type === "Text" && words(node).includes(person.phone)),
+      false,
+      "The customer page does not display the saved phone number",
+    );
+    const scrolling = nodes(tree).find((node) => node.type === "ScrollView")!;
+    assert.ok(!nodes(scrolling).includes(name), "Scrolling tallies leaves the name in navigation");
+    return { back, actions, header };
+  };
+  for (const os of ["android", "ios"]) {
+    for (const direction of [false, true]) {
+      platform = os;
+      rtl = direction;
+      fixture();
+      person.name = direction
+        ? "عبدالحق صابر محمد احمد با نام بسیار طولانی"
+        : "A customer with a deliberately long full name";
+      await flush();
+      assertHeader(98);
+      assert.ok(nodes(byTestId("customer-header-actions")).includes(pingButton()));
+      assert.ok(nodes(byTestId("customer-header-actions")).includes(find("OverflowMenu")!));
+      const metadata = byTestId("customer-metadata")!;
+      assert.ok(words(metadata).includes("Family"), "Groups remain visible below navigation");
+      assert.ok(!words(metadata).includes(person.name), "Groups no longer duplicate the title");
+      find("OverflowMenu")!
+        .props.actions.find((action: any) => action.label === "selection.start")
+        .onPress();
+      await flush();
+      const selected = assertHeader(40);
+      assert.equal(
+        nodes(selected.actions).some((node) => node.type === "OverflowMenu"),
+        false,
+      );
+      assert.equal(
+        nodes(selected.actions).some((node) => node.props.testID === "whatsapp-reminder"),
+        false,
+      );
+      nodes(selected.back)
+        .find((node) => node.type === "Pressable")!
+        .props.onPress();
+      await flush();
+      assertHeader(98);
+      assert.deepEqual(routes, [], "The header back button exits selection before navigation");
+      unmount();
+
+      fixture();
+      entries = [];
+      settlement = { count: 0, lastSettledAtMs: null };
+      boundaries = [];
+      await flush();
+      assertHeader(44);
+      assert.equal(pingButton(), undefined);
+      assert.ok(find("OverflowMenu"), "An empty customer retains the action menu");
+      unmount();
+    }
+  }
+  fixture(true);
+  await flush();
+  const badge = nodes(byTestId("customer-header")).find(
+    (node) => node.type === "SharedAccountBadge",
+  )!;
+  assert.ok(badge, "A joined account keeps its shared marker beside the navigation title");
+  assert.equal(badge.props.name, person.name);
+  assert.equal(badge.props.size, 16);
+  assert.equal(badge.props.fontSize, 16);
+  link.other_joined_at = null;
+  await ledgerRefresh();
+  await flush();
+  assert.equal(find("SharedAccountBadge"), undefined);
+  assert.ok(nodes(byTestId("customer-metadata")).includes(byTestId("customer-link-waiting")!));
+  unmount();
+  platform = originalPlatform;
+  rtl = originalRTL;
+  console.log(
+    "PASS customer navigation: centered fixed name, balanced action slots, hidden phone, long LTR/RTL names, selection and shared/group metadata",
+  );
+}
+
 async function main() {
+  await customerHeaderIdentityTests();
   await settledTalliesSectionTests();
   await oneWayAccountUITests();
   await unjoinedInvitationLedgerTests();
@@ -3063,15 +3171,9 @@ async function main() {
       }
       assert.ok(words(tree).includes("Family"), "The customer's group name is visible");
       assert.equal(words(tree).includes("groups.view"), false, "Group names have no Group prefix");
-      const nameRow = nodes(tree).find(
-        (node) =>
-          node.type === "View" &&
-          nodes(node).some((child) => child.type === "Text" && words(child) === person.name) &&
-          nodes(node).some((child) => child.type === "Text" && words(child) === "Family") &&
-          Object.assign({}, ...[node.props.style].flat(2).filter(Boolean)).justifyContent ===
-            "space-between",
-      );
-      assert.ok(nameRow, "Group badges sit in the customer's name row");
+      const metadata = byTestId("customer-metadata")!;
+      assert.ok(words(metadata).includes("Family"), "Group badges remain above the balances");
+      assert.ok(!words(metadata).includes(person.name), "The customer's name lives in navigation");
       assert.equal(dateControl().props.visible, false);
       const calendarButton = nodes(dock).find(
         (node) => node.props.accessibilityLabel === "person.date.title",

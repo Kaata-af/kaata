@@ -2053,48 +2053,84 @@ export default function PersonDetailScreen() {
   );
   const balanceRows = personCurrencyRows(person);
   const singleBalanceCurrency = balanceRows.length === 1;
+  // Equal side slots keep the name centered even when WhatsApp adds a second
+  // action. Selection keeps only Back, with an equally sized empty end slot.
+  const headerSideWidth = selecting ? 40 : entries.length > 0 ? TOUCH_MIN * 2 + 10 : TOUCH_MIN;
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
-      <View style={[styles.headerNav, rowDir(isRTL)]}>
-        <Pressable
-          onPress={() => (selecting ? closeSelection() : router.back())}
-          hitSlop={8}
-          accessibilityRole="button"
-          accessibilityLabel={t("common.back")}
-          style={({ pressed }) => [styles.iconBtn, pressed && { opacity: 0.5 }]}
+      <View testID="customer-header" style={[styles.headerNav, rowDir(isRTL)]}>
+        <View
+          testID="customer-header-back"
+          style={[styles.headerSide, rowDir(isRTL), { width: headerSideWidth }]}
         >
-          <Ionicons
-            name={isRTL ? "chevron-forward" : "chevron-back"}
-            size={icon.header}
-            color={colors.textEmphasis}
-          />
-        </Pressable>
-        {!selecting ? (
-          <View style={[styles.headerActions, rowDir(isRTL)]}>
-            {entries.length > 0 ? (
-              <Pressable
-                testID="whatsapp-reminder"
-                onPress={() => void sendPing()}
-                disabled={pinging}
-                accessibilityRole="button"
-                accessibilityLabel={t(
-                  pingStage === "preparing"
-                    ? "person.ping.preparing"
-                    : pingStage === "opening"
-                      ? "person.ping.opening"
-                      : "person.ping.button",
-                )}
-                accessibilityHint={t("person.ping.hint", { name: person.name })}
-                accessibilityState={{ disabled: pinging, busy: pinging }}
-                style={({ pressed }) => [styles.headerShare, pressed && { opacity: 0.5 }]}
-              >
-                {pinging ? (
-                  <ActivityIndicator size="small" color={colors.actionPrimary} />
-                ) : (
-                  <Ionicons name="logo-whatsapp" size={icon.header} color={colors.actionPrimary} />
-                )}
-              </Pressable>
+          <Pressable
+            onPress={() => (selecting ? closeSelection() : router.back())}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel={t("common.back")}
+            style={({ pressed }) => [styles.iconBtn, pressed && { opacity: 0.5 }]}
+          >
+            <Ionicons
+              name={isRTL ? "chevron-forward" : "chevron-back"}
+              size={icon.header}
+              color={colors.textEmphasis}
+            />
+          </Pressable>
+        </View>
+        <View testID="customer-header-identity" style={styles.headerIdentity}>
+          <View style={[styles.headerTitleRow, rowDir(isRTL)]}>
+            <Text
+              testID="customer-header-name"
+              accessibilityRole="header"
+              style={styles.headerName}
+              numberOfLines={1}
+              ellipsizeMode="tail"
+            >
+              {person.name}
+            </Text>
+            {sharedAccountStatus === "joined" ? (
+              <SharedAccountBadge
+                size={16}
+                name={person.name}
+                fontSize={typography.title.fontSize}
+              />
             ) : null}
+          </View>
+        </View>
+        <View
+          testID="customer-header-actions"
+          style={[
+            styles.headerSide,
+            styles.headerActions,
+            rowDir(isRTL),
+            { width: headerSideWidth },
+          ]}
+        >
+          {!selecting && entries.length > 0 ? (
+            <Pressable
+              testID="whatsapp-reminder"
+              onPress={() => void sendPing()}
+              disabled={pinging}
+              accessibilityRole="button"
+              accessibilityLabel={t(
+                pingStage === "preparing"
+                  ? "person.ping.preparing"
+                  : pingStage === "opening"
+                    ? "person.ping.opening"
+                    : "person.ping.button",
+              )}
+              accessibilityHint={t("person.ping.hint", { name: person.name })}
+              accessibilityState={{ disabled: pinging, busy: pinging }}
+              style={({ pressed }) => [styles.headerShare, pressed && { opacity: 0.5 }]}
+            >
+              {pinging ? (
+                <ActivityIndicator size="small" color={colors.actionPrimary} />
+              ) : (
+                <Ionicons name="logo-whatsapp" size={icon.header} color={colors.actionPrimary} />
+              )}
+            </Pressable>
+          ) : null}
+          {!selecting ? (
             <OverflowMenu
               actions={[
                 ...(selectableEntries.length > 0
@@ -2112,7 +2148,10 @@ export default function PersonDetailScreen() {
                         label: t("person.sheet.edit"),
                         icon: "create-outline" as const,
                         onPress: () =>
-                          router.push({ pathname: "/person/[id]/edit", params: { id: person.id } }),
+                          router.push({
+                            pathname: "/person/[id]/edit",
+                            params: { id: person.id },
+                          }),
                       },
                       {
                         label: link ? t("tab.join.title") : t("tab.link.title"),
@@ -2188,8 +2227,8 @@ export default function PersonDetailScreen() {
                 },
               ]}
             />
-          </View>
-        ) : null}
+          ) : null}
+        </View>
       </View>
       {/* One person's tallies are bounded, so render them as ONE bordered card
           (ScrollView + map), exactly like the home people list. The old
@@ -2252,18 +2291,9 @@ export default function PersonDetailScreen() {
           >
             <View>
               <View style={styles.info}>
-                <View style={[styles.identityRow, rowDir(isRTL)]}>
-                  <View style={[styles.nameRow, rowDir(isRTL)]}>
-                    <Text style={[styles.name, { flexShrink: 1 }, textDir(isRTL)]}>
-                      {person.name}
-                    </Text>
-                    {sharedAccountStatus === "joined" ? (
-                      <SharedAccountBadge
-                        size={20}
-                        name={person.name}
-                        fontSize={typography.heading.fontSize}
-                      />
-                    ) : sharedAccountStatus === "waiting" ? (
+                {sharedAccountStatus === "waiting" || personGroupNames.length > 0 ? (
+                  <View testID="customer-metadata" style={[styles.metadataRow, rowDir(isRTL)]}>
+                    {sharedAccountStatus === "waiting" ? (
                       <Text
                         testID="customer-link-waiting"
                         style={[styles.linkWaiting, textDir(isRTL)]}
@@ -2272,26 +2302,16 @@ export default function PersonDetailScreen() {
                         {t("tab.chip.waiting")}
                       </Text>
                     ) : null}
+                    {personGroupNames.length > 0 ? (
+                      <View style={[styles.groupBadges, rowDir(isRTL)]}>
+                        {personGroupNames.map((name) => (
+                          <View key={name} style={styles.groupBadge}>
+                            <Text style={[styles.groupBadgeText, textDir(isRTL)]}>{name}</Text>
+                          </View>
+                        ))}
+                      </View>
+                    ) : null}
                   </View>
-                  {personGroupNames.length > 0 ? (
-                    <View style={[styles.groupBadges, rowDir(isRTL)]}>
-                      {personGroupNames.map((name) => (
-                        <View key={name} style={styles.groupBadge}>
-                          <Text style={[styles.groupBadgeText, textDir(isRTL)]}>{name}</Text>
-                        </View>
-                      ))}
-                    </View>
-                  ) : null}
-                </View>
-                {person.phone ? (
-                  <Text
-                    style={[
-                      styles.phone,
-                      { writingDirection: "ltr", textAlign: isRTL ? "right" : "left" },
-                    ]}
-                  >
-                    {ltrIsolate(person.phone)}
-                  </Text>
                 ) : null}
                 {entryCurrencies.scope === flowScope &&
                 entryCurrencies.codes.length === 0 &&
@@ -3321,7 +3341,23 @@ const styles = StyleSheet.create({
   // The 10pt between header actions lives in the row's gap: a margin on
   // one side of the button landed on the outer edge in Dari's reversed row,
   // leaving 2pt between the icons (audit #11).
-  headerActions: { flexDirection: "row", alignItems: "center", gap: 10 },
+  headerSide: { flexShrink: 0, alignItems: "center" },
+  headerActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    gap: 10,
+  },
+  headerIdentity: { flex: 1, minWidth: 0, alignItems: "center", paddingHorizontal: 4 },
+  headerTitleRow: { maxWidth: "100%", alignItems: "center", justifyContent: "center", gap: 6 },
+  headerName: {
+    ...typography.title,
+    fontFamily: fonts.sansBold,
+    color: colors.textEmphasis,
+    textAlign: "center",
+    flexShrink: 1,
+    minWidth: 0,
+  },
   headerShare: {
     minWidth: TOUCH_MIN,
     minHeight: TOUCH_MIN,
@@ -3429,16 +3465,20 @@ const styles = StyleSheet.create({
     gap: 8,
     flexWrap: "wrap",
   },
-  // 22 → typography.heading (20): 22 was one of the scale's two orphan display
-  // sizes and sat 2px from `heading`, which every other screen headline already
-  // uses. The BOLD weight is kept (heading ships sansSemi) — this is a person's
-  // name, the anchor of the screen, and dropping a weight step here would read
-  // as a demotion rather than a scale fix. Same fontFamily-override idiom as
-  // Button's `textPill`.
-  identityRow: { alignItems: "center", justifyContent: "space-between", gap: 12 },
-  nameRow: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 7 },
+  metadataRow: {
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    marginBottom: 12,
+  },
   linkWaiting: { ...typography.caption, color: colors.textSubtle, maxWidth: "50%" },
-  groupBadges: { maxWidth: "45%", flexWrap: "wrap", justifyContent: "flex-end", gap: 6 },
+  groupBadges: {
+    maxWidth: "100%",
+    flexShrink: 1,
+    flexWrap: "wrap",
+    justifyContent: "flex-end",
+    gap: 6,
+  },
   groupBadge: {
     maxWidth: "100%",
     paddingHorizontal: 9,
@@ -3449,13 +3489,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.bgMuted,
   },
   groupBadgeText: { ...typography.bodySm, fontFamily: fonts.sansMedium, color: colors.textMuted },
-  name: { ...typography.heading, fontFamily: fonts.sansBold, color: colors.textEmphasis },
-  phone: {
-    fontSize: 13,
-    fontFamily: fonts.monoRegular,
-    color: colors.textSubtle,
-    marginTop: 4,
-  },
   groups: {
     fontSize: 13,
     fontFamily: fonts.sansRegular,
