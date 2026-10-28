@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math/big"
 	"net/http"
 	"regexp"
 	"sort"
@@ -89,6 +90,9 @@ type WebLedgerPerson struct {
 	RelationshipID       string           `json:"relationship_id"`
 	UserID               string           `json:"user_id"`
 	Name                 string           `json:"name"`
+	CreatedAt            int64            `json:"created_at"`
+	LastEntryAt          *int64           `json:"last_entry_at"`
+	IsSettled            *bool            `json:"is_settled"`
 	PhoneE164            *string          `json:"phone_e164"`
 	DefaultEntryCurrency *string          `json:"default_entry_currency"`
 	ArchivedAt           *int64           `json:"archived_at"`
@@ -272,7 +276,7 @@ func populateWebLedger(view *WebLedger, p *Projection, events []LedgerEvent, lin
 		if user == nil {
 			continue
 		}
-		person := WebLedgerPerson{RelationshipID: rel.ID, UserID: user.ID, Name: user.DisplayName,
+		person := WebLedgerPerson{RelationshipID: rel.ID, UserID: user.ID, Name: user.DisplayName, CreatedAt: user.CreatedAt,
 			PhoneE164: user.PhoneE164, DefaultEntryCurrency: rel.DefaultEntryCurrency, ArchivedAt: rel.ArchivedAt,
 			SettledThrough: map[string]int64{}}
 		for _, closed := range settlements[rel.ID] {
@@ -323,6 +327,9 @@ func populateWebLedger(view *WebLedger, p *Projection, events []LedgerEvent, lin
 		}
 		view.Entries = append(view.Entries, row)
 	}
+	if err := setWebPersonActivity(view); err != nil {
+		return err
+	}
 	sort.Slice(view.People, func(i, j int) bool { return view.People[i].RelationshipID < view.People[j].RelationshipID })
 	sort.Slice(view.Entries, func(i, j int) bool {
 		if view.Entries[i].CreatedAt != view.Entries[j].CreatedAt {
@@ -330,5 +337,70 @@ func populateWebLedger(view *WebLedger, p *Projection, events []LedgerEvent, lin
 		}
 		return view.Entries[i].ID < view.Entries[j].ID
 	})
+	return nil
+}
+
+// Mobile's unified customer list uses the latest non-deleted business date,
+// falling back to the user's creation date when there are no tallies. An amount
+// or note edit does not become recent activity; date amendments and deletions
+// change the current maximum. Explicitly settled customers sort after open
+// ones, and a merely-zero balance is not an explicit settlement.
+func setWebPersonActivity(view *WebLedger) error {
+	type currencyActivity struct {
+		latest  int64
+		balance *big.Int
+	}
+	activity := map[string]map[string]*currencyActivity{}
+	for _, entry := range view.Entries {
+		if entry.IsDeleted {
+			continue
+		}
+		currencies := activity[entry.RelationshipID]
+		if currencies == nil {
+			currencies = map[string]*currencyActivity{}
+			activity[entry.RelationshipID] = currencies
+		}
+		current := currencies[entry.Currency]
+		if current == nil {
+			current = &currencyActivity{latest: entry.CreatedAt, balance: new(big.Int)}
+			currencies[entry.Currency] = current
+		}
+		if entry.CreatedAt > current.latest {
+			current.latest = entry.CreatedAt
+		}
+		// Every row has already passed canonicalWebMoney: at most two decimal
+		// places, no exponent, and no narrowing of large historical amounts.
+		whole, fraction, _ := strings.Cut(entry.AmountAFN, ".")
+		minor, ok := new(big.Int).SetString(whole+fraction+strings.Repeat("0", 2-len(fraction)), 10)
+		if !ok {
+			return errLedgerAmountUnsupported
+		}
+		if entry.Type == "debt" {
+			current.balance.Add(current.balance, minor)
+		} else if entry.Type == "payment" {
+			current.balance.Sub(current.balance, minor)
+		}
+	}
+	for i := range view.People {
+		person := &view.People[i]
+		// The first web release deliberately does not project shared statements.
+		// Local-only dates or zeroes must not masquerade as complete shared data.
+		if person.ReadOnlyReason != nil && *person.ReadOnlyReason == "shared_tab" {
+			continue
+		}
+		currencies := activity[person.RelationshipID]
+		settled := len(currencies) > 0
+		for currency, current := range currencies {
+			if person.LastEntryAt == nil || current.latest > *person.LastEntryAt {
+				latest := current.latest
+				person.LastEntryAt = &latest
+			}
+			boundary, explicit := person.SettledThrough[currency]
+			if current.balance.Sign() != 0 || !explicit || boundary < current.latest {
+				settled = false
+			}
+		}
+		person.IsSettled = &settled
+	}
 	return nil
 }

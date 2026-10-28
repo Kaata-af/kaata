@@ -41,6 +41,10 @@ export type WebPerson = {
   user_id: string;
   name: string;
   phone_e164: string | null;
+  // Optional while the web and backend deployments roll out independently.
+  created_at?: number;
+  last_entry_at?: number | null;
+  is_settled?: boolean | null;
   default_entry_currency: string | null;
   archived_at: number | null;
   read_only: boolean;

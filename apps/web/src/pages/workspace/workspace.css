@@ -326,18 +326,27 @@
 }
 .workspace-summary {
   display: grid;
-  grid-template-columns: 1fr 1fr auto;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 440px), 1fr));
   gap: 16px;
   margin-bottom: 28px;
+}
+.workspace-currency-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
 }
 .workspace-summary-card {
   display: flex;
   align-items: center;
   gap: 14px;
-  padding: 24px;
+  padding: 20px;
   background: white;
   border: 1px solid #e5e5e5;
   border-radius: 11px;
+  min-width: 0;
+}
+.workspace-summary-card > div {
+  min-width: 0;
 }
 .workspace-summary-card p {
   color: #737373;
@@ -353,6 +362,8 @@
   line-height: 1;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+  max-width: 100%;
 }
 .workspace-summary-card small {
   font-size: 12px;
@@ -379,25 +390,6 @@
 .workspace-direction svg {
   width: 17px;
   height: 17px;
-}
-.workspace-currency {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 9px;
-  min-width: 94px;
-  padding-inline-start: 6px;
-}
-.workspace-currency label {
-  font-size: 11px;
-  color: #737373;
-}
-.workspace-currency select {
-  border: 1px solid #e5e5e5;
-  background: white;
-  padding: 8px 10px;
-  border-radius: 7px;
-  font-size: 12px;
 }
 .workspace-ledger {
   display: grid;
@@ -518,6 +510,12 @@
   color: #8a8a8a;
   margin-top: 5px;
 }
+.workspace-person-balances {
+  display: grid;
+  gap: 10px;
+  max-width: 55%;
+  min-width: 0;
+}
 .workspace-person-balance {
   display: flex;
   flex-direction: column;
@@ -528,9 +526,14 @@
   font-size: 13px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+  max-width: 100%;
 }
 .workspace-person-balance small {
   font-size: 9px;
+}
+.workspace-person-balance strong small {
+  font-weight: 400;
 }
 .workspace-person-balance.collect,
 .workspace-person-total.collect {
@@ -580,9 +583,15 @@
   flex: 1;
   min-width: 0;
 }
+.workspace-person-totals {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 160px), 1fr));
+  gap: 16px;
+  padding: 14px 24px 25px;
+}
 .workspace-person-total {
   text-align: center;
-  padding: 14px 24px 25px;
+  min-width: 0;
 }
 .workspace-person-total p {
   font-size: 12px;
@@ -593,10 +602,12 @@
   flex-wrap: wrap;
   justify-content: center;
   gap: 9px;
-  font-size: 35px;
+  font-size: 30px;
   font-weight: 600;
   line-height: 1.2;
   font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+  max-width: 100%;
 }
 .workspace-person-total small {
   font-size: 12px;
@@ -1048,7 +1059,7 @@
     padding: 9px;
   }
   .workspace-summary {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: minmax(0, 1fr);
     gap: 9px;
   }
   .workspace-summary-card {
@@ -1063,16 +1074,6 @@
   }
   .workspace-summary-card small {
     font-size: 9px;
-  }
-  .workspace-currency {
-    grid-column: 1/-1;
-    flex-direction: row;
-    align-items: center;
-    justify-content: flex-end;
-    gap: 10px;
-  }
-  .workspace-currency select {
-    padding: 5px 8px;
   }
   .workspace-section-heading {
     padding: 19px 17px 16px;

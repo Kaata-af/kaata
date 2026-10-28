@@ -101,6 +101,113 @@ func TestWebLedgerRejectsInexactAmountsInsteadOfRounding(t *testing.T) {
 	}
 }
 
+func TestWebLedgerActivityUsesCurrentBusinessDate(t *testing.T) {
+	rel := "relationship"
+	events := []LedgerEvent{{EventID: "person", EventType: EventPersonAdded, VaultID: "vault", TargetID: "user", RelationshipID: &rel,
+		HLC: HLC{PMS: 10}, Payload: json.RawMessage(`{"user_id":"user","name":"Customer"}`)}}
+	appendEvent := func(id, kind, target, payload string) {
+		events = append(events, LedgerEvent{EventID: id, EventType: kind, VaultID: "vault", TargetID: target, RelationshipID: &rel,
+			HLC: HLC{PMS: int64(len(events)+1) * 1000}, Payload: json.RawMessage(payload)})
+	}
+	appendEvent("first", EventEntryCreated, "entry-a", `{"entry_id":"entry-a","relationship_id":"relationship","type":"debt","amount_afn":10,"occurred_at_ms":100}`)
+	appendEvent("second", EventEntryCreated, "entry-b", `{"entry_id":"entry-b","relationship_id":"relationship","type":"payment","amount_afn":5,"occurred_at_ms":200}`)
+	assertActivity := func(want *int64) {
+		t.Helper()
+		projection, err := ApplyEvents(events)
+		if err != nil {
+			t.Fatal(err)
+		}
+		view := &WebLedger{LegacyCurrency: "AFN", DefaultEntryCurrency: "AFN"}
+		if err := populateWebLedger(view, &projection, events, nil); err != nil {
+			t.Fatal(err)
+		}
+		if len(view.People) != 1 || view.People[0].CreatedAt != 10 {
+			t.Fatalf("person creation changed: %+v", view.People)
+		}
+		got := view.People[0].LastEntryAt
+		if (want == nil) != (got == nil) || (want != nil && *got != *want) {
+			t.Fatalf("activity got %v, want %v", got, want)
+		}
+		if view.People[0].IsSettled == nil || *view.People[0].IsSettled {
+			t.Fatal("open/empty contact was marked explicitly settled")
+		}
+	}
+	latest := int64(200)
+	assertActivity(&latest)
+	appendEvent("note-edit", EventEntryAmended, "entry-a", `{"changes":{"note":"Edited much later","amount_afn":20}}`)
+	assertActivity(&latest)
+	appendEvent("date-edit", EventEntryAmended, "entry-b", `{"changes":{"occurred_at_ms":50}}`)
+	latest = 100
+	assertActivity(&latest)
+	appendEvent("delete-first", EventEntryDeleted, "entry-a", `{}`)
+	latest = 50
+	assertActivity(&latest)
+	appendEvent("delete-second", EventEntryDeleted, "entry-b", `{}`)
+	assertActivity(nil)
+}
+
+func TestWebLedgerActivityRequiresEveryActiveCurrencyExplicitlySettled(t *testing.T) {
+	p := NewProjection()
+	p.Users["user"] = &UserProjection{ID: "user", CreatedAt: 10, UpdatedAt: 9999}
+	p.Relationships["rel"] = &RelationshipProjection{ID: "rel", UserBID: "user", CreatedAt: 20}
+	p.Entries["afn-debt"] = &EntryProjection{ID: "afn-debt", RelationshipID: "rel", Type: "debt", AmountAFN: json.Number("90071992547409931234567890.12"), Currency: "AFN", CreatedAt: 100}
+	p.Entries["afn-paid"] = &EntryProjection{ID: "afn-paid", RelationshipID: "rel", Type: "payment", AmountAFN: json.Number("90071992547409931234567890.12"), Currency: "AFN", CreatedAt: 200}
+	rel := "rel"
+	settlements := []LedgerEvent{}
+	settle := func(currency string, at int64) {
+		raw, _ := json.Marshal(map[string]any{"currency": currency, "settled_at_ms": at})
+		settlements = append(settlements, LedgerEvent{EventType: EventEntrySettled, RelationshipID: &rel, Payload: raw})
+	}
+	assertSettled := func(want bool, latest int64) {
+		t.Helper()
+		view := &WebLedger{LegacyCurrency: "AFN", DefaultEntryCurrency: "AFN"}
+		if err := populateWebLedger(view, &p, settlements, nil); err != nil {
+			t.Fatal(err)
+		}
+		person := view.People[0]
+		if person.CreatedAt != 10 || person.LastEntryAt == nil || *person.LastEntryAt != latest || person.IsSettled == nil || *person.IsSettled != want {
+			t.Fatalf("want creation=10 activity=%d settled=%v; got %+v", latest, want, person)
+		}
+	}
+	assertSettled(false, 200) // A zero balance alone is neutral, not ruled off.
+	settle("AFN", 300)
+	assertSettled(true, 200)
+	p.Entries["usd-debt"] = &EntryProjection{ID: "usd-debt", RelationshipID: "rel", Type: "debt", AmountAFN: json.Number("10"), Currency: "USD", CreatedAt: 400}
+	assertSettled(false, 400)
+	p.Entries["usd-paid"] = &EntryProjection{ID: "usd-paid", RelationshipID: "rel", Type: "payment", AmountAFN: json.Number("10"), Currency: "USD", CreatedAt: 500}
+	assertSettled(false, 500) // A separate zero currency still needs its own marker.
+	settle("USD", 500)
+	assertSettled(true, 500)
+	p.Entries["usd-new"] = &EntryProjection{ID: "usd-new", RelationshipID: "rel", Type: "debt", AmountAFN: json.Number("5"), Currency: "USD", CreatedAt: 600}
+	assertSettled(false, 600)
+	p.Entries["usd-new"].IsDeleted = true
+	assertSettled(true, 500) // Deleting the latest tally restores the closed frontier.
+	for _, entry := range p.Entries {
+		entry.IsDeleted = true
+	}
+	view := &WebLedger{LegacyCurrency: "AFN", DefaultEntryCurrency: "AFN"}
+	if err := populateWebLedger(view, &p, settlements, nil); err != nil {
+		t.Fatal(err)
+	}
+	if view.People[0].LastEntryAt != nil || view.People[0].IsSettled == nil || *view.People[0].IsSettled {
+		t.Fatal("empty history must use creation and stay neutral")
+	}
+}
+
+func TestWebLedgerSharedActivityRemainsUnknown(t *testing.T) {
+	p := NewProjection()
+	p.Users["user"] = &UserProjection{ID: "user", CreatedAt: 42}
+	p.Relationships["rel"] = &RelationshipProjection{ID: "rel", UserBID: "user"}
+	p.Entries["local"] = &EntryProjection{ID: "local", RelationshipID: "rel", Type: "debt", AmountAFN: json.Number("10"), CreatedAt: 999}
+	view := &WebLedger{LegacyCurrency: "AFN", DefaultEntryCurrency: "AFN"}
+	if err := populateWebLedger(view, &p, nil, map[string]bool{"rel": true}); err != nil {
+		t.Fatal(err)
+	}
+	if view.People[0].CreatedAt != 42 || view.People[0].LastEntryAt != nil || view.People[0].IsSettled != nil {
+		t.Fatalf("partial shared history was presented as complete activity: %+v", view.People[0])
+	}
+}
+
 func webLedgerRequest(t *testing.T, h *Handler, accountID, installID, vaultID string) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodGet, "/v1/sync/ledger?vault_id="+vaultID, nil)

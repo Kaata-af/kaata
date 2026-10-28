@@ -41,12 +41,13 @@ import {
   amountInput,
   asciiDigits,
   balanceMap,
+  defaultPersonEntryCurrency,
   entryTimestamp,
-  ledgerCurrencies,
   localDateValue,
   minorUnits,
   money,
   peopleInView,
+  personBalances,
   statementCSV,
   totals,
   type BalanceFilter,
@@ -89,7 +90,6 @@ function LedgerWorkspace({ session }: { session: WebSession }) {
   const [vaults, setVaults] = useState<WebVault[]>([]);
   const [vaultID, setVaultID] = useState("");
   const [ledger, setLedger] = useState<WebLedger | null>(null);
-  const [currency, setCurrency] = useState("");
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<BalanceFilter>("all");
   const [personID, setPersonID] = useState<string | null>(null);
@@ -149,9 +149,6 @@ function LedgerWorkspace({ session }: { session: WebSession }) {
       setLedger(next);
       setError(false);
       setErrorCode("");
-      setCurrency((current) =>
-        ledgerCurrencies(next).includes(current) ? current : next.default_entry_currency,
-      );
       setPersonID((current) =>
         next.people.some(
           (person) => person.relationship_id === current && person.archived_at == null,
@@ -182,7 +179,6 @@ function LedgerWorkspace({ session }: { session: WebSession }) {
     setPersonID(null);
     setQuery("");
     setFilter("all");
-    setCurrency("");
     setModal(null);
     if (vaultID) void refresh(vaultID, true);
     return () => {
@@ -211,11 +207,15 @@ function LedgerWorkspace({ session }: { session: WebSession }) {
     };
   }, [vaultID, online, modal, refresh]);
 
-  const balances = useMemo(() => balanceMap(ledger?.entries ?? [], currency), [ledger, currency]);
-  const summary = useMemo(() => totals(ledger?.people ?? [], balances), [ledger, balances]);
+  const balances = useMemo(() => balanceMap(ledger?.entries ?? []), [ledger]);
+  const defaultCurrency = ledger?.default_entry_currency || "AFN";
+  const summary = useMemo(
+    () => totals(ledger?.people ?? [], balances, defaultCurrency),
+    [ledger, balances, defaultCurrency],
+  );
   const people = useMemo(
-    () => peopleInView(ledger?.people ?? [], balances, query, filter),
-    [ledger, balances, query, filter],
+    () => peopleInView(ledger?.people ?? [], balances, query, filter, lang),
+    [ledger, balances, query, filter, lang],
   );
   const person = ledger?.people.find((row) => row.relationship_id === personID) ?? null;
   const canWrite =
@@ -231,14 +231,11 @@ function LedgerWorkspace({ session }: { session: WebSession }) {
   const visibleEntries = useMemo(
     () =>
       (ledger?.entries ?? [])
-        .filter(
-          (entry) =>
-            !entry.is_deleted && entry.relationship_id === personID && entry.currency === currency,
-        )
+        .filter((entry) => !entry.is_deleted && entry.relationship_id === personID)
         .sort((a, b) => b.created_at - a.created_at || b.id.localeCompare(a.id)),
-    [ledger, personID, currency],
+    [ledger, personID],
   );
-  const personBalance = balances.get(personID ?? "") ?? 0n;
+  const selectedBalances = personBalances(balances, personID ?? "", defaultCurrency);
   const loadMessage = errorCode === "ledger_amount_unsupported" ? c.unsupportedAmount : c.loadError;
 
   async function loggedOut() {
@@ -450,44 +447,24 @@ function LedgerWorkspace({ session }: { session: WebSession }) {
         ) : (
           <>
             <section className="workspace-summary" aria-label={c.balance}>
-              <div className="workspace-summary-card">
-                <span className="workspace-direction collect">
-                  <Icon name="down" />
-                </span>
-                <div>
-                  <p>{c.totalCollect}</p>
-                  <strong dir="ltr">
-                    {money(summary.collect)}
-                    <small>{currency}</small>
-                  </strong>
-                </div>
-              </div>
-              <div className="workspace-summary-card">
-                <span className="workspace-direction pay">
-                  <Icon name="up" />
-                </span>
-                <div>
-                  <p>{c.totalPay}</p>
-                  <strong dir="ltr">
-                    {money(summary.pay)}
-                    <small>{currency}</small>
-                  </strong>
-                </div>
-              </div>
-              <div className="workspace-currency">
-                <label htmlFor="workspace-currency">{c.currency}</label>
-                <select
-                  id="workspace-currency"
-                  value={currency}
-                  onChange={(event) => setCurrency(event.target.value)}
-                >
-                  {ledgerCurrencies(ledger).map((code) => (
-                    <option key={code} value={code}>
-                      {code}
-                    </option>
+              {summary.map((row) => (
+                <div className="workspace-currency-summary" key={row.currency}>
+                  {(["collect", "pay"] as const).map((side) => (
+                    <div className="workspace-summary-card" key={side}>
+                      <span className={`workspace-direction ${side}`}>
+                        <Icon name={side === "collect" ? "down" : "up"} />
+                      </span>
+                      <div>
+                        <p>{side === "collect" ? c.totalCollect : c.totalPay}</p>
+                        <strong dir="ltr">
+                          {money(row[side])}
+                          <small>{row.currency}</small>
+                        </strong>
+                      </div>
+                    </div>
                   ))}
-                </select>
-              </div>
+                </div>
+              ))}
             </section>
             <div className={`workspace-ledger ${person ? "has-selection" : ""}`}>
               <section className="workspace-people" aria-label={c.people}>
@@ -546,7 +523,12 @@ function LedgerWorkspace({ session }: { session: WebSession }) {
                     />
                   ) : (
                     people.map((row) => {
-                      const balance = balances.get(row.relationship_id) ?? 0n;
+                      const rowBalances = personBalances(
+                        balances,
+                        row.relationship_id,
+                        defaultCurrency,
+                      );
+                      const allClear = rowBalances.every((row) => row.balance === 0n);
                       const shared = row.read_only_reason === "shared_tab";
                       return (
                         <button
@@ -564,25 +546,30 @@ function LedgerWorkspace({ session }: { session: WebSession }) {
                                 c.shared
                               ) : row.phone_e164 ? (
                                 <bdi>{row.phone_e164}</bdi>
-                              ) : balance === 0n ? (
+                              ) : allClear ? (
                                 c.allClear
                               ) : (
                                 c.balance
                               )}
                             </small>
                           </span>
-                          <span
-                            className={`workspace-person-balance ${balance > 0n ? "collect" : balance < 0n ? "pay" : ""}`}
-                          >
+                          <span className="workspace-person-balances">
                             {shared ? (
                               <Icon name="link" />
                             ) : (
-                              <>
-                                <strong dir="ltr">{money(balance)}</strong>
-                                <small>
-                                  {balance > 0n ? c.collect : balance < 0n ? c.pay : currency}
-                                </small>
-                              </>
+                              rowBalances.map(({ currency, balance }) => (
+                                <span
+                                  key={currency}
+                                  className={`workspace-person-balance ${balance > 0n ? "collect" : balance < 0n ? "pay" : ""}`}
+                                >
+                                  <strong dir="ltr">
+                                    {money(balance)} <small>{currency}</small>
+                                  </strong>
+                                  <small>
+                                    {balance > 0n ? c.collect : balance < 0n ? c.pay : c.allClear}
+                                  </small>
+                                </span>
+                              ))
                             )}
                           </span>
                         </button>
@@ -637,20 +624,21 @@ function LedgerWorkspace({ session }: { session: WebSession }) {
                       </Empty>
                     ) : (
                       <>
-                        <div
-                          className={`workspace-person-total ${personBalance > 0n ? "collect" : personBalance < 0n ? "pay" : ""}`}
-                        >
-                          <p>
-                            {personBalance > 0n
-                              ? c.theyOwe
-                              : personBalance < 0n
-                                ? c.youOwe
-                                : c.allClear}
-                          </p>
-                          <strong dir="ltr">
-                            {money(personBalance)}
-                            <small>{currency}</small>
-                          </strong>
+                        <div className="workspace-person-totals">
+                          {selectedBalances.map(({ currency, balance }) => (
+                            <div
+                              key={currency}
+                              className={`workspace-person-total ${balance > 0n ? "collect" : balance < 0n ? "pay" : ""}`}
+                            >
+                              <p>
+                                {balance > 0n ? c.theyOwe : balance < 0n ? c.youOwe : c.allClear}
+                              </p>
+                              <strong dir="ltr">
+                                {money(balance)}
+                                <small>{currency}</small>
+                              </strong>
+                            </div>
+                          ))}
                         </div>
                         <div className="workspace-entry-actions">
                           <button
@@ -772,7 +760,6 @@ function LedgerWorkspace({ session }: { session: WebSession }) {
           key={modal.kind + ("entry" in modal ? (modal.entry?.id ?? "") : "")}
           modal={modal}
           ledger={ledger}
-          currency={currency}
           c={c}
           onClose={() => {
             setModal(null);
@@ -799,14 +786,12 @@ function LedgerWorkspace({ session }: { session: WebSession }) {
 function WorkspaceModal({
   modal,
   ledger,
-  currency,
   c,
   onClose,
   onSaved,
 }: {
   modal: Modal;
   ledger: WebLedger | null;
-  currency: string;
   c: WorkspaceCopy;
   onClose: () => void;
   onSaved: (result: { message: string; vaultID?: string; personID?: string }) => Promise<void>;
@@ -824,10 +809,10 @@ function WorkspaceModal({
   const [date, setDate] = useState(localDateValue(entry?.created_at ?? openedAt));
   const [code, setCode] = useState(
     entry?.currency ??
-      (modal.kind === "vault"
-        ? "AFN"
-        : ledger?.enabled_currencies.includes(currency)
-          ? currency
+      (modal.kind === "entry" && ledger
+        ? defaultPersonEntryCurrency(ledger, modal.person)
+        : modal.kind === "vault"
+          ? "AFN"
           : ledger?.default_entry_currency || "AFN"),
   );
   const [direction, setDirection] = useState(modal.kind === "entry" ? modal.direction : "debt");

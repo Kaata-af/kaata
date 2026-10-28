@@ -4,11 +4,13 @@ import type { WebEntry, WebPerson } from "../../lib/web-ledger";
 import {
   amountInput,
   balanceMap,
+  defaultPersonEntryCurrency,
   entryDate,
   entryTimestamp,
   localDateValue,
   minorUnits,
   money,
+  personBalances,
   peopleInView,
   statementCSV,
   totals,
@@ -66,12 +68,149 @@ test("ledger totals preserve cents, direction, and currency without adding share
     person("Shared", { read_only: true, read_only_reason: "shared_tab" }),
     person("Archived", { archived_at: 1 }),
   ];
-  const balances = balanceMap(rows, "AFN");
-  assert.equal(balances.get("Ahmad"), 30n);
-  assert.deepEqual(totals(people, balances), { collect: 30n, pay: 1234n });
-  assert.equal(balanceMap(rows, "USD").get("Ahmad"), 10000n);
+  const balances = balanceMap(rows);
+  assert.equal(balances.get("Ahmad")?.get("AFN"), 30n);
+  assert.deepEqual(totals(people, balances, "AFN"), [
+    { currency: "AFN", collect: 30n, pay: 1234n },
+    { currency: "USD", collect: 10000n, pay: 0n },
+  ]);
+  assert.equal(balances.get("Ahmad")?.get("USD"), 10000n);
   assert.equal(money(100_000_000_000_031n), "1,000,000,000,000.31");
   assert.equal(minorUnits("-12.34"), -1234n);
+});
+
+test("mixed directions remain separate in totals and qualify for either balance filter", () => {
+  const people = [person("Mixed"), person("Other"), person("Zero"), person("Empty")];
+  const balances = balanceMap([
+    entry("1", "Mixed", "100"),
+    entry("2", "Mixed", "100", { currency: "USD", type: "payment" }),
+    entry("3", "Other", "100", { type: "payment" }),
+    entry("4", "Zero", "20", { currency: "EUR" }),
+    entry("5", "Zero", "20", { currency: "EUR", type: "payment" }),
+  ]);
+  assert.deepEqual(totals(people, balances, "AFN"), [
+    { currency: "AFN", collect: 10000n, pay: 10000n },
+    { currency: "USD", collect: 0n, pay: 10000n },
+  ]);
+  const names = (filter: "collect" | "pay" | "settled") =>
+    peopleInView(people, balances, "", filter).map((row) => row.name);
+  assert.deepEqual(names("collect"), ["Mixed"]);
+  assert.deepEqual(names("pay"), ["Mixed", "Other"]);
+  assert.deepEqual(names("settled"), ["Empty", "Zero"]);
+  assert.deepEqual(personBalances(balances, "Mixed", "USD"), [
+    { currency: "USD", balance: -10000n },
+    { currency: "AFN", balance: 10000n },
+  ]);
+});
+
+test("person currencies retain zero history but omit unused or wholly deleted denominations", () => {
+  const balances = balanceMap([
+    entry("1", "A", "12.34", { currency: "USD" }),
+    entry("2", "A", "12.34", { currency: "USD", type: "payment" }),
+    entry("3", "A", "0.01", { currency: "EUR" }),
+    entry("4", "A", "999", { currency: "PKR", is_deleted: true }),
+    entry("5", "Deleted", "1", { currency: "USD", is_deleted: true }),
+  ]);
+  assert.deepEqual(personBalances(balances, "A", "AFN"), [
+    { currency: "EUR", balance: 1n },
+    { currency: "USD", balance: 0n },
+  ]);
+  assert.deepEqual(personBalances(balances, "Deleted", "AFN"), [{ currency: "AFN", balance: 0n }]);
+  assert.deepEqual(totals([person("A")], balances, "AFN"), [
+    { currency: "EUR", collect: 1n, pay: 0n },
+  ]);
+  assert.deepEqual(totals([person("Deleted")], balances, "AFN"), [
+    { currency: "AFN", collect: 0n, pay: 0n },
+  ]);
+  assert.deepEqual(totals([], new Map(), "USD"), [{ currency: "USD", collect: 0n, pay: 0n }]);
+});
+
+test("recent ordering uses current business dates, new-contact creation, and explicit settlement", () => {
+  const rows = [
+    person("older", { created_at: 10, last_entry_at: 100 }),
+    person("latest", { created_at: 1, last_entry_at: 400 }),
+    person("new-contact", { created_at: 500, last_entry_at: null }),
+    person("settled", { created_at: 5, last_entry_at: 900, is_settled: true }),
+    person("unknown"),
+  ];
+  const ordered = (people: WebPerson[]) =>
+    peopleInView(people, new Map(), "", "all").map((row) => row.relationship_id);
+  assert.deepEqual(ordered(rows), ["new-contact", "latest", "older", "unknown", "settled"]);
+  // The live projection changes latest activity on deletion or a business-date
+  // correction. The browser sorts that fresh metadata, never a cached write time.
+  const removedLatest = rows.map((row) =>
+    row.relationship_id === "latest" ? { ...row, last_entry_at: null } : row,
+  );
+  assert.deepEqual(ordered(removedLatest), [
+    "new-contact",
+    "older",
+    "latest",
+    "unknown",
+    "settled",
+  ]);
+  const backdated = rows.map((row) =>
+    row.relationship_id === "latest" ? { ...row, last_entry_at: 50 } : row,
+  );
+  assert.deepEqual(ordered(backdated), ["new-contact", "older", "latest", "unknown", "settled"]);
+  assert.equal(rows[0].relationship_id, "older", "sorting must not mutate its source");
+});
+
+test("equal activity uses localized numeric names and stable user identity", () => {
+  const rows = [
+    person("ten", { name: "دکان ۱۰", created_at: 100 }),
+    person("two-b", { user_id: "b", name: "دکان ۲", created_at: 100 }),
+    person("two-a", { user_id: "a", name: "دکان ۲", created_at: 100 }),
+  ];
+  assert.deepEqual(
+    peopleInView(rows, new Map(), "", "all", "fa").map((row) => row.relationship_id),
+    ["two-a", "two-b", "ten"],
+  );
+  assert.equal(peopleInView(rows, new Map(), "10", "all", "fa")[0].relationship_id, "ten");
+});
+
+test("new entries choose the enabled person override or sole live historical currency", () => {
+  const contact = person("A");
+  const ledger = {
+    default_entry_currency: "AFN",
+    enabled_currencies: ["AFN", "USD"],
+    entries: [
+      entry("1", "A", "10", { currency: "USD", read_only: true, settled_at: 1 }),
+      entry("2", "A", "10", {
+        currency: "USD",
+        type: "payment",
+        read_only: true,
+        settled_at: 1,
+      }),
+      entry("3", "A", "10", { currency: "AFN", is_deleted: true }),
+      entry("4", "Other", "10", { currency: "AFN" }),
+    ],
+  };
+  assert.equal(defaultPersonEntryCurrency(ledger, contact), "USD", "zero settled history counts");
+  assert.equal(
+    defaultPersonEntryCurrency(ledger, { ...contact, default_entry_currency: "AFN" }),
+    "AFN",
+    "explicit enabled override wins over history",
+  );
+  for (const override of ["EUR", "usd"])
+    assert.equal(
+      defaultPersonEntryCurrency(ledger, { ...contact, default_entry_currency: override }),
+      "AFN",
+      "disabled or invalid explicit preference falls back instead of inferring",
+    );
+  assert.equal(
+    defaultPersonEntryCurrency(
+      { ...ledger, entries: [...ledger.entries, entry("5", "A", "1")] },
+      contact,
+    ),
+    "AFN",
+    "several recorded currencies use the book default",
+  );
+  assert.equal(defaultPersonEntryCurrency(ledger, person("Empty")), "AFN");
+  assert.equal(
+    defaultPersonEntryCurrency({ ...ledger, enabled_currencies: ["AFN"] }, contact),
+    "AFN",
+    "disabled history does not return to the new-entry picker",
+  );
 });
 
 test("Dari and Arabic amounts accept cents and reject ambiguous grouping or rounding", () => {

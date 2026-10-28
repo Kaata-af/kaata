@@ -8,7 +8,8 @@ The first browser workspace lives at `/app` in the existing Vite application. It
 - Google sign-in when its public web client ID and allowed origin are configured.
 - List and switch kaatas; create a kaata.
 - Search people, add a person, and edit name/phone.
-- Separate currency totals and collect/pay/settled filters.
+- All currency balances shown together, with separate totals for each currency and collect/pay/settled filters across currencies. No page currency selector; a person's history includes every currency.
+- People ordered by recent activity as on mobile: latest remaining entry date, or creation date before the first entry; explicitly settled people follow open accounts.
 - Record “I gave” and “I received,” with amount, currency, note and date; edit/delete eligible private entries.
 - Export a person's full private history as a CSV, with currencies kept separate and spreadsheet-formula injection prevented.
 - English, Dari, Pashto, RTL, desktop and narrow layouts.
