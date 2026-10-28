@@ -1,11 +1,14 @@
-Kaata 2.3.0 testing build 43
+Kaata 2.3.0 testing build 44
 
 Update in place without uninstalling or clearing data. Use disposable records for recovery and shared-account checks. These are checks to perform, not claims of completed phone testing.
 
-- Currency filters: open Home search, then Sort & filters. Select several currencies independently; each customer should appear once with only those currency balances. To collect/pay matches any selected currency. Deselect a currency or choose All currencies. Select just one currency to sort smallest/largest amounts; zeros remain last and unknown shared balances are not treated as confirmed amounts. Saved filters belong to each Kaata; the top totals still show the whole Kaata.
-- Contact currency: set a contact's default tally currency in Edit contact. New tallies should start in that enabled currency without changing saved tallies. Check owner/editor permission, switching Kaata, multi-device sync and recovery.
-- Shared accounts: sent invitations say Waiting to join. The blue checkmark appears only after the other person joins, including after refresh and currency filtering. Merely previewing an invitation must not mark it joined.
-- Layout: check Home and customer search opening/dismissal, compact grouped filters, whole-navigation blur, sheets, scrolling and localized English/Dari/Pashto screens. Check the Xiaomi installed build keeps both search fields above its keyboard.
-- Regression: check existing separate currency balances, tally dates/notes, reminders from a locked/closed app, full-history bill links, balance-only WhatsApp reminders when Send bill links is off, PDF/CSV exports, sign-in, backups and shared-account review/cancellation.
+- Notifications: open Notifications from Profile/Account or a contact's menu. Check categories, contact overrides, names-only/full/private previews, sound, quiet hours and scheduled reminder exceptions. Muting should keep inbox history and reminder tasks. Check alerts while the app is open, backgrounded and closed.
+- Shared links: new links offer Notifications only by default. Joined tallies should record without Accept/Reject, with no false claim of approval. Existing review links keep their approval flow. Check both phones, offline/retry and multiple currencies.
+- Cancellation and recovery: with disposable records, create an invitation without joining it, return and cancel it. Original tallies, notes, dates and balances should remain. If source tallies change before a later opening is joined, the recipient must request a fresh link; no stale balance should be recorded.
+- Add and Edit: both use the calculator and keep Date beneath the centered Show more toggle below Note. Check scrolling and Amount/Note keyboard handoff. Currency corrections must update the right currency balances and sync safely; existing records should remain intact.
+- Calculator: unfinished 300+ should show no misleading minus or result and cannot save. Check replacement operators, decimals, signs, brackets, percentages, division by zero, repeated Equals and memory. 1/3 = × 3 = and three thirds added to memory should each return 1. Saving still uses the displayed two-decimal amount.
+- Customer currency: one recorded currency should become the default when no explicit choice overrides it. Direction labels stay beside each currency's balance. Cleared checkmarks should not duplicate currency labels.
+- Layout and roles: Home cards should keep their size when opening search; closing Settings should not jitter the search bar. Restricted fields and controls should look disabled. Check the new Kaata name placeholder includes your full name and uses تجارت for business in Dari.
+- Regression: check multi-select currency filters and single-currency sorting, Android search above the keyboard, English/Dari/Pashto layouts, existing separate balances, bills, balance-only WhatsApp reminders, PDF/CSV exports, sign-in, backups, shared review and reminder cold-start navigation.
 
 Testing only: the existing Team (Expo) internal TestFlight group. No App Store review submission, public release or external beta distribution.
