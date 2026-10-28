@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestEntryCurrencyIsImmutableAndLegacyNeverUsesNewDefault(t *testing.T) {
+func TestEntryCurrencyCannotBareRelabelAndLegacyNeverUsesNewDefault(t *testing.T) {
 	p := NewProjection()
 	old := LedgerEvent{EventID: "old", EventType: EventEntryCreated, VaultID: "vault", TargetID: "old", LegacyCurrency: "USD", HLC: HLC{PMS: 1000, DID: "device"}, Payload: json.RawMessage(`{"entry_id":"old","relationship_id":"person","type":"debt","amount_afn":100,"note":null,"occurred_at_ms":100}`)}
 	if err := applyEntryCreated(&p, &old); err != nil {

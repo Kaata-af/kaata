@@ -26,7 +26,11 @@ object MeshAntiEntropy {
 
   data class Result(val sent: Int, val received: Int, val duplicates: Int)
 
-  fun run(conn: MeshConnection, db: MeshDb, vaultId: String, deadlineMs: Long): Result {
+  fun run(
+    conn: MeshConnection, db: MeshDb, vaultId: String, deadlineMs: Long,
+    peerEntryCurrencyEdits: Boolean = false,
+  ): Result {
+    requireCurrencyCompatible(peerEntryCurrencyEdits) { db.usesEntryCurrencyEdits(vaultId) }
     // --- vector exchange ---
     val localVector = db.localFrontier(vaultId)
     val frontierJson = JSONObject()
@@ -57,7 +61,19 @@ object MeshAntiEntropy {
     }
     Log.d(TAG, "vector exchange: ours=${localVector.size} peer=${peerVector.size}")
 
-    return runDeltaLoop(conn, db, vaultId, localVector, peerVector, deadlineMs)
+    return runDeltaLoop(conn, db, vaultId, localVector, peerVector, deadlineMs, peerEntryCurrencyEdits)
+  }
+
+  /** Shared with the unit fixture; support must come from the signed PoP. */
+  internal fun requireCurrencyCompatible(peerSupports: Boolean, bookUsesFeature: () -> Boolean) {
+    if (!peerSupports && bookUsesFeature()) {
+      throw MeshHandshake.HandshakeError("Update the other phone before syncing corrected tally currencies")
+    }
+  }
+
+  internal fun batchUsesEntryCurrencyEdits(events: List<JSONObject>): Boolean = events.any {
+    it.optString("event_type") == "entry_amended" &&
+      it.optJSONObject("payload")?.optJSONObject("changes")?.has("currency") == true
   }
 
   private fun runDeltaLoop(
@@ -67,6 +83,7 @@ object MeshAntiEntropy {
     localVector: Map<String, Int>,
     peerVector: Map<String, Int>,
     deadlineMs: Long,
+    peerEntryCurrencyEdits: Boolean,
   ): Result {
     var sent = 0
     var received = 0
@@ -84,6 +101,7 @@ object MeshAntiEntropy {
       if (sentBatches >= MAX_BATCHES_SENT || receivedBatches >= MAX_BATCHES_RECEIVED) {
         throw MeshCrypto.MeshCryptoError("anti-entropy exceeded batch budget")
       }
+      requireCurrencyCompatible(peerEntryCurrencyEdits) { db.usesEntryCurrencyEdits(vaultId) }
 
       val outBatch: List<JSONObject> =
         if (!localSentDone) {
@@ -93,6 +111,7 @@ object MeshAntiEntropy {
         } else {
           emptyList()
         }
+      requireCurrencyCompatible(peerEntryCurrencyEdits) { batchUsesEntryCurrencyEdits(outBatch) }
 
       val outArr = org.json.JSONArray()
       outBatch.forEach { outArr.put(it) }
@@ -114,6 +133,12 @@ object MeshAntiEntropy {
       if (outBatch.isNotEmpty()) sentBatches++
 
       val inEvents = inMsg.optJSONArray("events")
+      requireCurrencyCompatible(peerEntryCurrencyEdits) { db.usesEntryCurrencyEdits(vaultId) }
+      if (inEvents != null) {
+        requireCurrencyCompatible(peerEntryCurrencyEdits) {
+          batchUsesEntryCurrencyEdits((0 until inEvents.length()).map { inEvents.getJSONObject(it) })
+        }
+      }
       var inCount = 0
       if (inEvents != null) {
         val now = System.currentTimeMillis()

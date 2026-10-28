@@ -341,10 +341,18 @@ export async function appendEntryAmended(args: {
     note: string | null;
     type: EntryType;
     occurred_at_ms: number;
+    currency: string;
   }>;
+  preflight?: (tx: SQLiteTx) => Promise<void>;
+  guard?: () => void;
 }): Promise<{ event_id: string; pending_admission?: boolean } | null> {
   if (args.changes.occurred_at_ms !== undefined && !isValidEntryDate(args.changes.occurred_at_ms))
     throw new Error("Invalid entry date");
+  if ("currency" in args.changes) {
+    requireCurrencyCode(args.changes.currency ?? "");
+    if (typeof args.changes.amount_afn !== "number")
+      throw new Error("Currency edits require an amount");
+  }
   if (
     args.changes.amount_afn !== undefined &&
     (typeof args.changes.amount_afn !== "number" ||
@@ -410,12 +418,15 @@ export async function appendEntryAmended(args: {
     // pre-flight SELECT above and the tx open, abort without inserting the
     // event_log row.
     preflightAbort: async (tx) => {
+      args.guard?.();
+      await args.preflight?.(tx);
       const r = await tx.getFirstAsync<{ is_deleted: number | null }>(
         "SELECT is_deleted FROM entries WHERE id = ?",
         args.entryId,
       );
       return !r || r.is_deleted === 1;
     },
+    guard: args.guard,
   });
   if (!result.applied) {
     if (result.reason === "credit_admission") return { event_id: eventId, pending_admission: true };

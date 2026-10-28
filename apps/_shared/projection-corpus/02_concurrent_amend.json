@@ -119,6 +119,7 @@
         "relationship_id": "rrrrrrrr-2222-4222-8222-222222222222",
         "type": "debt",
         "amount_afn": 300,
+        "amount_hlc": { "pms": 1700000003000, "l": 0, "did": "device-b" },
         "note": "device-b note",
         "created_at": 1700000001000,
         "updated_at": 1700000003000,
@@ -130,7 +131,7 @@
         "settled_at": null,
         "current_event_id": "00000005-0000-4000-8000-000000000005",
         "recorded_at_ms": 1700000001000,
-        "occurred_at_hlc": {"pms":1700000001000,"l":0,"did":"device-a"},
+        "occurred_at_hlc": { "pms": 1700000001000, "l": 0, "did": "device-a" },
         "is_deleted": false,
         "is_settled": false
       }

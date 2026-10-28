@@ -32,6 +32,7 @@ const appliers = compile<typeof import("../projection/entries")>(
     if (name === "../entry-date") return require("../entry-date");
     if (name === "../currency-scope") return require("../currency-scope");
     if (name === "../hlc") return require("../hlc");
+    if (name === "../money") return require("../money");
     throw new Error(`Unexpected date projection dependency ${name}`);
   },
 );
@@ -73,6 +74,11 @@ async function run() {
   const expected = fixture.expected_projection.entries[id];
   for (const key of ["created_at", "updated_at", "note", "amount_afn", "current_event_id"])
     assert.equal(row()[key], expected[key], key);
+  assert.deepEqual(
+    JSON.parse(row().field_hlcs).amount_afn,
+    expected.amount_hlc,
+    "mobile and server snapshots preserve the same amount/currency register clock",
+  );
   assert.equal(JSON.parse(row().field_hlcs).recorded_at_ms.pms, recordedAt);
   assert.equal(
     (

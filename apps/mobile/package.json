@@ -116,6 +116,7 @@
     "selftest:members-screen": "tsx lib/__dev__/members-screen-selftest.ts",
     "selftest:ownership-transfer-ui": "tsx lib/__dev__/ownership-transfer-ui-selftest.ts",
     "selftest:entry-create-ui": "tsx lib/__dev__/entry-create-ui-selftest.ts",
+    "selftest:entry-currency": "tsx lib/__dev__/entry-currency-storage-selftest.ts && tsx lib/__dev__/entry-currency-baselines-selftest.ts && tsx lib/__dev__/entry-currency-pull-selftest.ts && tsx lib/__dev__/mesh-entry-currency-selftest.ts && tsx lib/__dev__/currency-sync-selftest.ts && tsx lib/__dev__/sync-push-selftest.ts && tsx lib/__dev__/entry-create-ui-selftest.ts && tsx lib/__dev__/entry-edit-loader-selftest.ts",
     "selftest:tally-dates": "tsx lib/__dev__/entry-date-field-selftest.ts && tsx lib/__dev__/tally-date-storage-selftest.ts && tsx lib/__dev__/entry-create-ui-selftest.ts",
     "selftest:calculator": "tsx lib/__dev__/calculator-selftest.ts",
     "selftest:calculator-input": "tsx lib/__dev__/calculator-input-selftest.ts",

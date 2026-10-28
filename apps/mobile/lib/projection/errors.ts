@@ -26,3 +26,11 @@ export class MissingPrereqError extends Error {
     this.name = "MissingPrereqError";
   }
 }
+
+/** An older cloud restore has not learned this amount's precise clock yet. */
+export class EntryCurrencyBaselineRequiredError extends MissingPrereqError {
+  constructor(entryId: string) {
+    super(`entry_amended ${entryId}: precise amount baseline required`);
+    this.name = "EntryCurrencyBaselineRequiredError";
+  }
+}

@@ -135,6 +135,7 @@ const MIGRATION_040 = "040_member_credit_permissions";
 const MIGRATION_041 = "041_shared_history_order";
 const MIGRATION_042 = "042_ledger_currencies";
 const MIGRATION_043 = "043_person_default_currency";
+const MIGRATION_044 = "044_entry_original_currency";
 
 // Phase 5 mesh: app_meta keys used by the lib/mesh package. They are NOT
 // referenced from db.ts directly — the table itself is the generic key/value
@@ -572,6 +573,7 @@ export async function initDb(opts: { installId?: string } = {}): Promise<void> {
   if (!(await hasRunMigration(db, MIGRATION_043))) {
     await runMigration043(db);
   }
+  if (!(await hasRunMigration(db, MIGRATION_044))) await runMigration044(db);
 }
 
 async function hasRunMigration(db: SQLite.SQLiteDatabase, name: string): Promise<boolean> {
@@ -3724,6 +3726,21 @@ async function runMigration043(db: SQLite.SQLiteDatabase): Promise<void> {
 }
 
 // --- internal helpers ---
+async function runMigration044(db: SQLite.SQLiteDatabase): Promise<void> {
+  await db.withTransactionAsync(async () => {
+    if (!(await columnExists(db, "entries", "original_currency")))
+      await db.execAsync("ALTER TABLE entries ADD COLUMN original_currency TEXT");
+    await db.execAsync(`CREATE INDEX IF NOT EXISTS idx_entries_original_currency
+      ON entries(vault_id) WHERE original_currency IS NOT NULL AND original_currency <> ''`);
+    // Additive metadata only: no amounts, dates, currencies or signed history
+    // are rewritten, and old books keep their existing sync behaviour.
+    await db.runAsync(
+      "INSERT INTO schema_migrations(name,applied_at) VALUES (?,?)",
+      MIGRATION_044,
+      Date.now(),
+    );
+  });
+}
 
 async function getLocalSelfUserId(db: SQLite.SQLiteDatabase): Promise<string | null> {
   const row = await db.getFirstAsync<{ id: string }>(
@@ -5391,7 +5408,7 @@ export class SettledChapterError extends Error {
 // edit, deep link, code drift) hits this and refuses. Local-only: remote
 // events keep their lawful-at-HLC semantics and the UI coherence rule.
 async function assertNotInSettledChapter(
-  db: SQLite.SQLiteDatabase,
+  db: Pick<SQLite.SQLiteDatabase, "getFirstAsync">,
   entryId: string,
 ): Promise<void> {
   const row = await db.getFirstAsync<{ one: number }>(
@@ -5422,7 +5439,10 @@ async function assertNotInSettledChapter(
 // still inside the opening entry), so they must stay uneditable too — while
 // a tally written AFTER the tab closed is an ordinary local row again and
 // edits normally.
-async function assertNotTabLinked(db: SQLite.SQLiteDatabase, entryId: string): Promise<void> {
+async function assertNotTabLinked(
+  db: Pick<SQLite.SQLiteDatabase, "getFirstAsync">,
+  entryId: string,
+): Promise<void> {
   const row = await db.getFirstAsync<{ one: number }>(
     `SELECT 1 AS one FROM tab_entries te WHERE te.id = ?
      UNION ALL
@@ -5442,11 +5462,29 @@ export async function updateEntry(
   amountAfn: number,
   note: string | null,
   occurredAtMs?: number,
+  currencyCode?: string,
+  expected?: {
+    session: import("./auth").SessionSnapshot;
+    vaultId: string;
+    original: Entry;
+    shouldContinue: () => boolean;
+  },
 ): Promise<void> {
+  const scope = captureMutationScope(
+    expected ? { vaultId: expected.vaultId, accountId: expected.session.accountId } : undefined,
+  );
+  const installId = getInstallIdSync();
+  const guard = () => {
+    assertMutationScope(scope);
+    if (getInstallIdSync() !== installId || expected?.shouldContinue() === false)
+      throw new EntryEditChangedError();
+  };
+  guard();
   if (occurredAtMs !== undefined && !isValidEntryDate(occurredAtMs))
     throw new Error("Invalid entry date");
   const db = await getDb();
-  const vaultId = getActiveVaultIdSync();
+  const { vaultId } = scope;
+  guard();
   await assertNotTabLinked(db, id);
   await assertNotInSettledChapter(db, id);
   // Read the current row (vault-scoped) so we can compute a minimal delta.
@@ -5455,14 +5493,54 @@ export async function updateEntry(
     amount_afn: number;
     note: string | null;
     created_at: number;
-  }>("SELECT amount_afn, note, created_at FROM entries WHERE id = ? AND vault_id = ?", id, vaultId);
+    updated_at: number;
+    relationship_id: string;
+    type: EntryType;
+    currency: string;
+    original_currency?: string | null;
+    recorded_at: number;
+    is_deleted: number;
+  }>(
+    `SELECT entries.*, ${effectiveEntryCurrencySql("entries")} AS currency, ${entryRecordedAtSql("entries")} AS recorded_at FROM entries WHERE id = ? AND vault_id = ?`,
+    id,
+    vaultId,
+  );
+  guard();
   if (!current) {
     // Mirror the old behavior: silently no-op on missing id. The previous
     // UPDATE would simply affect 0 rows.
+    if (expected) throw new EntryEditChangedError();
     return;
   }
-  const changes: { amount_afn?: number; note?: string | null; occurred_at_ms?: number } = {};
+  if (current.is_deleted === 1) throw new EntryEditChangedError();
+  const currency = requireCurrencyCode(currencyCode ?? current.currency);
+  const currencyChanged = currency !== current.currency;
+  if (
+    expected &&
+    (expected.original.updated_at !== current.updated_at ||
+      expected.original.currency !== current.currency ||
+      expected.original.amount_afn !== current.amount_afn ||
+      (expected.original.note ?? null) !== (current.note ?? null) ||
+      expected.original.created_at !== current.created_at)
+  )
+    throw new EntryEditChangedError();
+  if (currencyChanged) {
+    const { getEnabledCurrencies } = await import("./currency");
+    if (!(await getEnabledCurrencies(vaultId)).includes(currency))
+      throw new EntryEditCurrencyDisabledError();
+    guard();
+  }
+  const changes: {
+    amount_afn?: number;
+    note?: string | null;
+    occurred_at_ms?: number;
+    currency?: string;
+  } = {};
   if (current.amount_afn !== amountAfn) changes.amount_afn = amountAfn;
+  if (currencyChanged || (changes.amount_afn !== undefined && current.original_currency)) {
+    changes.amount_afn = amountAfn;
+    changes.currency = currency;
+  }
   // Normalize undefined / "" vs null so a no-op round-trip doesn't emit an event.
   if ((current.note ?? null) !== (note ?? null)) changes.note = note;
   if (occurredAtMs !== undefined && current.created_at !== occurredAtMs)
@@ -5471,8 +5549,88 @@ export async function updateEntry(
     // No-op: nothing actually changed. Do not append an empty amend event.
     return;
   }
-  const saved = await appendEntryAmended({ entryId: id, changes });
+  const save = () =>
+    appendEntryAmended({
+      entryId: id,
+      changes,
+      guard,
+      preflight: async (tx) => {
+        guard();
+        // Recheck after taking the write lock, including after a slow key read.
+        const latest = await tx.getFirstAsync<typeof current>(
+          `SELECT entries.*, ${effectiveEntryCurrencySql("entries")} AS currency FROM entries WHERE id=? AND vault_id=?`,
+          id,
+          vaultId,
+        );
+        if (
+          !latest ||
+          latest.is_deleted === 1 ||
+          latest.updated_at !== current.updated_at ||
+          latest.amount_afn !== current.amount_afn ||
+          latest.currency !== current.currency ||
+          latest.type !== current.type ||
+          latest.note !== current.note ||
+          latest.created_at !== current.created_at
+        )
+          throw new EntryEditChangedError();
+        await assertNotTabLinked(tx, id);
+        await assertNotInSettledChapter(tx, id);
+        if (currencyChanged || occurredAtMs !== undefined) {
+          const settled = await tx.getFirstAsync<{ one: number }>(
+            `SELECT 1 AS one FROM settlements s WHERE s.vault_id=? AND s.relationship_id=? AND ${effectiveEntryCurrencySql("s")}=? AND s.settled_at_ms>=? LIMIT 1`,
+            vaultId,
+            current.relationship_id,
+            currency,
+            occurredAtMs ?? current.created_at,
+          );
+          if (settled) throw new SettledChapterError();
+        }
+        if (currencyChanged) {
+          const linked = await tx.getFirstAsync<{ one: number }>(
+            "SELECT 1 AS one FROM tab_links WHERE vault_id=? AND relationship_id=? AND currency=? AND (closed_at IS NULL OR linked_at>=?) LIMIT 1",
+            vaultId,
+            current.relationship_id,
+            currency,
+            current.recorded_at,
+          );
+          if (linked) throw new TabLinkedEntryError();
+          const book = await tx.getFirstAsync<{
+            enabled: string | null;
+            preferred: string | null;
+            default_entry_currency: string | null;
+            currency: string;
+          }>(
+            `SELECT v.currency,v.default_entry_currency,(SELECT value FROM vault_settings WHERE vault_id=v.id AND key='enabled_currencies') AS enabled,(SELECT value FROM vault_settings WHERE vault_id=v.id AND key='default_entry_currency') AS preferred FROM vaults v WHERE v.id=? AND v.archived_at IS NULL`,
+            vaultId,
+          );
+          const { parseEnabledCurrencies, settingCurrency } = await import("./currency-settings");
+          const enabled = parseEnabledCurrencies(book?.enabled);
+          const defaultCurrency =
+            settingCurrency(book?.preferred) ?? book?.default_entry_currency ?? book?.currency;
+          if (!book || (enabled && !enabled.includes(currency) && defaultCurrency !== currency))
+            throw new EntryEditCurrencyDisabledError();
+        }
+        guard();
+      },
+    });
+  const saved = expected
+    ? await (await import("./auth")).applyForUnchangedLocalSession(expected.session, save)
+    : await save();
+  if (saved === null) throw new EntryEditChangedError();
   await finishEntryMutationAdmission(saved, vaultId);
+}
+
+export class EntryEditChangedError extends Error {
+  constructor() {
+    super("This tally changed. Reopen it before editing.");
+    this.name = "EntryEditChangedError";
+  }
+}
+export class EntryEditCurrencyDisabledError extends Error {
+  constructor() {
+    super("This currency is no longer enabled");
+    this.name = "EntryEditCurrencyDisabledError";
+  }
 }
 
 async function finishEntryMutationAdmission(

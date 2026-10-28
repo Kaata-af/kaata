@@ -742,6 +742,11 @@ const en = {
   "home.fab.blockedArchived": "This Kaata is archived. Restore it or pick another.",
   "entry.saved": "Entry saved",
   "entry.updated": "Entry updated",
+  "entry.edit.changed":
+    "This tally changed while you were editing. Reopen it to see the latest details.",
+  "entry.currency.editHint": "The amount stays as entered. Adjust it if needed.",
+  "entry.currency.needsSync":
+    "Connect to refresh this tally, then try changing its currency again.",
   "entry.deleted": "Entry deleted",
   "entry.deleteFailed": "Couldn't delete. Try again.",
   "entry.saveFailed": "Couldn't save. Try again.",
@@ -2905,6 +2910,11 @@ const fa: Partial<Record<Key, string>> = {
     "این کاتا بایگانی شده است. آن را بازیابی کنید یا کاتای دیگری انتخاب کنید.",
   "entry.saved": "ثبت شد",
   "entry.updated": "به‌روزرسانی شد",
+  "entry.edit.changed":
+    "این حساب هنگام ویرایش تغییر کرده است. برای دیدن اطلاعات تازه، آن را دوباره باز کنید.",
+  "entry.currency.editHint": "مبلغ همان عدد واردشده می‌ماند. اگر لازم است آن را تغییر دهید.",
+  "entry.currency.needsSync":
+    "برای تازه‌سازی این حساب به اینترنت وصل شوید، سپس دوباره ارز آن را تغییر دهید.",
   "entry.deleted": "حذف شد",
   "entry.deleteFailed": "حذف نشد. دوباره امتحان کنید.",
   "entry.saveFailed": "ذخیره نشد. دوباره امتحان کنید.",
@@ -4990,6 +5000,11 @@ const ps: Record<Key, string> = {
   "entry.vaultArchived": "دا کاټه آرشیف شوې ده. بېرته یې را وګرځوئ یا بله وټاکئ.",
   "entry.saved": "راکړه ورکړه خوندي شوه",
   "entry.updated": "راکړه ورکړه تازه شوه",
+  "entry.edit.changed":
+    "دا راکړه ورکړه د سمون پر مهال بدله شوې ده. د تازه معلوماتو لپاره یې بیا پرانیزئ.",
+  "entry.currency.editHint": "مبلغ هماغه لیکل شوی عدد پاتې کېږي. که اړتیا وي، بدل یې کړئ.",
+  "entry.currency.needsSync":
+    "د دې راکړې ورکړې د تازه کولو لپاره انټرنېټ سره وصل شئ، بیا یې د اسعارو بدلولو هڅه وکړئ.",
   "entry.deleted": "راکړه ورکړه ړنګه شوه",
   "entry.deleteFailed": "ړنګول ونه شول. بیا هڅه وکړئ.",
   "entry.saveFailed": "خوندي کول ونه شول. بیا هڅه وکړئ.",

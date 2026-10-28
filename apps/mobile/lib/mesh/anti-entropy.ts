@@ -136,6 +136,8 @@ import type { MeshConnection } from "./transport-interface";
 // against the peer's CLAIMED device_pubkey_b64, which the chain verdict
 // bound to an account.
 const POP_DOMAIN_V3 = "kaata-pop-v3";
+const ENTRY_CURRENCY_EDIT_CAPABILITY = "entry-currency-edit-v1";
+const ENTRY_CURRENCY_EDIT_POP_DOMAIN = "kaata-entry-currency-edit-v1";
 
 // ---------------------------------------------------------------------------
 // Wire schemas
@@ -239,6 +241,10 @@ export type PopProofMessage = {
   // ephemeral pubkeys). Verified against the peer's claimed device_pubkey,
   // which the chain verdict (or the live pair token) bound to an account.
   sig: string;
+  // Optional extension: older v3 apps ignore this field. A separate signed
+  // transcript proves feature support without changing their existing PoP.
+  // Hello capabilities alone are unauthenticated and can be changed in transit.
+  entry_currency_edit_sig?: string;
 };
 
 // M3.5: the summary is now a per-author VERSION VECTOR — for each author
@@ -393,6 +399,7 @@ export async function runAntiEntropy(
   // Chain-only (M4): membership-proof verification against the vault
   // anchor + v3 proof-of-possession. Every live vault is anchored.
   const peer = await handshake(conn, opts);
+  await assertPeerCurrencyCompatible(opts.vaultId, peer);
 
   // --- 2. Vector exchange (M3.5) ---
   // Each side sends its per-author RELAYABLE contiguous frontier. The peer
@@ -629,6 +636,12 @@ async function runDeltaLoop(
     if (totalLoopIters % REVERIFY_EVERY_N_BATCHES === 0) {
       await reverifyPeerWindow(opts.vaultId, peer);
     }
+    // Check the entire book, including events outside this round's vector.
+    // An old phone may already hold the amendment, or it may be behind a
+    // sequence gap. Neither makes subsequent sync safe on its old projection.
+    // Recheck every boundary: a local edit/server pull/another peer can add
+    // the feature while this persistent connection is open.
+    await assertPeerCurrencyCompatible(opts.vaultId, peer);
 
     let outBatch: WireMeshEvent[] = [];
     if (!localSentDone) {
@@ -644,6 +657,8 @@ async function runDeltaLoop(
       events: outBatch,
       has_more: !localSentDone,
     };
+    // Backstop a currency edit committed while fetchNextBatch was awaiting SQL.
+    assertBatchCurrencyCompatible(peer, outBatch);
 
     console.log(
       "[mesh.delta] iter=",
@@ -666,6 +681,8 @@ async function runDeltaLoop(
     // pumping the peer's inbound stream) don't burn the send budget.
     if (outBatch.length > 0) sentBatches++;
 
+    assertBatchCurrencyCompatible(peer, inMsg.events);
+    await assertPeerCurrencyCompatible(opts.vaultId, peer);
     const applied = await applyIncomingBatch(opts.vaultId, inMsg.events);
     console.log(
       "[mesh.delta] applied=",
@@ -806,6 +823,7 @@ export async function runAntiEntropySession(
   // ONE handshake for the whole session — the expensive part. The conn stays
   // authenticated + AEAD-installed; every round reuses it.
   const peer = await handshake(conn, opts);
+  await assertPeerCurrencyCompatible(opts.vaultId, peer);
 
   const waker = makeWaker();
   hooks?.onEstablished?.(peer.deviceId, peer.devicePubkeyB64, waker.wake);
@@ -892,6 +910,8 @@ export async function runAntiEntropySession(
  * consume.
  */
 type PeerSession = {
+  /** Proven by the feature-specific PoP, never trusted from Hello alone. */
+  entryCurrencyEdits: boolean;
   deviceId: string;
   devicePubkeyB64: string;
   accountId: string;
@@ -1012,7 +1032,7 @@ async function handshake(conn: MeshConnection, opts: AntiEntropyOptions): Promis
     v: WIRE_VERSION,
     // Older apps combine all amounts into one currency. Refuse that protocol
     // before exchanging any ledger data; both phones need currency support.
-    capabilities: ["multi-currency-v1"],
+    capabilities: ["multi-currency-v1", ENTRY_CURRENCY_EDIT_CAPABILITY],
     pop_nonce: ourNonceB64,
     ephemeral_x25519_pubkey: ourEphemeralPubB64,
     ...(ourPairNonce ? { pair_nonce: ourPairNonce } : {}),
@@ -1030,6 +1050,12 @@ async function handshake(conn: MeshConnection, opts: AntiEntropyOptions): Promis
   ]);
   console.log("[mesh.hs] peer hello received");
 
+  if (
+    !Array.isArray(peerHello.capabilities) ||
+    !peerHello.capabilities.every((capability) => typeof capability === "string")
+  ) {
+    throw new MeshHandshakeError("peer hello has malformed capabilities", "transport");
+  }
   const sharedCaps = peerHello.capabilities.filter((c) => c === "multi-currency-v1");
   if (sharedCaps.length === 0) {
     throw new MeshHandshakeError(
@@ -1344,13 +1370,21 @@ async function verifyPeerChain(
   // the signer's OWN presented bundle (sha256 over its canonical
   // event_id list), the verifier's challenge nonce, and both ephemeral
   // X25519 pubkeys (preserving the v2 MITM fix — see POP_DOMAIN_V3). ---
-  const ourSigBytes = await signWithDeviceKey(
-    buildPopMessageV3(wire.ownBundleIds, peerHello.pop_nonce, ourEphemeralPub, peerEphemeralPub),
+  const ourPopMessage = buildPopMessageV3(
+    wire.ownBundleIds,
+    peerHello.pop_nonce,
+    ourEphemeralPub,
+    peerEphemeralPub,
+  );
+  const ourSigBytes = await signWithDeviceKey(ourPopMessage);
+  const ourCurrencyEditSig = await signWithDeviceKey(
+    buildEntryCurrencyEditPopMessage(ourPopMessage),
   );
   const ourProof: PopProofMessage = {
     type: "pop_proof",
     v: WIRE_VERSION,
     sig: bytesToB64Url(ourSigBytes),
+    entry_currency_edit_sig: bytesToB64Url(ourCurrencyEditSig),
   };
   const [, peerProof] = await Promise.all([
     sendMessage(conn, ourProof),
@@ -1397,6 +1431,22 @@ async function verifyPeerChain(
     );
   }
   console.log("[mesh.hs] PoP v3 verified peer=", claimedDeviceId.slice(0, 8));
+
+  let entryCurrencyEdits = false;
+  if (
+    peerHello.capabilities.includes(ENTRY_CURRENCY_EDIT_CAPABILITY) &&
+    typeof peerProof.entry_currency_edit_sig === "string"
+  ) {
+    try {
+      const signature = b64UrlDecode(peerProof.entry_currency_edit_sig);
+      entryCurrencyEdits =
+        signature.length === 64 &&
+        ed.verify(signature, buildEntryCurrencyEditPopMessage(popMsg), claimedPubkeyBytes);
+    } catch {
+      // Missing/invalid extension behaves exactly like an older app. Ordinary
+      // books can still sync; affected books fail closed before ledger data.
+    }
+  }
 
   // --- 5. Owner-side pair admission (after PoP — never admit a key
   // whose possession wasn't proven). Emits through the normal local
@@ -1546,6 +1596,7 @@ async function verifyPeerChain(
   }
 
   return {
+    entryCurrencyEdits,
     deviceId: claimedDeviceId,
     devicePubkeyB64: claimedPubkeyB64,
     // On the pair path the bound account is the one we DERIVED from the
@@ -1639,6 +1690,62 @@ function buildPopMessageV3(
   off += ownEphemeralPub.length;
   out.set(peerEphemeralPub, off);
   return out;
+}
+
+function buildEntryCurrencyEditPopMessage(popMessage: Uint8Array): Uint8Array {
+  const domain = new TextEncoder().encode(ENTRY_CURRENCY_EDIT_POP_DOMAIN);
+  const out = new Uint8Array(domain.length + popMessage.length);
+  out.set(domain);
+  out.set(popMessage, domain.length);
+  return out;
+}
+
+function refuseOutdatedCurrencyPeer(): never {
+  emitMeshFailure({ kind: "peer_outdated" } as unknown as MeshFailureEvent);
+  throw new MeshHandshakeError(
+    "Update the other phone before syncing corrected tally currencies",
+    "transport",
+  );
+}
+
+function assertBatchCurrencyCompatible(peer: PeerSession, events: WireMeshEvent[]): void {
+  if (peer.entryCurrencyEdits) return;
+  if (
+    events.some((event) => {
+      if (
+        event.event_type !== "entry_amended" ||
+        !event.payload ||
+        typeof event.payload !== "object"
+      )
+        return false;
+      const changes = (event.payload as { changes?: unknown }).changes;
+      return changes !== null && typeof changes === "object" && Object.hasOwn(changes, "currency");
+    })
+  )
+    refuseOutdatedCurrencyPeer();
+}
+
+async function assertPeerCurrencyCompatible(vaultId: string, peer: PeerSession): Promise<void> {
+  if (peer.entryCurrencyEdits) return;
+  const db = await getDb();
+  // A fresh snapshot can contain the corrected projection without the older
+  // amendment in its tail. This metadata never clears, even after a revert or
+  // delete, so it also protects restored books with no amendment history.
+  const restoredFeature = await db.getFirstAsync<{ n: number }>(
+    "SELECT 1 AS n FROM entries WHERE vault_id = ? AND original_currency IS NOT NULL AND original_currency <> '' LIMIT 1",
+    vaultId,
+  );
+  if (restoredFeature) refuseOutdatedCurrencyPeer();
+  const row = await db.getFirstAsync<{ n: number }>(
+    `SELECT 1 AS n FROM event_log
+      WHERE vault_id = ? AND event_type = 'entry_amended'
+        AND tombstone_reason IS NULL AND rejected_at IS NULL
+        AND CASE WHEN json_valid(payload_json)
+                 THEN json_type(payload_json, '$.changes.currency') END IS NOT NULL
+      LIMIT 1`,
+    vaultId,
+  );
+  if (row) refuseOutdatedCurrencyPeer();
 }
 
 // ---------------------------------------------------------------------------

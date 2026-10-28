@@ -99,6 +99,8 @@ export type EntryAmendedEvent = EventEnvelope & {
       note: string | null;
       type: EntryType;
       occurred_at_ms: number;
+      // When present, amount_afn and currency form one monetary LWW register.
+      currency: string;
     }>;
     // Set by migration 006 when the pre-amendment value can't be recovered
     // from the existing entries row.

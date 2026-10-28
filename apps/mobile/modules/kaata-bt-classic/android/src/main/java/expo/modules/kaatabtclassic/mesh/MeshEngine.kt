@@ -180,7 +180,7 @@ object MeshEngine {
       session.peerBtMac?.let {
         if (db.isDialableMac(it)) db.addKnownPeer(vault.id, session.peerDeviceId, it)
       }
-      MeshAntiEntropy.run(conn, db, vault.id, deadline)
+      MeshAntiEntropy.run(conn, db, vault.id, deadline, session.entryCurrencyEdits)
     } catch (e: Throwable) {
       Log.d(TAG, "session failed: ${e.message}")
     } finally {

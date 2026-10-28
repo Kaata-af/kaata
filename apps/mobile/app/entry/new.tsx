@@ -47,10 +47,13 @@ import {
   updateEntry,
   SettledChapterError,
   TabLinkedEntryError,
+  EntryEditChangedError,
+  EntryEditCurrencyDisabledError,
 } from "../../lib/db";
 import { getPersonEntryCurrency } from "../../lib/person-currency";
 import { rowDir, textDir, trackingSafe, useIsRTL } from "../../lib/direction";
 import { EventSigningUnavailableError, RoleGateRejectionError } from "../../lib/event-log";
+import { EntryCurrencyBaselineRequiredError } from "../../lib/projection/errors";
 import { fonts, sansLineHeight } from "../../lib/fonts";
 import { t } from "../../lib/i18n";
 import { withEntryDay } from "../../lib/entry-date";
@@ -168,7 +171,12 @@ export default function EntryFormScreen({
     let alive = true;
     const timer = setTimeout(() => {
       (editingEntry
-        ? creditWarningForEdit(editingEntry.id, parsed, getActiveVaultIdSyncMaybe() ?? undefined)
+        ? creditWarningForEdit(
+            editingEntry.id,
+            parsed,
+            getActiveVaultIdSyncMaybe() ?? undefined,
+            currency,
+          )
         : creditWarning(personId, type, parsed, getActiveVaultIdSyncMaybe() ?? undefined, currency)
       )
         .then((over) => {
@@ -553,9 +561,11 @@ export default function EntryFormScreen({
         return;
       }
       if (editingEntry) {
-        await applyForUnchangedLocalSession(session, async () => {
-          if (!isCurrent(attempt)) throw new SessionChangedError();
-          await updateEntry(editingEntry.id, parsedAmount, savedNote, occurredAtMs);
+        await updateEntry(editingEntry.id, parsedAmount, savedNote, occurredAtMs, currency, {
+          session,
+          vaultId,
+          original: editingEntry,
+          shouldContinue: () => isCurrent(attempt),
         });
         await present(() => {
           noteSavedEntry(attempt.personId, editingEntry.id);
@@ -638,6 +648,12 @@ export default function EntryFormScreen({
           (err as Error & { status: string }).status === "pending"
             ? "credit.pendingChange"
             : "credit.refusedChange";
+      } else if (err instanceof EntryCurrencyBaselineRequiredError) {
+        errorKey = "entry.currency.needsSync";
+      } else if (err instanceof EntryEditChangedError) {
+        errorKey = "entry.edit.changed";
+      } else if (err instanceof EntryEditCurrencyDisabledError) {
+        errorKey = "entry.currency.disabled";
       } else if (err instanceof SettledChapterError) {
         errorKey = "entry.settledLocked";
       } else if (err instanceof TabLinkedEntryError) {
@@ -1037,13 +1053,12 @@ export default function EntryFormScreen({
                       compact
                       symbolOnly
                       value={currency}
-                      allowedCurrencies={enabledCurrencies}
-                      disabled={
-                        Boolean(editingEntry) ||
-                        busy ||
-                        !isCurrent(renderAttempt) ||
-                        enabledCurrencies.length === 0
+                      allowedCurrencies={
+                        editingEntry?.currency && !enabledCurrencies.includes(editingEntry.currency)
+                          ? [...enabledCurrencies, editingEntry.currency]
+                          : enabledCurrencies
                       }
+                      disabled={busy || !isCurrent(renderAttempt) || enabledCurrencies.length === 0}
                       onOpen={() => {
                         if (savingRef.current || !isCurrent(renderAttempt)) return false;
                         if (initialFocusTimer.current !== null) {
@@ -1061,20 +1076,17 @@ export default function EntryFormScreen({
                         noteRef.current?.blur();
                         Keyboard.dismiss();
                       }}
-                      onChange={
-                        editingEntry
-                          ? undefined
-                          : (code) => {
-                              if (
-                                savingRef.current ||
-                                !isCurrent(renderAttempt) ||
-                                !enabledCurrencyRef.current.includes(code)
-                              )
-                                return;
-                              setSaveError(null);
-                              setCurrency(code);
-                            }
-                      }
+                      onChange={(code) => {
+                        if (
+                          savingRef.current ||
+                          !isCurrent(renderAttempt) ||
+                          (!enabledCurrencyRef.current.includes(code) &&
+                            code !== editingEntry?.currency)
+                        )
+                          return;
+                        setSaveError(null);
+                        setCurrency(code);
+                      }}
                     />
                     <Text
                       accessibilityLabel={t("calculator.result")}
@@ -1086,6 +1098,11 @@ export default function EntryFormScreen({
                     </Text>
                   </View>
                 </View>
+                {editingEntry && currency !== editingEntry.currency ? (
+                  <Text style={[styles.calculationHint, textDir(isRTL)]}>
+                    {t("entry.currency.editHint")}
+                  </Text>
+                ) : null}
                 {currencyNeedsPrecisionHint(currency) ? (
                   <Text style={[styles.calculationHint, textDir(isRTL)]}>
                     {t("currency.precisionHint")}

@@ -144,6 +144,8 @@ type SnapshotEntry struct {
 	Type             string      `json:"type"`
 	AmountAFN        json.Number `json:"amount_afn"`
 	Currency         string      `json:"currency"`
+	OriginalCurrency string      `json:"original_currency,omitempty"`
+	AmountHLC        *HLC        `json:"amount_hlc,omitempty"`
 	Note             *string     `json:"note"`
 	CreatedAt        int64       `json:"created_at"`
 	RecordedAtMS     int64       `json:"recorded_at_ms,omitempty"`
@@ -185,6 +187,9 @@ func (s *Service) LatestSnapshot(ctx context.Context, vaultID string) (*Snapshot
 	var projection Projection
 	if err := json.Unmarshal(payload, &projection); err != nil {
 		return nil, fmt.Errorf("unmarshal snapshot: %w", err)
+	}
+	if err := recoverSnapshotAmountClocks(ctx, s.pool, vaultID, upTo, &projection); err != nil {
+		return nil, fmt.Errorf("recover snapshot amount clocks: %w", err)
 	}
 
 	// Fetch the vaults row so the mobile vault seed has authoritative
@@ -323,6 +328,43 @@ func (s *Service) LatestSnapshot(ctx context.Context, vaultID string) (*Snapshot
 	return resp, nil
 }
 
+// Snapshots saved before currency editing lack the amount's exact LWW clock.
+// Recover only that metadata at the saved cursor, so a newer independent note
+// cannot suppress the first offline currency correction in the response tail.
+// Neither the stored snapshot nor any historical event is rewritten.
+func recoverSnapshotAmountClocks(ctx context.Context, q EventQuerier, vaultID string, upTo int64, projection *Projection) error {
+	missing := false
+	for _, entry := range projection.Entries {
+		if entry.AmountHLC == nil {
+			missing = true
+			break
+		}
+	}
+	if !missing {
+		return nil
+	}
+	events, _, err := loadVaultEvents(ctx, q, vaultID, upTo)
+	if err != nil {
+		return err
+	}
+	replayed, err := ApplyEvents(events)
+	if err != nil {
+		return err
+	}
+	for id, entry := range projection.Entries {
+		if entry.AmountHLC != nil {
+			continue
+		}
+		if original := replayed.Entries[id]; original != nil {
+			entry.AmountHLC = original.AmountHLC
+			if entry.OriginalCurrency == "" {
+				entry.OriginalCurrency = original.OriginalCurrency
+			}
+		}
+	}
+	return nil
+}
+
 func projectShopProfile(vaultID string, sp *ShopProfileProjection) *SnapshotShopProfile {
 	if sp == nil {
 		return nil
@@ -398,6 +440,8 @@ func projectEntries(in map[string]*EntryProjection) []SnapshotEntry {
 			Type:             e.Type,
 			AmountAFN:        e.AmountAFN,
 			Currency:         e.Currency,
+			OriginalCurrency: e.OriginalCurrency,
+			AmountHLC:        e.AmountHLC,
 			Note:             e.Note,
 			CreatedAt:        e.CreatedAt,
 			RecordedAtMS:     e.RecordedAtMS,
@@ -462,6 +506,9 @@ func snapshotMaxHLC(p *Projection, tail []PulledEvent) HLC {
 		}
 		if e.OccurredAtHLC != nil && CompareHLC(*e.OccurredAtHLC, max) > 0 {
 			max = *e.OccurredAtHLC
+		}
+		if e.AmountHLC != nil && CompareHLC(*e.AmountHLC, max) > 0 {
+			max = *e.AmountHLC
 		}
 	}
 	return max
@@ -987,7 +1034,11 @@ func LoadVaultProjection(ctx context.Context, q EventQuerier, vaultID string) (*
 // order into LedgerEvents (targets as COALESCE(local_target_id, target_id))
 // and returns the highest server_seq seen. Shared by the snapshot generator
 // and LoadVaultProjection so both fold byte-identical envelopes.
-func loadVaultEvents(ctx context.Context, q EventQuerier, vaultID string) ([]LedgerEvent, int64, error) {
+func loadVaultEvents(ctx context.Context, q EventQuerier, vaultID string, throughServerSeq ...int64) ([]LedgerEvent, int64, error) {
+	maxServerSeq := int64(1<<63 - 1)
+	if len(throughServerSeq) > 0 {
+		maxServerSeq = throughServerSeq[0]
+	}
 	rows, err := q.Query(ctx, `
 		SELECT
 			event_id::text,
@@ -1008,8 +1059,9 @@ func loadVaultEvents(ctx context.Context, q EventQuerier, vaultID string) ([]Led
 		FROM events
 		WHERE vault_id = $1::uuid
 		  AND redacted_at IS NULL
+		  AND server_seq <= $2
 		ORDER BY server_seq ASC
-	`, vaultID)
+	`, vaultID, maxServerSeq)
 	if err != nil {
 		return nil, 0, fmt.Errorf("read events: %w", err)
 	}

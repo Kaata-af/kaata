@@ -545,6 +545,7 @@ export async function creditWarningForEdit(
   entryId: string,
   amount: number,
   vaultId = getActiveVaultIdSyncMaybe(),
+  targetCurrency?: string,
 ): Promise<boolean> {
   if (!vaultId) return false;
   const db = await getDb();
@@ -560,11 +561,18 @@ export async function creditWarningForEdit(
     vaultId,
   );
   if (!row || row.disputed_at != null) return false;
-  const policy = await readEffectiveCreditPolicy(row.relationship_id, vaultId, row.currency);
-  if (!policy) return false;
-  const before = await creditBalanceInTx(db, vaultId, row.relationship_id, row.currency);
-  const change = toMinorUnits(amount) - toMinorUnits(row.amount_afn);
-  return creditExceeded(policy, before, before + (row.type === "debt" ? 1 : -1) * change);
+  const destination = targetCurrency ?? row.currency;
+  const sign = row.type === "debt" ? 1 : -1;
+  for (const code of new Set([row.currency, destination])) {
+    const policy = await readEffectiveCreditPolicy(row.relationship_id, vaultId, code);
+    if (!policy) continue;
+    const before = await creditBalanceInTx(db, vaultId, row.relationship_id, code);
+    const change =
+      (code === destination ? sign * toMinorUnits(amount) : 0) -
+      (code === row.currency ? sign * toMinorUnits(row.amount_afn) : 0);
+    if (creditExceeded(policy, before, before + change)) return true;
+  }
+  return false;
 }
 
 export type CreditIntent = {
@@ -587,7 +595,7 @@ export async function listCreditIntents(
   const rel = await relationshipForCredit(personId, vaultId);
   const db = await getDb();
   const entryCurrency =
-    "COALESCE(json_extract(e.payload_json,'$.currency'),x.currency,(SELECT COALESCE(v.legacy_currency,v.currency,'AFN') FROM vaults v WHERE v.id=e.vault_id),'AFN')";
+    "COALESCE(json_extract(e.payload_json,'$.changes.currency'),json_extract(e.payload_json,'$.currency'),x.currency,(SELECT COALESCE(v.legacy_currency,v.currency,'AFN') FROM vaults v WHERE v.id=e.vault_id),'AFN')";
   const rows = await db.getAllAsync<{
     currency: string;
     event_id: string;

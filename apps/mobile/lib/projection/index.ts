@@ -204,6 +204,7 @@ type ApplyEventOptions = {
   origin: "local" | "remote" | "backfill";
   // Runs under the same transaction as the event insert and projection.
   preflightAbort?: (tx: SQLiteTx) => Promise<boolean>;
+  guard?: () => void;
 };
 
 function validateEventForApply(event: LedgerEvent, opts: ApplyEventOptions): Applier {
@@ -296,7 +297,9 @@ export async function applyEvent(
   let result!: ApplyEventResult;
   await applyEventMutex.runExclusive(() =>
     db.withTransactionAsync(async () => {
+      opts.guard?.();
       result = await applyEventInTransaction(db, event, opts, signer);
+      opts.guard?.();
     }),
   );
   notifyAppliedEvent(event, opts.origin, result);

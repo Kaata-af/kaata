@@ -100,8 +100,9 @@ func creditBalanceWithProjection(ctx context.Context, tx pgx.Tx, vaultID, relati
 // creditAdmit checks the actual projected delta; forged backfill flags cannot
 // turn a clerk's exposure-increasing write into a free repayment.
 type creditProjection struct {
-	p    *Projection
-	head HLC
+	p              *Projection
+	head           HLC
+	legacyCurrency string
 }
 
 func (state *creditProjection) load(ctx context.Context, tx pgx.Tx, vaultID string) (*Projection, error) {
@@ -110,6 +111,9 @@ func (state *creditProjection) load(ctx context.Context, tx pgx.Tx, vaultID stri
 	}
 	p, err := LoadVaultProjection(ctx, tx, vaultID)
 	if err != nil {
+		return nil, err
+	}
+	if err := tx.QueryRow(ctx, `SELECT legacy_currency FROM vaults WHERE vault_id=$1::uuid`, vaultID).Scan(&state.legacyCurrency); err != nil {
 		return nil, err
 	}
 	err = tx.QueryRow(ctx, `SELECT hlc_physical_ms,hlc_logical,hlc_device_id::text FROM events WHERE vault_id=$1::uuid AND redacted_at IS NULL ORDER BY hlc_physical_ms DESC,hlc_logical DESC,hlc_device_id DESC LIMIT 1`, vaultID).Scan(&state.head.PMS, &state.head.L, &state.head.DID)
@@ -132,6 +136,7 @@ func (state *creditProjection) accepted(vaultID string, ev PushEvent) {
 		return
 	}
 	e := LedgerEvent{EventID: ev.EventID, VaultID: vaultID, EventType: ev.EventType, PayloadSchema: ev.SchemaVersion, HLC: hlc, DeviceID: ev.HLC.DeviceID, TargetID: derefStr(ev.TargetID), RelationshipID: ev.RelationshipID, ActorAccountID: ev.ActorAccountID, Payload: ev.Payload}
+	e.LegacyCurrency = state.legacyCurrency
 	if applyOne(state.p, &e) != nil {
 		state.p = nil
 		return
@@ -158,6 +163,7 @@ func (state *creditProjection) proposed(ctx context.Context, tx pgx.Tx, vaultID 
 		return nil, err
 	}
 	ledger := creditLedgerEvent(vaultID, ev)
+	ledger.LegacyCurrency = state.legacyCurrency
 	if CompareHLC(ledger.HLC, state.head) <= 0 {
 		events, _, err := loadVaultEvents(ctx, tx, vaultID)
 		if err != nil {
@@ -215,6 +221,7 @@ func creditAdmit(ctx context.Context, tx pgx.Tx, vaultID string, ev PushEvent, a
 	}
 	var relationshipID string
 	var currency string
+	var targetCurrency string
 	var created entryCreatedPayload
 	if ev.EventType == EventEntryCreated {
 		if err := json.Unmarshal(ev.Payload, &created); err != nil {
@@ -256,15 +263,41 @@ func creditAdmit(ctx context.Context, tx pgx.Tx, vaultID string, ev PushEvent, a
 		}
 		relationshipID = entry.RelationshipID
 		currency = entry.Currency
+		if ev.EventType == EventEntryAmended {
+			var amendment entryAmendedPayload
+			if err := json.Unmarshal(ev.Payload, &amendment); err != nil {
+				return credit.ErrLimit
+			}
+			var err error
+			targetCurrency, err = amendedCurrency(amendment.Changes)
+			if err != nil {
+				return credit.ErrLimit
+			}
+			if targetCurrency == "" && amendment.Changes.AmountAFN != nil {
+				targetCurrency = entry.OriginalCurrency
+			}
+		}
 	}
 	if _, err := uuid.Parse(relationshipID); err != nil {
 		return nil
 	}
-	policy, err := credit.Effective(ctx, tx, vaultID, relationshipID, currency)
-	if err != nil {
-		return err
+	if targetCurrency == "" {
+		targetCurrency = currency
 	}
-	if policy == nil || !policy.Restricts(actorRole, override) {
+	policies := map[string]*credit.Policy{}
+	for i, code := range []string{currency, targetCurrency} {
+		if i > 0 && code == currency {
+			continue
+		}
+		policy, err := credit.Effective(ctx, tx, vaultID, relationshipID, code)
+		if err != nil {
+			return err
+		}
+		if policy != nil && policy.Restricts(actorRole, override) {
+			policies[code] = policy
+		}
+	}
+	if len(policies) == 0 {
 		return nil
 	}
 	if ev.RelationshipID == nil || *ev.RelationshipID != relationshipID {
@@ -280,20 +313,22 @@ func creditAdmit(ctx context.Context, tx pgx.Tx, vaultID string, ev PushEvent, a
 	if err != nil {
 		return err
 	}
-	before, err := creditBalanceWithProjection(ctx, tx, vaultID, relationshipID, projection, currency)
-	if err != nil {
-		return err
-	}
 	candidate, err := state.proposed(ctx, tx, vaultID, ev)
 	if err != nil {
 		return credit.ErrLimit
 	}
-	after, err := creditBalanceWithProjection(ctx, tx, vaultID, relationshipID, candidate, currency)
-	if err != nil {
-		return credit.ErrLimit
-	}
-	if policy.Exceeded(before, after) {
-		return errCreditOverLimit
+	for code, policy := range policies {
+		before, err := creditBalanceWithProjection(ctx, tx, vaultID, relationshipID, projection, code)
+		if err != nil {
+			return err
+		}
+		after, err := creditBalanceWithProjection(ctx, tx, vaultID, relationshipID, candidate, code)
+		if err != nil {
+			return credit.ErrLimit
+		}
+		if policy.Exceeded(before, after) {
+			return errCreditOverLimit
+		}
 	}
 	return nil
 }

@@ -56,6 +56,8 @@ type EntryRow = {
   relationship_id: string;
   type: string;
   amount_afn: number;
+  currency: string | null;
+  original_currency: string | null;
   note: string | null;
   created_at: number;
   updated_at: number;
@@ -141,6 +143,8 @@ const ENTRY_COLUMNS = [
   "relationship_id",
   "type",
   "amount_afn",
+  "currency",
+  "original_currency",
   "note",
   "created_at",
   "updated_at",

@@ -542,6 +542,85 @@ async function run() {
     console.log(
       "PASS person currency push: unsupported outbox retained, ordinary sync unblocked, upgrade retry and rolling-server rejection safe",
     );
+    const editVault = randomUUID();
+    const editIDs = [randomUUID(), randomUUID(), randomUUID()];
+    for (let i = 0; i < editIDs.length; i++) {
+      insert.run(
+        editIDs[i],
+        "entry_amended",
+        editVault,
+        "same-tally",
+        2000 + i,
+        installId,
+        installId,
+        "self",
+        JSON.stringify({
+          changes: i === 1 ? { amount_afn: 125.5, currency: "USD" } : { note: `note-${i}` },
+        }),
+        2000 + i,
+        i + 1,
+        `immutable-signature-${i}`,
+        "public-key",
+      );
+    }
+    const queuedEdit = () =>
+      fixture
+        .prepare(
+          "SELECT * FROM event_log WHERE vault_id=? AND server_acked_at IS NULL ORDER BY appended_at",
+        )
+        .all(editVault);
+    const pristine = queuedEdit().slice(1);
+    let editSupported = false,
+      editUploads = 0,
+      editProbes = 0;
+    globalThis.fetch = async (url, init) => {
+      if (String(url).endsWith("/capabilities")) {
+        editProbes++;
+        return Response.json({ multi_currency: true, entry_currency_edit: editSupported });
+      }
+      editUploads++;
+      assert.equal((init?.headers as Record<string, string>)["X-Kaata-Entry-Currency-Edit"], "1");
+      const body = JSON.parse(String(init?.body));
+      assert.deepEqual(
+        body.events.map((event: any) => event.event_id),
+        editSupported ? editIDs.slice(1) : editIDs.slice(0, 1),
+      );
+      return Response.json({
+        accepted: body.events.map((event: any, i: number) => ({
+          event_id: event.event_id,
+          server_seq: i + 1,
+        })),
+        duplicates: [],
+        rejected: [],
+      });
+    };
+    const editsBackedUpBefore = markedBackedUp;
+    assert.deepEqual(
+      await pushEvents(editVault),
+      { pushed: 1, duplicates: 0, rejected: 0 },
+      "An older server can accept earlier ordinary edits",
+    );
+    assert.deepEqual(
+      queuedEdit(),
+      pristine,
+      "Currency edit and every later dependent write retain all signed/retry metadata",
+    );
+    assert.equal(markedBackedUp, editsBackedUpBefore);
+    assert.deepEqual(await pushEvents(editVault), { pushed: 0, duplicates: 0, rejected: 0 });
+    assert.deepEqual(queuedEdit(), pristine);
+    assert.equal(editUploads, 1, "Never post a partial or unsupported monetary edit");
+    editSupported = true;
+    assert.deepEqual(await pushEvents(editVault), { pushed: 2, duplicates: 0, rejected: 0 });
+    assert.equal(queuedEdit().length, 0);
+    assert.equal(markedBackedUp, editsBackedUpBefore + 1);
+    assert.equal(
+      editProbes,
+      3,
+      "An upgrade is retried without caching a stale capability response",
+    );
+    console.log(
+      "PASS currency-edit push: older-server deferral, ordered dependency hold, untouched signatures and upgrade retry",
+    );
   } finally {
     globalThis.fetch = realFetch;
     fixture.close();

@@ -1028,6 +1028,9 @@ type PullResult struct {
 	NextAfterServerSeq int64         `json:"next_after_server_seq"`
 	HasMore            bool          `json:"has_more"`
 	ServerTime         string        `json:"server_time"`
+	// A pointer distinguishes an explicit empty recovery result from ordinary
+	// pulls, whose cached response and wire shape remain unchanged.
+	EntryCurrencyBaselines *[]EntryCurrencyBaseline `json:"entry_currency_baselines,omitempty"`
 }
 
 type PulledEvent struct {

@@ -23,10 +23,11 @@ export function entryRecordedAtSql(alias: string): string {
  * amount change made the row's general updated_at floor more recent. */
 export function restoredEntryDateHLCs(
   fallback: string,
-  entry: { created_at: number; recorded_at_ms?: number; occurred_at_hlc?: HLC },
+  entry: { created_at: number; recorded_at_ms?: number; occurred_at_hlc?: HLC; amount_hlc?: HLC },
 ): string {
   const fields: Record<string, HLC> = JSON.parse(fallback);
   fields.recorded_at_ms = { pms: entry.recorded_at_ms ?? entry.created_at, l: 0, did: "" };
   if (entry.occurred_at_hlc) fields.occurred_at_ms = entry.occurred_at_hlc;
+  if (entry.amount_hlc) fields.amount_afn = entry.amount_hlc;
   return JSON.stringify(fields);
 }

@@ -233,6 +233,8 @@ type EntryProjection struct {
 	// event payloads are never rewritten. Money arithmetic belongs to clients.
 	AmountAFN        json.Number `json:"amount_afn"`
 	Currency         string      `json:"currency,omitempty"`
+	OriginalCurrency string      `json:"original_currency,omitempty"`
+	AmountHLC        *HLC        `json:"amount_hlc,omitempty"`
 	Note             *string     `json:"note"`
 	CreatedAt        int64       `json:"created_at"`
 	RecordedAtMS     int64       `json:"recorded_at_ms,omitempty"`
@@ -251,10 +253,11 @@ type EntryProjection struct {
 	// Internal LWW bookkeeping. Per-field "winning HLC" so a later event
 	// touching a DIFFERENT field doesn't dethrone this field's value. Not
 	// serialized; not part of the conformance contract.
-	hlcAmount     HLC `json:"-"`
-	hlcNote       HLC `json:"-"`
-	hlcType       HLC `json:"-"`
-	hlcOccurredAt HLC `json:"-"`
+	hlcAmount     HLC    `json:"-"`
+	amountEventID string `json:"-"`
+	hlcNote       HLC    `json:"-"`
+	hlcType       HLC    `json:"-"`
+	hlcOccurredAt HLC    `json:"-"`
 }
 
 type ShopProfileProjection struct {
@@ -432,6 +435,7 @@ func applyEntryCreated(p *Projection, e *LedgerEvent) error {
 		AmountAFN:        payload.AmountAFN,
 		Note:             payload.Note,
 		Currency:         payload.Currency,
+		AmountHLC:        &HLC{PMS: e.HLC.PMS, L: e.HLC.L, DID: e.HLC.DID},
 		CreatedAt:        payload.OccurredAtMS,
 		RecordedAtMS:     recordedAt,
 		OccurredAtHLC:    &HLC{PMS: e.HLC.PMS, L: e.HLC.L, DID: e.HLC.DID},
@@ -446,6 +450,7 @@ func applyEntryCreated(p *Projection, e *LedgerEvent) error {
 		SettledAt:        payload.BackfillSettledAt,
 		DeletedAt:        nil,
 		hlcAmount:        e.HLC,
+		amountEventID:    e.EventID,
 		hlcNote:          e.HLC,
 		hlcType:          e.HLC,
 		hlcOccurredAt:    e.HLC,
@@ -459,6 +464,15 @@ func applyEntryAmended(p *Projection, e *LedgerEvent) error {
 	if err := json.Unmarshal(e.Payload, &payload); err != nil {
 		return fmt.Errorf("decode entry_amended payload: %w", err)
 	}
+	currency, err := amendedCurrency(payload.Changes)
+	if err != nil {
+		return err
+	}
+	if currency != "" {
+		if err := validateCurrencyPayload(PushEvent{EventType: EventEntryAmended, Payload: e.Payload}); err != nil {
+			return err
+		}
+	}
 	entry, ok := p.Entries[e.TargetID]
 	if !ok {
 		// Orphan amend — silently skip.
@@ -470,11 +484,11 @@ func applyEntryAmended(p *Projection, e *LedgerEvent) error {
 	}
 
 	c := &payload.Changes
-	if len(c.Currency) > 0 {
-		return errors.New("entry currency is immutable")
-	}
 	if c.OccurredAtMS != nil && (*c.OccurredAtMS <= 0 || *c.OccurredAtMS > 8_640_000_000_000_000) {
 		return errors.New("invalid entry date")
+	}
+	if currency != "" && entry.OriginalCurrency == "" {
+		entry.OriginalCurrency = entry.Currency
 	}
 	wrote := false
 	latestWrite := e.HLC.PMS >= entry.UpdatedAt
@@ -486,7 +500,15 @@ func applyEntryAmended(p *Projection, e *LedgerEvent) error {
 
 	if c.AmountAFN != nil && CompareHLC(e.HLC, entry.hlcAmount) > 0 {
 		entry.AmountAFN = *c.AmountAFN
+		if currency != "" {
+			entry.Currency = currency
+		} else if entry.OriginalCurrency != "" {
+			entry.Currency = entry.OriginalCurrency
+		}
 		entry.hlcAmount = e.HLC
+		entry.amountEventID = e.EventID
+		h := e.HLC
+		entry.AmountHLC = &h
 		wrote = true
 	}
 	if len(c.Note) > 0 && CompareHLC(e.HLC, entry.hlcNote) > 0 {

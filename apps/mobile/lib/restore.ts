@@ -35,6 +35,7 @@ import { compareHLC, deserializeHLC, serializeHLC, type HLC } from "./hlc";
 import { serializeFieldHLCs, type FieldHLCMap } from "./projection/field-hlc";
 import { restoredEntryDateHLCs } from "./entry-date";
 import { assertLegacyCurrencyMatches } from "./currency-metadata";
+import { isValidCurrencyCode } from "./currency-scope";
 import {
   seedSnapshotCustomerGroups,
   restoredRelationshipFieldHLCs,
@@ -170,6 +171,8 @@ export type SnapshotEntry = {
   amount_afn: number;
   note: string | null;
   currency?: string;
+  original_currency?: string;
+  amount_hlc?: HLC;
   created_at: number;
   recorded_at_ms?: number;
   occurred_at_hlc?: HLC;
@@ -554,6 +557,16 @@ export async function restoreFromSnapshot(
             e,
           ),
         );
+        if (e.original_currency) {
+          if (!isValidCurrencyCode(e.original_currency))
+            throw new Error("Invalid original entry currency");
+          await db.runAsync(
+            "UPDATE entries SET original_currency=? WHERE id=? AND vault_id=?",
+            e.original_currency,
+            e.id,
+            e.vault_id,
+          );
+        }
       }
     } // end else — snapshot projection seed (fresh recovery only; see B9 guard)
 

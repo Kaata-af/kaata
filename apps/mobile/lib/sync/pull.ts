@@ -16,6 +16,14 @@ import { currencyRequestHeaders } from "../currency-sync";
 import { applyForCurrentSession, getSessionJWT, type SessionSnapshot } from "../auth";
 import { healActiveVaultId } from "../db";
 import { getAccountIdSync, getDb } from "../db-tx";
+import {
+  applyEntryCurrencyBaselines,
+  needsEntryCurrencyBaselines,
+  validateEntryCurrencyBaselines,
+  type EntryCurrencyBaseline,
+} from "../entry-currency-baselines";
+import { emitLedgerApplied } from "../ledger-events";
+import { applyEventMutex } from "../projection";
 import { resolveAccountIdCandidates } from "../effective-account";
 import {
   ingestPulledEvents,
@@ -67,6 +75,7 @@ type PullResponse = {
   has_more: boolean;
   next_after_server_seq: number;
   server_time: string;
+  entry_currency_baselines?: EntryCurrencyBaseline[];
 };
 
 export type PullResult = { pulled: number };
@@ -83,6 +92,12 @@ export async function pullEvents(vaultId: string, session?: SessionSnapshot): Pr
   const baseUrl = await getBackendUrl();
   let cursor = await getLastPulledServerSeq(vaultId);
   let totalPulled = 0;
+  // Older cloud restores gave money a synthetic clock based on the row's last
+  // edit, which may actually belong to its note. Ask for precise accepted money
+  // only while that placeholder remains. Never hold local locks over a request.
+  let requestCurrencyBaselines = await apply(() =>
+    applyEventMutex.runExclusive(async () => needsEntryCurrencyBaselines(await getDb(), vaultId)),
+  );
 
   // Drain to has_more=false. The scheduler will catch SessionExpired /
   // transient errors and back off.
@@ -94,15 +109,45 @@ export async function pullEvents(vaultId: string, session?: SessionSnapshot): Pr
   // create-before-amend / membership-before-entry ordering at once), so a page
   // whose person hasn't arrived yet doesn't block the entries that depend on it.
   let ingestedAny = false;
+  let repairedAny = false;
   for (;;) {
     await apply(async () => {});
-    const batch = await fetchOnePage(baseUrl, jwt, vaultId, cursor, DEFAULT_BATCH_LIMIT, session);
+    const batch = await fetchOnePage(
+      baseUrl,
+      jwt,
+      vaultId,
+      cursor,
+      DEFAULT_BATCH_LIMIT,
+      session,
+      requestCurrencyBaselines,
+    );
 
     await apply(async () => {
       if (batch.events.length > 0) {
         await ingestBatch(vaultId, batch.events);
         ingestedAny = true;
         totalPulled += batch.events.length;
+      }
+
+      // Ingest first: an acknowledged local amendment is now safe to reconcile.
+      // Commit metadata before advancing the cursor or sweeping quarantined
+      // corrections; independent fields/history are protected by the helper.
+      const currencyBaselines = batch.entry_currency_baselines;
+      if (currencyBaselines !== undefined) {
+        const repaired = await applyEventMutex.runExclusive(async () => {
+          const db = await getDb();
+          let changed = 0;
+          await db.withTransactionAsync(async () => {
+            changed = await applyEntryCurrencyBaselines(db, vaultId, currencyBaselines);
+          });
+          return changed;
+        });
+        requestCurrencyBaselines = false;
+        if (repaired > 0) {
+          repairedAny = true;
+          // Listeners only see committed rows, in the same current session.
+          emitLedgerApplied(vaultId, "remote");
+        }
       }
 
       if (batch.next_after_server_seq > cursor) {
@@ -123,7 +168,7 @@ export async function pullEvents(vaultId: string, session?: SessionSnapshot): Pr
   // Apply everything we just ingested. Best-effort: the rows are durable, so a
   // sweep failure here only defers application to the next debounced /
   // cold-launch / foreground sweepAllQuarantinedVaults — never loses data.
-  if (ingestedAny) {
+  if (ingestedAny || repairedAny) {
     try {
       await apply(() => sweepVaultNow(vaultId));
     } catch (err) {
@@ -141,6 +186,7 @@ async function fetchOnePage(
   afterServerSeq: number,
   limit: number,
   session?: SessionSnapshot,
+  requestCurrencyBaselines = false,
 ): Promise<PullResponse> {
   const currencyHeaders = await currencyRequestHeaders(await getDb(), vaultId);
   const controller = new AbortController();
@@ -150,7 +196,8 @@ async function fetchOnePage(
     `${baseUrl}/v1/sync/pull` +
     `?vault_id=${encodeURIComponent(vaultId)}` +
     `&after_server_seq=${afterServerSeq}` +
-    `&limit=${limit}`;
+    `&limit=${limit}` +
+    (requestCurrencyBaselines ? "&entry_currency_baselines=1" : "");
 
   let res: Response;
   try {
@@ -248,6 +295,12 @@ async function fetchOnePage(
   }
 
   const body = (await res.json()) as PullResponse;
+  if (body.entry_currency_baselines !== undefined) {
+    if (body.vault_id !== vaultId) throw new Error("Entry currency baseline vault mismatch");
+    // Validate the complete response before any page event or cursor is stored.
+    // An older server omitting this optional field keeps the usual pull path.
+    validateEntryCurrencyBaselines(vaultId, body.entry_currency_baselines);
+  }
   return {
     vault_id: body.vault_id,
     events: Array.isArray(body.events) ? body.events : [],
@@ -255,6 +308,9 @@ async function fetchOnePage(
     next_after_server_seq:
       typeof body.next_after_server_seq === "number" ? body.next_after_server_seq : afterServerSeq,
     server_time: body.server_time,
+    ...(body.entry_currency_baselines !== undefined
+      ? { entry_currency_baselines: body.entry_currency_baselines }
+      : {}),
   };
 }
 

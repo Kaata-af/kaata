@@ -20,10 +20,11 @@ import type {
   EntryDeletedEvent,
   EntrySettledEvent,
 } from "../events";
-import { MissingPrereqError } from "./errors";
+import { MissingPrereqError, EntryCurrencyBaselineRequiredError } from "./errors";
 import { isValidEntryDate } from "../entry-date";
 import { compareHLC } from "../hlc";
-import { isValidCurrencyCode } from "../currency-scope";
+import { isValidCurrencyCode, effectiveEntryCurrencySql } from "../currency-scope";
+import { parseAmountInput } from "../money";
 import {
   compareFieldHLC,
   parseFieldHLCs,
@@ -99,6 +100,14 @@ export async function applyEntryCreated(tx: SQLiteTx, event: EntryCreatedEvent):
 }
 
 export async function applyEntryAmended(tx: SQLiteTx, event: EntryAmendedEvent): Promise<void> {
+  const c = event.payload.changes;
+  if (
+    "currency" in c &&
+    (!isValidCurrencyCode(c.currency) ||
+      typeof c.amount_afn !== "number" ||
+      parseAmountInput(String(c.amount_afn)) !== c.amount_afn)
+  )
+    throw new Error("Currency edits require a valid currency and exact amount together");
   // Phase 4 per-field LWW. Snapshot current field_hlcs, decide per-field
   // whether to apply, write back the merged map.
   const row = await tx.getFirstAsync<{
@@ -106,8 +115,10 @@ export async function applyEntryAmended(tx: SQLiteTx, event: EntryAmendedEvent):
     is_deleted: number;
     created_at: number;
     updated_at: number;
+    currency: string;
+    original_currency?: string | null;
   }>(
-    `SELECT field_hlcs, is_deleted, created_at, updated_at FROM entries WHERE id = ?`,
+    `SELECT entries.*, ${effectiveEntryCurrencySql("entries")} AS currency FROM entries WHERE id = ?`,
     event.target_id,
   );
   if (row == null) {
@@ -138,14 +149,38 @@ export async function applyEntryAmended(tx: SQLiteTx, event: EntryAmendedEvent):
   if (row.is_deleted === 1) return;
 
   const current: FieldHLCMap = parseFieldHLCs(row.field_hlcs);
+  // Pre-upgrade snapshot restores used a newer note's updated_at as the
+  // amount floor. A currency correction below that synthetic floor needs the
+  // server's precise money baseline; silently skipping it would lose the edit.
+  const amountFloor = current.amount_afn;
+  const preciseAmountFloor =
+    amountFloor &&
+    Number.isSafeInteger(amountFloor.pms) &&
+    amountFloor.pms > 0 &&
+    Number.isSafeInteger(amountFloor.l) &&
+    amountFloor.l >= 0 &&
+    typeof amountFloor.did === "string" &&
+    amountFloor.did !== "";
+  const uncertainAmountBound =
+    amountFloor?.did === "" && Number.isSafeInteger(amountFloor.pms) && amountFloor.pms > 0
+      ? amountFloor.pms
+      : row.updated_at;
+  if (c.currency !== undefined && !preciseAmountFloor && event.hlc.pms <= uncertainAmountBound)
+    throw new EntryCurrencyBaselineRequiredError(event.event_id);
   const next: FieldHLCMap = { ...current };
 
   const sets: string[] = [];
   const args: Array<string | number | null> = [];
-  const c = event.payload.changes;
   if (c.occurred_at_ms != null && !isValidEntryDate(c.occurred_at_ms))
     throw new Error("Invalid entry date");
   let anyFieldApplied = false;
+  // Freeze the original unit on the first currency-aware edit. Legacy queued
+  // amount edits were authored in this unit, even if delivered after a currency
+  // correction. Their amount must never acquire another currency by accident.
+  if (c.currency !== undefined && !row.original_currency) {
+    sets.push("original_currency = ?");
+    args.push(row.currency);
+  }
 
   // M33: reject null (not just undefined) for the NOT NULL columns amount_afn
   // and type — JSON null passes `!== undefined`, so a crafted `{"amount_afn":null}`
@@ -156,6 +191,10 @@ export async function applyEntryAmended(tx: SQLiteTx, event: EntryAmendedEvent):
     if (compareFieldHLC(current, "amount_afn", event.hlc) === "apply") {
       sets.push("amount_afn = ?");
       args.push(c.amount_afn);
+      if (c.currency !== undefined || row.original_currency) {
+        sets.push("currency = ?");
+        args.push(c.currency ?? row.original_currency!);
+      }
       next["amount_afn"] = event.hlc;
       anyFieldApplied = true;
     }
@@ -192,7 +231,7 @@ export async function applyEntryAmended(tx: SQLiteTx, event: EntryAmendedEvent):
   // event is fully redundant. Leave the row alone — don't bump
   // current_event_id or updated_at so the UI's "Last edited" label
   // reflects the last WINNING event, not the last SEEN event.
-  if (!anyFieldApplied) return;
+  if (!anyFieldApplied && sets.length === 0) return;
 
   // An older edit can still win an independent register. Keep the row's
   // latest-writing event when its newer note/amount arrived before this date.

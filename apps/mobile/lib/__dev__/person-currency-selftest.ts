@@ -10,7 +10,11 @@ import type { LedgerEvent, VaultRole } from "../events";
 import type { SQLiteTx } from "../db-tx";
 import { compileUI, deferred } from "./ui-fixture";
 
-function declaration(file: string, name: string) {
+const declarationCache = new Map<string, string>();
+export function declaration(file: string, name: string) {
+  const key = `${file}\0${name}`;
+  const cached = declarationCache.get(key);
+  if (cached) return cached;
   const source = readFileSync(require.resolve(file), "utf8");
   const ast = ts.createSourceFile(file, source, ts.ScriptTarget.ES2022, true);
   const node = ast.statements.find(
@@ -18,9 +22,11 @@ function declaration(file: string, name: string) {
       (ts.isFunctionDeclaration(node) || ts.isClassDeclaration(node)) && node.name?.text === name,
   );
   assert.ok(node, `actual ${name}`);
-  return node.getText(ast);
+  const text = node.getText(ast);
+  declarationCache.set(key, text);
+  return text;
 }
-function compile(source: string, required: (name: string) => any) {
+export function compile(source: string, required: (name: string) => any) {
   const result: any = {};
   new Function(
     "require",
@@ -35,7 +41,7 @@ function load(file: string, required: (name: string) => any) {
   return compile(readFileSync(require.resolve(file), "utf8"), required);
 }
 
-async function fixture() {
+export async function fixture() {
   const sql = new Database(":memory:");
   sql.exec(`PRAGMA foreign_keys=ON;
     CREATE TABLE users(id TEXT PRIMARY KEY,phone_e164 TEXT,display_name TEXT,is_local_self INTEGER,google_sub TEXT,account_id TEXT,created_at INTEGER,updated_at INTEGER,archived_at INTEGER,field_hlcs TEXT);
@@ -44,10 +50,17 @@ async function fixture() {
     CREATE TABLE vaults(id TEXT PRIMARY KEY,name TEXT,currency TEXT,legacy_currency TEXT,default_entry_currency TEXT,created_at INTEGER,updated_at INTEGER,archived_at INTEGER,is_default INTEGER,account_id TEXT,registered_with_server_at INTEGER,vault_epoch INTEGER,hlc_logical INTEGER,hlc_wall_ms INTEGER,vault_trust_anchor_pubkey TEXT);
     CREATE TABLE vault_settings(vault_id TEXT,key TEXT,value TEXT,hlc_pms INTEGER,hlc_l INTEGER,hlc_did TEXT,updated_at INTEGER,PRIMARY KEY(vault_id,key));
     CREATE TABLE relationships(id TEXT PRIMARY KEY,vault_id TEXT,user_a_id TEXT,user_b_id TEXT,context TEXT,created_at INTEGER,updated_at INTEGER,archived_at INTEGER,field_hlcs TEXT,default_entry_currency TEXT,group_id TEXT,group_ids TEXT);
-    CREATE TABLE entries(id TEXT PRIMARY KEY,vault_id TEXT,relationship_id TEXT,type TEXT,amount_afn REAL,note TEXT,currency TEXT,created_at INTEGER,updated_at INTEGER,deleted_at INTEGER,proposed_by_user_id TEXT,current_event_id TEXT,is_deleted INTEGER,is_settled INTEGER,accepted_at INTEGER,disputed_at INTEGER,disputed_reason TEXT,settled_at INTEGER,field_hlcs TEXT);
-    CREATE TABLE tab_links(tab_id TEXT PRIMARY KEY,vault_id TEXT,relationship_id TEXT,currency TEXT,closed_at INTEGER);
+    CREATE TABLE entries(id TEXT PRIMARY KEY,vault_id TEXT,relationship_id TEXT,type TEXT,amount_afn REAL,note TEXT,currency TEXT,created_at INTEGER,updated_at INTEGER,deleted_at INTEGER,proposed_by_user_id TEXT,current_event_id TEXT,is_deleted INTEGER,is_settled INTEGER,accepted_at INTEGER,disputed_at INTEGER,disputed_reason TEXT,settled_at INTEGER,field_hlcs TEXT,original_currency TEXT);
+    CREATE TABLE tab_links(tab_id TEXT PRIMARY KEY,vault_id TEXT,relationship_id TEXT,currency TEXT,closed_at INTEGER,linked_at INTEGER);
+    CREATE TABLE tab_entries(id TEXT PRIMARY KEY);
+    CREATE TABLE settlements(id TEXT PRIMARY KEY,vault_id TEXT,relationship_id TEXT,currency TEXT,settled_at_ms INTEGER);
+    CREATE TABLE customer_credit_limits(vault_id TEXT,relationship_id TEXT,currency TEXT,mode TEXT,restrict_editors INTEGER);
+    CREATE TABLE kaata_credit_defaults(vault_id TEXT,currency TEXT,mode TEXT,restrict_editors INTEGER);
+    CREATE TABLE vault_member_credit_permissions(vault_id TEXT,account_id TEXT,credit_limit_override TEXT);
+    CREATE TABLE credit_mutation_baselines(event_id TEXT PRIMARY KEY,vault_id TEXT,entry_id TEXT,row_json TEXT);
+    CREATE TABLE credit_admission_intents(event_id TEXT PRIMARY KEY,vault_id TEXT,relationship_id TEXT,status TEXT,reason TEXT);
     CREATE TABLE vault_members_mirror(vault_id TEXT,account_id TEXT,role TEXT,accepted_at INTEGER,revoked_at INTEGER,display_name TEXT,PRIMARY KEY(vault_id,account_id));
-    CREATE TABLE event_log(event_id TEXT PRIMARY KEY,event_type TEXT,vault_id TEXT,target_id TEXT,relationship_id TEXT,hlc_physical_ms INTEGER,hlc_logical INTEGER,hlc_device_id TEXT,device_id TEXT,author_user_id_local_only TEXT NOT NULL,actor_account_id TEXT,payload_json TEXT,payload_schema INTEGER,appended_at INTEGER,server_acked_at INTEGER,rejected_at INTEGER,origin TEXT,event_sig_b64 TEXT,signer_device_pubkey TEXT,ingested_at INTEGER,applied_at INTEGER,author_seq INTEGER,quarantine_reason TEXT,tombstone_reason TEXT);
+    CREATE TABLE event_log(event_id TEXT PRIMARY KEY,event_type TEXT,vault_id TEXT,target_id TEXT,relationship_id TEXT,hlc_physical_ms INTEGER,hlc_logical INTEGER,hlc_device_id TEXT,device_id TEXT,author_user_id_local_only TEXT NOT NULL,actor_account_id TEXT,payload_json TEXT,payload_schema INTEGER,appended_at INTEGER,server_acked_at INTEGER,rejected_at INTEGER,origin TEXT,event_sig_b64 TEXT,signer_device_pubkey TEXT,ingested_at INTEGER,applied_at INTEGER,author_seq INTEGER,quarantine_reason TEXT,tombstone_reason TEXT,last_reject_reason TEXT);
     CREATE UNIQUE INDEX author_slot ON event_log(vault_id,device_id,author_seq);
     CREATE TABLE projection_conflicts(id INTEGER PRIMARY KEY,kind TEXT,vault_id TEXT,detail_json TEXT,created_at INTEGER);
     CREATE TABLE vault_device_registry(vault_id TEXT,device_pubkey TEXT,device_id TEXT,account_id TEXT,added_at_ms INTEGER,removed_at_ms INTEGER,removed_at_l INTEGER,removed_at_did TEXT);
@@ -168,6 +181,18 @@ async function fixture() {
     "./errors": require("../projection/errors"),
     "../currency-scope": require("../currency-scope"),
   });
+  const entries = compileUI("../projection/entries", {
+    "./field-hlc": fieldHlc,
+    "./errors": require("../projection/errors"),
+    "../currency-scope": require("../currency-scope"),
+    "../entry-date": require("../entry-date"),
+    "../hlc": require("../hlc"),
+    "../money": require("../money"),
+  });
+  const creditAdmission = compileUI("../credit-admission", {
+    "./currency-scope": require("../currency-scope"),
+    "./projection/entries": entries,
+  });
   const members = compileUI("../projection/vault_members", {
     "../hlc": require("../hlc"),
     "../use-vault-role": roleNotifications,
@@ -182,15 +207,12 @@ async function fixture() {
     if (name === "../mesh/device-key") return device;
     if (name === "./role-gate") return roleGate;
     if (name === "./persons") return persons;
+    if (name === "./entries") return entries;
     if (name === "./vault_members") return members;
     if (name === "./vault_settings") return settings;
     if (name === "../use-vault-role") return roleNotifications;
     if (name === "../projection-conflicts") return { notifyProjectionConflictsChanged() {} };
-    if (name === "../credit-admission")
-      return {
-        captureCreditMutationBaseline: async () => {},
-        requiresCreditAdmission: async () => false,
-      };
+    if (name === "../credit-admission") return creditAdmission;
     if (name === "./sweep") return { scheduleSweep() {} };
     if (name === "../ledger-events")
       return {
@@ -297,6 +319,10 @@ async function fixture() {
     tx,
     dbTx,
     projection,
+    entries,
+    creditAdmission,
+    signature,
+    device,
     persons,
     personCurrency,
     eventLog,
@@ -315,6 +341,9 @@ async function fixture() {
     },
     failSecondSignature: () => {
       failSignature = signatures + 2;
+    },
+    failNextSignature: () => {
+      failSignature = signatures + 1;
     },
     pauseRead: () => {
       queryPause = deferred<void>();
@@ -451,7 +480,7 @@ async function main() {
   {
     const f = await fixture();
     f.sql.exec(
-      "DELETE FROM entries; INSERT INTO tab_links VALUES('usd','v1','r1','USD',NULL),('foreign','v2','r2','EUR',NULL),('other','v1','someone-else','EUR',NULL)",
+      "DELETE FROM entries; INSERT INTO tab_links(tab_id,vault_id,relationship_id,currency,closed_at) VALUES('usd','v1','r1','USD',NULL),('foreign','v2','r2','EUR',NULL),('other','v1','someone-else','EUR',NULL)",
     );
     assert.equal(
       await f.personCurrency.getPersonEntryCurrency("v1", "person"),
@@ -464,7 +493,9 @@ async function main() {
       "USD",
       "closed shared history still records its currency",
     );
-    f.sql.exec("INSERT INTO tab_links VALUES('eur','v1','r1','EUR',NULL)");
+    f.sql.exec(
+      "INSERT INTO tab_links(tab_id,vault_id,relationship_id,currency,closed_at) VALUES('eur','v1','r1','EUR',NULL)",
+    );
     assert.equal(
       await f.personCurrency.getPersonEntryCurrency("v1", "person"),
       "AFN",
@@ -772,6 +803,7 @@ async function snapshotChecks(f: Awaited<ReturnType<typeof fixture>>, preference
     "./projection/field-hlc": { serializeFieldHLCs: JSON.stringify },
     "./entry-date": require("../entry-date"),
     "./currency-metadata": require("../currency-metadata"),
+    "./currency-scope": require("../currency-scope"),
     "./customer-group-restore": compileUI("../customer-group-restore", {
       "./projection/field-hlc": compileUI("../projection/field-hlc", {
         "../db": { FIELD_HLC_INIT: { pms: -1, l: 0, did: "" } },
@@ -823,6 +855,16 @@ async function snapshotChecks(f: Awaited<ReturnType<typeof fixture>>, preference
     updated_at: 1,
     archived_at: null,
   };
+  const restoredMoney = {
+    ...(f.sql.prepare("SELECT * FROM entries WHERE id='old-money'").get() as any),
+    id: "restored-correction",
+    currency: "USD",
+    original_currency: "AFN",
+    amount_afn: 23.45,
+    amount_hlc: { pms: 20, l: 1, did: "old-device" },
+    note: "newer snapshot note",
+    updated_at: 900,
+  };
   await restore.restoreFromSnapshot(
     {
       vault_id: "v1",
@@ -830,7 +872,7 @@ async function snapshotChecks(f: Awaited<ReturnType<typeof fixture>>, preference
       shop_profile: null,
       users: [],
       relationships: [relationship],
-      entries: [],
+      entries: [restoredMoney],
       membership_events: [toWire(genesis)],
       person_currency_events: [toWire(preference), toWire(reset), toWire(genesis)],
       events: [toWire(reset)],
@@ -841,6 +883,31 @@ async function snapshotChecks(f: Awaited<ReturnType<typeof fixture>>, preference
     { localSelfId: "self", setActiveDefault: false },
   );
   assert.equal(cursor, 500);
+  const restoredRow = () =>
+    f.sql.prepare("SELECT * FROM entries WHERE id='restored-correction'").get() as any;
+  assert.equal(restoredRow().currency, "USD");
+  assert.equal(
+    restoredRow().original_currency,
+    "AFN",
+    "snapshot restores the frozen original denomination",
+  );
+  assert.deepEqual(
+    JSON.parse(restoredRow().field_hlcs).amount_afn,
+    restoredMoney.amount_hlc,
+    "snapshot restores the amount register independently of a newer note",
+  );
+  await f.entries.applyEntryAmended(f.tx, {
+    ...f.wire(preference),
+    event_type: "entry_amended",
+    event_id: "after-snapshot-currency",
+    target_id: "restored-correction",
+    hlc: { pms: 100, l: 0, did: "another-device" },
+    payload: { changes: { amount_afn: 34.56, currency: "EUR" } },
+  });
+  assert.equal(restoredRow().amount_afn, 34.56);
+  assert.equal(restoredRow().currency, "EUR");
+  assert.equal(restoredRow().original_currency, "AFN");
+  assert.equal(restoredRow().note, "newer snapshot note");
   assert.equal(f.saved().default_entry_currency, null);
   const restoredHlc = JSON.parse(f.saved().field_hlcs).default_entry_currency;
   assert.deepEqual(restoredHlc, f.wire(reset).hlc);
@@ -883,7 +950,8 @@ async function snapshotChecks(f: Awaited<ReturnType<typeof fixture>>, preference
   assert.deepEqual(JSON.parse(f.saved().field_hlcs).default_entry_currency, restoredHlc);
 }
 
-void main().catch((error) => {
-  console.error(error);
-  process.exitCode = 1;
-});
+if (require.main === module)
+  void main().catch((error) => {
+    console.error(error);
+    process.exitCode = 1;
+  });

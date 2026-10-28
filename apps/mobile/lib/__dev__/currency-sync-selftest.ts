@@ -3,6 +3,7 @@ import {
   ensureCurrencySyncSupported,
   currencyRequestHeaders,
   supportsPersonDefaultCurrencySync,
+  supportsEntryCurrencyEditSync,
 } from "../currency-sync";
 import { compileUI } from "./ui-fixture";
 
@@ -17,6 +18,7 @@ async function main() {
     "sync asserts frozen currency, not selected view",
   );
   const priorFetch = globalThis.fetch;
+  assert.equal(headers["X-Kaata-Entry-Currency-Edit"], "1");
   try {
     let requests = 0;
     let enabled = false;
@@ -54,6 +56,32 @@ async function main() {
       await supportsPersonDefaultCurrencySync("https://currency-test.invalid", "jwt"),
       false,
     );
+    for (const flag of [undefined, false, "true", 1, true]) {
+      globalThis.fetch = async (_url, init) => {
+        assert.equal((init?.headers as Record<string, string>)["X-Kaata-Entry-Currency-Edit"], "1");
+        return Response.json({ multi_currency: true, entry_currency_edit: flag });
+      };
+      assert.equal(
+        await supportsEntryCurrencyEditSync("https://currency-edit.invalid", "jwt"),
+        flag === true,
+      );
+    }
+    globalThis.fetch = async () =>
+      Response.json({ multi_currency: false, entry_currency_edit: true });
+    assert.equal(
+      await supportsEntryCurrencyEditSync("https://currency-edit.invalid", "jwt"),
+      false,
+    );
+    globalThis.fetch = async () => {
+      throw new Error("offline");
+    };
+    assert.equal(
+      await supportsEntryCurrencyEditSync("https://currency-edit.invalid", "jwt"),
+      false,
+      "Offline and rolling-server failures never authorize an unsupported edit upload",
+    );
+    globalThis.fetch = async () =>
+      Response.json({ multi_currency: true, person_default_currency: personCapability });
     personCapability = true;
     assert.equal(
       await supportsPersonDefaultCurrencySync("https://currency-test.invalid", "jwt"),

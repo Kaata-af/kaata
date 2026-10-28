@@ -154,6 +154,14 @@ func (h *Handler) Push(w http.ResponseWriter, r *http.Request) {
 	if !h.allowCurrencyClient(w, r, req.VaultID, claims.AccountID) {
 		return
 	}
+	if r.Header.Get("X-Kaata-Entry-Currency-Edit") != "1" {
+		for _, event := range req.Events {
+			if isEntryCurrencyEdit(event.EventType, event.Payload) {
+				requireEntryCurrencyEditClient(w, r)
+				return
+			}
+		}
+	}
 	if r.Header.Get("X-Kaata-Currencies") != "1" {
 		for _, event := range req.Events {
 			if event.EventType != EventVaultSettingSet {
@@ -460,6 +468,25 @@ func (h *Handler) Pull(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if r.URL.Query().Get("entry_currency_baselines") == "1" {
+		if !requireEntryCurrencyEditClient(w, r) {
+			return
+		}
+		baselines, err := h.svc.entryCurrencyBaselines(r.Context(), vaultID)
+		if err != nil {
+			log.Printf("sync.pull monetary recovery failed for account=%s vault=%s: %v", claims.AccountID, vaultID, err)
+			httpx.Error(w, http.StatusServiceUnavailable, "tally currency recovery failed")
+			return
+		}
+		// PullEvents may return a shared cached object. Never attach an opt-in
+		// recovery response to that object or expose it on a later normal pull.
+		uncached := *res
+		uncached.EntryCurrencyBaselines = &baselines
+		res = &uncached
+	}
+	if !allowEntryCurrencyEvents(w, r, res.Events) {
+		return
+	}
 	httpx.JSON(w, http.StatusOK, res)
 }
 
@@ -511,6 +538,9 @@ func (h *Handler) Snapshot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !allowEntryCurrencySnapshot(w, r, resp) {
+		return
+	}
 	httpx.JSON(w, http.StatusOK, resp)
 }
 

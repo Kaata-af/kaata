@@ -24,6 +24,8 @@ import java.security.SecureRandom
 object MeshHandshake {
 
   private const val POP_DOMAIN_V3 = "kaata-pop-v3"
+  const val ENTRY_CURRENCY_EDIT_CAPABILITY = "entry-currency-edit-v1"
+  private const val ENTRY_CURRENCY_EDIT_POP_DOMAIN = "kaata-entry-currency-edit-v1"
   private const val HELLO_RECV_TIMEOUT_MS = 10_000L
   private const val POP_RECV_TIMEOUT_MS = 10_000L
 
@@ -55,6 +57,8 @@ object MeshHandshake {
     val accountId: String,
     val role: String,
     val peerBtMac: String?,
+    /** Verified feature-specific PoP; Hello capabilities alone are unsigned. */
+    val entryCurrencyEdits: Boolean = false,
   )
 
   /** v3 PoP transcript (see header). */
@@ -77,6 +81,29 @@ object MeshHandshake {
     return out
   }
 
+  fun buildEntryCurrencyEditPopMessage(popMessage: ByteArray): ByteArray =
+    ENTRY_CURRENCY_EDIT_POP_DOMAIN.toByteArray(Charsets.UTF_8) + popMessage
+
+  fun verifiesEntryCurrencyEditSupport(
+    capabilities: JSONArray?,
+    signature: String?,
+    popMessage: ByteArray,
+    peerPubkey: ByteArray,
+  ): Boolean {
+    val advertised = capabilities != null && (0 until capabilities.length()).any {
+      capabilities.optString(it) == ENTRY_CURRENCY_EDIT_CAPABILITY
+    }
+    if (!advertised || signature == null) return false
+    return try {
+      val sig = MeshCrypto.b64UrlDecode(signature)
+      sig.size == 64 && MeshCrypto.ed25519Verify(
+        sig, buildEntryCurrencyEditPopMessage(popMessage), peerPubkey,
+      )
+    } catch (_: Throwable) {
+      false
+    }
+  }
+
   /** "local:" + base64url(pubkey)[0..16] — account-id.ts buildLocalAccountId. */
   fun buildLocalAccountId(devicePubkeyB64Std: String): String {
     val bytes = MeshBase64.decode(devicePubkeyB64Std)
@@ -95,7 +122,7 @@ object MeshHandshake {
       JSONObject().apply {
         put("type", "hello")
         put("v", 3)
-        put("capabilities", JSONArray().put("multi-currency-v1"))
+        put("capabilities", JSONArray().put("multi-currency-v1").put(ENTRY_CURRENCY_EDIT_CAPABILITY))
         put("pop_nonce", ourNonceB64)
         put("ephemeral_x25519_pubkey", MeshCrypto.b64UrlEncode(ourEph.publicKey))
         put("device_pubkey_b64", p.devicePubkeyB64Std)
@@ -165,9 +192,10 @@ object MeshHandshake {
     }
 
     // --- Proof of possession -------------------------------------------------
+    val ourPopMessage = buildPopMessageV3(ownBundleIds, peerPopNonce, ourEph.publicKey, peerEph)
     val ourSig =
       MeshCrypto.ed25519Sign(
-        buildPopMessageV3(ownBundleIds, peerPopNonce, ourEph.publicKey, peerEph),
+        ourPopMessage,
         p.deviceSeed,
       )
     conn.sendJson(
@@ -175,6 +203,9 @@ object MeshHandshake {
         put("type", "pop_proof")
         put("v", 3)
         put("sig", MeshCrypto.b64UrlEncode(ourSig))
+        put("entry_currency_edit_sig", MeshCrypto.b64UrlEncode(
+          MeshCrypto.ed25519Sign(buildEntryCurrencyEditPopMessage(ourPopMessage), p.deviceSeed),
+        ))
       },
     )
     val peerProof =
@@ -192,6 +223,9 @@ object MeshHandshake {
     if (!MeshCrypto.ed25519Verify(peerSig, popMsg, claimedPubkeyBytes)) {
       throw HandshakeError("peer PoP verification failed")
     }
+    val entryCurrencyEdits = verifiesEntryCurrencyEditSupport(
+      caps, peerProof.strOrNull("entry_currency_edit_sig"), popMsg, claimedPubkeyBytes,
+    )
 
     // --- AEAD: derive + install (ledger traffic encrypted from here) ---------
     val aead =
@@ -211,6 +245,7 @@ object MeshHandshake {
       accountId = ok.accountId,
       role = ok.role,
       peerBtMac = peerHello.strOrNull("bt_mac"),
+      entryCurrencyEdits = entryCurrencyEdits,
     )
   }
 }

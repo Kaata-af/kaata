@@ -130,6 +130,7 @@ function fixture() {
     "./projection/field-hlc": { serializeFieldHLCs: JSON.stringify },
     "./entry-date": require("../entry-date"),
     "./currency-metadata": require("../currency-metadata"),
+    "./currency-scope": require("../currency-scope"),
     "./currency-sync": require("../currency-sync"),
     "./customer-group-restore": {
       seedSnapshotCustomerGroups: async () => write("groups"),
@@ -323,6 +324,15 @@ function pullFixture(f: ReturnType<typeof fixture>, response: Promise<any>) {
       "../db": f.dbModule,
       "../db-tx": f.dbTx,
       "../currency-sync": require("../currency-sync"),
+      "../entry-currency-baselines": {
+        needsEntryCurrencyBaselines: async () => false,
+        applyEntryCurrencyBaselines: async () => 0,
+        validateEntryCurrencyBaselines: () => {},
+      },
+      "../projection": {
+        applyEventMutex: { runExclusive: async (work: () => Promise<unknown>) => work() },
+      },
+      "../ledger-events": { emitLedgerApplied: () => {} },
       "../effective-account": { resolveAccountIdCandidates: async (id: string) => [id] },
       "../projection/ingest-row": f.ingest,
       "../projection/sweep": f.sweep,
@@ -490,7 +500,7 @@ async function main() {
     const f = fixture(),
       response = deferred<any>();
     const pending = pullFixture(f, response.promise).pullEvents("vault-a", f.session());
-    await settleUI();
+    for (let pass = 0; pass < 10 && !f.calls.includes("page"); pass++) await settleUI();
     assert.ok(f.calls.includes("page"));
     f.switchAccount();
     response.resolve(

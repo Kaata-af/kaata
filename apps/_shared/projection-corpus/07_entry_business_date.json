@@ -146,6 +146,7 @@
         "relationship_id": "rrrrrrrr-5151-4151-8151-515151515151",
         "type": "debt",
         "amount_afn": 100,
+        "amount_hlc": { "pms": 1000, "l": 0, "did": "device-a" },
         "note": "independent note",
         "created_at": 400,
         "updated_at": 3000,

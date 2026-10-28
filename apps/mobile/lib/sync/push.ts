@@ -23,6 +23,7 @@ import {
   currencyRequestHeaders,
   ensureCurrencySyncSupported,
   supportsPersonDefaultCurrencySync,
+  supportsEntryCurrencyEditSync,
 } from "../currency-sync";
 import { getSessionJWT } from "../auth";
 import { getAppMeta, setAppMeta } from "../db";
@@ -204,6 +205,20 @@ export async function pushEvents(vaultId: string): Promise<PushResult> {
     }
   }
 
+  const firstCurrencyEdit = rows.findIndex((row) => {
+    if (row.event_type !== "entry_amended") return false;
+    try {
+      return Object.hasOwn(JSON.parse(row.payload_json).changes ?? {}, "currency");
+    } catch {
+      return false;
+    }
+  });
+  if (
+    firstCurrencyEdit >= 0 &&
+    !(await supportsEntryCurrencyEditSync(await getBackendUrl(), jwt))
+  ) {
+    rows = rows.slice(0, firstCurrencyEdit);
+  }
   if (rows.length === 0) {
     // Empty outbox = every event we've authored is already server-acked, so
     // this vault is fully backed up. Stamp last_push_at so the status reads

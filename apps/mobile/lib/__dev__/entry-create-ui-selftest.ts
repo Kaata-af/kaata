@@ -6,6 +6,7 @@ import { normalizeAmountInput, parseAmountInput } from "../money";
 import { ENTRY_NOTE_MAX_LENGTH } from "../types";
 import { calculatorDraft, calculatorKey } from "../calculator-input";
 import { ltrIsolate } from "../bidi";
+import { EntryCurrencyBaselineRequiredError } from "../projection/errors";
 import type { Entry } from "../types";
 
 type PlatformOS = "android" | "ios";
@@ -34,6 +35,8 @@ class RoleGateRejectionError extends Error {}
 class EventSigningUnavailableError extends Error {}
 class SettledChapterError extends Error {}
 class TabLinkedEntryError extends Error {}
+class EntryEditChangedError extends Error {}
+class EntryEditCurrencyDisabledError extends Error {}
 class TabAuthUnavailableError extends Error {}
 class TabClosedError extends Error {}
 class TabInputError extends Error {}
@@ -288,6 +291,8 @@ function fixture({
       "../../lib/db": {
         SettledChapterError,
         TabLinkedEntryError,
+        EntryEditChangedError,
+        EntryEditCurrencyDisabledError,
         updateEntry: async (...args: any[]) => {
           writes.push(args);
           if (saveGate) await saveGate.promise;
@@ -308,6 +313,7 @@ function fixture({
       },
       "../../lib/direction": directionEdges(rtl),
       "../../lib/event-log": { EventSigningUnavailableError, RoleGateRejectionError },
+      "../../lib/projection/errors": { EntryCurrencyBaselineRequiredError },
       "../../lib/fonts": fontEdges[os],
       "../../lib/i18n": { t: (key: string) => key },
       "../../lib/entry-date": require("../entry-date"),
@@ -588,10 +594,17 @@ function fixture({
 }
 
 // Exercise the shared form through its edit mode with the same native edges.
-function editFixture(os: PlatformOS, rtl: boolean, initialNote: string, entryCurrency = "AFN") {
+function editFixture(
+  os: PlatformOS,
+  rtl: boolean,
+  initialNote: string,
+  entryCurrency = "AFN",
+  enabledCurrencies?: string[],
+) {
   return fixture({
     os,
     rtl,
+    ...(enabledCurrencies ? { enabledCurrencies } : {}),
     editingEntry: {
       id: "entry",
       relationship_id: "relationship",
@@ -735,6 +748,9 @@ async function main() {
       new TabLinkedEntryError(),
       new RoleGateRejectionError(),
       new EventSigningUnavailableError(),
+      new EntryEditChangedError(),
+      new EntryEditCurrencyDisabledError(),
+      new EntryCurrencyBaselineRequiredError("entry"),
       Object.assign(new Error(), { name: "CreditMutationAdmissionError", status: "pending" }),
       Object.assign(new Error(), { name: "CreditMutationAdmissionError", status: "refused" }),
     ]) {
@@ -750,11 +766,17 @@ async function main() {
             ? "tab.editLocked"
             : error instanceof RoleGateRejectionError
               ? "entry.roleDenied"
-              : error instanceof EventSigningUnavailableError
-                ? "entry.signingUnavailable"
-                : (error as Error & { status: string }).status === "pending"
-                  ? "credit.pendingChange"
-                  : "credit.refusedChange";
+              : error instanceof EntryCurrencyBaselineRequiredError
+                ? "entry.currency.needsSync"
+                : error instanceof EntryEditChangedError
+                  ? "entry.edit.changed"
+                  : error instanceof EntryEditCurrencyDisabledError
+                    ? "entry.currency.disabled"
+                    : error instanceof EventSigningUnavailableError
+                      ? "entry.signingUnavailable"
+                      : (error as Error & { status: string }).status === "pending"
+                        ? "credit.pendingChange"
+                        : "credit.refusedChange";
       assert.ok(words(failed.hooks.tree).includes(expected));
       assert.deepEqual(failed.routes, [], "A failed edit stays open with its draft");
       assert.equal(failed.note().props.value, "unchanged");
@@ -987,14 +1009,64 @@ async function main() {
       "edit displays the tally currency even when the view is AFN",
     );
     assert.equal(
-      currencyField(edit).props.onChange,
-      undefined,
-      "a saved tally's denomination cannot be edited",
+      typeof currencyField(edit).props.onChange,
+      "function",
+      "Edit has a currency changer",
     );
+    assert.equal(currencyField(edit).props.disabled, false);
     assert.equal(currencyField(edit).props.compact, true);
     assert.equal(currencyField(edit).props.symbolOnly, true);
+    edit.openCalculator();
+    currencyField(edit).props.onOpen();
+    edit.render();
+    assert.equal(
+      edit.calculator()!.props.visible,
+      false,
+      "The currency picker closes the calculator",
+    );
+    currencyField(edit).props.onChange("EUR");
+    edit.render();
+    assert.equal(currencyField(edit).props.value, "EUR");
+    assert.equal(
+      edit.input().props.value,
+      "125.5",
+      "Changing the unit never silently converts money",
+    );
+    assert.ok(words(edit.hooks.tree).includes("entry.currency.editHint"));
+    await edit.button().props.onPress();
+    assert.equal(edit.writes[0][4], "EUR");
+    assert.equal(
+      edit.writes[0][5].original.currency,
+      "USD",
+      "Save pins the original tally for stale guards",
+    );
     edit.hooks.unmount();
     cases += 2;
+    const historical = editFixture(os, false, "Original disabled currency", "USD", ["AFN"]);
+    await historical.ready();
+    assert.deepEqual(
+      currencyField(historical).props.allowedCurrencies,
+      ["AFN", "USD"],
+      "Edit offers the enabled destination while retaining its historical current unit",
+    );
+    currencyField(historical).props.onChange("AFN");
+    historical.render();
+    assert.equal(currencyField(historical).props.value, "AFN");
+    currencyField(historical).props.onChange("USD");
+    historical.render();
+    assert.equal(
+      currencyField(historical).props.value,
+      "USD",
+      "A draft currency correction can be undone",
+    );
+    await historical.button().props.onPress();
+    assert.equal(
+      historical.writes[0][4],
+      "USD",
+      "Keeping a disabled recorded currency remains legal",
+    );
+    historical.hooks.unmount();
+    cases++;
   }
   {
     const f = fixture({ enabledCurrencies: ["AFN", "USD"] });

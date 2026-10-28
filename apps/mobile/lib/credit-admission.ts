@@ -121,14 +121,32 @@ export async function requiresCreditAdmission(
       )
     )?.currency ??
     "AFN";
-  return hardLimitApplies(
-    tx,
-    event.vault_id,
-    relationshipId,
-    lawfulRole,
-    trustedAccountId ?? (event.origin === "local" ? event.actor_account_id : null),
-    currency,
-  );
+  let targetCurrency = currency;
+  if (event.event_type === "entry_amended" && event.payload.changes.amount_afn !== undefined) {
+    const original = await tx.getFirstAsync<{ original_currency?: string | null }>(
+      "SELECT * FROM entries WHERE id=? AND vault_id=?",
+      event.target_id,
+      event.vault_id,
+    );
+    targetCurrency = event.payload.changes.currency ?? original?.original_currency ?? currency;
+  }
+  // Moving a debt can increase the destination exposure; moving a payment
+  // can increase the source exposure. Either hard rule requires one admission
+  // for the entire signed edit, with neither balance changed in the meantime.
+  for (const code of new Set([currency, targetCurrency])) {
+    if (
+      await hardLimitApplies(
+        tx,
+        event.vault_id,
+        relationshipId,
+        lawfulRole,
+        trustedAccountId ?? (event.origin === "local" ? event.actor_account_id : null),
+        code,
+      )
+    )
+      return true;
+  }
+  return false;
 }
 
 /** A "restrict clerks" limit covers this customer on this phone: their own
@@ -267,9 +285,8 @@ export async function revertRefusedClerkTally(
       ...names.map((name) => previous[name] as string | number | null),
     );
   }
-  const { applyEntryCreated, applyEntryAmended, applyEntryDeleted } = await import(
-    "./projection/entries"
-  );
+  const { applyEntryCreated, applyEntryAmended, applyEntryDeleted } =
+    await import("./projection/entries");
   for (const stored of row.event_type === "entry_created" ? [] : history) {
     const event = {
       ...stored,

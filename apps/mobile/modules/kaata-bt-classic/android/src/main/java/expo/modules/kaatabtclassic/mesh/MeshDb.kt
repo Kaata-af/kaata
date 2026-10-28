@@ -50,17 +50,51 @@ class MeshDb private constructor(private val db: SQLiteDatabase) {
     }
   }
 
+  /** Whole-book gate, independent of relay frontiers and already-sent events.
+   * Parse JSON here because older Android system SQLite lacks JSON functions. */
+  fun usesEntryCurrencyEdits(vaultId: String): Boolean {
+    // Native background work may start before JS runs migration 044. Books on
+    // that schema cannot yet have this metadata; keep their ordinary sync live.
+    var hasOriginalCurrency = false
+    db.rawQuery("PRAGMA table_info(entries)", null).use { c ->
+      while (c.moveToNext()) {
+        if (c.getString(c.getColumnIndexOrThrow("name")) == "original_currency") {
+          hasOriginalCurrency = true
+          break
+        }
+      }
+    }
+    if (hasOriginalCurrency) {
+      db.rawQuery(
+        "SELECT 1 FROM entries WHERE vault_id = ? AND original_currency IS NOT NULL AND original_currency <> '' LIMIT 1",
+        arrayOf(vaultId),
+      ).use { c -> if (c.moveToFirst()) return true }
+    }
+    db.rawQuery(
+      "SELECT payload_json FROM event_log WHERE vault_id = ? " +
+        "AND event_type = 'entry_amended' AND tombstone_reason IS NULL AND rejected_at IS NULL",
+      arrayOf(vaultId),
+    ).use { c ->
+      while (c.moveToNext()) {
+        val payload = try { JSONObject(c.getString(0)) } catch (_: Throwable) { continue }
+        if (payload.optJSONObject("changes")?.has("currency") == true) return true
+      }
+    }
+    return false
+  }
+
   /**
    * Per-author version-vector frontier for a vault: device_id -> highest
-   * CONTIGUOUS author_seq held. Mirrors replication/store.ts localFrontierReport
-   * (one scan, JS-side aggregation via MeshPlanner.computeContiguous). Rows with
-   * NULL author_seq are invisible to the vector by definition.
+   * CONTIGUOUS relayable author_seq, matching JS computeRelayableVector. Refused
+   * rows must not be advertised/sent, including failed currency corrections.
+   * Rows with NULL author_seq are invisible to the vector by definition.
    */
   fun localFrontier(vaultId: String): MutableMap<String, Int> {
     val perDevice = HashMap<String, ArrayList<Int>>()
     db.rawQuery(
       "SELECT device_id, author_seq FROM event_log " +
         "WHERE vault_id = ? AND author_seq IS NOT NULL " +
+        "AND tombstone_reason IS NULL AND rejected_at IS NULL " +
         "ORDER BY device_id ASC, author_seq ASC",
       arrayOf(vaultId),
     ).use { c ->
@@ -92,6 +126,7 @@ class MeshDb private constructor(private val db: SQLiteDatabase) {
         "FROM event_log " +
         "WHERE vault_id = ? AND device_id = ? AND author_seq IS NOT NULL " +
         "AND author_seq >= ? AND author_seq <= ? " +
+        "AND tombstone_reason IS NULL AND rejected_at IS NULL " +
         "ORDER BY author_seq ASC",
       arrayOf(vaultId, deviceId, fromSeq.toString(), toSeq.toString()),
     ).use { c ->

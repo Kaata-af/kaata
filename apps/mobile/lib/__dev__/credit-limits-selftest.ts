@@ -126,6 +126,7 @@ const entryAppliers = compile<typeof import("../projection/entries")>(
     if (name === "../entry-date") return require("../entry-date");
     if (name === "../currency-scope") return require("../currency-scope");
     if (name === "../hlc") return require("../hlc");
+    if (name === "../money") return require("../money");
     if (name === "./field-hlc") return fieldHLCs;
     if (name === "./errors") return require("../projection/errors");
     throw Error(`unexpected entry applier import ${name}`);
@@ -1553,6 +1554,8 @@ async function run() {
   );
   assert.equal(await credit.creditWarningForEdit("missing", 900, "v1"), false);
 
+  await currencyMoveWarningChecks();
+
   // Owners and managers hear what a limit stopped (audit #24); nobody else
   // asks, and an older server's 404 is an empty list.
   const policyFetch = globalThis.fetch;
@@ -1615,6 +1618,87 @@ async function run() {
     "PASS actual signed-out/local paired role gate, mesh parity, offline clerk tallies unless a hard limit applies, stale-limit refusals leave the balance, clerk enrollment activation guard",
   );
 }
+async function currencyMoveWarningChecks() {
+  fixture.exec(`INSERT INTO vaults(id) VALUES('v-warning');
+    INSERT INTO relationships(id,vault_id,user_b_id,created_at) VALUES('r-warning','v-warning','p-warning',1);
+    INSERT INTO entries(id,vault_id,relationship_id,type,amount_afn,currency,created_at,is_deleted)
+      VALUES('move-me','v-warning','r-warning','debt',12.34,'AFN',100,0);`);
+  const destination = { ...policy(1000, "warn"), relationship_id: "r-warning", currency: "USD" };
+  await cacheCreditPolicies(db, "v-warning", [destination], 2);
+  assert.equal(
+    await credit.creditWarningForEdit("move-me", 12.34, "v-warning", "USD"),
+    true,
+    "moving debt warns on the destination exposure even with an unchanged amount",
+  );
+  assert.equal(
+    await credit.creditWarningForEdit("move-me", 10, "v-warning", "USD"),
+    false,
+    "moving debt up to the destination cap is allowed",
+  );
+  await cacheCreditPolicies(db, "v-warning", [{ ...destination, currency: "AFN" }], 3);
+  fixture.exec(`UPDATE entries SET type='payment' WHERE id='move-me';
+    INSERT INTO entries(id,vault_id,relationship_id,type,amount_afn,currency,created_at,is_deleted)
+      VALUES('remaining-debt','v-warning','r-warning','debt',20,'AFN',101,0);`);
+  assert.equal(
+    await credit.creditWarningForEdit("move-me", 12.34, "v-warning", "USD"),
+    true,
+    "moving a payment warns when removing it exceeds the source cap",
+  );
+  fixture.exec(
+    "DELETE FROM entries WHERE id='remaining-debt'; UPDATE entries SET type='debt',amount_afn=0.29 WHERE id='move-me'",
+  );
+  await cacheCreditPolicies(db, "v-warning", [{ ...destination, max_collect_minor: 29 }], 4);
+  assert.equal(
+    await credit.creditWarningForEdit("move-me", 0.29, "v-warning", "USD"),
+    false,
+    "currency-move warning uses exact minor units at the cap",
+  );
+  await cacheCreditPolicies(db, "v-warning", [{ ...destination, max_collect_minor: 28 }], 5);
+  assert.equal(await credit.creditWarningForEdit("move-me", 0.29, "v-warning", "USD"), true);
+  fixture
+    .prepare(
+      "INSERT INTO event_log(event_id,vault_id,relationship_id,target_id,payload_json,event_type,appended_at) VALUES('currency-intent','v-warning','r-warning','move-me',?,'entry_amended',200)",
+    )
+    .run(
+      JSON.stringify({
+        changes: { amount_afn: 0.29, currency: "USD", note: "pending correction" },
+      }),
+    );
+  fixture.exec(
+    "INSERT INTO credit_admission_intents(event_id,vault_id,relationship_id,status) VALUES('currency-intent','v-warning','r-warning','pending')",
+  );
+  assert.deepEqual(
+    await credit.listCreditIntents("p-warning", "v-warning", "AFN"),
+    [],
+    "a correction intent is not labeled as its source unit",
+  );
+  const target = await credit.listCreditIntents("p-warning", "v-warning", "USD");
+  assert.equal(target.length, 1);
+  assert.equal(target[0].currency, "USD");
+  assert.equal(target[0].amount_afn, 0.29);
+  assert.equal(target[0].mutation, "edit");
+  assert.equal(
+    (await credit.listCreditIntents("p-warning", "v-warning", "AFN", { allCurrencies: true }))
+      .length,
+    1,
+  );
+  fixture.exec(
+    "UPDATE credit_admission_intents SET status='refused' WHERE event_id='currency-intent'",
+  );
+  assert.equal(
+    (await credit.listCreditIntents("p-warning", "v-warning", "USD"))[0].admission_status,
+    "refused",
+  );
+  assert.equal(
+    (fixture.prepare("SELECT currency FROM entries WHERE id='move-me'").get() as any).currency,
+    "AFN",
+    "pending/refused target currency does not relabel recorded money",
+  );
+  console.log(
+    "PASS currency-move debt destination/payment source warnings, exact caps and target-labeled pending/refused intents",
+  );
+}
+
 void run()
   .catch((e) => {
     console.error(e);

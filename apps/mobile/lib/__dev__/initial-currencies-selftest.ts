@@ -1027,6 +1027,7 @@ async function snapshotCurrencyRecovery() {
       "./projection/field-hlc": { serializeFieldHLCs: JSON.stringify },
       "./entry-date": require("../entry-date"),
       "./currency-metadata": require("../currency-metadata"),
+      "./currency-scope": require("../currency-scope"),
       "./customer-group-restore": { seedSnapshotCustomerGroups: async () => {} },
       // Keep the production wire mapper and real signed projection/role gate.
       // Only durable queue scheduling is controlled at this restore boundary.
