@@ -8,7 +8,7 @@ class SessionChangedError extends Error {}
 class RoleGateRejectionError extends Error {}
 class EventSigningUnavailableError extends Error {}
 const symbols: Record<string, string> = { AFN: "؋", USD: "$", EUR: "€" };
-const currencyLabel = (code: string) => (symbols[code] ? `${code} ${symbols[code]}` : code);
+const currencyLabel = (code: string) => code;
 const words = (node: any): string =>
   Array.isArray(node)
     ? node.map(words).join("")
@@ -309,7 +309,7 @@ async function main() {
       assert.equal(f.field().props.hint, undefined, "the compact row has no generic visible hint");
       assert.equal(f.field().props.accessibilityHint, f.language.t("personEdit.currency.hint"));
       assert.ok(
-        f.field().props.accessibilityLabel.includes("AFN ؋"),
+        f.field().props.accessibilityLabel.includes("AFN"),
         "the full inherited currency remains announced",
       );
       const picker = f.open();
@@ -320,12 +320,12 @@ async function main() {
       );
       assert.equal(
         picker.props.options[0].label,
-        f.language.t("personEdit.currency.inherit", { currency: "AFN ؋" }),
+        f.language.t("personEdit.currency.inherit", { currency: "AFN" }),
       );
       picker.props.onSelect("USD");
       f.render();
       assert.equal(f.stored, null, "picker changes remain a draft before Save");
-      assert.equal(f.field().props.trailing, "USD $");
+      assert.equal(f.field().props.trailing, "USD");
       f.input().props.onChangeText("Nadia");
       f.render();
       await f.save().props.onPress();
@@ -345,7 +345,7 @@ async function main() {
     const picker = f.open();
     picker.props.onDismiss();
     f.render();
-    assert.equal(f.field().props.trailing, "USD $");
+    assert.equal(f.field().props.trailing, "USD");
     assert.equal(f.stored, "USD");
     f.choose("kaata-default");
     await f.save().props.onPress();
@@ -375,10 +375,10 @@ async function main() {
       "single-currency inheritance needs no picker, but a stored override stays clearable",
     );
     if (override) {
-      assert.equal(f.field().props.trailing, "USD $");
+      assert.equal(f.field().props.trailing, "USD");
       assert.equal(
         f.field().props.hint,
-        f.language.t("personEdit.currency.unavailable", { currency: "USD $" }),
+        f.language.t("personEdit.currency.unavailable", { currency: "USD" }),
       );
       assert.deepEqual(
         f.open().props.options.map((o: any) => o.key),
@@ -446,7 +446,7 @@ async function main() {
     assert.equal(f.commits.length, 0);
     assert.equal(f.stored, null);
     assert.equal(f.routes.length, 0);
-    assert.equal(f.field().props.trailing, "USD $");
+    assert.equal(f.field().props.trailing, "USD");
     assert.ok(words(f.hooks.tree).includes(f.language.t("entry.saveFailed")));
     f.failSave();
     await f.save().props.onPress();
@@ -537,7 +537,7 @@ async function main() {
     assert.equal(firstNameFocuses, 1, "returning from Groups does not reopen the name keyboard");
     assert.equal(
       f.field().props.trailing,
-      "EUR €",
+      "EUR",
       "returning from a child route preserves the unsaved form",
     );
     await f.save().props.onPress();

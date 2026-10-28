@@ -7,7 +7,12 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router-dom";
 import ts from "typescript";
-import { parseSharedLedger, type MultiCurrencyBill, type SharedEntry } from "./shared-ledger";
+import {
+  billCurrencyLabel,
+  parseSharedLedger,
+  type MultiCurrencyBill,
+  type SharedEntry,
+} from "./shared-ledger";
 import { formatBillDate } from "./customer-dates";
 
 const entry = (
@@ -139,15 +144,17 @@ test("actual SPA renders all three currencies independently, including zero and 
   const html = render(fixture());
   for (const text of [
     "Synthetic shop",
-    "AFN ؋",
-    "USD $",
-    "AUD A$",
+    "AFN",
+    "USD",
+    "AUD",
     "afn current",
     "usd current",
     "owes",
     "is owed",
   ])
     assert.ok(html.includes(text), text);
+  for (const redundant of ["AFN ؋", "USD $", "AUD A$", "$ USD"])
+    assert.ok(!html.includes(redundant), `${redundant} is never repeated beside an amount`);
   assert.ok(
     !html.includes("afn old") && !html.includes("usd old"),
     "history collapses only inside its own currency",
@@ -163,9 +170,32 @@ test("actual SPA renders all three currencies independently, including zero and 
     "common bill metadata is not repeated for every currency",
   );
   assert.ok(
-    (html.match(/AFN ؋/g) ?? []).length >= 3 && (html.match(/USD \$/g) ?? []).length >= 3,
+    (html.match(/AFN/g) ?? []).length >= 3 && (html.match(/USD/g) ?? []).length >= 3,
     "every visible entry retains its currency label",
   );
+});
+
+test("bill currency display uses one code while preserving legacy symbol-only snapshots", () => {
+  assert.equal(billCurrencyLabel("AUD", "A$"), "AUD");
+  assert.equal(billCurrencyLabel("USD", "$ USD"), "USD");
+  assert.equal(billCurrencyLabel("AFN", "AFN ؋"), "AFN");
+  assert.equal(billCurrencyLabel(undefined, "؋"), "؋");
+  const legacy = {
+    v: 1 as const,
+    shop: "Old shop",
+    person: "Old customer",
+    locale: "en",
+    currency: "$ USD",
+    currency_code: "USD",
+    balance: 5,
+    generated_at: 1700000000000,
+    entries: [{ type: "debt" as const, amount: 5, note: "old bill", date: 1700000000000 }],
+  };
+  const before = JSON.stringify(legacy);
+  const html = render(legacy);
+  assert.ok(html.includes("USD"));
+  assert.ok(!html.includes("$ USD") && !html.includes("USD $"));
+  assert.equal(JSON.stringify(legacy), before, "display cleanup never rewrites a stored bill");
 });
 
 test("old single-currency bills retain their symbols, dates, and original shape", () => {
@@ -376,7 +406,7 @@ test("actual v3 SPA keeps current100 separate and honors saved history order and
   assert.ok(headline, "the current balance has its own headline");
   assert.equal(
     headline.replace(/<[^>]+>/g, ""),
-    "100USD $",
+    "100USD",
     "history cannot change the current header",
   );
   assert.ok(historical.includes("do not change the current balance"));
@@ -396,9 +426,9 @@ test("actual v3 SPA keeps current100 separate and honors saved history order and
     "edited earlier business date stays displayed",
   );
   assert.ok(
-    historical.includes("70 USD $") &&
-      historical.includes("-0.10 USD $") &&
-      historical.includes("-0.05 USD $"),
+    historical.includes("70 USD") &&
+      historical.includes("-0.10 USD") &&
+      historical.includes("-0.05 USD"),
   );
   assert.ok(!html.includes("169.95"), "historical balances never join the current headline");
   assert.ok(historical.includes("Earlier shared account"));
@@ -436,7 +466,8 @@ test("v3 renders all155 currency histories completely and keeps the256-section b
   const html = render(bill);
   for (const section of bill.currencies) {
     assert.ok(html.includes(`history-${section.currency_code}`));
-    assert.ok(html.includes(`${section.currency_code} $`));
+    assert.ok(html.includes(section.currency_code!));
+    assert.ok(!html.includes(`${section.currency_code} $`));
   }
   assert.equal((html.match(/aria-label="Before this shared account"/g) ?? []).length, 155);
   const template = bill.currencies[0];

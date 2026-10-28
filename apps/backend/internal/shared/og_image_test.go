@@ -78,16 +78,16 @@ func TestBillOGImageHTTP(t *testing.T) {
 			name: "v2", path: "/v2/synthetic-token", payload: multiBillFixture,
 			title: "Synthetic customer — Synthetic shop",
 			descriptions: []string{
-				"Bill dated 15 Nov 2023 — Balance to settle: 10.10 AFN ؋",
-				"In your favour: 10.10 USD $", "All settled — nothing owed. (AUD A$)",
+				"Bill dated 15 Nov 2023 — Balance to settle: 10.10 AFN",
+				"In your favour: 10.10 USD", "All settled — nothing owed. (AUD)",
 			},
 		},
 		{
 			name: "v3", path: "/v3/synthetic-token", payload: string(historyPayload),
 			title: "Synthetic customer — Synthetic shop",
 			descriptions: []string{
-				"Bill dated 15 Nov 2023 — Balance to settle: 10.10 AFN ؋",
-				"In your favour: 10.10 USD $", "All settled — nothing owed. (AUD A$)",
+				"Bill dated 15 Nov 2023 — Balance to settle: 10.10 AFN",
+				"In your favour: 10.10 USD", "All settled — nothing owed. (AUD)",
 			},
 		},
 	} {

@@ -38,7 +38,6 @@ const currencyKey = (option: CurrencyOption) => option.code;
 const CurrencyChoiceRow = memo(function CurrencyChoiceRow(props: {
   code: string;
   label: string;
-  symbol: string;
   checked: boolean;
   isDefault: boolean;
   disabled: boolean;
@@ -48,8 +47,7 @@ const CurrencyChoiceRow = memo(function CurrencyChoiceRow(props: {
   onToggle: (code: string) => void;
   onSetDefault: (code: string) => void;
 }) {
-  const symbol = props.symbol.trim();
-  const codeLabel = symbol && symbol !== props.code ? `${props.code} · ${symbol}` : props.code;
+  const label = props.label === props.code ? props.code : `${props.code} ${props.label}`;
   return (
     <View
       style={[
@@ -60,7 +58,7 @@ const CurrencyChoiceRow = memo(function CurrencyChoiceRow(props: {
     >
       <Pressable
         accessibilityRole="checkbox"
-        accessibilityLabel={`${props.code} ${props.label}${props.isDefault ? `, ${props.defaultLabel}` : ""}`}
+        accessibilityLabel={`${label}${props.isDefault ? `, ${props.defaultLabel}` : ""}`}
         accessibilityState={{ checked: props.checked, disabled: props.disabled }}
         disabled={props.disabled}
         onPress={() => props.onToggle(props.code)}
@@ -87,8 +85,8 @@ const CurrencyChoiceRow = memo(function CurrencyChoiceRow(props: {
           >
             {props.label}
           </Text>
-          {codeLabel !== props.label ? (
-            <Text style={[styles.code, textDir(props.isRTL)]}>{ltrIsolate(codeLabel)}</Text>
+          {props.code !== props.label ? (
+            <Text style={[styles.code, textDir(props.isRTL)]}>{ltrIsolate(props.code)}</Text>
           ) : null}
         </View>
       </Pressable>
@@ -210,7 +208,6 @@ export function EnabledCurrenciesSheet(props: {
         <CurrencyChoiceRow
           code={item.code}
           label={item.label}
-          symbol={item.symbol}
           checked={checked}
           isDefault={isDefault}
           disabled={blocked || isDefault || (!checked && atLimit)}

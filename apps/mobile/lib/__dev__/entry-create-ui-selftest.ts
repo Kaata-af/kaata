@@ -830,7 +830,13 @@ async function main() {
     let allowed = ["AFN", "USD"],
       disabled = false,
       readOnly = false;
-    const symbols: Record<string, string> = { AFN: "؋", USD: "$", EUR: "€" };
+    const symbols: Record<string, string> = { AFN: "؋", USD: "$", EUR: "€", AUD: "A$" };
+    const names: Record<string, string> = {
+      AFN: "Afghan Afghani",
+      USD: "US Dollar",
+      EUR: "Euro",
+      AUD: "Australian Dollar",
+    };
     const Picker = compileUI("../../components/CurrencySelector", {
       react: hooks.react,
       "react/jsx-runtime": { jsx, jsxs: jsx },
@@ -844,8 +850,8 @@ async function main() {
       "../lib/currency": {
         CURRENCIES: Object.keys(symbols).map((code) => ({ code, symbol: symbols[code] })),
         getCurrencySymbol: (code: string) => symbols[code] ?? code,
-        getCurrencyName: (code: string) => code,
-        getCurrencyLabel: (code: string) => `${code} ${symbols[code] ?? code}`,
+        getCurrencyName: (code: string) => names[code] ?? code,
+        getCurrencyLabel: (code: string) => code,
       },
       "../lib/colors": { colors: require("../colors").colors },
       "../lib/direction": directionEdges(true),
@@ -876,7 +882,7 @@ async function main() {
       "$",
       "Result control shows the selected sign without a separate field label",
     );
-    assert.deepEqual(trigger.props.accessibilityValue, { text: "USD $" });
+    assert.deepEqual(trigger.props.accessibilityValue, { text: "USD" });
     assert.equal(flattenStyle(trigger.props.style({ pressed: false })).direction, "ltr");
     assert.equal(flattenStyle(trigger.props.style({ pressed: false })).minHeight, 44);
     trigger.props.onPress();
@@ -886,6 +892,14 @@ async function main() {
       sheet().props.options.map((option: any) => option.key),
       ["AFN", "USD"],
       "Picker shows only this Kaata's enabled currencies",
+    );
+    assert.deepEqual(
+      sheet().props.options.map(({ key, label, hint }: any) => [key, label, hint]),
+      [
+        ["AFN", "Afghan Afghani", ltrIsolate("AFN")],
+        ["USD", "US Dollar", ltrIsolate("USD")],
+      ],
+      "Currency choices use the name and code without an extra symbol",
     );
     const retainedSelect = sheet().props.onSelect;
     allowed = ["AFN"];
@@ -937,6 +951,10 @@ async function main() {
       true,
       "The selector returns when another currency is enabled",
     );
+    allowed = ["AUD", "USD"];
+    render();
+    assert.equal(sheet().props.options[0].label, "Australian Dollar");
+    assert.equal(sheet().props.options[0].hint, ltrIsolate("AUD"));
     hooks.unmount();
     cases++;
   }

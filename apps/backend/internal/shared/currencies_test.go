@@ -205,7 +205,7 @@ func TestBillHistoryHTTP(t *testing.T) {
 	}
 	w = httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/v3/synthetic-token", nil))
-	if w.Code != 200 || !strings.Contains(w.Body.String(), "https://bill.kaata.af/v3/synthetic-token") || !strings.Contains(w.Body.String(), "AFN ؋") {
+	if w.Code != 200 || !strings.Contains(w.Body.String(), "https://bill.kaata.af/v3/synthetic-token") || !strings.Contains(w.Body.String(), `class="cur">AFN</span>`) {
 		t.Fatal("history page/canonical balance unavailable")
 	}
 }
@@ -216,6 +216,45 @@ func (s *memorySnapshotStore) Create(_ context.Context, p []byte) (string, error
 	return "synthetic-token", nil
 }
 func (s *memorySnapshotStore) Get(context.Context, string) ([]byte, error) { return s.payload, nil }
+
+func TestBillCurrencyLabelsPreserveStoredSnapshot(t *testing.T) {
+	for _, tc := range []struct{ code, label, want string }{
+		{"USD", "$ USD", "USD"},
+		{"USD", "USD $", "USD"},
+		{"AUD", "AUD A$", "AUD"},
+		{"AFN", "؋", "AFN"},
+		{"ZZZ", "historical unit", "ZZZ"},
+		{"", "$", "$"},
+		{"", "؋", "؋"},
+	} {
+		t.Run(tc.code+tc.label, func(t *testing.T) {
+			payload := map[string]any{"v": 1, "person": "Synthetic customer", "currency": tc.label, "balance": 2.5, "locale": "en", "entries": []any{}}
+			if tc.code != "" {
+				payload["currency_code"] = tc.code
+			}
+			frozen, err := json.Marshal(payload)
+			if err != nil {
+				t.Fatal(err)
+			}
+			store := &memorySnapshotStore{payload: frozen}
+			h := NewHandler(store, "https://kaata.af", "", "")
+			r := chi.NewRouter()
+			r.Get("/v/{token}", h.View)
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/v/synthetic-token", nil))
+			if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `class="cur">`+tc.want+`</span>`) {
+				t.Fatalf("single-currency summary must show one unit %q: %d", tc.want, w.Code)
+			}
+			_, meta := previewHead(t, w.Body.String())
+			if meta["og:description"] != "Balance to settle: 2.50 "+tc.want {
+				t.Fatalf("social preview repeated the denomination: %q", meta["og:description"])
+			}
+			if store.writes != 0 || !bytes.Equal(store.payload, frozen) {
+				t.Fatal("display cleanup changed the frozen financial snapshot")
+			}
+		})
+	}
+}
 
 func TestMultiCurrencyBillHTTPCompatibility(t *testing.T) {
 	store := &memorySnapshotStore{}
@@ -242,7 +281,7 @@ func TestMultiCurrencyBillHTTPCompatibility(t *testing.T) {
 	}
 	w = httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/v2/synthetic-token", nil))
-	for _, value := range []string{"AFN ؋", "USD $", "AUD A$", "owes", "is owed", "https://bill.kaata.af/v2/synthetic-token"} {
+	for _, value := range []string{`class="cur">AFN</span>`, `class="cur">USD</span>`, `class="cur">AUD</span>`, "owes", "is owed", "https://bill.kaata.af/v2/synthetic-token"} {
 		if !strings.Contains(w.Body.String(), value) {
 			t.Fatalf("SSR missing %q", value)
 		}
@@ -308,12 +347,25 @@ async function run(payload){
  const bill=await run(payload);assert.equal(bill.groups.length,3);
  const rows=group=>(group.innerHTML.match(/class="row"/g)||[]).length;
  assert.deepEqual(bill.groups.map(rows),[1,1,0],'each currency uses only its own cutoff and balance');
- assert.match(bill.groups[0].innerHTML,/AFN ؋/);assert.match(bill.groups[1].innerHTML,/USD \$/);assert.equal(bill.ids.txCount.textContent,'2');
+ assert.match(bill.groups[0].innerHTML,/<span class="rcur">AFN<\/span>/);assert.match(bill.groups[1].innerHTML,/<span class="rcur">USD<\/span>/);assert.equal(bill.ids.txCount.textContent,'2');
  bill.groups[0].querySelector('.histbtn').listeners.click();assert.deepEqual(bill.groups.map(rows),[3,1,0],'expanding AFN leaves USD and AUD unchanged');
  bill.groups[0].querySelector('.histbtn').listeners.click();assert.deepEqual(bill.groups.map(rows),[1,1,0]);
  const printed=bill.print();assert.deepEqual(bill.groups.map(rows),[3,3,2]);assert.equal((printed.match(/class="chline"/g)||[]).length,3,'duplicate same-currency boundaries collapse');
- assert.match(printed,/AUD A\$/);assert.ok(!printed.includes('NaN'));
+ assert.match(printed,/<span class="rcur">AUD<\/span>/);assert.ok(!printed.includes('NaN'));
  const old=await run({...payload,...payload.currencies[0],v:1});assert.equal(rows(old.groups[0]),1);old.print();assert.equal(rows(old.groups[0]),3,'v1 print still includes all settled rows');
+ for(const [code,label] of [['USD','$ USD'],['USD','USD $'],['AUD','AUD A$']]){
+  const saved={v:1,currency_code:code,currency:label,balance:1,entries:[{type:'debt',amount:1,date:1}]};
+  const frozen=JSON.stringify(saved),single=await run(saved);
+  assert.ok(single.groups[0].innerHTML.includes('<span class="rcur">'+code+'</span>'),'legacy composite labels render the recorded ISO code once');
+  assert.equal(JSON.stringify(saved),frozen,'rendering never rewrites a saved bill');
+ }
+ const legacy=await run({v:1,currency:'$',balance:1,entries:[{type:'debt',amount:1,date:1}]});
+ assert.ok(legacy.groups[0].innerHTML.includes('<span class="rcur">$</span>'),'a bill without a currency code keeps its original unit');
+ const composite=JSON.parse(JSON.stringify(payload));composite.currencies[0].currency='AFN ؋';composite.currencies[1].currency='$ USD';composite.currencies[2].currency='AUD A$';
+ const frozenComposite=JSON.stringify(composite),clean=await run(composite);
+ assert.deepEqual(clean.ids.entries.children.filter(child=>child.className==='sectionhead').map(child=>child.textContent),['AFN','USD','AUD']);
+ assert.ok(!/AFN ؋|\$ USD|USD \$|AUD A\$/.test(clean.print()),'all rows and printed sections use one denomination');
+ assert.equal(JSON.stringify(composite),frozenComposite);
  const historical=await run(` + string(historyPayload) + `);
  assert.deepEqual(historical.groups.map(rows),[1,1,0],'historic books never alter current balance/coherence');
  assert.deepEqual(historical.histories.map(rows),[2,2],'pre-link and earlier shared books remain complete');
@@ -321,7 +373,7 @@ async function run(payload){
  const prior=historical.histories[1].innerHTML;
  assert.ok(prior.indexOf('Earlier shared tally')<prior.indexOf('class="chline"')&&prior.indexOf('class="chline"')<prior.indexOf('Backdated after clearance'),'clearance remains at its frozen sequence anchor');
  assert.equal((prior.match(/class="chline"/g)||[]).length,1,'duplicate adjacent anchors collapse');
- assert.match(prior,/Historical balance/);assert.match(prior,/40/);assert.match(prior,/AFN ؋/);
+ assert.match(prior,/Historical balance/);assert.match(prior,/40/);assert.match(prior,/<span class="rcur">AFN<\/span>/);
  const historyPrint=historical.print();assert.match(historyPrint,/Private pre-link tally/);assert.match(historyPrint,/Earlier shared tally/);assert.ok(!historyPrint.includes('NaN'));
 })().catch(error=>{console.error(error);process.exitCode=1;});`
 	cmd := exec.Command(node, "--input-type=commonjs")

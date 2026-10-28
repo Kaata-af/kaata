@@ -531,6 +531,16 @@ function checkSearchAndLimit() {
   const checks = () => nodes(tree).filter((node) => node.props.accessibilityRole === "checkbox");
   const checkbox = (code: string) => currencyCheckbox(tree, code)!;
   const list = () => nodes(tree).find((node) => node.type === "FlatList")!;
+  for (const code of ["AFN", "USD", "AUD"]) {
+    const option = props.options.find((item) => item.code === code)!;
+    assert.deepEqual(
+      nodes(currencyRow(tree, code))
+        .filter((node) => node.type === "Text")
+        .map((node) => node.props.children),
+      [option.label, ltrIsolate(code)],
+      `${code} has one currency identifier beside its name, without an extra symbol`,
+    );
+  }
   assert.equal(
     list().props.data.length,
     156,
@@ -561,6 +571,8 @@ function checkSearchAndLimit() {
   assert.deepEqual(toggles, [], "search never toggles hidden selections");
   search(CURRENCIES.find((item) => item.code === "CAD")!.nameFa);
   assert.ok(checkbox("CAD"), "Dari catalog names are searchable in the English interface");
+  search("A$");
+  assert.ok(checkbox("AUD"), "Symbol search still finds a currency without displaying it twice");
   search("Historical unit");
   assert.ok(checkbox("ZZZ"), "an existing code outside the catalog remains searchable");
   search("nothing matches this currency");

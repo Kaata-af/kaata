@@ -41,7 +41,7 @@ export function isMultiCurrencyBill(bill: SharedLedger): bill is MultiCurrencyBi
 }
 
 export function billCurrencyLabel(code: string | undefined, label: string): string {
-  return code && !label.includes(code) ? `${code} ${label}` : label;
+  return code || label;
 }
 
 function validMoney(value: unknown): value is number {

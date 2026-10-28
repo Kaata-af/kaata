@@ -251,10 +251,11 @@ export function CurrencyPickerSheet(props: {
             }
             renderItem={({ item }) => {
               const selected = item.code === props.selectedCode;
+              const name = getCurrencyName(item.code);
               return (
                 <Pressable
                   accessibilityRole="button"
-                  accessibilityLabel={`${getCurrencyName(item.code)}, ${item.code}`}
+                  accessibilityLabel={name === item.code ? item.code : `${name}, ${item.code}`}
                   accessibilityState={{ selected, disabled: !!props.disabled }}
                   disabled={props.disabled}
                   onPress={() => {
@@ -283,13 +284,11 @@ export function CurrencyPickerSheet(props: {
                         props.disabled && { color: colors.textMuted },
                       ]}
                     >
-                      {getCurrencyName(item.code)}
+                      {name}
                     </Text>
-                    <Text style={[styles.code, textDir(isRTL)]}>
-                      {ltrIsolate(
-                        item.symbol === item.code ? item.code : `${item.code}  ·  ${item.symbol}`,
-                      )}
-                    </Text>
+                    {name !== item.code ? (
+                      <Text style={[styles.code, textDir(isRTL)]}>{ltrIsolate(item.code)}</Text>
+                    ) : null}
                     {currencyNeedsPrecisionHint(item.code) ? (
                       <Text style={[styles.precisionHint, textDir(isRTL)]}>
                         {t("currency.precisionHint")}

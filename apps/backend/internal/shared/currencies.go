@@ -170,10 +170,12 @@ func validateSharePayload(p sharePayload) error {
 }
 
 func billCurrencyLabel(code, label string) string {
-	if strings.Contains(label, code) {
-		return label
+	if code != "" {
+		return code
 	}
-	return code + " " + label
+	// Older single-currency bills can have only a frozen symbol, without an
+	// ISO code. Keep that label rather than guessing which dollar it means.
+	return label
 }
 
 type currencyPreview struct{ Currency, AbsBalance, Direction, Verb string }

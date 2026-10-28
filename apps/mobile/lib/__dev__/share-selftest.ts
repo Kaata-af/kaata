@@ -47,8 +47,7 @@ stub("../calendar", {
 let selectedCurrency = "AFN";
 stub("../currency", {
   getCurrentCurrencyCode: () => selectedCurrency,
-  getCurrencySymbol: (code: string) =>
-    (({ USD: "$", AFN: "؋", AUD: "A$" }) as Record<string, string>)[code] ?? code,
+  getCurrencyLabel: (code: string) => code,
 });
 stub("../db", {
   bumpUsageCounter: async () => {
@@ -260,8 +259,9 @@ async function main() {
   }) as typeof fetch;
   assert.equal(await shareKaataViaWhatsApp(person, 10, null, usdEntries, "en"), true);
   assert.equal(snapshot!.currency_code, "USD");
-  assert.equal(snapshot!.currency, "$ USD", "issued currency is frozen despite a view change");
+  assert.equal(snapshot!.currency, "USD", "issued currency is frozen despite a view change");
   assert.match(new URL(opens.at(-1)!).searchParams.get("text")!, /USD/);
+  assert.doesNotMatch(new URL(opens.at(-1)!).searchParams.get("text")!, /\$/);
   await assert.rejects(
     shareKaataViaWhatsApp(
       person,
@@ -367,12 +367,15 @@ async function main() {
     1,
     "unacknowledged rows never masquerade as billed money",
   );
-  for (const section of snapshot!.currencies)
+  for (const section of snapshot!.currencies) {
+    assert.equal(section.currency, section.currency_code, "one currency label per bill section");
     assert.ok(section.entries.every((entry: any) => entry.currency === section.currency_code));
+  }
   const fullText = new URL(opens.at(-1)!).searchParams.get("text")!;
   assert.match(fullText, /share.theyOwe.amount.*700.*AFN/);
   assert.match(fullText, /share.youOwe.amount.*700.*USD/);
   assert.match(fullText, /share.currencySettled.*AUD/);
+  assert.doesNotMatch(fullText, /[؋$]/, "all currency labels use codes without extra symbols");
   assert.doesNotMatch(fullText, /share.settled.line/);
   assert.match(fullText, /https:\/\/example.invalid\/v2\/all-currencies/);
 
@@ -454,6 +457,11 @@ async function main() {
     snapshot!.currencies.map((section: any) => section.currency_code),
     CURRENCIES.map(({ code }) => code),
     "All155 catalog currencies reach one complete bill",
+  );
+  assert.deepEqual(
+    snapshot!.currencies.map((section: any) => section.currency),
+    CURRENCIES.map(({ code }) => code),
+    "Every catalog currency uses a single unambiguous bill label",
   );
   const allCodes = Array.from({ length: 257 }, (_, i) =>
     String.fromCharCode(65 + Math.floor(i / 676), 65 + (Math.floor(i / 26) % 26), 65 + (i % 26)),
@@ -846,6 +854,7 @@ async function main() {
   assert.match(balanceText, /share.theyOwe.amount.*"amount":"0.29".*AFN/);
   assert.match(balanceText, /share.youOwe.amount.*"amount":"0.01".*USD/);
   assert.match(balanceText, /share.currencySettled.*AUD/);
+  assert.doesNotMatch(balanceText, /[؋$]/, "balance-only reminders use one label too");
   assert.match(balanceText, /share.theyOwe.cta/);
   assert.match(balanceText, /share.youOwe.cta/);
   assert.match(balanceText, /share.footer/);

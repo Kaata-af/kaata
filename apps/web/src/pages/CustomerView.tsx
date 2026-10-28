@@ -380,7 +380,12 @@ export function CustomerView() {
 }
 
 export function Ledger({ data }: { data: SharedLedger }) {
-  if (!isMultiCurrencyBill(data)) return <SingleLedger data={data} />;
+  if (!isMultiCurrencyBill(data))
+    return (
+      <SingleLedger
+        data={{ ...data, currency: billCurrencyLabel(data.currency_code, data.currency) }}
+      />
+    );
   return (
     <>
       {data.currencies.map((section, index) => (

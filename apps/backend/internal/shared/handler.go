@@ -228,12 +228,13 @@ func (h *Handler) View(w http.ResponseWriter, r *http.Request) {
 	if rtl {
 		absBal = localizeNum(absBal)
 	}
+	currency := billCurrencyLabel(p.CurrencyCode, p.Currency)
 
 	data := viewData{
 		Token:        token,
 		Shop:         p.Shop,
 		Person:       p.Person,
-		Currency:     p.Currency,
+		Currency:     currency,
 		AbsBalance:   absBal,
 		Direction:    dir,
 		Lang:         lang,
@@ -244,7 +245,7 @@ func (h *Handler) View(w http.ResponseWriter, r *http.Request) {
 		ShareURL:     h.shareBaseURL + "/v/" + token,
 		APIBase:      h.apiBaseURL,
 		OGTitle:      ogTitle(p),
-		OGDesc:       ogDescForLanguage(absBal, p.Currency, dir, lang, billDateForLanguage(p.GeneratedAt, lang, calendar, qamariOffset)),
+		OGDesc:       ogDescForLanguage(absBal, currency, dir, lang, billDateForLanguage(p.GeneratedAt, lang, calendar, qamariOffset)),
 		// Bills are permanent (paper rule), so the issue date is load-bearing:
 		// a two-year-old link must read as "bill dated X", never as the
 		// current balance. Formatted by the inline script's fmtDate (Afghan

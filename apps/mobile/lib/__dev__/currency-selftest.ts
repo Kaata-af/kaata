@@ -145,6 +145,11 @@ async function main() {
       );
       locale = lang;
       assert.equal(currency.getCurrencyName(item.code), name);
+      assert.equal(
+        currency.getCurrencyLabel(item.code),
+        item.code,
+        `${lang} labels identify ${item.code} once without a redundant symbol`,
+      );
     }
     for (const alias of item.searchAliases) {
       assert.ok(
@@ -194,6 +199,7 @@ async function main() {
   assert.ok(searchCurrencies(" rupee ", "en").some((c) => c.code === "INR"));
   assert.equal(currency.getCurrencyName("XYZ"), "XYZ", "unknown names are never mislabeled as AFN");
   assert.equal(currency.getCurrencySymbol("XYZ"), "XYZ");
+  assert.equal(currency.getCurrencyLabel("XYZ"), "XYZ");
   activeVault = null;
   currency.setCurrentCurrency("INR");
   currency.setCurrentCurrency("invalid");

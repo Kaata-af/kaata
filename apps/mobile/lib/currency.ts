@@ -37,10 +37,10 @@ export function getCurrentCurrencySymbol(): string {
   return getCurrencySymbol(getLedgerCurrencyCode());
 }
 
-/** ISO code disambiguates symbols shared by several currencies. */
+/** One unambiguous label, including in books that mix dollar currencies.
+ * Compact amount controls use getCurrencySymbol instead of adding a symbol here. */
 export function getCurrencyLabel(code: string): string {
-  const symbol = getCurrencySymbol(code);
-  return symbol === code ? code : `${code} ${symbol}`;
+  return code;
 }
 
 export async function getDefaultEntryCurrency(
@@ -119,8 +119,7 @@ export function useCurrency(): string {
   return code;
 }
 
-// Locale-aware human name for the active currency. Used in the picker so
-// each row reads "؋  افغانی" in Dari and "؋  Afghan Afghani" in English.
+// Locale-aware name for choice rows, paired with one ISO code.
 export function getCurrencyName(code: string): string {
   return getCurrencyNameForLocale(code, getLocale());
 }

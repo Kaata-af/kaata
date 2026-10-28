@@ -8,6 +8,7 @@ const currencies = [
   { code: "USD", name: "US Dollar", symbol: "$" },
   { code: "EUR", name: "Euro", symbol: "€" },
   { code: "KWD", name: "Kuwaiti Dinar", symbol: "KWD" },
+  { code: "AUD", name: "Australian Dollar", symbol: "A$" },
   ...Array.from({ length: 160 }, (_, index) => ({
     code: `X${index}`,
     name: `Currency ${index}`,
@@ -184,10 +185,22 @@ for (const platform of ["ios", "android"]) {
     assert.equal(name.props.children, `${locale}:Euro`);
     assert.equal(name.props.numberOfLines, undefined, "Long translated labels may wrap");
     assert.equal(
-      nodes(row).some((node) => node.props.children === "EUR  ·  €"),
+      nodes(row).some((node) => node.props.children === "EUR"),
       true,
-      "ISO code distinguishes currencies with the same symbol",
+      "A currency name has one ISO label without repeating its symbol",
     );
+    for (const code of ["EUR", "USD", "AUD"]) {
+      const item = currencies.find((currency) => currency.code === code)!;
+      const currencyRow = list.props.renderItem({ item });
+      assert.deepEqual(
+        nodes(currencyRow)
+          .filter((node) => node.type === "Text")
+          .map((node) => node.props.children),
+        [`${locale}:${item.name}`, code],
+        `${code} never repeats its symbol beside the ISO code`,
+      );
+      assert.equal(currencyRow.props.accessibilityLabel, `${locale}:${item.name}, ${code}`);
+    }
     const precisionRow = list.props.renderItem({ item: currencies[3] });
     assert.equal(
       nodes(precisionRow).some((node) => node.props.children === "currency.precisionHint"),
@@ -410,6 +423,8 @@ for (const platform of ["ios", "android"]) {
       "ZZZ",
       "A historical allowed ISO code stays honestly labelled",
     );
+    assert.equal(nodes(legacyRow).filter((node) => node.type === "Text").length, 1);
+    assert.equal(legacyRow.props.accessibilityLabel, "ZZZ");
     const retainedEuro = list.props.renderItem({ item: currencies[2] }).props.onPress;
     tree = render({ disabled: true });
     const busyRow = find(tree, "FlatList").props.renderItem({ item: currencies[2] });

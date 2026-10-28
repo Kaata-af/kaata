@@ -49,12 +49,10 @@ export function CurrencySelector(props: CurrencySelectorProps) {
   const options = [...new Set(props.allowedCurrencies ?? CURRENCIES.map((c) => c.code))].map(
     (code) => {
       const name = getCurrencyName(code);
-      const symbol = getCurrencySymbol(code).trim();
-      const codeLabel = symbol && symbol !== code ? `${code} · ${symbol}` : code;
       return {
         key: code,
         label: name,
-        hint: codeLabel === name ? undefined : ltrIsolate(codeLabel),
+        hint: code === name ? undefined : ltrIsolate(code),
       };
     },
   );

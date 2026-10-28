@@ -340,6 +340,7 @@ a{color:inherit;text-decoration:none;}
   }
   function fmtAmt(n){try{return Math.abs(n).toLocaleString(lang==='ps'?'ps-AF-u-nu-arabext':rtl?'fa-AF':'en-US',{minimumFractionDigits:Number.isInteger(n)?0:2,maximumFractionDigits:2});}catch(e){return Math.abs(n);}}
   function moneyMinor(n){var minor=typeof n==='number'?Math.round(n*100):NaN;return Number.isSafeInteger(minor)?minor:NaN;}
+  function currencyLabel(p){return (p && (p.currency_code || p.currency)) || '';}
   // Bill issue date at first paint (no fetch needed — server passed the ms).
   // 0 = pre-paper-rule snapshot without generated_at; leave the pill hidden.
   var genMs = {{.GeneratedAtMs}};
@@ -391,14 +392,12 @@ a{color:inherit;text-decoration:none;}
         var el = container;
         if(multi){
           var heading = document.createElement('div'); heading.className = 'sectionhead';
-          heading.textContent = p.currency_code + (p.currency.indexOf(p.currency_code) < 0 ? ' ' + p.currency : '');
-          if(p.currency.indexOf(p.currency_code) >= 0) heading.textContent = p.currency;
+          heading.textContent = currencyLabel(p);
           container.appendChild(heading);
           el = document.createElement('div'); el.className = 'rows'; container.appendChild(el);
         }
       var all = (p && p.entries) || [];
-      var cur = (p && p.currency) || '';
-      if(multi && cur.indexOf(p.currency_code) < 0) cur = p.currency_code + ' ' + cur;
+      var cur = currencyLabel(p);
       var history = payload.v === 3 ? (p.history || []) : [];
       var historyCount = history.reduce(function(total, group){ return total + group.entries.length; }, 0);
       // Settled-chapter collapse (parity with the app + SPA): entries dated

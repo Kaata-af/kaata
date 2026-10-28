@@ -83,8 +83,7 @@ function fixture(
         currencyNameReads++;
         return `${locale}:name:${code}`;
       },
-      getCurrencyLabel: (code: string) =>
-        `${code} ${currencies.find((item) => item.code === code)?.symbol ?? code}`,
+      getCurrencyLabel: (code: string) => code,
       currencyNeedsPrecisionHint: (code: string) => code === "KWD",
     },
     "../../lib/db-tx": {
@@ -314,15 +313,15 @@ async function main() {
     assert.deepEqual(f.enabled().props.selected, ["USD", "GBP"]);
     assert.equal(f.enabled().props.defaultCurrency, "GBP");
     assert.ok(
-      f.enabledRow().props.accessibilityLabel.includes("USD $"),
+      f.enabledRow().props.accessibilityLabel.includes("USD"),
       "The nondefault enabled currency remains audible from the field",
     );
     assert.ok(
-      f.enabledRow().props.accessibilityLabel.includes("GBP £"),
-      "All enabled ISO labels and symbols are announced",
+      f.enabledRow().props.accessibilityLabel.includes("GBP"),
+      "All enabled ISO labels are announced without extra symbols",
     );
     assert.ok(
-      f.enabledRow().props.hint.includes("\u2068GBP £\u2069"),
+      f.enabledRow().props.hint.includes("\u2068GBP\u2069"),
       "The default summary isolates the currency token within localized prose",
     );
     assert.match(f.enabledRow().props.trailing, /"count":2/);

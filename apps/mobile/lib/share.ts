@@ -1,7 +1,7 @@
 import { Linking } from "react-native";
 import { getBackendUrl } from "./api";
 import { getEffectiveCalendar, getQamariOffset } from "./calendar";
-import { getCurrentCurrencyCode, getCurrencySymbol } from "./currency";
+import { getCurrentCurrencyCode, getCurrencyLabel } from "./currency";
 import { assertSingleCurrency } from "./currency-totals";
 import { bumpUsageCounter } from "./db";
 import { formatAmount } from "./format";
@@ -259,8 +259,7 @@ export async function shareKaataCurrenciesViaWhatsApp(
     codes.add(code);
     if (statement.pending) throw new Error("Shared bill is not fully synced");
     toMinorUnits(statement.balance);
-    const symbol = getCurrencySymbol(code);
-    return { currency: symbol === code ? code : `${symbol} ${code}`, balance: statement.balance };
+    return { currency: getCurrencyLabel(code), balance: statement.balance };
   });
   const accountWith = self?.shop_name ?? self?.name ?? "Kaata";
   if (options?.includeBillLink === false) {
@@ -443,8 +442,7 @@ export async function shareKaataViaWhatsApp(
   const accountWith = self?.shop_name ?? self?.name ?? "Kaata";
   // Freeze the selected currency before upload; changing the view while the
   // request is in flight must never relabel this permanent statement.
-  const symbol = getCurrencySymbol(currencyCode);
-  const currency = symbol === currencyCode ? currencyCode : `${symbol} ${currencyCode}`;
+  const currency = getCurrencyLabel(currencyCode);
   const amount = formatAmount(balance);
   const lines: string[] = [tIn(lang, "share.greeting", { name: person.name }), ""];
 

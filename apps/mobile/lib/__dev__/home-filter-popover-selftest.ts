@@ -40,8 +40,7 @@ const { CustomerListOptions } = compileUI("../../components/CustomerListSheet", 
   "@expo/vector-icons": { Ionicons: "Icon" },
   "../lib/colors": { colors },
   "../lib/currency": {
-    getCurrencyLabel: (code: string) =>
-      code === "AFN" ? "AFN ؋" : code === "USD" ? "USD $" : code,
+    getCurrencyLabel: (code: string) => code,
   },
   "../lib/fonts": { fonts: {} },
   "../lib/direction": {
@@ -377,7 +376,7 @@ for (const isRTL of [false, true]) {
     ),
   );
   choices(currencyGroup(allCurrencies))
-    .find((node) => node.props.accessibilityLabel === "USD $")!
+    .find((node) => node.props.accessibilityLabel === "USD")!
     .props.onPress();
   assert.deepEqual(changed, {
     sort: "recent",

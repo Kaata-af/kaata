@@ -99,8 +99,7 @@ export async function customerGroupUIChecks() {
       "./SheetSurface": { SheetSurface: "SheetSurface" },
       "../lib/colors": { colors },
       "../lib/currency": {
-        getCurrencyLabel: (code: string) =>
-          code === "AFN" ? "AFN ؋" : code === "USD" ? "USD $" : code,
+        getCurrencyLabel: (code: string) => code,
       },
       "../lib/fonts": { fonts: {} },
       "../lib/direction": {
@@ -480,7 +479,7 @@ export async function customerGroupUIChecks() {
       );
       assert.deepEqual(
         currencyButtons(allCurrencies).map((node) => node.props.accessibilityLabel),
-        [language.t("customers.currencyFilter.all"), "AFN ؋", "USD $", "XYZ"],
+        [language.t("customers.currencyFilter.all"), "AFN", "USD", "XYZ"],
         "currency choices deduplicate codes and label unknown historic codes honestly",
       );
       assert.deepEqual(
@@ -516,7 +515,7 @@ export async function customerGroupUIChecks() {
       }
       const beforeCurrency = { ...preference };
       currencyButtons(allCurrencies)
-        .find((node) => node.props.accessibilityLabel === "USD $")!
+        .find((node) => node.props.accessibilityLabel === "USD")!
         .props.onPress();
       assert.deepEqual(
         preference,
@@ -525,8 +524,8 @@ export async function customerGroupUIChecks() {
       );
       const oneCurrency = currencyOptions();
       assert.equal(
-        currencyButtons(oneCurrency).find((node) => node.props.accessibilityLabel === "USD $")!
-          .props.accessibilityState.checked,
+        currencyButtons(oneCurrency).find((node) => node.props.accessibilityLabel === "USD")!.props
+          .accessibilityState.checked,
         true,
       );
       const smallest = nodes(oneCurrency).find(
@@ -539,7 +538,7 @@ export async function customerGroupUIChecks() {
       assert.deepEqual(preference.group, ["family"]);
       assert.equal(preference.direction, "collect");
       currencyButtons(currencyOptions())
-        .find((node) => node.props.accessibilityLabel === "AFN ؋")!
+        .find((node) => node.props.accessibilityLabel === "AFN")!
         .props.onPress();
       assert.deepEqual(preference.currency, ["AFN", "USD"]);
       const severalCurrencies = currencyOptions();
@@ -553,11 +552,11 @@ export async function customerGroupUIChecks() {
         ),
       );
       currencyButtons(severalCurrencies)
-        .find((node) => node.props.accessibilityLabel === "USD $")!
+        .find((node) => node.props.accessibilityLabel === "USD")!
         .props.onPress();
       assert.equal(preference.currency, "AFN", "a selected currency toggles off independently");
       currencyButtons(currencyOptions())
-        .find((node) => node.props.accessibilityLabel === "AFN ؋")!
+        .find((node) => node.props.accessibilityLabel === "AFN")!
         .props.onPress();
       assert.equal(preference.currency, undefined, "deselecting the last currency returns to All");
       const beforeAll = { ...preference };

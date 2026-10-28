@@ -34,8 +34,7 @@ function fixture() {
     "../lib/colors": require("../colors"),
     "../lib/currency": {
       useCurrency: () => selected,
-      getCurrencyLabel: (code: string) =>
-        code === "USD" ? "USD $" : code === "AFN" ? "AFN ؋" : code,
+      getCurrencyLabel: (code: string) => code,
     },
     "../lib/direction": {
       bidiIsolate: (s: string) => s,
@@ -141,8 +140,9 @@ async function main() {
   await badge.settle();
   assert.ok(badge.calls.policy.every((c) => c === "USD"));
   assert.ok(badge.calls.balance.every((c) => c === "USD"));
-  assert.match(text(badge.hooks.tree), /100 USD \$/);
-  assert.match(text(badge.hooks.tree), /10 USD \$/);
+  assert.match(text(badge.hooks.tree), /100 USD/);
+  assert.match(text(badge.hooks.tree), /10 USD/);
+  assert.doesNotMatch(text(badge.hooks.tree), /\$/);
   const slow = deferred<any>();
   badge.hold(slow);
   for (const emit of badge.ledger) emit("v");
@@ -171,8 +171,9 @@ async function main() {
   intent.hooks.render(() => List({ personId: "p", vaultId: "v", allCurrencies: all }));
   await intent.settle();
   assert.equal(intent.calls.intents[0][3].allCurrencies, true);
-  assert.match(text(intent.hooks.tree), /1\s+AFN ؋/);
-  assert.match(text(intent.hooks.tree), /2\s+USD \$/);
+  assert.match(text(intent.hooks.tree), /1\s+AFN/);
+  assert.match(text(intent.hooks.tree), /2\s+USD/);
+  assert.doesNotMatch(text(intent.hooks.tree), /[؋$]/);
   assert.match(text(intent.hooks.tree), /3\s+GBP/);
   const reads = intent.calls.intents.length;
   intent.select("USD");
@@ -183,7 +184,7 @@ async function main() {
     reads,
     "all-currency requests stay independent of the selected view",
   );
-  assert.match(text(intent.hooks.tree), /1\s+AFN ؋/);
+  assert.match(text(intent.hooks.tree), /1\s+AFN/);
   all = false;
   intent.hooks.render();
   assert.equal(

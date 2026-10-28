@@ -36,7 +36,7 @@ const balanceCells = (page: UINode) => nodes(page).filter(isBalanceCell);
 const quoteRow = (page: UINode) =>
   nodes(page).find((node) => children(node).filter(isBalanceCell).length === 2)!;
 const currencySymbols: Record<string, string> = { AFN: "؋", USD: "$", EUR: "€" };
-const currencyLabel = (code: string) => `${code} ${currencySymbols[code] ?? "¤"}`;
+const currencyLabel = (code: string) => code;
 const luminance = (color: string) => {
   assert.match(color, /^#[\da-f]{6}$/i);
   return [1, 3, 5]
@@ -465,7 +465,8 @@ async function main() {
     assert.deepEqual(zeroAmounts.map(text), ["0", "0"]);
     assert.ok(zeroAmounts.every((amount) => style(amount).color === colors.textSubtle));
     assert.equal(byId(empty, "home-balance-currency-USD"), undefined);
-    assert.ok(empty.props.accessibilityLabel.includes("USD $"));
+    assert.ok(empty.props.accessibilityLabel.includes("USD"));
+    assert.ok(!empty.props.accessibilityLabel.includes("$"));
     current.hooks.unmount();
   }
   {

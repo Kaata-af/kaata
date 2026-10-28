@@ -95,7 +95,7 @@ console.log(
     "../lib/colors": { colors: { textEmphasis: "neutral", borderDefault: "separator" } },
     "../lib/currency": {
       getCurrentCurrencySymbol: () => "AFN",
-      getCurrencyLabel: (code: string) => (code === "USD" ? "USD $" : `${code} ؋`),
+      getCurrencyLabel: (code: string) => code,
     },
     "../lib/direction": {
       rowDir: (rtl: boolean) => ({ flexDirection: rtl ? "row-reverse" : "row" }),
@@ -173,7 +173,7 @@ console.log(
       );
       assert.equal(
         flow.props.accessibilityLabel,
-        `${label}, ${formatMoneyAmount(expected.amount)} USD $`,
+        `${label}, ${formatMoneyAmount(expected.amount)} USD`,
         "received stays left and gave stays right with their independent values and currency code",
       );
       assert.equal(flow.props.accessibilityHint, language.t("person.flows.hint"));
@@ -218,7 +218,7 @@ console.log(
     nodes(oneDirection)
       .filter((node) => node.props.accessible === true)
       .map((node) => node.props.accessibilityLabel),
-    ["I received (0), 0 AFN ؋", "I gave (1), 0.01 AFN ؋"],
+    ["I received (0), 0 AFN", "I gave (1), 0.01 AFN"],
     "a nonempty footer retains both columns without borrowing the other direction's value",
   );
 }
