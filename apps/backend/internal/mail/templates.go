@@ -64,9 +64,12 @@ var copyPS = map[Kind]copyText{
 }
 
 const (
-	footerPS = "دا کوډ په 15 دقیقو کې باطلېږي. دا کوډ له هېچا سره مه شریکوئ. که تاسو نه وي غوښتی، دا برېښنالیک له پامه وغورځوئ."
-	footerEN = "It expires in 15 minutes. Never share this code with anyone. If you didn't ask for it, ignore this email."
-	footerFA = "این کود پس از 15 دقیقه باطل می‌شود. این کود را با هیچ‌کس شریک نکنید. اگر شما آن را نخواسته‌اید، این ایمیل را نادیده بگیرید."
+	footerPS   = "دا کوډ په 15 دقیقو کې باطلېږي. دا کوډ له هېچا سره مه شریکوئ. که تاسو نه وي غوښتی، دا برېښنالیک له پامه وغورځوئ."
+	footerEN   = "It expires in 15 minutes. Never share this code with anyone. If you didn't ask for it, ignore this email."
+	footerFA   = "این کود پس از 15 دقیقه باطل می‌شود. این کود را با هیچ‌کس شریک نکنید. اگر شما آن را نخواسته‌اید، این ایمیل را نادیده بگیرید."
+	copyHintEN = "Press and hold the code to copy it."
+	copyHintFA = "برای کاپی کردن، انگشت خود را روی کود نگه دارید."
+	copyHintPS = "د کوډ د کاپي کولو لپاره پرې ګوته ټینګه ونیسئ."
 )
 
 // HasCode reports whether a kind carries a code.
@@ -103,11 +106,11 @@ func RenderElsewhere(lang, to, maskedAddress string) Message {
 func render(kind Kind, lang, to, code, address string) Message {
 	lang = Lang(lang)
 	rtl := locale.RTL(lang)
-	table, footer, dir, htmlLang := copyEN, footerEN, "ltr", "en"
+	table, footer, copyHint, dir, htmlLang := copyEN, footerEN, copyHintEN, "ltr", "en"
 	if lang == "fa" {
-		table, footer, dir, htmlLang = copyFA, footerFA, "rtl", "fa"
+		table, footer, copyHint, dir, htmlLang = copyFA, footerFA, copyHintFA, "rtl", "fa"
 	} else if lang == "ps" {
-		table, footer, dir, htmlLang = copyPS, footerPS, "rtl", "ps"
+		table, footer, copyHint, dir, htmlLang = copyPS, footerPS, copyHintPS, "rtl", "ps"
 	}
 	c := table[kind]
 
@@ -133,6 +136,8 @@ func render(kind Kind, lang, to, code, address string) Message {
 			text.WriteString(code)
 		}
 		text.WriteString("\n\n")
+		text.WriteString(copyHint)
+		text.WriteString("\n\n")
 		text.WriteString(footer)
 		text.WriteString("\n")
 	}
@@ -144,8 +149,12 @@ func render(kind Kind, lang, to, code, address string) Message {
 	h.WriteString(`<p dir="ltr" style="margin:0 0 24px;font-size:22px;font-weight:bold;color:#000000">kaata.</p>`)
 	h.WriteString("<p>" + htmlLead + "</p>")
 	if kind.HasCode() {
-		h.WriteString(`<p dir="ltr" style="font-size:28px;font-weight:bold;letter-spacing:6px;font-family:Menlo,Consolas,monospace;color:#171717;background:#F7F7F7;padding:16px;border-radius:12px">` +
-			html.EscapeString(code) + "</p>")
+		// Clipboard scripts and form fields are stripped by many email clients.
+		// Keep one real text node: select-all is an enhancement; ordinary text
+		// selection still works when a client removes the optional CSS.
+		h.WriteString(`<div dir="ltr" style="margin:20px 0 8px;padding:16px;text-align:center;background:#F7F7F7;border:1px solid #E2E2E2;border-radius:12px"><code dir="ltr" style="display:inline-block;font-size:32px;font-weight:bold;letter-spacing:4px;font-family:Menlo,Consolas,monospace;color:#171717;white-space:nowrap;direction:ltr;unicode-bidi:isolate;-webkit-user-select:all;user-select:all">` +
+			html.EscapeString(code) + "</code></div>")
+		h.WriteString(`<p style="margin:0 0 20px;color:#616161;font-size:14px">` + html.EscapeString(copyHint) + "</p>")
 		h.WriteString(`<p style="color:#616161;font-size:14px">` + html.EscapeString(footer) + "</p>")
 	}
 	h.WriteString("</div></body></html>")
