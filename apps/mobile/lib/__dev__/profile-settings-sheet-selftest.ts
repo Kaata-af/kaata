@@ -114,6 +114,13 @@ for (const rtl of [false, true]) {
     "the standard header stays above long scrolling content",
   );
   assert.ok(nodes(scroll).filter((node) => node.type === "NavRow").length >= 20);
+  const notifications = form.row("notificationSettings.title");
+  assert.equal(flattenStyle(notifications.props.style).marginTop, 4);
+  assert.equal(
+    nodes(scroll).filter((node) => node.type === "NavRow" && node.props.style).length,
+    1,
+    "Only the standalone Notifications option gets the small spacing correction",
+  );
   assert.equal(form.keyboardDismissed, 1);
   header.props.onBack();
   header.props.onBack();

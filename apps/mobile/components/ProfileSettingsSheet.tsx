@@ -310,6 +310,7 @@ export function ProfileSettingsSheet(props: ProfileSettingsProps) {
           onPress={chained(() => navigate("/notification-settings"))}
           isRTL={isRTL}
           isLast
+          style={styles.notificationRow}
         />
 
         {/* ============ CURRENT KAATA ============
@@ -551,6 +552,7 @@ const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.bgDefault },
   scroll: { flex: 1, minHeight: 0 },
   content: { paddingBottom: 16 },
+  notificationRow: { marginTop: 4 },
 
   // Identity (signed in) ----------------------------------------------------
   identityRow: {

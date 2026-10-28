@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import type { ComponentProps, ReactNode } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from "react-native";
 import { colors } from "../lib/colors";
 import {
   SETTINGS_DISABLED_OPACITY,
@@ -173,6 +173,7 @@ export function NavRow(props: {
   emphasis?: boolean;
   danger?: boolean;
   isLast?: boolean;
+  style?: StyleProp<ViewStyle>;
   /**
    * Optional a11y hint surfaced to screen readers (e.g. "Replace local
    * data with cloud copy"). Defaults to undefined; only set this when
@@ -206,6 +207,7 @@ export function NavRow(props: {
         styles.navRow,
         rowDir(props.isRTL),
         !props.isLast && styles.navRowDivider,
+        props.style,
         pressed && !props.disabled && { backgroundColor: colors.bgMuted },
       ]}
     >
