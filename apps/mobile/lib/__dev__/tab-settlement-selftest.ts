@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import ts from "typescript";
 import * as errors from "../tabs/errors";
+import * as recordingMode from "../tabs/recording-mode";
 import * as roles from "../vault-roles";
 import type { TabLink, TabResponse, SettlementResponse } from "../tabs/types";
 import type { VaultRole } from "../vault-roles";
@@ -168,6 +169,7 @@ function harness(options: Options = {}) {
     },
     "../vault-roles": roles,
     "./errors": errors,
+    "./recording-mode": recordingMode,
     "./sync": {
       syncTab: async (tabId: string) => {
         assert.equal(sessionGuardDepth, 0, "network sync must not hold the session mutation lock");
