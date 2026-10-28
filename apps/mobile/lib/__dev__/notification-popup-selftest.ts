@@ -5,6 +5,9 @@ import { compileUI, deferred, flattenStyle, jsx, nodes, settleUI, uiHooks } from
 
 function fixture() {
   const hooks = uiHooks();
+  let openingCount = 0;
+  const visibility: boolean[] = [];
+  const onVisibilityChange = (visible: boolean) => visibility.push(visible);
   const motion = deferred<boolean>();
   const listeners = new Set<(value: boolean) => void>();
   const measures: ((...coords: number[]) => void)[] = [];
@@ -110,7 +113,9 @@ function fixture() {
     },
   );
   function render() {
-    hooks.render(() => component.NotificationBell());
+    hooks.render(() =>
+      component.NotificationBell({ onOpen: () => openingCount++, onVisibilityChange }),
+    );
     const anchor = nodes(hooks.tree).find((node) => node.props.collapsable === false)!;
     anchor.props.ref.current = {
       measureInWindow: (fn: (...coords: number[]) => void) => measures.push(fn),
@@ -139,6 +144,10 @@ function fixture() {
     render,
     find,
     bell,
+    visibility,
+    get openingCount() {
+      return openingCount;
+    },
     due: (count: number, active = true) => {
       dueCount = count;
       return component.DueRemindersShortcut({ active, onPress: () => routes.push("/reminders") });
@@ -194,9 +203,11 @@ async function main() {
   normal.motion.resolve(false);
   await settleUI();
   normal.open();
+  assert.equal(normal.openingCount, 1, "Opening inbox cancels an idle review before native layout");
   normal.measure(120);
   assert.equal(normal.top(), 170);
   assert.equal(normal.find("Modal").props.visible, true);
+  assert.equal(normal.visibility.at(-1), true, "An open inbox prevents idle rating requests");
   normal.finish();
   normal.close();
   assert.equal(
@@ -212,6 +223,7 @@ async function main() {
   );
   normal.finish();
   assert.equal(normal.find("Modal").props.visible, false);
+  assert.equal(normal.visibility.at(-1), false, "The inbox remains busy until its exit finishes");
   assert.equal(normal.top(), 170, "last native dismissal frame cannot jump to safe-area top");
   assert.equal(
     normal.animations.every((item) => item.opts.useNativeDriver),

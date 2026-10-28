@@ -36,6 +36,11 @@ let writeCaps = { resolved: false, canCreate: true, canAmend: true };
 let archiveGuardReads = 0;
 let hapticImpacts = 0;
 let enabledCurrencies = ["AFN"];
+let reviewPromptOptions: {
+  context: { installId: string; accountId: string | null; vaultId: string | null } | null;
+  ready: boolean;
+} | null = null;
+let reviewInteractionCancels = 0;
 const scopedCreditPolicies = new Map<string, Record<string, { limit: number }>>();
 const currencyListeners = new Set<(code: string) => void>();
 type KeyboardPayload = {
@@ -249,6 +254,12 @@ const mocks: Record<string, any> = {
     SearchKeyboardFooter: "SearchKeyboardFooter",
   },
   "../lib/app-meta-context": { useAppMeta: () => ({ forceUpdate: false }) },
+  "../lib/use-store-review-prompt": {
+    useStoreReviewPrompt: (options: NonNullable<typeof reviewPromptOptions>) => {
+      reviewPromptOptions = options;
+      return () => reviewInteractionCancels++;
+    },
+  },
   "../lib/colors": { colors },
   "../lib/contacts-merge": contactQueries,
   "../lib/search": {
@@ -314,6 +325,7 @@ const mocks: Record<string, any> = {
   "../lib/db-tx": {
     clearActiveVaultId: asyncNoop,
     getAccountIdSync: () => account,
+    getInstallIdSync: () => "install",
     getActiveVaultId: async () => vault,
     getActiveVaultIdSyncMaybe: () => vault,
     onAccountIdentityChanged: (listener: () => void) => {
@@ -753,6 +765,15 @@ const pairSummary = {
 async function main() {
   render();
   await flush();
+  assert.deepEqual(reviewPromptOptions?.context, {
+    installId: "install",
+    accountId: "account-a",
+    vaultId: "vault-a",
+  });
+  assert.equal(reviewPromptOptions?.ready, true, "A loaded Home supplies the idle review context");
+  assert.equal(typeof tree.props.onTouchStart, "function");
+  tree.props.onTouchStart();
+  assert.equal(reviewInteractionCancels, 1, "The review coordinator sees Home interactions");
   assert.equal(addButton(), undefined, "Cold unresolved permissions never invent a writer action");
   const searchBeforePermissions = input().props.ref;
   writeCaps = { resolved: true, canCreate: true, canAmend: true };

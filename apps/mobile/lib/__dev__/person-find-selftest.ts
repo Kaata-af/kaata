@@ -45,6 +45,11 @@ let filterViewportHeight = 600,
 const pendingFilterMeasurements: (() => void)[] = [];
 let reducedMotion = false,
   homeToastOffset = 0;
+let reviewPromptOptions: {
+  context: { installId: string; accountId: string | null; vaultId: string | null } | null;
+  ready: boolean;
+} | null = null;
+let reviewInteractionCancels = 0;
 const scheduledKeyboardLayouts: unknown[] = [];
 const keyboardListeners = new Set<{ event: string; fn: (payload: any) => void }>();
 const keyboardEvent = (event: string) => {
@@ -424,6 +429,12 @@ const sharedMocks: Record<string, any> = {
   },
 };
 const libMocks: Record<string, any> = {
+  "use-store-review-prompt": {
+    useStoreReviewPrompt: (options: NonNullable<typeof reviewPromptOptions>) => {
+      reviewPromptOptions = options;
+      return () => reviewInteractionCancels++;
+    },
+  },
   colors: { colors },
   "tabs/link-status": require("../tabs/link-status"),
   currency: {
@@ -483,6 +494,7 @@ const libMocks: Record<string, any> = {
       vaultId = null;
     },
     getAccountIdSync: () => cachedAccountId,
+    getInstallIdSync: () => "install",
     onAccountIdentityChanged: (fn: () => void) => {
       identityListeners.add(fn);
       return () => {
@@ -694,6 +706,8 @@ function fixture(
   pendingFilterMeasurements.length = 0;
   reducedMotion = false;
   homeToastOffset = 0;
+  reviewPromptOptions = null;
+  reviewInteractionCancels = 0;
   scheduledKeyboardLayouts.length = 0;
   springTargets.length = 0;
   groupState = { groups: [], groupsByPerson: {} };
@@ -1193,6 +1207,84 @@ async function main() {
     assert.ok(dialog.props.visible, "bulk removal waits for confirmation");
     return dialog;
   };
+
+  for (const nextPlatform of ["android", "ios"])
+    for (const nextRtl of [false, true]) {
+      fixture(home, "owner", nextRtl, nextPlatform);
+      await flush();
+      assert.deepEqual(reviewPromptOptions?.context, {
+        installId: "install",
+        accountId: null,
+        vaultId: "kaata",
+      });
+      assert.equal(reviewPromptOptions?.ready, true, "Only settled Home can offer an idle review");
+      assert.equal(typeof tree.props.onTouchStart, "function");
+      tree.props.onTouchStart();
+      assert.equal(reviewInteractionCancels, 1, "Any Home touch cancels a pending review");
+      find("Bell")!.props.onOpen();
+      assert.equal(
+        reviewInteractionCancels,
+        2,
+        "Opening notifications cancels reviews even without a touch event",
+      );
+      find("Bell")!.props.onVisibilityChange(true);
+      await flush();
+      assert.equal(
+        reviewPromptOptions?.ready,
+        false,
+        "An already-open notification inbox also blocks newly arriving review opportunities",
+      );
+      find("Bell")!.props.onVisibilityChange(false);
+      await flush();
+      assert.equal(reviewPromptOptions?.ready, true, "Closing the inbox restores Home readiness");
+      const beforeCard = reviewInteractionCancels;
+      find("HomeBalanceSummary")!.props.onDirectionChange("collect");
+      await flush();
+      assert.equal(reviewInteractionCancels, beforeCard + 1, "Card actions cancel pending reviews");
+      find("HomeBalanceSummary")!.props.onDirectionChange("all");
+      await flush();
+      assert.deepEqual(routes, []);
+      assert.deepEqual(writes, []);
+
+      homeInput().props.onFocus();
+      keyboardEvent(nextPlatform === "ios" ? "keyboardWillShow" : "keyboardDidShow");
+      await flush();
+      assert.equal(
+        reviewPromptOptions?.ready,
+        false,
+        "Search keyboard takes priority over reviews",
+      );
+      homeInput().props.onChangeText("Ahmad");
+      keyboardEvent(nextPlatform === "ios" ? "keyboardWillHide" : "keyboardDidHide");
+      keyboardEvent("keyboardDidHide");
+      await flush();
+      assert.equal(reviewPromptOptions?.ready, false, "A search query is an ongoing task");
+      homeInput().props.onChangeText("");
+      await flush();
+      assert.equal(reviewPromptOptions?.ready, true);
+
+      homeOptions();
+      await flush();
+      assert.equal(reviewPromptOptions?.ready, false, "Open filters prevent a review request");
+      find("HomeFilterPopover")!.props.onDismiss();
+      keyboardEvent(nextPlatform === "ios" ? "keyboardWillHide" : "keyboardDidHide");
+      keyboardEvent("keyboardDidHide");
+      await flush();
+      assert.equal(reviewPromptOptions?.ready, true);
+      await openSelection();
+      assert.equal(
+        reviewPromptOptions?.ready,
+        false,
+        "Contact selection prevents a review request",
+      );
+      selection()!.props.onClose();
+      await flush();
+      assert.equal(reviewPromptOptions?.ready, true);
+      byLabel("menu.title.vaultSwitcher")!.props.onPress();
+      await flush();
+      assert.equal(reviewPromptOptions?.ready, false, "The Kaata picker blocks review UI");
+      assert.equal(routes.length + writes.length, 0);
+    }
 
   for (const nextRtl of [false, true]) {
     fixture(home, "owner", nextRtl);

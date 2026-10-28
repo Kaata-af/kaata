@@ -209,7 +209,13 @@ function DueRemindersRow({
   );
 }
 
-export function NotificationBell() {
+export function NotificationBell({
+  onOpen,
+  onVisibilityChange,
+}: {
+  onOpen?: () => void;
+  onVisibilityChange?: (visible: boolean) => void;
+} = {}) {
   const inbox = useInbox();
   // Due reminders count on the bell too: they used to be invisible until the
   // dropdown was opened. Loaded here, not by the dropdown, so the row stays
@@ -222,6 +228,9 @@ export function NotificationBell() {
   const anchor = useRef<ViewInstance>(null);
   const [position, setPosition] = useState<{ y: number } | null>(null);
   const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    onVisibilityChange?.(visible);
+  }, [visible, onVisibilityChange]);
   const [closing, setClosing] = useState(false);
   const opacity = useRef(new Animated.Value(0)).current;
   const animation = useRef<Animated.CompositeAnimation | null>(null);
@@ -344,6 +353,7 @@ export function NotificationBell() {
           accessibilityState={{ expanded: visible && !closing }}
           style={styles.bell}
           onPress={() => {
+            onOpen?.();
             const request = ++generation.current;
             phase.current = "measuring";
             finishClose.current = null;

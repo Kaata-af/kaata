@@ -74,6 +74,7 @@ import { canWriteSharedTallies } from "../../lib/tabs/recording-mode";
 import type { TabLink } from "../../lib/tabs/types";
 import { creditWarning, creditWarningForEdit } from "../../lib/credit-limits";
 import { noteSavedEntry } from "../../lib/recent-entry";
+import { noteReviewableTally } from "../../lib/store-review";
 import {
   TabAuthUnavailableError,
   TabApiError,
@@ -664,6 +665,21 @@ export default function EntryFormScreen({
         duplicateName = link?.other_label || t("tab.them");
       }
       await present(() => {
+        if (
+          saved.admission_status !== "refused" &&
+          saved.admission_status !== "pending" &&
+          !waitingLink &&
+          !saved.duplicate_hint &&
+          !saved.credit_warning
+        )
+          noteReviewableTally(
+            {
+              installId: attempt.installId,
+              accountId: attempt.accountId,
+              vaultId: attempt.vaultId,
+            },
+            saved.entry_id,
+          );
         if (saved.admission_status !== "refused") setCurrentCurrency(currency);
         if (waitingLink)
           toast.push(

@@ -76,6 +76,7 @@ import {
   getAccountIdSync,
   getActiveVaultId,
   getActiveVaultIdSyncMaybe,
+  getInstallIdSync,
   onAccountIdentityChanged,
   setActiveVaultId,
 } from "../lib/db-tx";
@@ -116,6 +117,7 @@ import {
 } from "../lib/battery-exemption";
 import type { PersonWithBalance, Self } from "../lib/types";
 import { personSharedAccountStatus } from "../lib/tabs/link-status";
+import { useStoreReviewPrompt } from "../lib/use-store-review-prompt";
 
 // Header profile-slot diameter. One constant for ALL THREE variants (Google
 // photo, initial-letter chip, signed-out icon) so the top-right chrome never
@@ -256,6 +258,7 @@ export default function HomeScreen() {
   // is kept (not just the email) so the header icon can render the user's
   // actual Google avatar when picture_url is set.
   const [settingsVisible, setSettingsVisible] = useState(false);
+  const [notificationInboxVisible, setNotificationInboxVisible] = useState(false);
   const profileOpening = useRef(false);
   const [sessionUser, setSessionUser] = useState<SessionUser | null>(null);
   // Phase 7 D-TOP-LEFT-SWITCHER — VaultPickerSheet opens on shop-name tap
@@ -1093,6 +1096,29 @@ export default function HomeScreen() {
     !batteryDialogOpen &&
     !oemDialogOpen &&
     !bleSettingsDialogOpen;
+  const reviewContext = useMemo(() => {
+    if (!loaded || !self || !currentPeopleScope || !currentVaultScope) return null;
+    try {
+      return {
+        installId: getInstallIdSync(),
+        accountId: activeAccountId,
+        vaultId: activeVaultId,
+      };
+    } catch {
+      return null;
+    }
+  }, [loaded, self, currentPeopleScope, currentVaultScope, activeAccountId, activeVaultId]);
+  const cancelStoreReview = useStoreReviewPrompt({
+    context: reviewContext,
+    ready:
+      directionControlsEnabled &&
+      !forceUpdate &&
+      !loadError &&
+      !notificationInboxVisible &&
+      !keyboardLayoutShown &&
+      !searchFocused &&
+      customerQuery.trim().length === 0,
+  });
   const directionInteraction = useRef({
     contextKey: directionContextKey,
     enabled: directionControlsEnabled,
@@ -1116,6 +1142,7 @@ export default function HomeScreen() {
       (current.preference.direction ?? "all") === direction
     )
       return;
+    cancelStoreReview();
     // Read the current preferences so a retained card callback cannot undo a
     // newer sort, group or currency choice. Both controls share this one filter.
     const preference = { ...current.preference, direction };
@@ -1604,7 +1631,12 @@ export default function HomeScreen() {
   if (loaded && !self) return <Redirect href="/onboarding" />;
 
   return (
-    <View ref={overlaySurfaceRef} style={styles.container} onLayout={updateFilterAnchor}>
+    <View
+      ref={overlaySurfaceRef}
+      style={styles.container}
+      onLayout={updateFilterAnchor}
+      onTouchStart={cancelStoreReview}
+    >
       <BlurTargetView
         ref={filterBlurTargetRef}
         collapsable={false}
@@ -1731,7 +1763,10 @@ export default function HomeScreen() {
 
             <View style={{ flex: 1 }} pointerEvents="none" />
 
-            <NotificationBell />
+            <NotificationBell
+              onOpen={cancelStoreReview}
+              onVisibilityChange={setNotificationInboxVisible}
+            />
             {/* Profile chip — top-RIGHT. Phase 7: opens the unified
             ProfileSettingsSheet (replaces the deprecated hamburger +
             ProfileMenuSheet). The icon is either the user's Google

@@ -113,12 +113,14 @@ function fixture({
     notices: any[] = [],
     queued: any[] = [],
     writes: any[] = [],
-    creditChecks: any[] = [];
+    creditChecks: any[] = [],
+    reviewTallies: any[] = [];
   let params = { personId: "customer", type: "debt" },
     account: string | null = "account",
     vault: string | null = "vault",
     install = "install",
     sessionVersion = 1;
+  let sessionJWT: string | null = "session";
   let active = true,
     focusStart: (() => void | (() => void)) | undefined,
     focusCleanup: (() => void) | undefined;
@@ -267,7 +269,7 @@ function fixture({
       "../../lib/auth": {
         SessionChangedError,
         captureCurrentSession: async () => {
-          const snapshot = { bindingVersion: sessionVersion, jwt: "session", accountId: account };
+          const snapshot = { bindingVersion: sessionVersion, jwt: sessionJWT, accountId: account };
           if (captureGate) await captureGate.promise;
           return snapshot;
         },
@@ -335,6 +337,14 @@ function fixture({
       },
       "../../lib/recent-entry": {
         noteSavedEntry: (personId: string, entryId: string) => savedNotes.push([personId, entryId]),
+      },
+      "../../lib/store-review": {
+        noteReviewableTally: (...args: any[]) => {
+          reviewTallies.push(args);
+          // Review eligibility/persistence never joins the financial save's
+          // promise. This remains pending to catch accidental awaiting.
+          return new Promise<void>(() => {});
+        },
       },
       "../../lib/tabs/db": {
         listOpenTabLinksForPerson: async () => {
@@ -511,6 +521,7 @@ function fixture({
     queued,
     writes,
     creditChecks,
+    reviewTallies,
     defaultCurrencyReads,
     personCurrencyReads,
     setPersonCurrency: (code: string | null) => {
@@ -558,6 +569,9 @@ function fixture({
     },
     setError: (next: Error) => {
       saveError = next;
+    },
+    setSignedIn: (signedIn: boolean) => {
+      sessionJWT = signedIn ? "session" : null;
     },
     fireKeyboardTimers: () => [...timers.values()].forEach((fn) => fn()),
     noteFrames: () => [...frames.values()],
@@ -722,6 +736,93 @@ const layoutEvent = (height: number, width = 390) => ({
 const savedNotes: [string, string][] = [];
 async function main() {
   let cases = 0;
+  for (const os of ["android", "ios"] as const)
+    for (const rtl of [false, true]) {
+      const f = fixture({ os, rtl });
+      await f.ready();
+      const gate = f.delayedSave();
+      const saving = f.button().props.onPress();
+      await settleUI();
+      assert.deepEqual(
+        f.reviewTallies,
+        [],
+        "An unfinished tally cannot create a review opportunity",
+      );
+      gate.resolve(normal);
+      assert.equal(
+        await Promise.race([
+          Promise.resolve(saving).then(() => "saved"),
+          new Promise((resolve) => setTimeout(() => resolve("waiting-on-review"), 100)),
+        ]),
+        "saved",
+        "The financial save never waits for review persistence or a native prompt",
+      );
+      await f.flush();
+      assert.deepEqual(f.reviewTallies, [
+        [{ installId: "install", accountId: "account", vaultId: "vault" }, "entry"],
+      ]);
+      assert.deepEqual(f.routes, ["back"], "The form closes before review UI can be considered");
+      assert.deepEqual(f.notices, [["entry.saved", "success"]]);
+      f.hooks.unmount();
+      cases++;
+    }
+  for (const result of [
+    { ...normal, admission_status: "pending" as const },
+    { ...normal, admission_status: "refused" as const },
+    { ...normal, credit_warning: true },
+    { ...normal, duplicate_hint: {} },
+  ]) {
+    const f = fixture();
+    await f.ready();
+    f.setResult(result);
+    await f.button().props.onPress();
+    await f.flush();
+    assert.deepEqual(
+      f.reviewTallies,
+      [],
+      "Admission, duplicate and credit-warning feedback takes priority over reviews",
+    );
+    assert.deepEqual(f.routes, ["back"]);
+    f.hooks.unmount();
+    cases++;
+  }
+  {
+    const f = fixture();
+    await f.ready();
+    f.setSignedIn(false);
+    await f.button().props.onPress();
+    await f.flush();
+    assert.equal(f.notices[0][0], "tab.savedSignIn");
+    assert.deepEqual(f.reviewTallies, [], "A tally waiting for sign-in is not a review moment");
+    assert.deepEqual(f.routes, ["back"]);
+    f.hooks.unmount();
+    const edit = editFixture("ios", false, "Existing note");
+    await edit.ready();
+    await edit.button().props.onPress();
+    await edit.flush();
+    assert.deepEqual(edit.reviewTallies, [], "Editing an old tally does not count as a new one");
+    assert.deepEqual(edit.routes, ["back"]);
+    edit.hooks.unmount();
+    cases++;
+  }
+  for (const transition of ["account", "vault", "install", "blur", "unmount"] as const) {
+    const f = fixture();
+    await f.ready();
+    const gate = f.delayedSave();
+    const saving = f.button().props.onPress();
+    await settleUI();
+    f.transitions[transition]();
+    gate.resolve(normal);
+    await saving;
+    await settleUI();
+    assert.deepEqual(
+      f.reviewTallies,
+      [],
+      `A completed save after ${transition} cannot ask for review`,
+    );
+    if (transition !== "unmount") f.hooks.unmount();
+    cases++;
+  }
   for (const os of ["android", "ios"] as const)
     for (const mode of ["review", "notify", "notify_one_way"] as const)
       for (const role of ["a", "b"] as const) {
@@ -3356,6 +3457,7 @@ async function main() {
     await f.flush();
     assert.ok(words(f.hooks.tree).includes(key));
     assert.equal(f.routes.length + f.notices.length + f.queued.length, 0);
+    assert.deepEqual(f.reviewTallies, [], "A failed save never creates a review opportunity");
     assert.equal(f.button().props.loading, false);
     f.hooks.unmount();
     cases++;
