@@ -60,6 +60,7 @@ function schedule() {
 }
 const jsx = (type: string, props: Record<string, any>) => ({ type, props });
 const mocks: Record<string, any> = {
+  "@expo/vector-icons": { Ionicons: "Ionicons" },
   "./SheetBackdrop": { SheetBackdrop: "SheetBackdrop" },
   "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
   react: {

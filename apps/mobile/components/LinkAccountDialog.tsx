@@ -1,4 +1,5 @@
 import { SheetBackdrop } from "./SheetBackdrop";
+import { Ionicons } from "@expo/vector-icons";
 import { useEffect, useRef, useState } from "react";
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -41,6 +42,11 @@ const recordingModeHint = {
   notify: "tab.recordingMode.notifyHint",
   review: "tab.recordingMode.reviewHint",
   notify_one_way: "tab.recordingMode.oneWayHint",
+} as const;
+const recordingModeIcon = {
+  notify: "notifications-outline",
+  review: "checkmark-done-outline",
+  notify_one_way: "create-outline",
 } as const;
 
 /** One surface from confirmation through creation/sharing, including retries.
@@ -364,9 +370,31 @@ export function LinkAccountDialog(props: {
                       }}
                       style={[styles.modeOption, recordingMode === mode && styles.selected]}
                     >
-                      <Text style={[styles.modeLabel, textDir(rtl)]}>
-                        {t(recordingModeLabel[mode])}
-                      </Text>
+                      <View style={[styles.modeHeading, rowDir(rtl)]}>
+                        <View
+                          style={styles.modeIcon}
+                          accessible={false}
+                          accessibilityElementsHidden
+                          importantForAccessibility="no-hide-descendants"
+                        >
+                          <Ionicons
+                            name={recordingModeIcon[mode]}
+                            size={20}
+                            color={recordingMode === mode ? colors.textEmphasis : colors.textSubtle}
+                          />
+                        </View>
+                        <Text style={[styles.modeLabel, textDir(rtl)]}>
+                          {t(recordingModeLabel[mode])}
+                        </Text>
+                        <Ionicons
+                          name={recordingMode === mode ? "radio-button-on" : "radio-button-off"}
+                          size={20}
+                          color={recordingMode === mode ? colors.actionPrimary : colors.textMuted}
+                          accessible={false}
+                          accessibilityElementsHidden
+                          importantForAccessibility="no-hide-descendants"
+                        />
+                      </View>
                       <Text style={[styles.hint, textDir(rtl)]}>{t(recordingModeHint[mode])}</Text>
                     </Pressable>
                   ))}
@@ -477,7 +505,16 @@ const styles = StyleSheet.create({
     padding: 12,
     gap: 4,
   },
-  modeLabel: { ...typography.body, color: colors.textEmphasis },
+  modeHeading: { alignItems: "center", gap: 10 },
+  modeIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: radius.sm,
+    backgroundColor: colors.bgSubtle,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  modeLabel: { ...typography.body, color: colors.textEmphasis, flex: 1 },
   optionText: { ...typography.body, color: colors.textEmphasis, textAlign: "center" },
   error: { ...typography.bodySm, color: colors.danger, marginTop: 16 },
   actions: { marginTop: 20, gap: 8 },
