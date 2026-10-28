@@ -2266,115 +2266,119 @@ export default function PersonDetailScreen() {
                         sharedAccountLinkStatus(link) === "waiting";
                       return (
                         <View key={code} style={styles.balanceOverview}>
-                          {!singleBalanceCurrency || hasBalanceStatus ? (
+                          {!singleBalanceCurrency ? (
                             <View
-                              testID={`customer-balance-${singleBalanceCurrency ? "status" : "header"}-${code}`}
-                              style={[
-                                styles.balanceHeader,
-                                singleBalanceCurrency && styles.balanceStatus,
-                              ]}
+                              testID={`customer-balance-header-${code}`}
+                              style={styles.balanceHeader}
                             >
-                              {!singleBalanceCurrency ? (
-                                <Text style={styles.balanceCurrency}>{getCurrencyLabel(code)}</Text>
-                              ) : null}
-                              <View
-                                style={[
-                                  styles.chipRow,
-                                  rowDir(isRTL),
-                                  { justifyContent: isRTL ? "flex-start" : "flex-end" },
-                                ]}
-                              >
-                                {person.tab_unsynced === 1 ? null : chipLabel && chipVariant ? (
-                                  <Chip label={chipLabel} variant={chipVariant} />
-                                ) : settledCount > 0 &&
-                                  chapterCoherent &&
-                                  !sharedReviewPending &&
-                                  unsettledOriginalCount === 0 ? (
-                                  // "SETTLED" only when the user actually drew the line and it
-                                  // covers everything.
-                                  <Chip label={t("person.balance.settled")} variant="neutral" />
-                                ) : displayedEntries.length > 0 ? (
-                                  // A tally that merely SUMS to zero (or whose chapter no longer
-                                  // adds up after a sync) is not a settled account — say so
-                                  // rather than leaving the chip slot blank while every other
-                                  // state labels itself. Hollow pill: true, but not an
-                                  // achievement. The settle-row invitation sits below.
-                                  // Contacts with no entries at all keep an empty slot — there
-                                  // is no tally yet to have a state.
-                                  <Chip label={t("person.balance.notSettled")} variant="outline" />
-                                ) : null}
-                                {sharedAccountLinkStatus(link) === "waiting" ? (
-                                  // Keep the invitation-waiting cue until the other side joins.
-                                  // Once linked, the name badge is enough; no duplicate chip.
-                                  <Pressable
-                                    onPress={
-                                      canAmend
-                                        ? () => {
-                                            setManagementCurrency(code);
-                                            setLinkedSheetVisible(true);
-                                          }
-                                        : undefined
-                                    }
-                                    disabled={!canAmend}
-                                    accessibilityRole={canAmend ? "button" : "text"}
-                                    style={({ pressed }) => [
-                                      styles.readOnlyChip,
-                                      pressed && { opacity: 0.5 },
-                                    ]}
-                                  >
-                                    <Ionicons
-                                      name="link-outline"
-                                      size={14}
-                                      color={colors.textSubtle}
-                                    />
-                                    <Text
-                                      style={styles.readOnlyChipText}
-                                      allowFontScaling={false}
-                                      numberOfLines={1}
-                                    >
-                                      {t("tab.chip.waiting")}
-                                    </Text>
-                                  </Pressable>
-                                ) : null}
-                              </View>
+                              <Text style={styles.balanceCurrency}>{getCurrencyLabel(code)}</Text>
                             </View>
                           ) : null}
                           <View style={styles.balanceSide}>
-                            <View
-                              testID={`customer-balance-amount-${code}`}
-                              style={singleBalanceCurrency ? styles.balanceAmountRow : undefined}
-                              accessible={singleBalanceCurrency}
-                              accessibilityLabel={
-                                singleBalanceCurrency
-                                  ? `${getCurrencyLabel(code)} ${person.tab_unsynced === 1 ? t("tab.notDownloaded") : formatAmount(abs)}`
-                                  : undefined
-                              }
-                            >
-                              <Text
-                                testID={`customer-balance-value-${code}`}
-                                style={[
-                                  styles.balance,
-                                  singleBalanceCurrency && styles.balanceWithCurrency,
-                                  {
-                                    color:
-                                      person.tab_unsynced === 1 ? colors.textMuted : balanceColor,
-                                  },
-                                ]}
-                                numberOfLines={1}
-                                adjustsFontSizeToFit
-                                minimumFontScale={0.1}
-                                maxFontSizeMultiplier={1.4}
+                            <View style={styles.balanceHeadline}>
+                              <View
+                                testID={`customer-balance-amount-${code}`}
+                                style={styles.balanceAmountRow}
+                                accessible={singleBalanceCurrency}
+                                accessibilityLabel={
+                                  singleBalanceCurrency
+                                    ? `${getCurrencyLabel(code)} ${person.tab_unsynced === 1 ? t("tab.notDownloaded") : formatAmount(abs)}`
+                                    : undefined
+                                }
                               >
-                                {person.tab_unsynced === 1 ? "…" : formatAmount(abs)}
-                              </Text>
-                              {singleBalanceCurrency ? (
                                 <Text
-                                  testID={`customer-balance-symbol-${code}`}
-                                  style={styles.balanceSymbol}
+                                  testID={`customer-balance-value-${code}`}
+                                  style={[
+                                    styles.balance,
+                                    singleBalanceCurrency && styles.balanceWithCurrency,
+                                    {
+                                      color:
+                                        person.tab_unsynced === 1 ? colors.textMuted : balanceColor,
+                                    },
+                                  ]}
+                                  numberOfLines={1}
+                                  adjustsFontSizeToFit
+                                  minimumFontScale={0.1}
                                   maxFontSizeMultiplier={1.4}
                                 >
-                                  {ltrIsolate(getCurrencySymbol(code))}
+                                  {person.tab_unsynced === 1 ? "…" : formatAmount(abs)}
                                 </Text>
+                                {singleBalanceCurrency ? (
+                                  <Text
+                                    testID={`customer-balance-symbol-${code}`}
+                                    style={styles.balanceSymbol}
+                                    maxFontSizeMultiplier={1.4}
+                                  >
+                                    {ltrIsolate(getCurrencySymbol(code))}
+                                  </Text>
+                                ) : null}
+                              </View>
+                              {hasBalanceStatus ? (
+                                <View
+                                  testID={`customer-balance-status-${code}`}
+                                  style={[
+                                    styles.chipRow,
+                                    styles.balanceStatus,
+                                    rowDir(isRTL),
+                                    { justifyContent: isRTL ? "flex-start" : "flex-end" },
+                                  ]}
+                                >
+                                  {person.tab_unsynced === 1 ? null : chipLabel && chipVariant ? (
+                                    <Chip label={chipLabel} variant={chipVariant} />
+                                  ) : settledCount > 0 &&
+                                    chapterCoherent &&
+                                    !sharedReviewPending &&
+                                    unsettledOriginalCount === 0 ? (
+                                    // "SETTLED" only when the user actually drew the line and it
+                                    // covers everything.
+                                    <Chip label={t("person.balance.settled")} variant="neutral" />
+                                  ) : displayedEntries.length > 0 ? (
+                                    // A tally that merely SUMS to zero (or whose chapter no longer
+                                    // adds up after a sync) is not a settled account — say so
+                                    // rather than leaving the chip slot blank while every other
+                                    // state labels itself. Hollow pill: true, but not an
+                                    // achievement. The settle-row invitation sits below.
+                                    // Contacts with no entries at all keep an empty slot — there
+                                    // is no tally yet to have a state.
+                                    <Chip
+                                      label={t("person.balance.notSettled")}
+                                      variant="outline"
+                                    />
+                                  ) : null}
+                                  {sharedAccountLinkStatus(link) === "waiting" ? (
+                                    // Keep the invitation-waiting cue until the other side joins.
+                                    // Once linked, the name badge is enough; no duplicate chip.
+                                    <Pressable
+                                      onPress={
+                                        canAmend
+                                          ? () => {
+                                              setManagementCurrency(code);
+                                              setLinkedSheetVisible(true);
+                                            }
+                                          : undefined
+                                      }
+                                      disabled={!canAmend}
+                                      accessibilityRole={canAmend ? "button" : "text"}
+                                      style={({ pressed }) => [
+                                        styles.readOnlyChip,
+                                        pressed && { opacity: 0.5 },
+                                      ]}
+                                    >
+                                      <Ionicons
+                                        name="link-outline"
+                                        size={14}
+                                        color={colors.textSubtle}
+                                      />
+                                      <Text
+                                        style={styles.readOnlyChipText}
+                                        allowFontScaling={false}
+                                        numberOfLines={1}
+                                      >
+                                        {t("tab.chip.waiting")}
+                                      </Text>
+                                    </Pressable>
+                                  ) : null}
+                                </View>
                               ) : null}
                             </View>
                             {/* A discovered shared account that has not been pulled yet
@@ -3256,8 +3260,16 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     backgroundColor: colors.bgMuted,
   },
-  balanceStatus: { backgroundColor: colors.bgDefault, paddingBottom: 0 },
+  balanceHeadline: {
+    direction: "ltr",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    minWidth: 0,
+  },
+  balanceStatus: { backgroundColor: colors.bgDefault, maxWidth: "48%", flexShrink: 0 },
   balanceAmountRow: {
+    flex: 1,
     direction: "ltr",
     flexDirection: "row",
     alignItems: "baseline",
@@ -3280,9 +3292,8 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
   balanceSide: { minWidth: 0, paddingHorizontal: 14, paddingVertical: 10 },
-  // Keep the currency visible while long status labels wrap within their side.
+  // Statuses share the amount row; extra invitation labels wrap within their side.
   chipRow: {
-    flex: 1,
     minWidth: 0,
     flexDirection: "row",
     alignItems: "center",
