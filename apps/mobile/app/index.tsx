@@ -20,6 +20,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { BottomSheet } from "../components/BottomSheet";
 import { CustomerListOptions } from "../components/CustomerListSheet";
 import { ConfirmDialog } from "../components/ConfirmDialog";
@@ -1056,6 +1057,7 @@ export default function HomeScreen() {
     ).catch(() => {
       if (isCurrentHome()) toast.push(t("entry.saveFailed"), "error");
     });
+    return preference;
   };
   const homeInteraction = useRef({
     people: homePeopleById,
@@ -1123,15 +1125,17 @@ export default function HomeScreen() {
     contextKey: directionContextKey,
     enabled: directionControlsEnabled,
     preference: listPreference,
+    currencies: filterCurrencies,
     changePreference: changeListPreference,
   });
   directionInteraction.current = {
     contextKey: directionContextKey,
     enabled: directionControlsEnabled,
     preference: listPreference,
+    currencies: filterCurrencies,
     changePreference: changeListPreference,
   };
-  const changeBalanceDirection = (direction: CustomerBalanceFilter) => {
+  const changeBalanceDirection = (direction: CustomerBalanceFilter, currency?: string) => {
     const current = directionInteraction.current;
     if (
       !isCurrentHome() ||
@@ -1139,15 +1143,35 @@ export default function HomeScreen() {
       !current.enabled ||
       selectionBusyRef.current ||
       filtersExpandedRef.current ||
-      (current.preference.direction ?? "all") === direction
+      (currency !== undefined && !current.currencies.includes(currency))
+    )
+      return;
+    const selected = selectedCustomerCurrencyCodes(current.preference.currency);
+    const currencyScoped = currency !== undefined && current.currencies.length > 1;
+    const sameCard =
+      currency !== undefined &&
+      (current.preference.direction ?? "all") === direction &&
+      (!currencyScoped || (selected.length === 1 && selected[0] === currency));
+    const nextDirection = sameCard ? "all" : direction;
+    const nextCurrency = currencyScoped && !sameCard ? currency : undefined;
+    if (
+      (current.preference.direction ?? "all") === nextDirection &&
+      selected.length === (nextCurrency ? 1 : 0) &&
+      (!nextCurrency || selected[0] === nextCurrency)
     )
       return;
     cancelStoreReview();
-    // Read the current preferences so a retained card callback cannot undo a
-    // newer sort, group or currency choice. Both controls share this one filter.
-    const preference = { ...current.preference, direction };
-    current.preference = preference;
-    current.changePreference(preference);
+    // Card taps select one denomination; list swipes select the side across
+    // currencies. Keep the latest query, group and compatible sort choices.
+    const { currency: _previousCurrency, ...rest } = current.preference;
+    const preference = {
+      ...rest,
+      direction: nextDirection,
+      ...(nextCurrency ? { currency: nextCurrency } : {}),
+    };
+    const applied = current.changePreference(preference);
+    if (!applied) return;
+    current.preference = applied;
     if (homeInteraction.current.searchOpen) dismissKeyboard();
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Soft).catch(() => undefined);
   };
@@ -1910,7 +1934,13 @@ export default function HomeScreen() {
                   active={currentPeopleScope && currentVaultScope}
                   direction={balanceFilter}
                   directionSwipeEnabled={directionControlsEnabled && !keyboardLayoutShown}
-                  directionContextKey={directionContextKey}
+                  directionContextKey={JSON.stringify([
+                    directionContextKey,
+                    customerQuery,
+                    effectiveGroup,
+                    filterCurrencies,
+                  ])}
+                  directionCurrencyKey={JSON.stringify(selectedFilterCurrencies)}
                   onDirectionChange={changeSwipedDirection}
                   people={homePeople}
                   allPeople={visibleAllPeople}
@@ -1921,6 +1951,7 @@ export default function HomeScreen() {
                       currency={selectedCurrency}
                       searchOpen={keyboardLayoutShown}
                       direction={balanceFilter}
+                      currencyFilter={currencyFilter}
                       onDirectionChange={changeBalanceDirection}
                       interactionEnabled={directionControlsEnabled}
                       active={
@@ -2544,10 +2575,15 @@ function HomePage(
       direction: CustomerBalanceFilter;
       directionSwipeEnabled: boolean;
       directionContextKey: string;
+      directionCurrencyKey: string;
       onDirectionChange: (direction: CustomerBalanceFilter) => void;
     },
 ) {
   const isRTL = useIsRTL();
+  const nativeScrollGesture = useMemo(
+    () => Gesture.Native().shouldActivateOnStart(false).disallowInterruption(false),
+    [],
+  );
   const [selectionSize, setSelectionSize] = useState({ scope: props.scrollScope, height: 0 });
   const selectionLayout = useRef({
     scope: props.scrollScope,
@@ -2603,65 +2639,69 @@ function HomePage(
           {props.selectionControls}
         </View>
       ) : null}
-      <ScrollView
-        key={props.scrollScope}
-        ref={props.scrollRef}
-        style={styles.body}
-        scrollEnabled={props.active}
-        bounces
-        alwaysBounceVertical
-        overScrollMode="always"
-        stickyHeaderIndices={[1]}
-        onScroll={(event) => {
-          if (props.active) props.onScrollOffset(Math.max(0, event.nativeEvent.contentOffset.y));
-        }}
-        scrollEventThrottle={64}
-        keyboardShouldPersistTaps="always"
-        keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
-        contentContainerStyle={{
-          paddingBottom: props.paddingBottom,
-          flexGrow: 1,
-        }}
-      >
-        <View
-          testID="home-balance-section"
-          style={[styles.topSection, props.selecting && styles.hiddenBalanceSection]}
-          pointerEvents={props.selecting ? "none" : "auto"}
-          accessibilityElementsHidden={Boolean(props.selecting)}
-          importantForAccessibility={props.selecting ? "no-hide-descendants" : "auto"}
+      <GestureDetector gesture={nativeScrollGesture}>
+        <ScrollView
+          key={props.scrollScope}
+          ref={props.scrollRef}
+          style={styles.body}
+          scrollEnabled={props.active}
+          bounces
+          alwaysBounceVertical
+          overScrollMode="always"
+          stickyHeaderIndices={[1]}
+          onScroll={(event) => {
+            if (props.active) props.onScrollOffset(Math.max(0, event.nativeEvent.contentOffset.y));
+          }}
+          scrollEventThrottle={64}
+          keyboardShouldPersistTaps="always"
+          keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+          contentContainerStyle={{
+            paddingBottom: props.paddingBottom,
+            flexGrow: 1,
+          }}
         >
-          {props.summary}
-        </View>
-        {/* Only the divider pins beneath navigation after the cards scroll away. */}
-        <View
-          testID="home-nav-divider"
-          style={[styles.navDivider, props.selecting && styles.hiddenBalanceSection]}
-          pointerEvents="none"
-          accessible={false}
-        />
-        <HomeBalanceFilterSwipe
-          testID="home-customer-content"
-          enabled={props.active && props.directionSwipeEnabled}
-          contextKey={props.directionContextKey}
-          direction={props.direction}
-          onDirectionChange={props.onDirectionChange}
-          style={[
-            styles.customerContent,
-            { paddingTop: props.selecting ? selectionHeight + 12 : 12 },
-          ]}
-        >
-          {props.controls}
-          {props.people.length === 0 ? (
-            <EmptyState
-              title={t(props.filtered ? "customers.noResults" : "home.empty.title")}
-              subtitle={props.filtered ? undefined : t("home.empty.subtitle")}
-              isRTL={isRTL}
-            />
-          ) : (
-            <CustomerRows {...props} showDirection />
-          )}
-        </HomeBalanceFilterSwipe>
-      </ScrollView>
+          <View
+            testID="home-balance-section"
+            style={[styles.topSection, props.selecting && styles.hiddenBalanceSection]}
+            pointerEvents={props.selecting ? "none" : "auto"}
+            accessibilityElementsHidden={Boolean(props.selecting)}
+            importantForAccessibility={props.selecting ? "no-hide-descendants" : "auto"}
+          >
+            {props.summary}
+          </View>
+          {/* Only the divider pins beneath navigation after the cards scroll away. */}
+          <View
+            testID="home-nav-divider"
+            style={[styles.navDivider, props.selecting && styles.hiddenBalanceSection]}
+            pointerEvents="none"
+            accessible={false}
+          />
+          <HomeBalanceFilterSwipe
+            testID="home-customer-content"
+            enabled={props.active && props.directionSwipeEnabled}
+            contextKey={props.directionContextKey}
+            currencyKey={props.directionCurrencyKey}
+            direction={props.direction}
+            nativeGesture={nativeScrollGesture}
+            onDirectionChange={props.onDirectionChange}
+            style={[
+              styles.customerContent,
+              { paddingTop: props.selecting ? selectionHeight + 12 : 12 },
+            ]}
+          >
+            {props.controls}
+            {props.people.length === 0 ? (
+              <EmptyState
+                title={t(props.filtered ? "customers.noResults" : "home.empty.title")}
+                subtitle={props.filtered ? undefined : t("home.empty.subtitle")}
+                isRTL={isRTL}
+              />
+            ) : (
+              <CustomerRows {...props} showDirection />
+            )}
+          </HomeBalanceFilterSwipe>
+        </ScrollView>
+      </GestureDetector>
     </View>
   );
 }

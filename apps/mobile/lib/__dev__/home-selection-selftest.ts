@@ -222,6 +222,19 @@ const mocks: Record<string, any> = {
   react,
   "react/jsx-runtime": { jsx: homeJsx, jsxs: homeJsx, Fragment: "Fragment" },
   "react-native": native,
+  "react-native-gesture-handler": {
+    GestureDetector: "GestureDetector",
+    Gesture: {
+      Native: () => {
+        const gesture = {
+          kind: "native",
+          shouldActivateOnStart: (_value: boolean) => gesture,
+          disallowInterruption: (_value: boolean) => gesture,
+        };
+        return gesture;
+      },
+    },
+  },
   "expo-router": {
     Redirect: "Redirect",
     useRouter: () => router,
@@ -661,7 +674,7 @@ const expectPage = (active = true) => {
   assert.equal(
     nodes(expand(renderedPage)).some((node) => node.type === "AnimatedView"),
     false,
-    "The customer list has no page transition",
+    "The single customer list has no duplicate page-level animation wrapper",
   );
 };
 const startFromContactMenu = () => {

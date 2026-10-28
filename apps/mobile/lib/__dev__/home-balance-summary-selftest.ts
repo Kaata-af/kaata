@@ -3,7 +3,11 @@ import { colors } from "../colors";
 import { formatMoneyAmount, fromMinorUnits } from "../money";
 import { currencyBalances, personCurrencyRows } from "../multi-currency-view";
 import type { PersonWithBalance } from "../types";
-import type { CustomerBalanceFilter } from "../customer-list";
+import {
+  selectedCustomerCurrencyCodes,
+  type CustomerBalanceFilter,
+  type CustomerCurrencyFilter,
+} from "../customer-list";
 import {
   compileUI,
   deferred,
@@ -68,7 +72,8 @@ type SummaryProps = {
   searchOpen?: boolean;
   active?: boolean;
   direction?: CustomerBalanceFilter;
-  onDirectionChange?: (direction: CustomerBalanceFilter) => void;
+  currencyFilter?: CustomerCurrencyFilter;
+  onDirectionChange?: (side: "collect" | "pay", currency: string) => void;
   interactionEnabled?: boolean;
 };
 function fixture(
@@ -77,12 +82,29 @@ function fixture(
   fontScale = 1,
   height = 844,
   platform = "ios",
+  initialProps: Partial<SummaryProps> = {},
 ) {
   language.setLocale(locale);
   const screenHeight = height;
   const hooks = uiHooks();
+  let activeHooks = hooks;
+  let animationCurrency: string | undefined;
+  const cardHooks = new Map<string, ReturnType<typeof uiHooks>>();
+  let renderedCurrencies = new Set<string>();
+  const react = Object.fromEntries(
+    Object.keys(hooks.react).map((name) => [
+      name,
+      (...args: any[]) => (activeHooks.react as any)[name](...args),
+    ]),
+  );
+  const unmount = hooks.unmount;
+  hooks.unmount = () => {
+    for (const child of cardHooks.values()) child.unmount();
+    cardHooks.clear();
+    unmount();
+  };
   let focused = true;
-  let props: SummaryProps = { people: [] };
+  let props: SummaryProps = { people: [], ...initialProps };
   const readerQuery = deferred<boolean>();
   const motionQuery = deferred<boolean>();
   const accessibility = new Map<string, Set<(value: boolean) => void>>();
@@ -90,7 +112,7 @@ function fixture(
   const calls: { x: number; animated?: boolean }[] = [];
   const timers = new Map<number, { ms: number; run: () => void }>();
   const timerHistory: { ms: number; run: () => void }[] = [];
-  const animations: { value: number; config: { duration: number } }[] = [];
+  const animations: { value: number; config: { duration: number }; currency?: string }[] = [];
   let nextTimer = 0;
   const subscribe = <T>(
     map: Map<string, Set<(value: T) => void>>,
@@ -103,6 +125,22 @@ function fixture(
     return { remove: () => listeners.delete(callback) };
   };
   const summaryJsx: typeof jsx = (type, props) => {
+    if (typeof type === "function") {
+      const currency = props.row.currency as string;
+      renderedCurrencies.add(currency);
+      let child = cardHooks.get(currency);
+      if (!child) cardHooks.set(currency, (child = uiHooks()));
+      const previousHooks = activeHooks;
+      const previousCurrency = animationCurrency;
+      activeHooks = child;
+      animationCurrency = currency;
+      try {
+        return child.render(() => type(props));
+      } finally {
+        activeHooks = previousHooks;
+        animationCurrency = previousCurrency;
+      }
+    }
     if (type === "ScrollView" && props.ref && !props.ref.current)
       props.ref.current = {
         scrollTo: (options: { x: number; animated?: boolean }) => calls.push(options),
@@ -112,7 +150,7 @@ function fixture(
   const module = compileUI(
     "../../components/HomeBalanceSummary",
     {
-      react: hooks.react,
+      react,
       "react/jsx-runtime": { jsx: summaryJsx, jsxs: summaryJsx },
       "expo-router": { useIsFocused: () => focused },
       "react-native": {
@@ -139,19 +177,20 @@ function fixture(
       "react-native-reanimated": {
         __esModule: true,
         default: { createAnimatedComponent: () => "AnimatedPressable" },
-        useSharedValue: (value: number) => hooks.react.useRef({ value }).current,
+        useSharedValue: (value: number) => activeHooks.react.useRef({ value }).current,
         useAnimatedStyle: (updater: () => { width: number }) => ({
           get width() {
             return updater().width;
           },
         }),
         withTiming: (value: number, config: { duration: number }) => {
-          animations.push({ value, config });
+          animations.push({ value, config, currency: animationCurrency });
           return value;
         },
       },
       "@expo/vector-icons": { Ionicons: "Icon" },
       "../lib/colors": { colors },
+      "../lib/customer-list": { selectedCustomerCurrencyCodes },
       "../lib/currency": {
         getCurrentCurrencyCode: () => "AFN",
         getCurrencyLabel: currencyLabel,
@@ -179,7 +218,14 @@ function fixture(
   ) as typeof import("../../components/HomeBalanceSummary");
   const render = (next: Partial<SummaryProps> = {}) => {
     props = { ...props, ...next };
-    return hooks.render(() => module.HomeBalanceSummary(props));
+    renderedCurrencies = new Set();
+    const tree = hooks.render(() => module.HomeBalanceSummary(props));
+    for (const [currency, child] of cardHooks) {
+      if (renderedCurrencies.has(currency)) continue;
+      child.unmount();
+      cardHooks.delete(currency);
+    }
+    return tree;
   };
   const flush = async () => {
     await settleUI();
@@ -260,10 +306,10 @@ async function main() {
   for (const locale of ["en", "fa", "ps"] as const)
     for (const platform of ["ios", "android"]) {
       const current = fixture(locale, 320, 1.8, 568, platform);
-      const changes: CustomerBalanceFilter[] = [];
+      const changes: ["collect" | "pay", string][] = [];
       current.render({
         balances,
-        onDirectionChange: (direction) => changes.push(direction),
+        onDirectionChange: (direction, currency) => changes.push([direction, currency]),
       });
       await current.ready();
       current.measure(288);
@@ -282,7 +328,7 @@ async function main() {
       );
       cells()[0].props.onPress();
       current.render();
-      assert.deepEqual(changes, ["collect"]);
+      assert.deepEqual(changes, [["collect", "AFN"]]);
       assert.equal(current.timers.size, 0, "Tapping a balance permanently stops currency autoplay");
       assert.ok(
         text(cells()[1]).includes("100"),
@@ -318,13 +364,17 @@ async function main() {
         "Amount refreshes and the keyboard do not restart expansion",
       );
       expanded.props.onPress();
-      assert.equal(
+      assert.deepEqual(
         changes.at(-1),
-        "all",
-        "Tapping the selected side clears only the direction filter",
+        ["collect", "AFN"],
+        "Selected-side taps report their currency for the parent to toggle the full filter",
       );
       compact.props.onPress();
-      assert.equal(changes.at(-1), "pay", "The compact opposite button switches direction");
+      assert.deepEqual(
+        changes.at(-1),
+        ["pay", "AFN"],
+        "The compact opposite button reports its direction and currency",
+      );
       current.render({ direction: "pay" });
       assert.ok(style(cells()[1]).width > style(cells()[0]).width);
       assert.equal(cells()[1].props.accessibilityState.selected, true);
@@ -381,6 +431,150 @@ async function main() {
       );
       assert.equal(current.hooks.lateWrites, 0);
     }
+  for (const platform of ["ios", "android"]) {
+    const current = fixture("fa", 320, 1.8, 568, platform);
+    const scopedBalances = [
+      balances[0],
+      balances[1],
+      { currency: "EUR", collect: 7, pay: 3, pending: false },
+    ];
+    const changes: ["collect" | "pay", string][] = [];
+    current.render({
+      balances: scopedBalances,
+      onDirectionChange: (side, currency) => changes.push([side, currency]),
+    });
+    await current.ready();
+    current.measure(288);
+    const cells = (currency: string) =>
+      balanceCells(byId(current.hooks.tree, `home-balance-${currency}`));
+    const widths = (currency: string) => cells(currency).map((cell) => style(cell).width);
+    const halves = [143, 143];
+    const assertEqualPair = (currency: string) => {
+      assert.deepEqual(widths(currency), halves, `${currency} retains its equal-width pair`);
+      assert.ok(cells(currency).every((cell) => !cell.props.accessibilityState.selected));
+    };
+    current.advance();
+    assert.deepEqual(changes, [], "Automatic currency movement never filters customers");
+    for (const currency of ["AFN", "USD", "EUR"]) assertEqualPair(currency);
+    current.render({ direction: "collect", currencyFilter: " usd " });
+    assert.deepEqual(widths("USD"), [194, 92]);
+    assertEqualPair("AFN");
+    assertEqualPair("EUR");
+    assert.deepEqual(
+      current.animations.map((animation) => animation.currency),
+      ["USD"],
+      "Only the selected currency owns an expansion animation",
+    );
+    assert.ok(text(cells("AFN")[0]).includes("100") && text(cells("AFN")[1]).includes("100"));
+    assert.equal(cells("USD")[0].props.accessibilityState.selected, true);
+
+    current.scroll().props.onScrollBeginDrag();
+    current.onScroll(pageStep(current.scroll()));
+    navigation(current.hooks.tree).props.onAccessibilityAction({
+      nativeEvent: { actionName: "increment" },
+    });
+    current.render();
+    assert.deepEqual(
+      changes,
+      [],
+      "Currency swipes and assistive navigation never filter customers",
+    );
+    assert.deepEqual(widths("USD"), [194, 92]);
+    assertEqualPair("EUR");
+    cells("AFN")[1].props.onPress();
+    cells("USD")[0].props.onPress();
+    assert.deepEqual(
+      changes,
+      [
+        ["pay", "AFN"],
+        ["collect", "USD"],
+      ],
+      "Every card reports its own currency, including a previously selected side",
+    );
+    assertEqualPair("AFN");
+
+    current.render({ direction: "pay", currencyFilter: ["AFN"] });
+    assert.deepEqual(widths("AFN"), [92, 194]);
+    assertEqualPair("USD");
+    assertEqualPair("EUR");
+    assert.ok(
+      current.animations.every((animation) => animation.currency !== "EUR"),
+      "Unrelated currency cards never restart an animation",
+    );
+    current.render({ currencyFilter: [" usd ", "AFN", "USD"] });
+    assert.deepEqual(widths("AFN"), [92, 194]);
+    assert.deepEqual(widths("USD"), [92, 194]);
+    assertEqualPair("EUR");
+    current.render({ direction: "collect", currencyFilter: undefined });
+    for (const currency of ["AFN", "USD", "EUR"])
+      assert.deepEqual(
+        widths(currency),
+        [194, 92],
+        "A global list swipe expands the selected direction for every currency",
+      );
+    current.render({ direction: "all", currencyFilter: "USD" });
+    for (const currency of ["AFN", "USD", "EUR"]) assertEqualPair(currency);
+
+    const removedPress = cells("EUR")[0].props.onPress;
+    const beforeRemoval = changes.length;
+    current.render({ balances });
+    removedPress();
+    assert.equal(
+      changes.length,
+      beforeRemoval,
+      "Removed currency cards cannot apply stale filters",
+    );
+    const retainedPress = cells("USD")[1].props.onPress;
+    current.emitApp("change", "background");
+    retainedPress();
+    assert.equal(changes.length, beforeRemoval, "Background cards cannot apply retained presses");
+    current.emitApp("change", "active");
+    if (platform === "android") {
+      current.emitApp("blur");
+      retainedPress();
+      assert.equal(changes.length, beforeRemoval, "Android window blur disables retained presses");
+      current.emitApp("focus");
+    }
+    const replacement: ["collect" | "pay", string][] = [];
+    current.render({ onDirectionChange: (side, currency) => replacement.push([side, currency]) });
+    retainedPress();
+    assert.deepEqual(replacement, [["pay", "USD"]], "Retained presses use the latest callback");
+    current.hooks.unmount();
+    assert.equal(current.hooks.lateWrites, 0);
+  }
+  {
+    const current = fixture("en", 390, 1, 844, "ios", {
+      balances,
+      direction: "collect",
+      currencyFilter: "USD",
+    });
+    await current.ready();
+    current.measure();
+    assert.equal(current.timers.size, 1);
+    const timer = [...current.timers.values()][0];
+    current.render({ currencyFilter: [" usd ", "USD"] });
+    assert.equal(
+      current.timers.size,
+      1,
+      "Equivalent normalized currency choices preserve autoplay",
+    );
+    current.render({ currencyFilter: "AFN" });
+    assert.equal(
+      current.timers.size,
+      0,
+      "Changing only the selected currency also permanently stops autoplay",
+    );
+    const callCount = current.calls.length;
+    timer.run();
+    assert.equal(
+      current.calls.length,
+      callCount,
+      "A stale timer cannot override a currency filter",
+    );
+    current.render({ currencyFilter: undefined });
+    assert.equal(current.timers.size, 0);
+    current.hooks.unmount();
+  }
   for (const locale of ["en", "fa", "ps"] as const) {
     for (const searchOpen of [false, true]) {
       const current = fixture(locale);
@@ -1101,7 +1295,7 @@ async function main() {
     );
   }
   console.log(
-    "PASS home balances: controlled collect/pay toggles and animated expansion, compact opposite buttons, accessible currency navigation, all currency pairs reachable, exact independent amounts, EN/FA/PS LTR, stable keyboard layout, adjacent/reversing auto movement, permanent manual stop, keyboard/route/AppState/accessibility pauses and stale-work cleanup; customer-row currencies preserved",
+    "PASS home balances: currency-specific collect/pay tap payloads and independent animated expansion, global direction expansion, compact opposite buttons, currency navigation without filtering, exact independent amounts, EN/FA/PS LTR, stable keyboard layout, adjacent/reversing auto movement, permanent manual stop including currency-filter changes, keyboard/route/AppState/accessibility pauses and stale-work cleanup; customer-row currencies preserved",
   );
 }
 void main();

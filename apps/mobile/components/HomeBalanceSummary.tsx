@@ -16,7 +16,11 @@ import {
 } from "react-native";
 import Animated, { useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
 import { colors } from "../lib/colors";
-import type { CustomerBalanceFilter } from "../lib/customer-list";
+import {
+  selectedCustomerCurrencyCodes,
+  type CustomerBalanceFilter,
+  type CustomerCurrencyFilter,
+} from "../lib/customer-list";
 import { getCurrentCurrencyCode, getCurrencyLabel, getCurrencySymbol } from "../lib/currency";
 import { textDir, useIsRTL } from "../lib/direction";
 import { fonts } from "../lib/fonts";
@@ -72,6 +76,7 @@ export function HomeBalanceSummary({
   searchOpen = false,
   active = true,
   direction: balanceDirection = "all",
+  currencyFilter,
   onDirectionChange,
   interactionEnabled = true,
 }: {
@@ -81,7 +86,8 @@ export function HomeBalanceSummary({
   searchOpen?: boolean;
   active?: boolean;
   direction?: CustomerBalanceFilter;
-  onDirectionChange?: (direction: CustomerBalanceFilter) => void;
+  currencyFilter?: CustomerCurrencyFilter;
+  onDirectionChange?: (side: "collect" | "pay", currency: string) => void;
   interactionEnabled?: boolean;
 }) {
   const isRTL = useIsRTL();
@@ -101,60 +107,30 @@ export function HomeBalanceSummary({
   const cardHeight =
     (small ? (fontScale > 1.3 ? 114 : 104) : fontScale > 1.3 ? 144 : 132) -
     (multiple ? 0 : small ? 28 : 32);
-  const innerWidth = Math.max(0, pageWidth - 2);
-  const compactWidth = Math.min(innerWidth / 2, fontScale > 1.3 ? 92 : 80);
-  const targetCollectWidth =
-    balanceDirection === "collect"
-      ? innerWidth - compactWidth
-      : balanceDirection === "pay"
-        ? compactWidth
-        : innerWidth / 2;
-  const amountWidth = Math.max(
-    1,
-    (balanceDirection === "all" ? innerWidth / 2 : innerWidth - compactWidth) -
-      (small ? 16 : 24) -
-      1,
-  );
-  const collectWidth = useSharedValue(targetCollectWidth);
-  const collectStyle = useAnimatedStyle(() => ({
-    width: Math.max(0, Math.min(innerWidth, collectWidth.value)),
-  }));
-  const payStyle = useAnimatedStyle(() => ({
-    width: Math.max(0, innerWidth - collectWidth.value),
-  }));
-  const previousPageWidth = useRef(pageWidth);
+  const selectedCurrencies = selectedCustomerCurrencyCodes(currencyFilter);
+  const currencyFilterKey = JSON.stringify(selectedCurrencies);
   const [position, setPosition] = useState(0);
   const selectedCode = useRef(rows[0].currency);
   const offset = useRef(0);
   const direction = useRef(1);
   const stopped = useRef(false);
   const [manuallyStopped, setManuallyStopped] = useState(false);
-  const previousBalanceDirection = useRef(balanceDirection);
+  const previousFilter = useRef({ direction: balanceDirection, currency: currencyFilterKey });
   useEffect(() => {
-    if (previousBalanceDirection.current === balanceDirection) return;
-    previousBalanceDirection.current = balanceDirection;
+    const previous = previousFilter.current;
+    if (previous.direction === balanceDirection && previous.currency === currencyFilterKey) return;
+    previousFilter.current = { direction: balanceDirection, currency: currencyFilterKey };
     // List swipes and the filters popup control this same pair. They count as
     // manual interaction too, so automatic currency motion stays stopped.
     stopped.current = true;
     setManuallyStopped(true);
-  }, [balanceDirection]);
+  }, [balanceDirection, currencyFilterKey]);
   const [appState, setAppState] = useState(AppState.currentState);
   const [windowFocused, setWindowFocused] = useState(true);
   // Wait for both queries before starting motion. An initial async response
   // must not overwrite a preference changed while that query was in flight.
   const [screenReader, setScreenReader] = useState(true);
   const [reducedMotion, setReducedMotion] = useState(true);
-  useEffect(() => {
-    // Resize immediately when rotating; only the user's filter change stretches
-    // the pair. Amount refreshes and keyboard events never restart this motion.
-    const resized = previousPageWidth.current !== pageWidth;
-    previousPageWidth.current = pageWidth;
-    if (!resized && collectWidth.value === targetCollectWidth) return;
-    collectWidth.value =
-      reducedMotion || resized
-        ? targetCollectWidth
-        : withTiming(targetCollectWidth, { duration: 200 });
-  }, [targetCollectWidth, pageWidth, reducedMotion, collectWidth]);
   useEffect(() => {
     let alive = true;
     let readerChanged = false;
@@ -216,10 +192,14 @@ export function HomeBalanceSummary({
   const latest = useRef({ autoAllowed, codes, step });
   latest.current = { autoAllowed, codes, step };
   const mounted = useRef(true);
-  const latestInteraction = useRef({ balanceDirection, onDirectionChange, enabled: false });
-  latestInteraction.current = {
-    balanceDirection,
+  const latestInteraction = useRef({
     onDirectionChange,
+    currencies: rows.map((row) => row.currency),
+    enabled: false,
+  });
+  latestInteraction.current = {
+    onDirectionChange,
+    currencies: rows.map((row) => row.currency),
     enabled: interactionEnabled && active && focused && appState === "active" && windowFocused,
   };
   const timerVersion = useRef(0);
@@ -235,11 +215,17 @@ export function HomeBalanceSummary({
     stopped.current = true;
     setManuallyStopped(true);
   };
-  const toggleDirection = (side: "collect" | "pay") => {
+  const toggleDirection = (side: "collect" | "pay", rowCurrency: string) => {
     const latest = latestInteraction.current;
-    if (!mounted.current || !latest.enabled || !latest.onDirectionChange) return;
+    if (
+      !mounted.current ||
+      !latest.enabled ||
+      !latest.onDirectionChange ||
+      !latest.currencies.includes(rowCurrency)
+    )
+      return;
     stopAutomaticScroll();
-    latest.onDirectionChange(latest.balanceDirection === side ? "all" : side);
+    latest.onDirectionChange(side, rowCurrency);
   };
   const scrollToPosition = (index: number, animated: boolean) => {
     if (!mounted.current || latest.current.codes !== codes || latest.current.step !== step) return;
@@ -338,152 +324,25 @@ export function HomeBalanceSummary({
         keyboardShouldPersistTaps="always"
       >
         {rows.map((row) => (
-          <View
+          <CurrencyBalanceCard
             key={row.currency}
-            testID={`home-balance-${row.currency}`}
-            style={[styles.page, { width: pageWidth, height: cardHeight }]}
-            accessibilityElementsHidden={row.currency !== current.currency}
-            importantForAccessibility={
-              row.currency === current.currency ? "auto" : "no-hide-descendants"
+            row={row}
+            multiple={multiple}
+            pageWidth={pageWidth}
+            cardHeight={cardHeight}
+            small={small}
+            fontScale={fontScale}
+            isRTL={isRTL}
+            reducedMotion={reducedMotion}
+            direction={
+              selectedCurrencies.length === 0 || selectedCurrencies.includes(row.currency)
+                ? balanceDirection
+                : "all"
             }
-          >
-            {multiple ? (
-              <View style={[styles.boardHeader, small && styles.compactHeader]}>
-                <Text
-                  testID={`home-balance-currency-${row.currency}`}
-                  accessible={false}
-                  style={styles.currency}
-                  maxFontSizeMultiplier={1.2}
-                  numberOfLines={1}
-                  adjustsFontSizeToFit
-                >
-                  {getCurrencyLabel(row.currency)}
-                </Text>
-                <Text
-                  accessible={false}
-                  style={[styles.boardCaption, textDir(isRTL)]}
-                  maxFontSizeMultiplier={1.2}
-                  numberOfLines={1}
-                  adjustsFontSizeToFit
-                >
-                  {t("home.total.title")}
-                </Text>
-              </View>
-            ) : null}
-            <View style={styles.quoteRow}>
-              {(["collect", "pay"] as const).map((side) => {
-                const collect = side === "collect";
-                const selected = balanceDirection === side;
-                const compact = balanceDirection !== "all" && !selected;
-                const title = t(collect ? "home.total.label.collect" : "home.total.label.pay");
-                const tone = collect ? board.collect : board.pay;
-                const amount = row.pending ? "…" : formatAmount(row[side]);
-                const symbol = multiple ? null : getCurrencySymbol(row.currency);
-                const symbolSize = small ? 12 : 14;
-                const symbolWidth = symbol
-                  ? symbol.length * symbolSize * 0.8 * Math.max(1, Math.min(fontScale, 1.2)) + 6
-                  : 0;
-                const amountSize = amount.length > 10 ? (small ? 16 : 18) : small ? 20 : 30;
-                // Keep every digit even at the largest supported money values.
-                // Mono glyphs use about 0.6em; leave headroom for scaled fonts.
-                const minimumScale = Math.min(
-                  0.5,
-                  Math.max(
-                    0.01,
-                    Math.max(1, amountWidth - symbolWidth) /
-                      (amount.length * amountSize * 0.65 * Math.max(1, Math.min(fontScale, 1.2))),
-                  ),
-                );
-                return (
-                  <AnimatedPressable
-                    key={side}
-                    testID={`home-balance-${side}-${row.currency}`}
-                    accessible
-                    accessibilityRole="button"
-                    accessibilityLabel={`${getCurrencyLabel(row.currency)}, ${title}: ${amount}`}
-                    accessibilityHint={selected ? t("customers.balanceFilter.clear") : undefined}
-                    accessibilityState={{
-                      selected,
-                      disabled: !latestInteraction.current.enabled || !onDirectionChange,
-                    }}
-                    disabled={!latestInteraction.current.enabled || !onDirectionChange}
-                    onPress={() => toggleDirection(side)}
-                    style={[
-                      styles.card,
-                      !collect && styles.payCard,
-                      small && styles.compactCard,
-                      compact && styles.collapsedCard,
-                      selected && {
-                        backgroundColor: collect ? colors.collectBg : colors.payBg,
-                      },
-                      collect ? collectStyle : payStyle,
-                    ]}
-                  >
-                    <View style={[styles.heading, compact && styles.collapsedHeading]}>
-                      <Ionicons
-                        name={collect ? "arrow-down-outline" : "arrow-up-outline"}
-                        size={compact ? 18 : 12}
-                        color={tone}
-                      />
-                      <Text
-                        accessible={false}
-                        style={[
-                          styles.label,
-                          textDir(isRTL),
-                          compact && styles.collapsedLabel,
-                          selected && { color: tone },
-                        ]}
-                        numberOfLines={compact ? 2 : 1}
-                        adjustsFontSizeToFit
-                        maxFontSizeMultiplier={1.3}
-                      >
-                        {title}
-                      </Text>
-                    </View>
-                    {!compact ? (
-                      <View style={styles.values}>
-                        <View style={styles.valueRow}>
-                          {symbol ? (
-                            <Text
-                              testID={`home-balance-symbol-${side}-${row.currency}`}
-                              accessible={false}
-                              style={[
-                                styles.amountSymbol,
-                                {
-                                  color: row.pending || row[side] === 0 ? board.muted : tone,
-                                  fontSize: symbolSize,
-                                },
-                              ]}
-                              numberOfLines={1}
-                              maxFontSizeMultiplier={1.2}
-                            >
-                              {symbol}
-                            </Text>
-                          ) : null}
-                          <Text
-                            accessible={false}
-                            style={[
-                              styles.amount,
-                              {
-                                color: row.pending || row[side] === 0 ? board.muted : tone,
-                                fontSize: amountSize,
-                              },
-                            ]}
-                            numberOfLines={1}
-                            adjustsFontSizeToFit
-                            minimumFontScale={minimumScale}
-                            maxFontSizeMultiplier={1.2}
-                          >
-                            {amount}
-                          </Text>
-                        </View>
-                      </View>
-                    ) : null}
-                  </AnimatedPressable>
-                );
-              })}
-            </View>
-          </View>
+            visible={row.currency === current.currency}
+            enabled={latestInteraction.current.enabled && !!onDirectionChange}
+            onDirectionChange={toggleDirection}
+          />
         ))}
       </ScrollView>
       {multiple ? (
@@ -520,6 +379,213 @@ export function HomeBalanceSummary({
           />
         </View>
       ) : null}
+    </View>
+  );
+}
+
+/** Each denomination owns its animation so a currency-specific filter never
+ * stretches another currency's collect/pay pair. */
+function CurrencyBalanceCard({
+  row,
+  multiple,
+  pageWidth,
+  cardHeight,
+  small,
+  fontScale,
+  isRTL,
+  reducedMotion,
+  direction,
+  visible,
+  enabled,
+  onDirectionChange,
+}: {
+  row: HomeCurrencyBalance;
+  multiple: boolean;
+  pageWidth: number;
+  cardHeight: number;
+  small: boolean;
+  fontScale: number;
+  isRTL: boolean;
+  reducedMotion: boolean;
+  direction: CustomerBalanceFilter;
+  visible: boolean;
+  enabled: boolean;
+  onDirectionChange: (side: "collect" | "pay", currency: string) => void;
+}) {
+  const innerWidth = Math.max(0, pageWidth - 2);
+  const compactWidth = Math.min(innerWidth / 2, fontScale > 1.3 ? 92 : 80);
+  const targetCollectWidth =
+    direction === "collect"
+      ? innerWidth - compactWidth
+      : direction === "pay"
+        ? compactWidth
+        : innerWidth / 2;
+  const amountWidth = Math.max(
+    1,
+    (direction === "all" ? innerWidth / 2 : innerWidth - compactWidth) - (small ? 16 : 24) - 1,
+  );
+  const collectWidth = useSharedValue(targetCollectWidth);
+  const collectStyle = useAnimatedStyle(() => ({
+    width: Math.max(0, Math.min(innerWidth, collectWidth.value)),
+  }));
+  const payStyle = useAnimatedStyle(() => ({
+    width: Math.max(0, innerWidth - collectWidth.value),
+  }));
+  const previousPageWidth = useRef(pageWidth);
+  useEffect(() => {
+    // Resize immediately when rotating; only the user's filter change stretches
+    // the pair. Amount refreshes and keyboard events never restart this motion.
+    const resized = previousPageWidth.current !== pageWidth;
+    previousPageWidth.current = pageWidth;
+    if (!resized && collectWidth.value === targetCollectWidth) return;
+    collectWidth.value =
+      reducedMotion || resized
+        ? targetCollectWidth
+        : withTiming(targetCollectWidth, { duration: 200 });
+  }, [targetCollectWidth, pageWidth, reducedMotion, collectWidth]);
+  return (
+    <View
+      testID={`home-balance-${row.currency}`}
+      style={[styles.page, { width: pageWidth, height: cardHeight }]}
+      accessibilityElementsHidden={!visible}
+      importantForAccessibility={visible ? "auto" : "no-hide-descendants"}
+    >
+      {multiple ? (
+        <View style={[styles.boardHeader, small && styles.compactHeader]}>
+          <Text
+            testID={`home-balance-currency-${row.currency}`}
+            accessible={false}
+            style={styles.currency}
+            maxFontSizeMultiplier={1.2}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+          >
+            {getCurrencyLabel(row.currency)}
+          </Text>
+          <Text
+            accessible={false}
+            style={[styles.boardCaption, textDir(isRTL)]}
+            maxFontSizeMultiplier={1.2}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+          >
+            {t("home.total.title")}
+          </Text>
+        </View>
+      ) : null}
+      <View style={styles.quoteRow}>
+        {(["collect", "pay"] as const).map((side) => {
+          const collect = side === "collect";
+          const selected = direction === side;
+          const compact = direction !== "all" && !selected;
+          const title = t(collect ? "home.total.label.collect" : "home.total.label.pay");
+          const tone = collect ? board.collect : board.pay;
+          const amount = row.pending ? "…" : formatAmount(row[side]);
+          const symbol = multiple ? null : getCurrencySymbol(row.currency);
+          const symbolSize = small ? 12 : 14;
+          const symbolWidth = symbol
+            ? symbol.length * symbolSize * 0.8 * Math.max(1, Math.min(fontScale, 1.2)) + 6
+            : 0;
+          const amountSize = amount.length > 10 ? (small ? 16 : 18) : small ? 20 : 30;
+          // Keep every digit even at the largest supported money values.
+          // Mono glyphs use about 0.6em; leave headroom for scaled fonts.
+          const minimumScale = Math.min(
+            0.5,
+            Math.max(
+              0.01,
+              Math.max(1, amountWidth - symbolWidth) /
+                (amount.length * amountSize * 0.65 * Math.max(1, Math.min(fontScale, 1.2))),
+            ),
+          );
+          return (
+            <AnimatedPressable
+              key={side}
+              testID={`home-balance-${side}-${row.currency}`}
+              accessible
+              accessibilityRole="button"
+              accessibilityLabel={`${getCurrencyLabel(row.currency)}, ${title}: ${amount}`}
+              accessibilityHint={selected ? t("customers.balanceFilter.clear") : undefined}
+              accessibilityState={{
+                selected,
+                disabled: !enabled,
+              }}
+              disabled={!enabled}
+              onPress={() => onDirectionChange(side, row.currency)}
+              style={[
+                styles.card,
+                !collect && styles.payCard,
+                small && styles.compactCard,
+                compact && styles.collapsedCard,
+                selected && {
+                  backgroundColor: collect ? colors.collectBg : colors.payBg,
+                },
+                collect ? collectStyle : payStyle,
+              ]}
+            >
+              <View style={[styles.heading, compact && styles.collapsedHeading]}>
+                <Ionicons
+                  name={collect ? "arrow-down-outline" : "arrow-up-outline"}
+                  size={compact ? 18 : 12}
+                  color={tone}
+                />
+                <Text
+                  accessible={false}
+                  style={[
+                    styles.label,
+                    textDir(isRTL),
+                    compact && styles.collapsedLabel,
+                    selected && { color: tone },
+                  ]}
+                  numberOfLines={compact ? 2 : 1}
+                  adjustsFontSizeToFit
+                  maxFontSizeMultiplier={1.3}
+                >
+                  {title}
+                </Text>
+              </View>
+              {!compact ? (
+                <View style={styles.values}>
+                  <View style={styles.valueRow}>
+                    {symbol ? (
+                      <Text
+                        testID={`home-balance-symbol-${side}-${row.currency}`}
+                        accessible={false}
+                        style={[
+                          styles.amountSymbol,
+                          {
+                            color: row.pending || row[side] === 0 ? board.muted : tone,
+                            fontSize: symbolSize,
+                          },
+                        ]}
+                        numberOfLines={1}
+                        maxFontSizeMultiplier={1.2}
+                      >
+                        {symbol}
+                      </Text>
+                    ) : null}
+                    <Text
+                      accessible={false}
+                      style={[
+                        styles.amount,
+                        {
+                          color: row.pending || row[side] === 0 ? board.muted : tone,
+                          fontSize: amountSize,
+                        },
+                      ]}
+                      numberOfLines={1}
+                      adjustsFontSizeToFit
+                      minimumFontScale={minimumScale}
+                      maxFontSizeMultiplier={1.2}
+                    >
+                      {amount}
+                    </Text>
+                  </View>
+                </View>
+              ) : null}
+            </AnimatedPressable>
+          );
+        })}
+      </View>
     </View>
   );
 }
