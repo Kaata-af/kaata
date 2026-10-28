@@ -272,7 +272,7 @@ func TestNotifyJoinCloseRacePreservesOneAuthoritativeOpeningState(t *testing.T) 
 	}
 }
 
-func recordingHTTP(t *testing.T, f *httpFixture, method, path, authz string, body any) httpResult {
+func recordingHTTP(t *testing.T, f *httpFixture, method, path, authz string, body any, oneWay ...bool) httpResult {
 	t.Helper()
 	raw, err := json.Marshal(body)
 	if err != nil {
@@ -285,6 +285,9 @@ func recordingHTTP(t *testing.T, f *httpFixture, method, path, authz string, bod
 	req.Header.Set("Authorization", authz)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Kaata-Tab-Recording", "1")
+	if len(oneWay) > 0 && oneWay[0] {
+		req.Header.Set("X-Kaata-Tab-One-Way", "1")
+	}
 	req.Header.Set("X-Kaata-Currencies", "1")
 	response, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -555,55 +558,59 @@ func TestNotifyRecordedSourcesFreezeAfterEitherPartyCarriesThemForward(t *testin
 }
 
 func TestNotifyPendingReplacementDoesNotFreezeRecordedSource(t *testing.T) {
-	f := newTabFixture(t)
-	ctx := t.Context()
-	relationship := uuid.NewString()
-	old, err := f.svc.Create(ctx, CreateInput{RecordingMode: "notify", Currency: "AFN", Label: "A", AccountID: &f.acctA, VaultID: &f.vaultA, RelationshipID: &relationship})
-	if err != nil {
-		t.Fatal(err)
-	}
-	a := f.party(t, old.MyToken, old.Tab.ID)
-	original := f.append(t, a, "a_to_b", "10", 100).Entry
-	closed, err := f.svc.Close(ctx, a)
-	if err != nil {
-		t.Fatal(err)
-	}
-	next, err := f.svc.Create(ctx, CreateInput{RecordingMode: "notify", Currency: "AFN", Label: "Pending invite", AccountID: &f.acctA, VaultID: &f.vaultA, RelationshipID: &relationship, ExpectedPreviousTabID: &old.Tab.ID, ExpectedPreviousRev: &closed.Tab.Rev, Opening: &OpeningInput{Direction: "a_to_b", Amount: "10", OccurredAtMS: 200}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := f.svc.Void(ctx, a, original.ID); err != nil {
-		t.Fatalf("unused pending invitation froze source: %v", err)
-	}
-	got, err := f.svc.Get(ctx, f.party(t, next.MyToken, next.Tab.ID), 0)
-	if err != nil || got.Entries[0].Status != "pending" || got.Tab.RecordedBalance["a"] != "0" || got.Tab.ConfirmedBalance["a"] != "0" {
-		t.Fatal("source withdrawal acknowledged unused opening", err)
-	}
-	before := got
-	b := f.party(t, next.InviteToken, next.Tab.ID)
-	if _, err := f.svc.Join(ctx, b, JoinInput{Label: "B", AccountID: &f.acctB}); !errors.Is(err, ErrOpeningSourceChanged) {
-		t.Fatalf("stale source became an authoritative opening: %v", err)
-	}
-	after, err := f.svc.Get(ctx, f.party(t, next.MyToken, next.Tab.ID), 0)
-	if err != nil || !reflect.DeepEqual(before, after) || f.party(t, next.InviteToken, next.Tab.ID).JoinedAt != nil {
-		t.Fatal("stale Join changed invitation/balance/revision", err)
-	}
-	// The sender can cancel this unused proposal and create a fresh zero link.
-	cancelled, err := f.svc.Close(ctx, f.party(t, next.MyToken, next.Tab.ID), true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	oldAfter, err := f.svc.Get(ctx, a, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	fresh, err := f.svc.Create(ctx, CreateInput{RecordingMode: "notify", Currency: "AFN", Label: "Fresh", AccountID: &f.acctA, VaultID: &f.vaultA, RelationshipID: &relationship, ExpectedPreviousTabID: &next.Tab.ID, ExpectedPreviousRev: &cancelled.Tab.Rev, ExpectedHistoryRevisions: map[string]int64{old.Tab.ID: oldAfter.Tab.Rev, next.Tab.ID: cancelled.Tab.Rev}})
-	if err != nil {
-		t.Fatalf("could not recreate stale invitation: %v", err)
-	}
-	joined, err := f.svc.Join(ctx, f.party(t, fresh.InviteToken, fresh.Tab.ID), JoinInput{Label: "B", AccountID: &f.acctB})
-	if err != nil || joined.Tab.RecordedBalance["a"] != "0" || len(joined.Entries) != 0 {
-		t.Fatal("fresh invitation restored cancelled carry", err)
+	for _, mode := range []string{"notify", "notify_one_way"} {
+		t.Run(mode, func(t *testing.T) {
+			f := newTabFixture(t)
+			ctx := t.Context()
+			relationship := uuid.NewString()
+			old, err := f.svc.Create(ctx, CreateInput{RecordingMode: mode, Currency: "AFN", Label: "A", AccountID: &f.acctA, VaultID: &f.vaultA, RelationshipID: &relationship})
+			if err != nil {
+				t.Fatal(err)
+			}
+			a := f.party(t, old.MyToken, old.Tab.ID)
+			original := f.append(t, a, "a_to_b", "10", 100).Entry
+			closed, err := f.svc.Close(ctx, a)
+			if err != nil {
+				t.Fatal(err)
+			}
+			next, err := f.svc.Create(ctx, CreateInput{RecordingMode: mode, Currency: "AFN", Label: "Pending invite", AccountID: &f.acctA, VaultID: &f.vaultA, RelationshipID: &relationship, ExpectedPreviousTabID: &old.Tab.ID, ExpectedPreviousRev: &closed.Tab.Rev, Opening: &OpeningInput{Direction: "a_to_b", Amount: "10", OccurredAtMS: 200}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := f.svc.Void(ctx, a, original.ID); err != nil {
+				t.Fatalf("unused pending invitation froze source: %v", err)
+			}
+			got, err := f.svc.Get(ctx, f.party(t, next.MyToken, next.Tab.ID), 0)
+			if err != nil || got.Entries[0].Status != "pending" || got.Tab.RecordedBalance["a"] != "0" || got.Tab.ConfirmedBalance["a"] != "0" {
+				t.Fatal("source withdrawal acknowledged unused opening", err)
+			}
+			before := got
+			b := f.party(t, next.InviteToken, next.Tab.ID)
+			if _, err := f.svc.Join(ctx, b, JoinInput{Label: "B", AccountID: &f.acctB}); !errors.Is(err, ErrOpeningSourceChanged) {
+				t.Fatalf("stale source became an authoritative opening: %v", err)
+			}
+			after, err := f.svc.Get(ctx, f.party(t, next.MyToken, next.Tab.ID), 0)
+			if err != nil || !reflect.DeepEqual(before, after) || f.party(t, next.InviteToken, next.Tab.ID).JoinedAt != nil {
+				t.Fatal("stale Join changed invitation/balance/revision", err)
+			}
+			// The sender can cancel this unused proposal and create a fresh zero link.
+			cancelled, err := f.svc.Close(ctx, f.party(t, next.MyToken, next.Tab.ID), true)
+			if err != nil {
+				t.Fatal(err)
+			}
+			oldAfter, err := f.svc.Get(ctx, a, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			fresh, err := f.svc.Create(ctx, CreateInput{RecordingMode: mode, Currency: "AFN", Label: "Fresh", AccountID: &f.acctA, VaultID: &f.vaultA, RelationshipID: &relationship, ExpectedPreviousTabID: &next.Tab.ID, ExpectedPreviousRev: &cancelled.Tab.Rev, ExpectedHistoryRevisions: map[string]int64{old.Tab.ID: oldAfter.Tab.Rev, next.Tab.ID: cancelled.Tab.Rev}})
+			if err != nil {
+				t.Fatalf("could not recreate stale invitation: %v", err)
+			}
+			joined, err := f.svc.Join(ctx, f.party(t, fresh.InviteToken, fresh.Tab.ID), JoinInput{Label: "B", AccountID: &f.acctB})
+			if err != nil || joined.Tab.RecordedBalance["a"] != "0" || len(joined.Entries) != 0 {
+				t.Fatal("fresh invitation restored cancelled carry", err)
+			}
+		})
 	}
 }
 

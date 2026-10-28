@@ -701,6 +701,37 @@ const vectors = JSON.parse(
 // ---------------------------------------------------------------------------
 
 async function main(): Promise<void> {
+  await test("recording mode helpers preserve legacy access and restrict only one-way recipients", () => {
+    const recording = require("../tabs/recording-mode") as typeof import("../tabs/recording-mode");
+    assert.equal(recording.canWriteSharedTallies(null), true);
+    assert.equal(recording.canWriteSharedTallies(undefined), true);
+    for (const mode of [undefined, "review", "notify", "notify_one_way"] as const) {
+      for (const role of ["a", "b"] as const) {
+        const current = { role, recording_mode: mode, recording_mode_known: 1 as const };
+        assert.equal(
+          recording.canWriteSharedTallies(current),
+          mode !== "notify_one_way" || role === "a",
+        );
+        assert.equal(
+          recording.canWriteSharedTallies({ ...current, recording_mode_known: 0 }),
+          false,
+        );
+      }
+      assert.equal(
+        recording.isNotificationOnlyMode(mode),
+        mode === "notify" || mode === "notify_one_way",
+      );
+    }
+    for (const mode of [null, "", "future_mode", 1, {}])
+      assert.equal(recording.isTabRecordingMode(mode), false);
+    assert.equal(
+      recording.canWriteSharedTallies({
+        role: "a",
+        recording_mode: "future_mode" as TabLink["recording_mode"],
+      }),
+      false,
+    );
+  });
   await test("direction: the same wire row reads as I-gave on one phone and I-received on the other", () => {
     assert.equal(direction.entryTypeFor("a", "a_to_b"), "debt");
     assert.equal(direction.entryTypeFor("b", "a_to_b"), "payment");
@@ -3282,6 +3313,361 @@ async function main(): Promise<void> {
       globalThis.fetch = priorFetch;
     }
   });
+  await test("one-way recorded cache retains both sides' balances and refuses mode downgrade or unknown metadata", async () => {
+    const cacheLink = link({ role: "b", recording_mode: "notify_one_way", last_synced_at: 1000 });
+    await tabsDb.upsertTabLink(cacheLink);
+    const row = server.seed({
+      id: "one-way-record",
+      created_by: "a",
+      direction: "a_to_b",
+      amount: "12.34",
+      status: "recorded",
+    });
+    const current = { ...server.view("b"), recording_mode: "notify_one_way" as const };
+    await tabsDb.upsertTabFromWire(cacheLink, { tab: current, entries: [row], full: true });
+    const person = (await db.getPerson(CONTACT))!;
+    assert.equal(person.balance, -12.34);
+    assert.equal(person.tab_recorded_balance, -12.34);
+    assert.equal(
+      person.tab_confirmed_balance,
+      0,
+      "a recorded claim is never fabricated peer approval",
+    );
+    assert.equal(person.tab_pending_count, 0);
+    const rendered = (await tabsDb.listTabEntriesAsEntries(storedLink()))[0];
+    assert.equal(rendered.tab?.recording_mode, "notify_one_way");
+    assert.equal(rendered.tab?.status, "recorded");
+    await tabsDb.upsertTabFromWire(cacheLink, { tab: current, entries: [row], full: true });
+    assert.equal(count("tab_entries"), 1, "repeated receipts do not duplicate recorded money");
+    const frozen = tabCacheSnapshot();
+    for (const mode of [undefined, "review", "notify", "future_mode"])
+      await assert.rejects(
+        tabsDb.upsertTabFromWire(cacheLink, {
+          tab: {
+            ...current,
+            recording_mode: mode as WireTab["recording_mode"],
+            rev: current.rev + 1,
+          },
+          entries: [],
+          full: true,
+        }),
+      );
+    assert.deepEqual(
+      tabCacheSnapshot(),
+      frozen,
+      "an incompatible response cannot erase one-way history",
+    );
+    await assert.rejects(tabsDb.upsertTabLink({ ...storedLink(), recording_mode: "notify" }));
+    await assert.rejects(
+      tabsDb.upsertTabLink({
+        ...storedLink(),
+        recording_mode: "future_mode" as TabLink["recording_mode"],
+      }),
+    );
+    assert.deepEqual(
+      tabCacheSnapshot(),
+      frozen,
+      "neither discovery nor a cache writer can switch an existing link's mode",
+    );
+  });
+  await test("one-way requests require both capabilities, advertise additive compatibility, and never fall back to review", async () => {
+    const api = require("../tabs/api") as typeof import("../tabs/api");
+    const previous = globalThis.fetch;
+    let notificationSupport = false,
+      oneWaySupport = false,
+      mutations = 0;
+    const seen: Headers[] = [];
+    globalThis.fetch = (async (url: string | URL | Request, init: RequestInit = {}) => {
+      seen.push(new Headers(init.headers));
+      if (String(url).endsWith("/capabilities"))
+        return reply(200, {
+          notification_only_tallies: notificationSupport,
+          one_way_tallies: oneWaySupport,
+        });
+      if (init.method === "POST") mutations++;
+      return reply(200, {
+        tab: { ...server.view("a"), recording_mode: "notify_one_way" },
+        entries: [],
+        full: true,
+      });
+    }) as typeof fetch;
+    const req = {
+      currency: "AFN",
+      label: "Creator",
+      vault_id: VAULT,
+      relationship_id: REL,
+      opening: null,
+      recording_mode: "notify_one_way" as const,
+    };
+    const auth = {
+      jwt: "one-way-capability-fixture",
+      role: "a" as const,
+      recordingMode: "notify_one_way" as const,
+    };
+    const unsupported = (error: unknown) =>
+      error instanceof errors.TabApiError &&
+      error.code === "one_way_tallies_unsupported" &&
+      errors.isRetryableTabError(error);
+    try {
+      for (const supports of [
+        [false, false],
+        [true, false],
+        [false, true],
+      ]) {
+        [notificationSupport, oneWaySupport] = supports;
+        await assert.rejects(api.createTab(req, auth), unsupported);
+        await assert.rejects(api.fetchTab(auth, TAB, 0), unsupported);
+        await assert.rejects(
+          api.appendTabEntry(auth, TAB, {
+            id: "new",
+            direction: "a_to_b",
+            amount: "1",
+            note: null,
+            occurred_at_ms: 1,
+          }),
+          unsupported,
+        );
+        await assert.rejects(
+          api.joinTab({ token: "invite", ...auth }, TAB, {
+            label: "B",
+            vault_id: VAULT,
+            relationship_id: REL,
+          }),
+          unsupported,
+        );
+      }
+      assert.equal(
+        mutations,
+        0,
+        "missing support cannot create, join or append under old semantics",
+      );
+      notificationSupport = oneWaySupport = true;
+      assert.equal((await api.createTab(req, auth)).tab.recording_mode, "notify_one_way");
+      await api.fetchMine();
+      assert.equal(mutations, 1);
+      assert.ok(
+        seen.every(
+          (headers) =>
+            headers.get("X-Kaata-Tab-Recording") === "1" &&
+            headers.get("X-Kaata-Tab-One-Way") === "1",
+        ),
+        "discovery and mutation retain old notify compatibility while advertising the new mode",
+      );
+    } finally {
+      globalThis.fetch = previous;
+    }
+  });
+  await test("one-way read capabilities have an isolated coalesced sixty-second receipt and writes recheck", async () => {
+    const api = require("../tabs/api") as typeof import("../tabs/api");
+    const previous = globalThis.fetch,
+      realNow = Date.now;
+    let now = realNow(),
+      oneWaySupport = false,
+      probes = 0,
+      mutations = 0;
+    Date.now = () => now;
+    const notifyAuth = { jwt: "mode-cache-isolation", recordingMode: "notify" as const };
+    const oneWayAuth = { ...notifyAuth, recordingMode: "notify_one_way" as const };
+    globalThis.fetch = (async (url: string | URL | Request, init: RequestInit = {}) => {
+      if (String(url).endsWith("/capabilities")) {
+        probes++;
+        await sleep(5);
+        return reply(200, { notification_only_tallies: true, one_way_tallies: oneWaySupport });
+      }
+      if (init.method === "POST") mutations++;
+      return reply(200, {
+        tab: {
+          ...server.view("a"),
+          recording_mode: String(url).includes("one-way") ? "notify_one_way" : "notify",
+        },
+        entries: [],
+        full: true,
+      });
+    }) as typeof fetch;
+    try {
+      await api.fetchTab(notifyAuth, TAB, 0);
+      await assert.rejects(
+        api.fetchTab(oneWayAuth, "one-way", 0),
+        (error: any) => error.code === "one_way_tallies_unsupported",
+      );
+      assert.equal(probes, 2, "notify's weaker receipt never authorizes one-way mode");
+      oneWaySupport = true;
+      await Promise.all([
+        api.fetchTab(oneWayAuth, "one-way", 0),
+        api.fetchTab(oneWayAuth, "one-way-other", 0),
+      ]);
+      assert.equal(probes, 3, "concurrent one-way contacts share only the matching stronger probe");
+      await api.fetchTab(notifyAuth, TAB, 0);
+      await api.fetchTab(oneWayAuth, "one-way", 0);
+      assert.equal(probes, 3);
+      now += 60_001;
+      await api.fetchTab(oneWayAuth, "one-way", 0);
+      assert.equal(probes, 4, "read support expires after sixty seconds");
+      oneWaySupport = false;
+      await assert.rejects(
+        api.setTabLabel(oneWayAuth, "one-way", "A"),
+        (error: any) => error.code === "one_way_tallies_unsupported",
+      );
+      assert.equal(mutations, 0, "a fresh write check detects rollback before any mutation");
+      await assert.rejects(
+        api.fetchTab(oneWayAuth, "one-way", 0),
+        (error: any) => error.code === "one_way_tallies_unsupported",
+      );
+      assert.equal(probes, 6, "failed write support also invalidates the positive read receipt");
+    } finally {
+      globalThis.fetch = previous;
+      Date.now = realNow;
+    }
+  });
+  await test("notification-only acknowledgements cannot omit or change the requested recording contract", async () => {
+    const api = require("../tabs/api") as typeof import("../tabs/api");
+    const previous = globalThis.fetch;
+    let returnedMode: WireTab["recording_mode"];
+    const frozen = tabCacheSnapshot();
+    globalThis.fetch = (async (url: string | URL | Request) => {
+      if (String(url).endsWith("/capabilities"))
+        return reply(200, { notification_only_tallies: true, one_way_tallies: true });
+      return reply(200, {
+        tab: { ...server.view("a"), recording_mode: returnedMode },
+        entries: [],
+        full: true,
+      });
+    }) as typeof fetch;
+    try {
+      for (const requestedMode of ["notify", "notify_one_way"] as const) {
+        const auth = { jwt: `ack-contract-${requestedMode}`, recordingMode: requestedMode };
+        const req = {
+          currency: "AFN",
+          label: "A",
+          vault_id: VAULT,
+          relationship_id: REL,
+          opening: null,
+          recording_mode: requestedMode,
+        };
+        const unsupported = (error: unknown) =>
+          error instanceof errors.TabApiError &&
+          error.status === 503 &&
+          error.code ===
+            (requestedMode === "notify_one_way"
+              ? "one_way_tallies_unsupported"
+              : "notification_only_unsupported");
+        for (const mode of [
+          undefined,
+          "review",
+          requestedMode === "notify" ? "notify_one_way" : "notify",
+        ] as const) {
+          returnedMode = mode;
+          await assert.rejects(api.createTab(req, auth), unsupported);
+          await assert.rejects(
+            api.joinTab({ token: "invite", ...auth }, TAB, {
+              label: "B",
+              vault_id: VAULT,
+              relationship_id: REL,
+            }),
+            unsupported,
+          );
+          await assert.rejects(api.fetchTab(auth, TAB, 0), unsupported);
+        }
+        returnedMode = requestedMode;
+        assert.equal((await api.createTab(req, auth)).tab.recording_mode, requestedMode);
+        assert.equal(
+          (
+            await api.joinTab({ token: "invite", ...auth }, TAB, {
+              label: "B",
+              vault_id: VAULT,
+              relationship_id: REL,
+            })
+          ).tab.recording_mode,
+          requestedMode,
+        );
+      }
+      assert.deepEqual(
+        tabCacheSnapshot(),
+        frozen,
+        "incompatible acknowledgements cannot install a writable fallback link",
+      );
+    } finally {
+      globalThis.fetch = previous;
+    }
+  });
+  await test("unknown server modes are rejected before direct pull, invitation or discovery can reach the cache", async () => {
+    const api = require("../tabs/api") as typeof import("../tabs/api");
+    const previous = globalThis.fetch;
+    const frozen = tabCacheSnapshot();
+    globalThis.fetch = (async (url: string | URL | Request) => {
+      const tab = { ...server.view("a"), recording_mode: "future_mode" };
+      return reply(
+        200,
+        String(url).endsWith("/mine")
+          ? { tabs: [{ tab, role: "a", vault_id: VAULT, relationship_id: REL }] }
+          : { tab, entries: [], full: true },
+      );
+    }) as typeof fetch;
+    const unknown = (error: unknown) =>
+      error instanceof errors.TabApiError &&
+      error.status === 426 &&
+      error.code === "recording_upgrade_required";
+    try {
+      await assert.rejects(api.fetchTab({ jwt: "unknown-mode-fixture" }, TAB, 0), unknown);
+      await assert.rejects(api.fetchTabByToken("invite"), unknown);
+      await assert.rejects(api.fetchMine(), unknown);
+      await sync.reconcileTabsFromServer();
+      assert.deepEqual(
+        tabCacheSnapshot(),
+        frozen,
+        "unknown discovery metadata never creates writable skeleton links",
+      );
+    } finally {
+      globalThis.fetch = previous;
+    }
+  });
+  await test("unknown requested modes cannot send a mutation before rejecting the response", async () => {
+    const api = require("../tabs/api") as typeof import("../tabs/api");
+    const previous = globalThis.fetch;
+    let httpCalls = 0;
+    globalThis.fetch = (async () => {
+      httpCalls++;
+      return reply(200, { tab: server.view("a"), entries: [], full: true });
+    }) as unknown as typeof fetch;
+    const unknownMode = "future_mode" as TabLink["recording_mode"];
+    const unknown = (error: unknown) =>
+      error instanceof errors.TabApiError &&
+      error.status === 426 &&
+      error.code === "recording_upgrade_required";
+    try {
+      await assert.rejects(
+        api.createTab(
+          {
+            currency: "AFN",
+            label: "A",
+            vault_id: VAULT,
+            relationship_id: REL,
+            opening: null,
+            recording_mode: unknownMode,
+          },
+          { jwt: "unknown-request-fixture" },
+        ),
+        unknown,
+      );
+      await assert.rejects(
+        api.appendTabEntry({ jwt: "unknown-request-fixture", recordingMode: unknownMode }, TAB, {
+          id: "never-sent",
+          direction: "a_to_b",
+          amount: "1",
+          note: null,
+          occurred_at_ms: 1,
+        }),
+        unknown,
+      );
+      assert.equal(
+        httpCalls,
+        0,
+        "unknown local metadata cannot be interpreted as legacy review by any server",
+      );
+    } finally {
+      globalThis.fetch = previous;
+    }
+  });
   await test("notify reads share a short capability receipt while every write probes afresh", async () => {
     const api = require("../tabs/api") as typeof import("../tabs/api");
     const priorFetch = globalThis.fetch;
@@ -3792,6 +4178,11 @@ async function main(): Promise<void> {
     assert.equal((await tabsDb.getTabLinkForPerson(CONTACT, "AFN"))?.tab_id, "afn-tab");
     assert.equal((await tabsDb.getTabLinkForPerson(CONTACT, "USD"))?.tab_id, "usd-tab");
     assert.equal(await tabsDb.getTabLinkForPerson(CONTACT, "EUR"), null);
+    assert.deepEqual(
+      (await tabsDb.listOpenTabLinksForPerson(CONTACT)).map((row) => row.tab_id),
+      ["usd-tab", "afn-tab"],
+      "the batched lookup returns both currencies in one newest-link-first read",
+    );
     assert.equal((await tabsDb.getLatestTabLinkForPerson(CONTACT, "USD"))?.tab_id, "usd-tab");
     assert.equal((await tabsDb.getAnyTabLinkForRelationship(REL, "AFN"))?.tab_id, "afn-tab");
     await assert.rejects(tabsDb.upsertTabLink({ ...usd, tab_id: "duplicate-usd" }), /UNIQUE/);
@@ -3840,6 +4231,11 @@ async function main(): Promise<void> {
       { "afn-tab": afn.rev },
     );
     await tabsDb.markTabClosedLocally("usd-tab", 5000);
+    assert.deepEqual(
+      (await tabsDb.listOpenTabLinksForPerson(CONTACT)).map((row) => row.tab_id),
+      ["afn-tab"],
+      "closed currency links do not restrict new private entries",
+    );
     assert.equal(await tabsDb.getTabLinkForPerson(CONTACT, "USD"), null);
     assert.equal((await tabsDb.getTabLinkForPerson(CONTACT, "AFN"))?.tab_id, "afn-tab");
     assert.equal(
@@ -3857,6 +4253,7 @@ async function main(): Promise<void> {
       true,
     );
     await tabsDb.markTabClosedLocally("afn-tab", 6_000);
+    assert.deepEqual(await tabsDb.listOpenTabLinksForPerson(CONTACT), []);
     const closedAggregate = await db.getPerson(CONTACT, "AFN", { allCurrencies: true });
     assert.ok(closedAggregate);
     assert.equal(personSharedAccountStatus(closedAggregate), "none");
@@ -3874,6 +4271,74 @@ async function main(): Promise<void> {
       ],
       "closing all badges preserves both independent balances",
     );
+  });
+
+  await test("batched contact-link lookup preserves relationship priority and excludes archived or foreign scopes", async () => {
+    fixture.exec(`
+      INSERT INTO vaults(id,currency) VALUES('foreign-vault','AFN');
+      INSERT INTO relationships VALUES('newer-rel','${SELF}','${CONTACT}','peer','${VAULT}',20,20,NULL,NULL);
+      INSERT INTO relationships VALUES('archived-rel','${SELF}','${CONTACT}','peer','${VAULT}',30,30,40,NULL);
+      INSERT INTO relationships VALUES('foreign-rel','${SELF}','${CONTACT}','peer','foreign-vault',50,50,NULL,NULL);
+      INSERT INTO relationships VALUES('other-person-rel','${SELF}','${SELF}','peer','${VAULT}',60,60,NULL,NULL);
+    `);
+    const links = [
+      link({ tab_id: "older-afn", linked_at: 9000 }),
+      link({
+        tab_id: "newer-afn",
+        relationship_id: "newer-rel",
+        linked_at: 1000,
+        recording_mode: "notify_one_way",
+        role: "b",
+      }),
+      link({ tab_id: "current-usd", currency: "USD", linked_at: 8000 }),
+      link({ tab_id: "closed-eur", currency: "EUR", closed_at: 10000 }),
+      link({ tab_id: "archived-aud", currency: "AUD", relationship_id: "archived-rel" }),
+      link({
+        tab_id: "foreign-cad",
+        currency: "CAD",
+        relationship_id: "foreign-rel",
+        vault_id: "foreign-vault",
+      }),
+      link({ tab_id: "mismatched-gbp", currency: "GBP", vault_id: "foreign-vault" }),
+      link({ tab_id: "other-person-jpy", currency: "JPY", relationship_id: "other-person-rel" }),
+    ];
+    for (const row of links) await tabsDb.upsertTabLink(row);
+    const open = await tabsDb.listOpenTabLinksForPerson(CONTACT);
+    assert.deepEqual(
+      open.map((row) => row.tab_id),
+      ["newer-afn", "older-afn", "current-usd"],
+    );
+    const byCurrency = new Map<string, TabLink>();
+    for (const row of open) if (!byCurrency.has(row.currency)) byCurrency.set(row.currency, row);
+    assert.equal(
+      byCurrency.get("AFN")?.tab_id,
+      (await tabsDb.getTabLinkForPerson(CONTACT, "AFN"))?.tab_id,
+    );
+    assert.equal(
+      byCurrency.get("AFN")?.recording_mode,
+      "notify_one_way",
+      "a newer read-only relationship must not be replaced by an older writable link",
+    );
+    assert.equal(byCurrency.get("USD")?.tab_id, "current-usd");
+    dbTx.setActiveVaultIdCache("foreign-vault");
+    assert.deepEqual(
+      (await tabsDb.listOpenTabLinksForPerson(CONTACT)).map((row) => row.tab_id),
+      ["foreign-cad"],
+    );
+    const originalRead = sqlite.getAllAsync;
+    let queries = 0;
+    sqlite.getAllAsync = (async (...args: Parameters<typeof originalRead>) => {
+      queries++;
+      return originalRead(...args);
+    }) as typeof originalRead;
+    try {
+      dbTx.setActiveVaultIdCache(null);
+      assert.deepEqual(await tabsDb.listOpenTabLinksForPerson(CONTACT), []);
+      assert.equal(queries, 0, "no active Kaata returns before querying SQLite");
+    } finally {
+      sqlite.getAllAsync = originalRead;
+      dbTx.setActiveVaultIdCache(VAULT);
+    }
   });
 
   console.log(`\n${passed} tab regressions passed; ${failed} failed.`);

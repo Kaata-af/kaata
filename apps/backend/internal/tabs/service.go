@@ -55,7 +55,8 @@ var (
 	ErrNotFound                     = errors.New("tab not found")
 	ErrTabClosed                    = errors.New("tab is closed")
 	ErrSharedHistoryPending         = errors.New("review or cancel pending tallies in the previous shared account before linking again")
-	ErrInvalidRecordingMode         = errors.New("recording mode must be review or notify")
+	ErrInvalidRecordingMode         = errors.New("recording mode must be review, notify or notify_one_way")
+	ErrOneWayReadOnly               = errors.New("only the creator can record tallies in this shared account")
 	ErrReviewNotRequired            = errors.New("this tally was recorded without a review requirement")
 	ErrJoinRequired                 = errors.New("join this account before recording tallies")
 	ErrRecordedOpeningFinal         = errors.New("a joined opening is a fixed carry-over; add a correction tally instead")
@@ -526,6 +527,14 @@ func msPtr(t *time.Time) *int64 {
 // --------------------------------------------------------------------------
 // Row helpers
 // --------------------------------------------------------------------------
+
+func notificationOnlyMode(mode string) bool {
+	return mode == "notify" || mode == "notify_one_way"
+}
+
+func tallyWriterAllowed(mode, role string) bool {
+	return mode != "notify_one_way" || role == "a"
+}
 
 // tabRow is the locked tabs row a mutation starts from.
 type tabRow struct {
@@ -1131,7 +1140,7 @@ func saveNotifyOpeningSource(ctx context.Context, tx pgx.Tx, tabID string) error
 	 JOIN tabs source ON source.id=history.tab_id AND source.currency=candidate.currency
 	 WHERE creator.tab_id=candidate.id AND creator.role='a'
 	   AND source.id<>candidate.id AND source.closed_at IS NOT NULL)
-	 WHERE candidate.id=$1::uuid AND candidate.recording_mode='notify'
+	 WHERE candidate.id=$1::uuid AND candidate.recording_mode IN ('notify','notify_one_way')
 	 AND candidate.notify_opening_source_revisions IS NOT NULL
 	 AND EXISTS(SELECT 1 FROM tab_entries opening WHERE opening.tab_id=candidate.id
 	   AND opening.kind='opening' AND opening.status='pending' AND opening.voided_by_entry_id IS NULL)`, tabID)
@@ -1253,7 +1262,7 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (CreateResult, err
 	if mode == "" {
 		mode = "review"
 	}
-	if mode != "review" && mode != "notify" {
+	if mode != "review" && !notificationOnlyMode(mode) {
 		return CreateResult{}, ErrInvalidRecordingMode
 	}
 	currency := strings.TrimSpace(in.Currency)
@@ -1309,7 +1318,7 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (CreateResult, err
 	}
 	if err := tx.QueryRow(ctx, `
 		INSERT INTO tabs (currency,recording_mode,notify_opening_source_revisions)
-		VALUES ($1,$2,CASE WHEN $2='notify' AND $3 THEN '{}'::jsonb ELSE NULL END) RETURNING id::text
+		VALUES ($1,$2,CASE WHEN $2 IN ('notify','notify_one_way') AND $3 THEN '{}'::jsonb ELSE NULL END) RETURNING id::text
 	`, currency, mode, in.Opening != nil).Scan(&tabID); err != nil {
 		return CreateResult{}, fmt.Errorf("insert tab: %w", err)
 	}
@@ -1344,7 +1353,7 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (CreateResult, err
 	if err := setLinkBoundary(ctx, tx, tabID, "a", in.LinkedAtMS); err != nil {
 		return CreateResult{}, err
 	}
-	if mode == "notify" && in.Opening != nil {
+	if notificationOnlyMode(mode) && in.Opening != nil {
 		if err := saveNotifyOpeningSource(ctx, tx, tabID); err != nil {
 			return CreateResult{}, err
 		}
@@ -1510,7 +1519,7 @@ func (s *Service) Join(ctx context.Context, p Party, in JoinInput) (TabResponse,
 	if err := checkSameAccount(ctx, tx, p.TabID, p.Role, in.AccountID, in.VaultID); err != nil {
 		return TabResponse{}, err
 	}
-	if p.Role == "b" && locked.RecordingMode == "notify" {
+	if p.Role == "b" && notificationOnlyMode(locked.RecordingMode) {
 		if err := validateNotifyOpeningSource(ctx, tx, p.TabID); err != nil {
 			return TabResponse{}, err
 		}
@@ -1531,7 +1540,7 @@ func (s *Service) Join(ctx context.Context, p Party, in JoinInput) (TabResponse,
 	if err := setLinkBoundary(ctx, tx, p.TabID, p.Role, in.LinkedAtMS); err != nil {
 		return TabResponse{}, err
 	}
-	if p.Role == "a" && locked.RecordingMode == "notify" && (p.VaultID == nil || p.RelationshipID == nil) {
+	if p.Role == "a" && notificationOnlyMode(locked.RecordingMode) && (p.VaultID == nil || p.RelationshipID == nil) {
 		if err := saveNotifyOpeningSource(ctx, tx, p.TabID); err != nil {
 			return TabResponse{}, err
 		}
@@ -1545,7 +1554,7 @@ func (s *Service) Join(ctx context.Context, p Party, in JoinInput) (TabResponse,
 	}
 	// The first actual B Join records the carried source in notify mode.
 	// It is a Join audit transition, never an individual acceptance/review.
-	if p.Role == "b" && locked.RecordingMode == "notify" {
+	if p.Role == "b" && notificationOnlyMode(locked.RecordingMode) {
 		if _, err := tx.Exec(ctx, `UPDATE tab_entries SET status='recorded',status_at_ms=$2,rev=$3
 		 WHERE tab_id=$1::uuid AND kind='opening' AND created_by='a'
 		   AND status='pending' AND voided_by_entry_id IS NULL`, p.TabID, nowMS(), joinRev); err != nil {
@@ -1638,7 +1647,7 @@ func (s *Service) Bind(ctx context.Context, p Party, in BindInput) (TabResponse,
 	if err := setLinkBoundary(ctx, tx, p.TabID, p.Role, in.LinkedAtMS); err != nil {
 		return TabResponse{}, err
 	}
-	if p.Role == "a" && locked.RecordingMode == "notify" && (p.VaultID == nil || p.RelationshipID == nil) {
+	if p.Role == "a" && notificationOnlyMode(locked.RecordingMode) && (p.VaultID == nil || p.RelationshipID == nil) {
 		if err := saveNotifyOpeningSource(ctx, tx, p.TabID); err != nil {
 			return TabResponse{}, err
 		}
@@ -1751,6 +1760,9 @@ func (s *Service) Append(ctx context.Context, p Party, in AppendInput) (AppendRe
 	if err != nil {
 		return AppendResult{}, err
 	}
+	if !tallyWriterAllowed(locked.RecordingMode, p.Role) {
+		return AppendResult{}, ErrOneWayReadOnly
+	}
 	// A party binding may have moved while we waited for the row lock. Do not
 	// evaluate its new exposure while holding the old kaata admission lock.
 	if (lockedVaultID == nil) != (p.VaultID == nil) || (lockedVaultID != nil && p.VaultID != nil && *lockedVaultID != *p.VaultID) {
@@ -1798,7 +1810,7 @@ func (s *Service) Append(ctx context.Context, p Party, in AppendInput) (AppendRe
 	if locked.ClosedAt != nil {
 		return AppendResult{}, ErrTabClosed
 	}
-	if locked.RecordingMode == "notify" && p.Role == "b" {
+	if notificationOnlyMode(locked.RecordingMode) && p.Role == "b" {
 		var joined bool
 		if err := tx.QueryRow(ctx, `SELECT joined_at IS NOT NULL FROM tab_parties WHERE tab_id=$1::uuid AND role='b'`, p.TabID).Scan(&joined); err != nil {
 			return AppendResult{}, err
@@ -1835,7 +1847,7 @@ func (s *Service) Append(ctx context.Context, p Party, in AppendInput) (AppendRe
 		return AppendResult{}, err
 	}
 	status := "pending"
-	if locked.RecordingMode == "notify" {
+	if notificationOnlyMode(locked.RecordingMode) {
 		status = "recorded"
 	}
 	e, err := insertEntry(ctx, tx, p.TabID, in.ID, seq, rev, p.Role, in.Direction, minor, "entry", note,
@@ -2099,7 +2111,7 @@ func (s *Service) setStatus(ctx context.Context, p Party, entryID, status string
 	if e.CreatedBy == p.Role {
 		return EntryResponse{}, ErrOwnEntry
 	}
-	if locked.RecordingMode == "notify" || e.Status == "recorded" {
+	if notificationOnlyMode(locked.RecordingMode) || e.Status == "recorded" {
 		return EntryResponse{}, ErrReviewNotRequired
 	}
 	// Lost acknowledgements and duplicate OS callbacks must not emit another alert.
@@ -2210,12 +2222,16 @@ func (s *Service) Void(ctx context.Context, p Party, entryID string) (VoidRespon
 			return VoidResponse{}, err
 		}
 	}
-	if _, err := lockTab(ctx, tx, p.TabID); err != nil {
+	locked, err := lockTab(ctx, tx, p.TabID)
+	if err != nil {
 		return VoidResponse{}, err
 	}
 	p, err = recheckParty(ctx, tx, p, rankEditor, false)
 	if err != nil {
 		return VoidResponse{}, err
+	}
+	if !tallyWriterAllowed(locked.RecordingMode, p.Role) {
+		return VoidResponse{}, ErrOneWayReadOnly
 	}
 	if !sameCreditVault(selectedParty, p) {
 		return VoidResponse{}, ErrNotFound

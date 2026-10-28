@@ -230,6 +230,8 @@ function reset() {
   fixture?.close();
   fixture = new Database(":memory:");
   fixture.exec(`CREATE TABLE vaults(id TEXT PRIMARY KEY,currency TEXT);
+    CREATE TABLE users(id TEXT PRIMARY KEY,display_name TEXT,is_local_self INTEGER);
+    INSERT INTO users VALUES('self','Synthetic writer',1);
     CREATE TABLE relationships(id TEXT PRIMARY KEY,vault_id TEXT,user_b_id TEXT,archived_at INTEGER,created_at INTEGER);
     INSERT INTO vaults VALUES('${VAULT}','AFN');
     INSERT INTO relationships VALUES('${REL}','${VAULT}','${PERSON}',NULL,1);`);
@@ -303,6 +305,124 @@ async function test(name: string, run: () => Promise<void>) {
   }
 }
 async function main() {
+  await test("one-way recipient cannot append, cancel, review or clear tallies, including stale-route calls", async () => {
+    const link = await seedLink("one-way", {
+      recording_mode: "notify_one_way",
+      recording_mode_known: 1,
+      role: "b",
+      closed_at: null,
+    });
+    seedEntry(link, "creator-record", "a", "recorded");
+    const before = () =>
+      ["tab_links", "tab_entries", "tab_outbox", "tab_failed_ops", "tab_settlements"].map((table) =>
+        fixture.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all(),
+      );
+    const frozen = before();
+    const readOnly = (error: unknown) =>
+      error instanceof errors.TabApiError &&
+      error.status === 403 &&
+      error.code === "one_way_read_only";
+    await assert.rejects(flows.addTabEntry(PERSON, "debt", 50, "stale add screen"), readOnly);
+    await assert.rejects(flows.addTabEntry(PERSON, "payment", 25, null), readOnly);
+    await assert.rejects(flows.voidEntry(link, "creator-record"), readOnly);
+    await assert.rejects(flows.settleSharedTab(link, "clear"), readOnly);
+    for (const review of [
+      () => flows.acceptEntry(link, "creator-record"),
+      () => flows.disputeEntry(link, "creator-record", ""),
+    ])
+      await assert.rejects(
+        review,
+        (error: unknown) =>
+          error instanceof errors.TabApiError && error.code === "review_not_required",
+      );
+    assert.deepEqual(
+      before(),
+      frozen,
+      "denied recipient actions never alter cached money or queue intent",
+    );
+    assert.deepEqual(synced, [], "read-only denial happens before sync or any server mutation");
+    assert.deepEqual(marked, [], "a denied action never claims a review");
+  });
+  await test("one-way creator can queue both transfer directions while unsent amounts stay unrecorded", async () => {
+    const link = await seedLink("one-way", {
+      recording_mode: "notify_one_way",
+      role: "a",
+      closed_at: null,
+    });
+    online = false;
+    for (const [type, direction] of [
+      ["debt", "a_to_b"],
+      ["payment", "b_to_a"],
+    ] as const) {
+      const added = await flows.addTabEntry(PERSON, type, 12.34, "Creator entry");
+      const queued = fixture
+        .prepare("SELECT payload FROM tab_outbox WHERE id=?")
+        .get(added.entryId) as { payload: string };
+      assert.equal(JSON.parse(queued.payload).direction, direction);
+      const row = fixture
+        .prepare("SELECT status,local_pending,amount_minor FROM tab_entries WHERE id=?")
+        .get(added.entryId);
+      assert.deepEqual(row, { status: "pending", local_pending: 1, amount_minor: 1234 });
+    }
+    assert.equal(count("tab_outbox"), 2);
+    assert.equal(count("tab_entries"), 2);
+    assert.equal((await tabsDb.getTabLink(link.tab_id))?.recording_mode, "notify_one_way");
+  });
+  await test("one-way creator cancellation waits for the server and keeps an audit trail", async () => {
+    const link = await seedLink("one-way", {
+      recording_mode: "notify_one_way",
+      role: "a",
+      closed_at: null,
+    });
+    seedEntry(link, "own-record", "a", "recorded");
+    let cancelled = false;
+    syncStep = async (id) => {
+      const queued = fixture
+        .prepare("SELECT id,op,payload FROM tab_outbox WHERE tab_id=?")
+        .get(id) as { id: string; op: string; payload: string };
+      assert.equal(queued.op, "void");
+      assert.equal(JSON.parse(queued.payload).entry_id, "own-record");
+      const original = fixture
+        .prepare("SELECT status,voided_by_entry_id FROM tab_entries WHERE id='own-record'")
+        .get();
+      assert.deepEqual(
+        original,
+        { status: "recorded", voided_by_entry_id: null },
+        "a local request cannot optimistically erase recorded money",
+      );
+      fixture
+        .prepare(
+          "UPDATE tab_entries SET voided_by_entry_id='confirmed-withdrawal',rev=6 WHERE id='own-record'",
+        )
+        .run();
+      fixture.prepare("DELETE FROM tab_outbox WHERE id=?").run(queued.id);
+      cancelled = true;
+    };
+    await flows.voidEntry(link, "own-record");
+    assert.equal(cancelled, true);
+    assert.equal(count("tab_outbox"), 0);
+    assert.deepEqual(
+      fixture
+        .prepare("SELECT status,voided_by_entry_id FROM tab_entries WHERE id='own-record'")
+        .get(),
+      { status: "recorded", voided_by_entry_id: "confirmed-withdrawal" },
+    );
+    assert.equal(count("tab_entries"), 1, "the original record remains as cancellation evidence");
+  });
+  await test("unknown recording mode never becomes a writable legacy-review link", async () => {
+    const link = await seedLink("future", { closed_at: null });
+    // Simulate an older backup containing future metadata, bypassing the
+    // strict current upsert boundary that already rejects this mode.
+    fixture.prepare("UPDATE tab_links SET recording_mode='future_mode'").run();
+    link.recording_mode = "future_mode" as TabLink["recording_mode"];
+    const before = fixture.prepare("SELECT * FROM tab_links").all();
+    await assert.rejects(flows.addTabEntry(PERSON, "debt", 1, null));
+    await assert.rejects(flows.voidEntry(link, "anything"));
+    await assert.rejects(flows.settleSharedTab(link, "clear"));
+    assert.equal(count("tab_outbox"), 0);
+    assert.equal(count("tab_entries"), 0);
+    assert.deepEqual(fixture.prepare("SELECT * FROM tab_links").all(), before);
+  });
   await test("closed pending entries permit one final authorized review/cancellation for either closure reason", async () => {
     for (const reason of [null, "account_deleted"] as const)
       for (const action of ["accept", "dispute", "void"] as const) {
@@ -621,9 +741,6 @@ async function main() {
     );
   });
   await test("unidentified restored modes block new local financial intent until refreshed", async () => {
-    fixture.exec(
-      "CREATE TABLE users(display_name TEXT,is_local_self INTEGER); INSERT INTO users VALUES('A',1)",
-    );
     const link = await seedLink("unknown", { closed_at: null, recording_mode_known: 0 });
     const before = count("tab_entries");
     await assert.rejects(

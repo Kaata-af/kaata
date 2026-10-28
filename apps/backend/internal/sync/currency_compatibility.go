@@ -147,7 +147,7 @@ func validateCurrencyPayload(event PushEvent) error {
 }
 
 func (h *Handler) CurrencyCapabilities(w http.ResponseWriter, r *http.Request) {
-	httpx.JSON(w, http.StatusOK, map[string]bool{"multi_currency": true, "person_default_currency": true, "entry_currency_edit": true, "notification_only_tallies": true, "notification_preferences": true})
+	httpx.JSON(w, http.StatusOK, map[string]bool{"multi_currency": true, "person_default_currency": true, "entry_currency_edit": true, "notification_only_tallies": true, "one_way_tallies": true, "notification_preferences": true})
 }
 
 func isEntryCurrencyEdit(eventType string, raw json.RawMessage) bool {

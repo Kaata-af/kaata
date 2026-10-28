@@ -87,10 +87,16 @@ const en = {
   "tab.recordingMode.label": "Tally recording",
   "tab.recordingMode.notify": "Notifications only",
   "tab.recordingMode.notifyHint":
-    "Tallies are recorded immediately. The other person does not need to approve each one.",
+    "Both people can add tallies. They are recorded immediately without approval from the other person.",
   "tab.recordingMode.review": "Require approval",
   "tab.recordingMode.reviewHint":
-    "Each tally stays pending until the other person accepts or rejects it.",
+    "Both people can add tallies. Each tally stays pending until the other person accepts or rejects it.",
+  "tab.recordingMode.oneWay": "Only I can add",
+  "tab.recordingMode.oneWayFixed": "Only the link creator can add",
+  "tab.recordingMode.oneWayHint":
+    "You record tallies immediately. The other person can view the account and receive notifications without approving each tally.",
+  "tab.recordingMode.oneWayReadOnly":
+    "Only the person who created this link can add tallies. You can view the account and receive notifications.",
   "tab.recordingMode.fixed": "This link uses {mode}. To change it, unlink and create a new link.",
   "tab.status.recorded": "Recorded without approval",
   "export.record.recordedBalance": "Recorded without approval",
@@ -99,8 +105,12 @@ const en = {
   "tab.link.serverUpdate": "This feature needs a server update. Please try again later.",
   "tab.link.confirm.notifyBody":
     "{name} will see this account and receive updates. Tallies are recorded without per-tally approval. The current balance becomes one opening tally when they join.",
+  "tab.link.confirm.oneWayBody":
+    "Only you can add tallies. {name} can view this account and receive updates without approving each tally. The current balance becomes one opening tally when they join.",
   "tab.invite.notifyMessage":
     "{name} shares Kaata updates with you. Join once to see recorded tallies and receive notifications. You do not need to approve each tally:\n{url}",
+  "tab.invite.oneWayMessage":
+    "{name} shares a Kaata account with you. Only they can add tallies. Join once to view the account and receive notifications, without approving each tally:\n{url}",
   "selection.start": "Select",
   "selection.contacts": "Select contacts",
   "selection.tallies": "Select tallies",
@@ -2394,9 +2404,16 @@ const fa: Partial<Record<Key, string>> = {
   "tab.recordingMode.label": "شیوۀ ثبت حساب",
   "tab.recordingMode.notify": "فقط اطلاع‌رسانی",
   "tab.recordingMode.notifyHint":
-    "ثبت‌ها فوری در حساب می‌آیند. طرف مقابل نیاز نیست هر ثبت را تأیید کند.",
+    "هر دو طرف می‌توانند ثبت اضافه کنند. ثبت‌ها فوری و بدون نیاز به تأیید طرف مقابل در حساب می‌آیند.",
   "tab.recordingMode.review": "نیاز به تأیید",
-  "tab.recordingMode.reviewHint": "هر ثبت تا تأیید یا رد طرف مقابل در انتظار می‌ماند.",
+  "tab.recordingMode.reviewHint":
+    "هر دو طرف می‌توانند ثبت اضافه کنند. هر ثبت تا تأیید یا رد طرف مقابل در انتظار می‌ماند.",
+  "tab.recordingMode.oneWay": "فقط من ثبت می‌کنم",
+  "tab.recordingMode.oneWayFixed": "فقط سازندۀ اتصال ثبت می‌کند",
+  "tab.recordingMode.oneWayHint":
+    "شما ثبت‌ها را فوری درج می‌کنید. طرف مقابل فقط حساب را می‌بیند و اطلاعیه می‌گیرد؛ نیازی به تأیید هر ثبت نیست.",
+  "tab.recordingMode.oneWayReadOnly":
+    "فقط سازندۀ این اتصال می‌تواند ثبت اضافه کند. شما می‌توانید حساب را ببینید و اطلاعیه بگیرید.",
   "tab.recordingMode.fixed":
     "این اتصال از «{mode}» استفاده می‌کند. برای تغییر آن، اتصال را قطع کرده و دوباره وصل شوید.",
   "tab.status.recorded": "ثبت‌شده، بدون نیاز به تأیید",
@@ -2406,8 +2423,12 @@ const fa: Partial<Record<Key, string>> = {
   "tab.link.serverUpdate": "این قابلیت به به‌روزرسانی سرور نیاز دارد. بعداً دوباره کوشش کنید.",
   "tab.link.confirm.notifyBody":
     "{name} این حساب و تغییرات آن را می‌بیند. ثبت‌ها به تأیید جداگانه نیاز ندارند. با پیوستن او، ماندۀ فعلی به‌عنوان یک ثبت آغازین درج می‌شود.",
+  "tab.link.confirm.oneWayBody":
+    "فقط شما می‌توانید ثبت اضافه کنید. {name} حساب و تغییرات آن را می‌بیند و نیازی به تأیید هر ثبت ندارد. با پیوستن او، ماندۀ فعلی به‌عنوان یک ثبت آغازین درج می‌شود.",
   "tab.invite.notifyMessage":
     "{name} تغییرات کاتا را با شما شریک می‌سازد. یک بار بپیوندید تا ثبت‌ها را ببینید و اطلاعیه بگیرید. نیاز نیست هر ثبت را تأیید کنید:\n{url}",
+  "tab.invite.oneWayMessage":
+    "{name} یک حساب کاتا را با شما شریک می‌سازد. فقط او می‌تواند ثبت اضافه کند. یک بار بپیوندید تا حساب را ببینید و بدون نیاز به تأیید هر ثبت، اطلاعیه بگیرید:\n{url}",
   "selection.start": "انتخاب",
   "selection.contacts": "انتخاب مخاطبین",
   "selection.tallies": "انتخاب ثبت‌ها",
@@ -4424,9 +4445,17 @@ const ps: Record<Key, string> = {
   "tab.notify.detail.recorded": "{name} یو مبلغ ({amount}) ثبت کړ.",
   "tab.recordingMode.label": "د حساب ثبتولو ډول",
   "tab.recordingMode.notify": "یوازې خبر ورکول",
-  "tab.recordingMode.notifyHint": "ثبتونه سمدستي په حساب کې راځي. بل کس اړ نه دی هر ثبت تایید کړي.",
+  "tab.recordingMode.notifyHint":
+    "دواړه کسان ثبتونه زیاتولای شي. ثبتونه د بل کس له تایید پرته سمدستي په حساب کې راځي.",
   "tab.recordingMode.review": "تایید ته اړتیا",
-  "tab.recordingMode.reviewHint": "هر ثبت د بل کس تر منلو یا ردولو پورې په تمه پاتې کېږي.",
+  "tab.recordingMode.reviewHint":
+    "دواړه کسان ثبتونه زیاتولای شي. هر ثبت د بل کس تر منلو یا ردولو پورې په تمه پاتې کېږي.",
+  "tab.recordingMode.oneWay": "یوازې زه ثبتونه زیاتوم",
+  "tab.recordingMode.oneWayFixed": "یوازې د اړیکې جوړوونکی ثبتونه زیاتوي",
+  "tab.recordingMode.oneWayHint":
+    "تاسو ثبتونه سمدستي لیکئ. بل کس حساب کتلای شي او خبرتیاوې ترلاسه کوي؛ د هر ثبت تایید ته اړتیا نشته.",
+  "tab.recordingMode.oneWayReadOnly":
+    "یوازې د دې اړیکې جوړوونکی ثبتونه زیاتولای شي. تاسو حساب کتلای شئ او خبرتیاوې ترلاسه کوئ.",
   "tab.recordingMode.fixed": "دا اړیکه «{mode}» کاروي. د بدلولو لپاره یې پرې او بیا ونښلوئ.",
   "tab.status.recorded": "بې له تاییده ثبت شوی",
   "export.record.recordedBalance": "بې له تاییده ثبت شوی",
@@ -4435,8 +4464,12 @@ const ps: Record<Key, string> = {
   "tab.link.serverUpdate": "دا ځانګړنه د سرور تازه کولو ته اړتیا لري. وروسته بیا هڅه وکړئ.",
   "tab.link.confirm.notifyBody":
     "{name} دا حساب او بدلونونه یې ویني. هر ثبت جلا تایید ته اړتیا نه لري. د هغه په یوځای کېدو اوسنی پاتې حساب د پیل په یوه ثبت کې راځي.",
+  "tab.link.confirm.oneWayBody":
+    "یوازې تاسو ثبتونه زیاتولای شئ. {name} حساب او بدلونونه یې ګوري او د هر ثبت تایید ته اړتیا نه لري. د هغه په یوځای کېدو اوسنی پاتې حساب د پیل په یوه ثبت کې راځي.",
   "tab.invite.notifyMessage":
     "{name} د کاټا بدلونونه درسره شریکوي. یو ځل یوځای شئ، ثبتونه وګورئ او خبرتیاوې ترلاسه کړئ. د هر ثبت تایید ته اړتیا نشته:\n{url}",
+  "tab.invite.oneWayMessage":
+    "{name} یو کاټا حساب درسره شریکوي. یوازې هغه ثبتونه زیاتولای شي. یو ځل یوځای شئ، حساب وګورئ او د هر ثبت له تایید پرته خبرتیاوې ترلاسه کړئ:\n{url}",
   "onboarding.subtitle": "ستاسو او د هغو خلکو ترمنځ یوه شخصي کاټه چې باور پرې لرئ.",
   "onboarding.name.label": "ستاسې نوم",
   "onboarding.name.placeholder": "سلطان",

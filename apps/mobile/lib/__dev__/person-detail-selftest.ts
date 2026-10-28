@@ -131,6 +131,7 @@ let platform = "android",
 let calendar: Calendar = "gregorian";
 let canCreate = true,
   canAmend = true;
+let enabledEntryCurrencies = ["AFN", "USD"];
 const deletedEntries: string[] = [];
 const deletionScopes: unknown[] = [];
 let deleteEntryImpl: (id: string) => Promise<void> = async () => {};
@@ -354,6 +355,7 @@ const mocks: Record<string, any> = {
     getCurrencyLabel: (code: string) => code,
     getCurrencySymbol: (code: string) =>
       (({ AFN: "؋", USD: "$" }) as Record<string, string>)[code] ?? code,
+    getEnabledCurrencies: async () => enabledEntryCurrencies,
     useCurrency: () => selectedCurrency,
     setCurrentCurrency: (code: string) => {
       selectedCurrency = code;
@@ -434,9 +436,14 @@ const mocks: Record<string, any> = {
     },
     resolveShareLang: (value: string) => value,
     t: (key: string, values?: Record<string, any>) =>
-      balanceLabelLocale && (key === "tab.balance.confirmed" || key === "tab.balance.pending")
+      balanceLabelLocale &&
+      (key === "tab.balance.confirmed" ||
+        key === "tab.balance.recorded" ||
+        key === "tab.balance.pending")
         ? translations.tIn(balanceLabelLocale, key, values)
-        : key + (values?.count == null ? "" : `:${values.count}`),
+        : key === "tab.recordingMode.fixed"
+          ? `${key}:${values?.mode}`
+          : key + (values?.count == null ? "" : `:${values.count}`),
   },
   "../../lib/jalali": { formatSettlementDate: () => "fixture date" },
   "../../lib/calendar": { useCalendar: () => calendar },
@@ -462,6 +469,7 @@ const mocks: Record<string, any> = {
   "../../lib/selection-summary": { summarizeSelectionEntries },
   "../../lib/multi-currency-view": multiCurrencyView,
   "../../lib/tabs/link-status": require("../tabs/link-status"),
+  "../../lib/tabs/recording-mode": require("../tabs/recording-mode"),
   "../../lib/recent-entry": {
     takeSavedEntry: () => {
       const taken = justSaved;
@@ -664,6 +672,7 @@ function fixture(shared = false) {
   calendar = "gregorian";
   canCreate = true;
   canAmend = true;
+  enabledEntryCurrencies = ["AFN", "USD"];
   deletedEntries.length = 0;
   deletionScopes.length = 0;
   deleteEntryImpl = async () => {};
@@ -2203,7 +2212,142 @@ async function unjoinedInvitationLedgerTests() {
   );
 }
 
+async function oneWayAccountUITests() {
+  for (const os of ["android", "ios"])
+    for (const role of ["a", "b"] as const) {
+      fixture(true);
+      platform = os;
+      rtl = os === "android";
+      enabledEntryCurrencies = ["AFN"];
+      link = { ...link, role, recording_mode: "notify_one_way", recording_mode_known: 1 };
+      person.balance = 0;
+      person.tab_pending_count = 0;
+      markers = [];
+      entries = [
+        tally("gave", "ordinary tally", 10, 400, {
+          tab_id: link.tab_id,
+          seq: 1,
+          status: "recorded",
+          kind: "entry",
+          by: "me",
+          recording_mode: "notify_one_way",
+        }),
+        tally(
+          "received",
+          "ordinary payment",
+          10,
+          300,
+          {
+            tab_id: link.tab_id,
+            seq: 2,
+            status: "recorded",
+            kind: "entry",
+            by: "them",
+            recording_mode: "notify_one_way",
+          },
+          "payment",
+        ),
+      ];
+      await flush();
+      assert.equal(
+        words(tree).includes("person.action.iGave"),
+        role === "a",
+        "only the creator gets add controls",
+      );
+      assert.ok(
+        words(tree).includes("tab.balance.recorded"),
+        "one-way books describe recorded money",
+      );
+      assert.ok(
+        !words(tree).includes("tab.balance.confirmed"),
+        "one-way books never imply peer confirmation",
+      );
+      assert.ok(
+        nodes(tree).some(
+          (node) =>
+            node.type === "BottomSheet" &&
+            node.props.description === "tab.recordingMode.fixed:tab.recordingMode.oneWayFixed",
+        ),
+        "management names the creator-only contract rather than the approval mode",
+      );
+      assert.equal(
+        nodes(tree).some((node) => node.props.testID === "customer-one-way-read-only"),
+        role === "b",
+      );
+      assert.equal(
+        nodes(tree).some((node) => node.props.accessibilityLabel?.startsWith("person.settle.row")),
+        role === "a",
+      );
+      for (const row of tallies()) {
+        assert.equal(typeof row.props.onCancel, role === "a" ? "function" : "undefined");
+        assert.equal(typeof row.props.onAccept, role === "a" ? "function" : "undefined");
+      }
+      assert.ok(find("TextInput"), "view-only recipients keep search");
+      const actions = find("OverflowMenu")!.props.actions;
+      for (const label of [
+        "reminders.title",
+        "personEdit.export",
+        "notificationSettings.contact.title",
+      ])
+        assert.ok(
+          actions.some((action: any) => action.label === label),
+          `view-only recipients keep ${label}`,
+        );
+      assert.ok(pingButton(), "view-only recipients can still send a statement");
+      unmount();
+    }
+  for (const locale of ["en", "fa", "ps"] as const) {
+    fixture(true);
+    balanceLabelLocale = locale;
+    link = { ...link, role: "b", recording_mode: "notify_one_way", recording_mode_known: 1 };
+    person = { ...person, balance: 30, tab_confirmed_balance: 999, tab_pending_count: 0 };
+    await flush();
+    assert.ok(
+      words(tree).includes(
+        translations.tIn(locale, "tab.balance.recorded", {
+          amount: "+amount:30",
+          currency: "AFN",
+        }),
+      ),
+      `${locale}: the recorded balance uses current money, not the peer-approved balance`,
+    );
+    assert.ok(!words(tree).includes("999"));
+    unmount();
+  }
+  fixture(true);
+  link = { ...link, role: "b", recording_mode: "notify_one_way", recording_mode_known: 1 };
+  enabledEntryCurrencies = ["AFN", "USD"];
+  const afn = { ...person, currency: "AFN" },
+    usd = { ...person, currency: "USD", balance: 3 };
+  person = { ...afn, currency_balances: [afn, usd] };
+  currencyPeriods.set("AFN", { tab: link, financialTab: link });
+  currencyPeriods.set("USD", {
+    tab: null,
+    financialTab: null,
+    settlement: { count: 0, lastSettledAtMs: null },
+  });
+  await flush();
+  assert.equal(
+    words(tree).includes("person.action.iGave"),
+    true,
+    "a read-only AFN link does not block the unlinked USD account",
+  );
+  enabledEntryCurrencies = ["AFN"];
+  await ledgerRefresh();
+  await flush();
+  assert.equal(
+    words(tree).includes("person.action.iGave"),
+    false,
+    "disabled foreign currencies cannot reopen tally creation",
+  );
+  unmount();
+  console.log(
+    "PASS: one-way creator/recipient monetary controls, read-only disclosure, retained search/reminder/export and per-currency permissions on Android/iOS",
+  );
+}
+
 async function main() {
+  await oneWayAccountUITests();
   await unjoinedInvitationLedgerTests();
   await singleCurrencyBalanceTests();
   {

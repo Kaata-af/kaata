@@ -117,7 +117,7 @@ async function review(action: string, data: unknown, notificationId: string) {
     if (
       !link ||
       link.role !== parsed.role ||
-      link.recording_mode === "notify" ||
+      (link.recording_mode ?? "review") !== "review" ||
       link.recording_mode_known === 0
     )
       return;
@@ -418,7 +418,7 @@ onTabApplied((ev) => {
     const { readVaultRole, canPerformAction } = await import("../use-vault-role");
     const canReview =
       canPerformAction(await readVaultRole(link.vault_id, getAccountIdSync()), "entry.amend") &&
-      link.recording_mode !== "notify" &&
+      (link.recording_mode ?? "review") === "review" &&
       link.recording_mode_known !== 0;
     for (const change of ev.changes!) {
       if (!notificationAllowed(policy, change.kind)) continue;

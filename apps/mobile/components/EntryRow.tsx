@@ -211,7 +211,7 @@ export const EntryRow = memo(function EntryRow(props: {
     !tab.local_pending &&
     tab.status === "pending" &&
     tab.recording_mode_known !== 0 &&
-    tab.recording_mode !== "notify" &&
+    (tab.recording_mode ?? "review") === "review" &&
     !!(props.onAccept || props.onReject);
   const showCancel =
     rowOpen &&

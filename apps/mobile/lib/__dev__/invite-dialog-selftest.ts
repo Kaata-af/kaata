@@ -24,6 +24,7 @@ let accountId = "account",
 const createArguments: any[] = [];
 let copied: string[] = [];
 let shares: Array<{ link: TabLink; phone: string | null; text: string }> = [];
+const invitationMessages: string[] = [];
 let openResult = true,
   copyFails = false;
 let create: () => Promise<{ link: TabLink }>;
@@ -113,7 +114,10 @@ const mocks: Record<string, any> = {
     getShareLangPref: async () => pref,
     resolveShareLang: (p: string) => (p === "auto" ? locale : p),
     t: (k: string) => k,
-    tIn: (lang: string, _key: string, vars: any) => lang + ":" + vars.name + ":" + vars.url,
+    tIn: (lang: string, key: string, vars: any) => {
+      invitationMessages.push(key);
+      return lang + ":" + vars.name + ":" + vars.url;
+    },
   },
   "../lib/tabs/db": { getTabLinkForPerson: async () => fresh },
   "../lib/tabs/link": {
@@ -174,6 +178,7 @@ function reset(phone: string | null, preference = "auto", existing: TabLink | nu
   locale = "fa";
   createCalls = dismissals = linkedCalls = 0;
   shares = [];
+  invitationMessages.length = 0;
   copied = [];
   openResult = true;
   copyFails = false;
@@ -401,6 +406,34 @@ async function main() {
     createArguments[0][1].recordingMode,
     "review",
     "explicit approval mode remains available",
+  );
+  for (const lang of ["en", "fa", "ps"]) {
+    reset("+93700000000");
+    locale = lang;
+    render();
+    await settle();
+    assert.equal(nodes(tree).filter((node) => node.props.accessibilityRole === "radio").length, 3);
+    const oneWay = nodes(tree).find(
+      (node) => node.props.accessibilityLabel === "tab.recordingMode.oneWay",
+    )!;
+    oneWay.props.onPress();
+    await settle();
+    assert.ok(nodes(tree).some((node) => node.props.children === "tab.link.confirm.oneWayBody"));
+    create = async () => ({ link: { ...fresh, recording_mode: "notify_one_way" } });
+    await tap("tab.link.whatsapp");
+    assert.equal(createArguments[0][1].recordingMode, "notify_one_way");
+    assert.deepEqual(invitationMessages, ["tab.invite.oneWayMessage"]);
+    assert.equal(shares[0].text, lang + ":Shop:" + fresh.invite_url);
+  }
+  reset(null, "auto", { ...fresh, recording_mode: "notify_one_way" });
+  await settle();
+  assert.equal(
+    nodes(tree).filter((node) => node.props.accessibilityRole === "radiogroup").length,
+    0,
+    "an existing one-way link cannot be silently switched to another mode",
+  );
+  console.log(
+    "PASS: three recording modes, creator-only disclosure and fixed existing links in EN/FA/PS",
   );
   for (const owner of ["account", "vault"]) {
     reset("+93700000000");

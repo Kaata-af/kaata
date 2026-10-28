@@ -46,3 +46,25 @@ func TestNotificationOnlyInvitationExplainsRecordingWithoutAcceptance(t *testing
 		}
 	}
 }
+
+func TestOneWayInvitationDisclosesWhoCanRecord(t *testing.T) {
+	for _, tc := range []struct{ lang, required string }{
+		{"en", "Only the person who created this link can add tallies"},
+		{"fa", "فقط سازندهٔ این ارتباط"},
+		{"ps", "یوازې د دې اړیکې جوړوونکی"},
+	} {
+		var notice strings.Builder
+		data := viewData{Token: "synthetic", Lang: tc.lang, RTL: tc.lang != "en", RecordingMode: "notify_one_way"}
+		if err := viewTmpl.Execute(&notice, data); err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(notice.String(), tc.required) {
+			t.Fatalf("%s invitation did not explain the read-only recipient", tc.lang)
+		}
+		for _, private := range []string{"PRIVATE_NAME", "recorded_balance", "confirmed_balance", "/v1/tabs", "fetch("} {
+			if strings.Contains(notice.String(), private) {
+				t.Fatalf("invitation disclosed financial detail %s", private)
+			}
+		}
+	}
+}

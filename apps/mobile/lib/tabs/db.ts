@@ -40,6 +40,7 @@ import type {
 } from "./types";
 import { wireToMinor } from "./wire";
 import { historyReady, privateEntryCurrentSql, unjoinedInvitationSql } from "./history";
+import { isNotificationOnlyMode, isTabRecordingMode } from "./recording-mode";
 
 // Anything longer is a stack trace, not a diagnosis; the App health report
 // shows this verbatim and the column is TEXT with no other reader.
@@ -121,6 +122,23 @@ export async function getTabLinkForPerson(
     currency,
   );
   return row ?? null;
+}
+
+/** Read a contact's open links together so forms do not query once per currency.
+ * Newest relationships come first, matching getTabLinkForPerson's priority. */
+export async function listOpenTabLinksForPerson(personId: string): Promise<TabLink[]> {
+  const vaultId = getActiveVaultIdSyncMaybe();
+  if (!vaultId) return [];
+  const db = await getDb();
+  return db.getAllAsync<TabLink>(
+    `SELECT tl.* FROM tab_links tl
+       JOIN relationships r ON r.id=tl.relationship_id AND r.vault_id=tl.vault_id
+      WHERE r.user_b_id=? AND r.vault_id=? AND r.archived_at IS NULL
+        AND tl.closed_at IS NULL
+      ORDER BY r.created_at DESC, tl.linked_at DESC`,
+    personId,
+    vaultId,
+  );
 }
 
 /**
@@ -257,10 +275,12 @@ export async function listTabLinks(
   return db.getAllAsync<TabLink>(sql, ...args);
 }
 
-/** Insert or overwrite a link row wholesale (the caller owns every column). */
+/** Update link metadata without changing an already confirmed recording contract. */
 export async function upsertTabLink(link: TabLink): Promise<void> {
+  if (link.recording_mode != null && !isTabRecordingMode(link.recording_mode))
+    throw new TabApiError(426, "recording_upgrade_required", "Unknown shared tally recording mode");
   const db = await getDb();
-  await db.runAsync(
+  const result = await db.runAsync(
     `INSERT INTO tab_links (tab_id, vault_id, relationship_id, role, currency, party_token,
                             my_label, other_label, other_joined_at, invite_url, rev, closed_at,
                             linked_at, last_synced_at, last_error, history_order, unjoined_invitation, recording_mode, recording_mode_known)
@@ -274,7 +294,8 @@ export async function upsertTabLink(link: TabLink): Promise<void> {
        last_synced_at = excluded.last_synced_at, last_error = excluded.last_error,
        history_order = COALESCE(excluded.history_order, tab_links.history_order),
        unjoined_invitation = excluded.unjoined_invitation, recording_mode = excluded.recording_mode,
-       recording_mode_known = excluded.recording_mode_known`,
+       recording_mode_known = CASE WHEN tab_links.recording_mode_known=1 THEN 1 ELSE excluded.recording_mode_known END
+     WHERE tab_links.recording_mode_known=0 OR tab_links.recording_mode=excluded.recording_mode`,
     link.tab_id,
     link.vault_id,
     link.relationship_id,
@@ -295,6 +316,12 @@ export async function upsertTabLink(link: TabLink): Promise<void> {
     link.recording_mode ?? "review",
     link.recording_mode_known ?? 1,
   );
+  if (result.changes === 0)
+    throw new TabApiError(
+      503,
+      "notification_only_unsupported",
+      "A cache update cannot change this shared account's recording mode",
+    );
 }
 
 /** Record (or clear, with null) the last sync failure for the App health line. */
@@ -387,9 +414,11 @@ export async function upsertTabFromWire(
   resp: TabResponse,
   opts: { origin?: TabAppliedEvent["origin"]; advanceCursor?: boolean } = {},
 ): Promise<{ newFromThem: number; statusChangedOnMine: number }> {
+  if (resp.tab.recording_mode != null && !isTabRecordingMode(resp.tab.recording_mode))
+    throw new TabApiError(426, "recording_upgrade_required", "Unknown shared tally recording mode");
   if (
     resp.entries.some((entry) => entry.status === "recorded") &&
-    resp.tab.recording_mode !== "notify"
+    !isNotificationOnlyMode(resp.tab.recording_mode)
   )
     throw new TabApiError(
       503,
@@ -426,24 +455,30 @@ export async function upsertTabFromWire(
       resp.tab.currency,
       link.party_token,
       link.linked_at,
-      link.recording_mode ?? "review",
-      link.recording_mode_known ?? 1,
+      resp.tab.recording_mode ?? link.recording_mode ?? "review",
+      resp.tab.recording_mode != null ? 1 : (link.recording_mode_known ?? 1),
     );
     const stored = await db.getFirstAsync<TabLink>(
       `SELECT * FROM tab_links WHERE tab_id = ?`,
       link.tab_id,
     );
     if (!stored) throw new Error(`tab_links row missing after upsert: ${link.tab_id}`);
-    if (stored.recording_mode === "notify" && resp.tab.recording_mode !== "notify")
+    if (
+      stored.recording_mode_known !== 0 &&
+      (isNotificationOnlyMode(stored.recording_mode) || resp.tab.recording_mode != null) &&
+      resp.tab.recording_mode !== (stored.recording_mode ?? "review")
+    )
       throw new TabApiError(
         503,
         "notification_only_unsupported",
-        "A legacy response cannot downgrade notification-only history",
+        "A response cannot change this shared account's recording mode",
       );
     const recordingMode = resp.tab.recording_mode ?? stored.recording_mode ?? "review";
     if (
-      (recordingMode !== "review" && recordingMode !== "notify") ||
-      resp.entries.some((entry) => entry.status === "recorded" && recordingMode !== "notify")
+      !isTabRecordingMode(recordingMode) ||
+      resp.entries.some(
+        (entry) => entry.status === "recorded" && !isNotificationOnlyMode(recordingMode),
+      )
     )
       throw new TabApiError(
         503,

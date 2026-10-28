@@ -897,42 +897,92 @@ async function main() {
       false,
     );
   });
-  await test("recorded fallback alerts honor previews and never offer approval", async () => {
+  for (const recordingMode of ["notify", "notify_one_way"] as const)
+    await test(`${recordingMode} fallback alerts honor previews and never offer approval`, async () => {
+      state.currentState = "background";
+      links = [{ ...link, recording_mode: recordingMode }];
+      currentEntry = {
+        created_by: "a",
+        status: "recorded",
+        amount_minor: 12345,
+        direction: "a_to_b",
+        author_name: "Private Person",
+        author_account_id: "peer",
+      };
+      for (const [previews, body] of [
+        ["full", "tab.notify.detail.recorded"],
+        ["name", "notificationSettings.alert.tally"],
+        ["private", "notificationSettings.alert.private"],
+      ] as const) {
+        deliveryPolicy = { ...deliveryPolicy, previews, sound: false, vibration: false };
+        emitApplied({
+          tabId: TAB,
+          origin: "pull",
+          changes: [{ entryId: ENTRY, rev: 2, kind: "entry_created" }],
+        });
+        await settled();
+        assert.equal(scheduled.at(-1).content.body, body);
+        assert.equal(scheduled.at(-1).content.categoryIdentifier, undefined);
+        assert.equal(scheduled.at(-1).content.sound, undefined);
+        assert.equal(scheduled.at(-1).trigger.channelId, "tab-updates-s0-v0");
+        assert.ok(!JSON.stringify(scheduled.at(-1).content.data).includes("Private Person"));
+      }
+      for (const action of ["tab-accept", "tab-reject"]) {
+        await task({ data: response(action) });
+        await responseListener(response(action));
+      }
+      await settled();
+      assert.equal(
+        queued.size,
+        0,
+        "stale notification buttons cannot review tallies without an approval requirement",
+      );
+      assert.deepEqual(inboxMarks, [], "ignoring an inapplicable action does not mark a review");
+      assert.ok(!calls.includes("sync"));
+    });
+  await test("one-way, unknown and unresolved modes ignore pending-tally review buttons", async () => {
     state.currentState = "background";
-    links = [{ ...link, recording_mode: "notify" }];
-    currentEntry = {
-      created_by: "a",
-      status: "recorded",
-      amount_minor: 12345,
-      direction: "a_to_b",
-      author_name: "Private Person",
-      author_account_id: "peer",
-    };
-    for (const [previews, body] of [
-      ["full", "tab.notify.detail.recorded"],
-      ["name", "notificationSettings.alert.tally"],
-      ["private", "notificationSettings.alert.private"],
-    ] as const) {
-      deliveryPolicy = { ...deliveryPolicy, previews, sound: false, vibration: false };
+    for (const mode of [
+      { recording_mode: "notify_one_way" },
+      { recording_mode: "future_unknown" },
+      { recording_mode: "review", recording_mode_known: 0 },
+    ]) {
+      links = [{ ...link, ...mode } as TabLink];
+      currentEntry = {
+        created_by: "a",
+        status: "pending",
+        amount_minor: 12500,
+        direction: "a_to_b",
+        author_account_id: "peer",
+      };
       emitApplied({
         tabId: TAB,
         origin: "pull",
         changes: [{ entryId: ENTRY, rev: 2, kind: "entry_created" }],
       });
       await settled();
-      assert.equal(scheduled.at(-1).content.body, body);
       assert.equal(scheduled.at(-1).content.categoryIdentifier, undefined);
-      assert.equal(scheduled.at(-1).content.sound, undefined);
-      assert.equal(scheduled.at(-1).trigger.channelId, "tab-updates-s0-v0");
-      assert.ok(!JSON.stringify(scheduled.at(-1).content.data).includes("Private Person"));
+      for (const action of ["tab-accept", "tab-reject"]) {
+        await task({ data: response(action) });
+        await responseListener(response(action));
+      }
+      await settled();
+      assert.equal(queued.size, 0, "notification metadata never grants review rights");
+      assert.deepEqual(inboxMarks, []);
     }
-    await responseListener(response("tab-accept"));
-    await settled();
-    assert.equal(
-      queued.size,
-      0,
-      "a stale notification button cannot approve a notify-mode opening",
-    );
+  });
+  await test("iOS discards stale native reviews for a read-only notification recipient", async () => {
+    platform.OS = "ios";
+    links = [{ ...link, recording_mode: "notify_one_way" }];
+    nativePending = [
+      { id: "old-accept", action: "tab-accept", data: payload },
+      { id: "old-reject", action: "tab-reject", data: payload },
+    ];
+    await notify.ensureTabNotificationPermission();
+    assert.equal(nativePending.length, 0, "inapplicable native handoffs are completed once");
+    assert.equal(queued.size, 0);
+    assert.deepEqual(inboxMarks, []);
+    assert.ok(!calls.includes("sync"));
   });
   await test("account or privacy changes during an entry read suppress stale local alerts", async () => {
     state.currentState = "background";

@@ -1,3 +1,30 @@
+## October 28: three immutable tally recording modes
+
+Each shared link fixes its recording mode when it is created. Existing links and
+historical records are never converted by a client update or a notification
+preference change.
+
+| Mode             | Who records ordinary tallies                   | Per-tally approval                                        |
+| ---------------- | ---------------------------------------------- | --------------------------------------------------------- |
+| `review`         | Either party, within their Kaata permissions   | Required from the other party                             |
+| `notify`         | Either party, within their Kaata permissions   | None; rows become `recorded`                              |
+| `notify_one_way` | Creator side `a`, within its Kaata permissions | None; recipient side `b` views and receives notifications |
+
+The recipient must actually Join once. Both notification modes retain the same
+source-checked opening, recorded balances, credit admission, author cancellation
+audit and settled-history protection. `recorded` never fabricates acceptance or
+review evidence. The one-way recipient cannot append, cancel, accept/reject or
+settle monetary history, even through a delegated member or a direct request;
+the recipient can still manage its own label, alert settings and leave sharing.
+
+Migration `071_one_way_tallies.sql` only extends the mode constraint. New apps
+probe `one_way_tallies` and send `X-Kaata-Tab-One-Way: 1` alongside recording
+support. After authorization, one-way reads and mutations reject unaware
+clients with `426 recording_upgrade_required`; unauthorized callers retain
+`404`. Older two-way notification clients continue to work on `notify` links.
+Deploy this compatible server before distributing an app that offers one-way
+links, and retain compatible server support once such links exist.
+
 ## October 28: unused invitations preserve the private book
 
 An invitation that the other party has never joined, bound or reviewed does not

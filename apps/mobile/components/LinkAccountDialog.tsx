@@ -28,6 +28,17 @@ import { radius, TOUCH_MIN, typography } from "../lib/tokens";
 import { getCurrentCurrencyCode } from "../lib/currency";
 import { getAccountIdSync, getActiveVaultIdSyncMaybe } from "../lib/db-tx";
 
+const recordingModeLabel = {
+  notify: "tab.recordingMode.notify",
+  review: "tab.recordingMode.review",
+  notify_one_way: "tab.recordingMode.oneWay",
+} as const;
+const recordingModeHint = {
+  notify: "tab.recordingMode.notifyHint",
+  review: "tab.recordingMode.reviewHint",
+  notify_one_way: "tab.recordingMode.oneWayHint",
+} as const;
+
 /** One surface from confirmation through creation/sharing, including retries.
  * A saved phone goes straight to its WhatsApp compose window, never a chooser. */
 export function LinkAccountDialog(props: {
@@ -155,7 +166,11 @@ export function LinkAccountDialog(props: {
         // Use the object returned by creation, not the parent's stale link state.
         const text = tIn(
           language,
-          fresh.recording_mode === "notify" ? "tab.invite.notifyMessage" : "tab.invite.message",
+          fresh.recording_mode === "notify_one_way"
+            ? "tab.invite.oneWayMessage"
+            : fresh.recording_mode === "notify"
+              ? "tab.invite.notifyMessage"
+              : "tab.invite.message",
           {
             name: fresh.my_label || props.myLabel,
             url: fresh.invite_url,
@@ -179,7 +194,9 @@ export function LinkAccountDialog(props: {
       } else {
         if (target.current?.invite_url && action !== "copy") setShareFailed(true);
         setError(
-          err instanceof TabApiError && err.code === "notification_only_unsupported"
+          err instanceof TabApiError &&
+            (err.code === "notification_only_unsupported" ||
+              err.code === "one_way_tallies_unsupported")
             ? t("tab.link.serverUpdate")
             : err instanceof TabApiError && err.code === "recording_upgrade_required"
               ? t("tab.link.clientUpdate")
@@ -219,9 +236,11 @@ export function LinkAccountDialog(props: {
                 {t(
                   ready
                     ? "tab.link.readyBody"
-                    : recordingMode === "notify"
-                      ? "tab.link.confirm.notifyBody"
-                      : "tab.link.confirm.body",
+                    : recordingMode === "notify_one_way"
+                      ? "tab.link.confirm.oneWayBody"
+                      : recordingMode === "notify"
+                        ? "tab.link.confirm.notifyBody"
+                        : "tab.link.confirm.body",
                   {
                     name: props.person.name,
                   },
@@ -233,9 +252,9 @@ export function LinkAccountDialog(props: {
                     ? t("tab.recordingMode.unknown")
                     : t("tab.recordingMode.fixed", {
                         mode: t(
-                          (target.current?.recording_mode ?? "review") === "notify"
-                            ? "tab.recordingMode.notify"
-                            : "tab.recordingMode.review",
+                          target.current?.recording_mode === "notify_one_way"
+                            ? "tab.recordingMode.oneWayFixed"
+                            : recordingModeLabel[target.current?.recording_mode ?? "review"],
                         ),
                       })}
                 </Text>
@@ -245,14 +264,12 @@ export function LinkAccountDialog(props: {
                   accessibilityRole="radiogroup"
                   accessibilityLabel={t("tab.recordingMode.label")}
                 >
-                  {(["notify", "review"] as const).map((mode) => (
+                  {(["notify", "review", "notify_one_way"] as const).map((mode) => (
                     <Pressable
                       key={mode}
                       disabled={busy}
                       accessibilityRole="radio"
-                      accessibilityLabel={t(
-                        mode === "notify" ? "tab.recordingMode.notify" : "tab.recordingMode.review",
-                      )}
+                      accessibilityLabel={t(recordingModeLabel[mode])}
                       accessibilityState={{ checked: recordingMode === mode, disabled: busy }}
                       onPress={() => {
                         if (!busyRef.current) setRecordingMode(mode);
@@ -260,19 +277,9 @@ export function LinkAccountDialog(props: {
                       style={[styles.modeOption, recordingMode === mode && styles.selected]}
                     >
                       <Text style={[styles.modeLabel, textDir(rtl)]}>
-                        {t(
-                          mode === "notify"
-                            ? "tab.recordingMode.notify"
-                            : "tab.recordingMode.review",
-                        )}
+                        {t(recordingModeLabel[mode])}
                       </Text>
-                      <Text style={[styles.hint, textDir(rtl)]}>
-                        {t(
-                          mode === "notify"
-                            ? "tab.recordingMode.notifyHint"
-                            : "tab.recordingMode.reviewHint",
-                        )}
-                      </Text>
+                      <Text style={[styles.hint, textDir(rtl)]}>{t(recordingModeHint[mode])}</Text>
                     </Pressable>
                   ))}
                 </View>

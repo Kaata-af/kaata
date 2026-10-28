@@ -40,6 +40,7 @@ import { SearchKeyboardFooter, SearchKeyboardFrame } from "../../components/Sear
 import { SelectionToolbar } from "../../components/SelectionToolbar";
 import { personCurrencyRows, selectedEntriesByCurrency } from "../../lib/multi-currency-view";
 import { sharedAccountLinkStatus } from "../../lib/tabs/link-status";
+import { canWriteSharedTallies, isNotificationOnlyMode } from "../../lib/tabs/recording-mode";
 import { useCustomerGroups } from "../../lib/use-customer-groups";
 import { LinkAccountDialog } from "../../components/LinkAccountDialog";
 import { OverflowMenu } from "../../components/OverflowMenu";
@@ -51,6 +52,7 @@ import {
   getCurrentCurrencyCode,
   getCurrencyLabel,
   getCurrencySymbol,
+  getEnabledCurrencies,
   setCurrentCurrency,
   useCurrency,
 } from "../../lib/currency";
@@ -144,8 +146,13 @@ import type { Entry, PersonWithBalance, Self } from "../../lib/types";
 // only" sentence for a tab tally as for a local one), a closed tab names
 // itself, and no credential means "go online" rather than a generic failure.
 function tabErrorMessage(err: unknown): string {
-  if (err instanceof TabApiError && err.code === "notification_only_unsupported")
+  if (
+    err instanceof TabApiError &&
+    (err.code === "notification_only_unsupported" || err.code === "one_way_tallies_unsupported")
+  )
     return t("tab.link.serverUpdate");
+  if (err instanceof TabApiError && err.code === "one_way_read_only")
+    return t("tab.recordingMode.oneWayReadOnly");
   if (err instanceof TabApiError && err.code === "recording_upgrade_required")
     return t("tab.link.clientUpdate");
   if (err instanceof TabApiError && err.code === "shared_history_opening_required")
@@ -203,6 +210,7 @@ function currencyChapter(period: CurrencyPeriod): Entry[] {
 function canSettlePeriod(period: CurrencyPeriod): boolean {
   const chapter = currencyChapter(period);
   return (
+    canWriteSharedTallies(period.financialTab) &&
     period.person.tab_unsynced !== 1 &&
     period.person.tab_close_pending !== 1 &&
     period.person.balance === 0 &&
@@ -438,6 +446,10 @@ export default function PersonDetailScreen() {
   const [boundaries, setBoundaries] = useState<number[]>([]);
   const [sharedSettlements, setSharedSettlements] = useState<TabSettlement[]>([]);
   const [currencyPeriods, setCurrencyPeriods] = useState<CurrencyPeriod[]>([]);
+  const [entryCurrencies, setEntryCurrencies] = useState<{ scope: string; codes: string[] }>({
+    scope: "",
+    codes: [],
+  });
   const [settleCurrency, setSettleCurrency] = useState<string | null>(null);
   const settlementRequest = useRef<{ id: string; throughSeq: number; tabId: string } | null>(null);
   const [showFullHistory, setShowFullHistory] = useState(false);
@@ -563,6 +575,11 @@ export default function PersonDetailScreen() {
   const financialTabHistory =
     (currencyPeriods.find((period) => period.currency === selectedCurrency) ?? currencyPeriods[0])
       ?.financialTab ?? null;
+  const writableEntryCurrency =
+    entryCurrencies.scope === flowScope
+      ? (entryCurrencies.codes.find((code) => code === (person?.currency ?? selectedCurrency)) ??
+        entryCurrencies.codes[0])
+      : undefined;
   const sharedAccountStatus = currencyPeriods.some(
     (period) => sharedAccountLinkStatus(period.tab) === "joined",
   )
@@ -1257,11 +1274,13 @@ export default function PersonDetailScreen() {
         sharedMarkers,
         priorPeriods,
         periods,
+        writableCurrencies,
       } = await applyEventMutex.runExclusive(async () => {
-        const [allPerson, list, s] = await Promise.all([
+        const [allPerson, list, s, enabledCurrencies] = await Promise.all([
           getPerson(id, currency, { allCurrencies: true }),
           listEntries(id, currency, { allCurrencies: true }),
           getLocalSelf(),
+          vault ? getEnabledCurrencies(vault) : Promise.resolve([]),
         ]);
         const rows = allPerson ? personCurrencyRows(allPerson) : [];
         const details = await Promise.all(
@@ -1319,6 +1338,10 @@ export default function PersonDetailScreen() {
           sharedMarkers: primary?.sharedSettlements ?? [],
           priorPeriods: details.flatMap((detail) => detail.priorPeriods),
           periods: details,
+          writableCurrencies: enabledCurrencies.filter((code) => {
+            const tab = details.find((period) => period.currency === code)?.tab;
+            return canWriteSharedTallies(tab?.closed_at == null ? tab : null);
+          }),
         };
       });
       if (!current()) return null;
@@ -1330,6 +1353,7 @@ export default function PersonDetailScreen() {
       });
       setPerson(p);
       setCurrencyPeriods(periods);
+      setEntryCurrencies({ scope, codes: writableCurrencies });
       setEntries(list);
       // Reveal a newly saved tally even if the previous filter would hide it.
       if (takeSavedEntry(id)) {
@@ -1827,6 +1851,16 @@ export default function PersonDetailScreen() {
         const recordedInSettledChapter =
           entry.tab?.status === "recorded" &&
           tabSettlements.some((s) => s.through_seq >= (entry.tab?.seq ?? 0));
+        const entryLink = entry.tab
+          ? [
+              period?.tab,
+              period?.financialTab,
+              ...(period?.priorPeriods.map((p) => p.link) ?? []),
+            ].find((link) => link?.tab_id === entry.tab?.tab_id)
+          : null;
+        const canWriteEntry = entryLink
+          ? canWriteSharedTallies(entryLink)
+          : entry.tab?.recording_mode !== "notify_one_way";
         const canOpenSheet =
           canAmend &&
           !inSettledChapter &&
@@ -1863,10 +1897,14 @@ export default function PersonDetailScreen() {
               attribution={attribution.get(entry.id)}
               tab={entry.tab}
               selfAccountId={getAccountIdSync()}
-              onAccept={canAmend && entry.tab ? guardedSearchAction(onAccept) : undefined}
-              onReject={canAmend && entry.tab ? guardedSearchAction(onReject) : undefined}
+              onAccept={
+                canAmend && entry.tab && canWriteEntry ? guardedSearchAction(onAccept) : undefined
+              }
+              onReject={
+                canAmend && entry.tab && canWriteEntry ? guardedSearchAction(onReject) : undefined
+              }
               onCancel={
-                canAmend && entry.tab && !recordedInSettledChapter
+                canAmend && entry.tab && canWriteEntry && !recordedInSettledChapter
                   ? guardedSearchAction(onVoid)
                   : undefined
               }
@@ -2171,6 +2209,18 @@ export default function PersonDetailScreen() {
                     {ltrIsolate(person.phone)}
                   </Text>
                 ) : null}
+                {entryCurrencies.scope === flowScope &&
+                entryCurrencies.codes.length === 0 &&
+                currencyPeriods.some(
+                  (period) =>
+                    period.tab?.closed_at == null &&
+                    period.tab?.recording_mode === "notify_one_way" &&
+                    period.tab.role === "b",
+                ) ? (
+                  <Text testID="customer-one-way-read-only" style={[styles.groups, textDir(isRTL)]}>
+                    {t("tab.recordingMode.oneWayReadOnly")}
+                  </Text>
+                ) : null}
                 {/* Unlinking preserves shared history and pending reviews; tallies written
                     after it are private and carry no review state, which made
                     them look like accepted shared ones (audit #6). */}
@@ -2393,12 +2443,12 @@ export default function PersonDetailScreen() {
                                 {financialTabHistory.recording_mode_known === 0
                                   ? t("tab.recordingMode.unknown")
                                   : t(
-                                      financialTabHistory.recording_mode === "notify"
+                                      isNotificationOnlyMode(financialTabHistory.recording_mode)
                                         ? "tab.balance.recorded"
                                         : "tab.balance.confirmed",
                                       {
                                         amount: signedSharedAmount(
-                                          financialTabHistory.recording_mode === "notify"
+                                          isNotificationOnlyMode(financialTabHistory.recording_mode)
                                             ? person.balance
                                             : (person.tab_confirmed_balance ?? 0),
                                         ),
@@ -2676,7 +2726,7 @@ export default function PersonDetailScreen() {
                 {/* While typing a search the entry buttons step aside so the
                   results above the keyboard get their room (0-1 rows before,
                   audit #31); they return with the keyboard's close. */}
-                {!selecting && canCreate && !compactDock ? (
+                {!selecting && canCreate && writableEntryCurrency && !compactDock ? (
                   <View style={styles.actionRow}>
                     <View style={styles.actionBtnWrap}>
                       <Pressable
@@ -3012,9 +3062,11 @@ export default function PersonDetailScreen() {
             ? t("tab.recordingMode.unknown")
             : t("tab.recordingMode.fixed", {
                 mode: t(
-                  managementLink?.recording_mode === "notify"
-                    ? "tab.recordingMode.notify"
-                    : "tab.recordingMode.review",
+                  managementLink?.recording_mode === "notify_one_way"
+                    ? "tab.recordingMode.oneWayFixed"
+                    : managementLink?.recording_mode === "notify"
+                      ? "tab.recordingMode.notify"
+                      : "tab.recordingMode.review",
                 ),
               })
         }

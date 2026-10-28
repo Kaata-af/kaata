@@ -100,6 +100,11 @@ import type {
 } from "./types";
 import { minorToWire } from "./wire";
 import { isUnjoinedInvitation } from "./history";
+import {
+  canWriteSharedTallies,
+  isNotificationOnlyMode,
+  isTabRecordingMode,
+} from "./recording-mode";
 
 export {
   TabAlreadyLinkedError,
@@ -178,9 +183,20 @@ function requireOpen(link: TabLink): void {
   if (link.closed_at != null) throw new TabClosedError();
 }
 
+function requireSharedWrite(link: TabLink): void {
+  if (!canWriteSharedTallies(link))
+    throw new TabApiError(
+      403,
+      "one_way_read_only",
+      "Only the link creator can change tallies in this account",
+    );
+}
+
 /** Restored books with omitted mode metadata are readable, but their write
  * contract must be resolved before changing any financial or local intent. */
 async function knownRecordingLink(link: TabLink, session: SessionSnapshot): Promise<TabLink> {
+  if (link.recording_mode != null && !isTabRecordingMode(link.recording_mode))
+    throw new TabApiError(426, "recording_upgrade_required", "Unknown shared tally recording mode");
   if (link.recording_mode_known !== 0) return link;
   await applyForCurrentSession(session, async () => {});
   await syncTab(link.tab_id);
@@ -195,7 +211,10 @@ async function knownRecordingLink(link: TabLink, session: SessionSnapshot): Prom
       getActiveVaultIdSyncMaybe() !== link.vault_id
     )
       throw new TabAuthUnavailableError();
-    if (fresh.recording_mode_known === 0)
+    if (
+      fresh.recording_mode_known === 0 ||
+      (fresh.recording_mode != null && !isTabRecordingMode(fresh.recording_mode))
+    )
       throw new TabApiError(
         503,
         "notification_only_unsupported",
@@ -299,13 +318,15 @@ async function newOp(
   link = await knownRecordingLink(link, session);
   if (op === "append" || op === "label") requireOpen(link);
   await assertVaultAction(link.vault_id, op === "append" ? "entry.create" : "entry.amend");
-  if ((op === "accept" || op === "dispute") && link.recording_mode === "notify")
+  if ((op === "accept" || op === "dispute") && isNotificationOnlyMode(link.recording_mode))
     throw new TabApiError(
       409,
       "review_not_required",
       "Notification-only tallies do not have peer reviews",
     );
-  if (op === "void" && link.recording_mode === "notify") opts = { ...opts, deferFinancial: true };
+  if (op === "append" || op === "void") requireSharedWrite(link);
+  if (op === "void" && isNotificationOnlyMode(link.recording_mode))
+    opts = { ...opts, deferFinancial: true };
   await applyForCurrentSession(session, async () => {
     if (getActiveVaultIdSyncMaybe() !== link.vault_id) throw new TabAuthUnavailableError();
     await queueTabMutation(
@@ -427,6 +448,7 @@ async function joinFailure(
     err instanceof TabApiError &&
     (!isRetryableTabError(err) ||
       err.code === "notification_only_unsupported" ||
+      err.code === "one_way_tallies_unsupported" ||
       err.code === "recording_upgrade_required")
   ) {
     try {
@@ -476,6 +498,8 @@ export async function linkContact(
     recordingMode?: TabRecordingMode;
   },
 ): Promise<{ link: TabLink; inviteUrl: string }> {
+  if (opts.recordingMode != null && !isTabRecordingMode(opts.recordingMode))
+    throw new TabApiError(426, "recording_upgrade_required", "Unknown shared tally recording mode");
   const session = await captureCurrentSession();
   if (!session.jwt) throw new TabAuthUnavailableError();
   const vaultId = getActiveVaultIdSyncMaybe();
@@ -682,6 +706,8 @@ export async function joinTabAsContact(
   target: JoinTarget,
   myLabel: string,
 ): Promise<TabLink> {
+  if (tab.recording_mode != null && !isTabRecordingMode(tab.recording_mode))
+    throw new TabApiError(426, "recording_upgrade_required", "Unknown shared tally recording mode");
   const session = await captureCurrentSession();
   if (!session.jwt) throw new TabAuthUnavailableError();
   if (tab.closed_at_ms != null) throw new TabClosedError();
@@ -856,6 +882,7 @@ export async function addTabEntry(
   }
   link = await knownRecordingLink(link, session);
   requireOpen(link);
+  requireSharedWrite(link);
   await assertVaultAction(link.vault_id, "entry.create");
   const admission = await needsSharedCreditAdmission(link);
   const cleanNote = note?.trim().slice(0, ENTRY_NOTE_MAX_LENGTH) || null;
@@ -982,7 +1009,7 @@ async function finishSharedCreditMutation(link: TabLink, opId: string): Promise<
 
 /** Accept the other party's tally: optimistic unless a hard limit requires confirmation. */
 export async function acceptEntry(link: TabLink, entryId: string): Promise<void> {
-  if (link.recording_mode === "notify")
+  if (isNotificationOnlyMode(link.recording_mode))
     throw new TabApiError(
       409,
       "review_not_required",
@@ -1002,7 +1029,7 @@ export async function acceptEntry(link: TabLink, entryId: string): Promise<void>
 
 /** Reject the other party's tally, with an optional reason (≤ 300 chars). */
 export async function disputeEntry(link: TabLink, entryId: string, reason: string): Promise<void> {
-  if (link.recording_mode === "notify")
+  if (isNotificationOnlyMode(link.recording_mode))
     throw new TabApiError(
       409,
       "review_not_required",
@@ -1027,6 +1054,7 @@ export async function disputeEntry(link: TabLink, entryId: string, reason: strin
 export async function voidEntry(link: TabLink, entryId: string): Promise<void> {
   const session = await captureCurrentSession();
   link = await knownRecordingLink(link, session);
+  requireSharedWrite(link);
   await assertVaultAction(link.vault_id, "entry.amend");
   const db = await getDb();
   const recorded = await db.getFirstAsync<{
@@ -1054,7 +1082,8 @@ export async function voidEntry(link: TabLink, entryId: string): Promise<void> {
       throw new TabReviewFinalError();
   }
   const opId = Crypto.randomUUID();
-  const deferred = link.recording_mode === "notify" || (await needsSharedCreditAdmission(link));
+  const deferred =
+    isNotificationOnlyMode(link.recording_mode) || (await needsSharedCreditAdmission(link));
   await newOp(link, "void", { entry_id: entryId }, opId, { deferFinancial: deferred, session });
   // No markReviewed: a party gets no notice about its OWN pending tally (the
   // creation notice went to the other side), so there is nothing to read
@@ -1068,12 +1097,15 @@ export async function voidEntry(link: TabLink, entryId: string): Promise<void> {
 export async function settleSharedTab(link: TabLink, requestId: string): Promise<void> {
   requireOpen(link);
   const session = await captureCurrentSession();
+  link = await knownRecordingLink(link, session);
+  requireSharedWrite(link);
   await assertVaultAction(link.vault_id, "entry.amend");
   const synced = await syncTab(link.tab_id);
   if (!synced.ok || synced.error) throw new TabAuthUnavailableError();
   const fresh = await getTabLink(link.tab_id);
   if (!fresh) throw new TabClosedError();
   requireOpen(fresh);
+  requireSharedWrite(fresh);
   if (fresh.rev !== link.rev)
     throw new TabApiError(
       409,

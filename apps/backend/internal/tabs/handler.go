@@ -93,6 +93,8 @@ func mapServiceError(err error) (int, string, string) {
 		return http.StatusConflict, "review_final", err.Error()
 	case errors.Is(err, ErrReviewNotRequired):
 		return http.StatusConflict, "review_not_required", err.Error()
+	case errors.Is(err, ErrOneWayReadOnly):
+		return http.StatusForbidden, "one_way_read_only", err.Error()
 	case errors.Is(err, ErrJoinRequired):
 		return http.StatusConflict, "join_required", err.Error()
 	case errors.Is(err, ErrRecordedOpeningFinal):
@@ -224,10 +226,20 @@ func (h *Handler) partyOr404(w http.ResponseWriter, r *http.Request) (Party, boo
 
 // Run only after authorization: unsupported clients must not receive an
 // unknown financial state, and outsiders retain the uniform not-found reply.
-func (h *Handler) recordingCompatible(w http.ResponseWriter, r *http.Request, tabID string) bool {
-	if r.Header.Get("X-Kaata-Tab-Recording") == "1" {
+func recordingHeadersSupportMode(mode, version, oneWay string) bool {
+	switch mode {
+	case "review":
 		return true
+	case "notify":
+		return version == "1" || version == "2"
+	case "notify_one_way":
+		return (version == "1" || version == "2") && oneWay == "1"
+	default:
+		return false
 	}
+}
+
+func (h *Handler) recordingCompatible(w http.ResponseWriter, r *http.Request, tabID string) bool {
 	var mode string
 	err := h.svc.pool.QueryRow(r.Context(), `SELECT recording_mode FROM tabs WHERE id=$1::uuid`, tabID).Scan(&mode)
 	if err != nil {
@@ -237,8 +249,8 @@ func (h *Handler) recordingCompatible(w http.ResponseWriter, r *http.Request, ta
 		writeServiceError(w, err)
 		return false
 	}
-	if mode == "notify" {
-		httpx.ErrorCode(w, http.StatusUpgradeRequired, "recording_upgrade_required", "Update Kaata to open notification-only tallies")
+	if !recordingHeadersSupportMode(mode, r.Header.Get("X-Kaata-Tab-Recording"), r.Header.Get("X-Kaata-Tab-One-Way")) {
+		httpx.ErrorCode(w, http.StatusUpgradeRequired, "recording_upgrade_required", "Update Kaata to open this shared account")
 		return false
 	}
 	return true
@@ -343,8 +355,8 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	if !decodeBody(w, r, &req) {
 		return
 	}
-	if req.RecordingMode == "notify" && r.Header.Get("X-Kaata-Tab-Recording") != "1" {
-		httpx.ErrorCode(w, http.StatusUpgradeRequired, "recording_upgrade_required", "Update Kaata to create notification-only tallies")
+	if notificationOnlyMode(req.RecordingMode) && !recordingHeadersSupportMode(req.RecordingMode, r.Header.Get("X-Kaata-Tab-Recording"), r.Header.Get("X-Kaata-Tab-One-Way")) {
+		httpx.ErrorCode(w, http.StatusUpgradeRequired, "recording_upgrade_required", "Update Kaata to create this shared account")
 		return
 	}
 	vaultID, ok := optionalUUID(w, "vault_id", req.VaultID)
@@ -405,12 +417,10 @@ func (h *Handler) Mine(w http.ResponseWriter, r *http.Request) {
 		writeServiceError(w, err)
 		return
 	}
-	if r.Header.Get("X-Kaata-Tab-Recording") != "1" {
-		for _, item := range res.Tabs {
-			if item.Tab.RecordingMode == "notify" {
-				httpx.ErrorCode(w, http.StatusUpgradeRequired, "recording_upgrade_required", "Update Kaata to open notification-only tallies")
-				return
-			}
+	for _, item := range res.Tabs {
+		if !recordingHeadersSupportMode(item.Tab.RecordingMode, r.Header.Get("X-Kaata-Tab-Recording"), r.Header.Get("X-Kaata-Tab-One-Way")) {
+			httpx.ErrorCode(w, http.StatusUpgradeRequired, "recording_upgrade_required", "Update Kaata to open this shared account")
+			return
 		}
 	}
 	if r.Header.Get("X-Kaata-Currencies") != "1" {

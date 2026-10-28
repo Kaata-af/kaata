@@ -12,6 +12,7 @@ import { getBackendUrl } from "../api";
 import { getSessionJWT } from "../auth";
 import { ensureCurrencySyncSupported } from "../currency-sync";
 import { TabApiError, TabAuthUnavailableError } from "./errors";
+import { isNotificationOnlyMode, isTabRecordingMode } from "./recording-mode";
 import type {
   AppendRequest,
   CreateRequest,
@@ -51,8 +52,8 @@ export type TabAuth = {
 // across contacts; every mutation still probes the current server separately.
 const recordingReadSupport = new Map<string, number>();
 const recordingReadProbes = new Map<string, Promise<void>>();
-function recordingSupportKey(baseUrl: string, auth: TabAuth | null): string {
-  return `${baseUrl}\n${auth?.jwt ?? ""}`;
+function recordingSupportKey(baseUrl: string, auth: TabAuth | null, oneWay = false): string {
+  return `${baseUrl}\n${auth?.jwt ?? ""}\n${oneWay ? "one-way" : "notify"}`;
 }
 async function requireRecordingSupport(
   baseUrl: string,
@@ -60,20 +61,24 @@ async function requireRecordingSupport(
   headers: Record<string, string>,
   signal: AbortSignal,
   fresh: boolean,
+  oneWay: boolean,
 ): Promise<void> {
-  const key = recordingSupportKey(baseUrl, auth);
+  const key = recordingSupportKey(baseUrl, auth, oneWay);
   if (!fresh && (recordingReadSupport.get(key) ?? 0) > Date.now()) return;
   const active = !fresh ? recordingReadProbes.get(key) : undefined;
   if (active) return active;
   const probe = (async () => {
     const response = await fetch(`${baseUrl}/v1/sync/capabilities`, { headers, signal });
     const support = response.ok ? await response.json() : null;
-    if (support?.notification_only_tallies !== true) {
+    if (
+      support?.notification_only_tallies !== true ||
+      (oneWay && support?.one_way_tallies !== true)
+    ) {
       recordingReadSupport.delete(key);
       throw new TabApiError(
         503,
-        "notification_only_unsupported",
-        "Notification-only tallies require a server update",
+        oneWay ? "one_way_tallies_unsupported" : "notification_only_unsupported",
+        "This tally recording mode requires a server update",
       );
     }
     recordingReadSupport.set(key, Date.now() + 60_000);
@@ -99,6 +104,12 @@ async function request<T>(
   auth: TabAuth | null,
   body?: unknown,
 ): Promise<T> {
+  const requestedMode =
+    method === "POST" && path === "/v1/tabs"
+      ? (body as CreateRequest | undefined)?.recording_mode
+      : auth?.recordingMode;
+  if (requestedMode != null && !isTabRecordingMode(requestedMode))
+    throw new TabApiError(426, "recording_upgrade_required", "Unknown shared tally recording mode");
   if (method === "POST" && auth?.recordingKnown === false)
     throw new TabApiError(
       503,
@@ -109,6 +120,7 @@ async function request<T>(
   const headers: Record<string, string> = {
     "X-Kaata-Currencies": "1",
     "X-Kaata-Tab-Recording": "1",
+    "X-Kaata-Tab-One-Way": "1",
   };
   if (body !== undefined) headers["Content-Type"] = "application/json";
   const authz = authorization(auth);
@@ -125,12 +137,16 @@ async function request<T>(
       await ensureCurrencySyncSupported(baseUrl, auth.jwt, controller.signal);
     if (
       (method === "POST" && auth?.requireRecordingSupport) ||
-      auth?.recordingMode === "notify" ||
-      (method === "POST" &&
-        path === "/v1/tabs" &&
-        (body as CreateRequest | undefined)?.recording_mode === "notify")
+      isNotificationOnlyMode(requestedMode)
     ) {
-      await requireRecordingSupport(baseUrl, auth, headers, controller.signal, method === "POST");
+      await requireRecordingSupport(
+        baseUrl,
+        auth,
+        headers,
+        controller.signal,
+        method === "POST",
+        requestedMode === "notify_one_way",
+      );
     }
     res = await fetch(`${baseUrl}${path}`, {
       method,
@@ -170,8 +186,14 @@ async function request<T>(
       /* body unreadable — status alone is still a verdict */
     }
     if (!code) code = res.status === 429 ? "rate_limited" : `http_${res.status}`;
-    if (code === "recording_upgrade_required" || code === "notification_only_unsupported")
+    if (
+      code === "recording_upgrade_required" ||
+      code === "notification_only_unsupported" ||
+      code === "one_way_tallies_unsupported"
+    ) {
       recordingReadSupport.delete(recordingSupportKey(baseUrl, auth));
+      recordingReadSupport.delete(recordingSupportKey(baseUrl, auth, true));
+    }
     const retryAfterS = Number(res.headers?.get?.("Retry-After"));
     throw new TabApiError(
       res.status,
@@ -182,7 +204,30 @@ async function request<T>(
         : null,
     );
   }
-  return (await res.json()) as T;
+  const payload = await res.json();
+  const tabs = payload?.tab
+    ? [payload.tab]
+    : (payload?.tabs ?? []).map((item: { tab: WireTab }) => item.tab);
+  if (
+    tabs.some(
+      (tab: WireTab) => tab.recording_mode != null && !isTabRecordingMode(tab.recording_mode),
+    )
+  )
+    throw new TabApiError(426, "recording_upgrade_required", "Unknown shared tally recording mode");
+  if (
+    payload?.tab &&
+    auth?.recordingKnown !== false &&
+    isNotificationOnlyMode(requestedMode) &&
+    payload.tab.recording_mode !== requestedMode
+  )
+    throw new TabApiError(
+      503,
+      requestedMode === "notify_one_way"
+        ? "one_way_tallies_unsupported"
+        : "notification_only_unsupported",
+      "A response cannot change this shared account's recording mode",
+    );
+  return payload as T;
 }
 
 async function requireJwt(): Promise<TabAuth> {

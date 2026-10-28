@@ -97,6 +97,9 @@ func (s *Service) Settle(ctx context.Context, p Party, in SettleInput) (Settleme
 	if err != nil {
 		return SettlementResponse{}, err
 	}
+	if !tallyWriterAllowed(locked.RecordingMode, p.Role) {
+		return SettlementResponse{}, ErrOneWayReadOnly
+	}
 	// Same-request retries read the existing action even after later entries
 	// or closure. They never create another marker or change actor attribution.
 	var existingTab string

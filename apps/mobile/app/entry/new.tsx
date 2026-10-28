@@ -69,7 +69,9 @@ import {
   type CalculatorDraft,
   type CalculatorRecord,
 } from "../../lib/calculator-input";
-import { getTabLinkForPerson } from "../../lib/tabs/db";
+import { getTabLinkForPerson, listOpenTabLinksForPerson } from "../../lib/tabs/db";
+import { canWriteSharedTallies } from "../../lib/tabs/recording-mode";
+import type { TabLink } from "../../lib/tabs/types";
 import { creditWarning, creditWarningForEdit } from "../../lib/credit-limits";
 import { noteSavedEntry } from "../../lib/recent-entry";
 import {
@@ -144,6 +146,21 @@ export default function EntryFormScreen({
   const [enabledCurrencies, setEnabledCurrencies] = useState<readonly string[]>([]);
   const enabledCurrencyRef = useRef<readonly string[]>([]);
   const enabledCurrencyRead = useRef(0);
+  const [currencyLinks, setCurrencyLinks] = useState<Record<string, TabLink | null>>({});
+  const currencyLinksRef = useRef<Record<string, TabLink | null>>({});
+  const [currencyLinksReady, setCurrencyLinksReady] = useState(false);
+  const currentCurrencyLink = currencyLinks[currency];
+  const editSourceLink = editingEntry?.currency ? currencyLinks[editingEntry.currency] : null;
+  const blockedCurrencyLink = !canWriteSharedTallies(currentCurrencyLink)
+    ? currentCurrencyLink
+    : !canWriteSharedTallies(editSourceLink)
+      ? editSourceLink
+      : null;
+  const currencyWritable =
+    currencyLinksReady &&
+    Object.hasOwn(currencyLinks, currency) &&
+    canWriteSharedTallies(currentCurrencyLink) &&
+    canWriteSharedTallies(editSourceLink);
   const currencyScope = useRef<string | null>(null);
   // Null keeps the usual save-time timestamp, even if this form stays open overnight.
   const [entryDay, setEntryDay] = useState<number | null>(editingEntry?.created_at ?? null);
@@ -247,8 +264,20 @@ export default function EntryFormScreen({
     const read = ++enabledCurrencyRead.current;
     const codes = await getEnabledCurrencies(attempt.vaultId);
     if (!isCurrent(attempt) || read !== enabledCurrencyRead.current) return;
+    const linkCodes = [
+      ...new Set([...codes, ...(editingEntry?.currency ? [editingEntry.currency] : [])]),
+    ];
+    const openLinks = await listOpenTabLinksForPerson(attempt.personId);
+    const byCurrency = new Map<string, TabLink>();
+    for (const link of openLinks)
+      if (!byCurrency.has(link.currency)) byCurrency.set(link.currency, link);
+    const links = Object.fromEntries(linkCodes.map((code) => [code, byCurrency.get(code) ?? null]));
+    if (!isCurrent(attempt) || read !== enabledCurrencyRead.current) return;
     enabledCurrencyRef.current = codes;
     setEnabledCurrencies(codes);
+    currencyLinksRef.current = links;
+    setCurrencyLinks(links);
+    setCurrencyLinksReady(true);
   }
   useEffect(() => {
     mounted.current = true;
@@ -399,6 +428,7 @@ export default function EntryFormScreen({
       setBusy(savingRef.current);
       setLoading(true);
       setPerson(null);
+      setCurrencyLinksReady(false);
       saveErrorField.current = null;
       setSaveError(null);
       calculatorRef.current = null;
@@ -448,7 +478,13 @@ export default function EntryFormScreen({
               refreshEnabledCurrencies(attempt),
             ]);
             if (!isCurrent(attempt)) return;
-            setCurrency(defaultCurrency);
+            const suggestedCurrency =
+              !editingEntry && !canWriteSharedTallies(currencyLinksRef.current[defaultCurrency])
+                ? enabledCurrencyRef.current.find((code) =>
+                    canWriteSharedTallies(currencyLinksRef.current[code]),
+                  )
+                : undefined;
+            setCurrency(suggestedCurrency ?? defaultCurrency);
             currencyScope.current = currencyKey;
           } else await refreshEnabledCurrencies(attempt);
           const p = await getPerson(attempt.personId);
@@ -487,7 +523,7 @@ export default function EntryFormScreen({
   // screen fires before the slide-in finishes and the soft keyboard never
   // opens. Defer past the animation; see entry/[id]/edit for the pattern.
   useEffect(() => {
-    if (loading || !person) return;
+    if (loading || !person || !currencyWritable) return;
     const attempt = { ...scopeRef.current, focus: focusGeneration.current };
     const focusTimer = setTimeout(() => {
       if (initialFocusTimer.current === focusTimer) initialFocusTimer.current = null;
@@ -500,7 +536,7 @@ export default function EntryFormScreen({
       clearTimeout(focusTimer);
       if (initialFocusTimer.current === focusTimer) initialFocusTimer.current = null;
     };
-  }, [loading, person, focusVersion]);
+  }, [loading, person, focusVersion, currencyWritable]);
 
   async function onSave() {
     const attempt = { ...scope, focus: focusGeneration.current };
@@ -561,6 +597,28 @@ export default function EntryFormScreen({
       setEnabledCurrencies(enabled);
       if (!enabled.includes(currency) && currency !== editingEntry?.currency) {
         setSaveError(t("entry.currency.disabled"));
+        return;
+      }
+      const link = await getTabLinkForPerson(attempt.personId, currency);
+      if (!isCurrent(attempt)) return;
+      const sourceLink =
+        editingEntry?.currency && editingEntry.currency !== currency
+          ? await getTabLinkForPerson(attempt.personId, editingEntry.currency)
+          : link;
+      if (!isCurrent(attempt)) return;
+      const blockedLink = !canWriteSharedTallies(link)
+        ? link
+        : !canWriteSharedTallies(sourceLink)
+          ? sourceLink
+          : null;
+      if (blockedLink) {
+        setSaveError(
+          t(
+            blockedLink.recording_mode === "notify_one_way" && blockedLink.role === "b"
+              ? "tab.recordingMode.oneWayReadOnly"
+              : "tab.recordingMode.unknown",
+          ),
+        );
         return;
       }
       if (editingEntry) {
@@ -675,6 +733,8 @@ export default function EntryFormScreen({
         errorKey = "tab.closed";
       } else if (err instanceof TabPermissionError) {
         errorKey = "entry.roleDenied";
+      } else if (err instanceof TabApiError && err.code === "one_way_read_only") {
+        errorKey = "tab.recordingMode.oneWayReadOnly";
       } else if (err instanceof TabApiError && err.code === "credit_limit_exceeded") {
         errorKey = "credit.blocked";
       } else if (err instanceof TabInputError) {
@@ -702,6 +762,7 @@ export default function EntryFormScreen({
     const attempt = { ...scopeRef.current, focus: focusGeneration.current };
     if (
       savingRef.current ||
+      !currencyWritable ||
       calculatorRef.current ||
       !isCurrent(attempt) ||
       !isCurrent(renderAttempt)
@@ -719,7 +780,8 @@ export default function EntryFormScreen({
 
   function focusNote() {
     const attempt = { ...scopeRef.current, focus: focusGeneration.current };
-    if (savingRef.current || !isCurrent(attempt) || !isCurrent(renderAttempt)) return;
+    if (savingRef.current || !currencyWritable || !isCurrent(attempt) || !isCurrent(renderAttempt))
+      return;
     // Keypad Next also triggers onFocus. One focus creates only one request,
     // including after that request has already completed or been cancelled.
     if (activeField.current === "note") return;
@@ -890,7 +952,7 @@ export default function EntryFormScreen({
         label={t(editingEntry ? "entry.saveChanges" : "entry.save")}
         onPress={onSave}
         loading={busy}
-        disabled={!calculationResult.canApply}
+        disabled={!calculationResult.canApply || !currencyWritable}
         fullWidth
       />
     </View>
@@ -969,6 +1031,16 @@ export default function EntryFormScreen({
                   {type === "debt" ? t("entry.context.to") : t("entry.context.from")}
                 </Text>
                 <Text style={[styles.contextName, textDir(isRTL)]}>{person.name}</Text>
+                {!currencyWritable ? (
+                  <Text accessibilityRole="alert" style={[styles.calculationHint, textDir(isRTL)]}>
+                    {t(
+                      blockedCurrencyLink?.recording_mode === "notify_one_way" &&
+                        blockedCurrencyLink.role === "b"
+                        ? "tab.recordingMode.oneWayReadOnly"
+                        : "tab.recordingMode.unknown",
+                    )}
+                  </Text>
+                ) : null}
               </View>
 
               <View
@@ -1022,7 +1094,7 @@ export default function EntryFormScreen({
                       autoCorrect={false}
                       spellCheck={false}
                       autoCapitalize="none"
-                      editable={!busy}
+                      editable={!busy && currencyWritable}
                       placeholder="0"
                       placeholderTextColor={colors.textMuted}
                       inputMode="none"
@@ -1148,6 +1220,7 @@ export default function EntryFormScreen({
                 <Text style={[styles.label, textDir(isRTL)]}>{t("entry.note.label")}</Text>
                 <TextInput
                   ref={noteRef}
+                  editable={!busy && currencyWritable}
                   style={[
                     styles.noteInput,
                     { minHeight: noteMinHeight, maxHeight: noteMaxHeight },

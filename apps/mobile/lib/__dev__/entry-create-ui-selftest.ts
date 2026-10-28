@@ -163,6 +163,8 @@ function fixture({
       selectedCurrency = code;
     },
   };
+  const linkedCurrencies = new Map<string, any>();
+  let linkedCurrencyReads = 0;
   const personCurrencyEdges = compileUI("../person-currency", {
     "./auth": {},
     "./db-tx": {
@@ -335,9 +337,16 @@ function fixture({
         noteSavedEntry: (personId: string, entryId: string) => savedNotes.push([personId, entryId]),
       },
       "../../lib/tabs/db": {
-        getTabLinkForPerson: async () =>
-          duplicateGate ? duplicateGate.promise : { other_label: "Peer" },
+        listOpenTabLinksForPerson: async () => {
+          linkedCurrencyReads++;
+          return [...linkedCurrencies].map(([currency, link]) => ({ ...link, currency }));
+        },
+        getTabLinkForPerson: async (_id: string, code: string) =>
+          duplicateGate
+            ? duplicateGate.promise
+            : (linkedCurrencies.get(code) ?? { other_label: "Peer" }),
       },
+      "../../lib/tabs/recording-mode": require("../tabs/recording-mode"),
       "../../lib/tabs/errors": {
         TabAuthUnavailableError,
         TabApiError,
@@ -512,6 +521,10 @@ function fixture({
     delayedEnabledCurrencies: () => (enabledCurrencyGate = deferred<string[]>()),
     setEnabledCurrencies: (codes: string[]) => {
       enabledCurrencies = codes;
+    },
+    setCurrencyLink: (code: string, link: any) => linkedCurrencies.set(code, link),
+    get linkedCurrencyReads() {
+      return linkedCurrencyReads;
     },
     emitLedger: (vaultId = vault ?? "") => ledgerListeners.forEach((listener) => listener(vaultId)),
     get selectedCurrency() {
@@ -709,6 +722,123 @@ const layoutEvent = (height: number, width = 390) => ({
 const savedNotes: [string, string][] = [];
 async function main() {
   let cases = 0;
+  for (const os of ["android", "ios"] as const)
+    for (const mode of ["review", "notify", "notify_one_way"] as const)
+      for (const role of ["a", "b"] as const) {
+        const f = fixture({ os, rtl: os === "android" });
+        f.setEnabledCurrencies(["AFN"]);
+        f.setCurrencyLink("AFN", { role, recording_mode: mode, recording_mode_known: 1 });
+        await f.ready();
+        const readOnly = mode === "notify_one_way" && role === "b";
+        assert.equal(
+          f.button().props.disabled,
+          readOnly,
+          `${os}/${mode}/${role}: precise save permission`,
+        );
+        assert.equal(f.input().props.editable, !readOnly);
+        assert.equal(f.note().props.editable, !readOnly);
+        await f.button().props.onPress();
+        f.render();
+        assert.equal(
+          f.writes.length,
+          readOnly ? 0 : 1,
+          "disabled/retained handlers cannot write a recipient tally",
+        );
+        if (readOnly) assert.ok(words(f.hooks.tree).includes("tab.recordingMode.oneWayReadOnly"));
+        f.hooks.unmount();
+        cases++;
+      }
+  {
+    const f = fixture();
+    f.setEnabledCurrencies(["AFN", "USD"]);
+    f.setCurrencyLink("AFN", {
+      role: "b",
+      recording_mode: "notify_one_way",
+      recording_mode_known: 1,
+    });
+    await f.ready();
+    const selector = () => nodes(f.hooks.tree).find((node) => node.type === "CurrencySelector")!;
+    assert.equal(
+      selector().props.value,
+      "USD",
+      "a read-only default never blocks another writable currency",
+    );
+    selector().props.onChange("AFN");
+    f.render();
+    assert.equal(f.button().props.disabled, true);
+    selector().props.onChange("USD");
+    f.render();
+    assert.equal(f.button().props.disabled, false);
+    await f.button().props.onPress();
+    assert.equal(f.writes[0][4].currency, "USD");
+    f.hooks.unmount();
+    cases++;
+  }
+  {
+    const f = fixture();
+    await f.ready();
+    const save = f.button().props.onPress;
+    f.setCurrencyLink("AFN", {
+      role: "b",
+      recording_mode: "notify_one_way",
+      recording_mode_known: 1,
+    });
+    await save();
+    f.render();
+    assert.equal(
+      f.writes.length,
+      0,
+      "a link arriving after the form loaded is checked again before Save",
+    );
+    assert.ok(words(f.hooks.tree).includes("tab.recordingMode.oneWayReadOnly"));
+    f.hooks.unmount();
+    cases++;
+  }
+  for (const os of ["android", "ios"] as const) {
+    const f = editFixture(os, true, "Existing note", "AFN");
+    f.setEnabledCurrencies(["AFN", "USD"]);
+    f.setCurrencyLink("AFN", {
+      role: "b",
+      recording_mode: "notify_one_way",
+      recording_mode_known: 1,
+    });
+    await f.ready();
+    assert.equal(f.button().props.disabled, true);
+    await f.button().props.onPress();
+    assert.equal(
+      f.writes.length,
+      0,
+      "an old Edit route cannot bypass the recipient's view-only mode",
+    );
+    nodes(f.hooks.tree)
+      .find((node) => node.type === "CurrencySelector")!
+      .props.onChange("USD");
+    f.render();
+    assert.equal(
+      f.button().props.disabled,
+      true,
+      "changing denomination cannot unlock a read-only source tally",
+    );
+    await f.button().props.onPress();
+    assert.equal(f.writes.length, 0);
+    f.hooks.unmount();
+    cases++;
+  }
+  {
+    const f = fixture();
+    f.setEnabledCurrencies(currencyMetadata.CURRENCIES.map((item) => item.code));
+    await f.ready();
+    assert.equal(f.linkedCurrencyReads, 1, "155 enabled currencies use one scoped link read");
+    f.emitLedger();
+    await f.flush();
+    assert.equal(
+      f.linkedCurrencyReads,
+      2,
+      "a ledger refresh stays one batch regardless of currency count",
+    );
+    f.hooks.unmount();
+    cases++;
+  }
   for (const os of ["android", "ios"] as const) {
     const f = editFixture(os, true, "Existing note", "USD");
     await f.ready();

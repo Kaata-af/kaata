@@ -16,7 +16,7 @@
 
 /** Which side of the tab: the creator is `a`, the invitee is `b`. */
 export type TabRole = "a" | "b";
-export type TabRecordingMode = "review" | "notify";
+export type TabRecordingMode = "review" | "notify" | "notify_one_way";
 /** Value moved from X to Y. The target now owes the source more. */
 export type TabDirection = "a_to_b" | "b_to_a";
 /** Accepted means peer-reviewed. Recorded means saved without peer approval;

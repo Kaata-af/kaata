@@ -396,6 +396,18 @@ for (const isRTL of [false, true]) {
     0,
     "uncertain recovered modes never imply a pending approval workflow",
   );
+  for (const mode of ["notify", "notify_one_way", "future_unknown_mode"]) {
+    const notified = opened({
+      ...base,
+      tab: { by: "them", status: "pending", recording_mode: mode },
+    });
+    assert.equal(
+      labelled(notified, "tab.accept").length,
+      0,
+      `${mode} never asks for peer approval`,
+    );
+    assert.equal(labelled(notified, "tab.reject").length, 0);
+  }
   for (const authorId of ["colleague", undefined, null]) {
     const colleague = opened({
       ...selfProps,

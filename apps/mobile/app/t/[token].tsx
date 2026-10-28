@@ -341,7 +341,11 @@ export default function TabJoinScreen() {
         console.warn("[tab/join] preview failed", err);
         if (err instanceof TabApiError && err.code === "recording_upgrade_required") {
           setErrorMsg(t("tab.link.clientUpdate"));
-        } else if (err instanceof TabApiError && err.code === "notification_only_unsupported") {
+        } else if (
+          err instanceof TabApiError &&
+          (err.code === "notification_only_unsupported" ||
+            err.code === "one_way_tallies_unsupported")
+        ) {
           setErrorMsg(t("tab.link.serverUpdate"));
           setRetryable(true);
         } else if (err instanceof TabApiError && err.status === 404) {
@@ -563,7 +567,10 @@ export default function TabJoinScreen() {
         setPickError(t("tab.join.alreadyLinked"));
       } else if (err instanceof TabClosedError) {
         setPickError(t("tab.join.closed"));
-      } else if (err instanceof TabApiError && err.code === "notification_only_unsupported") {
+      } else if (
+        err instanceof TabApiError &&
+        (err.code === "notification_only_unsupported" || err.code === "one_way_tallies_unsupported")
+      ) {
         setPickError(t("tab.link.serverUpdate"));
       } else if (err instanceof TabApiError && err.code === "recording_upgrade_required") {
         setPickError(t("tab.link.clientUpdate"));
@@ -1072,9 +1079,13 @@ export default function TabJoinScreen() {
                 {t(
                   tab.recording_mode == null
                     ? "tab.recordingMode.unknown"
-                    : tab.recording_mode === "notify"
-                      ? "tab.recordingMode.notifyHint"
-                      : "tab.recordingMode.reviewHint",
+                    : tab.recording_mode === "notify_one_way"
+                      ? tab.you === "a"
+                        ? "tab.recordingMode.oneWayHint"
+                        : "tab.recordingMode.oneWayReadOnly"
+                      : tab.recording_mode === "notify"
+                        ? "tab.recordingMode.notifyHint"
+                        : "tab.recordingMode.reviewHint",
                 )}
               </Text>
               <View style={{ height: 24 }} />
