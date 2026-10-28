@@ -94,6 +94,7 @@ import { icon } from "../../lib/tokens";
 import { useVaultPermission, useVaultRole } from "../../lib/use-vault-role";
 import { SOLO_STORE_MODE } from "../../constants/env";
 import type { VaultRole } from "../../lib/events";
+import { SETTINGS_DISABLED_OPACITY } from "../../lib/design-tokens";
 
 type VaultRow = {
   id: string;
@@ -226,6 +227,7 @@ export default function VaultSettingsScreen() {
   // Roles v2 review fix: consult the matrix, not a 'viewer' literal — a
   // clerk must not see the Activity row either (clerk: false in PERMISSIONS).
   const canViewAudit = useVaultPermission(vaultId, accountId, "vault.view_audit_log");
+  const billLinksDisabled = !canRename || savingBillLinks || busy !== null;
 
   // Read-only, so no permission gate: any member may export what they can
   // already see on screen. The ref is the real re-entry guard — BottomSheet
@@ -1026,12 +1028,28 @@ export default function VaultSettingsScreen() {
             </View>
           ) : null}
           <View style={[styles.billSetting, rowDir(isRTL)]}>
-            <Ionicons name="receipt-outline" size={icon.row} color={colors.textSubtle} />
+            <Ionicons
+              name="receipt-outline"
+              size={icon.row}
+              color={billLinksDisabled ? colors.textMuted : colors.textSubtle}
+            />
             <View style={styles.billSettingText}>
-              <Text style={[styles.billSettingLabel, textDir(isRTL)]}>
+              <Text
+                style={[
+                  styles.billSettingLabel,
+                  textDir(isRTL),
+                  billLinksDisabled && styles.disabledText,
+                ]}
+              >
                 {t("vaultSettings.billLinks.label")}
               </Text>
-              <Text style={[styles.billSettingHint, textDir(isRTL)]}>
+              <Text
+                style={[
+                  styles.billSettingHint,
+                  textDir(isRTL),
+                  billLinksDisabled && styles.disabledText,
+                ]}
+              >
                 {t("vaultSettings.billLinks.hint")}
               </Text>
             </View>
@@ -1039,13 +1057,14 @@ export default function VaultSettingsScreen() {
               testID="vault-bill-links"
               value={billLinksEnabled}
               onValueChange={(next) => void commitBillLinks(next)}
-              disabled={!canRename || savingBillLinks || busy !== null}
+              disabled={billLinksDisabled}
+              style={billLinksDisabled ? styles.disabledControl : undefined}
               accessibilityRole="switch"
               accessibilityLabel={t("vaultSettings.billLinks.label")}
               accessibilityHint={t("vaultSettings.billLinks.hint")}
               accessibilityState={{
                 checked: billLinksEnabled,
-                disabled: !canRename || savingBillLinks || busy !== null,
+                disabled: billLinksDisabled,
                 busy: savingBillLinks,
               }}
               hitSlop={8}
@@ -1384,6 +1403,8 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   billSettingText: { flex: 1, minWidth: 0 },
+  disabledText: { color: colors.textMuted },
+  disabledControl: { opacity: SETTINGS_DISABLED_OPACITY },
   billSettingLabel: { fontFamily: fonts.sansMedium, fontSize: 15, color: colors.textDefault },
   billSettingHint: {
     fontFamily: fonts.sansRegular,

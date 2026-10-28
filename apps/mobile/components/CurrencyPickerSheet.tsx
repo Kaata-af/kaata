@@ -18,6 +18,7 @@ import {
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors } from "../lib/colors";
+import { SETTINGS_DISABLED_OPACITY } from "../lib/design-tokens";
 import { currencyNeedsPrecisionHint, getCurrencyName, getCurrencySymbol } from "../lib/currency";
 import { searchCurrencies } from "../lib/currency-catalog";
 import { ltrIsolate, rowDir, textDir, trackingSafe, useIsRTL } from "../lib/direction";
@@ -190,10 +191,22 @@ export function CurrencyPickerSheet(props: {
               </Text>
             </>
           ) : null}
-          <View style={[styles.searchWrap, compact && styles.searchWrapCompact, rowDir(isRTL)]}>
+          <View
+            style={[
+              styles.searchWrap,
+              compact && styles.searchWrapCompact,
+              rowDir(isRTL),
+              props.disabled && { backgroundColor: colors.bgMuted },
+            ]}
+          >
             <Ionicons name="search" size={icon.trailing} color={colors.textMuted} />
             <TextInput
-              style={[styles.searchInput, compact && styles.searchInputCompact, textDir(isRTL)]}
+              style={[
+                styles.searchInput,
+                compact && styles.searchInputCompact,
+                textDir(isRTL),
+                props.disabled && { color: colors.textMuted },
+              ]}
               value={query}
               onChangeText={setQuery}
               accessibilityLabel={t("currency.search")}
@@ -202,6 +215,7 @@ export function CurrencyPickerSheet(props: {
               autoCapitalize="none"
               autoCorrect={false}
               editable={!props.disabled}
+              accessibilityState={{ disabled: !!props.disabled }}
               returnKeyType="search"
               onSubmitEditing={Keyboard.dismiss}
             />
@@ -212,7 +226,7 @@ export function CurrencyPickerSheet(props: {
                 onPress={drag.dismiss}
                 disabled={props.disabled}
                 accessibilityState={{ disabled: !!props.disabled }}
-                style={styles.close}
+                style={[styles.close, props.disabled && { opacity: SETTINGS_DISABLED_OPACITY }]}
               >
                 <Ionicons name="close" size={icon.trailing} color={colors.textSubtle} />
               </Pressable>
@@ -257,11 +271,20 @@ export function CurrencyPickerSheet(props: {
                   style={({ pressed }) => [
                     styles.row,
                     rowDir(isRTL),
-                    pressed && { backgroundColor: colors.bgMuted },
+                    props.disabled && { backgroundColor: colors.bgMuted },
+                    pressed && !props.disabled && { backgroundColor: colors.bgMuted },
                   ]}
                 >
                   <View style={styles.rowText}>
-                    <Text style={[styles.name, textDir(isRTL)]}>{getCurrencyName(item.code)}</Text>
+                    <Text
+                      style={[
+                        styles.name,
+                        textDir(isRTL),
+                        props.disabled && { color: colors.textMuted },
+                      ]}
+                    >
+                      {getCurrencyName(item.code)}
+                    </Text>
                     <Text style={[styles.code, textDir(isRTL)]}>
                       {ltrIsolate(
                         item.symbol === item.code ? item.code : `${item.code}  ·  ${item.symbol}`,
@@ -277,7 +300,7 @@ export function CurrencyPickerSheet(props: {
                     <Ionicons
                       name="checkmark"
                       size={icon.row}
-                      color={colors.actionPrimary}
+                      color={props.disabled ? colors.textMuted : colors.actionPrimary}
                       style={styles.check}
                     />
                   ) : (

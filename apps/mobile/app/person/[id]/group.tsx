@@ -130,11 +130,23 @@ export default function PersonGroupScreen() {
                         : [...selection, id],
                 });
               }}
-              style={[styles.row, rowDir(isRTL)]}
+              style={[styles.row, rowDir(isRTL), (!canManage || busy) && styles.rowDisabled]}
             >
-              <Text style={[styles.label, textDir(isRTL)]}>{group.name}</Text>
+              <Text
+                style={[
+                  styles.label,
+                  textDir(isRTL),
+                  (!canManage || busy) && { color: colors.textMuted },
+                ]}
+              >
+                {group.name}
+              </Text>
               {(group.id === null ? selection.length === 0 : selection.includes(group.id)) ? (
-                <Ionicons name="checkmark" size={icon.row} color={colors.actionPrimary} />
+                <Ionicons
+                  name="checkmark"
+                  size={icon.row}
+                  color={!canManage || busy ? colors.textMuted : colors.actionPrimary}
+                />
               ) : null}
             </Pressable>
           ))
@@ -170,6 +182,7 @@ export default function PersonGroupScreen() {
   );
 }
 const styles = StyleSheet.create({
+  rowDisabled: { backgroundColor: colors.bgMuted },
   page: { flex: 1, backgroundColor: colors.bgDefault },
   body: { padding: 20 },
   hint: {

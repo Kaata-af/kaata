@@ -105,6 +105,7 @@ function fixture({
         queuePendingToast: () => {},
       },
       "../../../lib/colors": require("../colors"),
+      "../../../lib/design-tokens": require("../design-tokens"),
       "../../../lib/contacts-sync": {
         splitName: (name: string) => {
           const [firstName, ...last] = name.split(" ");

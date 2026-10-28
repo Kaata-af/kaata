@@ -4,6 +4,7 @@ import { Animated, StyleSheet, Text, TextInput, type TextInputProps, View } from
 import { colors } from "../lib/colors";
 import { textDir, useIsRTL } from "../lib/direction";
 import { fonts } from "../lib/fonts";
+import { SETTINGS_DISABLED_OPACITY } from "../lib/design-tokens";
 
 // Reusable form field that handles validation errors visibly — red border
 // on the input, a small inline error message below it, and a brief shake
@@ -31,7 +32,7 @@ export type FormFieldProps = TextInputProps & {
 /**
  * Style for a field whose content is Latin by nature in either language: an
  * email address, a username, a password, an emailed code. Pass it as `style`
- * (FormField applies the caller's style last), so a Dari UI does not mirror
+ * (FormField preserves the caller's layout styles), so a Dari UI does not mirror
  * what was typed or right-align the caret.
  */
 export const LTR_INPUT = { writingDirection: "ltr", textAlign: "left" } as const;
@@ -42,6 +43,7 @@ export const FormField = forwardRef<TextInputInstance, FormFieldProps>(function 
 ) {
   const isRTL = useIsRTL();
   const hasError = Boolean(error && error.length > 0);
+  const disabled = inputProps.editable === false || inputProps.readOnly === true;
 
   // One-shot shake — runs on the rising edge of hasError. We track the
   // previous value with a ref so we only animate when error transitions
@@ -66,9 +68,11 @@ export const FormField = forwardRef<TextInputInstance, FormFieldProps>(function 
   return (
     <View style={styles.field}>
       {label ? (
-        <Text style={[styles.label, textDir(isRTL)]}>
+        <Text style={[styles.label, textDir(isRTL), disabled && styles.labelDisabled]}>
           {label}
-          {required ? <Text style={styles.required}> *</Text> : null}
+          {required ? (
+            <Text style={[styles.required, disabled && styles.labelDisabled]}> *</Text>
+          ) : null}
         </Text>
       ) : null}
       <Animated.View style={{ transform: [{ translateX: shake }] }}>
@@ -83,15 +87,26 @@ export const FormField = forwardRef<TextInputInstance, FormFieldProps>(function 
           // inputProps.
           accessibilityLabel={label}
           {...inputProps}
+          accessibilityState={{ ...inputProps.accessibilityState, disabled }}
           style={[
             styles.input,
             textDir(isRTL),
             hasError && styles.inputError,
             accessory ? styles.inputWithAccessory : null,
             style,
+            disabled && styles.inputDisabled,
           ]}
         />
-        {accessory ? <View style={styles.accessory}>{accessory}</View> : null}
+        {accessory ? (
+          <View
+            style={[styles.accessory, disabled && styles.accessoryDisabled]}
+            pointerEvents={disabled ? "none" : "auto"}
+            accessibilityElementsHidden={disabled}
+            importantForAccessibility={disabled ? "no-hide-descendants" : "auto"}
+          >
+            {accessory}
+          </View>
+        ) : null}
       </Animated.View>
       {hasError ? (
         <Text style={[styles.errorText, textDir(isRTL)]} accessibilityLiveRegion="polite">
@@ -111,6 +126,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   required: { color: colors.danger },
+  labelDisabled: { color: colors.textMuted },
   input: {
     minHeight: 44,
     borderWidth: 1,
@@ -124,6 +140,12 @@ const styles = StyleSheet.create({
   },
   // Room for the accessory's 44px target at the right edge.
   inputWithAccessory: { paddingRight: 48 },
+  inputDisabled: {
+    color: colors.textMuted,
+    backgroundColor: colors.bgMuted,
+    borderColor: colors.borderSubtle,
+  },
+  accessoryDisabled: { opacity: SETTINGS_DISABLED_OPACITY },
   accessory: {
     position: "absolute",
     top: 0,

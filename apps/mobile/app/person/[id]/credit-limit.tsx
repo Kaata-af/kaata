@@ -87,6 +87,7 @@ export default function CreditLimitScreen() {
     context.currency === currencyCode &&
     getActiveVaultIdSyncMaybe() === liveVaultId;
   const [busy, setBusy] = useState(false);
+  const controlsDisabled = !editable || busy;
   const [error, setError] = useState<string | null>(null);
   const saving = useRef(false);
   const lifetime = useRef(0);
@@ -240,7 +241,7 @@ export default function CreditLimitScreen() {
             {t("credit.maxCollect")} ({currency})
           </Text>
           <TextInput
-            style={[styles.input, textDir(isRTL)]}
+            style={[styles.input, textDir(isRTL), controlsDisabled && styles.inputDisabled]}
             value={collect}
             onChangeText={(v) => {
               editVersion.current++;
@@ -249,13 +250,14 @@ export default function CreditLimitScreen() {
             placeholder={t("credit.unlimited")}
             keyboardType="decimal-pad"
             editable={editable && !busy}
+            accessibilityState={{ disabled: controlsDisabled }}
             accessibilityLabel={`${t("credit.maxCollect")} (${currency})`}
           />
           <Text style={[styles.label, textDir(isRTL)]}>
             {t("credit.maxPay")} ({currency})
           </Text>
           <TextInput
-            style={[styles.input, textDir(isRTL)]}
+            style={[styles.input, textDir(isRTL), controlsDisabled && styles.inputDisabled]}
             value={pay}
             onChangeText={(v) => {
               editVersion.current++;
@@ -264,6 +266,7 @@ export default function CreditLimitScreen() {
             placeholder={t("credit.unlimited")}
             keyboardType="decimal-pad"
             editable={editable && !busy}
+            accessibilityState={{ disabled: controlsDisabled }}
             accessibilityLabel={`${t("credit.maxPay")} (${currency})`}
           />
           {currencyNeedsPrecisionHint(currencyCode) ? (
@@ -271,7 +274,10 @@ export default function CreditLimitScreen() {
           ) : null}
           <Text style={[styles.help, textDir(isRTL)]}>{t("credit.zeroHelp")}</Text>
           <Text style={[styles.help, textDir(isRTL)]}>{t("credit.modeHelp")}</Text>
-          <View style={styles.modeCard} accessibilityRole="radiogroup">
+          <View
+            style={[styles.modeCard, controlsDisabled && styles.modeCardDisabled]}
+            accessibilityRole="radiogroup"
+          >
             {(["warn", "clerks", "editors"] as const).map((choice, index) => {
               const selected =
                 choice === "warn"
@@ -281,14 +287,15 @@ export default function CreditLimitScreen() {
                 <Pressable
                   key={choice}
                   accessibilityRole="radio"
-                  accessibilityState={{ checked: selected, disabled: !editable || busy }}
-                  disabled={!editable || busy}
+                  accessibilityState={{ checked: selected, disabled: controlsDisabled }}
+                  disabled={controlsDisabled}
                   style={({ pressed }) => [
                     styles.modeRow,
                     rowDir(isRTL),
                     index > 0 && styles.modeDivider,
                     selected && styles.modeSelected,
-                    pressed && { opacity: 0.65 },
+                    controlsDisabled && styles.modeDisabled,
+                    pressed && !controlsDisabled && { opacity: 0.65 },
                   ]}
                   onPress={() => {
                     editVersion.current++;
@@ -296,8 +303,14 @@ export default function CreditLimitScreen() {
                     setRestrictEditors(choice === "editors");
                   }}
                 >
-                  <SelectionMark selected={selected} />
-                  <Text style={[styles.modeLabel, textDir(isRTL)]}>
+                  <SelectionMark selected={selected} disabled={controlsDisabled} />
+                  <Text
+                    style={[
+                      styles.modeLabel,
+                      textDir(isRTL),
+                      controlsDisabled && { color: colors.textMuted },
+                    ]}
+                  >
                     {t(
                       choice === "warn"
                         ? "credit.warnMode"
@@ -335,6 +348,8 @@ const styles = StyleSheet.create({
   modeRow: { minHeight: 52, alignItems: "center", padding: 14, gap: 12 },
   modeDivider: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.borderDefault },
   modeSelected: { backgroundColor: colors.bgMuted },
+  modeCardDisabled: { borderColor: colors.borderSubtle },
+  modeDisabled: { backgroundColor: colors.bgMuted },
   modeLabel: { fontFamily: fonts.sansMedium, fontSize: 14, color: colors.textEmphasis, flex: 1 },
   screen: { flex: 1, backgroundColor: colors.bgDefault },
   body: { padding: 20, gap: 12 },
@@ -348,6 +363,11 @@ const styles = StyleSheet.create({
     backgroundColor: colors.bgDefault,
     fontFamily: fonts.sansRegular,
     fontSize: 18,
+  },
+  inputDisabled: {
+    backgroundColor: colors.bgMuted,
+    borderColor: colors.borderSubtle,
+    color: colors.textMuted,
   },
   help: {
     fontFamily: fonts.sansRegular,

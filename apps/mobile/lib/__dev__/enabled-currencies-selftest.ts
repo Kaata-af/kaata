@@ -381,6 +381,7 @@ function fixture() {
     "../../lib/bill-link-settings": billLinks,
     "../../lib/auth": auth,
     "../../lib/colors": require("../colors"),
+    "../../lib/design-tokens": require("../design-tokens"),
     "../../lib/db-tx": { ...dbTx, getActiveVaultId: async () => "v" },
     "../../lib/currency": {
       ...currency,

@@ -23,6 +23,7 @@ import { ScreenLoading } from "../../../components/ScreenLoading";
 import { NavRow, ScreenHeader } from "../../../components/SettingsScreen";
 import { queuePendingToast, useToast } from "../../../components/Toast";
 import { colors } from "../../../lib/colors";
+import { SETTINGS_DISABLED_OPACITY } from "../../../lib/design-tokens";
 import { splitName } from "../../../lib/contacts-sync";
 import { archivePerson, getPerson, updatePerson } from "../../../lib/db";
 import { captureCurrentSession, SessionChangedError } from "../../../lib/auth";
@@ -402,9 +403,15 @@ label so TalkBack still announces "Cancel", not "Back". */}
             <View style={[styles.nameRow, rowDir(isRTL)]}>
               <TextInput
                 ref={firstNameRef}
-                style={[styles.nameInput, textDir(isRTL), nameError ? styles.inputError : null]}
+                style={[
+                  styles.nameInput,
+                  textDir(isRTL),
+                  nameError ? styles.inputError : null,
+                  !editable && styles.inputDisabled,
+                ]}
                 value={firstName}
                 editable={editable}
+                accessibilityState={{ disabled: !editable }}
                 onChangeText={(v) => {
                   if (!canEdit(renderAttempt) || savingRef.current) return;
                   setNameError(null);
@@ -422,9 +429,10 @@ label so TalkBack still announces "Cancel", not "Back". */}
               />
               <TextInput
                 ref={lastNameRef}
-                style={[styles.nameInput, textDir(isRTL)]}
+                style={[styles.nameInput, textDir(isRTL), !editable && styles.inputDisabled]}
                 value={lastName}
                 editable={editable}
+                accessibilityState={{ disabled: !editable }}
                 onChangeText={(v) => {
                   if (canEdit(renderAttempt) && !savingRef.current) setLastName(v);
                 }}
@@ -452,12 +460,15 @@ label so TalkBack still announces "Cancel", not "Back". */}
             <View style={styles.phoneRow}>
               <Pressable
                 disabled={!editable}
+                accessibilityRole="button"
+                accessibilityState={{ disabled: !editable }}
                 onPress={() => {
                   if (canEdit(renderAttempt) && !savingRef.current) setPickerVisible(true);
                 }}
                 style={({ pressed }) => [
                   styles.countryBtn,
-                  pressed && { backgroundColor: colors.bgMuted },
+                  pressed && editable && { backgroundColor: colors.bgMuted },
+                  !editable && styles.countryDisabled,
                 ]}
               >
                 <Text style={styles.countryFlag}>{country.flag}</Text>
@@ -466,9 +477,14 @@ label so TalkBack still announces "Cancel", not "Back". */}
               </Pressable>
               <TextInput
                 ref={phoneRef}
-                style={[styles.phoneInput, phoneError ? styles.inputError : null]}
+                style={[
+                  styles.phoneInput,
+                  phoneError ? styles.inputError : null,
+                  !editable && styles.inputDisabled,
+                ]}
                 value={phone}
                 editable={editable}
+                accessibilityState={{ disabled: !editable }}
                 onChangeText={(v) => {
                   if (!canEdit(renderAttempt) || savingRef.current) return;
                   setPhoneError(null);
@@ -560,9 +576,14 @@ label so TalkBack still announces "Cancel", not "Back". */}
             }}
             disabled={!editable}
             accessibilityRole="button"
-            style={({ pressed }) => [styles.removeRow, pressed && { opacity: 0.7 }]}
+            accessibilityState={{ disabled: !editable }}
+            style={({ pressed }) => [
+              styles.removeRow,
+              pressed && editable && { opacity: 0.7 },
+              !editable && { opacity: SETTINGS_DISABLED_OPACITY },
+            ]}
           >
-            <Text style={styles.removeRowText}>
+            <Text style={[styles.removeRowText, !editable && { color: colors.textMuted }]}>
               {t("common.remove.title", { name: [firstName, lastName].filter(Boolean).join(" ") })}
             </Text>
           </Pressable>
@@ -694,6 +715,16 @@ const styles = StyleSheet.create({
     fontFamily: fonts.sansRegular,
     color: colors.textEmphasis,
     backgroundColor: colors.bgDefault,
+  },
+  inputDisabled: {
+    backgroundColor: colors.bgMuted,
+    borderColor: colors.borderSubtle,
+    color: colors.textMuted,
+  },
+  countryDisabled: {
+    backgroundColor: colors.bgMuted,
+    borderColor: colors.borderSubtle,
+    opacity: SETTINGS_DISABLED_OPACITY,
   },
   // Mirrors FormField's error treatment — see entry/new.tsx.
   inputError: {

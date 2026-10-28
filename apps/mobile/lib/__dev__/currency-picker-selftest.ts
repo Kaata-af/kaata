@@ -70,6 +70,7 @@ for (const platform of ["ios", "android"]) {
         useSafeAreaInsets: () => ({ top: 24, bottom: 20, left: 0, right: 0 }),
       },
       "../lib/colors": { colors: {} },
+      "../lib/design-tokens": require("../design-tokens"),
       "../lib/currency": {
         getCurrencyName: (code: string) =>
           currencies.some((currency) => currency.code === code)

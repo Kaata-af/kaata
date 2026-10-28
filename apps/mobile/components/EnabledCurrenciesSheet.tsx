@@ -51,7 +51,13 @@ const CurrencyChoiceRow = memo(function CurrencyChoiceRow(props: {
   const symbol = props.symbol.trim();
   const codeLabel = symbol && symbol !== props.code ? `${props.code} · ${symbol}` : props.code;
   return (
-    <View style={[styles.choice, rowDir(props.isRTL)]}>
+    <View
+      style={[
+        styles.choice,
+        rowDir(props.isRTL),
+        props.disabled && { backgroundColor: colors.bgMuted },
+      ]}
+    >
       <Pressable
         accessibilityRole="checkbox"
         accessibilityLabel={`${props.code} ${props.label}${props.isDefault ? `, ${props.defaultLabel}` : ""}`}
@@ -63,10 +69,24 @@ const CurrencyChoiceRow = memo(function CurrencyChoiceRow(props: {
         <Ionicons
           name={props.checked ? "checkbox" : "square-outline"}
           size={icon.row}
-          color={props.checked ? colors.actionPrimary : colors.textSubtle}
+          color={
+            props.disabled
+              ? colors.textMuted
+              : props.checked
+                ? colors.actionPrimary
+                : colors.textSubtle
+          }
         />
         <View style={styles.choiceText}>
-          <Text style={[styles.label, textDir(props.isRTL)]}>{props.label}</Text>
+          <Text
+            style={[
+              styles.label,
+              textDir(props.isRTL),
+              props.disabled && { color: colors.textMuted },
+            ]}
+          >
+            {props.label}
+          </Text>
           {codeLabel !== props.label ? (
             <Text style={[styles.code, textDir(props.isRTL)]}>{ltrIsolate(codeLabel)}</Text>
           ) : null}
@@ -84,7 +104,13 @@ const CurrencyChoiceRow = memo(function CurrencyChoiceRow(props: {
           <Ionicons
             name={props.isDefault ? "star" : "star-outline"}
             size={icon.row}
-            color={props.isDefault ? colors.actionPrimary : colors.textSubtle}
+            color={
+              props.disabled
+                ? colors.textMuted
+                : props.isDefault
+                  ? colors.actionPrimary
+                  : colors.textSubtle
+            }
           />
         </Pressable>
       ) : null}
@@ -253,9 +279,14 @@ export function EnabledCurrenciesSheet(props: {
                 value={query}
                 onChangeText={setQuery}
                 editable={!props.saving && !props.conflicted}
+                accessibilityState={{ disabled: blocked }}
                 autoCapitalize="none"
                 autoCorrect={false}
-                style={[styles.searchInput, textDir(props.isRTL)]}
+                style={[
+                  styles.searchInput,
+                  textDir(props.isRTL),
+                  blocked && { color: colors.textMuted },
+                ]}
               />
             </View>
             <FlatList

@@ -193,7 +193,7 @@ export function NavRow(props: {
       : props.emphasis
         ? colors.textEmphasis
         : colors.textDefault;
-  const iconColor = props.iconColor ?? color;
+  const iconColor = props.disabled ? colors.textMuted : (props.iconColor ?? color);
   return (
     <Pressable
       onPress={props.disabled ? undefined : props.onPress}
@@ -257,9 +257,16 @@ export function NavRow(props: {
         >
           {props.trailing}
         </Text>
-      ) : (
-        (props.trailing ?? null)
-      )}
+      ) : props.trailing ? (
+        <View
+          pointerEvents={props.disabled ? "none" : "auto"}
+          style={props.disabled ? { opacity: SETTINGS_DISABLED_OPACITY } : undefined}
+          accessibilityElementsHidden={props.disabled}
+          importantForAccessibility={props.disabled ? "no-hide-descendants" : "auto"}
+        >
+          {props.trailing}
+        </View>
+      ) : null}
     </Pressable>
   );
 }
