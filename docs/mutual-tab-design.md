@@ -1,3 +1,34 @@
+## October 28: unused invitations preserve the private book
+
+An invitation that the other party has never joined, bound or reviewed does not
+absorb its creator's recorded private tallies. The server supplies authoritative
+`unjoined_invitation` metadata; missing metadata remains unknown. The creator
+keeps the original private rows, dates, notes and settled chapters. Its copied
+pending opening is excluded from the displayed rows and pending totals when the
+original source is present. Real shared periods still retain their existing
+review and history rules. Currency scopes and earlier shared checkpoints remain
+independent.
+
+`POST /close` accepts optional `withdraw_unjoined_opening: true`. Under the same
+lock as Join, it closes sharing and audit-withdraws only the untouched pending
+opening. Ordinary proposed tallies and reviewed records remain unchanged. Old
+callers retain the existing close behavior. New clients also use this operation
+to repair older closed unused invitations before collecting relink receipts;
+normal sync repairs them after an authoritative pull. The original signed
+private entries are never rewritten or synthetically accepted.
+
+Original private rows remain read-only while the invite is open, while a close
+is queued, or while its copied opening still awaits withdrawal. This prevents an
+offline cancellation from racing Join and losing a later private edit. Once the
+server confirms the unused cancellation and retires its opening, ordinary private
+editing resumes, subject to any earlier real shared or settled boundary.
+
+Mobile migration 045 adds nullable participation metadata and resets only the
+shared cache cursor so closed legacy invitations refresh too. Cached balances
+remain available offline. Deploy the compatible backend before the updated app;
+no backend database migration is required. Legacy server responses remain
+conservative and older apps retain their existing semantics.
+
 ## October 22: confirmed balances and safe unlinking
 
 This section supersedes the earlier pending-inclusive balance, open-only review,

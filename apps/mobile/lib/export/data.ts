@@ -32,7 +32,12 @@ import { toJalali, toQamari } from "../jalali";
 import type { Entry, PersonWithBalance, Self } from "../types";
 import { addAmounts } from "../money";
 import { balanceContribution, recordTotals, type RecordTotals } from "./shared-record";
-import { getTabLink, listPreLinkEntries, listTabSettlements } from "../tabs/db";
+import {
+  getFinancialTabLinkForPerson,
+  getTabLink,
+  listPreLinkEntries,
+  listTabSettlements,
+} from "../tabs/db";
 import { afterSharedSettlement } from "../tabs/chapters";
 import type { TabSettlement } from "../tabs/types";
 import { applyEventMutex } from "../projection";
@@ -242,13 +247,15 @@ async function buildPersonStatementSnapshot(
   generatedAtMs: number,
   calendar = getEffectiveCalendar(),
 ): Promise<PersonStatement | null> {
-  const [person, entries, boundaries, self, archivedSharedPeriods] = await Promise.all([
-    getPerson(personId, currencyCode),
-    listEntries(personId, currencyCode),
-    listSettlementBoundaries(personId, currencyCode),
-    getLocalSelf(),
-    listArchivedSharedPeriodsForExport(personId, currencyCode, { requireComplete: true }),
-  ]);
+  const [person, entries, boundaries, self, archivedSharedPeriods, financialTab] =
+    await Promise.all([
+      getPerson(personId, currencyCode),
+      listEntries(personId, currencyCode),
+      listSettlementBoundaries(personId, currencyCode),
+      getLocalSelf(),
+      listArchivedSharedPeriodsForExport(personId, currencyCode, { requireComplete: true }),
+      getFinancialTabLinkForPerson(personId, currencyCode),
+    ]);
   if (!person) return null;
   if (person.tab_unsynced === 1)
     throw new Error("Shared history is still syncing. Please try exporting again shortly.");
@@ -256,8 +263,12 @@ async function buildPersonStatementSnapshot(
 
   // Shared clearances follow server sequence; private chapters follow the
   // edited business date. Keep both histories without counting an opening twice.
-  const rows: StatementRow[] = person.tab_id
-    ? sharedStatementRows(entries, await listTabSettlements(person.tab_id), person.tab_id)
+  const rows: StatementRow[] = financialTab
+    ? sharedStatementRows(
+        entries,
+        await listTabSettlements(financialTab.tab_id),
+        financialTab.tab_id,
+      )
     : privateStatementRows(entries, boundaries);
   const running = rows.at(-1)?.balanceAfter ?? 0;
   let preLinkRows: StatementRow[] = [];

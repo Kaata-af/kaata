@@ -62,6 +62,7 @@ import type { EntryType } from "./types";
 import { parseAmountInput } from "./money";
 import { signedEntryMinorSumSql } from "./money-sql";
 import { TabLinkedEntryError } from "./tabs/errors";
+import { unjoinedInvitationSql } from "./tabs/history";
 import { isValidEntryDate } from "./entry-date";
 import {
   getLedgerCurrencyCode,
@@ -252,19 +253,17 @@ export async function appendEntrySettled(args: {
   settledAtMs?: number;
 }): Promise<{ event_id: string }> {
   const currency = requireCurrencyCode(args.currency ?? getLedgerCurrencyCode());
-  // A linked contact's account IS its mutual tab (docs/mutual-tab-design.md
-  // D8): the local rows are frozen and the tab has no settle ritual, so a
-  // ruled-off line here would partition rows the balance no longer reads.
-  // This outlives the link — a closed tab still owns the balance.
-  // Data-layer guard like updateEntry's, checked before the tx and before an
-  // HLC tick is spent; the person screen hides the settle row as well.
+  // Real shared history uses server sequence settlements even after close.
+  // An untouched invitation keeps the original private chapters, provided
+  // no ordinary shared tally would be skipped by this local-only zero check.
+  // Refuse before spending an HLC tick or writing a signed event.
   {
     const db = await getDb();
     const linked = await db.getFirstAsync<{ one: number }>(
-      // ANY link, open or frozen: after a close the contact's displayed
-      // balance is the tab's (D8) while the zero-check below can only see
-      // LOCAL rows, so allowing the act here would refuse every time.
-      `SELECT 1 AS one FROM tab_links WHERE relationship_id = ? AND currency=? LIMIT 1`,
+      `SELECT 1 AS one FROM tab_links tl WHERE relationship_id = ? AND currency=?
+        AND (NOT ${unjoinedInvitationSql()} OR EXISTS(SELECT 1 FROM tab_entries te
+          WHERE te.tab_id=tl.tab_id AND te.kind='entry' AND te.voided_by_entry_id IS NULL)
+          OR EXISTS(SELECT 1 FROM tab_outbox closing WHERE closing.tab_id=tl.tab_id AND closing.op='close')) LIMIT 1`,
       args.relationshipId,
       currency,
     );

@@ -238,7 +238,12 @@ async function performOp(auth: TabAuth, link: TabLink, op: TabOutboxRow): Promis
         hint: null,
       };
     case "close":
-      return { apply: await closeTab(auth, link.tab_id), hint: null };
+      return {
+        apply: await closeTab(auth, link.tab_id, {
+          withdraw_unjoined_opening: payload.withdraw_unjoined_opening === true,
+        }),
+        hint: null,
+      };
   }
 }
 
@@ -351,6 +356,56 @@ async function runSyncTab(tabId: string): Promise<SyncTabResult> {
     result.pulled = pulled.value.entries.length;
     result.newFromThem += c.newFromThem;
     result.statusChangedOnMine += c.statusChangedOnMine;
+
+    // Old clients could close an unused invitation while leaving its copied
+    // opening pending. Repair that server-confirmed closed state before the
+    // original private entries can be edited. The server rechecks participation
+    // atomically and withdraws only the opening, never ordinary pending claims.
+    // A queued close retains its own retry order and backoff.
+    if (
+      !flushError &&
+      fresh.role === "a" &&
+      pulled.value.tab.you === "a" &&
+      pulled.value.tab.closed_at_ms != null &&
+      pulled.value.tab.unjoined_invitation === true
+    ) {
+      const repairable = await applyForCurrentSession(session, async () => {
+        const db = await getDb();
+        return db.getFirstAsync<{ one: number }>(
+          `SELECT 1 AS one FROM tab_entries opening JOIN tab_links l ON l.tab_id=opening.tab_id
+            WHERE l.tab_id=? AND l.role='a' AND l.closed_at IS NOT NULL
+              AND l.unjoined_invitation=1 AND l.other_joined_at IS NULL
+              AND opening.kind='opening' AND opening.created_by='a'
+              AND opening.status='pending' AND opening.voided_by_entry_id IS NULL
+              AND NOT EXISTS(SELECT 1 FROM tab_outbox o WHERE o.tab_id=l.tab_id AND o.op='close')
+            LIMIT 1`,
+          tabId,
+        );
+      });
+      if (repairable) {
+        try {
+          await applyForCurrentSession(session, async () => {});
+          const repaired = await withAuthFallback(fresh, auth, (a) =>
+            closeTab(a, tabId, { withdraw_unjoined_opening: true }),
+          );
+          auth = repaired.auth;
+          const changes = await applyForCurrentSession(session, () =>
+            upsertTabFromWire(fresh, repaired.value, {
+              advanceCursor: repaired.value.full === true,
+            }),
+          );
+          result.newFromThem += changes.newFromThem;
+          result.statusChangedOnMine += changes.statusChangedOnMine;
+        } catch (err) {
+          // Viewers and clerks can still refresh history. A permission change
+          // must not turn a successful read into a recurring failed sync.
+          if (
+            !(err instanceof TabApiError && err.status === 403 && err.code === "role_insufficient")
+          )
+            throw err;
+        }
+      }
+    }
 
     // The successful pull cleared last_error; a flush failure in the same run
     // is still worth a line in App health until the next clean run.
@@ -598,10 +653,14 @@ async function runReconcileTabsFromServer(): Promise<void> {
             typeof order === "string" &&
             /^[1-9][0-9]*$/.test(order) &&
             order !== existing.history_order;
+          const participationChanged =
+            typeof t.tab.unjoined_invitation === "boolean" &&
+            (t.tab.unjoined_invitation ? 1 : 0) !== (existing.unjoined_invitation ?? null);
           return (
             existing.last_synced_at == null ||
             t.tab.rev > existing.rev ||
             orderChanged ||
+            participationChanged ||
             (t.tab.closed_at_ms != null && existing.closed_at == null)
           );
         }
@@ -641,6 +700,12 @@ async function runReconcileTabsFromServer(): Promise<void> {
             my_label: t.tab.parties[me].label,
             other_label: t.tab.parties[them].label,
             other_joined_at: t.tab.parties[them].joined_at_ms,
+            unjoined_invitation:
+              typeof t.tab.unjoined_invitation === "boolean"
+                ? t.tab.unjoined_invitation
+                  ? 1
+                  : 0
+                : null,
             invite_url: null,
             rev: 0,
             closed_at: t.tab.closed_at_ms,

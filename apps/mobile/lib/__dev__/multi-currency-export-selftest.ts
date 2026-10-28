@@ -127,6 +127,8 @@ const data = compileUI("../export/data", {
   "../money": money,
   "./shared-record": records,
   "../tabs/db": {
+    getFinancialTabLinkForPerson: async (_id: string, code: string) =>
+      linked && code === "USD" ? { tab_id: "shared-usd", currency: "USD" } : null,
     getTabLink: async () => ({ tab_id: "shared-usd", currency: "USD" }),
     listPreLinkEntries: async () =>
       [...preLinkHistory]

@@ -274,8 +274,12 @@ export async function voidTabEntry(
 }
 
 /** POST /v1/tabs/{id}/close — either party; every later write is 409 tab_closed. */
-export async function closeTab(auth: TabAuth, tabId: string): Promise<TabResponse> {
-  return request<TabResponse>("POST", `/v1/tabs/${encodeURIComponent(tabId)}/close`, auth, {});
+export async function closeTab(
+  auth: TabAuth,
+  tabId: string,
+  options: { withdraw_unjoined_opening?: boolean } = {},
+): Promise<TabResponse> {
+  return request<TabResponse>("POST", `/v1/tabs/${encodeURIComponent(tabId)}/close`, auth, options);
 }
 
 export async function settleTab(

@@ -133,6 +133,7 @@ function harness(options: Options = {}) {
     "./direction": {},
     "./inbox-reads": {},
     "./wire": {},
+    "./history": require("../tabs/history"),
     "../db-tx": { getAccountIdSync: () => "account", getDb: async () => nativeDb },
     "../auth": {
       SessionChangedError,

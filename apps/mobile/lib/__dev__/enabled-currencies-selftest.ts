@@ -108,6 +108,7 @@ function fixture() {
     "./money": require("../money"),
     "./money-sql": require("../money-sql"),
     "./tabs/errors": require("../tabs/errors"),
+    "./tabs/history": require("../tabs/history"),
     "./entry-date": require("../entry-date"),
     "./currency-scope": scope,
     "./currency-settings": settings,

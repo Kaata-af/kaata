@@ -22,6 +22,7 @@ let displayBalance = 12.34;
 let confirmedSharedBalance = 0;
 let roleWait: (() => Promise<void>) | null = null;
 let syncWait: (() => Promise<void>) | null = null;
+let syncStep: ((id: string) => Promise<void>) | null = null;
 let discoveryWait: (() => Promise<void>) | null = null;
 let afterCreatePerson: (() => Promise<void>) | null = null;
 let requestWait: (() => Promise<void>) | null = null;
@@ -201,6 +202,7 @@ const flows = compile<typeof import("../tabs/link")>("../tabs/link", (name) => {
         const wait = syncWait;
         syncWait = null;
         if (wait) await wait();
+        if (syncStep) await syncStep(id);
         return { ok: online, error: online ? null : "offline" };
       },
       reconcileTabsFromServer: async () => {
@@ -248,6 +250,7 @@ function reset() {
   displayBalance = 12.34;
   confirmedSharedBalance = 0;
   roleWait = syncWait = discoveryWait = afterCreatePerson = requestWait = null;
+  syncStep = null;
   joinError = null;
   requests.length = synced.length = archived.length = marked.length = 0;
 }
@@ -409,6 +412,171 @@ async function main() {
       );
       assert.equal(requests.length, 0);
     }
+  });
+  await test("unlink queues the server-verified invitation cleanup opt-in without local financial edits", async () => {
+    const link = await seedLink("unused", {
+      closed_at: null,
+      other_joined_at: null,
+      unjoined_invitation: 1,
+    });
+    seedEntry(link, "opening", "a");
+    fixture.prepare("UPDATE tab_entries SET kind='opening' WHERE id='opening'").run();
+    const before = fixture.prepare("SELECT * FROM tab_entries").all();
+    await flows.unlinkContact(link);
+    const operations = fixture.prepare("SELECT op,payload FROM tab_outbox").all() as Array<{
+      op: string;
+      payload: string;
+    }>;
+    assert.equal(operations.length, 1);
+    assert.equal(operations[0].op, "close");
+    assert.deepEqual(JSON.parse(operations[0].payload), { withdraw_unjoined_opening: true });
+    assert.deepEqual(fixture.prepare("SELECT * FROM tab_entries").all(), before);
+    assert.notEqual(
+      (await tabsDb.getTabLink(link.tab_id))?.closed_at,
+      null,
+      "the queued close immediately stops new local sharing",
+    );
+  });
+  await test("relink cleans a refreshed legacy untouched opening before collecting its new revision receipt", async () => {
+    const link = await seedLink("unused", { other_joined_at: null, unjoined_invitation: null });
+    seedEntry(link, "opening", "a");
+    fixture.prepare("UPDATE tab_entries SET kind='opening' WHERE id='opening'").run();
+    let cleanups = 0;
+    syncStep = async (id) => {
+      const queued = fixture
+        .prepare("SELECT id,op,payload FROM tab_outbox WHERE tab_id=?")
+        .all(id) as Array<{
+        id: string;
+        op: string;
+        payload: string;
+      }>;
+      if (!queued.length) {
+        fixture.prepare("UPDATE tab_links SET unjoined_invitation=1 WHERE tab_id=?").run(id);
+        return;
+      }
+      assert.equal(requests.length, 0, "a new invitation must wait for opening withdrawal");
+      assert.equal(queued.length, 1);
+      assert.equal(queued[0].op, "close");
+      assert.deepEqual(JSON.parse(queued[0].payload), { withdraw_unjoined_opening: true });
+      cleanups++;
+      // Model the committed server response; the product flow must use this
+      // fresh revision, not its pre-cleanup snapshot.
+      fixture
+        .prepare("UPDATE tab_entries SET voided_by_entry_id='server-void',rev=6 WHERE id='opening'")
+        .run();
+      fixture.prepare("UPDATE tab_links SET rev=6 WHERE tab_id=?").run(id);
+      fixture.prepare("DELETE FROM tab_outbox WHERE id=?").run(queued[0].id);
+    };
+    await flows.linkContact(PERSON, { myLabel: "A" });
+    assert.equal(cleanups, 1);
+    assert.deepEqual(synced, ["unused", "unused"]);
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].body.expected_previous_tab_id, "unused");
+    assert.equal(requests[0].body.expected_previous_rev, 6);
+    assert.deepEqual(requests[0].body.expected_history_revisions, { unused: 6 });
+    assert.equal(requests[0].body.opening.amount, "12.34");
+  });
+  await test("real pending claims and false or unknown invitation metadata never trigger cleanup", async () => {
+    for (const [kind, invitation] of [
+      ["entry", 1],
+      ["opening", 0],
+      ["opening", null],
+    ] as const) {
+      reset();
+      const link = await seedLink("prior", {
+        other_joined_at: null,
+        unjoined_invitation: invitation,
+      });
+      seedEntry(link, "pending", "a");
+      fixture.prepare("UPDATE tab_entries SET kind=? WHERE id='pending'").run(kind);
+      await assert.rejects(
+        flows.linkContact(PERSON, { myLabel: "A" }),
+        (error: unknown) =>
+          error instanceof errors.TabApiError && error.code === "shared_history_pending",
+      );
+      assert.equal(requests.length, 0);
+      assert.equal(
+        count("tab_outbox"),
+        0,
+        "ordinary or unverified history cannot be auto-withdrawn",
+      );
+      assert.equal(
+        (
+          fixture
+            .prepare("SELECT voided_by_entry_id FROM tab_entries WHERE id='pending'")
+            .get() as { voided_by_entry_id: string | null }
+        ).voided_by_entry_id,
+        null,
+      );
+    }
+  });
+  await test("retiring the duplicate opening leaves genuine ordinary claims blocking relink", async () => {
+    const link = await seedLink("unused", { other_joined_at: null, unjoined_invitation: 1 });
+    seedEntry(link, "opening", "a");
+    fixture.prepare("UPDATE tab_entries SET kind='opening',seq=2 WHERE id='opening'").run();
+    seedEntry(link, "ordinary", "a");
+    let cleanups = 0;
+    syncStep = async (id) => {
+      const operations = fixture
+        .prepare("SELECT id FROM tab_outbox WHERE tab_id=?")
+        .all(id) as Array<{ id: string }>;
+      if (!operations.length) return;
+      cleanups++;
+      fixture
+        .prepare("UPDATE tab_entries SET voided_by_entry_id='server-void',rev=6 WHERE id='opening'")
+        .run();
+      fixture.prepare("UPDATE tab_links SET rev=6 WHERE tab_id=?").run(id);
+      fixture.prepare("DELETE FROM tab_outbox WHERE id=?").run(operations[0].id);
+    };
+    await assert.rejects(
+      flows.linkContact(PERSON, { myLabel: "A" }),
+      (error: unknown) =>
+        error instanceof errors.TabApiError && error.code === "shared_history_pending",
+    );
+    assert.equal(cleanups, 1);
+    assert.equal(requests.length, 0);
+    assert.equal(count("tab_outbox"), 0);
+    assert.deepEqual(
+      fixture
+        .prepare("SELECT status,voided_by_entry_id FROM tab_entries WHERE id='ordinary'")
+        .get(),
+      {
+        status: "pending",
+        voided_by_entry_id: null,
+      },
+    );
+  });
+  await test("fresh participation evidence prevents cleanup of a previously unused cached invitation", async () => {
+    const link = await seedLink("unused", { other_joined_at: null, unjoined_invitation: 1 });
+    seedEntry(link, "opening", "a");
+    fixture.prepare("UPDATE tab_entries SET kind='opening' WHERE id='opening'").run();
+    syncStep = async (id) => {
+      fixture.prepare("UPDATE tab_links SET unjoined_invitation=0 WHERE tab_id=?").run(id);
+    };
+    await assert.rejects(
+      flows.linkContact(PERSON, { myLabel: "A" }),
+      (error: unknown) =>
+        error instanceof errors.TabApiError && error.code === "shared_history_pending",
+    );
+    assert.equal(count("tab_outbox"), 0);
+    assert.equal(requests.length, 0);
+  });
+  await test("session replacement during legacy invitation refresh cannot enqueue cleanup for the new account", async () => {
+    const link = await seedLink("unused", { other_joined_at: null, unjoined_invitation: 1 });
+    seedEntry(link, "opening", "a");
+    fixture.prepare("UPDATE tab_entries SET kind='opening' WHERE id='opening'").run();
+    syncWait = async () => {
+      accountId = "replacement-account";
+      jwt = "replacement-jwt";
+      bindingVersion++;
+    };
+    await assert.rejects(flows.linkContact(PERSON, { myLabel: "A" }), SessionChangedError);
+    assert.equal(requests.length, 0);
+    assert.equal(
+      count("tab_outbox"),
+      0,
+      "old-account cleanup must stay bound to the initiating session",
+    );
   });
   await test("offline or unknown prior ordering fails closed instead of guessing a carry receipt", async () => {
     await seedLink();

@@ -15,6 +15,7 @@ function mutations(f: Fixture, finish: "pending" | "refused" | "recorded" = "pen
     "./entry-date": require("../entry-date"),
     "./currency-scope": require("../currency-scope"),
     "./tabs/errors": require("../tabs/errors"),
+    "./tabs/history": require("../tabs/history"),
     "./currency-settings": require("../currency-settings"),
     "./currency": f.currency,
     "./auth": f.auth,
@@ -27,6 +28,7 @@ function mutations(f: Fixture, finish: "pending" | "refused" | "recorded" = "pen
      import {entryRecordedAtSql,isValidEntryDate} from './entry-date';
      import {effectiveEntryCurrencySql,requireCurrencyCode} from './currency-scope';
      import {TabLinkedEntryError} from './tabs/errors';
+     import {releasedPrivateHistorySql} from './tabs/history';
      ${["assertMutationScope", "captureMutationScope", "assertNotTabLinked", "assertNotInSettledChapter", "finishEntryMutationAdmission"].map((name) => declaration("../db", name)).join("\n")}
      ${["SettledChapterError", "EntryEditChangedError", "EntryEditCurrencyDisabledError", "updateEntry"].map((name) => `export ${declaration("../db", name)}`).join("\n")}`,
     (name) => {
@@ -241,11 +243,15 @@ async function rollbackAndScopeChecks() {
         if (change === "settlement")
           f.sql.exec("INSERT INTO settlements VALUES('s','v1','r1','AFN',100)");
         if (change === "tab")
-          f.sql.exec("INSERT INTO tab_links VALUES('t','v1','r1','AFN',NULL,100)");
+          f.sql.exec(
+            "INSERT INTO tab_links(tab_id,vault_id,relationship_id,currency,closed_at,linked_at) VALUES('t','v1','r1','AFN',NULL,100)",
+          );
         if (change === "target-settlement")
           f.sql.exec("INSERT INTO settlements VALUES('s','v1','r1','USD',100)");
         if (change === "target-tab")
-          f.sql.exec("INSERT INTO tab_links VALUES('t','v1','r1','USD',NULL,1)");
+          f.sql.exec(
+            "INSERT INTO tab_links(tab_id,vault_id,relationship_id,currency,closed_at,linked_at) VALUES('t','v1','r1','USD',NULL,1)",
+          );
         if (change === "disabled")
           f.sql.exec(
             "UPDATE vault_settings SET value='[\"AFN\"]' WHERE vault_id='v1' AND key='enabled_currencies'",

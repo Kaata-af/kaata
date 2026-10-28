@@ -97,6 +97,7 @@ import type {
   WireTab,
 } from "./types";
 import { minorToWire } from "./wire";
+import { isUnjoinedInvitation } from "./history";
 
 export {
   TabAlreadyLinkedError,
@@ -178,7 +179,12 @@ function requireOpen(link: TabLink): void {
 /** Resolve the previous shared period before copying its balance. The server
  * checks the receipt again under its contact lock, so a concurrent final review
  * cannot silently turn a stale opening into a new acknowledgement. */
-async function prepareSharedHistory(relationshipId: string, vaultId: string, currency: string) {
+async function prepareSharedHistory(
+  relationshipId: string,
+  vaultId: string,
+  currency: string,
+  session: SessionSnapshot,
+) {
   let previous = await getAnyTabLinkForRelationship(relationshipId, currency);
   if (!previous) return {};
   // Another phone may have restored or closed a period this cache has never
@@ -194,6 +200,25 @@ async function prepareSharedHistory(relationshipId: string, vaultId: string, cur
   for (const link of history) {
     const result = await syncTab(link.tab_id);
     if (!result.ok || result.error) throw new TabAuthUnavailableError();
+    // Older clients closed unused invites without withdrawing the duplicate
+    // opening. Ask the server to verify participation and retire it before
+    // collecting a relink receipt. Genuine unresolved tallies still block it.
+    const refreshed = await getTabLink(link.tab_id);
+    if (refreshed?.closed_at != null && isUnjoinedInvitation(refreshed)) {
+      const db = await getDb();
+      const pendingOpening = await db.getFirstAsync<{ one: number }>(
+        `SELECT 1 AS one FROM tab_entries WHERE tab_id=? AND kind='opening'
+          AND created_by='a' AND status='pending' AND voided_by_entry_id IS NULL LIMIT 1`,
+        refreshed.tab_id,
+      );
+      if (pendingOpening) {
+        await newOp(refreshed, "close", { withdraw_unjoined_opening: true }, undefined, {
+          session,
+        });
+        const cleanup = await syncTab(refreshed.tab_id);
+        if (!cleanup.ok || cleanup.error) throw new TabAuthUnavailableError();
+      }
+    }
   }
   const db = await getDb();
   const unresolved = await db.getFirstAsync<{ pending: number }>(
@@ -412,7 +437,7 @@ export async function linkContact(
   const currency = requireCurrencyCode(opts.currency ?? getLedgerCurrencyCode());
   const existing = await getTabLinkForRelationship(relId, currency);
   if (existing) throw new TabAlreadyLinkedError(existing.tab_id);
-  const historyReceipt = await prepareSharedHistory(relId, vaultId, currency);
+  const historyReceipt = await prepareSharedHistory(relId, vaultId, currency, session);
 
   // The opening entry carries the contact's balance AS THE SHOPKEEPER SEES IT
   // — getPerson's number, not a fresh sum of the local rows. Those differ the
@@ -482,6 +507,12 @@ export async function linkContact(
     my_label: resp.tab.parties.a.label,
     other_label: resp.tab.parties.b.label,
     other_joined_at: resp.tab.parties.b.joined_at_ms,
+    unjoined_invitation:
+      typeof resp.tab.unjoined_invitation === "boolean"
+        ? resp.tab.unjoined_invitation
+          ? 1
+          : 0
+        : null,
     history_order: resp.tab.parties.a.history_order ?? null,
     invite_url: resp.invite_url,
     rev: 0,
@@ -641,7 +672,7 @@ export async function joinTabAsContact(
   }
 
   const failureScope = { session, vaultId: target.vaultId };
-  const historyReceipt = await prepareSharedHistory(relId, target.vaultId, currency).catch(
+  const historyReceipt = await prepareSharedHistory(relId, target.vaultId, currency, session).catch(
     async (err) => {
       throw await joinFailure(err, createdPersonId, currency, tab, false, failureScope);
     },
@@ -695,6 +726,12 @@ export async function joinTabAsContact(
     my_label: resp.tab.parties[me].label,
     other_label: resp.tab.parties[them].label,
     other_joined_at: resp.tab.parties[them].joined_at_ms,
+    unjoined_invitation:
+      typeof resp.tab.unjoined_invitation === "boolean"
+        ? resp.tab.unjoined_invitation
+          ? 1
+          : 0
+        : null,
     history_order: resp.tab.parties[me].history_order ?? null,
     invite_url: null,
     rev: 0,
@@ -968,7 +1005,7 @@ export async function setMyLabel(link: TabLink, label: string): Promise<void> {
 export async function unlinkContact(link: TabLink): Promise<void> {
   const session = await captureCurrentSession();
   await assertVaultAction(link.vault_id, "entry.amend");
-  await newOp(link, "close", {}, undefined, { session });
+  await newOp(link, "close", { withdraw_unjoined_opening: true }, undefined, { session });
   void syncTab(link.tab_id);
 }
 

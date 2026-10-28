@@ -78,6 +78,11 @@ import {
   effectiveConfirmedSql,
   effectivePendingBalanceSql,
   effectiveSharedPeriods,
+  privateEntryCurrentSql,
+  releasedPrivateHistorySql,
+  retainedPrivateHistorySql,
+  unjoinedInvitationSql,
+  unjoinedOpeningPrivateAdjustmentSql,
   unknownHistorySql,
 } from "./tabs/history";
 
@@ -136,6 +141,7 @@ const MIGRATION_041 = "041_shared_history_order";
 const MIGRATION_042 = "042_ledger_currencies";
 const MIGRATION_043 = "043_person_default_currency";
 const MIGRATION_044 = "044_entry_original_currency";
+const MIGRATION_045 = "045_unjoined_invitation";
 
 // Phase 5 mesh: app_meta keys used by the lib/mesh package. They are NOT
 // referenced from db.ts directly — the table itself is the generic key/value
@@ -574,6 +580,7 @@ export async function initDb(opts: { installId?: string } = {}): Promise<void> {
     await runMigration043(db);
   }
   if (!(await hasRunMigration(db, MIGRATION_044))) await runMigration044(db);
+  if (!(await hasRunMigration(db, MIGRATION_045))) await runMigration045(db);
 }
 
 async function hasRunMigration(db: SQLite.SQLiteDatabase, name: string): Promise<boolean> {
@@ -3272,6 +3279,7 @@ async function runMigration028(db: SQLite.SQLiteDatabase): Promise<void> {
         my_label        TEXT NOT NULL DEFAULT '',
         other_label     TEXT NOT NULL DEFAULT '',
         other_joined_at INTEGER,
+        unjoined_invitation INTEGER,
         invite_url      TEXT,
         rev             INTEGER NOT NULL DEFAULT 0,
         closed_at       INTEGER,
@@ -3737,6 +3745,21 @@ async function runMigration044(db: SQLite.SQLiteDatabase): Promise<void> {
     await db.runAsync(
       "INSERT INTO schema_migrations(name,applied_at) VALUES (?,?)",
       MIGRATION_044,
+      Date.now(),
+    );
+  });
+}
+
+async function runMigration045(db: SQLite.SQLiteDatabase): Promise<void> {
+  await db.withTransactionAsync(async () => {
+    if (!(await columnExists(db, "tab_links", "unjoined_invitation")))
+      await db.execAsync("ALTER TABLE tab_links ADD COLUMN unjoined_invitation INTEGER");
+    // Refresh closed invitations too. Keep cached balances available offline;
+    // only the server can establish that nobody ever joined or reviewed them.
+    await db.execAsync("UPDATE tab_links SET rev=0 WHERE unjoined_invitation IS NULL");
+    await db.runAsync(
+      "INSERT INTO schema_migrations(name,applied_at) VALUES (?,?)",
+      MIGRATION_045,
       Date.now(),
     );
   });
@@ -4417,6 +4440,7 @@ const TAB_PERSON_COLUMNS = `
               JOIN tab_links pl ON pl.tab_id=tp.tab_id
               WHERE pl.vault_id=tl.vault_id AND pl.relationship_id=tl.relationship_id AND pl.currency=tl.currency AND tp.kind <> 'void'
                 AND tp.voided_by_entry_id IS NULL
+                AND NOT (tp.kind='opening' AND ${retainedPrivateHistorySql("pl")})
                 AND (tp.status = 'pending' OR tp.local_pending <> 0
                   OR COALESCE(tp.local_action_pending, 0) <> 0)) AS tab_pending_count,
             (SELECT ${tabBalanceSql("tl.role", "te")} FROM tab_entries te WHERE te.tab_id = tl.tab_id) / 100.0 AS tab_recorded_balance,
@@ -4426,30 +4450,26 @@ const TAB_PERSON_COLUMNS = `
             CASE WHEN tl.other_joined_at IS NOT NULL THEN 1 ELSE 0 END AS tab_other_joined,
             CASE WHEN tl.tab_id IS NOT NULL AND (tl.last_synced_at IS NULL OR (${unknownHistorySql()})) THEN 1 ELSE 0 END AS tab_unsynced,
             (SELECT MAX(tn.occurred_at) FROM tab_entries tn
-              WHERE tn.tab_id = tl.tab_id AND tn.kind <> 'void') AS tab_last_at,
+              WHERE tn.tab_id = tl.tab_id AND tn.kind <> 'void'
+                AND NOT (tn.kind='opening' AND ${retainedPrivateHistorySql()})) AS tab_last_at,
             (SELECT tn.direction FROM tab_entries tn
               WHERE tn.tab_id = tl.tab_id AND tn.kind <> 'void'
                 AND tn.voided_by_entry_id IS NULL
+                AND NOT (tn.kind='opening' AND ${retainedPrivateHistorySql()})
               ORDER BY tn.occurred_at DESC, tn.created_at DESC, tn.id DESC
               LIMIT 1) AS tab_last_direction,
             tl.role AS tab_role`;
 
 /**
- * Balance column. Once a contact has EVER been linked, its account is the
- * acknowledged shared rows plus any local tallies written after the link — and never the
- * pre-link local rows, whose sum the tab's opening entry already carries
- * (D8). That rule outlives the link: closing a tab freezes its rows, it does
- * not un-happen them, so a closed tab keeps counting and the pre-link rows
- * stay out. Older acknowledged periods survive until a later opening is
- * acknowledged; server binding order selects that checkpoint. Reverting to
- * the bare local sum on close would both lose every
- * tally of the shared period and put a months-old number on the home screen.
- * Unlinked contacts take the ELSE arm and are untouched.
+ * A participating shared period absorbs earlier private entries even after
+ * closing. An untouched invitation does not: its pending opening proposes
+ * money already recorded in the private book. Older acknowledged periods
+ * remain until a later opening is acknowledged, in server binding order.
  */
 const PERSON_BALANCE_SQL = `
             CASE WHEN tl.tab_id IS NOT NULL THEN
               (${effectiveConfirmedBalanceSql()})
-              + ${signedEntryMinorSumSql("e", `${entryRecordedAtSql("e")} > tl.linked_at`)}
+              + ${signedEntryMinorSumSql("e", privateEntryCurrentSql("e"))}
             ELSE (${signedEntryMinorSumSql("e")}) END / 100.0 AS balance`;
 
 /**
@@ -4464,6 +4484,11 @@ const tabLinkJoin = (currencyCode: string) => `LEFT JOIN tab_links tl ON tl.tab_
         WHERE t2.relationship_id = r.id AND t2.vault_id = r.vault_id AND t2.currency=${currencySqlLiteral(currencyCode)}
         ORDER BY (t2.closed_at IS NULL) DESC, CAST(t2.history_order AS INTEGER) DESC, t2.linked_at DESC
         LIMIT 1)`;
+
+const financialTabLinkJoin = (currencyCode: string) => `LEFT JOIN tab_links ftl ON ftl.tab_id = (
+       SELECT f.tab_id FROM tab_links f WHERE f.relationship_id=r.id AND f.vault_id=r.vault_id
+         AND f.currency=${currencySqlLiteral(currencyCode)} AND NOT ${unjoinedInvitationSql("f")}
+       ORDER BY CAST(f.history_order AS INTEGER) DESC,f.linked_at DESC,f.tab_id DESC LIMIT 1)`;
 
 /**
  * last_entry_at is the home sort key and last_entry_type the settled-person
@@ -4543,19 +4568,19 @@ async function selectAllPeopleRaw(
             ${PERSON_BALANCE_SQL},
             COALESCE(st.debt_count, 0)
               + SUM(CASE WHEN e.deleted_at IS NULL AND e.type = 'debt'
-                          AND (tl.tab_id IS NULL OR ${entryRecordedAtSql("e")} > tl.linked_at)
+                          AND ${privateEntryCurrentSql("e")}
                          THEN 1 ELSE 0 END) AS selection_debt_count,
             COALESCE(st.credit_count, 0)
               + SUM(CASE WHEN e.deleted_at IS NULL AND e.type = 'payment'
-                          AND (tl.tab_id IS NULL OR ${entryRecordedAtSql("e")} > tl.linked_at)
+                          AND ${privateEntryCurrentSql("e")}
                          THEN 1 ELSE 0 END) AS selection_credit_count,
             COALESCE(st.debt_minor, 0)
               + SUM(CASE WHEN e.deleted_at IS NULL AND e.type = 'debt'
-                          AND (tl.tab_id IS NULL OR ${entryRecordedAtSql("e")} > tl.linked_at)
+                          AND ${privateEntryCurrentSql("e")}
                          THEN CAST(ROUND(e.amount_afn * 100) AS INTEGER) ELSE 0 END) AS selection_debt_minor,
             COALESCE(st.credit_minor, 0)
               + SUM(CASE WHEN e.deleted_at IS NULL AND e.type = 'payment'
-                          AND (tl.tab_id IS NULL OR ${entryRecordedAtSql("e")} > tl.linked_at)
+                          AND ${privateEntryCurrentSql("e")}
                          THEN CAST(ROUND(e.amount_afn * 100) AS INTEGER) ELSE 0 END) AS selection_credit_minor,
             MAX(CASE WHEN e.deleted_at IS NULL THEN e.created_at END) AS last_entry_at,
             -- Type of the most-recent non-deleted entry. Only meaningful for a
@@ -4577,19 +4602,25 @@ async function selectAllPeopleRaw(
             -- are server-sequence boundaries: even backdated new records or
             -- queued changes reopen the account's current page.
             CASE
-              WHEN tl.tab_id IS NOT NULL
+              WHEN EXISTS (SELECT 1 FROM tab_entries tp JOIN tab_links pl ON pl.tab_id=tp.tab_id
+                WHERE pl.vault_id=r.vault_id AND pl.relationship_id=r.id AND pl.currency=${currencySqlLiteral(currencyCode)}
+                  AND tp.kind<>'void' AND tp.voided_by_entry_id IS NULL
+                  AND (tp.status='pending' OR tp.local_pending<>0 OR COALESCE(tp.local_action_pending,0)<>0)
+                  AND NOT (tp.kind='opening' AND ${retainedPrivateHistorySql("pl")})) THEN 0
+              WHEN ftl.tab_id IS NOT NULL
                AND ((${effectiveConfirmedBalanceSql()})
-                    + ${signedEntryMinorSumSql("e", `${entryRecordedAtSql("e")} > tl.linked_at`)}) = 0
-               AND EXISTS (SELECT 1 FROM tab_settlements s WHERE s.tab_id = tl.tab_id
-                    AND s.through_seq >= COALESCE((SELECT MAX(te.seq) FROM tab_entries te WHERE te.tab_id = tl.tab_id), 0))
-               AND NOT EXISTS (SELECT 1 FROM tab_entries te WHERE te.tab_id = tl.tab_id
+                    + ${signedEntryMinorSumSql("e", privateEntryCurrentSql("e"))}) = 0
+               AND EXISTS (SELECT 1 FROM tab_settlements s WHERE s.tab_id = ftl.tab_id
+                    AND s.through_seq >= COALESCE((SELECT MAX(te.seq) FROM tab_entries te WHERE te.tab_id = ftl.tab_id), 0))
+               AND NOT EXISTS (SELECT 1 FROM tab_entries te WHERE te.tab_id = ftl.tab_id
                     AND (te.seq IS NULL OR te.seq <= 0 OR te.local_pending <> 0 OR te.local_action_pending <> 0
                          OR (te.kind <> 'void' AND te.voided_by_entry_id IS NULL AND te.status = 'pending')))
-               AND NOT EXISTS (SELECT 1 FROM tab_outbox o WHERE o.tab_id = tl.tab_id)
+               AND NOT EXISTS (SELECT 1 FROM tab_outbox o JOIN tab_links ol ON ol.tab_id=o.tab_id
+                    WHERE ol.vault_id=r.vault_id AND ol.relationship_id=r.id AND ol.currency=${currencySqlLiteral(currencyCode)})
                AND NOT EXISTS (SELECT 1 FROM entries le WHERE le.relationship_id = r.id
-                    AND le.vault_id = r.vault_id AND le.deleted_at IS NULL AND ${entryCurrencyMatchesSql("le", currencyCode)} AND ${entryRecordedAtSql("le")} > tl.linked_at)
+                    AND le.vault_id = r.vault_id AND le.deleted_at IS NULL AND ${entryCurrencyMatchesSql("le", currencyCode)} AND ${privateEntryCurrentSql("le")})
               THEN 1
-              WHEN tl.tab_id IS NULL
+              WHEN ftl.tab_id IS NULL
                AND ${signedEntryMinorSumSql("e")} = 0
                AND (SELECT MAX(s.settled_at_ms) FROM settlements s
                      WHERE s.relationship_id = r.id AND ${entryCurrencyMatchesSql("s", currencyCode)})
@@ -4600,6 +4631,7 @@ async function selectAllPeopleRaw(
      FROM relationships r
      INNER JOIN users u ON u.id = r.user_b_id
      ${tabLinkJoin(currencyCode)}
+     ${financialTabLinkJoin(currencyCode)}
      LEFT JOIN selection_tab_totals st ON st.tab_id = tl.tab_id
      LEFT JOIN entries e
        ON e.relationship_id = r.id
@@ -5033,10 +5065,9 @@ export async function listEntries(
            AND e.vault_id        = ?
            AND e.deleted_at IS NULL
            AND ${entryCurrencyMatchesSql("e", currencyCode)}
-           AND ${entryRecordedAtSql("e")} > ?`,
+           AND ${privateEntryCurrentSql("e")}`,
         link.relationship_id,
         vaultId,
-        link.linked_at,
       ),
     ]);
     // Newest first, id breaking a same-date tie, exactly like both sources.
@@ -5109,7 +5140,35 @@ async function listEffectiveSharedEntries(current: TabLink): Promise<Entry[]> {
   const periods = await Promise.all(
     links.map(async (link) => ({ link, entries: await listTabEntriesAsEntries(link) })),
   );
-  return effectiveSharedPeriods(periods).current;
+  const openings = await db.getAllAsync<{ id: string; hidden: number; private_minor: number }>(
+    `SELECT te.id, ${retainedPrivateHistorySql()} AS hidden,
+       ${unjoinedOpeningPrivateAdjustmentSql()} AS private_minor
+     FROM tab_entries te JOIN tab_links tl ON tl.tab_id=te.tab_id
+     WHERE tl.vault_id=? AND tl.relationship_id=? AND tl.currency=?
+       AND te.kind='opening'`,
+    current.vault_id,
+    current.relationship_id,
+    current.currency,
+  );
+  const byId = new Map(openings.map((row) => [row.id, row]));
+  const effective = effectiveSharedPeriods(
+    periods.map((period) => ({
+      ...period,
+      entries: period.entries.filter((entry) => !byId.get(entry.id)?.hidden),
+    })),
+  ).current;
+  return effective.map((entry) => {
+    const overlap = byId.get(entry.id)?.private_minor ?? 0;
+    return entry.tab && overlap !== 0
+      ? {
+          ...entry,
+          tab: {
+            ...entry.tab,
+            pending_balance_adjustment: (entry.tab.pending_balance_adjustment ?? 0) - overlap / 100,
+          },
+        }
+      : entry;
+  });
 }
 
 /** One row of the whole-kaata export journal: an entry plus its person. */
@@ -5194,7 +5253,7 @@ export async function listEntriesForExport(
        AND r.archived_at IS NULL
        AND e.deleted_at IS NULL
        AND ${entryCurrencyMatchesSql("e", currencyCode)}
-       AND (tl.tab_id IS NULL OR ${entryRecordedAtSql("e")} > tl.linked_at)
+       AND ${privateEntryCurrentSql("e")}
      UNION ALL
      SELECT te.id          AS id,
             CASE WHEN te.direction = CASE WHEN tl.role = 'a' THEN 'a_to_b' ELSE 'b_to_a' END
@@ -5221,6 +5280,7 @@ export async function listEntriesForExport(
        AND r.vault_id   = ?
        AND r.archived_at IS NULL
        AND te.kind <> 'void'
+       AND NOT (te.kind='opening' AND ${retainedPrivateHistorySql()})
        AND tl.currency=${currencySqlLiteral(currencyCode)}
      ORDER BY created_at ASC, id ASC`,
     vaultId,
@@ -5449,6 +5509,8 @@ async function assertNotTabLinked(
      SELECT 1 AS one FROM entries e
        INNER JOIN tab_links tl ON tl.relationship_id = e.relationship_id
       WHERE e.id = ? AND ${entryRecordedAtSql("e")} <= tl.linked_at
+        AND tl.vault_id=e.vault_id
+        AND NOT ${releasedPrivateHistorySql()}
         AND ${effectiveEntryCurrencySql("e")} = tl.currency
      LIMIT 1`,
     entryId,
@@ -5587,7 +5649,9 @@ export async function updateEntry(
         }
         if (currencyChanged) {
           const linked = await tx.getFirstAsync<{ one: number }>(
-            "SELECT 1 AS one FROM tab_links WHERE vault_id=? AND relationship_id=? AND currency=? AND (closed_at IS NULL OR linked_at>=?) LIMIT 1",
+            `SELECT 1 AS one FROM tab_links tl WHERE vault_id=? AND relationship_id=? AND currency=?
+               AND (closed_at IS NULL OR linked_at>=?)
+               AND NOT ${releasedPrivateHistorySql()} LIMIT 1`,
             vaultId,
             current.relationship_id,
             currency,

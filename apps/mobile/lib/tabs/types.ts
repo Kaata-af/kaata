@@ -77,6 +77,8 @@ export type WireParty = {
 };
 
 export type WireTab = {
+  /** Authoritative proof that the invited party has never participated. */
+  unjoined_invitation?: boolean;
   id: string;
   currency: string;
   rev: number;
@@ -187,6 +189,8 @@ export type MineResponse = {
 // Local cache rows (§4.1). Column-for-column with migration 028 in lib/db.ts.
 
 export type TabLink = {
+  /** NULL until refreshed from a server that supplies participation metadata. */
+  unjoined_invitation?: 0 | 1 | null;
   /** Server-assigned order when this party first bound to its local scope. */
   history_order?: string | null;
   other_account_name?: string;

@@ -10,6 +10,7 @@ import type {
   TabLink,
   TabOutboxRow,
   TabResponse,
+  WireEntry,
 } from "../tabs/types";
 import { Mutex } from "../util/mutex";
 
@@ -40,13 +41,20 @@ let now = 1_000_000;
 Date.now = () => now;
 let online = true;
 let signedIn = true;
+let sessionVersion = 1;
+class SessionChangedError extends Error {}
 let pendingQueries = 0;
 const pulls: string[] = [];
 const reviews: string[] = [];
 const apiCalls: string[] = [];
+const closeRequests: Array<{ id: string; body: { withdraw_unjoined_opening?: boolean } }> = [];
 const cursors: number[] = [];
 const remoteClosed = new Map<string, number | null>();
 const remoteOrder = new Map<string, string | null | undefined>();
+const remoteUnjoined = new Map<string, boolean | undefined>();
+const remoteEntries = new Map<string, WireEntry[]>();
+const remoteRev = new Map<string, number>();
+let onCloseResponse: (() => Promise<void>) | null = null;
 let mineTabs: MineResponse["tabs"] = [];
 let useRealCache = false;
 const applied: TabAppliedEvent[] = [];
@@ -111,19 +119,24 @@ function response(id: string): TabResponse {
     tab: {
       id,
       currency: link.currency,
-      rev: link.rev,
+      rev: remoteRev.get(id) ?? link.rev,
       created_at_ms: 1,
       closed_at_ms: closedAt,
       closed_by: closedAt != null ? "a" : null,
+      unjoined_invitation: remoteUnjoined.get(id),
       you: link.role,
       parties: {
         a: { label: "A", joined_at_ms: 1, bound: true, history_order: remoteOrder.get(id) },
-        b: { label: "B", joined_at_ms: 1, bound: true },
+        b: {
+          label: "B",
+          joined_at_ms: remoteUnjoined.get(id) ? null : 1,
+          bound: !remoteUnjoined.get(id),
+        },
       },
       balance: { a: "0", b: "0" },
       pending_for_you: 0,
     },
-    entries: [],
+    entries: remoteEntries.get(id) ?? [],
     full: false,
   };
 }
@@ -134,9 +147,19 @@ const sync = compile<typeof import("../tabs/sync")>("../tabs/sync", (name) => {
   if (name === "../auth")
     return {
       getSessionJWT: async () => (signedIn ? "fixture-jwt" : null),
-      captureCurrentSession: async () => ({ jwt: signedIn ? "fixture-jwt" : null }),
-      applyForCurrentSession: async (_: unknown, work: () => Promise<unknown>) => work(),
-      SessionChangedError: class extends Error {},
+      captureCurrentSession: async () => ({
+        jwt: signedIn ? "fixture-jwt" : null,
+        bindingVersion: sessionVersion,
+      }),
+      applyForCurrentSession: async (
+        session: { bindingVersion: number },
+        work: () => Promise<unknown>,
+      ) => {
+        if (session.bindingVersion !== sessionVersion)
+          throw new SessionChangedError("session changed");
+        return work();
+      },
+      SessionChangedError,
     };
   if (name === "../db-tx") return { getDb: async () => sqlite };
   if (name === "../ledger-events") return { onLedgerApplied: () => () => {} };
@@ -159,13 +182,48 @@ const sync = compile<typeof import("../tabs/sync")>("../tabs/sync", (name) => {
         if (remoteClosed.get(id) != null) throw new TabApiError(409, "tab_closed", "closed");
         return { ...response(id), entry, duplicate_hint: null };
       },
-      closeTab: async (_: unknown, id: string) => {
+      closeTab: async (_: unknown, id: string, body: { withdraw_unjoined_opening?: boolean }) => {
         apiCalls.push("close");
+        closeRequests.push({ id, body });
         if (closeOutcome === "retry") throw new TabApiError(503, "unavailable", "retry later");
         if (closeOutcome === "refuse")
           throw new TabApiError(403, "role_insufficient", "permission changed");
-        remoteClosed.set(id, now);
-        return response(id);
+        if ((remoteClosed.has(id) ? remoteClosed.get(id) : getLink(id)?.closed_at) == null)
+          remoteClosed.set(id, now);
+        if (remoteUnjoined.get(id) === true && body.withdraw_unjoined_opening === true) {
+          const entries = remoteEntries.get(id) ?? [];
+          const opening = entries.find(
+            (entry) =>
+              entry.kind === "opening" &&
+              entry.created_by === "a" &&
+              entry.status === "pending" &&
+              !entry.voided_by_entry_id,
+          );
+          if (opening) {
+            const rev = (remoteRev.get(id) ?? getLink(id)!.rev) + 1;
+            remoteRev.set(id, rev);
+            const voidId = `void:${opening.id}`;
+            remoteEntries.set(id, [
+              ...entries.map((entry) =>
+                entry.id === opening.id ? { ...entry, rev, voided_by_entry_id: voidId } : entry,
+              ),
+              {
+                ...opening,
+                id: voidId,
+                seq: Math.max(...entries.map((entry) => entry.seq)) + 1,
+                rev,
+                kind: "void",
+                direction: opening.direction === "a_to_b" ? "b_to_a" : "a_to_b",
+                status: "accepted",
+                voids_entry_id: opening.id,
+                voided_by_entry_id: null,
+              },
+            ]);
+          }
+        }
+        const result = { ...response(id), full: true };
+        if (onCloseResponse) await onCloseResponse();
+        return result;
       },
     };
   if (name === "./db")
@@ -212,6 +270,42 @@ function seed(
         opts.voided ? "void-reference" : null,
       );
 }
+function wireEntry(id: string, overrides: Partial<WireEntry> = {}): WireEntry {
+  return {
+    id,
+    seq: 1,
+    rev: 5,
+    created_by: "a",
+    direction: "a_to_b",
+    amount: "120",
+    kind: "opening",
+    note: "Original private balance",
+    occurred_at_ms: 1,
+    created_at_ms: 1,
+    status: "pending",
+    status_at_ms: null,
+    dispute_reason: null,
+    voids_entry_id: null,
+    voided_by_entry_id: null,
+    ...overrides,
+  };
+}
+function seedLegacyUnused(id = "legacy") {
+  seed(id);
+  fixture
+    .prepare("UPDATE tab_links SET other_joined_at=NULL,unjoined_invitation=1 WHERE tab_id=?")
+    .run(id);
+  fixture
+    .prepare(
+      `INSERT INTO tab_entries(id,tab_id,seq,rev,created_by,direction,amount_minor,kind,occurred_at,created_at,status)
+    VALUES(?,?,1,5,'a','a_to_b',12000,'opening',1,1,'pending')`,
+    )
+    .run(`opening:${id}`, id);
+  remoteClosed.set(id, 100);
+  remoteUnjoined.set(id, true);
+  remoteEntries.set(id, [wireEntry(`opening:${id}`)]);
+  useRealCache = true;
+}
 let passed = 0;
 async function test(name: string, run: () => Promise<void>) {
   fixture.exec(
@@ -220,9 +314,14 @@ async function test(name: string, run: () => Promise<void>) {
   pulls.length = 0;
   reviews.length = 0;
   apiCalls.length = 0;
+  closeRequests.length = 0;
   cursors.length = 0;
   remoteClosed.clear();
   remoteOrder.clear();
+  remoteUnjoined.clear();
+  remoteEntries.clear();
+  remoteRev.clear();
+  onCloseResponse = null;
   mineTabs = [];
   useRealCache = false;
   applied.length = 0;
@@ -230,11 +329,183 @@ async function test(name: string, run: () => Promise<void>) {
   pendingQueries = 0;
   now = 1_000_000;
   online = signedIn = true;
+  sessionVersion = 1;
   sync._resetTabSyncPacingForTests();
   await run();
   console.log(`PASS ${++passed}: ${name}`);
 }
 async function main() {
+  await test("successful refresh retires only a server-confirmed legacy unused opening and caches its full audit response", async () => {
+    seedLegacyUnused();
+    fixture
+      .prepare(
+        `INSERT INTO tab_entries(id,tab_id,seq,rev,created_by,direction,amount_minor,kind,occurred_at,created_at,status)
+      VALUES('ordinary','legacy',2,5,'a','b_to_a',500,'entry',2,2,'pending')`,
+      )
+      .run();
+    remoteEntries
+      .get("legacy")!
+      .push(wireEntry("ordinary", { seq: 2, kind: "entry", direction: "b_to_a", amount: "5" }));
+    const result = await sync.syncTab("legacy");
+    assert.equal(result.ok, true);
+    assert.equal(result.flushed, 0, "maintenance must not invent an outbox acknowledgement");
+    assert.deepEqual(closeRequests, [{ id: "legacy", body: { withdraw_unjoined_opening: true } }]);
+    assert.equal(getLink("legacy")?.rev, 6, "a complete response may advance the cache cursor");
+    assert.equal(
+      getLink("legacy")?.closed_at,
+      100,
+      "cleanup preserves the original server closure",
+    );
+    assert.deepEqual(
+      fixture
+        .prepare("SELECT status,voided_by_entry_id FROM tab_entries WHERE id='ordinary'")
+        .get(),
+      { status: "pending", voided_by_entry_id: null },
+    );
+    assert.equal(
+      (
+        fixture
+          .prepare("SELECT voided_by_entry_id FROM tab_entries WHERE id='opening:legacy'")
+          .get() as { voided_by_entry_id: string }
+      ).voided_by_entry_id,
+      "void:opening:legacy",
+    );
+    assert.equal(
+      (
+        fixture.prepare("SELECT count(*) AS n FROM tab_entries WHERE kind='void'").get() as {
+          n: number;
+        }
+      ).n,
+      1,
+    );
+    assert.deepEqual(queued(), [], "automatic repair creates or drains no unrelated operations");
+    await sync.syncTab("legacy");
+    assert.equal(closeRequests.length, 1, "the repaired opening does not cause repeated writes");
+  });
+  await test("unknown, false, or still-open server invitation metadata never triggers automatic cleanup", async () => {
+    for (const [id, flag, closedAt] of [
+      ["unknown", undefined, 100],
+      ["participating", false, 100],
+      ["open", true, null],
+    ] as const) {
+      seedLegacyUnused(id);
+      remoteUnjoined.set(id, flag);
+      remoteClosed.set(id, closedAt);
+      assert.equal((await sync.syncTab(id)).ok, true);
+    }
+    assert.deepEqual(closeRequests, []);
+  });
+  await test("automatic cleanup respects a queued close's future retry without changing any operation", async () => {
+    seedLegacyUnused();
+    const operation: TabOutboxRow = {
+      id: "deferred-close",
+      tab_id: "legacy",
+      op: "close",
+      payload: JSON.stringify({ withdraw_unjoined_opening: true }),
+      created_at: 1,
+      attempts: 2,
+      next_at: now + 60_000,
+      last_error: "503",
+    };
+    await queue(operation);
+    const before = queued();
+    assert.equal((await sync.syncTab("legacy")).ok, true);
+    assert.deepEqual(closeRequests, []);
+    assert.deepEqual(queued(), before);
+  });
+  await test("automatic repair preserves a financial flush failure and its refusal receipt", async () => {
+    seedLegacyUnused();
+    await queue({
+      id: "unsent-tally",
+      tab_id: "legacy",
+      op: "append",
+      payload: JSON.stringify({
+        id: "unsent-tally",
+        amount: "5",
+        direction: "a_to_b",
+        occurred_at_ms: 1,
+      }),
+      created_at: 1,
+      attempts: 0,
+      next_at: 0,
+      last_error: null,
+    });
+    const result = await sync.syncTab("legacy");
+    assert.match(result.error ?? "", /append: 409 tab_closed/);
+    assert.equal(result.failed, 1);
+    assert.deepEqual(
+      closeRequests,
+      [],
+      "cleanup must not hide or overtake a failed financial flush",
+    );
+    assert.deepEqual(fixture.prepare("SELECT id,op,reason FROM tab_failed_ops").all(), [
+      { id: "unsent-tally", op: "append", reason: "tab_closed" },
+    ]);
+    assert.equal(
+      (
+        fixture
+          .prepare("SELECT voided_by_entry_id FROM tab_entries WHERE id='opening:legacy'")
+          .get() as { voided_by_entry_id: null }
+      ).voided_by_entry_id,
+      null,
+    );
+  });
+  await test("automatic cleanup retries after a transport failure without fabricating local cancellation", async () => {
+    seedLegacyUnused();
+    closeOutcome = "retry";
+    const failed = await sync.syncTab("legacy");
+    assert.equal(failed.ok, false);
+    assert.match(failed.error ?? "", /503/);
+    assert.equal(
+      (
+        fixture
+          .prepare("SELECT voided_by_entry_id FROM tab_entries WHERE id='opening:legacy'")
+          .get() as { voided_by_entry_id: null }
+      ).voided_by_entry_id,
+      null,
+    );
+    assert.deepEqual(queued(), []);
+    closeOutcome = "success";
+    assert.equal((await sync.syncTab("legacy")).ok, true);
+    assert.equal(closeRequests.length, 2);
+    assert.equal(getLink("legacy")?.rev, 6);
+  });
+  await test("read-only server authority can refresh legacy history without a recurring failed sync", async () => {
+    seedLegacyUnused();
+    closeOutcome = "refuse";
+    const result = await sync.syncTab("legacy");
+    assert.equal(result.ok, true);
+    assert.equal(result.error, null);
+    assert.equal(getLink("legacy")?.last_error, null);
+    assert.equal(
+      (
+        fixture.prepare("SELECT count(*) AS n FROM tab_entries WHERE kind='void'").get() as {
+          n: number;
+        }
+      ).n,
+      0,
+    );
+    assert.deepEqual(queued(), []);
+  });
+  await test("a repair response cannot be cached after the initiating account has been replaced", async () => {
+    seedLegacyUnused();
+    onCloseResponse = async () => {
+      sessionVersion++;
+    };
+    const result = await sync.syncTab("legacy");
+    assert.equal(result.ok, false);
+    assert.match(result.error ?? "", /session changed/);
+    assert.equal(getLink("legacy")?.rev, 5);
+    assert.equal(
+      (
+        fixture
+          .prepare("SELECT voided_by_entry_id FROM tab_entries WHERE id='opening:legacy'")
+          .get() as { voided_by_entry_id: null }
+      ).voided_by_entry_id,
+      null,
+    );
+    assert.deepEqual(queued(), []);
+  });
   await test("upgrade discovery backfills completed closed history order without a financial revision bump", async () => {
     for (const [id, order] of [
       ["earlier", "71"],
@@ -405,6 +676,24 @@ async function main() {
     next_at: 0,
     last_error: null,
   });
+  await test("close sync forwards only an explicit boolean invitation-withdrawal opt-in", async () => {
+    for (const [id, payload, expected] of [
+      ["opt-in", { withdraw_unjoined_opening: true }, true],
+      ["legacy", {}, false],
+      ["explicit-false", { withdraw_unjoined_opening: false }, false],
+      ["malformed", { withdraw_unjoined_opening: "true" }, false],
+    ] as const) {
+      seed(id);
+      await queue({ ...close(), id: `close:${id}`, tab_id: id, payload: JSON.stringify(payload) });
+      const result = await sync.syncTab(id);
+      assert.equal(result.flushed, 1);
+      assert.deepEqual(closeRequests.at(-1), {
+        id,
+        body: { withdraw_unjoined_opening: expected },
+      });
+    }
+    assert.equal(queued().length, 0);
+  });
   await test("unlink reaches the server before an older append's one-hour backoff", async () => {
     seed("closed", { status: "pending" });
     remoteClosed.set("closed", null);
@@ -458,7 +747,7 @@ async function main() {
     seed("closed", { status: "pending" });
     remoteClosed.set("closed", null);
     await queue(append());
-    await queue(close());
+    await queue({ ...close(), payload: JSON.stringify({ withdraw_unjoined_opening: true }) });
     closeOutcome = "retry";
     const failed = await sync.syncTab("closed");
     assert.deepEqual(apiCalls, ["close"]);
@@ -490,6 +779,11 @@ async function main() {
       | { reason: string }
       | undefined;
     assert.equal(refused?.reason, "tab_closed");
+    assert.ok(closeRequests.length > 1, "the close request was retried");
+    assert.ok(
+      closeRequests.every((request) => request.body.withdraw_unjoined_opening === true),
+      "the opt-in survives durable retry and backoff",
+    );
   });
   await test("a permanently refused unlink keeps its receipt and other intents, then restores server truth", async () => {
     seed("closed", { status: "pending" });

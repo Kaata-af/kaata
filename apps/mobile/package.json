@@ -48,6 +48,7 @@
     "selftest:tab-settlement": "tsx lib/__dev__/tab-settlement-selftest.ts",
     "selftest:shared-history-link": "tsx lib/__dev__/shared-history-link-selftest.ts",
     "selftest:shared-closure-sync": "tsx lib/__dev__/shared-closure-sync-selftest.ts",
+    "selftest:unjoined-private-history": "tsx lib/__dev__/unjoined-private-history-selftest.ts",
     "selftest:notifications": "tsx lib/__dev__/notifications-selftest.ts",
     "selftest:inbox": "tsx lib/__dev__/inbox-selftest.ts",
     "selftest:inbox-reads": "tsx lib/__dev__/inbox-reads-selftest.ts",

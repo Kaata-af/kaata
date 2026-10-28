@@ -51,8 +51,9 @@ export async function fixture() {
     CREATE TABLE vault_settings(vault_id TEXT,key TEXT,value TEXT,hlc_pms INTEGER,hlc_l INTEGER,hlc_did TEXT,updated_at INTEGER,PRIMARY KEY(vault_id,key));
     CREATE TABLE relationships(id TEXT PRIMARY KEY,vault_id TEXT,user_a_id TEXT,user_b_id TEXT,context TEXT,created_at INTEGER,updated_at INTEGER,archived_at INTEGER,field_hlcs TEXT,default_entry_currency TEXT,group_id TEXT,group_ids TEXT);
     CREATE TABLE entries(id TEXT PRIMARY KEY,vault_id TEXT,relationship_id TEXT,type TEXT,amount_afn REAL,note TEXT,currency TEXT,created_at INTEGER,updated_at INTEGER,deleted_at INTEGER,proposed_by_user_id TEXT,current_event_id TEXT,is_deleted INTEGER,is_settled INTEGER,accepted_at INTEGER,disputed_at INTEGER,disputed_reason TEXT,settled_at INTEGER,field_hlcs TEXT,original_currency TEXT);
-    CREATE TABLE tab_links(tab_id TEXT PRIMARY KEY,vault_id TEXT,relationship_id TEXT,currency TEXT,closed_at INTEGER,linked_at INTEGER);
-    CREATE TABLE tab_entries(id TEXT PRIMARY KEY);
+    CREATE TABLE tab_links(tab_id TEXT PRIMARY KEY,vault_id TEXT,relationship_id TEXT,currency TEXT,closed_at INTEGER,linked_at INTEGER,role TEXT DEFAULT 'a',other_joined_at INTEGER,unjoined_invitation INTEGER);
+    CREATE TABLE tab_entries(id TEXT PRIMARY KEY,tab_id TEXT,kind TEXT,status TEXT,created_by TEXT,local_pending INTEGER,local_action_pending INTEGER,voided_by_entry_id TEXT);
+    CREATE TABLE tab_outbox(id TEXT PRIMARY KEY,tab_id TEXT,op TEXT);
     CREATE TABLE settlements(id TEXT PRIMARY KEY,vault_id TEXT,relationship_id TEXT,currency TEXT,settled_at_ms INTEGER);
     CREATE TABLE customer_credit_limits(vault_id TEXT,relationship_id TEXT,currency TEXT,mode TEXT,restrict_editors INTEGER);
     CREATE TABLE kaata_credit_defaults(vault_id TEXT,currency TEXT,mode TEXT,restrict_editors INTEGER);
@@ -248,6 +249,7 @@ export async function fixture() {
     "./money": require("../money"),
     "./money-sql": require("../money-sql"),
     "./tabs/errors": require("../tabs/errors"),
+    "./tabs/history": require("../tabs/history"),
     "./entry-date": require("../entry-date"),
     "./currency-scope": require("../currency-scope"),
     "./currency-settings": require("../currency-settings"),

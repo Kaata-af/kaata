@@ -16,10 +16,12 @@ import (
 	"github.com/matee/kaata-backend/internal/auth"
 	"github.com/matee/kaata-backend/internal/credit"
 	"github.com/matee/kaata-backend/internal/httpx"
+	"github.com/matee/kaata-backend/internal/tabstate"
 )
 
-// CreditBalance uses the same current event projection and latest linked period
-// as mobile. A link permanently absorbs pre-link local rows, even after closing.
+// CreditBalance uses the same current event projection and linked periods as
+// mobile. A shared period absorbs pre-link rows after closing; withdrawing an
+// untouched invitation's opening leaves the original private source intact.
 func CreditBalance(ctx context.Context, tx pgx.Tx, vaultID, relationshipID string, currency ...string) (int64, error) {
 	p, err := LoadVaultProjection(ctx, tx, vaultID)
 	if err != nil {
@@ -38,17 +40,21 @@ func creditBalanceWithProjection(ctx context.Context, tx pgx.Tx, vaultID, relati
 		return 0, err
 	}
 	var boundary *int64
-	err = tx.QueryRow(ctx, `SELECT p.linked_at_ms FROM tab_parties p JOIN tabs t ON t.id=p.tab_id WHERE p.vault_id=$1::uuid AND p.relationship_id=$2::uuid AND t.currency=$3 ORDER BY p.history_order DESC NULLS LAST,t.created_at DESC,t.id DESC,p.role DESC LIMIT 1`, vaultID, relationshipID, code).Scan(&boundary)
+	err = tx.QueryRow(ctx, `SELECT p.linked_at_ms FROM tab_parties p JOIN tabs t ON t.id=p.tab_id
+	 WHERE p.vault_id=$1::uuid AND p.relationship_id=$2::uuid AND t.currency=$3
+	 AND NOT (p.role='a' AND `+tabstate.UnjoinedInvitationSQL+`
+	   AND NOT EXISTS(SELECT 1 FROM tab_entries opening WHERE opening.tab_id=p.tab_id
+	     AND opening.kind='opening' AND opening.voided_by_entry_id IS NULL AND opening.status IN ('pending','accepted')))
+	 ORDER BY p.history_order DESC NULLS LAST,t.created_at DESC,t.id DESC,p.role DESC LIMIT 1`, vaultID, relationshipID, code).Scan(&boundary)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return 0, err
 	}
 	sum := new(big.Int)
-	if err == nil {
-		var tabSum string
-		// Credit exposure remains pending-inclusive. A live opening replaces
-		// earlier periods, but rejecting/withdrawing it reveals that earlier
-		// exposure instead of turning a previously accepted loan into zero.
-		if err := tx.QueryRow(ctx, `WITH periods AS (
+	var tabSum string
+	// Credit exposure remains pending-inclusive. A live opening replaces
+	// earlier periods, but rejecting/withdrawing it reveals that earlier
+	// exposure instead of turning a previously accepted loan into zero.
+	if err := tx.QueryRow(ctx, `WITH periods AS (
 		 SELECT p.tab_id,p.role,p.history_order FROM tab_parties p JOIN tabs t ON t.id=p.tab_id WHERE p.vault_id=$1::uuid AND p.relationship_id=$2::uuid AND t.currency=$3
 		), checkpoint AS (
 		 SELECT MAX(p.history_order) AS history_order FROM periods p JOIN tab_entries e ON e.tab_id=p.tab_id
@@ -59,11 +65,10 @@ func creditBalanceWithProjection(ctx context.Context, tx pgx.Tx, vaultID, relati
 		 FROM periods p JOIN tab_entries e ON e.tab_id=p.tab_id CROSS JOIN checkpoint c
 		 WHERE p.history_order>=COALESCE(c.history_order,0) AND e.kind<>'void'
 		   AND e.voided_by_entry_id IS NULL AND e.status IN ('pending','accepted')`, vaultID, relationshipID, code).Scan(&tabSum); err != nil {
-			return 0, err
-		}
-		if _, ok := sum.SetString(tabSum, 10); !ok {
-			return 0, fmt.Errorf("invalid tab balance")
-		}
+		return 0, err
+	}
+	if _, ok := sum.SetString(tabSum, 10); !ok {
+		return 0, fmt.Errorf("invalid tab balance")
 	}
 	for _, e := range p.Entries {
 		entryCurrency := e.Currency

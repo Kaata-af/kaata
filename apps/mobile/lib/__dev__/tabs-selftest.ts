@@ -908,6 +908,7 @@ async function main(): Promise<void> {
       "my_label",
       "other_label",
       "other_joined_at",
+      "unjoined_invitation",
       "invite_url",
       "rev",
       "closed_at",
@@ -960,6 +961,14 @@ async function main(): Promise<void> {
       `INSERT INTO tab_links (tab_id, vault_id, relationship_id, role, currency, linked_at, closed_at) VALUES (?, ?, ?, 'a', 'AFN', 1, ?)`,
     );
     ins.run("t-open", VAULT, REL, null);
+    assert.equal(
+      fixture
+        .prepare("SELECT unjoined_invitation FROM tab_links WHERE tab_id='t-open'")
+        .pluck()
+        .get(),
+      null,
+      "legacy cache rows keep an unknown invitation state until the server refreshes them",
+    );
     assert.throws(
       () => ins.run("t-open-2", VAULT, REL, null),
       /UNIQUE/,

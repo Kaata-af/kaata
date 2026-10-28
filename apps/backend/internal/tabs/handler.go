@@ -661,14 +661,20 @@ func (h *Handler) Void(w http.ResponseWriter, r *http.Request) {
 	httpx.JSON(w, http.StatusCreated, res)
 }
 
-// Close — POST /v1/tabs/{tab_id}/close {} → 200 TabResponse.
+// Close — POST /v1/tabs/{tab_id}/close {withdraw_unjoined_opening?:bool}.
 func (h *Handler) Close(w http.ResponseWriter, r *http.Request) {
 	noStore(w)
 	p, ok := h.partyOr404(w, r)
 	if !ok {
 		return
 	}
-	res, err := h.svc.Close(r.Context(), p)
+	var req struct {
+		WithdrawUnjoinedOpening bool `json:"withdraw_unjoined_opening"`
+	}
+	if r.ContentLength != 0 && !decodeBody(w, r, &req) {
+		return
+	}
+	res, err := h.svc.Close(r.Context(), p, req.WithdrawUnjoinedOpening)
 	if err != nil {
 		writeServiceError(w, err)
 		return

@@ -104,6 +104,7 @@ const append = compile("../event-log", {
   "./entry-date": require("../entry-date"),
   "./currency-scope": require("../currency-scope"),
   "./tabs/errors": { TabLinkedEntryError: class extends Error {} },
+  "./tabs/history": require("../tabs/history"),
   "./projection": {
     applyEvent: async (event: any, options: any) => {
       await checkpoint(

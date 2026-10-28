@@ -105,6 +105,7 @@ import {
 import { summarizeTallyFlows } from "../../lib/tally-summary";
 import {
   getTabLink,
+  getFinancialTabLinkForPerson,
   getLatestTabLinkForPerson,
   listPreLinkEntries,
   listFailedTabEntries,
@@ -177,6 +178,7 @@ type CurrencyPeriod = {
   settlement: { count: number; lastSettledAtMs: number | null };
   boundaries: number[];
   tab: TabLink | null;
+  financialTab: TabLink | null;
   sharedSettlements: TabSettlement[];
   before: Entry[];
   priorPeriods: Array<{ link: TabLink; entries: Entry[]; settlements: TabSettlement[] }>;
@@ -187,8 +189,8 @@ function currencyChapter(period: CurrencyPeriod): Entry[] {
   return period.entries
     .filter(visibleTally)
     .filter((entry) =>
-      period.tab
-        ? afterSharedSettlement(entry, through, period.tab.tab_id)
+      period.financialTab
+        ? afterSharedSettlement(entry, through, period.financialTab.tab_id)
         : period.settlement.lastSettledAtMs == null ||
           entry.created_at > period.settlement.lastSettledAtMs,
     );
@@ -198,22 +200,22 @@ function canSettlePeriod(period: CurrencyPeriod): boolean {
   const chapter = currencyChapter(period);
   return (
     period.person.tab_unsynced !== 1 &&
+    period.person.tab_close_pending !== 1 &&
     period.person.balance === 0 &&
     chapter.length > 0 &&
     sumAmounts(chapter.map(balanceContribution)) === 0 &&
-    (!period.tab ||
-      (period.tab.closed_at == null &&
-        (period.person.tab_pending_count ?? 0) === 0 &&
-        !period.entries.some(
-          (entry) =>
-            entry.tab &&
-            (entry.tab.local_pending ||
-              (!entry.tab.voided && entry.tab.kind !== "void" && entry.tab.status === "pending")),
-        ))) &&
+    (period.person.tab_pending_count ?? 0) === 0 &&
+    !period.entries.some(
+      (entry) =>
+        entry.tab &&
+        (entry.tab.local_pending ||
+          (!entry.tab.voided && entry.tab.kind !== "void" && entry.tab.status === "pending")),
+    ) &&
+    (!period.financialTab || period.financialTab.closed_at == null) &&
     !period.entries.some(
       (entry) =>
         entry.tab?.tab_id &&
-        entry.tab.tab_id !== period.tab?.tab_id &&
+        entry.tab.tab_id !== period.financialTab?.tab_id &&
         balanceContribution(entry) !== 0,
     )
   );
@@ -545,13 +547,18 @@ export default function PersonDetailScreen() {
   // tab whether it is live or closed; `link` is the same row only while it is
   // OPEN for new sharing. Existing pending tallies can still be reviewed after
   // unlinking; they resolve against their own retained tab, never a newer link.
-  // While linked, `entries` are the tab's rows and `person.balance` is the tab
+  // Once shared, `entries` are the tab's rows and `person.balance` is the tab
   // balance (D8); `preLink` holds the frozen local rows from before linking,
   // shown behind a fold and excluded from the balance because the opening
   // entry already carries their sum. Closing does not undo any of that: the
   // rows and the fold stay, so the history and the number both survive.
   const [tabHistory, setTabHistory] = useState<TabLink | null>(null);
   const link = tabHistory != null && tabHistory.closed_at == null ? tabHistory : null;
+  // An untouched invitation has no ledger chapter of its own. Keep its
+  // management link above, but retain the private or earlier shared book.
+  const financialTabHistory =
+    (currencyPeriods.find((period) => period.currency === selectedCurrency) ?? currencyPeriods[0])
+      ?.financialTab ?? null;
   const sharedAccountStatus = currencyPeriods.some(
     (period) => sharedAccountLinkStatus(period.tab) === "joined",
   )
@@ -702,7 +709,7 @@ export default function PersonDetailScreen() {
     matchedEntries.length + matchedPreLink.length + matchedFailedTallies.length;
   const settledCount = currencyPeriods.reduce(
     (count, period) =>
-      count + (period.tab ? period.sharedSettlements.length : period.settlement.count),
+      count + (period.financialTab ? period.sharedSettlements.length : period.settlement.count),
     0,
   );
   const chapterEntries = useMemo(
@@ -712,11 +719,11 @@ export default function PersonDetailScreen() {
           (period) => period.currency === (entry.currency ?? person?.currency ?? selectedCurrency),
         );
         if (!period) return true;
-        return period.tab
+        return period.financialTab
           ? afterSharedSettlement(
               entry,
               period.sharedSettlements.at(-1)?.through_seq ?? 0,
-              period.tab.tab_id,
+              period.financialTab.tab_id,
             )
           : period.settlement.lastSettledAtMs == null ||
               entry.created_at > period.settlement.lastSettledAtMs;
@@ -773,9 +780,9 @@ export default function PersonDetailScreen() {
         const rows = list.filter(
           (entry) => (entry.currency ?? person?.currency ?? selectedCurrency) === period.currency,
         );
-        if (period.tab && (searching || effectiveShowFull))
-          return sharedHistory(rows, period.sharedSettlements, period.tab.tab_id).map((item) =>
-            item.kind === "marker" ? { ...item, currency: period.currency } : item,
+        if (period.financialTab && (searching || effectiveShowFull))
+          return sharedHistory(rows, period.sharedSettlements, period.financialTab.tab_id).map(
+            (item) => (item.kind === "marker" ? { ...item, currency: period.currency } : item),
           );
         if (!(searching || effectiveShowFull))
           return rows.map((entry) => ({ kind: "entry" as const, entry }));
@@ -791,8 +798,8 @@ export default function PersonDetailScreen() {
       );
     }
     if (searching) {
-      const items = tabHistory
-        ? sharedHistory(matchedEntries, sharedSettlements, tabHistory.tab_id)
+      const items = financialTabHistory
+        ? sharedHistory(matchedEntries, sharedSettlements, financialTabHistory.tab_id)
         : withLocalMarkers(matchedEntries);
       const shown = items.filter(
         (item, i) => item.kind === "entry" || items[i - 1]?.kind !== "marker",
@@ -800,15 +807,15 @@ export default function PersonDetailScreen() {
       while (shown.at(-1)?.kind === "marker") shown.pop();
       return shown;
     }
-    if (tabHistory && effectiveShowFull)
-      return sharedHistory(displayedEntries, sharedSettlements, tabHistory.tab_id);
-    if (!effectiveShowFull || tabHistory || boundaries.length === 0)
+    if (financialTabHistory && effectiveShowFull)
+      return sharedHistory(displayedEntries, sharedSettlements, financialTabHistory.tab_id);
+    if (!effectiveShowFull || financialTabHistory || boundaries.length === 0)
       return visibleEntries.map((entry) => ({ kind: "entry", entry }));
     return withLocalMarkers(displayedEntries);
   }, [
     searching,
     matchedEntries,
-    tabHistory,
+    financialTabHistory,
     effectiveShowFull,
     displayedEntries,
     sharedSettlements,
@@ -832,7 +839,9 @@ export default function PersonDetailScreen() {
             );
             return (
               !entry.tab &&
-              !period?.tab &&
+              !period?.financialTab &&
+              (!period?.tab || period.tab.closed_at != null) &&
+              period?.person.tab_close_pending !== 1 &&
               (period?.settlement.lastSettledAtMs == null ||
                 entry.created_at > period.settlement.lastSettledAtMs)
             );
@@ -844,7 +853,7 @@ export default function PersonDetailScreen() {
       displayedEntries,
       roleResolved,
       canAmend,
-      tabHistory,
+      financialTabHistory,
       settlement.lastSettledAtMs,
       currencyPeriods,
     ],
@@ -996,26 +1005,26 @@ export default function PersonDetailScreen() {
     try {
       // Both paths recheck the balance under their authoritative transaction.
       // Shared boundaries use sequence; local boundaries use the business date.
-      if (target.tab) {
-        if (target.tab.closed_at != null) throw new TabClosedError();
+      if (target.financialTab) {
+        if (target.financialTab.closed_at != null) throw new TabClosedError();
         const throughSeq = Math.max(
           0,
           ...target.entries
-            .filter((entry) => entry.tab?.tab_id === target.tab!.tab_id)
+            .filter((entry) => entry.tab?.tab_id === target.financialTab!.tab_id)
             .map((e) => e.tab?.seq ?? 0),
         );
         if (
           !settlementRequest.current ||
           settlementRequest.current.throughSeq !== throughSeq ||
-          settlementRequest.current.tabId !== target.tab.tab_id
+          settlementRequest.current.tabId !== target.financialTab.tab_id
         ) {
           settlementRequest.current = {
             id: Crypto.randomUUID(),
             throughSeq,
-            tabId: target.tab.tab_id,
+            tabId: target.financialTab.tab_id,
           };
         }
-        await settleSharedTab(target.tab, settlementRequest.current.id);
+        await settleSharedTab(target.financialTab, settlementRequest.current.id);
         settlementRequest.current = null;
       } else {
         const chapter = currencyChapter(target);
@@ -1050,7 +1059,7 @@ export default function PersonDetailScreen() {
           ),
           "error",
         );
-        if (target.tab) requestTabSync(target.tab.tab_id);
+        if (target.financialTab) requestTabSync(target.financialTab.tab_id);
         await load();
       } else if (err instanceof SettleNotZeroError) {
         toast.push(t("person.settle.notZero"), "error");
@@ -1138,7 +1147,7 @@ export default function PersonDetailScreen() {
               })),
             ],
             // A shared opening already carries the earlier private balance.
-            settled: period.tab
+            settled: period.financialTab
               ? { settledChapters: 0, settledBoundaryMs: null, settledBoundaries: [] }
               : {
                   settledChapters: period.settlement.count,
@@ -1254,11 +1263,13 @@ export default function PersonDetailScreen() {
         const details = await Promise.all(
           rows.map(async (row) => {
             const code = row.currency ?? currency;
-            const [settlement, boundaries, tab] = await Promise.all([
+            const [settlement, boundaries, tab, financialTab] = await Promise.all([
               getSettlementSummary(id, code),
               listSettlementBoundaries(id, code),
               getLatestTabLinkForPerson(id, code),
+              getFinancialTabLinkForPerson(id, code),
             ]);
+            const ledgerTab = financialTab === undefined ? tab : financialTab;
             const [before, refused, sharedSettlements, priorPeriods] = tab
               ? await Promise.all([
                   listPreLinkEntries(tab),
@@ -1266,7 +1277,7 @@ export default function PersonDetailScreen() {
                     excludeCreditRefused: true,
                     currency: code,
                   }),
-                  listTabSettlements(tab.tab_id),
+                  ledgerTab ? listTabSettlements(ledgerTab.tab_id) : Promise.resolve([]),
                   listArchivedSharedPeriodsForExport(id, code),
                 ])
               : [[], [], [], []];
@@ -1277,6 +1288,7 @@ export default function PersonDetailScreen() {
               settlement,
               boundaries,
               tab,
+              financialTab: ledgerTab,
               before,
               refused,
               sharedSettlements,
@@ -1373,7 +1385,15 @@ export default function PersonDetailScreen() {
       latestLink.current = tl;
       latestLinks.current = {
         scope,
-        links: periods.flatMap((period) => (period.tab ? [period.tab] : [])),
+        links: [
+          ...new Map(
+            periods.flatMap((period) =>
+              [period.tab, period.financialTab].flatMap((tab) =>
+                tab ? [[tab.tab_id, tab] as const] : [],
+              ),
+            ),
+          ).values(),
+        ],
       };
       setPreLink(before);
       setFailedTallies(refused);
@@ -1536,7 +1556,9 @@ export default function PersonDetailScreen() {
   // rather than the tab id so a re-link under a new tab id keeps refreshing.
   const linkRelationshipId = [
     ...new Set(
-      currencyPeriods.flatMap((period) => (period.tab ? [period.tab.relationship_id] : [])),
+      currencyPeriods.flatMap((period) =>
+        [period.tab, period.financialTab].flatMap((tab) => (tab ? [tab.relationship_id] : [])),
+      ),
     ),
   ].join("|");
   useEffect(() => {
@@ -1610,7 +1632,12 @@ export default function PersonDetailScreen() {
   // Only pending tallies can be reviewed; the first decision is final.
   async function reviewLinkFor(entry: Entry): Promise<TabLink | null> {
     if (!entry.tab || !screenIsCurrent()) return null;
-    const target = entry.tab.tab_id ? await getTabLink(entry.tab.tab_id) : tabHistory;
+    const period = currencyPeriods.find(
+      (period) => period.currency === (entry.currency ?? person?.currency ?? selectedCurrency),
+    );
+    const target = entry.tab.tab_id
+      ? await getTabLink(entry.tab.tab_id)
+      : (period?.financialTab ?? null);
     if (!screenIsCurrent()) return null;
     if (
       !target ||
@@ -1769,11 +1796,17 @@ export default function PersonDetailScreen() {
         // Remote edits can still arrive — the coherence rule above
         // handles those by falling open — but this device won't offer
         // the footgun.
-        const boundary = currencyPeriods.find(
+        const period = currencyPeriods.find(
           (period) => period.currency === (entry.currency ?? person.currency ?? selectedCurrency),
-        )?.settlement.lastSettledAtMs;
+        );
+        const boundary = period?.settlement.lastSettledAtMs;
         const inSettledChapter = !entry.tab && boundary != null && entry.created_at <= boundary;
-        const canOpenSheet = canAmend && !inSettledChapter && !entry.tab;
+        const canOpenSheet =
+          canAmend &&
+          !inSettledChapter &&
+          !entry.tab &&
+          (!period?.tab || period.tab.closed_at != null) &&
+          period?.person.tab_close_pending !== 1;
         return (
           <View
             key={entry.id}
@@ -2139,6 +2172,7 @@ export default function PersonDetailScreen() {
                       const person = balancePerson;
                       const period = currencyPeriods.find((period) => period.currency === code);
                       const tabHistory = period?.tab;
+                      const financialTabHistory = period?.financialTab;
                       const link = tabHistory?.closed_at == null ? tabHistory : null;
                       const abs = Math.abs(person.balance);
                       const chipLabel =
@@ -2160,7 +2194,7 @@ export default function PersonDetailScreen() {
                             ? colors.payStrong
                             : colors.textEmphasis;
                       const settledCount = period
-                        ? period.tab
+                        ? period.financialTab
                           ? period.sharedSettlements.length
                           : period.settlement.count
                         : 0;
@@ -2308,7 +2342,7 @@ export default function PersonDetailScreen() {
                                 {t("tab.notDownloaded")}
                               </Text>
                             ) : null}
-                            {tabHistory && person.tab_unsynced !== 1 ? (
+                            {financialTabHistory && person.tab_unsynced !== 1 ? (
                               <Text style={[styles.unsyncedNote, textDir(isRTL)]}>
                                 {t("tab.balance.confirmed", {
                                   amount: signedSharedAmount(person.tab_confirmed_balance ?? 0),
@@ -2496,7 +2530,7 @@ export default function PersonDetailScreen() {
             the account became shared, their sum is already the opening tally
             on the tab, and nothing here can be edited (TabLinkedEntryError).
             No long-press, no attribution: frozen pages. */}
-            {currencyPeriods.some((period) => period.tab) && matchedPreLink.length > 0 ? (
+            {currencyPeriods.some((period) => period.financialTab) && matchedPreLink.length > 0 ? (
               <>
                 <Pressable
                   onPress={() => setPreLinkOpen((v) => !v)}
@@ -3026,7 +3060,7 @@ export default function PersonDetailScreen() {
         visible={confirmSettle}
         title={t("person.settle.confirm.title")}
         description={`${getCurrencyLabel(settlementTarget?.currency ?? person.currency ?? selectedCurrency)} · ${t(
-          settlementTarget?.tab ? "tab.settle.confirm" : "person.settle.confirm.body",
+          settlementTarget?.financialTab ? "tab.settle.confirm" : "person.settle.confirm.body",
           {
             name: person.name,
           },

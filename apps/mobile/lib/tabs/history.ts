@@ -3,6 +3,68 @@ import { balanceContribution, countsTowardBalance } from "../export/shared-recor
 import type { TabLink } from "./types";
 import { sumAmounts } from "../money";
 import { tabConfirmedBalanceSql } from "./direction";
+import { effectiveEntryCurrencySql } from "../currency-scope";
+import { entryRecordedAtSql } from "../entry-date";
+import { signedEntryMinorSumSql } from "../money-sql";
+
+/** Server-confirmed untouched invitation; missing metadata is not evidence. */
+export function isUnjoinedInvitation(link: TabLink): boolean {
+  return link.role === "a" && link.other_joined_at == null && link.unjoined_invitation === 1;
+}
+
+export function unjoinedInvitationSql(link = "tl"): string {
+  return `(${link}.role='a' AND ${link}.other_joined_at IS NULL AND COALESCE(${link}.unjoined_invitation,0)=1 AND NOT EXISTS (
+    SELECT 1 FROM tab_entries proof WHERE proof.tab_id=${link}.tab_id
+      AND (proof.created_by='b' OR
+        (proof.kind IN ('entry','opening') AND proof.status IN ('accepted','disputed') AND proof.local_pending=0
+          AND COALESCE(proof.local_action_pending,0)=0))))`;
+}
+
+/** Invitations do not absorb the creator's private book. Use the latest real
+ * shared period, in server binding order, rather than a newer unused invite. */
+export function privateEntryCurrentSql(entry = "e"): string {
+  return `${entryRecordedAtSql(entry)} > COALESCE((SELECT boundary.linked_at FROM tab_links boundary
+    WHERE boundary.vault_id=${entry}.vault_id AND boundary.relationship_id=${entry}.relationship_id
+      AND boundary.currency=${effectiveEntryCurrencySql(entry)} AND NOT ${unjoinedInvitationSql("boundary")}
+    ORDER BY CAST(boundary.history_order AS INTEGER) DESC,boundary.linked_at DESC,boundary.tab_id DESC LIMIT 1),-1)`;
+}
+
+export function privateEntryBeforeCurrentLinkSql(entry = "pe", selected = "tl"): string {
+  return `${privateEntryCurrentSql(entry)} AND ${entryRecordedAtSql(entry)}<=${selected}.linked_at`;
+}
+
+export function retainedPrivateHistorySql(selected = "tl"): string {
+  return `(${unjoinedInvitationSql(selected)} AND EXISTS(SELECT 1 FROM entries pe
+    WHERE pe.vault_id=${selected}.vault_id AND pe.relationship_id=${selected}.relationship_id
+      AND ${effectiveEntryCurrencySql("pe")}=${selected}.currency AND pe.deleted_at IS NULL
+      AND ${privateEntryBeforeCurrentLinkSql("pe", selected)})
+    AND NOT EXISTS(SELECT 1 FROM tab_entries proposed WHERE proposed.tab_id=${selected}.tab_id
+      AND proposed.kind='opening' AND proposed.status<>'disputed' AND proposed.voided_by_entry_id IS NULL
+      AND (CASE WHEN proposed.direction=CASE WHEN ${selected}.role='a' THEN 'a_to_b' ELSE 'b_to_a' END
+        THEN proposed.amount_minor ELSE -proposed.amount_minor END)
+        <> ((${effectiveConfirmedBalanceSql(selected)}) + (${unjoinedOpeningPrivateAdjustmentSql(selected)}))))`;
+}
+
+/** Editing can resume only after the server has closed the invitation and
+ * retired its copied opening. Optimistic close alone can still race Join. */
+export function releasedPrivateHistorySql(selected = "tl"): string {
+  return `(${selected}.closed_at IS NOT NULL AND ${unjoinedInvitationSql(selected)}
+    AND NOT EXISTS(SELECT 1 FROM tab_outbox closing WHERE closing.tab_id=${selected}.tab_id AND closing.op='close')
+    AND NOT EXISTS(SELECT 1 FROM tab_entries opening WHERE opening.tab_id=${selected}.tab_id
+      AND opening.kind='opening' AND opening.status='pending' AND opening.voided_by_entry_id IS NULL))`;
+}
+
+/** A pending opening proposes the very private money still recorded locally.
+ * Subtract only the pre-invitation source, never later local tallies. */
+export function unjoinedOpeningPrivateAdjustmentSql(selected = "tl", privateExtra = "1"): string {
+  return `CASE WHEN ${unjoinedInvitationSql(selected)} AND EXISTS(SELECT 1 FROM tab_entries opening
+    WHERE opening.tab_id=${selected}.tab_id AND opening.kind='opening'
+      AND opening.status<>'disputed' AND opening.voided_by_entry_id IS NULL)
+    THEN (SELECT ${signedEntryMinorSumSql("pe", `${privateEntryBeforeCurrentLinkSql("pe", selected)} AND (${privateExtra})`)}
+      FROM entries pe WHERE pe.vault_id=${selected}.vault_id AND pe.relationship_id=${selected}.relationship_id
+        AND ${effectiveEntryCurrencySql("pe")}=${selected}.currency AND pe.deleted_at IS NULL)
+    ELSE 0 END`;
+}
 
 /** Scope binding order comes from the server, never a business/link date.
  * An accepted opening checkpoints older books; a pending/rejected opening
@@ -116,7 +178,8 @@ export function effectivePendingBalanceSql(selected = "tl"): string {
       WHERE hl.tab_id=${selected}.tab_id AND ${effectiveConfirmedSql("te", "hl", selected, true)} AND te.kind='opening'),0)
     - CASE WHEN EXISTS(SELECT 1 FROM tab_entries po WHERE po.tab_id=${selected}.tab_id AND po.kind='opening'
         AND po.voided_by_entry_id IS NULL AND (po.status='pending' OR (po.status='accepted' AND (po.local_pending<>0 OR COALESCE(po.local_action_pending,0)<>0))))
-      THEN (${effectiveConfirmedBalanceSql(selected)} - ${currentConfirmed}) ELSE 0 END`;
+      THEN (${effectiveConfirmedBalanceSql(selected)} - ${currentConfirmed}) ELSE 0 END
+    - (${unjoinedOpeningPrivateAdjustmentSql(selected)})`;
 }
 
 export function effectiveConfirmedBalanceSql(selected = "tl"): string {

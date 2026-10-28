@@ -559,6 +559,8 @@ async function main(): Promise<void> {
           "../currency": { getCurrencySymbol: () => "$" },
           "../projection": { applyEventMutex: exportMutex },
           "../tabs/db": {
+            getFinancialTabLinkForPerson: async () =>
+              personTabId ? { tab_id: personTabId, currency: "USD" } : null,
             listTabSettlements: async (tabId: string) => sharedMarkers.get(tabId) ?? [],
             getTabLink: async (tabId: string) => ({
               tab_id: tabId,

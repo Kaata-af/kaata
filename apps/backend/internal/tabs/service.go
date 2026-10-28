@@ -40,6 +40,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/matee/kaata-backend/internal/credit"
+	"github.com/matee/kaata-backend/internal/tabstate"
 )
 
 // Typed errors. handler.go maps each to (status, error_code, message); the
@@ -211,16 +212,19 @@ type PartyMeta struct {
 // and how many of the other party's tallies await the caller's review.
 // A zero recorded balance alone does not mean the account was settled.
 type Tab struct {
-	ID           string               `json:"id"`
-	Currency     string               `json:"currency"`
-	Rev          int64                `json:"rev"`
-	CreatedAtMS  int64                `json:"created_at_ms"`
-	ClosedAtMS   *int64               `json:"closed_at_ms"`
-	ClosedBy     *string              `json:"closed_by"`
-	ClosedReason *string              `json:"closed_reason"`
-	You          string               `json:"you"`
-	Parties      map[string]PartyMeta `json:"parties"`
-	Balance      map[string]string    `json:"balance"`
+	// UnjoinedInvitation is authoritative evidence that B never participated.
+	// Only a creator-side client may use it to retain its original private book.
+	UnjoinedInvitation bool                 `json:"unjoined_invitation"`
+	ID                 string               `json:"id"`
+	Currency           string               `json:"currency"`
+	Rev                int64                `json:"rev"`
+	CreatedAtMS        int64                `json:"created_at_ms"`
+	ClosedAtMS         *int64               `json:"closed_at_ms"`
+	ClosedBy           *string              `json:"closed_by"`
+	ClosedReason       *string              `json:"closed_reason"`
+	You                string               `json:"you"`
+	Parties            map[string]PartyMeta `json:"parties"`
+	Balance            map[string]string    `json:"balance"`
 	// Balance remains the recorded total for older clients. New clients show
 	// the accepted amount separately from proposals that await a final review.
 	ConfirmedBalance map[string]string `json:"confirmed_balance"`
@@ -683,7 +687,7 @@ func loadTab(ctx context.Context, q querier, tabID, you string) (Tab, error) {
 		closedBy                       *string
 	)
 	err := q.QueryRow(ctx, `
-		SELECT t.currency, t.rev, t.created_at, t.closed_at, t.closed_by, t.closed_reason,
+		SELECT `+tabstate.UnjoinedInvitationSQL+`, t.currency, t.rev, t.created_at, t.closed_at, t.closed_by, t.closed_reason,
 		       pa.label, pa.joined_at, pa.history_order::text, pa.account_id IS NOT NULL, COALESCE(aa.display_name, aa.name, ''), COALESCE(aa.phone_e164, ''),
 		       pb.label, pb.joined_at, pb.history_order::text, pb.account_id IS NOT NULL, COALESCE(ab.display_name, ab.name, ''), COALESCE(ab.phone_e164, ''),
 		       COALESCE((SELECT SUM(CASE WHEN e.direction = 'a_to_b' THEN e.amount_minor ELSE -e.amount_minor END)
@@ -704,7 +708,7 @@ func loadTab(ctx context.Context, q querier, tabID, you string) (Tab, error) {
 		  LEFT JOIN accounts aa ON aa.id=pa.account_id
 		  LEFT JOIN accounts ab ON ab.id=pb.account_id
 		 WHERE t.id = $1::uuid
-	`, tabID, you).Scan(&t.Currency, &t.Rev, &createdAt, &closedAt, &closedBy, &t.ClosedReason,
+	`, tabID, you).Scan(&t.UnjoinedInvitation, &t.Currency, &t.Rev, &createdAt, &closedAt, &closedBy, &t.ClosedReason,
 		&aLabel, &aJoined, &aHistoryOrder, &aBound, &aName, &aPhone, &bLabel, &bJoined, &bHistoryOrder, &bBound, &bName, &bPhone, &balanceA, &confirmedA, &pendingA, &pending)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
@@ -2000,6 +2004,25 @@ func (s *Service) Void(ctx context.Context, p Party, entryID string) (VoidRespon
 	if err != nil {
 		return VoidResponse{}, err
 	}
+	response, err := withdrawPendingEntry(ctx, tx, p, orig)
+	if err != nil {
+		return VoidResponse{}, err
+	}
+	if err := s.finishLinkCredit(ctx, tx, admission); err != nil {
+		return VoidResponse{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return VoidResponse{}, fmt.Errorf("commit tx: %w", err)
+	}
+	s.poke(ctx, p.TabID)
+	return response, nil
+}
+
+// withdrawPendingEntry runs under the tab lock after the caller verifies that
+// orig is its own live pending monetary entry. The accepted void is a creator
+// withdrawal audit row, never a fabricated counterparty review.
+func withdrawPendingEntry(ctx context.Context, tx pgx.Tx, p Party, orig Entry) (VoidResponse, error) {
+	entryID := orig.ID
 	rev, err := bumpRev(ctx, tx, p.TabID, p.Role, p.pushEvent("entry_voided", entryID))
 	if err != nil {
 		return VoidResponse{}, err
@@ -2025,22 +2048,16 @@ func (s *Service) Void(ctx context.Context, p Party, entryID string) (VoidRespon
 	if err := markEntryNoticesRead(ctx, tx, p, orig.ID); err != nil {
 		return VoidResponse{}, err
 	}
-	if err := s.finishLinkCredit(ctx, tx, admission); err != nil {
-		return VoidResponse{}, err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return VoidResponse{}, fmt.Errorf("commit tx: %w", err)
-	}
-	s.poke(ctx, p.TabID)
 	return VoidResponse{Voided: voided, Void: void}, nil
 }
 
 // Close stops new shared tallies and linking changes. Existing pending rows
 // remain reviewable/withdrawable so either party can leave without trapping
 // an unconfirmed claim in the other party's balance. Final decisions stay final.
-// Idempotent — closing a closed tab returns its current state unchanged, so
-// a phone's retried outbox op lands cleanly.
-func (s *Service) Close(ctx context.Context, p Party) (TabResponse, error) {
+// The optional flag withdraws only A's untouched invitation opening under the
+// same lock as Join. It may also clean up an already-closed legacy invitation.
+// Old callers omit the flag and retain the original idempotent close behavior.
+func (s *Service) Close(ctx context.Context, p Party, withdrawUnjoinedOpening ...bool) (TabResponse, error) {
 	if !p.allows(rankEditor) {
 		return TabResponse{}, ErrRoleInsufficient
 	}
@@ -2066,18 +2083,39 @@ func (s *Service) Close(ctx context.Context, p Party) (TabResponse, error) {
 	if !sameCreditVault(selectedParty, p) {
 		return TabResponse{}, ErrNotFound
 	}
-	if t.ClosedAt != nil {
-		return fullResponse(ctx, tx, p.TabID, p.Role)
+	changed := false
+	if p.Role == "a" && len(withdrawUnjoinedOpening) > 0 && withdrawUnjoinedOpening[0] {
+		current, err := loadTab(ctx, tx, p.TabID, p.Role)
+		if err != nil {
+			return TabResponse{}, err
+		}
+		if current.UnjoinedInvitation {
+			entries, err := loadEntries(ctx, tx, p.TabID, 0)
+			if err != nil {
+				return TabResponse{}, err
+			}
+			for _, entry := range entries {
+				if entry.CreatedBy == "a" && entry.Kind == "opening" && entry.Status == "pending" && entry.VoidedByEntryID == nil {
+					if _, err := withdrawPendingEntry(ctx, tx, p, entry); err != nil {
+						return TabResponse{}, err
+					}
+					changed = true
+				}
+			}
+		}
 	}
 	// Leaving does not create or erase money. Credit limits must never force
 	// either party to keep sharing; existing proposals remain resolvable.
-	if _, err := tx.Exec(ctx, `
+	if t.ClosedAt == nil {
+		if _, err := tx.Exec(ctx, `
 		UPDATE tabs SET closed_at = NOW(), closed_by = $2 WHERE id = $1::uuid
 	`, p.TabID, p.Role); err != nil {
-		return TabResponse{}, fmt.Errorf("close tab: %w", err)
-	}
-	if _, err := bumpRev(ctx, tx, p.TabID, p.Role, p.pushEvent("updated", "")); err != nil {
-		return TabResponse{}, err
+			return TabResponse{}, fmt.Errorf("close tab: %w", err)
+		}
+		if _, err := bumpRev(ctx, tx, p.TabID, p.Role, p.pushEvent("updated", "")); err != nil {
+			return TabResponse{}, err
+		}
+		changed = true
 	}
 	resp, err := fullResponse(ctx, tx, p.TabID, p.Role)
 	if err != nil {
@@ -2086,7 +2124,9 @@ func (s *Service) Close(ctx context.Context, p Party) (TabResponse, error) {
 	if err := tx.Commit(ctx); err != nil {
 		return TabResponse{}, fmt.Errorf("commit tx: %w", err)
 	}
-	s.poke(ctx, p.TabID)
+	if changed {
+		s.poke(ctx, p.TabID)
+	}
 	return resp, nil
 }
 

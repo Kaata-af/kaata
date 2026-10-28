@@ -22,7 +22,7 @@ CREATE TABLE customer_credit_limits(vault_id TEXT,relationship_id TEXT,max_colle
 CREATE TABLE kaata_credit_defaults(vault_id TEXT PRIMARY KEY,max_collect_minor INTEGER,max_pay_minor INTEGER,mode TEXT,updated_at_ms INTEGER,restrict_editors INTEGER DEFAULT 0);
 CREATE TABLE credit_admission_intents(event_id TEXT PRIMARY KEY,vault_id TEXT,relationship_id TEXT,status TEXT,reason TEXT);
 CREATE TABLE vault_member_credit_permissions(vault_id TEXT,account_id TEXT,credit_limit_override TEXT);
-CREATE TABLE tab_links(tab_id TEXT PRIMARY KEY,vault_id TEXT,relationship_id TEXT,role TEXT,currency TEXT,closed_at INTEGER,linked_at INTEGER,history_order TEXT,other_account_name TEXT,other_joined_at INTEGER,last_synced_at INTEGER);
+CREATE TABLE tab_links(tab_id TEXT PRIMARY KEY,vault_id TEXT,relationship_id TEXT,role TEXT,currency TEXT,closed_at INTEGER,linked_at INTEGER,history_order TEXT,other_account_name TEXT,other_joined_at INTEGER,last_synced_at INTEGER,unjoined_invitation INTEGER);
 CREATE TABLE tab_entries(id TEXT PRIMARY KEY,tab_id TEXT,direction TEXT,amount_minor INTEGER,note TEXT,kind TEXT,status TEXT,seq INTEGER,rev INTEGER,created_by TEXT,occurred_at INTEGER,created_at INTEGER,voided_by_entry_id TEXT,local_pending INTEGER,local_action_pending INTEGER);
 CREATE TABLE tab_outbox(id TEXT PRIMARY KEY,tab_id TEXT,op TEXT);
 CREATE TABLE tab_settlements(id TEXT,tab_id TEXT,through_seq INTEGER);
@@ -117,7 +117,14 @@ const eventLog = compile("../event-log", (name) => {
       },
     };
   if (
-    ["./currency-scope", "./entry-date", "./money", "./money-sql", "./tabs/errors"].includes(name)
+    [
+      "./currency-scope",
+      "./entry-date",
+      "./money",
+      "./money-sql",
+      "./tabs/errors",
+      "./tabs/history",
+    ].includes(name)
   )
     return require("../" + name.slice(2));
   return {};

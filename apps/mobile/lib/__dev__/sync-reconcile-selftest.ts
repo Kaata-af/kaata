@@ -1,8 +1,12 @@
 // Real reconciliation SQL and control flow against synthetic in-memory SQLite.
 // Never opens a phone database, a real network endpoint or a user backup.
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import Database from "better-sqlite3";
 import { buildLocalAccountId } from "../trust/account-id";
+import { compileUI } from "./ui-fixture";
+import { Mutex } from "../util/mutex";
+import type { TabResponse, WireTab } from "../tabs/types";
 
 (globalThis as { __DEV__?: boolean }).__DEV__ = false;
 const fixture = new Database(":memory:");
@@ -108,8 +112,174 @@ for (const [id, pubkey, revokedAt] of [
   member.run(id, buildLocalAccountId(pubkey), 1, revokedAt);
 }
 
+async function tabParticipationReconcileTests(): Promise<void> {
+  const store = new Database(":memory:");
+  try {
+    const source = readFileSync(require.resolve("../db"), "utf8");
+    for (const migration of ["028", "030", "031", "041"]) {
+      const ddl = source.match(
+        new RegExp(
+          "async function runMigration" +
+            migration +
+            "[\\s\\S]*?db\\.execAsync\\(`([\\s\\S]*?)`\\)",
+        ),
+      )?.[1];
+      assert.ok(ddl, `use shipped tab migration ${migration}`);
+      store.exec(ddl);
+    }
+    const tx = {
+      getFirstAsync: async (sql: string, ...args: unknown[]) =>
+        store.prepare(sql).get(...args) ?? null,
+      getAllAsync: async (sql: string, ...args: unknown[]) => store.prepare(sql).all(...args),
+      runAsync: async (sql: string, ...args: unknown[]) => store.prepare(sql).run(...args),
+      withTransactionAsync: async (work: () => Promise<void>) => {
+        store.exec("BEGIN");
+        try {
+          await work();
+          store.exec("COMMIT");
+        } catch (error) {
+          store.exec("ROLLBACK");
+          throw error;
+        }
+      },
+    };
+    const dbTx = {
+      getDb: async () => tx,
+      getAccountIdSync: () => "account",
+      getActiveVaultIdSyncMaybe: () => "vault",
+    };
+    const tabsDb = compileUI("../tabs/db", {
+      "../db-tx": dbTx,
+      "../currency-scope": require("../currency-scope"),
+      "../entry-date": require("../entry-date"),
+      "../money": require("../money"),
+      "./direction": require("../tabs/direction"),
+      "./errors": require("../tabs/errors"),
+      "./wire": require("../tabs/wire"),
+      "./history": require("../tabs/history"),
+      "./events": { emitTabApplied() {} },
+      "../ledger-events": { emitLedgerApplied() {} },
+      "../projection": { applyEventMutex: new Mutex() },
+    }) as typeof import("../tabs/db");
+    let wire: WireTab;
+    let expectedFlag: number | null;
+    const requested: Array<{ tabId: string; afterRev: number }> = [];
+    const tabSync = compileUI("../tabs/sync", {
+      "react-native": { AppState: { currentState: "active" } },
+      "expo-network": { getNetworkStateAsync: async () => ({ isConnected: true }) },
+      "../auth": {
+        getSessionJWT: async () => "tab-session",
+        captureCurrentSession: async () => ({ jwt: "tab-session" }),
+        applyForCurrentSession: async (_: unknown, work: () => Promise<unknown>) => work(),
+        SessionChangedError: class extends Error {},
+      },
+      "../db-tx": dbTx,
+      "../ledger-events": { onLedgerApplied: () => () => {} },
+      "./db": tabsDb,
+      "./direction": require("../tabs/direction"),
+      "./errors": require("../tabs/errors"),
+      "./inbox-reads": { flushInboxReads: async () => {} },
+      "./events": { onTabApplied: () => () => {} },
+      "./api": {
+        resolveTabAuth: async () => ({ jwt: "tab-session" }),
+        fetchMine: async () => ({
+          tabs: [{ tab: wire, role: "a", vault_id: "vault", relationship_id: "relationship" }],
+        }),
+        fetchTab: async (_: unknown, tabId: string, afterRev: number): Promise<TabResponse> => {
+          requested.push({ tabId, afterRev });
+          const before = await tabsDb.getTabLink(tabId);
+          assert.equal(afterRev, wire.rev, "metadata discovery preserves the stored pull cursor");
+          assert.equal(before?.rev, wire.rev);
+          assert.equal(before?.last_synced_at, 400);
+          assert.equal(before?.history_order, "3");
+          assert.equal(
+            before?.unjoined_invitation,
+            expectedFlag,
+            "/mine cannot apply participation metadata before the pull",
+          );
+          return { tab: wire, entries: [], full: true };
+        },
+      },
+    }) as typeof import("../tabs/sync");
+    for (const [id, rev, cached, remote] of [
+      ["upgrade-empty", 0, null, true],
+      ["peer-participated", 7, 1, false],
+    ] as const) {
+      store.exec("DELETE FROM tab_links");
+      store
+        .prepare(
+          `INSERT INTO tab_links(tab_id,vault_id,relationship_id,role,currency,rev,closed_at,linked_at,last_synced_at,history_order,unjoined_invitation)
+        VALUES(?,'vault','relationship','a','AFN',?,200,100,400,'3',?)`,
+        )
+        .run(id, rev, cached);
+      expectedFlag = cached;
+      wire = {
+        id,
+        you: "a",
+        currency: "AFN",
+        rev,
+        created_at_ms: 100,
+        closed_at_ms: 200,
+        closed_by: "a",
+        unjoined_invitation: remote,
+        parties: {
+          a: { label: "Owner", joined_at_ms: 100, bound: true, history_order: "3" },
+          b: { label: "Peer", joined_at_ms: remote ? null : 150, bound: !remote },
+        },
+        balance: { a: "0", b: "0" },
+        pending_for_you: 0,
+      };
+      const before = requested.length;
+      await tabSync.reconcileTabsFromServer();
+      assert.deepEqual(
+        requested.slice(before),
+        [{ tabId: id, afterRev: rev }],
+        "participation metadata changes trigger one pull despite unchanged revision and history order",
+      );
+      const refreshed = await tabsDb.getTabLink(id);
+      assert.equal(refreshed?.rev, rev);
+      assert.equal(refreshed?.unjoined_invitation, remote ? 1 : 0);
+      await tabSync.reconcileTabsFromServer();
+      assert.equal(
+        requested.length,
+        before + 1,
+        "acknowledged participation metadata does not cause repeated pulls",
+      );
+      if (!remote) {
+        for (const staleFlag of [true, undefined]) {
+          const current = (await tabsDb.getTabLink(id))!;
+          await tabsDb.upsertTabFromWire(current, {
+            tab: {
+              ...wire,
+              unjoined_invitation: staleFlag,
+              parties: {
+                ...wire.parties,
+                b: { ...wire.parties.b, joined_at_ms: null, bound: false },
+              },
+            },
+            entries: [],
+            full: false,
+          });
+          assert.equal(
+            (await tabsDb.getTabLink(id))?.unjoined_invitation,
+            0,
+            "late same-revision metadata cannot undo confirmed participation or restore private eligibility",
+          );
+          assert.equal((await tabsDb.getTabLink(id))?.rev, rev);
+        }
+      }
+    }
+    console.log(
+      "PASS: closed tab discovery refreshes unknown zero-revision participation and same-revision peer activity without advancing the cursor before pull",
+    );
+  } finally {
+    store.close();
+  }
+}
+
 async function run(): Promise<void> {
   try {
+    await tabParticipationReconcileTests();
     await fullBackupSweep();
     assert.deepEqual(
       registrations,

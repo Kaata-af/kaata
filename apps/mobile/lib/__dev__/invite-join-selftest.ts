@@ -205,6 +205,7 @@ async function fixture() {
     "./entry-date": require("../entry-date"),
     "./currency-scope": require("../currency-scope"),
     "./tabs/errors": { TabLinkedEntryError: class extends Error {} },
+    "./tabs/history": require("../tabs/history"),
   });
   class ApiError extends Error {
     constructor(public status: number) {

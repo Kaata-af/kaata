@@ -23,7 +23,6 @@
 
 import { getAccountIdSync, getActiveVaultIdSyncMaybe, getDb } from "../db-tx";
 import { getLedgerCurrencyCode, effectiveEntryCurrencySql } from "../currency-scope";
-import { entryRecordedAtSql } from "../entry-date";
 import { fromMinorUnits, toMinorUnits } from "../money";
 import type { Entry, EntryType } from "../types";
 import { directionFor, entryTypeFor, otherRole } from "./direction";
@@ -40,7 +39,7 @@ import type {
   TabSettlement,
 } from "./types";
 import { wireToMinor } from "./wire";
-import { historyReady } from "./history";
+import { historyReady, privateEntryCurrentSql, unjoinedInvitationSql } from "./history";
 
 // Anything longer is a stack trace, not a diagnosis; the App health report
 // shows this verbatim and the column is TEXT with no other reader.
@@ -125,13 +124,11 @@ export async function getTabLinkForPerson(
 }
 
 /**
- * The contact's tab whether it is open or CLOSED — the read-path twin of
- * getTabLinkForPerson (which stays open-only because it decides where a new
- * tally is written). Closing a tab freezes its rows, it does not un-happen
- * them: the shared period is still this contact's history and still counts
- * toward the balance, and the pre-link local rows it carried into the
- * opening entry must stay excluded forever (D8). Callers that ACT on the tab
- * must check `closed_at` themselves.
+ * The latest invitation/shared period, open or closed. Use
+ * getFinancialTabLinkForPerson for chapter and settlement ownership: an
+ * unused invitation does not absorb the creator's original private rows.
+ * Participating closed periods still own their shared history. Callers that
+ * act on the tab must check `closed_at` themselves.
  *
  * The open link wins when there is one (at most one, by
  * idx_tab_links_open_rel); otherwise the most recently linked closed one.
@@ -157,6 +154,28 @@ export async function getLatestTabLinkForPerson(
     currency,
   );
   return row ?? null;
+}
+
+/** The latest period that actually absorbed private history. An unused
+ * invitation remains available for sharing, but does not replace the book. */
+export async function getFinancialTabLinkForPerson(
+  personId: string,
+  currency = getLedgerCurrencyCode(),
+): Promise<TabLink | null> {
+  const vaultId = getActiveVaultIdSyncMaybe();
+  if (!vaultId) return null;
+  const db = await getDb();
+  return (
+    (await db.getFirstAsync<TabLink>(
+      `SELECT tl.* FROM tab_links tl JOIN relationships r ON r.id=tl.relationship_id
+      WHERE r.user_b_id=? AND r.vault_id=? AND tl.vault_id=r.vault_id
+        AND r.archived_at IS NULL AND tl.currency=? AND NOT ${unjoinedInvitationSql("tl")}
+      ORDER BY CAST(tl.history_order AS INTEGER) DESC,tl.linked_at DESC,tl.tab_id DESC LIMIT 1`,
+      personId,
+      vaultId,
+      currency,
+    )) ?? null
+  );
 }
 
 /**
@@ -244,8 +263,8 @@ export async function upsertTabLink(link: TabLink): Promise<void> {
   await db.runAsync(
     `INSERT INTO tab_links (tab_id, vault_id, relationship_id, role, currency, party_token,
                             my_label, other_label, other_joined_at, invite_url, rev, closed_at,
-                            linked_at, last_synced_at, last_error, history_order)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            linked_at, last_synced_at, last_error, history_order, unjoined_invitation)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(tab_id) DO UPDATE SET
        vault_id = excluded.vault_id, relationship_id = excluded.relationship_id,
        role = excluded.role, currency = excluded.currency, party_token = excluded.party_token,
@@ -253,7 +272,8 @@ export async function upsertTabLink(link: TabLink): Promise<void> {
        other_joined_at = excluded.other_joined_at, invite_url = excluded.invite_url,
        rev = excluded.rev, closed_at = excluded.closed_at, linked_at = excluded.linked_at,
        last_synced_at = excluded.last_synced_at, last_error = excluded.last_error,
-       history_order = COALESCE(excluded.history_order, tab_links.history_order)`,
+       history_order = COALESCE(excluded.history_order, tab_links.history_order),
+       unjoined_invitation = excluded.unjoined_invitation`,
     link.tab_id,
     link.vault_id,
     link.relationship_id,
@@ -270,6 +290,7 @@ export async function upsertTabLink(link: TabLink): Promise<void> {
     link.last_synced_at,
     link.last_error,
     link.history_order ?? null,
+    link.unjoined_invitation ?? null,
   );
 }
 
@@ -512,6 +533,16 @@ export async function upsertTabFromWire(
       my_label: resp.tab.parties[me].label,
       other_label: resp.tab.parties[them].label,
       other_joined_at: resp.tab.parties[them].joined_at_ms,
+      unjoined_invitation:
+        // Participation is irreversible. A late equal-revision metadata
+        // response must never make a once-bound invitation private again.
+        stored.unjoined_invitation === 0
+          ? (0 as const)
+          : typeof resp.tab.unjoined_invitation === "boolean"
+            ? resp.tab.unjoined_invitation
+              ? (1 as const)
+              : (0 as const)
+            : null,
       closed_at: resp.tab.closed_at_ms,
       closed_reason: resp.tab.closed_reason ?? null,
     };
@@ -522,6 +553,7 @@ export async function upsertTabFromWire(
       meta.my_label !== stored.my_label ||
       meta.other_label !== stored.other_label ||
       meta.other_joined_at !== stored.other_joined_at ||
+      meta.unjoined_invitation !== (stored.unjoined_invitation ?? null) ||
       meta.closed_at !== stored.closed_at ||
       meta.closed_reason !== (stored.closed_reason ?? null) ||
       (advanceCursor && resp.tab.rev > stored.rev)
@@ -534,7 +566,7 @@ export async function upsertTabFromWire(
       `UPDATE tab_links
           SET rev = MAX(rev, ?), currency = ?, my_label = ?, other_label = ?,
               other_joined_at = ?, closed_at = ?, closed_reason = ?, last_synced_at = ?, last_error = NULL,
-              history_order = COALESCE(?, history_order)
+              history_order = COALESCE(?, history_order), unjoined_invitation = ?
         WHERE tab_id = ?`,
       advanceCursor ? resp.tab.rev : stored.rev,
       resp.tab.currency,
@@ -545,6 +577,7 @@ export async function upsertTabFromWire(
       meta.closed_reason,
       now,
       resp.tab.parties[me].history_order ?? null,
+      meta.unjoined_invitation,
       link.tab_id,
     );
   });
@@ -780,9 +813,8 @@ export async function deleteOptimisticEntry(tabId: string, entryId: string): Pro
 }
 
 /**
- * The contact's LOCAL rows from before the link, newest first — shown under
- * the collapsed "Before linking" fold and excluded from the balance, whose
- * sum the opening entry already carries (D8). The immutable recording time
+ * Private rows absorbed by a real shared period, newest first. Unused
+ * invitations do not create a "Before linking" fold. The immutable recording time
  * determines the cutoff; a later local tally can have an earlier business
  * date. While the tab is OPEN no local row can be created (createEntry routes
  * to the tab), so on an updated device this is every local row of the shared
@@ -802,11 +834,10 @@ export async function listPreLinkEntries(link: TabLink): Promise<Entry[]> {
       WHERE e.relationship_id = ?
         AND e.vault_id = ?
         AND e.deleted_at IS NULL
-        AND ${entryRecordedAtSql("e")} <= ? AND ${effectiveEntryCurrencySql("e")} = ?
+        AND NOT (${privateEntryCurrentSql("e")}) AND ${effectiveEntryCurrencySql("e")} = ?
       ORDER BY e.created_at DESC`,
     link.relationship_id,
     link.vault_id,
-    link.linked_at,
     link.currency,
   );
 }

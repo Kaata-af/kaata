@@ -139,7 +139,14 @@ let ledgerRefresh = async () => {};
 let person: any, entries: any[], preLink: any[], failed: any[], link: any;
 const currencyPeriods = new Map<
   string,
-  { settlement?: any; boundaries?: number[]; tab?: any; markers?: any[]; preLink?: any[] }
+  {
+    settlement?: any;
+    boundaries?: number[];
+    tab?: any;
+    financialTab?: any;
+    markers?: any[];
+    preLink?: any[];
+  }
 >();
 const personReads: any[][] = [],
   entryReads: any[][] = [],
@@ -482,6 +489,8 @@ const mocks: Record<string, any> = {
         : link && (link.currency ?? "AFN") === code
           ? { ...link }
           : null,
+    getFinancialTabLinkForPerson: async (_: string, code: string) =>
+      currencyPeriods.get(code)?.financialTab,
     listPreLinkEntries: async (tab: any) => [
       ...(currencyPeriods.get(tab.currency)?.preLink ?? preLink),
     ],
@@ -1985,7 +1994,217 @@ async function singleCurrencyBalanceTests() {
   );
 }
 
+async function unjoinedInvitationLedgerTests() {
+  const untouchedInvite = (closedAt: number | null = null) => ({
+    currency: "AFN",
+    tab_id: "unused-invitation",
+    relationship_id: "relationship",
+    vault_id: "vault",
+    role: "a",
+    other_joined_at: null,
+    unjoined_invitation: 1,
+    closed_at: closedAt,
+    rev: 1,
+  });
+  const balanceValue = () =>
+    words(nodes(tree).find((node) => node.props.testID === "customer-balance-value-AFN"));
+  const settleControl = () =>
+    nodes(tree).find((node) => node.props.accessibilityLabel === "person.settle.row");
+
+  for (const closedAt of [null, 1000]) {
+    fixture();
+    link = untouchedInvite(closedAt);
+    currencyPeriods.set("AFN", { tab: link, financialTab: null });
+    const originals = JSON.stringify(entries);
+    await flush();
+    assert.deepEqual(
+      rowIds(),
+      ["new-rice", "new-tea"],
+      "an unused invitation preserves the private chapter fold",
+    );
+    assert.equal(balanceValue(), "amount:3");
+    assert.equal(words(tree).includes("tab.beforeLinking"), false);
+    assert.equal(words(tree).includes("tab.balance.confirmed"), false);
+    assert.equal(
+      typeof tallies().find((row) => row.props.entry.id === "new-tea")?.props.onLongPress,
+      closedAt == null ? "undefined" : "function",
+      "private originals stay immutable during an invitation and become editable after cancellation",
+    );
+    assert.equal(
+      !!nodes(tree).find((node) => node.props.testID === "customer-link-waiting"),
+      closedAt === null,
+      "the invitation cue still follows the actual invitation",
+    );
+    if (closedAt != null) {
+      person.tab_close_pending = 1;
+      await ledgerRefresh();
+      await flush();
+      assert.deepEqual(rowIds(), ["new-rice", "new-tea"]);
+      assert.equal(balanceValue(), "amount:3");
+      assert.equal(
+        tallies().find((row) => row.props.entry.id === "new-tea")?.props.onLongPress,
+        undefined,
+        "an optimistic close cannot unlock individual edits before its server acknowledgement",
+      );
+      assert.equal(
+        find("OverflowMenu")!.props.actions.find(
+          (action: any) => action.label === "selection.start",
+        ),
+        undefined,
+        "an optimistic close cannot unlock private bulk deletion",
+      );
+      person.tab_close_pending = 0;
+      await ledgerRefresh();
+      await flush();
+      assert.equal(
+        typeof tallies().find((row) => row.props.entry.id === "new-tea")?.props.onLongPress,
+        "function",
+        "confirmed unused cancellation unlocks individual edits",
+      );
+    }
+    query("rice");
+    await flush();
+    assert.deepEqual(rowIds(), ["new-rice", "old-rice"]);
+    assert.deepEqual(
+      nodes(tree).flatMap((node) =>
+        node.type === "EntryRow"
+          ? [node.props.entry.id]
+          : node.type === "Text" && words(node) === "person.history.settledOn"
+            ? ["settled-line"]
+            : [],
+      ),
+      ["new-rice", "settled-line", "old-rice"],
+      "search retains the dated private settlement line while waiting and after cancellation",
+    );
+    assert.equal(
+      tallies().find((row) => row.props.entry.id === "old-rice")?.props.onLongPress,
+      undefined,
+    );
+    assert.equal(
+      JSON.stringify(entries),
+      originals,
+      "notes, dates and private review state remain original",
+    );
+    query("");
+    await flush();
+    const selectAction = find("OverflowMenu")!.props.actions.find(
+      (action: any) => action.label === "selection.start",
+    );
+    if (closedAt == null) {
+      assert.equal(
+        selectAction,
+        undefined,
+        "an active invitation cannot bulk-delete private originals",
+      );
+    } else {
+      assert.ok(selectAction, "canceled unused invitations restore private selection");
+      selectAction.onPress();
+      await flush();
+      find("SelectionToolbar")!.props.onToggleAll();
+      await flush();
+      assert.equal(find("SelectionToolbar")!.props.count, 2);
+      find("SelectionToolbar")!.props.onClose();
+      await flush();
+    }
+
+    person.balance = 0;
+    entries[1] = { ...entries[1], amount_afn: 2 };
+    await ledgerRefresh();
+    await flush();
+    if (closedAt != null) {
+      person.tab_close_pending = 1;
+      await ledgerRefresh();
+      await flush();
+      assert.equal(
+        settleControl(),
+        undefined,
+        "local settlement waits for cancellation acknowledgement",
+      );
+      person.tab_close_pending = 0;
+      await ledgerRefresh();
+      await flush();
+    }
+    assert.ok(settleControl(), "private zero-balance settlement with no opening remains available");
+    settleControl()!.props.onPress();
+    await flush();
+    const confirm = nodes(tree).find(
+      (node) =>
+        node.type === "ConfirmDialog" &&
+        node.props.visible &&
+        node.props.title === "person.settle.confirm.title",
+    )!;
+    assert.ok(confirm.props.description.includes("person.settle.confirm.body"));
+    await confirm.props.onConfirm();
+    await flush();
+    assert.equal(settledWrites[0]?.currency, "AFN");
+    assert.equal(
+      sharedActions.some((action) => action.name === "settleSharedTab"),
+      false,
+    );
+    entries.unshift(
+      tally("ordinary-pending", "awaiting review", 10, 700, {
+        tab_id: link.tab_id,
+        seq: 1,
+        status: "pending",
+        kind: "entry",
+        by: "me",
+        voided: false,
+      }),
+    );
+    person.tab_pending_count = 1;
+    await ledgerRefresh();
+    await flush();
+    assert.equal(settleControl(), undefined, "an ordinary shared intent blocks private settlement");
+    unmount();
+  }
+
+  fixture();
+  link = untouchedInvite();
+  const afn = { ...person, currency: "AFN" };
+  const usd = { ...person, currency: "USD", balance: 7 };
+  person = { ...afn, currency_balances: [afn, usd] };
+  entries.push({ ...tally("usd-current", "dollar", 7, 350), currency: "USD" });
+  currencyPeriods.set("AFN", { tab: link, financialTab: null });
+  currencyPeriods.set("USD", { settlement: { count: 0, lastSettledAtMs: null }, boundaries: [] });
+  await flush();
+  assert.deepEqual(rowIds(), ["new-rice", "usd-current", "new-tea"]);
+  query("rice");
+  await flush();
+  assert.deepEqual(rowIds(), ["new-rice", "old-rice"]);
+  assert.ok(words(tree).includes("person.history.settledOn · AFN"));
+  unmount();
+
+  fixture(true);
+  const retainedShared = { ...link, tab_id: "retained-shared", closed_at: 1000 };
+  link = untouchedInvite();
+  person.balance = 0;
+  currencyPeriods.set("AFN", { tab: link, financialTab: retainedShared });
+  await flush();
+  assert.deepEqual(
+    rowIds(),
+    ["rejected-rice", "new-tea"],
+    "a replacement invitation retains the real shared chapter boundary",
+  );
+  assert.equal(watched.get("retained-shared"), 1);
+  assert.equal(watched.get("unused-invitation"), 1);
+  const incoming = tallies().find((row) => row.props.entry.id === "new-tea")!;
+  await incoming.props.onAccept(incoming.props.entry);
+  assert.equal(
+    sharedActions[0]?.link.tab_id,
+    "retained-shared",
+    "legacy review rows resolve their real retained shared period",
+  );
+  query("rice");
+  await flush();
+  assert.ok(words(tree).includes("tab.settle.history"));
+  unmount();
+  console.log(
+    "PASS unused invitations: private chapters, original records, selection and local settlement survive waiting/cancellation; currencies and retained shared reviews keep their own periods",
+  );
+}
+
 async function main() {
+  await unjoinedInvitationLedgerTests();
   await singleCurrencyBalanceTests();
   {
     fixture();
