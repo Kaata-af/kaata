@@ -570,6 +570,7 @@ func main() {
 		pr.Get("/v1/sync/snapshot", syncH.Snapshot)
 		// Desktop workspace reads a fresh projection instead of a stale snapshot.
 		pr.With(httpx.RateLimitPerAccount(600, time.Hour)).Get("/v1/sync/ledger", syncH.Ledger)
+		pr.With(httpx.RateLimitPerAccount(120, time.Hour)).Post("/v1/sync/live-ticket", syncH.LiveTicket)
 		pr.Get("/v1/sync/credit-limits", syncH.CreditLimits)
 		pr.Put("/v1/sync/credit-limits", syncH.CreditLimits)
 		pr.Get("/v1/sync/credit-refusals", syncH.CreditRefusals)
@@ -589,6 +590,14 @@ func main() {
 		pr.Use(syncapi.LiveTokenFallbackMiddleware)
 		pr.Use(authenticator.Middleware())
 		pr.Get("/v1/sync/live", syncH.Live)
+	})
+	// Browser sockets exchange a one-use, 30-second ticket. The persistent
+	// session JWT never enters their URL, and the standard authenticator
+	// rechecks the original session before the unchanged live handler runs.
+	r.Group(func(pr chi.Router) {
+		pr.Use(syncH.WebLiveTicketMiddleware(authenticator.InvalidateInstall))
+		pr.Use(authenticator.Middleware())
+		pr.Get("/v1/sync/web-live", syncH.Live)
 	})
 
 	// Background snapshot regeneration. Runs on its own dedicated 4-conn

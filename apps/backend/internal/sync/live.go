@@ -175,6 +175,27 @@ func (b *liveBroker) notify(vaultID string) {
 	b.notifyMsg(vaultID, liveMsg{T: "poke", VaultID: vaultID})
 }
 
+// Membership hints also reach an account whose already-open socket does not
+// yet know this newly created/joined vault. Existing vault subscribers receive
+// one hint, not a duplicate through their account key.
+func (b *liveBroker) notifyMembership(vaultID, accountID string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	seen := map[*liveSub]struct{}{}
+	for _, key := range []string{vaultID, liveAccountKey(accountID)} {
+		for sub := range b.subs[key] {
+			if _, exists := seen[sub]; exists {
+				continue
+			}
+			seen[sub] = struct{}{}
+			select {
+			case sub.ch <- liveMsg{T: "poke", VaultID: vaultID}:
+			default:
+			}
+		}
+	}
+}
+
 // notifyMsg is the generic fanout under one key. The frame is delivered
 // verbatim by the writer loop, so this is the single place that decides
 // what a subscriber sees for a given key.

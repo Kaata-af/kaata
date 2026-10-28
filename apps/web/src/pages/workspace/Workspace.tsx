@@ -11,6 +11,8 @@ import { Link } from "react-router-dom";
 import { BrandLogo } from "../../components/BrandLogo";
 import { useToast } from "../../components/Toast";
 import { useI18n, type Lang } from "../../lib/i18n";
+import { createWebLive, type WebLiveState } from "../../lib/web-live";
+import { createWebRefresh } from "../../lib/web-refresh";
 import {
   getWebSession,
   signOut,
@@ -98,6 +100,7 @@ function LedgerWorkspace({ session }: { session: WebSession }) {
   const [error, setError] = useState(false);
   const [errorCode, setErrorCode] = useState("");
   const [online, setOnline] = useState(navigator.onLine);
+  const [liveState, setLiveState] = useState<WebLiveState>("connecting");
   const [modal, setModal] = useState<Modal | null>(null);
   const [signingOut, setSigningOut] = useState(false);
   const [pending, setPending] = useState(hasPendingWebWrite);
@@ -107,13 +110,41 @@ function LedgerWorkspace({ session }: { session: WebSession }) {
   activeVault.current = vaultID;
   const requestVersion = useRef(0);
   const booksVersion = useRef(0);
+  const foregroundBookLoads = useRef(0);
+  const automaticRefresh = useRef<ReturnType<typeof createWebRefresh> | null>(null);
+  const retryAfterUntil = useRef(0);
   const supported = getWebWriteSupport();
 
+  const selectVault = useCallback((id: string, background = false) => {
+    if (id === activeVault.current) return;
+    // Invalidate old reads immediately, before React renders the new selection.
+    activeVault.current = id;
+    requestVersion.current++;
+    setLedger(null);
+    setRefreshing(false);
+    setLoading(!!id);
+    setModal((current) => (background && current?.kind === "vault" ? current : null));
+    setPersonID(null);
+    setVaultID(id);
+  }, []);
+
+  useEffect(
+    () => () => {
+      requestVersion.current++;
+      booksVersion.current++;
+    },
+    [],
+  );
+
   const loadVaults = useCallback(
-    async (preferred?: string) => {
+    async (preferred?: string, background = false) => {
+      // A live hint must not replace an explicit new-book selection in flight.
+      if (background && foregroundBookLoads.current) return;
       const version = ++booksVersion.current;
-      setLoading(true);
-      setError(false);
+      if (!background) {
+        foregroundBookLoads.current++;
+        setLoading(true);
+      }
       try {
         const books = await listWebVaults();
         if (version !== booksVersion.current) return;
@@ -123,23 +154,32 @@ function LedgerWorkspace({ session }: { session: WebSession }) {
           books.find((book) => book.vault_id === target) ??
           books.find((book) => !book.archived_at_ms) ??
           books[0];
-        setVaultID(next?.vault_id ?? "");
+        const changed = next?.vault_id !== activeVault.current;
+        selectVault(next?.vault_id ?? "", background);
         if (!next) {
           setLedger(null);
           setLoading(false);
-        } else if (next.vault_id === activeVault.current) setLoading(false);
+          setError(false);
+          setErrorCode("");
+        } else if (!background && !changed) setLoading(false);
       } catch {
-        if (version === booksVersion.current) {
+        if (!background && version === booksVersion.current) {
           setError(true);
           setLoading(false);
         }
+      } finally {
+        if (!background) foregroundBookLoads.current--;
       }
     },
-    [session.default_vault_id],
+    [session.default_vault_id, selectVault],
   );
 
   const refresh = useCallback(async (id: string, initial = false) => {
     if (!id) return;
+    if (Date.now() < retryAfterUntil.current) {
+      setLoading(false);
+      return;
+    }
     const version = ++requestVersion.current;
     if (initial) setLoading(true);
     setRefreshing(true);
@@ -160,9 +200,16 @@ function LedgerWorkspace({ session }: { session: WebSession }) {
       if (version !== requestVersion.current || id !== activeVault.current) return;
       setError(true);
       setErrorCode(cause instanceof WebApiError ? cause.code : "");
+      if (cause instanceof WebApiError && cause.status === 429) {
+        const delay = Math.max(1, cause.retryAfterSeconds ?? 60) * 1_000;
+        retryAfterUntil.current = Date.now() + delay;
+        automaticRefresh.current?.deferFor(delay);
+      }
       // Permission loss must also remove already-rendered customer information.
-      if (cause instanceof WebApiError && [401, 403, 404, 410, 422].includes(cause.status))
+      if (cause instanceof WebApiError && [401, 403, 404, 410, 422].includes(cause.status)) {
         setLedger(null);
+        setModal(null);
+      }
     } finally {
       if (version === requestVersion.current && id === activeVault.current) {
         setLoading(false);
@@ -179,7 +226,7 @@ function LedgerWorkspace({ session }: { session: WebSession }) {
     setPersonID(null);
     setQuery("");
     setFilter("all");
-    setModal(null);
+    setModal((current) => (current?.kind === "vault" ? current : null));
     if (vaultID) void refresh(vaultID, true);
     return () => {
       requestVersion.current++;
@@ -194,18 +241,49 @@ function LedgerWorkspace({ session }: { session: WebSession }) {
       window.removeEventListener("offline", connection);
     };
   }, []);
+  // The server's subscription set is captured at connection time. Reconnect
+  // when membership changes so a newly created/joined kaata also sends pokes.
+  const membershipKey = vaults
+    .map((book) => book.vault_id)
+    .sort()
+    .join(",");
   useEffect(() => {
-    if (!vaultID || !online || modal) return;
+    if (!online) return;
+    let stopped = false;
+    const updates = createWebRefresh({
+      refresh: async () => {
+        if (stopped || document.hidden) return;
+        const previous = activeVault.current;
+        await loadVaults(undefined, true);
+        if (!stopped && previous && previous === activeVault.current) await refresh(previous);
+      },
+    });
     const check = () => {
-      if (!document.hidden) void refresh(vaultID);
+      if (!document.hidden) updates.request();
     };
+    automaticRefresh.current = updates;
+    updates.deferFor(Math.max(0, retryAfterUntil.current - Date.now()));
+    const live = createWebLive({
+      session,
+      onChange: check,
+      onState: (state) => {
+        if (!stopped) setLiveState(state);
+      },
+    });
     const timer = window.setInterval(check, 30_000);
     window.addEventListener("focus", check);
+    document.addEventListener("visibilitychange", check);
+    check();
     return () => {
+      stopped = true;
+      if (automaticRefresh.current === updates) automaticRefresh.current = null;
+      live.stop();
+      updates.stop();
       clearInterval(timer);
       window.removeEventListener("focus", check);
+      document.removeEventListener("visibilitychange", check);
     };
-  }, [vaultID, online, modal, refresh]);
+  }, [session, online, membershipKey, loadVaults, refresh]);
 
   const balances = useMemo(() => balanceMap(ledger?.entries ?? []), [ledger]);
   const defaultCurrency = ledger?.default_entry_currency || "AFN";
@@ -291,7 +369,7 @@ function LedgerWorkspace({ session }: { session: WebSession }) {
         <select
           id="workspace-vault"
           value={vaultID}
-          onChange={(event) => setVaultID(event.target.value)}
+          onChange={(event) => selectVault(event.target.value)}
           disabled={!!modal || !vaults.length}
           className="workspace-book-select"
         >
@@ -367,7 +445,10 @@ function LedgerWorkspace({ session }: { session: WebSession }) {
             <h1>{ledger?.name || c.kaatas}</h1>
           </div>
           <div className="workspace-header-actions">
-            <span className={`workspace-status ${!online || error ? "is-offline" : ""}`}>
+            <span
+              className={`workspace-status ${!online || error ? "is-offline" : liveState !== "live" ? "is-waiting" : ""}`}
+              role="status"
+            >
               <i />
               {!online
                 ? c.offline.split(".")[0]
@@ -375,7 +456,13 @@ function LedgerWorkspace({ session }: { session: WebSession }) {
                   ? c.refreshing
                   : error
                     ? c.loadError.split(".")[0]
-                    : c.updated}
+                    : liveState === "live"
+                      ? c.liveUpdates
+                      : liveState === "connecting"
+                        ? c.connectingUpdates
+                        : liveState === "reconnecting"
+                          ? c.reconnectingUpdates
+                          : c.periodicUpdates}
             </span>
             <button
               className="workspace-button"

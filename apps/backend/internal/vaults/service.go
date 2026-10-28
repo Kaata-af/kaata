@@ -205,6 +205,7 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (CreateResult, err
 	if err := tx.Commit(ctx); err != nil {
 		return CreateResult{}, fmt.Errorf("commit tx: %w", err)
 	}
+	s.invalidateMembership(in.VaultID, in.AccountID)
 	return CreateResult{VaultID: in.VaultID, LegacyCurrency: legacyCurrency, DefaultEntryCurrency: defaultEntryCurrency}, nil
 }
 
@@ -550,6 +551,7 @@ func (s *Service) Update(ctx context.Context, in UpdateInput) (UpdateResult, err
 	if err := tx.Commit(ctx); err != nil {
 		return UpdateResult{}, fmt.Errorf("commit tx: %w", err)
 	}
+	s.invalidateMembership(in.VaultID, in.AccountID)
 	return UpdateResult{
 		VaultID:    in.VaultID,
 		Name:       newName,
@@ -625,6 +627,7 @@ func (s *Service) Archive(ctx context.Context, vaultID, accountID string) (Archi
 		if err := tx.Commit(ctx); err != nil {
 			return ArchiveResult{}, fmt.Errorf("commit tx: %w", err)
 		}
+		s.invalidateMembership(vaultID, accountID)
 		return ArchiveResult{Status: "archived", VaultID: vaultID, VaultEpoch: newEpoch}, nil
 	}
 
@@ -656,6 +659,7 @@ func (s *Service) Archive(ctx context.Context, vaultID, accountID string) (Archi
 		if err := tx.Commit(ctx); err != nil {
 			return ArchiveResult{}, fmt.Errorf("commit tx: %w", err)
 		}
+		s.invalidateMembership(vaultID, accountID)
 		return ArchiveResult{Status: "archived", VaultID: vaultID, VaultEpoch: newEpoch}, nil
 	}
 

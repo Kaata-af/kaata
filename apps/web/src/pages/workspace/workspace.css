@@ -231,7 +231,8 @@
   background: #0c745a;
   flex-shrink: 0;
 }
-.workspace-status.is-offline i {
+.workspace-status.is-offline i,
+.workspace-status.is-waiting i {
   background: #c78218;
 }
 .workspace-button {

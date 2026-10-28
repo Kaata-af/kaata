@@ -37,11 +37,12 @@ const (
 )
 
 type Handler struct {
-	svc *Service
+	svc         *Service
+	liveTickets *liveTicketStore
 }
 
 func NewHandler(svc *Service) *Handler {
-	return &Handler{svc: svc}
+	return &Handler{svc: svc, liveTickets: newLiveTicketStore()}
 }
 
 // ==========================================================================

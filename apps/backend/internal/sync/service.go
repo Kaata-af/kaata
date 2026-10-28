@@ -151,7 +151,9 @@ func (s *Service) InvalidateMembership(vaultID, accountID string) {
 	// vault changed — pull now" without waiting for its poll tick. The
 	// affected member's own pull then 403s (revoke) or delivers the
 	// membership events (role change); either way the poke carries nothing.
-	s.NotifyLive(vaultID)
+	if s.live != nil {
+		s.live.notifyMembership(vaultID, accountID)
+	}
 }
 
 // ResetSnapshotPending is called by the snapshot worker after generation.
