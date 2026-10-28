@@ -801,14 +801,14 @@ async function main() {
   input().props.onPress();
   render();
   assert.equal(
-    initialSummary().props.compact,
+    initialSummary().props.searchOpen,
     false,
     "iOS tap leaves keyboard motion to the native frame",
   );
   input().props.onFocus();
   render();
   assert.equal(
-    initialSummary().props.compact,
+    initialSummary().props.searchOpen,
     false,
     "iOS focus does not run an independent keyboard animation",
   );
@@ -826,9 +826,9 @@ async function main() {
   );
   render();
   assert.equal(
-    initialSummary().props.compact,
+    initialSummary().props.searchOpen,
     true,
-    "Opening the keyboard reserves result space below the sticky summary",
+    "Opening the keyboard marks the summary search session open",
   );
   assert.equal(
     homeNodes().find((node) => node.type === "SearchKeyboardFooter")!.props.keyboardShown,
@@ -843,9 +843,9 @@ async function main() {
   input().props.onBlur();
   render();
   assert.equal(
-    initialSummary().props.compact,
+    initialSummary().props.searchOpen,
     true,
-    "blur cannot expand the dock while the native keyboard remains shown",
+    "blur retains the search state while the native keyboard remains shown",
   );
   input().props.onFocus();
   render();
@@ -854,17 +854,17 @@ async function main() {
   assert.equal(scheduledKeyboardLayouts.length, layoutsBeforePreparation);
   render();
   assert.equal(
-    initialSummary().props.compact,
+    initialSummary().props.searchOpen,
     false,
-    "interactive will-hide expands even while the input remains focused",
+    "interactive will-hide clears search state even while the input remains focused",
   );
   const layoutsBeforeCancelledHide = scheduledKeyboardLayouts.length;
   emitKeyboard("keyboardDidShow");
   render();
   assert.equal(
-    initialSummary().props.compact,
+    initialSummary().props.searchOpen,
     true,
-    "A cancelled interactive hide restores the compact layout",
+    "A cancelled interactive hide restores the search state",
   );
   assert.equal(
     scheduledKeyboardLayouts.length,
@@ -876,20 +876,20 @@ async function main() {
     .props.onPress();
   render();
   assert.equal(
-    initialSummary().props.compact,
+    initialSummary().props.searchOpen,
     true,
-    "explicit dismissal waits for will-hide before expanding a shown keyboard layout",
+    "explicit dismissal waits for will-hide before clearing the search state",
   );
   expectSameInput();
   emitKeyboard("keyboardWillHide");
   emitKeyboard("keyboardDidHide");
   render();
-  assert.equal(initialSummary().props.compact, false);
+  assert.equal(initialSummary().props.searchOpen, false);
   assert.ok(homeNodes().some((node) => node.props.accessibilityLabel === "personAdd.new"));
   emitKeyboard("keyboardWillShow");
   render();
   assert.equal(
-    initialSummary().props.compact,
+    initialSummary().props.searchOpen,
     true,
     "a later native opening still updates semantic controls",
   );
@@ -916,13 +916,13 @@ async function main() {
   input().props.onFocus();
   emitKeyboard("keyboardWillShow");
   render();
-  assert.equal(initialSummary().props.compact, true, "the new keyboard session remains usable");
+  assert.equal(initialSummary().props.searchOpen, true, "the new keyboard session remains usable");
   expectSameInput();
   inputInstance.blur();
   emitKeyboard("keyboardWillHide");
   emitKeyboard("keyboardDidHide");
   render();
-  assert.equal(initialSummary().props.compact, false);
+  assert.equal(initialSummary().props.searchOpen, false);
   const closedMeasures = filterMeasurements;
   homeNodes()
     .find((node) => node.type === "SearchKeyboardFooter")!

@@ -1734,7 +1734,7 @@ async function main() {
   homeInput().props.onFocus();
   await flush();
   assert.equal(
-    find("HomeBalanceSummary")!.props.compact,
+    find("HomeBalanceSummary")!.props.searchOpen,
     false,
     "Confirmation blocks retained and disabled search taps/focus",
   );
@@ -1773,7 +1773,7 @@ async function main() {
   homeInput().props.onFocus();
   await flush();
   assert.equal(
-    find("HomeBalanceSummary")!.props.compact,
+    find("HomeBalanceSummary")!.props.searchOpen,
     false,
     "An in-flight batch blocks disabled search preparation",
   );
@@ -1961,7 +1961,7 @@ async function main() {
         homeInput().props.onPress();
         await flush();
         assert.equal(
-          find("HomeBalanceSummary")!.props.compact,
+          find("HomeBalanceSummary")!.props.searchOpen,
           nextPlatform === "android",
           "Android prepares on tap while iOS waits for the native keyboard",
         );
@@ -1969,7 +1969,7 @@ async function main() {
         homeInput().props.onFocus();
         await flush();
         assert.equal(
-          find("HomeBalanceSummary")!.props.compact,
+          find("HomeBalanceSummary")!.props.searchOpen,
           nextPlatform === "android",
           "focus preserves Android preparation without starting a second iOS layout clock",
         );
@@ -1987,9 +1987,9 @@ async function main() {
           "the native motion frame owns movement without scheduling a JS layout animation",
         );
         assert.equal(
-          find("HomeBalanceSummary")!.props.compact,
+          find("HomeBalanceSummary")!.props.searchOpen,
           true,
-          "Every role and platform retains result space while typing",
+          "Every role and platform marks the search session open while typing",
         );
         assert.ok(byLabel("common.hideKeyboard"), "Every role can dismiss the keyboard");
         assert.equal(homeOptions().props.compact, true, "Open search exposes compact filters");
@@ -1999,21 +1999,21 @@ async function main() {
         homeInput().props.onBlur();
         await flush();
         assert.equal(
-          find("HomeBalanceSummary")!.props.compact,
+          find("HomeBalanceSummary")!.props.searchOpen,
           true,
-          "Blur retains keyboard space until the native hide event",
+          "Blur retains search state until the native hide event",
         );
         byLabel("common.hideKeyboard")!.props.onPress();
         await flush();
         assert.equal(
-          find("HomeBalanceSummary")!.props.compact,
+          find("HomeBalanceSummary")!.props.searchOpen,
           true,
-          "Explicit dismissal keeps the dock stable while the keyboard hides",
+          "Explicit dismissal retains search state until the native hide event",
         );
         keyboardEvent(nextPlatform === "ios" ? "keyboardWillHide" : "keyboardDidHide");
         keyboardEvent("keyboardDidHide");
         await flush();
-        assert.equal(find("HomeBalanceSummary")!.props.compact, false);
+        assert.equal(find("HomeBalanceSummary")!.props.searchOpen, false);
         assert.equal(byLabel("common.hideKeyboard"), undefined);
         assert.equal(
           byLabel("personAdd.new") != null,
@@ -2023,28 +2023,28 @@ async function main() {
         if (nextPlatform === "android") {
           homeInput().props.onFocus();
           await flush();
-          assert.equal(find("HomeBalanceSummary")!.props.compact, true);
+          assert.equal(find("HomeBalanceSummary")!.props.searchOpen, true);
           keyboardEvent("keyboardDidShow");
           // Android may consume hardware Back without first blurring TextInput.
           keyboardEvent("keyboardDidHide");
           await flush();
-          assert.equal(find("HomeBalanceSummary")!.props.compact, false);
+          assert.equal(find("HomeBalanceSummary")!.props.searchOpen, false);
           assert.equal(
             byLabel("common.hideKeyboard"),
             undefined,
-            "Hardware Back cannot leave a stuck arrow or compact summary",
+            "Hardware Back cannot leave a stuck arrow or open search state",
           );
           homeInput().props.onFocus();
           await flush();
           assert.equal(
-            find("HomeBalanceSummary")!.props.compact,
+            find("HomeBalanceSummary")!.props.searchOpen,
             true,
             "A second keyboard cycle prepares on focus again",
           );
           byLabel("common.hideKeyboard")!.props.onPress();
           await flush();
           assert.equal(
-            find("HomeBalanceSummary")!.props.compact,
+            find("HomeBalanceSummary")!.props.searchOpen,
             false,
             "Dismissing before did-show clears the focus intent",
           );

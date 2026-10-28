@@ -1779,7 +1779,7 @@ export default function HomeScreen() {
                       people={visibleAllPeople}
                       balances={visibleBalances}
                       currency={selectedCurrency}
-                      compact={keyboardLayoutShown}
+                      searchOpen={keyboardLayoutShown}
                       active={
                         currentPeopleScope && currentVaultScope && !filtersExpanded && !selecting
                       }

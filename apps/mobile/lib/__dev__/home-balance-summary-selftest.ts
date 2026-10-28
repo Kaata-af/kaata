@@ -58,7 +58,7 @@ type SummaryProps = {
   people: readonly PersonWithBalance[];
   balances?: readonly Balance[];
   currency?: string;
-  compact?: boolean;
+  searchOpen?: boolean;
   active?: boolean;
 };
 function fixture(
@@ -69,6 +69,7 @@ function fixture(
   platform = "ios",
 ) {
   language.setLocale(locale);
+  const screenHeight = height;
   const hooks = uiHooks();
   let focused = true;
   let props: SummaryProps = { people: [] };
@@ -120,6 +121,7 @@ function fixture(
             subscribe(accessibility, event, callback),
         },
         StyleSheet: { create: (v: any) => v },
+        Dimensions: { get: () => ({ width, height: screenHeight }) },
         useWindowDimensions: () => ({ width, fontScale, height }),
       },
       "@expo/vector-icons": { Ionicons: "Icon" },
@@ -206,6 +208,10 @@ function fixture(
       width = value;
       render();
     },
+    setWindowHeight: (value: number) => {
+      height = value;
+      render();
+    },
     emitAccessibility: (event: string, value: boolean) => {
       for (const callback of accessibility.get(event) ?? []) callback(value);
       render();
@@ -225,13 +231,13 @@ const balances = [
 ];
 async function main() {
   for (const locale of ["en", "fa", "ps"] as const) {
-    for (const compact of [false, true]) {
+    for (const searchOpen of [false, true]) {
       const current = fixture(locale);
       const root = current.render({
         people: [],
         balances,
         currency: "AFN",
-        compact,
+        searchOpen,
       }) as UINode;
       assert.equal(style(root).direction, "ltr");
       assert.ok(
@@ -242,11 +248,7 @@ async function main() {
         ),
         "collect/pay positions stay physical LTR on every page",
       );
-      assert.equal(
-        style(root).marginBottom,
-        compact ? 8 : 16,
-        "cards retain their normal and keyboard spacing",
-      );
+      assert.equal(style(root).marginBottom, 16, "search keeps the normal card spacing");
       const pages = children(current.scroll());
       const cards = pages.flatMap(balanceCells);
       assert.equal(cards.length, 4);
@@ -321,8 +323,8 @@ async function main() {
       assert.equal(style(current.scroll()).direction, "ltr");
       assert.equal(
         style(current.scroll()).height,
-        compact ? 104 : 132,
-        "more currencies never increase the sticky header height",
+        132,
+        "search does not shrink the cards as currencies change",
       );
       current.measure();
       assert.equal(
@@ -350,7 +352,7 @@ async function main() {
         "the light board has no edge-fade overlay",
       );
       await current.ready();
-      assert.equal(current.timers.size, compact ? 0 : 1);
+      assert.equal(current.timers.size, searchOpen ? 0 : 1);
       current.hooks.unmount();
     }
   }
@@ -403,7 +405,7 @@ async function main() {
     const current = fixture("fa", 320, 1.8, 568);
     const root = current.render({
       people: [],
-      compact: true,
+      searchOpen: true,
       balances: [{ currency: "USD", collect: 123456789.01, pay: 8.76, pending: false }],
     }) as UINode;
     assert.equal(
@@ -411,7 +413,11 @@ async function main() {
       "row",
       "collect/pay positions stay LTR on small screens",
     );
-    assert.equal(style(current.scroll()).height, 86, "one currency omits the header's height");
+    assert.equal(
+      style(current.scroll()).height,
+      112,
+      "search preserves the single-currency card height",
+    );
     const numbers = nodes(root).filter((node) => node.props.minimumFontScale !== undefined);
     assert.equal(numbers.length, 2);
     assert.equal(
@@ -522,10 +528,10 @@ async function main() {
   const largestExactTotal = fromMinorUnits(Number.MAX_SAFE_INTEGER - 1);
   const largestExactText = "90,071,992,547,409.90";
   assert.equal(formatMoneyAmount(largestExactTotal), largestExactText);
-  for (const compact of [false, true]) {
+  for (const searchOpen of [false, true]) {
     const current = fixture("fa", 320, 1.8);
     current.render({
-      compact,
+      searchOpen,
       balances: [
         { currency: "USD", collect: largestExactTotal, pay: largestExactTotal, pending: false },
       ],
@@ -550,7 +556,7 @@ async function main() {
         (style(page).width - style(page).borderWidth * 2) / 2 -
         card.paddingHorizontal * 2 -
         (card.borderLeftWidth ?? 0) -
-        (compact ? 12 : 14) * 0.8 * 1.2 -
+        14 * 0.8 * 1.2 -
         6;
       const cappedFontScale = Math.min(1.8, amount.props.maxFontSizeMultiplier);
       const monoEstimate = text(amount).length * style(amount).fontSize * 0.65 * cappedFontScale;
@@ -688,8 +694,8 @@ async function main() {
     current.render({ active: true });
     current.setFocused(false);
     current.setFocused(true);
-    current.render({ compact: true });
-    current.render({ compact: false });
+    current.render({ searchOpen: true });
+    current.render({ searchOpen: false });
     assert.equal(
       current.timers.size,
       0,
@@ -713,8 +719,20 @@ async function main() {
     const obsolete = [...current.timers.values()][0];
     const change = (paused: boolean) => {
       if (pause === "inactive") current.render({ active: !paused });
-      else if (pause === "keyboard") current.render({ compact: paused });
-      else if (pause === "route") current.setFocused(!paused);
+      else if (pause === "keyboard") {
+        current.setWindowHeight(paused ? 300 : 844);
+        current.render({ searchOpen: paused });
+        assert.equal(
+          style(current.scroll()).height,
+          132,
+          "Android IME window resize keeps card height stable",
+        );
+        assert.equal(
+          style(current.hooks.tree).marginBottom,
+          16,
+          "keyboard opening preserves summary spacing",
+        );
+      } else if (pause === "route") current.setFocused(!paused);
       else if (pause === "background") current.emitApp("change", paused ? "background" : "active");
       else if (pause === "androidBlur") current.emitApp(paused ? "blur" : "focus");
       else if (pause === "reader") current.emitAccessibility("screenReaderChanged", paused);
@@ -881,7 +899,7 @@ async function main() {
     );
   }
   console.log(
-    "PASS home balances: all currency pairs reachable, exact independent amounts, EN/FA/PS LTR, bounded compact layout, adjacent/reversing auto movement, permanent manual stop, keyboard/route/AppState/accessibility pauses and stale-work cleanup; customer-row currencies preserved",
+    "PASS home balances: all currency pairs reachable, exact independent amounts, EN/FA/PS LTR, stable keyboard layout, adjacent/reversing auto movement, permanent manual stop, keyboard/route/AppState/accessibility pauses and stale-work cleanup; customer-row currencies preserved",
   );
 }
 void main();

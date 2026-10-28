@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   AccessibilityInfo,
   AppState,
+  Dimensions,
   Platform,
   ScrollView,
   StyleSheet,
@@ -63,19 +64,21 @@ export function HomeBalanceSummary({
   people,
   balances,
   currency = getCurrentCurrencyCode(),
-  compact = false,
+  searchOpen = false,
   active = true,
 }: {
   people: readonly PersonWithBalance[];
   balances?: readonly HomeCurrencyBalance[];
   currency?: string;
-  compact?: boolean;
+  searchOpen?: boolean;
   active?: boolean;
 }) {
   const isRTL = useIsRTL();
   const focused = useIsFocused();
-  const { height, width, fontScale = 1 } = useWindowDimensions();
-  const small = compact || height < 500;
+  const { width, fontScale = 1 } = useWindowDimensions();
+  // Android can resize the window for the IME. Only the physical screen size
+  // selects the small-screen layout, so opening search never shrinks the cards.
+  const small = Dimensions.get("screen").height < 500;
   const rows = visibleCurrencyBalances(balances ?? currencyBalances(people, currency), currency);
   const codes = JSON.stringify(rows.map((row) => row.currency));
   const scroll = useRef<ScrollViewInstance | null>(null);
@@ -152,6 +155,7 @@ export function HomeBalanceSummary({
     appState === "active" &&
     windowFocused &&
     !small &&
+    !searchOpen &&
     !screenReader &&
     !reducedMotion &&
     !manuallyStopped &&
