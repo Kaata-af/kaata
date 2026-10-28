@@ -39,6 +39,7 @@ func (h *Handler) SetAuthenticator(a *SessionAuthenticator) {
 
 type googleSignInRequest struct {
 	InstallID                string                    `json:"install_id"`
+	Platform                 string                    `json:"platform,omitempty"`
 	IDToken                  string                    `json:"id_token"`
 	PendingVaultRegistration *PendingVaultRegistration `json:"pending_vault_registration,omitempty"`
 	// The account this phone holds data for, and whether the user already
@@ -78,7 +79,7 @@ func (h *Handler) GoogleSignIn(w http.ResponseWriter, r *http.Request) {
 	}
 
 	result, err := h.svc.SignInWithGoogle(r.Context(), req.InstallID, req.IDToken, req.PendingVaultRegistration,
-		SwitchOptions{CurrentAccountID: req.CurrentAccountID, AllowSwitch: req.AllowSwitch})
+		SwitchOptions{CurrentAccountID: req.CurrentAccountID, AllowSwitch: req.AllowSwitch, Platform: req.Platform})
 	if err != nil {
 		if writeSignInRefusal(w, err) {
 			return

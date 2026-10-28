@@ -23,6 +23,9 @@ const ProviderEmail = "email"
 type SwitchOptions struct {
 	CurrentAccountID string
 	AllowSwitch      bool
+	// Platform is an analytics hint. Only web is recognized here; a sign-in
+	// must never relabel an existing phone or rely on this for authorization.
+	Platform string
 }
 
 // DifferentAccountError: the sign-in resolved another account than the one
@@ -141,6 +144,12 @@ func (s *Service) completeSignIn(ctx context.Context, tx pgx.Tx, t signInTail) (
 	}
 	if err := ensureSignInInstall(ctx, tx, t.installID, t.accountID); err != nil {
 		return GoogleSignInResult{}, tailAccount{}, err
+	}
+	if t.sw.Platform == "web" {
+		if _, err := tx.Exec(ctx, `UPDATE installs SET platform = 'web', app_version = 'web'
+			WHERE install_id = $1 AND platform = 'unknown'`, t.installID); err != nil {
+			return GoogleSignInResult{}, tailAccount{}, fmt.Errorf("mark browser install: %w", err)
+		}
 	}
 	if current := strings.TrimSpace(t.sw.CurrentAccountID); current != "" && !t.sw.AllowSwitch &&
 		!strings.EqualFold(current, t.accountID) && !containsFold(t.sameAs, current) {

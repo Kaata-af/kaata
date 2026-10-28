@@ -16,8 +16,10 @@ WORKDIR /app/apps/web
 # Vite embeds these into the bundle at build time; changing them requires
 # a rebuild.
 ARG VITE_BACKEND_URL=https://api.kaata.af
+ARG VITE_GOOGLE_WEB_CLIENT_ID
 ARG VITE_WHATSAPP_CONTACT_URL=https://wa.me/93781696644
 ENV VITE_BACKEND_URL=$VITE_BACKEND_URL
+ENV VITE_GOOGLE_WEB_CLIENT_ID=$VITE_GOOGLE_WEB_CLIENT_ID
 ENV VITE_WHATSAPP_CONTACT_URL=$VITE_WHATSAPP_CONTACT_URL
 
 COPY apps/web/package.json apps/web/bun.lock ./

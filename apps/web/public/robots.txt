@@ -5,6 +5,7 @@ Disallow: /v/
 Disallow: /v2/
 Disallow: /v3/
 Disallow: /t/
+Disallow: /app
 
 # Share-preview crawlers may fetch bills without opening invitations or tabs.
 # Bill responses separately declare noindex/nofollow; search rules above stay closed.
@@ -16,5 +17,6 @@ Allow: /v2/
 Allow: /v3/
 Disallow: /i/
 Disallow: /t/
+Disallow: /app
 
 Sitemap: https://kaata.af/sitemap.xml

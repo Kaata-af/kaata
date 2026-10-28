@@ -14,6 +14,7 @@ import { Terms } from "./pages/Terms";
 // Lazy + code-split: the admin dashboard pulls in recharts, which must NOT ship
 // in the public marketing bundle. Only loaded when an admin route is hit.
 const Admin = lazy(() => import("./pages/Admin"));
+const Workspace = lazy(() => import("./pages/workspace/Workspace"));
 const AdminFallback = <div className="p-6 text-sm text-neutral-400">Loading dashboard…</div>;
 
 // The operator dashboard lives ONLY on its own subdomain (admin.kaata.af):
@@ -30,7 +31,7 @@ export function App() {
   useEffect(() => {
     // Don't fire the public visit beacon on the admin host — that's operator
     // traffic and would pollute the very analytics the dashboard reports.
-    if (IS_ADMIN_HOST) return;
+    if (IS_ADMIN_HOST || /^\/app(?:\/|$)/.test(window.location.pathname)) return;
     // Stash the source from ?s= into localStorage before firing the beacon
     // so the recorded visit carries it even if a later page in this session
     // doesn't include the query param.
@@ -53,6 +54,20 @@ export function App() {
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/download" element={<Download />} />
+          <Route
+            path="/app/*"
+            element={
+              <Suspense
+                fallback={
+                  <div className="p-8 text-sm text-neutral-500" role="status">
+                    Kaata…
+                  </div>
+                }
+              >
+                <Workspace />
+              </Suspense>
+            }
+          />
           <Route path="/privacy" element={<Privacy />} />
           <Route path="/terms" element={<Terms />} />
           <Route path="/delete-account" element={<DeleteAccount />} />

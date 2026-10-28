@@ -6,7 +6,7 @@ This monorepo contains:
 
 - **`apps/mobile/`** — Expo React Native app. The shopkeeper's tool. v0 ledger is fully offline (SQLite); a single non-blocking phone-home on launch checks for updates and announcements.
 - **`apps/backend/`** — Go API server. Single endpoint in v0: `POST /v1/check-in`. Records anonymous installs and serves update + announcement metadata.
-- **`apps/web/`** — Vite + React SPA. Landing page, official store download page, and `/v/:token` customer-facing kaata view (stub). Single static bundle, no Node runtime at deploy.
+- **`apps/web/`** — Vite + React SPA. Landing/store pages, customer bills, admin dashboard, and the signed-in `/app` ledger workspace for desktop browsers. Static deployment; see [web workspace](docs/web-workspace.md) for scope, setup and checks.
 - **`docs/`** — Operations manual (store delivery, announcements, version comparison, force-update compatibility).
 
 ## Quickstart
@@ -85,4 +85,4 @@ See [docs/architecture.md](docs/architecture.md) for the full operations manual:
 
 ## Status
 
-v1 — local-first bidirectional ledger ("To collect" / "To pay" tabs derived from a signed net balance per person) + minimal backend phone-home. Customer-view web page, sync, and analytics are deferred to v2.
+The mobile app is local-first with signed cloud sync. The first web workspace provides account sign-in, kaatas, people, private entries and balances through the same backend. Reminders, shared-account actions and offline browser editing remain on mobile; see [web workspace](docs/web-workspace.md).

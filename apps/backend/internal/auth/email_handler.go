@@ -27,6 +27,7 @@ type emailStartRequest struct {
 
 type emailSignUpVerifyRequest struct {
 	InstallID        string `json:"install_id"`
+	Platform         string `json:"platform,omitempty"`
 	Email            string `json:"email"`
 	Code             string `json:"code"`
 	Password         string `json:"password"`
@@ -37,6 +38,7 @@ type emailSignUpVerifyRequest struct {
 
 type emailSignInRequest struct {
 	InstallID        string `json:"install_id"`
+	Platform         string `json:"platform,omitempty"`
 	Identifier       string `json:"identifier"`
 	Password         string `json:"password"`
 	CurrentAccountID string `json:"current_account_id,omitempty"`
@@ -45,6 +47,7 @@ type emailSignInRequest struct {
 
 type emailResetVerifyRequest struct {
 	InstallID        string `json:"install_id"`
+	Platform         string `json:"platform,omitempty"`
 	Email            string `json:"email"`
 	Code             string `json:"code"`
 	NewPassword      string `json:"new_password"`
@@ -189,7 +192,7 @@ func (h *Handler) EmailSignUpVerify(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	result, err := h.svc.EmailSignUpVerify(r.Context(), req.InstallID, req.Email, req.Code, req.Password,
-		SwitchOptions{CurrentAccountID: req.CurrentAccountID, AllowSwitch: req.AllowSwitch})
+		SwitchOptions{CurrentAccountID: req.CurrentAccountID, AllowSwitch: req.AllowSwitch, Platform: req.Platform})
 	if err != nil {
 		writeEmailError(w, "auth/email/signup/verify", req.InstallID, err)
 		return
@@ -204,7 +207,7 @@ func (h *Handler) EmailSignIn(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	result, err := h.svc.EmailSignIn(r.Context(), req.InstallID, req.Identifier, req.Password,
-		SwitchOptions{CurrentAccountID: req.CurrentAccountID, AllowSwitch: req.AllowSwitch})
+		SwitchOptions{CurrentAccountID: req.CurrentAccountID, AllowSwitch: req.AllowSwitch, Platform: req.Platform})
 	if err != nil {
 		writeEmailError(w, "auth/email/signin", req.InstallID, err)
 		return
@@ -232,7 +235,7 @@ func (h *Handler) EmailResetVerify(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	result, err := h.svc.EmailResetVerify(r.Context(), req.InstallID, req.Email, req.Code, req.NewPassword, req.Lang,
-		SwitchOptions{CurrentAccountID: req.CurrentAccountID, AllowSwitch: req.AllowSwitch})
+		SwitchOptions{CurrentAccountID: req.CurrentAccountID, AllowSwitch: req.AllowSwitch, Platform: req.Platform})
 	if err != nil {
 		writeEmailError(w, "auth/email/reset/verify", req.InstallID, err)
 		return

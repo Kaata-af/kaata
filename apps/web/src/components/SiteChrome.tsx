@@ -80,7 +80,9 @@ export function SiteHeader() {
           </select>
 
           <Button asChild size="sm" className="text-[13px]">
-            <Link to="/download">{t("nav.getApp")}</Link>
+            <Link reloadDocument to="/app">
+              {lang === "fa" ? "کاتای وب" : lang === "ps" ? "کاتا وېب" : "Open Kaata"}
+            </Link>
           </Button>
         </div>
       </div>

@@ -78,6 +78,33 @@ test("ordinary routes retain their query and similar names do not match token pr
   }
 });
 
+test("private workspace paths and query parameters never reach marketing analytics", async () => {
+  const app = fixture("/app/private-customer", "?email=private@example.test");
+  app.exports.fireVisitOnce();
+  assert.equal((await app.beacons[0]).path, "/app");
+});
+
+test("workspace documents have private headers and Google permissions do not expand public pages", () => {
+  const config = readFileSync(new URL("../Caddyfile", import.meta.url), "utf8");
+  const workspaceStart = config.indexOf("\t@workspace {");
+  const workspaceEnd = config.indexOf("\n\t# Public, versioned preview", workspaceStart);
+  const publicStart = config.indexOf("\n\t# Everything else:");
+  const publicEnd = config.indexOf("\n\t# Backend unreachable", publicStart);
+  assert.ok(workspaceStart > 0 && workspaceEnd > workspaceStart && publicStart > workspaceEnd);
+  const workspace = config.slice(workspaceStart, workspaceEnd);
+  const publicRoutes = config.slice(publicStart, publicEnd);
+  assert.match(workspace, /@workspace \{\s+path \/app \/app\/\*\s+not host admin\.kaata\.af\s+\}/);
+  assert.match(workspace, /handle @workspace \{/);
+  assert.match(workspace, /try_files \{path\} \/index\.html/);
+  assert.match(workspace, /Cache-Control "no-store"/);
+  assert.match(workspace, /X-Robots-Tag "noindex, nofollow"/);
+  assert.match(workspace, /Referrer-Policy "no-referrer"/);
+  assert.match(workspace, /script-src 'self' https:\/\/accounts\.google\.com\/gsi\/client;/);
+  assert.ok(publicRoutes.includes("script-src 'self';"));
+  assert.ok(publicRoutes.includes("frame-src 'none';"));
+  assert.ok(!publicRoutes.includes("accounts.google.com"));
+});
+
 function robotsGroups() {
   const groups = [];
   let current;

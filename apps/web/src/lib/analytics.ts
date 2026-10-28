@@ -99,6 +99,7 @@ export function getSource(): string {
 // when Caddy's handle_errors falls back to the SPA shell — still a leak then.)
 function safeVisitPath(): string {
   const p = window.location.pathname;
+  if (/^\/app(?:\/|$)/.test(p)) return "/app";
   const m = p.match(/^\/(i|v|v2|v3|t)\/.+/);
   if (m) return `/${m[1]}/:token`;
   return p + window.location.search;

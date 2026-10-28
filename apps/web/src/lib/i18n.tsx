@@ -490,7 +490,9 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     document.documentElement.lang = lang;
     document.documentElement.dir = isRtlLanguage(lang) ? "rtl" : "ltr";
-    document.title = PAGE_TITLES[lang];
+    document.title = /^\/app(?:\/|$)/.test(window.location?.pathname ?? "")
+      ? { en: "Kaata · Your workspace", fa: "کاتا · کاتای وب", ps: "کاتا · د وېب کاتا" }[lang]
+      : PAGE_TITLES[lang];
     // Social previews intentionally keep the Persian copy/image in index.html.
     // Page title and search description still follow the visitor's UI language.
     document

@@ -11,6 +11,10 @@ function envOr(value: string | undefined, fallback: string): string {
 
 export const BACKEND_URL: string = envOr(import.meta.env.VITE_BACKEND_URL, "http://localhost:8080");
 
+// Public OAuth client ID, never a client secret. The corresponding Google
+// Cloud web client must authorize this site's exact origin.
+export const GOOGLE_WEB_CLIENT_ID = import.meta.env.VITE_GOOGLE_WEB_CLIENT_ID?.trim() ?? "";
+
 export const WHATSAPP_CONTACT_URL: string = envOr(
   import.meta.env.VITE_WHATSAPP_CONTACT_URL,
   "https://wa.me/93781696644",

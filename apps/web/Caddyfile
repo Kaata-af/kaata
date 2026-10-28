@@ -37,6 +37,27 @@
 		}
 	}
 
+	# The signed-in workspace needs Google Identity Services only when its public
+	# client ID is configured. Keep that capability scoped to /app documents;
+	# links into the workspace must make a full document navigation to receive it.
+	# A dedicated handle keeps these headers in force after try_files rewrites
+	# nested client-side routes to index.html.
+	@workspace {
+		path /app /app/*
+		not host admin.kaata.af
+	}
+	handle @workspace {
+		root * /srv
+		try_files {path} /index.html
+		file_server
+		header {
+			Cache-Control "no-store"
+			X-Robots-Tag "noindex, nofollow"
+			Referrer-Policy "no-referrer"
+			Content-Security-Policy "default-src 'self'; script-src 'self' https://accounts.google.com/gsi/client; style-src 'self' 'unsafe-inline' https://accounts.google.com/gsi/style; img-src 'self' data:; font-src 'self'; connect-src 'self' https://api.kaata.af wss://api.kaata.af https://accounts.google.com/gsi/; frame-src https://accounts.google.com/gsi/; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+		}
+	}
+
 	# Public, versioned preview PNGs must never fall through to the SPA shell.
 	# Bump the filename when changing an image so long-lived crawler caches refresh.
 	handle /og/* {
