@@ -614,6 +614,7 @@ const componentMocks: Record<string, any> = {
   NotificationInbox: { NotificationBell: "Bell" },
   PersonRow: { PersonRow: "PersonRow" },
   HomeBalanceSummary: { HomeBalanceSummary: "HomeBalanceSummary" },
+  HomeBalanceFilterSwipe: { HomeBalanceFilterSwipe: "HomeBalanceFilterSwipe" },
   HomeFilterPopover: { HomeFilterPopover: "HomeFilterPopover" },
   SelectionToolbar: { SelectionToolbar: "SelectionToolbar", SelectionMark: "SelectionMark" },
   SelectionMark: { SelectionMark: "SelectionMark" },
@@ -1332,6 +1333,203 @@ async function main() {
     assert.equal(homeOptions().props.preference.currency, undefined);
     assert.deepEqual(homeIds().sort(), [a.id, b.id]);
     assert.equal(homeInput().props.value, "");
+  }
+
+  for (const nextPlatform of ["android", "ios"])
+    for (const nextRtl of [false, true]) {
+      fixture(home, "owner", nextRtl, nextPlatform);
+      enabledCurrencies = ["AFN", "USD"];
+      const amountRow = (
+        id: string,
+        name: string,
+        currency: string,
+        balance: number,
+      ): FixturePerson => ({ ...people[0], id, name, currency, balance });
+      const mixed = amountRow("card-mixed", "Card Alfa", "AFN", 100);
+      const collecting = amountRow("card-collect", "Card Bravo", "AFN", 40);
+      const paying = amountRow("card-pay", "Card Charlie", "AFN", -70);
+      const neutral = amountRow("card-neutral", "Card Neutral", "AFN", 0);
+      peopleByVault.set("kaata", [
+        { ...mixed, currency_balances: [mixed, amountRow(mixed.id, mixed.name, "USD", -20)] },
+        {
+          ...collecting,
+          currency_balances: [collecting, amountRow(collecting.id, collecting.name, "USD", 10)],
+        },
+        { ...paying, currency_balances: [paying, amountRow(paying.id, paying.name, "USD", -5)] },
+        neutral,
+      ]);
+      groupState = {
+        groups: [{ id: "card-members", name: "Card members", member_count: 3 }],
+        groupsByPerson: {
+          [mixed.id]: ["card-members"],
+          [collecting.id]: ["card-members"],
+          [paying.id]: ["card-members"],
+        },
+      };
+      await flush();
+      const summary = () => find("HomeBalanceSummary")!.props;
+      const swipe = () => find("HomeBalanceFilterSwipe")!.props;
+      const cards = summary().balances;
+      const firstCardChange = summary().onDirectionChange;
+      const firstSwipeChange = swipe().onDirectionChange;
+      const allIds = [mixed.id, collecting.id, paying.id, neutral.id].sort();
+      assert.equal(summary().direction, "all");
+      assert.equal(summary().interactionEnabled, true);
+      assert.equal(swipe().enabled, true);
+      assert.deepEqual(homeIds().sort(), allIds);
+      summary().onDirectionChange("collect");
+      await flush();
+      assert.equal(summary().direction, "collect");
+      assert.equal(swipe().direction, "collect");
+      assert.deepEqual(homeIds().sort(), [mixed.id, collecting.id].sort());
+      assert.equal(
+        JSON.parse(homePreferenceMeta.get("customer_home:local:kaata")!).direction,
+        "collect",
+        "card selection uses the existing persisted direction preference",
+      );
+      summary().onDirectionChange("pay");
+      await flush();
+      assert.deepEqual(homeIds().sort(), [mixed.id, paying.id].sort());
+      assert.equal(
+        homeIds().filter((id) => id === mixed.id).length,
+        1,
+        "a contact owing different currencies in both directions appears once on either side",
+      );
+      summary().onDirectionChange("all");
+      await flush();
+      assert.deepEqual(
+        homeIds().sort(),
+        allIds,
+        "toggling the active card off restores both sides",
+      );
+      swipe().onDirectionChange("pay");
+      await flush();
+      assert.equal(summary().direction, "pay", "list swiping controls the same card selection");
+      assert.deepEqual(homeIds().sort(), [mixed.id, paying.id].sort());
+      swipe().onDirectionChange("all");
+      await flush();
+      assert.deepEqual(homeIds().sort(), allIds);
+      assert.deepEqual(summary().balances, cards, "direction controls keep the whole-book totals");
+      assert.equal(
+        JSON.parse(homePreferenceMeta.get("customer_home:local:kaata")!).currency,
+        undefined,
+        "tapping a currency card does not silently constrain the list to that currency",
+      );
+
+      homeOptions().props.onChange({
+        sort: "name_desc",
+        group: ["card-members"],
+        direction: "all",
+        currency: "USD",
+      });
+      await flush();
+      find("HomeFilterPopover")!.props.onDismiss();
+      keyboardEvent(nextPlatform === "ios" ? "keyboardWillHide" : "keyboardDidHide");
+      keyboardEvent("keyboardDidHide");
+      await flush();
+      await changeHomeQuery("Card");
+      assert.equal(summary().interactionEnabled, true);
+      firstCardChange("collect");
+      await flush();
+      assert.deepEqual(homeIds(), [collecting.id], "card direction respects the chosen currency");
+      const preference = JSON.parse(homePreferenceMeta.get("customer_home:local:kaata")!);
+      assert.equal(preference.currency, "USD");
+      assert.equal(preference.sort, "name_desc");
+      assert.deepEqual(preference.group, ["card-members"]);
+      assert.equal(preference.direction, "collect");
+      assert.equal(homeInput().props.value, "Card");
+      assert.deepEqual(summary().balances, cards);
+      firstSwipeChange("pay");
+      await flush();
+      assert.deepEqual(homeIds(), [paying.id, mixed.id]);
+      swipe().onDirectionChange("all");
+      await flush();
+      assert.deepEqual(homeIds(), [paying.id, collecting.id, mixed.id]);
+      assert.equal(homeInput().props.value, "Card");
+
+      const retainedCardChange = summary().onDirectionChange;
+      const retainedSwipeChange = swipe().onDirectionChange;
+      const saved = homePreferenceMeta.get("customer_home:local:kaata");
+      homeInput().props.onPress();
+      homeInput().props.onFocus();
+      keyboardEvent(nextPlatform === "ios" ? "keyboardWillShow" : "keyboardDidShow");
+      await flush();
+      assert.equal(summary().interactionEnabled, true);
+      assert.equal(swipe().enabled, false);
+      retainedSwipeChange("pay");
+      await flush();
+      assert.equal(summary().direction, "all", "open search blocks retained list swipe controls");
+      assert.equal(homePreferenceMeta.get("customer_home:local:kaata"), saved);
+      const dismissalsBeforeCard = keyboardDismissals;
+      retainedCardChange("pay");
+      await flush();
+      assert.equal(summary().direction, "pay", "card taps remain available during search");
+      assert.ok(
+        keyboardDismissals > dismissalsBeforeCard,
+        "a card tap dismisses search's keyboard",
+      );
+      assert.equal(homeInput().props.value, "Card");
+      keyboardEvent(nextPlatform === "ios" ? "keyboardWillHide" : "keyboardDidHide");
+      keyboardEvent("keyboardDidHide");
+      await flush();
+      summary().onDirectionChange("all");
+      await flush();
+      assert.equal(homePreferenceMeta.get("customer_home:local:kaata"), saved);
+      homeOptions();
+      await flush();
+      assert.equal(find("HomeFilterPopover")!.props.visible, true);
+      retainedCardChange("collect");
+      retainedSwipeChange("collect");
+      await flush();
+      assert.equal(summary().direction, "all", "open filters block retained direction controls");
+      find("HomeFilterPopover")!.props.onDismiss();
+      keyboardEvent(nextPlatform === "ios" ? "keyboardWillHide" : "keyboardDidHide");
+      keyboardEvent("keyboardDidHide");
+      await flush();
+      await openSelection();
+      assert.equal(summary().interactionEnabled, false);
+      assert.equal(swipe().enabled, false);
+      retainedCardChange("pay");
+      retainedSwipeChange("pay");
+      await flush();
+      assert.equal(
+        summary().direction,
+        "all",
+        "contact selection blocks hidden direction controls",
+      );
+      assert.equal(homePreferenceMeta.get("customer_home:local:kaata"), saved);
+      selection()!.props.onClose();
+      await flush();
+      assert.equal(summary().interactionEnabled, true);
+      assert.equal(swipe().enabled, true);
+      byLabel("menu.title.vaultSwitcher")!.props.onPress();
+      await flush();
+      assert.equal(find("VaultPicker")!.props.visible, true);
+      assert.equal(summary().interactionEnabled, false);
+      retainedCardChange("pay");
+      retainedSwipeChange("pay");
+      await flush();
+      assert.equal(summary().direction, "all", "the Kaata switcher blocks background controls");
+      assert.equal(homePreferenceMeta.get("customer_home:local:kaata"), saved);
+      assert.equal(routes.length, 0);
+      assert.equal(writes.length, 0, "balance filtering never mutates ledger data");
+    }
+
+  for (const nextRole of ["viewer", "editor", "clerk"] as const) {
+    fixture(home, nextRole);
+    await flush();
+    assert.equal(
+      find("HomeBalanceSummary")!.props.interactionEnabled,
+      true,
+      "read-only and restricted roles can filter their visible customer balances",
+    );
+    find("HomeBalanceSummary")!.props.onDirectionChange("collect");
+    await flush();
+    assert.deepEqual(homeIds(), ["ahmad"]);
+    find("HomeBalanceFilterSwipe")!.props.onDirectionChange("all");
+    await flush();
+    assert.deepEqual(homeIds(), ["ahmad", "fatima"]);
+    assert.equal(writes.length, 0);
   }
 
   const activityNow = 1_720_000_000_000;
@@ -2300,8 +2498,14 @@ async function main() {
     const focusSearch = homeInput().props.onFocus;
     const pressSearch = homeInput().props.onPress;
     const blurSearch = homeInput().props.onBlur;
+    const directionChange = find("HomeBalanceSummary")!.props.onDirectionChange;
+    const swipeDirectionChange = find("HomeBalanceFilterSwipe")!.props.onDirectionChange;
     const retainedKeyboardCallbacks = [...keyboardListeners].map((listener) => listener.fn);
     const preference = homeOptions().props.onChange;
+    find("HomeFilterPopover")!.props.onDismiss();
+    keyboardEvent(platform === "ios" ? "keyboardWillHide" : "keyboardDidHide");
+    keyboardEvent("keyboardDidHide");
+    await flush();
     if (invalidation === "vault") vaultId = "replacement";
     if (invalidation === "account") cachedAccountId = "replacement";
     if (invalidation === "blur") {
@@ -2318,6 +2522,8 @@ async function main() {
     focusSearch();
     pressSearch();
     blurSearch();
+    directionChange("collect");
+    swipeDirectionChange("pay");
     const layoutsBeforeStaleKeyboard = scheduledKeyboardLayouts.length;
     for (const callback of retainedKeyboardCallbacks)
       callback({

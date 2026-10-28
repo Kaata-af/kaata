@@ -3,6 +3,7 @@ import { colors } from "../colors";
 import { formatMoneyAmount, fromMinorUnits } from "../money";
 import { currencyBalances, personCurrencyRows } from "../multi-currency-view";
 import type { PersonWithBalance } from "../types";
+import type { CustomerBalanceFilter } from "../customer-list";
 import {
   compileUI,
   deferred,
@@ -33,6 +34,12 @@ const byId = (root: UINode, id: string) => nodes(root).find((node) => node.props
 const isBalanceCell = (node: UINode) =>
   /^home-balance-(collect|pay)-/.test(node.props.testID ?? "");
 const balanceCells = (page: UINode) => nodes(page).filter(isBalanceCell);
+const navigation = (root: UINode) => byId(root, "home-balance-currency-navigation");
+const summaryLabel = (root: UINode): string =>
+  navigation(root)?.props.accessibilityLabel ??
+  balanceCells(root)
+    .map((node) => node.props.accessibilityLabel)
+    .join(", ");
 const quoteRow = (page: UINode) =>
   nodes(page).find((node) => children(node).filter(isBalanceCell).length === 2)!;
 const currencySymbols: Record<string, string> = { AFN: "؋", USD: "$", EUR: "€" };
@@ -60,6 +67,9 @@ type SummaryProps = {
   currency?: string;
   searchOpen?: boolean;
   active?: boolean;
+  direction?: CustomerBalanceFilter;
+  onDirectionChange?: (direction: CustomerBalanceFilter) => void;
+  interactionEnabled?: boolean;
 };
 function fixture(
   locale: "en" | "fa" | "ps",
@@ -80,6 +90,7 @@ function fixture(
   const calls: { x: number; animated?: boolean }[] = [];
   const timers = new Map<number, { ms: number; run: () => void }>();
   const timerHistory: { ms: number; run: () => void }[] = [];
+  const animations: { value: number; config: { duration: number } }[] = [];
   let nextTimer = 0;
   const subscribe = <T>(
     map: Map<string, Set<(value: T) => void>>,
@@ -108,6 +119,7 @@ function fixture(
         View: "View",
         Text: "Text",
         ScrollView: "ScrollView",
+        Pressable: "Pressable",
         Platform: { OS: platform },
         AppState: {
           currentState: "active",
@@ -123,6 +135,20 @@ function fixture(
         StyleSheet: { create: (v: any) => v },
         Dimensions: { get: () => ({ width, height: screenHeight }) },
         useWindowDimensions: () => ({ width, fontScale, height }),
+      },
+      "react-native-reanimated": {
+        __esModule: true,
+        default: { createAnimatedComponent: () => "AnimatedPressable" },
+        useSharedValue: (value: number) => hooks.react.useRef({ value }).current,
+        useAnimatedStyle: (updater: () => { width: number }) => ({
+          get width() {
+            return updater().width;
+          },
+        }),
+        withTiming: (value: number, config: { duration: number }) => {
+          animations.push({ value, config });
+          return value;
+        },
       },
       "@expo/vector-icons": { Ionicons: "Icon" },
       "../lib/colors": { colors },
@@ -195,6 +221,7 @@ function fixture(
     calls,
     timers,
     timerHistory,
+    animations,
     ready: async (reader = false, motion = false) => {
       readerQuery.resolve(reader);
       motionQuery.resolve(motion);
@@ -230,6 +257,130 @@ const balances = [
   { currency: "EUR", collect: 0, pay: 0, pending: false },
 ];
 async function main() {
+  for (const locale of ["en", "fa", "ps"] as const)
+    for (const platform of ["ios", "android"]) {
+      const current = fixture(locale, 320, 1.8, 568, platform);
+      const changes: CustomerBalanceFilter[] = [];
+      current.render({
+        balances,
+        onDirectionChange: (direction) => changes.push(direction),
+      });
+      await current.ready();
+      current.measure(288);
+      const cells = () => balanceCells(children(current.scroll())[0]);
+      assert.equal(
+        current.hooks.tree.props.accessible,
+        false,
+        "The summary never swallows its buttons",
+      );
+      assert.ok(cells().every((cell) => cell.props.accessibilityRole === "button"));
+      assert.equal(style(cells()[0]).width, style(cells()[1]).width);
+      assert.equal(
+        current.animations.length,
+        0,
+        "Initial accessibility queries do not animate a stable pair",
+      );
+      cells()[0].props.onPress();
+      current.render();
+      assert.deepEqual(changes, ["collect"]);
+      assert.equal(current.timers.size, 0, "Tapping a balance permanently stops currency autoplay");
+      assert.ok(
+        text(cells()[1]).includes("100"),
+        "Controlled cards wait for the parent filter to change",
+      );
+      current.render({ direction: "collect" });
+      const [expanded, compact] = cells();
+      assert.ok(style(expanded).width > style(compact).width);
+      assert.equal(
+        style(expanded).width + style(compact).width,
+        286,
+        "Animated cells fill exactly the bordered viewport",
+      );
+      assert.equal(expanded.props.accessibilityState.selected, true);
+      assert.equal(compact.props.accessibilityState.selected, false);
+      assert.ok(text(expanded).includes("100"));
+      assert.ok(
+        !text(compact).includes("100"),
+        "The opposite side shrinks to a labeled button without an amount",
+      );
+      assert.ok(text(compact).includes(language.t("home.total.label.pay")));
+      assert.ok(
+        compact.props.accessibilityLabel.includes("100"),
+        "The opposite total remains available to screen readers",
+      );
+      assert.equal(current.animations.at(-1)?.config.duration, 200);
+      const animationCount = current.animations.length;
+      current.render({ balances: balances.map((row) => ({ ...row, collect: row.collect + 1 })) });
+      current.render({ searchOpen: true });
+      assert.equal(
+        current.animations.length,
+        animationCount,
+        "Amount refreshes and the keyboard do not restart expansion",
+      );
+      expanded.props.onPress();
+      assert.equal(
+        changes.at(-1),
+        "all",
+        "Tapping the selected side clears only the direction filter",
+      );
+      compact.props.onPress();
+      assert.equal(changes.at(-1), "pay", "The compact opposite button switches direction");
+      current.render({ direction: "pay" });
+      assert.ok(style(cells()[1]).width > style(cells()[0]).width);
+      assert.equal(cells()[1].props.accessibilityState.selected, true);
+      assert.ok(!text(cells()[0]).includes("101"));
+      current.emitAccessibility("reduceMotionChanged", true);
+      const beforeReducedMotion = current.animations.length;
+      current.render({ direction: "all" });
+      assert.equal(
+        current.animations.length,
+        beforeReducedMotion,
+        "Reduce Motion applies width changes immediately",
+      );
+      assert.equal(style(cells()[0]).width, style(cells()[1]).width);
+      assert.equal(
+        children(current.scroll())[1].props.importantForAccessibility,
+        "no-hide-descendants",
+      );
+      navigation(current.hooks.tree).props.onAccessibilityAction({
+        nativeEvent: { actionName: "increment" },
+      });
+      current.render();
+      assert.equal(children(current.scroll())[1].props.importantForAccessibility, "auto");
+      assert.equal(
+        children(current.scroll())[0].props.importantForAccessibility,
+        "no-hide-descendants",
+      );
+
+      const retainedPress = cells()[0].props.onPress;
+      const beforeDisabled = changes.length;
+      current.render({ interactionEnabled: false });
+      assert.ok(
+        cells().every((cell) => cell.props.disabled && cell.props.accessibilityState.disabled),
+      );
+      retainedPress();
+      assert.equal(
+        changes.length,
+        beforeDisabled,
+        "A retained press cannot act after the summary is disabled",
+      );
+      current.render({ interactionEnabled: true, active: false });
+      retainedPress();
+      assert.equal(changes.length, beforeDisabled);
+      current.render({ active: true });
+      current.setFocused(false);
+      retainedPress();
+      assert.equal(changes.length, beforeDisabled);
+      current.setFocused(true);
+      current.hooks.unmount();
+      retainedPress();
+      assert.equal(
+        changes.length,
+        beforeDisabled,
+        "Unmounted cards cannot change another screen's filter",
+      );
+      assert.equal(current.hooks.lateWrites, 0);
+    }
   for (const locale of ["en", "fa", "ps"] as const) {
     for (const searchOpen of [false, true]) {
       const current = fixture(locale);
@@ -396,7 +547,7 @@ async function main() {
         assert.equal(style(quoteRow(page)).direction, "ltr");
         assert.equal(current.scroll().props.scrollEnabled, false);
         assert.equal(style(current.scroll()).height, 112);
-        assert.ok(root.props.accessibilityLabel.includes(currency));
+        assert.ok(summaryLabel(root).includes(currency));
       }
       current.hooks.unmount();
     }
@@ -465,8 +616,8 @@ async function main() {
     assert.deepEqual(zeroAmounts.map(text), ["0", "0"]);
     assert.ok(zeroAmounts.every((amount) => style(amount).color === colors.textSubtle));
     assert.equal(byId(empty, "home-balance-currency-USD"), undefined);
-    assert.ok(empty.props.accessibilityLabel.includes("USD"));
-    assert.ok(!empty.props.accessibilityLabel.includes("$"));
+    assert.ok(summaryLabel(empty).includes("USD"));
+    assert.ok(!summaryLabel(empty).includes("$"));
     current.hooks.unmount();
   }
   {
@@ -571,11 +722,11 @@ async function main() {
       );
     }
     assert.equal(
-      root.props.accessibilityLabel.split(largestExactText).length - 1,
+      summaryLabel(root).split(largestExactText).length - 1,
       2,
       "assistive output preserves the entire collect and pay totals",
     );
-    assert.ok(root.props.accessibilityLabel.includes("USD"));
+    assert.ok(summaryLabel(root).includes("USD"));
     current.hooks.unmount();
   }
   const rotatingBalances = [
@@ -583,6 +734,49 @@ async function main() {
     balances[1],
     { currency: "EUR", collect: 7, pay: 3, pending: false },
   ];
+  {
+    const current = fixture("en");
+    current.render({ balances: rotatingBalances, onDirectionChange: () => {} });
+    await current.ready();
+    current.measure();
+    assert.equal(current.timers.size, 1);
+    const stale = [...current.timers.values()][0];
+    current.render({ direction: "collect" });
+    assert.equal(current.timers.size, 0, "A list swipe changing direction stops currency autoplay");
+    current.render({ direction: "all" });
+    assert.equal(current.timers.size, 0, "Clearing the filter does not resume automatic motion");
+    const calls = current.calls.length;
+    stale.run();
+    assert.equal(current.calls.length, calls);
+    current.hooks.unmount();
+  }
+  for (const direction of ["collect", "pay"] as const) {
+    const current = fixture("fa", 320, 1.8);
+    current.render({
+      direction,
+      searchOpen: true,
+      balances: [
+        { currency: "USD", collect: largestExactTotal, pay: largestExactTotal, pending: false },
+      ],
+      onDirectionChange: () => {},
+    });
+    current.measure(288);
+    const page = children(current.scroll())[0];
+    const selected = byId(page, `home-balance-${direction}-USD`);
+    const amount = nodes(selected).find((node) => node.props.minimumFontScale !== undefined)!;
+    assert.equal(text(amount), largestExactText, "Expanded totals retain every digit and cent");
+    const symbol = byId(page, `home-balance-symbol-${direction}-USD`);
+    const availableWidth =
+      style(selected).width -
+      style(selected).paddingHorizontal * 2 -
+      (style(selected).borderLeftWidth ?? 0) -
+      text(symbol).length * 14 * 0.8 * 1.2 -
+      6;
+    const monoEstimate = text(amount).length * style(amount).fontSize * 0.65 * 1.2;
+    assert.ok(monoEstimate * amount.props.minimumFontScale <= availableWidth + 1e-7);
+    assert.equal(style(current.scroll()).height, 112);
+    current.hooks.unmount();
+  }
   for (const height of [844, 400]) {
     const current = fixture("ps", 320, 1.8, height);
     current.render({ balances: rotatingBalances });
@@ -622,7 +816,7 @@ async function main() {
     assert.equal(markerX(), 0);
     const firstMove = current.advance(false);
     assert.equal(
-      current.hooks.tree.props.accessibilityValue.now,
+      navigation(current.hooks.tree).props.accessibilityValue.now,
       1,
       "requesting an animated move does not announce its target early",
     );
@@ -638,7 +832,7 @@ async function main() {
       "the native animation's first old-position frame cannot make the marker jump back",
     );
     current.onScroll(firstMove.x);
-    assert.equal(current.hooks.tree.props.accessibilityValue.now, 2);
+    assert.equal(navigation(current.hooks.tree).props.accessibilityValue.now, 2);
     assert.ok(markerX() > 0, "the marker moves once native scrolling reaches the next page");
     const positions = [firstMove.x, current.advance().x, current.advance().x, current.advance().x];
     assert.deepEqual(
@@ -663,9 +857,12 @@ async function main() {
     const obsolete = [...current.timers.values()][0];
     if (interaction === "touch") current.hooks.tree.props.onTouchStart();
     else if (interaction === "drag") current.scroll().props.onScrollBeginDrag();
-    else if (interaction === "accessibilityTap") current.hooks.tree.props.onAccessibilityTap();
+    else if (interaction === "accessibilityTap")
+      navigation(current.hooks.tree).props.onAccessibilityTap();
     else
-      current.hooks.tree.props.onAccessibilityAction({ nativeEvent: { actionName: interaction } });
+      navigation(current.hooks.tree).props.onAccessibilityAction({
+        nativeEvent: { actionName: interaction },
+      });
     current.render();
     assert.equal(current.timers.size, 0, `${interaction} permanently stops automatic motion`);
     if (interaction === "increment" || interaction === "decrement")
@@ -675,11 +872,11 @@ async function main() {
         "assistive adjustments announce their target immediately without an animation",
       );
     if (interaction === "increment") {
-      assert.equal(current.hooks.tree.props.accessibilityValue.now, 2);
-      assert.ok(current.hooks.tree.props.accessibilityLabel.includes("USD"));
+      assert.equal(navigation(current.hooks.tree).props.accessibilityValue.now, 2);
+      assert.ok(summaryLabel(current.hooks.tree).includes("USD"));
       assert.ok(
-        current.hooks.tree.props.accessibilityLabel.includes("0.30") &&
-          current.hooks.tree.props.accessibilityLabel.includes("9.12"),
+        summaryLabel(current.hooks.tree).includes("0.30") &&
+          summaryLabel(current.hooks.tree).includes("9.12"),
         "assistive navigation announces the complete pair for the selected currency",
       );
     }
@@ -773,15 +970,19 @@ async function main() {
     current.measure();
     await current.ready(true, true);
     assert.equal(current.timers.size, 0);
-    assert.equal(current.hooks.tree.props.accessibilityRole, "adjustable");
+    assert.equal(navigation(current.hooks.tree).props.accessibilityRole, "adjustable");
     assert.deepEqual(
-      current.hooks.tree.props.accessibilityActions.map((action: { name: string }) => action.name),
+      navigation(current.hooks.tree).props.accessibilityActions.map(
+        (action: { name: string }) => action.name,
+      ),
       ["increment", "decrement"],
     );
-    current.hooks.tree.props.onAccessibilityAction({ nativeEvent: { actionName: "increment" } });
+    navigation(current.hooks.tree).props.onAccessibilityAction({
+      nativeEvent: { actionName: "increment" },
+    });
     current.render();
     assert.equal(
-      current.hooks.tree.props.accessibilityValue.now,
+      navigation(current.hooks.tree).props.accessibilityValue.now,
       2,
       "screen-reader users can reach every currency without autoplay",
     );
@@ -900,7 +1101,7 @@ async function main() {
     );
   }
   console.log(
-    "PASS home balances: all currency pairs reachable, exact independent amounts, EN/FA/PS LTR, stable keyboard layout, adjacent/reversing auto movement, permanent manual stop, keyboard/route/AppState/accessibility pauses and stale-work cleanup; customer-row currencies preserved",
+    "PASS home balances: controlled collect/pay toggles and animated expansion, compact opposite buttons, accessible currency navigation, all currency pairs reachable, exact independent amounts, EN/FA/PS LTR, stable keyboard layout, adjacent/reversing auto movement, permanent manual stop, keyboard/route/AppState/accessibility pauses and stale-work cleanup; customer-row currencies preserved",
   );
 }
 void main();

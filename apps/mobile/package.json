@@ -62,6 +62,7 @@
     "selftest:selection-summary": "tsx lib/__dev__/selection-summary-selftest.ts",
     "selftest:home-selection": "tsx lib/__dev__/home-selection-selftest.ts",
     "selftest:home-balance-summary": "tsx lib/__dev__/home-balance-summary-selftest.ts",
+    "selftest:home-balance-filter-swipe": "tsx lib/__dev__/home-balance-filter-swipe-selftest.ts",
     "selftest:home-filter-popover": "tsx lib/__dev__/home-filter-popover-selftest.ts",
     "selftest:profile-settings-sheet": "tsx lib/__dev__/profile-settings-sheet-selftest.ts",
     "selftest:multi-currency": "tsx lib/__dev__/currency-storage-selftest.ts && tsx lib/__dev__/currency-sync-selftest.ts && tsx lib/__dev__/multi-currency-export-selftest.ts && tsx lib/__dev__/pair-currencies-selftest.ts && tsx lib/__dev__/enabled-currencies-selftest.ts && tsx lib/__dev__/currency-all-readmodels-selftest.ts && tsx lib/__dev__/currency-credit-ui-selftest.ts",

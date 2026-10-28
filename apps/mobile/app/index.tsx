@@ -29,6 +29,7 @@ import { InitialAvatar } from "../components/InitialAvatar";
 import { NotificationBell } from "../components/NotificationInbox";
 import { PersonRow } from "../components/PersonRow";
 import { HomeBalanceSummary } from "../components/HomeBalanceSummary";
+import { HomeBalanceFilterSwipe } from "../components/HomeBalanceFilterSwipe";
 import {
   HomeFilterPopover,
   type FilterAnchor,
@@ -87,6 +88,7 @@ import {
   selectSearchCustomers,
   selectedCustomerGroupIds,
   selectedCustomerCurrencyCodes,
+  type CustomerBalanceFilter,
   type CustomerListPreference,
 } from "../lib/customer-list";
 import {
@@ -1071,6 +1073,62 @@ export default function HomeScreen() {
     filtersExpanded,
   };
 
+  const directionContextKey = JSON.stringify([
+    activeAccountId,
+    activeVaultId,
+    selectedCurrency,
+    homeRequest,
+  ]);
+  const directionControlsEnabled =
+    currentPeopleScope &&
+    currentVaultScope &&
+    !selecting &&
+    !selectionBusy &&
+    !filtersExpanded &&
+    !settingsVisible &&
+    !vaultPickerVisible &&
+    !sheetFor &&
+    !confirmDeleteFor &&
+    !confirmRemoveIds &&
+    !batteryDialogOpen &&
+    !oemDialogOpen &&
+    !bleSettingsDialogOpen;
+  const directionInteraction = useRef({
+    contextKey: directionContextKey,
+    enabled: directionControlsEnabled,
+    preference: listPreference,
+    changePreference: changeListPreference,
+  });
+  directionInteraction.current = {
+    contextKey: directionContextKey,
+    enabled: directionControlsEnabled,
+    preference: listPreference,
+    changePreference: changeListPreference,
+  };
+  const changeBalanceDirection = (direction: CustomerBalanceFilter) => {
+    const current = directionInteraction.current;
+    if (
+      !isCurrentHome() ||
+      current.contextKey !== directionContextKey ||
+      !current.enabled ||
+      selectionBusyRef.current ||
+      filtersExpandedRef.current ||
+      (current.preference.direction ?? "all") === direction
+    )
+      return;
+    // Read the current preferences so a retained card callback cannot undo a
+    // newer sort, group or currency choice. Both controls share this one filter.
+    const preference = { ...current.preference, direction };
+    current.preference = preference;
+    current.changePreference(preference);
+    if (homeInteraction.current.searchOpen) dismissKeyboard();
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Soft).catch(() => undefined);
+  };
+  const changeSwipedDirection = (direction: CustomerBalanceFilter) => {
+    if (homeInteraction.current.searchOpen) return;
+    changeBalanceDirection(direction);
+  };
+
   const updateFilterAnchor = useCallback(() => {
     const surface = overlaySurfaceRef.current;
     const trigger = filterTriggerRef.current;
@@ -1815,6 +1873,10 @@ export default function HomeScreen() {
                 <HomePage
                   key={summaryScopeKey}
                   active={currentPeopleScope && currentVaultScope}
+                  direction={balanceFilter}
+                  directionSwipeEnabled={directionControlsEnabled && !keyboardLayoutShown}
+                  directionContextKey={directionContextKey}
+                  onDirectionChange={changeSwipedDirection}
                   people={homePeople}
                   allPeople={visibleAllPeople}
                   summary={
@@ -1823,6 +1885,9 @@ export default function HomeScreen() {
                       balances={visibleBalances}
                       currency={selectedCurrency}
                       searchOpen={keyboardLayoutShown}
+                      direction={balanceFilter}
+                      onDirectionChange={changeBalanceDirection}
+                      interactionEnabled={directionControlsEnabled}
                       active={
                         currentPeopleScope && currentVaultScope && !filtersExpanded && !selecting
                       }
@@ -2441,6 +2506,10 @@ function HomePage(
       scrollScope: string;
       initialScrollY: number;
       onScrollOffset: (offset: number) => void;
+      direction: CustomerBalanceFilter;
+      directionSwipeEnabled: boolean;
+      directionContextKey: string;
+      onDirectionChange: (direction: CustomerBalanceFilter) => void;
     },
 ) {
   const isRTL = useIsRTL();
@@ -2535,8 +2604,12 @@ function HomePage(
           pointerEvents="none"
           accessible={false}
         />
-        <View
+        <HomeBalanceFilterSwipe
           testID="home-customer-content"
+          enabled={props.active && props.directionSwipeEnabled}
+          contextKey={props.directionContextKey}
+          direction={props.direction}
+          onDirectionChange={props.onDirectionChange}
           style={[
             styles.customerContent,
             { paddingTop: props.selecting ? selectionHeight + 12 : 12 },
@@ -2552,7 +2625,7 @@ function HomePage(
           ) : (
             <CustomerRows {...props} showDirection />
           )}
-        </View>
+        </HomeBalanceFilterSwipe>
       </ScrollView>
     </View>
   );

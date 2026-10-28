@@ -398,6 +398,7 @@ for (const [file, exported] of [
   ["EmptyState", "EmptyState"],
   ["InitialAvatar", "InitialAvatar"],
   ["HomeBalanceSummary", "HomeBalanceSummary"],
+  ["HomeBalanceFilterSwipe", "HomeBalanceFilterSwipe"],
   ["HomeFilterPopover", "HomeFilterPopover"],
   ["NotificationInbox", "NotificationBell"],
   ["PersonRow", "PersonRow"],
@@ -624,7 +625,7 @@ const expectPage = (active = true) => {
     active,
     "The home list is interactive in its current scope",
   );
-  assert.equal("direction" in renderedPage.props, false, "Home has no selected balance direction");
+  assert.equal(renderedPage.props.direction, "all", "Default Home shows both balance directions");
   assert.deepEqual(
     homeRows().map((row) => row.props.person.id),
     ["a", "b", "c"],
@@ -641,9 +642,9 @@ const expectPage = (active = true) => {
     "Cards receive the full scoped snapshot independently of the visible results",
   );
   assert.equal(
-    nodes(tree).some((node) => ["Tabs", "GestureDetector"].includes(node.type)),
+    nodes(tree).some((node) => node.type === "Tabs"),
     false,
-    "One ordinary list needs no direction tabs or swipe rail",
+    "One ordinary list needs no direction tabs",
   );
   assert.equal(
     nodes(expand(renderedPage)).some((node) => node.type === "AnimatedView"),
@@ -1151,11 +1152,21 @@ async function main() {
   emitKeyboard("keyboardWillHide");
   emitKeyboard("keyboardDidHide");
   render();
+  assert.ok(filterTrigger(), "Open filters retain their trigger after the keyboard hides");
+  assert.equal(
+    homeNodes().some((node) => node.type === "HomeFilterPopover"),
+    true,
+    "Hiding the keyboard leaves the filters open",
+  );
+  homeNodes()
+    .find((node) => node.type === "HomeFilterPopover")!
+    .props.onDismiss();
+  render();
   assert.equal(filterTrigger(), undefined);
   assert.equal(
     homeNodes().some((node) => node.type === "HomeFilterPopover"),
     false,
-    "Closing search also closes its open popup",
+    "Explicitly closing filters removes the idle trigger",
   );
   const measurementsAfterClose = filterMeasurements;
   retainedTrigger.props.onPress();
@@ -1178,7 +1189,7 @@ async function main() {
     "Reopening search starts with its popup closed",
   );
   deferFilterMeasurement = false;
-  pendingFilterMeasurements.shift()!();
+  for (const complete of pendingFilterMeasurements.splice(0)) complete();
   render();
   assert.equal(
     homeNodes().some((node) => node.type === "HomeFilterPopover"),
