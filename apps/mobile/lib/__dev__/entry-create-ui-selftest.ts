@@ -6,6 +6,7 @@ import { normalizeAmountInput, parseAmountInput } from "../money";
 import { ENTRY_NOTE_MAX_LENGTH } from "../types";
 import { calculatorDraft, calculatorKey } from "../calculator-input";
 import { ltrIsolate } from "../bidi";
+import type { Entry } from "../types";
 
 type PlatformOS = "android" | "ios";
 const safeAreaInsets = { top: 0, left: 0, right: 0, bottom: 34 };
@@ -31,6 +32,8 @@ const directionEdges = (rtl: boolean) => ({
 class SessionChangedError extends Error {}
 class RoleGateRejectionError extends Error {}
 class EventSigningUnavailableError extends Error {}
+class SettledChapterError extends Error {}
+class TabLinkedEntryError extends Error {}
 class TabAuthUnavailableError extends Error {}
 class TabClosedError extends Error {}
 class TabInputError extends Error {}
@@ -79,6 +82,7 @@ function fixture({
   bookCurrency = "AFN",
   personCurrency = null,
   enabledCurrencies = ["AFN", "USD", "EUR"],
+  editingEntry,
 }: {
   os?: PlatformOS;
   rtl?: boolean;
@@ -91,6 +95,7 @@ function fixture({
   bookCurrency?: string;
   personCurrency?: string | null;
   enabledCurrencies?: string[];
+  editingEntry?: Entry;
 } = {}) {
   const screenId = `entry-fixture-${++fixtureSequence}`;
   let selectedCurrency = initialLedgerCurrency;
@@ -159,11 +164,15 @@ function fixture({
     "./auth": {},
     "./db-tx": {
       getDb: async () => ({
+        getAllAsync: async () => [],
         getFirstAsync: async (_sql: string, requestedVault: string, requestedPerson: string) => {
           personCurrencyReads.push([requestedVault, requestedPerson]);
           const gate = personCurrencyGate;
           personCurrencyGate = null;
-          return { default_entry_currency: gate ? await gate.promise : personCurrency };
+          return {
+            id: "relationship",
+            default_entry_currency: gate ? await gate.promise : personCurrency,
+          };
         },
       }),
     },
@@ -277,6 +286,13 @@ function fixture({
         },
       },
       "../../lib/db": {
+        SettledChapterError,
+        TabLinkedEntryError,
+        updateEntry: async (...args: any[]) => {
+          writes.push(args);
+          if (saveGate) await saveGate.promise;
+          if (saveError) throw saveError;
+        },
         getActiveVaultArchivedState: async () => {
           const gate = guardGate;
           guardGate = null;
@@ -300,6 +316,10 @@ function fixture({
       "../../lib/calculator": require("../calculator"),
       "../../lib/calculator-input": require("../calculator-input"),
       "../../lib/credit-limits": {
+        creditWarningForEdit: async (...args: any[]) => {
+          creditChecks.push(args);
+          return overLimit;
+        },
         creditWarning: async (...args: any[]) => {
           creditChecks.push(args);
           return overLimit;
@@ -337,13 +357,22 @@ function fixture({
       cancelAnimationFrame: (id: number) => frames.delete(id),
     },
   ).default;
-  const render = () => hooks.render(Screen);
+  const render = () =>
+    hooks.render(() =>
+      Screen({ editingEntry, editPersonId: editingEntry ? params.personId : undefined }),
+    );
   const accessory = () => nodes(hooks.tree).find((n) => n.type === "InputAccessoryView");
   const accessoryButton = () =>
-    nodes(accessory()).find((n) => n.type === "Button" && n.props.label === "entry.save");
+    nodes(accessory()).find(
+      (n) =>
+        n.type === "Button" &&
+        n.props.label === (editingEntry ? "entry.saveChanges" : "entry.save"),
+    );
   const bodyButton = () =>
     nodes(nodes(hooks.tree).find((n) => n.type === "KeyboardAvoidingView")).find(
-      (n) => n.type === "Button" && n.props.label === "entry.save",
+      (n) =>
+        n.type === "Button" &&
+        n.props.label === (editingEntry ? "entry.saveChanges" : "entry.save"),
     );
   const button = () => (bodyButton() ?? accessoryButton())!;
   const input = () => nodes(hooks.tree).find((n) => n.type === "TextInput")!;
@@ -369,7 +398,7 @@ function fixture({
   async function ready() {
     render();
     await flush();
-    input().props.onChangeText("125.50");
+    if (!editingEntry) input().props.onChangeText("125.50");
     render();
     input().props.ref.current = {
       focus: () => {
@@ -558,98 +587,22 @@ function fixture({
   };
 }
 
-// The edit screen has a different storage edge, but uses the same real form
-// controls. Keep this fixture limited to loading and saving an editable entry.
+// Exercise the shared form through its edit mode with the same native edges.
 function editFixture(os: PlatformOS, rtl: boolean, initialNote: string, entryCurrency = "AFN") {
-  const hooks = uiHooks(),
-    routes: string[] = [],
-    writes: any[] = [];
-  const Screen = compileUI(
-    "../../app/entry/[id]/edit",
-    {
-      "react/jsx-runtime": { jsx, jsxs: jsx },
-      react: hooks.react,
-      "expo-router": {
-        useRouter: () => ({ back: () => routes.push("back") }),
-        useLocalSearchParams: () => ({ id: "entry" }),
-      },
-      "react-native": {
-        BackHandler: { addEventListener: () => ({ remove: () => {} }) },
-        Keyboard: { dismiss: () => {} },
-        KeyboardAvoidingView: "KeyboardAvoidingView",
-        Platform: { OS: os },
-        ScrollView: "ScrollView",
-        StyleSheet: { create: (value: any) => value },
-        Text: "Text",
-        TextInput: "TextInput",
-        View: "View",
-      },
-      "react-native-safe-area-context": { SafeAreaView: "SafeAreaView" },
-      "../../../components/Button": { Button: "Button" },
-      "../../../components/EntryDateField": { EntryDateField: "EntryDateField" },
-      "../../../components/CurrencySelector": { CurrencySelector: "CurrencySelector" },
-      "../../../components/ScreenLoading": { ScreenLoading: "ScreenLoading" },
-      "../../../components/SettingsScreen": { ScreenHeader: "ScreenHeader" },
-      "../../../components/Toast": { useToast: () => ({ push: () => {} }) },
-      "../../../lib/colors": { colors: require("../colors").colors },
-      "../../../lib/credit-limits": { creditWarningForEdit: async () => false },
-      "../../../lib/currency": {
-        getCurrentCurrencyCode: () => "AFN",
-        getCurrencyLabel: (code: string) => code,
-        currencyNeedsPrecisionHint: currencyMetadata.currencyNeedsPrecisionHint,
-      },
-      "../../../lib/db": {
-        getEntry: async () => ({
-          id: "entry",
-          relationship_id: "relationship",
-          type: "debt",
-          amount_afn: 125.5,
-          currency: entryCurrency,
-          note: initialNote,
-          created_at: new Date(2025, 5, 20, 15, 7, 12, 345).getTime(),
-        }),
-        updateEntry: async (...args: any[]) => {
-          writes.push(args);
-        },
-        SettledChapterError: class extends Error {},
-        TabLinkedEntryError: class extends Error {},
-      },
-      "../../../lib/direction": directionEdges(rtl),
-      "../../../lib/event-log": { EventSigningUnavailableError, RoleGateRejectionError },
-      "../../../lib/fonts": fontEdges[os],
-      "../../../lib/i18n": { t: (key: string) => key },
-      "../../../lib/entry-date": require("../entry-date"),
-      "../../../lib/money": { normalizeAmountInput, parseAmountInput },
-      "../../../lib/tabs/db": { getTabLinkForRelationship: async () => null },
-      "../../../lib/tokens": { radius: {} },
-      "../../../lib/types": { ENTRY_NOTE_MAX_LENGTH },
-    },
-    {
-      setTimeout: () => 1,
-      clearTimeout: () => {},
-    },
-  ).default;
-  const render = () => hooks.render(Screen);
-  const input = () => nodes(hooks.tree).find((node) => node.type === "TextInput")!;
-  const note = () =>
-    nodes(hooks.tree).find(
-      (node) => node.type === "TextInput" && node.props.accessibilityLabel === "entry.note.label",
-    )!;
-  const button = () => nodes(hooks.tree).find((node) => node.type === "Button")!;
-  return {
-    hooks,
-    routes,
-    writes,
-    render,
-    input,
-    note,
-    button,
-    ready: async () => {
-      render();
-      await settleUI();
-      render();
-    },
-  };
+  return fixture({
+    os,
+    rtl,
+    editingEntry: {
+      id: "entry",
+      relationship_id: "relationship",
+      type: "debt",
+      amount_afn: 125.5,
+      currency: entryCurrency,
+      note: initialNote,
+      created_at: new Date(2025, 5, 20, 15, 7, 12, 345).getTime(),
+      updated_at: 10,
+    } as Entry,
+  });
 }
 
 function assertMultilineForm(
@@ -743,6 +696,72 @@ const layoutEvent = (height: number, width = 390) => ({
 const savedNotes: [string, string][] = [];
 async function main() {
   let cases = 0;
+  for (const os of ["android", "ios"] as const) {
+    const f = editFixture(os, true, "Existing note", "USD");
+    await f.ready();
+    assert.equal(f.input().props.value, "125.5", "Edit starts with the stored amount");
+    assert.equal(f.input().props.showSoftInputOnFocus, false);
+    assert.equal(f.input().props.inputMode, "none", "Edit never opens the decimal keypad");
+    f.openCalculator();
+    const keypad = f.calculator()!;
+    assert.equal(keypad.props.visible, true);
+    keypad.props.onChange(calculatorDraft("125.5+24.5"));
+    f.render();
+    keypad.props.onNext();
+    f.render();
+    assert.equal(f.calculator()!.props.visible, false, "Next hands off to Note");
+    assert.equal(f.noteFocuses, 1);
+    assert.equal(f.writes.length, 0);
+    f.emitKeyboard("keyboardDidShow");
+    f.render();
+    f.fireNoteFrames();
+    f.fireNoteFrames();
+    assert.equal(f.endScrolls.length, 1, "Edit reveals Note once after its keyboard arrives");
+    assert.equal(f.calculator()!.props.visible, false);
+    await f.button().props.onPress();
+    assert.deepEqual(f.writes[0].slice(0, 3), ["entry", 150, "Existing note"]);
+    assert.equal(
+      f.writes[0][3],
+      new Date(2025, 5, 20, 15, 7, 12, 345).getTime(),
+      "Ordinary edits preserve the exact timestamp",
+    );
+    assert.equal(f.selectedCurrency, "AFN", "An edit does not change the currently viewed ledger");
+    assert.deepEqual(f.routes, ["back"]);
+    f.hooks.unmount();
+    cases++;
+
+    for (const error of [
+      new SettledChapterError(),
+      new TabLinkedEntryError(),
+      new RoleGateRejectionError(),
+      new EventSigningUnavailableError(),
+      Object.assign(new Error(), { name: "CreditMutationAdmissionError", status: "pending" }),
+      Object.assign(new Error(), { name: "CreditMutationAdmissionError", status: "refused" }),
+    ]) {
+      const failed = editFixture(os, false, "unchanged");
+      await failed.ready();
+      failed.setError(error);
+      await failed.button().props.onPress();
+      failed.render();
+      const expected =
+        error instanceof SettledChapterError
+          ? "entry.settledLocked"
+          : error instanceof TabLinkedEntryError
+            ? "tab.editLocked"
+            : error instanceof RoleGateRejectionError
+              ? "entry.roleDenied"
+              : error instanceof EventSigningUnavailableError
+                ? "entry.signingUnavailable"
+                : (error as Error & { status: string }).status === "pending"
+                  ? "credit.pendingChange"
+                  : "credit.refusedChange";
+      assert.ok(words(failed.hooks.tree).includes(expected));
+      assert.deepEqual(failed.routes, [], "A failed edit stays open with its draft");
+      assert.equal(failed.note().props.value, "unchanged");
+      failed.hooks.unmount();
+      cases++;
+    }
+  }
   for (const os of ["android", "ios"] as const)
     for (const currencyCode of ["AFN", "KWD"])
       for (const mode of ["create", "edit"] as const) {
@@ -776,16 +795,8 @@ async function main() {
           assert.equal(f.writes[0][2], 1.23, "calculator applies its displayed two-decimal result");
           assert.equal(f.writes[0][4].currency, currencyCode);
         } else {
-          assert.equal(
-            f.writes.length,
-            0,
-            "direct editing rejects excess precision without a write",
-          );
-          assert.ok(words(f.hooks.tree).includes("entry.invalidAmount"));
-          f.input().props.onChangeText("1.23");
-          f.render();
-          await f.button().props.onPress();
-          assert.equal(f.writes[0][1], 1.23, "valid major units are saved without changing scale");
+          assert.ok(words(f.hooks.tree).includes("calculator.rounded"));
+          assert.equal(f.writes[0][1], 1.23, "Edit saves the same displayed result as Add");
           assert.equal(precisionNotes().length, currencyCode === "KWD" ? 1 : 0);
         }
         f.hooks.unmount();
@@ -1139,10 +1150,22 @@ async function main() {
 
       const edit = editFixture(os, rtl, "Original note");
       await edit.ready();
+      assert.equal(dateField(edit), undefined, "Edit initially hides the date");
+      assert.ok(
+        nodes(edit.hooks.tree).indexOf(moreOptions(edit)) >
+          nodes(edit.hooks.tree).indexOf(edit.note()),
+        "Show more follows Note in Edit",
+      );
+      assert.equal(
+        flattenStyle(moreOptions(edit).props.style({ pressed: false })).justifyContent,
+        "center",
+      );
+      moreOptions(edit).props.onPress();
+      edit.render();
       const editFields = nodes(edit.hooks.tree);
       assert.ok(
-        editFields.indexOf(dateField(edit)) < editFields.indexOf(edit.note()),
-        "The date field comes before Note when editing a tally",
+        editFields.indexOf(dateField(edit)) > editFields.indexOf(edit.note()),
+        "Edit date is below Note and Show more",
       );
       const original = dateField(edit).props.value;
       assert.equal(original, new Date(2025, 5, 20, 15, 7, 12, 345).getTime());
@@ -3283,7 +3306,7 @@ async function main() {
           mode === "edit" ? loadedNote : "",
           `${mode}: loaded notes retain their blank lines`,
         );
-        assertMultilineForm(f, os, rtl, mode === "create");
+        assertMultilineForm(f, os, rtl, true);
         f.note().props.onChangeText(changedNote);
         f.render();
         assert.equal(

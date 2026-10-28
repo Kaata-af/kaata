@@ -40,7 +40,14 @@ import {
   getCurrencyLabel,
   setCurrentCurrency,
 } from "../../lib/currency";
-import { createEntryDetailed, getActiveVaultArchivedState, getPerson } from "../../lib/db";
+import {
+  createEntryDetailed,
+  getActiveVaultArchivedState,
+  getPerson,
+  updateEntry,
+  SettledChapterError,
+  TabLinkedEntryError,
+} from "../../lib/db";
 import { getPersonEntryCurrency } from "../../lib/person-currency";
 import { rowDir, textDir, trackingSafe, useIsRTL } from "../../lib/direction";
 import { EventSigningUnavailableError, RoleGateRejectionError } from "../../lib/event-log";
@@ -60,7 +67,7 @@ import {
   type CalculatorRecord,
 } from "../../lib/calculator-input";
 import { getTabLinkForPerson } from "../../lib/tabs/db";
-import { creditWarning } from "../../lib/credit-limits";
+import { creditWarning, creditWarningForEdit } from "../../lib/credit-limits";
 import { noteSavedEntry } from "../../lib/recent-entry";
 import {
   TabAuthUnavailableError,
@@ -70,7 +77,12 @@ import {
   TabPermissionError,
 } from "../../lib/tabs/errors";
 import { radius, TOUCH_MIN, typography } from "../../lib/tokens";
-import { ENTRY_NOTE_MAX_LENGTH, type EntryType, type PersonWithBalance } from "../../lib/types";
+import {
+  ENTRY_NOTE_MAX_LENGTH,
+  type Entry,
+  type EntryType,
+  type PersonWithBalance,
+} from "../../lib/types";
 
 // Loading branches need modal-safe edges too, so the header stays in place
 // when content arrives. The loaded iOS dock owns its bottom safe padding.
@@ -84,7 +96,10 @@ type ScreenScope = {
 };
 type UIAttempt = ScreenScope & { focus: number };
 
-export default function NewEntryScreen() {
+export default function EntryFormScreen({
+  editingEntry,
+  editPersonId,
+}: { editingEntry?: Entry; editPersonId?: string } = {}) {
   const router = useRouter();
   const isRTL = useIsRTL();
   const safeArea = useSafeAreaInsets();
@@ -107,23 +122,25 @@ export default function NewEntryScreen() {
   );
   const toast = useToast();
   const params = useLocalSearchParams<{ personId?: string; type?: string }>();
-  const personId = params.personId ?? "";
-  const type: EntryType = params.type === "payment" ? "payment" : "debt";
+  const personId = editPersonId ?? params.personId ?? "";
+  const type: EntryType = editingEntry?.type ?? (params.type === "payment" ? "payment" : "debt");
 
   const [person, setPerson] = useState<PersonWithBalance | null>(null);
   const [loading, setLoading] = useState(true);
-  const [calculation, setCalculation] = useState(() => calculatorDraft());
+  const [calculation, setCalculation] = useState(() =>
+    calculatorDraft(editingEntry ? String(editingEntry.amount_afn) : ""),
+  );
   const calculationRef = useRef(calculation);
   const calculationResult = evaluateCalculation(calculation.expression);
   const amount = calculationResult.canApply ? calculationResult.amount : "";
-  const [note, setNote] = useState("");
-  const [currency, setCurrency] = useState<string>(DEFAULT_CURRENCY);
+  const [note, setNote] = useState(editingEntry?.note ?? "");
+  const [currency, setCurrency] = useState<string>(editingEntry?.currency ?? DEFAULT_CURRENCY);
   const [enabledCurrencies, setEnabledCurrencies] = useState<readonly string[]>([]);
   const enabledCurrencyRef = useRef<readonly string[]>([]);
   const enabledCurrencyRead = useRef(0);
   const currencyScope = useRef<string | null>(null);
   // Null keeps the usual save-time timestamp, even if this form stays open overnight.
-  const [entryDay, setEntryDay] = useState<number | null>(null);
+  const [entryDay, setEntryDay] = useState<number | null>(editingEntry?.created_at ?? null);
   const [moreOptionsOpen, setMoreOptionsOpen] = useState(false);
   const moreOptionsRef = useRef(false);
   const [datePickerOpen, setDatePickerOpen] = useState(false);
@@ -150,7 +167,10 @@ export default function NewEntryScreen() {
     }
     let alive = true;
     const timer = setTimeout(() => {
-      creditWarning(personId, type, parsed, getActiveVaultIdSyncMaybe() ?? undefined, currency)
+      (editingEntry
+        ? creditWarningForEdit(editingEntry.id, parsed, getActiveVaultIdSyncMaybe() ?? undefined)
+        : creditWarning(personId, type, parsed, getActiveVaultIdSyncMaybe() ?? undefined, currency)
+      )
         .then((over) => {
           if (alive) setOverLimit(over);
         })
@@ -160,7 +180,7 @@ export default function NewEntryScreen() {
       alive = false;
       clearTimeout(timer);
     };
-  }, [amount, personId, type, currency]);
+  }, [amount, personId, type, currency, editingEntry?.id]);
   const [saveError, setSaveError] = useState<string | null>(null);
   const saveErrorRef = useRef(saveError);
   saveErrorRef.current = saveError;
@@ -409,9 +429,11 @@ export default function NewEntryScreen() {
             attempt.type,
           ]);
           if (attempt.vaultId && currencyScope.current !== currencyKey) {
-            setEntryDay(null);
+            setEntryDay(editingEntry?.created_at ?? null);
             const [defaultCurrency] = await Promise.all([
-              getPersonEntryCurrency(attempt.vaultId, attempt.personId),
+              editingEntry
+                ? Promise.resolve(editingEntry.currency ?? DEFAULT_CURRENCY)
+                : getPersonEntryCurrency(attempt.vaultId, attempt.personId),
               refreshEnabledCurrencies(attempt),
             ]);
             if (!isCurrent(attempt)) return;
@@ -482,7 +504,10 @@ export default function NewEntryScreen() {
       return;
     }
     const savedNote = note.trim().slice(0, ENTRY_NOTE_MAX_LENGTH) || null;
-    const occurredAtMs = entryDay === null ? undefined : withEntryDay(Date.now(), entryDay);
+    const occurredAtMs =
+      entryDay === null
+        ? undefined
+        : withEntryDay(editingEntry?.created_at ?? Date.now(), entryDay);
     savingRef.current = true;
     setBusy(true);
     saveErrorField.current = null;
@@ -523,8 +548,20 @@ export default function NewEntryScreen() {
       if (!isCurrent(attempt)) return;
       enabledCurrencyRef.current = enabled;
       setEnabledCurrencies(enabled);
-      if (!enabled.includes(currency)) {
+      if (!enabled.includes(currency) && currency !== editingEntry?.currency) {
         setSaveError(t("entry.currency.disabled"));
+        return;
+      }
+      if (editingEntry) {
+        await applyForUnchangedLocalSession(session, async () => {
+          if (!isCurrent(attempt)) throw new SessionChangedError();
+          await updateEntry(editingEntry.id, parsedAmount, savedNote, occurredAtMs);
+        });
+        await present(() => {
+          noteSavedEntry(attempt.personId, editingEntry.id);
+          toast.push(t("entry.updated"), "success");
+          router.back();
+        });
         return;
       }
       // createEntryDetailed routes a LINKED contact's tally to the mutual tab
@@ -596,7 +633,16 @@ export default function NewEntryScreen() {
       // app is broken, when the real story is "you're now a viewer".
       if (err instanceof SessionChangedError || !isCurrent(attempt)) return;
       let errorKey: Parameters<typeof t>[0];
-      if (err instanceof RoleGateRejectionError) {
+      if (err instanceof Error && err.name === "CreditMutationAdmissionError") {
+        errorKey =
+          (err as Error & { status: string }).status === "pending"
+            ? "credit.pendingChange"
+            : "credit.refusedChange";
+      } else if (err instanceof SettledChapterError) {
+        errorKey = "entry.settledLocked";
+      } else if (err instanceof TabLinkedEntryError) {
+        errorKey = "tab.editLocked";
+      } else if (err instanceof RoleGateRejectionError) {
         errorKey = "entry.roleDenied";
       } else if (err instanceof EventSigningUnavailableError) {
         // Mythos Fix Set C: signing-unavailable gets an actionable message.
@@ -788,7 +834,8 @@ export default function NewEntryScreen() {
   // Derived above the load branches on purpose: the verb comes from the route
   // param, not from the person, so the loading header can already show the
   // final title and nothing moves when the read resolves.
-  const verb = type === "debt" ? t("person.action.iGave") : t("person.action.iReceived");
+  const action = type === "debt" ? t("person.action.iGave") : t("person.action.iReceived");
+  const verb = editingEntry ? t("entry.edit.title", { verb: action }) : action;
 
   if (loading) {
     return (
@@ -821,7 +868,7 @@ export default function NewEntryScreen() {
       }}
     >
       <Button
-        label={t("entry.save")}
+        label={t(editingEntry ? "entry.saveChanges" : "entry.save")}
         onPress={onSave}
         loading={busy}
         disabled={!calculationResult.canApply}
@@ -991,7 +1038,12 @@ export default function NewEntryScreen() {
                       symbolOnly
                       value={currency}
                       allowedCurrencies={enabledCurrencies}
-                      disabled={busy || !isCurrent(renderAttempt) || enabledCurrencies.length === 0}
+                      disabled={
+                        Boolean(editingEntry) ||
+                        busy ||
+                        !isCurrent(renderAttempt) ||
+                        enabledCurrencies.length === 0
+                      }
                       onOpen={() => {
                         if (savingRef.current || !isCurrent(renderAttempt)) return false;
                         if (initialFocusTimer.current !== null) {
@@ -1009,16 +1061,20 @@ export default function NewEntryScreen() {
                         noteRef.current?.blur();
                         Keyboard.dismiss();
                       }}
-                      onChange={(code) => {
-                        if (
-                          savingRef.current ||
-                          !isCurrent(renderAttempt) ||
-                          !enabledCurrencyRef.current.includes(code)
-                        )
-                          return;
-                        setSaveError(null);
-                        setCurrency(code);
-                      }}
+                      onChange={
+                        editingEntry
+                          ? undefined
+                          : (code) => {
+                              if (
+                                savingRef.current ||
+                                !isCurrent(renderAttempt) ||
+                                !enabledCurrencyRef.current.includes(code)
+                              )
+                                return;
+                              setSaveError(null);
+                              setCurrency(code);
+                            }
+                      }
                     />
                     <Text
                       accessibilityLabel={t("calculator.result")}
