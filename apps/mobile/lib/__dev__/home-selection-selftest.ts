@@ -32,6 +32,9 @@ react.useLayoutEffect = react.useEffect;
 let vault = "vault-a",
   account = "account-a";
 let selectedCurrency = "AFN";
+let writeCaps = { resolved: false, canCreate: true, canAmend: true };
+let archiveGuardReads = 0;
+let hapticImpacts = 0;
 let enabledCurrencies = ["AFN"];
 const scopedCreditPolicies = new Map<string, Record<string, { limit: number }>>();
 const currencyListeners = new Set<(code: string) => void>();
@@ -225,7 +228,9 @@ const mocks: Record<string, any> = {
   },
   "expo-haptics": {
     selectionAsync: asyncNoop,
-    impactAsync: asyncNoop,
+    impactAsync: async () => {
+      hapticImpacts++;
+    },
     ImpactFeedbackStyle: { Soft: "soft" },
   },
   "@expo/vector-icons": { Ionicons: "Icon" },
@@ -279,7 +284,10 @@ const mocks: Record<string, any> = {
       await archivePending?.promise;
     },
     getActiveVaultArchivedAt: async () => null,
-    getActiveVaultArchivedState: async () => ({ archived: false }),
+    getActiveVaultArchivedState: async () => {
+      archiveGuardReads++;
+      return { archived: false };
+    },
     getAppMeta: async (key: string) => metadata.get(key) ?? null,
     getLocalSelf: async () => ({ id: "self", name: "Self", shop_name: vault }),
     listActiveVaults: async () => [{ id: vault, name: vault, currency: "AFN" }],
@@ -361,7 +369,7 @@ const mocks: Record<string, any> = {
   },
   "../lib/tokens": { icon: {}, typography: {} },
   "../lib/use-vault-role": {
-    useActiveVaultWriteCaps: () => ({ resolved: true, canCreate: true, canAmend: true }),
+    useActiveVaultWriteCaps: () => writeCaps,
   },
   "../lib/battery-exemption": {},
   "../lib/mesh": {
@@ -466,6 +474,8 @@ const input = () =>
   homeNodes().find(
     (node) => node.type === "TextInput" && node.props.accessibilityLabel === "customers.search",
   )!;
+const addButton = () =>
+  homeNodes().find((node) => node.props.accessibilityLabel === "personAdd.new");
 const toolbar = () => homeNodes().find((node) => node.type === "SelectionToolbar")!;
 const removalDialog = () =>
   homeNodes().find(
@@ -742,6 +752,142 @@ const pairSummary = {
 async function main() {
   render();
   await flush();
+  assert.equal(addButton(), undefined, "Cold unresolved permissions never invent a writer action");
+  const searchBeforePermissions = input().props.ref;
+  writeCaps = { resolved: true, canCreate: true, canAmend: true };
+  render();
+  const confirmedAdd = addButton()!;
+  assert.ok(confirmedAdd, "Confirmed writer permissions reveal Add");
+  assert.equal(confirmedAdd.props.disabled, false);
+  const nativeSearchBeforeRefresh = input().props.ref.current;
+  const addGeometry = (node: UINode) => {
+    const style = flattenStyle(node.props.style({ pressed: false }));
+    return {
+      width: style.width,
+      height: style.height,
+      minHeight: style.minHeight,
+      flexShrink: style.flexShrink,
+    };
+  };
+  const confirmedGeometry = addGeometry(confirmedAdd);
+  assert.ok(
+    confirmedGeometry.width > 0 && confirmedGeometry.height > 0,
+    "The existing writer button reserves real layout space",
+  );
+  const dockOrder = () => {
+    const footer = homeNodes().find((node) => node.type === "SearchKeyboardFooter")!;
+    const button = addButton()!;
+    const row = nodes(footer).find(
+      (node) => node.type === "View" && [node.props.children].flat().includes(button),
+    )!;
+    assert.ok(row, "Add and the search field keep the same layout row");
+    return [row.props.children]
+      .flat()
+      .filter((node) => node?.props)
+      .map((node) => [node.type, node.props.accessibilityLabel ?? "search-field"]);
+  };
+  const confirmedOrder = dockOrder();
+  const guardReadsBeforeRefresh = archiveGuardReads;
+  const impactsBeforeRefresh = hapticImpacts;
+  const navigationsBeforeRefresh = navigations.length;
+  // Native modal dismissal refocuses Home while its role is re-read.
+  writeCaps = { ...writeCaps, resolved: false };
+  render();
+  assert.ok(addButton(), "A same-scope role refresh retains the writer button footprint");
+  assert.deepEqual(
+    dockOrder(),
+    confirmedOrder,
+    "Search does not gain and lose a sibling on sheet dismissal",
+  );
+  assert.deepEqual(
+    addGeometry(addButton()!),
+    confirmedGeometry,
+    "Disabling the pending action does not change its reserved width or height",
+  );
+  assert.equal(input().props.ref, searchBeforePermissions);
+  assert.equal(
+    input().props.ref.current,
+    nativeSearchBeforeRefresh,
+    "The native search input is never remounted during the refresh",
+  );
+  assert.equal(addButton()!.props.disabled, true);
+  assert.equal(addButton()!.props.accessibilityState.disabled, true);
+  await confirmedAdd.props.onPress();
+  await addButton()!.props.onPress();
+  assert.equal(
+    archiveGuardReads,
+    guardReadsBeforeRefresh,
+    "A retained or current disabled callback cannot query write guards",
+  );
+  assert.equal(
+    hapticImpacts,
+    impactsBeforeRefresh,
+    "A pending role refresh cannot haptic-confirm a write action",
+  );
+  assert.equal(
+    navigations.length,
+    navigationsBeforeRefresh,
+    "A pending role refresh cannot open Add customer",
+  );
+  writeCaps = { ...writeCaps, resolved: true };
+  render();
+  assert.deepEqual(dockOrder(), confirmedOrder);
+  assert.deepEqual(addGeometry(addButton()!), confirmedGeometry);
+  assert.equal(addButton()!.props.disabled, false);
+  assert.equal(input().props.ref.current, nativeSearchBeforeRefresh);
+  writeCaps = { resolved: true, canCreate: false, canAmend: false };
+  render();
+  assert.equal(addButton(), undefined, "A confirmed viewer role removes the writer action");
+  writeCaps = { ...writeCaps, resolved: false };
+  render();
+  assert.equal(
+    addButton(),
+    undefined,
+    "An unresolved viewer refresh never revives the old writer action",
+  );
+  writeCaps = { resolved: true, canCreate: true, canAmend: true };
+  render();
+  const originalPermissionVault = vault;
+  const originalPermissionAccount = account;
+  writeCaps = { ...writeCaps, resolved: false };
+  vault = "vault-permission-refresh";
+  render();
+  assert.equal(
+    addButton(),
+    undefined,
+    "A different live vault cannot reuse the prior vault's writer footprint",
+  );
+  await reload();
+  await flush();
+  assert.equal(
+    addButton(),
+    undefined,
+    "Loading the new vault cannot authorize its unresolved writer action",
+  );
+  writeCaps = { ...writeCaps, resolved: true };
+  render();
+  assert.ok(addButton());
+  writeCaps = { ...writeCaps, resolved: false };
+  account = "account-permission-refresh";
+  render();
+  assert.equal(
+    addButton(),
+    undefined,
+    "A different live account cannot reuse the prior account's writer footprint",
+  );
+  await reload();
+  await flush();
+  assert.equal(
+    addButton(),
+    undefined,
+    "Loading the new account does not revive another account's permissions",
+  );
+  vault = originalPermissionVault;
+  account = originalPermissionAccount;
+  await reload();
+  await flush();
+  writeCaps = { resolved: true, canCreate: true, canAmend: true };
+  render();
   assert.ok(searchSortRuns > 0, "Inline results are sorted on the homepage");
   expectPage();
   expectBottomDock();

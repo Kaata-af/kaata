@@ -274,6 +274,28 @@ export default function HomeScreen() {
     activeVaultId === getActiveVaultIdSyncMaybe() &&
     activeAccountId === getAccountIdSync();
   const canCreate = caps.resolved && caps.canCreate && currentVaultScope;
+  // Refocusing Home refreshes permissions. Preserve the last confirmed
+  // button footprint for this scope so search does not widen and shrink;
+  // permission and press handling remain disabled throughout that refresh.
+  const createButtonPresentation = useRef<{
+    vaultId: string | null;
+    accountId: string | null;
+    visible: boolean;
+  } | null>(null);
+  if (caps.resolved && currentVaultScope) {
+    createButtonPresentation.current = {
+      vaultId: activeVaultId,
+      accountId: activeAccountId,
+      visible: caps.canCreate,
+    };
+  }
+  const showCreateButton =
+    currentVaultScope &&
+    (caps.resolved
+      ? caps.canCreate
+      : createButtonPresentation.current?.vaultId === activeVaultId &&
+        createButtonPresentation.current?.accountId === activeAccountId &&
+        createButtonPresentation.current.visible);
   const { canAmend } = caps;
   const canCreateRef = useRef(canCreate);
   canCreateRef.current = canCreate;
@@ -1261,6 +1283,7 @@ export default function HomeScreen() {
 
   const controlsDisabled =
     selectionBusy || confirmRemoveIds !== null || !currentVaultScope || !currentPeopleScope;
+  const createButtonDisabled = !canCreate || controlsDisabled;
   const prepareSearchKeyboard = () => {
     if (
       Platform.OS === "android" &&
@@ -1363,10 +1386,12 @@ export default function HomeScreen() {
         >
           <Ionicons name="chevron-down" size={icon.row} color={colors.textEmphasis} />
         </Pressable>
-      ) : canCreate && !selecting ? (
+      ) : showCreateButton && !selecting ? (
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={t("personAdd.new")}
+          disabled={createButtonDisabled}
+          accessibilityState={{ disabled: createButtonDisabled }}
           // D-DEFENSIVE-ARCHIVED-GUARD: D-POST-ARCHIVE-SWITCH should
           // normally keep the active vault writable, but a mesh-sourced
           // archive event can race the FAB tap; refuse here and tell the
@@ -1397,7 +1422,11 @@ export default function HomeScreen() {
             Keyboard.dismiss();
             router.push({ pathname: "/person/new", params: { mode: "add" } });
           }}
-          style={({ pressed }) => [styles.fabInner, pressed && { opacity: 0.85 }]}
+          style={({ pressed }) => [
+            styles.fabInner,
+            pressed && !createButtonDisabled && { opacity: 0.85 },
+            createButtonDisabled && { opacity: 0.5 },
+          ]}
         >
           <Ionicons name="add" size={28} color={colors.textInverted} />
         </Pressable>
