@@ -34,6 +34,8 @@ const text = (node: any): string =>
         : String(node);
 const children = (node: UINode) =>
   [node.props.children].flat().filter((row): row is UINode => !!row && typeof row === "object");
+const realPages = (scroll: UINode) =>
+  children(scroll).filter((page) => /^home-balance-[A-Z]{3}$/.test(page.props.testID ?? ""));
 const byId = (root: UINode, id: string) => nodes(root).find((node) => node.props.testID === id)!;
 const isBalanceCell = (node: UINode) =>
   /^home-balance-(collect|pay)-/.test(node.props.testID ?? "");
@@ -90,7 +92,7 @@ function fixture(
   let activeHooks = hooks;
   let animationCurrency: string | undefined;
   const cardHooks = new Map<string, ReturnType<typeof uiHooks>>();
-  let renderedCurrencies = new Set<string>();
+  let renderedKeys = new Set<string>();
   const react = Object.fromEntries(
     Object.keys(hooks.react).map((name) => [
       name,
@@ -124,12 +126,13 @@ function fixture(
     map.set(event, listeners);
     return { remove: () => listeners.delete(callback) };
   };
-  const summaryJsx: typeof jsx = (type, props) => {
+  const summaryJsx = (type: any, props: Record<string, any>, key?: string): UINode => {
     if (typeof type === "function") {
       const currency = props.row.currency as string;
-      renderedCurrencies.add(currency);
-      let child = cardHooks.get(currency);
-      if (!child) cardHooks.set(currency, (child = uiHooks()));
+      const identity = key ?? currency;
+      renderedKeys.add(identity);
+      let child = cardHooks.get(identity);
+      if (!child) cardHooks.set(identity, (child = uiHooks()));
       const previousHooks = activeHooks;
       const previousCurrency = animationCurrency;
       activeHooks = child;
@@ -218,12 +221,12 @@ function fixture(
   ) as typeof import("../../components/HomeBalanceSummary");
   const render = (next: Partial<SummaryProps> = {}) => {
     props = { ...props, ...next };
-    renderedCurrencies = new Set();
+    renderedKeys = new Set();
     const tree = hooks.render(() => module.HomeBalanceSummary(props));
-    for (const [currency, child] of cardHooks) {
-      if (renderedCurrencies.has(currency)) continue;
+    for (const [identity, child] of cardHooks) {
+      if (renderedKeys.has(identity)) continue;
       child.unmount();
-      cardHooks.delete(currency);
+      cardHooks.delete(identity);
     }
     return tree;
   };
@@ -242,16 +245,42 @@ function fixture(
     scroll().props.onScroll({ nativeEvent: { contentOffset: { x, y: 0 } } });
     render();
   };
+  const momentumEnd = (x = calls.at(-1)?.x ?? 0) => {
+    scroll().props.onMomentumScrollEnd({ nativeEvent: { contentOffset: { x, y: 0 } } });
+    render();
+  };
+  const beginDrag = () => {
+    scroll().props.onScrollBeginDrag();
+    render();
+  };
+  const endDrag = (x: number, velocity = 0) => {
+    scroll().props.onScrollEndDrag({
+      nativeEvent: { contentOffset: { x, y: 0 }, velocity: { x: velocity, y: 0 } },
+    });
+    render();
+  };
+  const settle = () => {
+    for (const [id, timer] of [...timers]) {
+      if (timer.ms === 5000) continue;
+      timers.delete(id);
+      timer.run();
+    }
+    render();
+  };
   const advance = (emitNativeScroll = true) => {
-    assert.equal(timers.size, 1, "auto movement owns one timeout");
-    const [id, timer] = [...timers][0];
+    const pending = [...timers].filter(([, timer]) => timer.ms === 5000);
+    assert.equal(pending.length, 1, "auto movement owns one five-second timeout");
+    const [id, timer] = pending[0];
     assert.equal(timer.ms, 5000, "auto movement waits five seconds");
     timers.delete(id);
     timer.run();
     render();
     const call = calls.at(-1)!;
     assert.equal(call.animated, true);
-    if (emitNativeScroll) onScroll(call.x);
+    if (emitNativeScroll) {
+      onScroll(call.x);
+      momentumEnd(call.x);
+    }
     return call;
   };
   render();
@@ -263,6 +292,10 @@ function fixture(
     scroll,
     measure,
     onScroll,
+    momentumEnd,
+    beginDrag,
+    endDrag,
+    settle,
     advance,
     calls,
     timers,
@@ -313,7 +346,7 @@ async function main() {
       });
       await current.ready();
       current.measure(288);
-      const cells = () => balanceCells(children(current.scroll())[0]);
+      const cells = () => balanceCells(realPages(current.scroll())[0]);
       assert.equal(
         current.hooks.tree.props.accessible,
         false,
@@ -389,16 +422,16 @@ async function main() {
       );
       assert.equal(style(cells()[0]).width, style(cells()[1]).width);
       assert.equal(
-        children(current.scroll())[1].props.importantForAccessibility,
+        realPages(current.scroll())[1].props.importantForAccessibility,
         "no-hide-descendants",
       );
       navigation(current.hooks.tree).props.onAccessibilityAction({
         nativeEvent: { actionName: "increment" },
       });
       current.render();
-      assert.equal(children(current.scroll())[1].props.importantForAccessibility, "auto");
+      assert.equal(realPages(current.scroll())[1].props.importantForAccessibility, "auto");
       assert.equal(
-        children(current.scroll())[0].props.importantForAccessibility,
+        realPages(current.scroll())[0].props.importantForAccessibility,
         "no-hide-descendants",
       );
 
@@ -712,7 +745,7 @@ async function main() {
             { currency: "EUR", collect: 0, pay: 0, pending: false },
           ],
         }) as UINode;
-        const page = children(current.scroll())[0];
+        const page = realPages(current.scroll())[0];
         assert.equal(children(current.scroll()).length, 1);
         assert.equal(byId(root, `home-balance-currency-${currency}`), undefined);
         assert.ok(
@@ -754,7 +787,7 @@ async function main() {
       balances: [{ currency: "USD", collect: 123456789.01, pay: 8.76, pending: false }],
     }) as UINode;
     assert.equal(
-      style(quoteRow(children(current.scroll())[0])).flexDirection,
+      style(quoteRow(realPages(current.scroll())[0])).flexDirection,
       "row",
       "collect/pay positions stay LTR on small screens",
     );
@@ -839,9 +872,15 @@ async function main() {
       pending: false,
     }));
     current.render({ balances: many });
+    await current.ready();
     current.measure();
     const scroll = current.scroll();
     const pages = children(scroll);
+    assert.equal(
+      pages.length,
+      66,
+      "Large currency sets add two loop pages rather than copying the list repeatedly",
+    );
     const gap = flattenStyle(scroll.props.contentContainerStyle).gap;
     const pageWidth = style(pages[0]).width;
     const step = pageStep(scroll);
@@ -855,7 +894,7 @@ async function main() {
     assert.equal(
       offsets.at(-1),
       contentWidth - pageWidth,
-      "all 64 denominations end at the final complete page",
+      "all 64 denominations and the wrap duplicate end at a complete physical page",
     );
     const density = 2.625;
     assert.ok(
@@ -884,7 +923,7 @@ async function main() {
     });
     current.measure(288);
     const root = current.hooks.tree;
-    const page = children(current.scroll())[0];
+    const page = realPages(current.scroll())[0];
     const cards = balanceCells(page);
     const amounts = nodes(page).filter((node) => node.props.minimumFontScale !== undefined);
     assert.equal(amounts.length, 2);
@@ -928,6 +967,232 @@ async function main() {
     balances[1],
     { currency: "EUR", collect: 7, pay: 3, pending: false },
   ];
+  for (const platform of ["ios", "android"]) {
+    const changes: ["collect" | "pay", string][] = [];
+    const current = fixture("fa", 390, 1, 844, platform, {
+      balances: rotatingBalances,
+      onDirectionChange: (side, code) => changes.push([side, code]),
+    });
+    await current.ready();
+    current.measure();
+    const step = pageStep(current.scroll());
+    const pages = children(current.scroll());
+    assert.equal(pages.length, 5, "Three currencies use only two bounded loop duplicates");
+    assert.equal(realPages(current.scroll()).length, 3);
+    assert.deepEqual(
+      current.scroll().props.contentOffset,
+      { x: step, y: 0 },
+      "Native attachment starts on the first real card, never the preceding duplicate",
+    );
+    assert.equal(current.scroll().props.bounces, false);
+    assert.equal(current.scroll().props.overScrollMode, "never");
+    assert.equal(pages[0].props.testID, "home-balance-loop-leading-EUR");
+    assert.equal(pages[4].props.testID, "home-balance-loop-trailing-AFN");
+    for (const clone of [pages[0], pages[4]]) {
+      assert.equal(clone.props.accessibilityElementsHidden, true);
+      assert.equal(clone.props.importantForAccessibility, "no-hide-descendants");
+    }
+    const ids = nodes(current.hooks.tree).flatMap((node) =>
+      node.props.testID ? [node.props.testID] : [],
+    );
+    assert.equal(new Set(ids).size, ids.length, "Loop duplicates have distinct native identities");
+    assert.equal(navigation(current.hooks.tree).props.accessibilityValue.max, 3);
+
+    current.beginDrag();
+    current.onScroll(0);
+    current.endDrag(0);
+    assert.deepEqual(
+      current.calls.at(-1),
+      { x: step * 3, animated: false },
+      "A zero-velocity drag wraps immediately without waiting for a nonexistent momentum event",
+    );
+    current.settle();
+    assert.deepEqual(
+      current.calls.at(-1),
+      { x: step * 3, animated: false },
+      "Swiping before the first currency settles invisibly onto the last real card",
+    );
+    assert.equal(navigation(current.hooks.tree).props.accessibilityValue.now, 3);
+    const afterLeadingReset = current.calls.length;
+    current.momentumEnd(0);
+    current.momentumEnd(step * 3);
+    assert.equal(
+      current.calls.length,
+      afterLeadingReset,
+      "Duplicate native end events and recenter completion cannot start another reset",
+    );
+
+    current.beginDrag();
+    current.onScroll(step * 4);
+    current.endDrag(step * 4);
+    current.settle();
+    assert.deepEqual(
+      current.calls.at(-1),
+      { x: step, animated: false },
+      "A slow last-to-first swipe wraps even when native momentum-end is absent",
+    );
+    assert.equal(navigation(current.hooks.tree).props.accessibilityValue.now, 1);
+    assert.equal(current.timers.size, 0, "Manual wrap permanently stops automatic motion");
+    assert.deepEqual(changes, [], "Neither boundary wrap changes customer filters");
+
+    navigation(current.hooks.tree).props.onAccessibilityAction({
+      nativeEvent: { actionName: "decrement" },
+    });
+    current.render();
+    assert.equal(navigation(current.hooks.tree).props.accessibilityValue.now, 3);
+    assert.deepEqual(current.calls.at(-1), { x: step * 3, animated: false });
+    navigation(current.hooks.tree).props.onAccessibilityAction({
+      nativeEvent: { actionName: "increment" },
+    });
+    current.render();
+    assert.equal(navigation(current.hooks.tree).props.accessibilityValue.now, 1);
+    assert.deepEqual(current.calls.at(-1), { x: step, animated: false });
+    byId(current.hooks.tree, "home-balance-loop-leading-pay-EUR").props.onPress();
+    byId(current.hooks.tree, "home-balance-loop-trailing-collect-AFN").props.onPress();
+    assert.deepEqual(
+      changes,
+      [
+        ["pay", "EUR"],
+        ["collect", "AFN"],
+      ],
+      "Visible wrap copies retain the actual currency and side when tapped",
+    );
+    current.hooks.unmount();
+  }
+  {
+    const current = fixture("en", 390, 1, 844, "ios", { balances: rotatingBalances });
+    await current.ready();
+    current.measure();
+    const step = pageStep(current.scroll());
+    current.beginDrag();
+    current.onScroll(0);
+    current.endDrag(0, -1);
+    const quiet = [...current.timers.values()].filter((timer) => timer.ms !== 5000);
+    assert.equal(quiet.length, 1, "A quiet boundary has one bounded settle fallback");
+    current.beginDrag();
+    current.onScroll(step * 1.5);
+    const beforeObsolete = current.calls.length;
+    quiet.forEach((timer) => timer.run());
+    current.render();
+    assert.equal(
+      current.calls.length,
+      beforeObsolete,
+      "An obsolete settle callback cannot recenter underneath a newer finger drag",
+    );
+    current.endDrag(step * 2);
+    current.momentumEnd(step * 2);
+    assert.equal(navigation(current.hooks.tree).props.accessibilityValue.now, 2);
+    assert.equal(current.timers.size, 0);
+    current.hooks.unmount();
+  }
+  for (const release of ["onTouchEnd", "onTouchCancel"] as const) {
+    const changes: ["collect" | "pay", string][] = [];
+    const current = fixture("en", 390, 1, 844, "ios", {
+      balances: rotatingBalances,
+      onDirectionChange: (side, code) => changes.push([side, code]),
+    });
+    await current.ready();
+    current.measure();
+    const step = pageStep(current.scroll());
+    current.beginDrag();
+    current.onScroll(step * 4);
+    current.endDrag(step * 4, 1);
+    const quiet = [...current.timers.values()].filter((timer) => timer.ms !== 5000);
+    assert.equal(quiet.length, 1);
+    current.hooks.tree.props.onTouchStart();
+    const beforeHold = current.calls.length;
+    current.momentumEnd(step * 4);
+    quiet.forEach((timer) => timer.run());
+    current.render();
+    assert.equal(
+      current.calls.length,
+      beforeHold,
+      "A stationary touch holds the visible wrap card in place until release",
+    );
+    byId(current.hooks.tree, "home-balance-loop-trailing-collect-AFN").props.onPress();
+    assert.deepEqual(changes, [["collect", "AFN"]]);
+    current.hooks.tree.props[release]({ nativeEvent: { touches: [] } });
+    current.settle();
+    assert.deepEqual(current.calls.at(-1), { x: step, animated: false });
+    assert.equal(current.timers.size, 0);
+    current.hooks.unmount();
+  }
+  {
+    const current = fixture("en", 390, 1, 844, "android", { balances: rotatingBalances });
+    await current.ready();
+    current.measure();
+    const step = pageStep(current.scroll());
+    for (let physical = 2; physical <= 4; physical++) {
+      const request = current.advance(false);
+      assert.equal(request.x, physical * step);
+      current.onScroll((physical - 1) * step);
+      current.momentumEnd(request.x);
+      assert.equal(
+        navigation(current.hooks.tree).props.accessibilityValue.now,
+        physical === 4 ? 1 : physical,
+        "The completed native command remains authoritative when its final scroll frame was throttled",
+      );
+    }
+    assert.deepEqual(current.calls.at(-1), { x: step, animated: false });
+    current.hooks.unmount();
+  }
+  {
+    const current = fixture("en", 390, 1, 844, "ios", { balances: rotatingBalances });
+    await current.ready();
+    current.measure();
+    const step = pageStep(current.scroll());
+    current.beginDrag();
+    current.onScroll(step * 1.4);
+    current.endDrag(step * 1.4, 1);
+    current.scroll().props.onMomentumScrollBegin();
+    current.momentumEnd(step * 2);
+    assert.equal(navigation(current.hooks.tree).props.accessibilityValue.now, 1);
+    current.settle();
+    assert.equal(
+      navigation(current.hooks.tree).props.accessibilityValue.now,
+      2,
+      "An omitted final manual scroll frame is reconciled after a bounded quiet period",
+    );
+    current.hooks.unmount();
+  }
+  {
+    const current = fixture("en", 390, 1, 844, "android", { balances: rotatingBalances });
+    await current.ready();
+    current.measure();
+    const oldScroll = current.scroll();
+    const step = pageStep(oldScroll);
+    current.beginDrag();
+    current.onScroll(step * 4);
+    current.endDrag(step * 4, 1);
+    const oldSettles = [...current.timers.values()].filter((timer) => timer.ms !== 5000);
+    current.render({ balances: [rotatingBalances[0]] });
+    assert.equal(children(current.scroll()).length, 1);
+    assert.equal(current.scroll().props.scrollEnabled, false);
+    assert.deepEqual(current.scroll().props.contentOffset, { x: 0, y: 0 });
+    current.render({ balances: rotatingBalances });
+    const beforeObsolete = current.calls.length;
+    oldScroll.props.onScroll({ nativeEvent: { contentOffset: { x: 0, y: 0 } } });
+    oldScroll.props.onMomentumScrollEnd({ nativeEvent: { contentOffset: { x: step * 4, y: 0 } } });
+    oldSettles.forEach((timer) => timer.run());
+    current.render();
+    assert.equal(
+      current.calls.length,
+      beforeObsolete,
+      "Native events and settle timers stay stale after a geometry ABA",
+    );
+    assert.equal(navigation(current.hooks.tree).props.accessibilityValue.now, 1);
+    const activeScroll = current.scroll();
+    current.beginDrag();
+    current.onScroll(0);
+    current.endDrag(0, -1);
+    const pendingSettles = [...current.timers.values()].filter((timer) => timer.ms !== 5000);
+    const beforeUnmount = current.calls.length;
+    current.hooks.unmount();
+    activeScroll.props.onMomentumScrollEnd({ nativeEvent: { contentOffset: { x: 0, y: 0 } } });
+    pendingSettles.forEach((timer) => timer.run());
+    assert.equal(current.calls.length, beforeUnmount);
+    assert.equal(current.hooks.lateWrites, 0);
+  }
   {
     const current = fixture("en");
     current.render({ balances: rotatingBalances, onDirectionChange: () => {} });
@@ -955,7 +1220,7 @@ async function main() {
       onDirectionChange: () => {},
     });
     current.measure(288);
-    const page = children(current.scroll())[0];
+    const page = realPages(current.scroll())[0];
     const selected = byId(page, `home-balance-${direction}-USD`);
     const amount = nodes(selected).find((node) => node.props.minimumFontScale !== undefined)!;
     assert.equal(text(amount), largestExactText, "Expanded totals retain every digit and cent");
@@ -1019,20 +1284,25 @@ async function main() {
       0,
       "the marker stays on the displayed page before native scroll events",
     );
-    current.onScroll(0);
+    current.onScroll(step);
     assert.equal(
       markerX(),
       0,
       "the native animation's first old-position frame cannot make the marker jump back",
     );
     current.onScroll(firstMove.x);
+    assert.deepEqual(
+      current.scroll().props.contentOffset,
+      { x: step, y: 0 },
+      "The initial native offset remains stable during live scrolling in the same geometry",
+    );
     assert.equal(navigation(current.hooks.tree).props.accessibilityValue.now, 2);
     assert.ok(markerX() > 0, "the marker moves once native scrolling reaches the next page");
     const positions = [firstMove.x, current.advance().x, current.advance().x, current.advance().x];
     assert.deepEqual(
       positions,
-      [step, step * 2, step, 0],
-      "automatic movement advances one neighbor and reverses at the ends",
+      [step * 2, step * 3, step * 4, step * 2],
+      "automatic movement keeps advancing and wraps through the first-card duplicate",
     );
     assert.equal(current.timers.size, 1);
     current.hooks.unmount();
@@ -1138,9 +1408,14 @@ async function main() {
     assert.equal(current.calls.length, pausedCalls);
     change(false);
     assert.equal(current.timers.size, 1, `${pause} can resume before manual interaction`);
+    const resumedCalls = current.calls.length;
     obsolete.run();
     current.render();
-    assert.equal(current.calls.length, pausedCalls, "the old timeout remains stale after resuming");
+    assert.equal(
+      current.calls.length,
+      resumedCalls,
+      "the old timeout remains stale after resuming",
+    );
     current.hooks.unmount();
   }
   for (const preference of ["screenReaderChanged", "reduceMotionChanged"] as const) {
@@ -1193,24 +1468,24 @@ async function main() {
     await current.ready();
     current.measure();
     const step = pageStep(current.scroll());
-    current.onScroll(step);
+    current.onScroll(step * 2);
     current.render({ balances: [rotatingBalances[2], rotatingBalances[0], rotatingBalances[1]] });
     assert.deepEqual(
       current.calls.at(-1),
-      { x: step * 2, animated: false },
+      { x: step * 3, animated: false },
       "reordering currencies keeps the currently viewed denomination",
     );
     current.setWidth(320);
     current.measure(288);
     assert.equal(current.scroll().props.snapToInterval, undefined);
-    assert.deepEqual(current.scroll().props.snapToOffsets, [0, 300, 600]);
+    assert.deepEqual(current.scroll().props.snapToOffsets, [0, 300, 600, 900, 1200]);
     assert.ok(
       children(current.scroll()).every((page) => style(page).width === 288),
       "rotation gives every currency the full new viewport",
     );
     assert.deepEqual(
       current.calls.at(-1),
-      { x: current.scroll().props.snapToOffsets[2], animated: false },
+      { x: current.scroll().props.snapToOffsets[3], animated: false },
       "orientation/viewport changes align the same currency without animation",
     );
     const staleTimer = [...current.timers.values()][0];
@@ -1295,7 +1570,7 @@ async function main() {
     );
   }
   console.log(
-    "PASS home balances: currency-specific collect/pay tap payloads and independent animated expansion, global direction expansion, compact opposite buttons, currency navigation without filtering, exact independent amounts, EN/FA/PS LTR, stable keyboard layout, adjacent/reversing auto movement, permanent manual stop including currency-filter changes, keyboard/route/AppState/accessibility pauses and stale-work cleanup; customer-row currencies preserved",
+    "PASS home balances: bounded seamless currency looping, forward autoplay and manual/assistive wraps, native settling and stale geometry guards, currency-specific collect/pay taps and independent expansion, exact amounts, EN/FA/PS LTR, stable keyboard layout, permanent manual stop, accessibility/AppState pauses and cleanup; customer-row currencies preserved",
   );
 }
 void main();

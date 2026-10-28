@@ -112,7 +112,6 @@ export function HomeBalanceSummary({
   const [position, setPosition] = useState(0);
   const selectedCode = useRef(rows[0].currency);
   const offset = useRef(0);
-  const direction = useRef(1);
   const stopped = useRef(false);
   const [manuallyStopped, setManuallyStopped] = useState(false);
   const previousFilter = useRef({ direction: balanceDirection, currency: currencyFilterKey });
@@ -131,6 +130,32 @@ export function HomeBalanceSummary({
   // must not overwrite a preference changed while that query was in flight.
   const [screenReader, setScreenReader] = useState(true);
   const [reducedMotion, setReducedMotion] = useState(true);
+  // Only two extra cards are needed for a seamless edge in either direction.
+  // Assistive navigation uses the real cards and wraps through its controls.
+  const loop = multiple && !screenReader;
+  const geometry = useRef({ codes, step, loop, epoch: 0 });
+  const previousGeometry = geometry.current;
+  if (
+    previousGeometry.codes !== codes ||
+    previousGeometry.step !== step ||
+    previousGeometry.loop !== loop
+  )
+    geometry.current = { codes, step, loop, epoch: previousGeometry.epoch + 1 };
+  const epoch = geometry.current.epoch;
+  const retainedIndex = rows.findIndex((row) => row.currency === selectedCode.current);
+  const alignedIndex =
+    retainedIndex < 0 ? Math.max(0, Math.min(rows.length - 1, position)) : retainedIndex;
+  const initialOffset = useRef({ epoch: -1, x: 0 });
+  if (initialOffset.current.epoch !== epoch) {
+    initialOffset.current = { epoch, x: (alignedIndex + (loop ? 1 : 0)) * step };
+    offset.current = initialOffset.current.x;
+    selectedCode.current = rows[alignedIndex].currency;
+  }
+  const dragging = useRef(false);
+  const touching = useRef(false);
+  const nativeCommand = useRef<{ epoch: number; x: number; animated: boolean } | null>(null);
+  const settleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const settleVersion = useRef(0);
   useEffect(() => {
     let alive = true;
     let readerChanged = false;
@@ -189,8 +214,8 @@ export function HomeBalanceSummary({
     !manuallyStopped &&
     multiple &&
     measuredWidth > 0;
-  const latest = useRef({ autoAllowed, codes, step });
-  latest.current = { autoAllowed, codes, step };
+  const latest = useRef({ autoAllowed, epoch });
+  latest.current = { autoAllowed, epoch };
   const mounted = useRef(true);
   const latestInteraction = useRef({
     onDirectionChange,
@@ -208,6 +233,9 @@ export function HomeBalanceSummary({
     return () => {
       mounted.current = false;
       timerVersion.current++;
+      settleVersion.current++;
+      if (settleTimer.current !== null) clearTimeout(settleTimer.current);
+      settleTimer.current = null;
     };
   }, []);
   const stopAutomaticScroll = () => {
@@ -227,24 +255,91 @@ export function HomeBalanceSummary({
     stopAutomaticScroll();
     latest.onDirectionChange(side, rowCurrency);
   };
-  const scrollToPosition = (index: number, animated: boolean) => {
-    if (!mounted.current || latest.current.codes !== codes || latest.current.step !== step) return;
-    const next = Math.max(0, Math.min(rows.length - 1, index));
-    offset.current = next * step;
-    selectedCode.current = rows[next].currency;
-    // Animated positions follow native scroll events; setting the target now
-    // would make the marker jump forward, back, then forward during the move.
-    if (!animated) setPosition(next);
-    scroll.current?.scrollTo({ x: offset.current, animated });
+  const currentGeometry = () => mounted.current && latest.current.epoch === epoch;
+  const cancelSettle = () => {
+    settleVersion.current++;
+    if (settleTimer.current !== null) clearTimeout(settleTimer.current);
+    settleTimer.current = null;
   };
-  // Amount refreshes retain the user's currency. Rotation and currency removal
-  // align the same currency (or nearest survivor) without animating old bounds.
+  const physicalIndex = (x: number) =>
+    Math.max(0, Math.min(rows.length - 1 + (loop ? 2 : 0), Math.round(x / step)));
+  const logicalIndex = (physical: number) =>
+    loop ? (physical - 1 + rows.length) % rows.length : physical;
+  const observeOffset = (x: number) => {
+    if (!currentGeometry() || !Number.isFinite(x)) return false;
+    offset.current = Math.max(0, Math.min((rows.length - 1 + (loop ? 2 : 0)) * step, x));
+    const logical = logicalIndex(physicalIndex(offset.current));
+    selectedCode.current = rows[logical].currency;
+    setPosition(logical);
+    return true;
+  };
+  const scrollToPhysical = (physical: number, animated: boolean) => {
+    if (!currentGeometry()) return;
+    cancelSettle();
+    const next = physicalIndex(physical * step);
+    const x = next * step;
+    // Update before the native command: a nonanimated scroll can synchronously
+    // finish on iOS, and an interrupted Android animation can emit an old end.
+    nativeCommand.current = { epoch, x, animated };
+    offset.current = x;
+    if (!animated) {
+      const logical = logicalIndex(next);
+      selectedCode.current = rows[logical].currency;
+      setPosition(logical);
+    }
+    scroll.current?.scrollTo({ x, animated });
+  };
+  const boundaryPage = (x = offset.current) => {
+    if (!loop || !Number.isFinite(x)) return null;
+    const physical = physicalIndex(x);
+    if (Math.abs(x - physical * step) > 1) return null;
+    return physical === 0 ? rows.length : physical === rows.length + 1 ? 1 : null;
+  };
+  const settleBoundary = () => {
+    if (!currentGeometry() || dragging.current || touching.current) return;
+    const target = boundaryPage();
+    if (target !== null) scrollToPhysical(target, false);
+  };
+  const queueBoundarySettle = (endX?: number) => {
+    cancelSettle();
+    if (
+      !currentGeometry() ||
+      dragging.current ||
+      touching.current ||
+      (endX === undefined ? boundaryPage() === null : !Number.isFinite(endX))
+    )
+      return;
+    const version = settleVersion.current;
+    // A slow drag may end without momentum. Only recycle after native scroll
+    // events have been quiet, never underneath an active finger or glide.
+    settleTimer.current = setTimeout(() => {
+      if (!currentGeometry() || settleVersion.current !== version) return;
+      settleTimer.current = null;
+      if (dragging.current || touching.current) return;
+      if (endX !== undefined) {
+        // Momentum end can contain a newer final offset than the throttled
+        // onScroll stream. Adopt it only after no newer motion has arrived.
+        observeOffset(endX);
+        nativeCommand.current = { epoch, x: offset.current, animated: false };
+      }
+      settleBoundary();
+    }, 140);
+  };
+  const scrollToPosition = (index: number, animated: boolean) => {
+    const next = ((index % rows.length) + rows.length) % rows.length;
+    scrollToPhysical(next + (loop ? 1 : 0), animated);
+  };
+  // Retire old native callbacks with the old geometry. The new scroller starts
+  // at the retained real currency before its first frame, not at a clone.
   useEffect(() => {
-    const selected = rows.findIndex((row) => row.currency === selectedCode.current);
-    scrollToPosition(selected < 0 ? position : selected, false);
-    // The values themselves never reset manual control or the native offset.
+    dragging.current = false;
+    touching.current = false;
+    cancelSettle();
+    scrollToPosition(alignedIndex, false);
+    return cancelSettle;
+    // Amount refreshes retain both the geometry and manual control.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [codes, step]);
+  }, [epoch]);
   useEffect(() => {
     const version = ++timerVersion.current;
     if (!autoAllowed) return;
@@ -256,18 +351,14 @@ export function HomeBalanceSummary({
           version !== timerVersion.current ||
           stopped.current ||
           !latest.current.autoAllowed ||
-          latest.current.codes !== codes ||
-          latest.current.step !== step ||
+          latest.current.epoch !== epoch ||
           !scroll.current
         )
           return;
-        const current = Math.max(0, Math.min(rows.length - 1, Math.round(offset.current / step)));
-        let next = current + direction.current;
-        if (next >= rows.length || next < 0) {
-          direction.current *= -1;
-          next = current + direction.current;
-        }
-        scrollToPosition(next, true);
+        // A missed native end cannot strand autoplay at a sentinel. Normalize
+        // invisibly first, then always advance one adjacent card forward.
+        settleBoundary();
+        scrollToPhysical(physicalIndex(offset.current) + 1, true);
         queue();
       }, 5000);
     };
@@ -276,12 +367,17 @@ export function HomeBalanceSummary({
       timerVersion.current++;
       clearTimeout(timer);
     };
-    // Each turn is adjacent; reverse at the end instead of sweeping through
-    // every currency to return to the first one. A refresh does not restart it.
+    // The trailing first-currency copy makes the last-to-first turn adjacent.
+    // A refresh does not restart the cadence or resume manual control.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoAllowed, codes, step]);
-  const shownPosition = Math.min(position, rows.length - 1);
+  }, [autoAllowed, epoch]);
+  const shownPosition = Math.max(0, Math.min(position, rows.length - 1));
   const current = rows[shownPosition];
+  const pages = [
+    ...(loop ? [{ row: rows[rows.length - 1], kind: "leading" as const }] : []),
+    ...rows.map((row) => ({ row, kind: "real" as const })),
+    ...(loop ? [{ row: rows[0], kind: "trailing" as const }] : []),
+  ];
   const summaryLabel = current.pending
     ? `${getCurrencyLabel(current.currency)}, ${t("home.total.pending")}`
     : `${getCurrencyLabel(current.currency)}, ${t("home.total.label.collect")}: ${formatAmount(current.collect)}, ${t("home.total.label.pay")}: ${formatAmount(current.pay)}`;
@@ -289,11 +385,28 @@ export function HomeBalanceSummary({
   return (
     <View
       style={[styles.summary, small && styles.compactSummary]}
-      onTouchStart={stopAutomaticScroll}
+      onTouchStart={() => {
+        if (!currentGeometry()) return;
+        touching.current = true;
+        cancelSettle();
+        stopAutomaticScroll();
+      }}
+      onTouchEnd={() => {
+        if (!currentGeometry()) return;
+        touching.current = false;
+        queueBoundarySettle();
+      }}
+      onTouchCancel={() => {
+        if (!currentGeometry()) return;
+        touching.current = false;
+        queueBoundarySettle();
+      }}
       accessible={false}
     >
       <ScrollView
+        key={epoch}
         ref={scroll}
+        contentOffset={{ x: initialOffset.current.x, y: 0 }}
         horizontal
         accessible={false}
         style={{ height: cardHeight, flexGrow: 0, direction: "ltr" }}
@@ -302,30 +415,69 @@ export function HomeBalanceSummary({
         showsHorizontalScrollIndicator={false}
         // Absolute targets avoid accumulated interval rounding on Android
         // phones whose density turns the inter-card gap into half a pixel.
-        snapToOffsets={rows.map((_, index) => index * step)}
+        snapToOffsets={pages.map((_, index) => index * step)}
         decelerationRate="fast"
-        bounces={multiple}
-        overScrollMode={multiple ? "auto" : "never"}
+        bounces={multiple && !loop}
+        overScrollMode={multiple && !loop ? "auto" : "never"}
         onLayout={(event) => {
           const next = event.nativeEvent.layout.width;
-          if (mounted.current && Number.isFinite(next) && next > 0) setMeasuredWidth(next);
+          if (currentGeometry() && Number.isFinite(next) && next > 0) setMeasuredWidth(next);
         }}
-        onScrollBeginDrag={stopAutomaticScroll}
+        onScrollBeginDrag={() => {
+          if (!currentGeometry()) return;
+          stopAutomaticScroll();
+          dragging.current = true;
+          nativeCommand.current = null;
+          cancelSettle();
+        }}
         onScroll={(event) => {
-          if (!mounted.current || latest.current.codes !== codes || latest.current.step !== step)
-            return;
           const x = event.nativeEvent.contentOffset.x;
-          offset.current = Math.max(0, x);
-          const next = Math.max(0, Math.min(rows.length - 1, Math.round(offset.current / step)));
-          selectedCode.current = rows[next].currency;
-          setPosition(next);
+          if (observeOffset(x)) queueBoundarySettle();
+        }}
+        onScrollEndDrag={(event) => {
+          if (!currentGeometry()) return;
+          dragging.current = false;
+          touching.current = false;
+          if (observeOffset(event.nativeEvent.contentOffset.x)) {
+            const velocity = event.nativeEvent.velocity?.x;
+            const target = event.nativeEvent.targetContentOffset?.x;
+            const stoppedAtEdge =
+              Number.isFinite(velocity) &&
+              Math.abs(velocity ?? 0) < 0.01 &&
+              (!Number.isFinite(target) || Math.abs((target ?? 0) - offset.current) <= 1);
+            if (stoppedAtEdge) settleBoundary();
+            else queueBoundarySettle();
+          }
+        }}
+        onMomentumScrollBegin={() => {
+          if (currentGeometry()) cancelSettle();
+        }}
+        onMomentumScrollEnd={(event) => {
+          if (!currentGeometry() || dragging.current || touching.current) return;
+          const x = event.nativeEvent.contentOffset.x;
+          // Ignore an older animation's end, including the sentinel end which
+          // follows our own nonanimated recenter command.
+          if (!Number.isFinite(x)) return;
+          const command = nativeCommand.current;
+          if (command?.epoch === epoch) {
+            if (Math.abs(x - command.x) > 1) return;
+          } else if (Math.abs(x - offset.current) > 1) {
+            queueBoundarySettle(x);
+            return;
+          }
+          cancelSettle();
+          if (observeOffset(x)) {
+            nativeCommand.current = { epoch, x, animated: false };
+            settleBoundary();
+          }
         }}
         scrollEventThrottle={64}
         keyboardShouldPersistTaps="always"
       >
-        {rows.map((row) => (
+        {pages.map(({ row, kind }) => (
           <CurrencyBalanceCard
-            key={row.currency}
+            key={`${row.currency}:${kind}`}
+            idPrefix={kind === "real" ? "home-balance" : `home-balance-loop-${kind}`}
             row={row}
             multiple={multiple}
             pageWidth={pageWidth}
@@ -339,7 +491,7 @@ export function HomeBalanceSummary({
                 ? balanceDirection
                 : "all"
             }
-            visible={row.currency === current.currency}
+            visible={kind === "real" && row.currency === current.currency}
             enabled={latestInteraction.current.enabled && !!onDirectionChange}
             onDirectionChange={toggleDirection}
           />
@@ -386,6 +538,7 @@ export function HomeBalanceSummary({
 /** Each denomination owns its animation so a currency-specific filter never
  * stretches another currency's collect/pay pair. */
 function CurrencyBalanceCard({
+  idPrefix = "home-balance",
   row,
   multiple,
   pageWidth,
@@ -399,6 +552,7 @@ function CurrencyBalanceCard({
   enabled,
   onDirectionChange,
 }: {
+  idPrefix?: string;
   row: HomeCurrencyBalance;
   multiple: boolean;
   pageWidth: number;
@@ -445,7 +599,7 @@ function CurrencyBalanceCard({
   }, [targetCollectWidth, pageWidth, reducedMotion, collectWidth]);
   return (
     <View
-      testID={`home-balance-${row.currency}`}
+      testID={`${idPrefix}-${row.currency}`}
       style={[styles.page, { width: pageWidth, height: cardHeight }]}
       accessibilityElementsHidden={!visible}
       importantForAccessibility={visible ? "auto" : "no-hide-descendants"}
@@ -453,7 +607,7 @@ function CurrencyBalanceCard({
       {multiple ? (
         <View style={[styles.boardHeader, small && styles.compactHeader]}>
           <Text
-            testID={`home-balance-currency-${row.currency}`}
+            testID={`${idPrefix}-currency-${row.currency}`}
             accessible={false}
             style={styles.currency}
             maxFontSizeMultiplier={1.2}
@@ -500,7 +654,7 @@ function CurrencyBalanceCard({
           return (
             <AnimatedPressable
               key={side}
-              testID={`home-balance-${side}-${row.currency}`}
+              testID={`${idPrefix}-${side}-${row.currency}`}
               accessible
               accessibilityRole="button"
               accessibilityLabel={`${getCurrencyLabel(row.currency)}, ${title}: ${amount}`}
@@ -548,7 +702,7 @@ function CurrencyBalanceCard({
                   <View style={styles.valueRow}>
                     {symbol ? (
                       <Text
-                        testID={`home-balance-symbol-${side}-${row.currency}`}
+                        testID={`${idPrefix}-symbol-${side}-${row.currency}`}
                         accessible={false}
                         style={[
                           styles.amountSymbol,
