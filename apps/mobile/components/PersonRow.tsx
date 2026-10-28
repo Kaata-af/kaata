@@ -160,7 +160,12 @@ export const PersonRow = memo(function PersonRow(props: {
           return (
             <View key={code} style={[styles.right, { direction: "ltr", marginTop: 3 }]}>
               {row.is_settled === 1 ? (
-                <Ionicons name="checkmark" size={icon.row} color={colors.textSubtle} />
+                <Ionicons
+                  name="checkmark"
+                  size={icon.row}
+                  color={colors.textSubtle}
+                  accessibilityLabel={`${t("person.balance.settled")}, ${getCurrencyLabel(code)}`}
+                />
               ) : (
                 <Text
                   style={[styles.amount, { color: tone }]}
@@ -181,9 +186,11 @@ export const PersonRow = memo(function PersonRow(props: {
                         : "") + value}
                 </Text>
               )}
-              <Text style={styles.afn} maxFontSizeMultiplier={1.5}>
-                {code}
-              </Text>
+              {row.is_settled !== 1 ? (
+                <Text style={styles.afn} maxFontSizeMultiplier={1.5}>
+                  {code}
+                </Text>
+              ) : null}
             </View>
           );
         })}
