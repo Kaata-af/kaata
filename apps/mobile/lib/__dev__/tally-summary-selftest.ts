@@ -347,7 +347,10 @@ console.log(
       assert.deepEqual(button.props.accessibilityState, { selected: false, disabled: false });
       assert.ok(flattenStyle(button.props.style).minHeight >= 44);
       const amounts = nodes(button).filter(
-        (node) => node.type === "Text" && node.props.adjustsFontSizeToFit,
+        (node) =>
+          node.type === "Text" &&
+          node.props.adjustsFontSizeToFit &&
+          node.props.minimumFontScale === 0.1,
       );
       assert.equal(amounts.length, 1);
       assert.equal(flattenStyle(amounts[0].props.style).writingDirection, "ltr");
@@ -364,7 +367,12 @@ console.log(
     assert.equal(compact.props.accessibilityState.selected, false);
     assert.equal(expanded.props.accessibilityHint, language.t("customers.balanceFilter.clear"));
     assert.ok(
-      !nodes(compact).some((node) => node.type === "Text" && node.props.adjustsFontSizeToFit),
+      !nodes(compact).some(
+        (node) =>
+          node.type === "Text" &&
+          node.props.adjustsFontSizeToFit &&
+          node.props.minimumFontScale === 0.1,
+      ),
     );
     assert.equal(f.animations.at(-1)!.duration, 200);
     expanded.props.onPress();

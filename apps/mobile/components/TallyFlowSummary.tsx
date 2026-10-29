@@ -251,6 +251,9 @@ function TallyFlowFilterFooter({
                 />
                 <Text
                   accessible={false}
+                  numberOfLines={compact ? 2 : 1}
+                  adjustsFontSizeToFit
+                  maxFontSizeMultiplier={1.3}
                   style={[
                     styles.footerLabel,
                     styles.flowButtonLabel,
@@ -327,7 +330,7 @@ const styles = StyleSheet.create({
   flowHeading: { flexDirection: "row", direction: "ltr", alignItems: "center", gap: 5 },
   flowButtonLabel: { flex: 1, minWidth: 0 },
   compactFlowButton: { paddingHorizontal: 6, alignItems: "center" },
-  compactFlowHeading: { flexDirection: "column", gap: 4 },
+  compactFlowHeading: { flexDirection: "column", gap: 4, maxWidth: "100%" },
   compactFlowLabel: { flex: 0, textAlign: "center", color: colors.textDefault },
   disabledFlowButton: { opacity: 0.55 },
   footerColumn: { flex: 1, minWidth: 0, gap: 4 },
