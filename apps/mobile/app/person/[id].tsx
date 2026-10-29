@@ -2955,7 +2955,7 @@ export default function PersonDetailScreen() {
                     revealNotificationTally();
                   }}
                 >
-                  {directionalFiltering || tallyFilter.sort !== "recent" ? (
+                  {directionalFiltering || dateRange != null || tallyFilter.sort !== "recent" ? (
                     <View testID="customer-tally-filter-chips" style={styles.tallyFilterChips}>
                       <Pressable
                         accessibilityRole="button"
@@ -3012,6 +3012,30 @@ export default function PersonDetailScreen() {
                             <Ionicons name="close" size={14} color={colors.textSubtle} />
                           </Pressable>
                         ))}
+                        {dateRange ? (
+                          <Pressable
+                            testID="customer-tally-date-chip"
+                            accessibilityRole="button"
+                            accessibilityLabel={t("person.date.active", { range: dateRangeLabel })}
+                            accessibilityHint={t("person.date.clear")}
+                            onPress={() => {
+                              if (searchIsCurrent()) setDateRange(null);
+                            }}
+                            style={[styles.tallyFilterChip, rowDir(isRTL)]}
+                          >
+                            <Text
+                              numberOfLines={2}
+                              style={[
+                                styles.searchSummary,
+                                styles.tallyFilterChipLabel,
+                                textDir(isRTL),
+                              ]}
+                            >
+                              {dateRangeLabel}
+                            </Text>
+                            <Ionicons name="close" size={14} color={colors.textSubtle} />
+                          </Pressable>
+                        ) : null}
                         {tallyFilter.sort !== "recent" ? (
                           <Pressable
                             accessibilityRole="button"
@@ -3463,34 +3487,6 @@ export default function PersonDetailScreen() {
                           </Pressable>
                         </SearchControlSlot>
                       </View>
-                      {dateRange ? (
-                        <View style={[styles.dateSummary, rowDir(isRTL)]}>
-                          <Pressable
-                            style={styles.dateSummaryLabel}
-                            onPress={() => {
-                              if (!searchIsCurrent()) return;
-                              dismissSearchKeyboard();
-                              setDateSheetVisible(true);
-                            }}
-                            accessibilityRole="button"
-                            accessibilityLabel={t("person.date.active", { range: dateRangeLabel })}
-                          >
-                            <Text numberOfLines={2} style={[styles.searchSummary, textDir(isRTL)]}>
-                              {dateRangeLabel}
-                            </Text>
-                          </Pressable>
-                          <Pressable
-                            style={styles.clearDate}
-                            onPress={() => {
-                              if (searchIsCurrent()) setDateRange(null);
-                            }}
-                            accessibilityRole="button"
-                            accessibilityLabel={t("person.date.clear")}
-                          >
-                            <Ionicons name="close" size={16} color={colors.textSubtle} />
-                          </Pressable>
-                        </View>
-                      ) : null}
                       {searching ? (
                         <Text
                           style={[styles.searchSummary, textDir(isRTL)]}
@@ -4052,14 +4048,6 @@ const styles = StyleSheet.create({
     borderRadius: radius.sm,
   },
   dateButtonActive: { backgroundColor: colors.bgMuted, borderColor: colors.borderEmphasis },
-  dateSummary: { alignItems: "center", gap: 4 },
-  dateSummaryLabel: { flex: 1, justifyContent: "center", minHeight: TOUCH_MIN },
-  clearDate: {
-    minWidth: TOUCH_MIN,
-    minHeight: TOUCH_MIN,
-    alignItems: "center",
-    justifyContent: "center",
-  },
   searchBox: {
     flex: 1,
     flexDirection: "row",
