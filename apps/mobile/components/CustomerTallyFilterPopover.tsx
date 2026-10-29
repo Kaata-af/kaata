@@ -24,7 +24,7 @@ type Props = Omit<ComponentProps<typeof HomeFilterPopover>, "children"> & {
   isRTL: boolean;
 };
 
-/** Same full-height overlay as Home; all changes affect the visible ledger only. */
+/** Same content-sized overlay as Home; all changes affect the visible ledger only. */
 export function CustomerTallyFilterPopover(props: Props) {
   const {
     filter: _filter,

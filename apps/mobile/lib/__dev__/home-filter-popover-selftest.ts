@@ -96,9 +96,9 @@ for (const viewport of [
     const panelBottom = viewport.height - layout.bottom;
     assert.equal(panelBottom, anchor.y - 8, "Popup ends directly above its physical trigger");
     assert.equal(
-      panelBottom - layout.height,
+      panelBottom - layout.maxHeight,
       12,
-      "The popup fills the height up to the safe top edge without a fixed cap",
+      "The content-sized popup can grow up to the safe top edge before scrolling",
     );
     assert.ok(layout.arrowLeft >= 12 && layout.arrowLeft <= layout.width - 22);
     assert.equal(
@@ -117,7 +117,7 @@ for (const topInset of [24, 47, 59]) {
   const layout = filterPopoverLayout(keyboardAnchor, fullWindow);
   const bottom = fullWindow.height - layout.bottom;
   assert.equal(bottom, keyboardAnchor.y - 8);
-  assert.equal(bottom - layout.height, topInset + 12);
+  assert.equal(bottom - layout.maxHeight, topInset + 12);
   assert.equal(layout.width, fullWindow.width - 24);
   assert.equal(layout.left, 12);
 }
@@ -154,9 +154,14 @@ assert.equal(popup().filter((node) => node.type === "Modal").length, 0);
 assert.equal(flattenStyle(hooks.tree.props.style).zIndex, 40);
 assert.equal(popup().find((node) => node.type === "ScrollView")!.props.nestedScrollEnabled, true);
 assert.equal(
-  flattenStyle(popup().find((node) => node.type === "ScrollView")!.props.style).flex,
+  flattenStyle(popup().find((node) => node.type === "ScrollView")!.props.style).flexGrow,
+  0,
+  "Short filter controls use their own content height rather than filling the available panel",
+);
+assert.equal(
+  flattenStyle(popup().find((node) => node.type === "ScrollView")!.props.style).flexShrink,
   1,
-  "Filter controls scroll within the full-height panel",
+  "Long filter controls shrink and scroll within the available panel height",
 );
 assert.equal(
   popup().filter(
