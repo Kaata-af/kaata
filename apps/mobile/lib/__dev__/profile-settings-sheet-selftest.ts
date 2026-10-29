@@ -171,6 +171,14 @@ for (const rtl of [false, true])
           ["NavRow", "Gap", "SectionHeader"].includes(node.type),
         );
         const notification = form.row("notificationSettings.title");
+        assert.equal(
+          sections.filter(
+            (node) => node.type === "NavRow" && node.props.label === "notificationSettings.title",
+          ).length,
+          1,
+          "Profile settings provides exactly one global notification entry",
+        );
+        assert.equal(notification.props.hint, undefined, "Notifications remains a single-line row");
         const index = sections.indexOf(notification);
         assert.equal(sections[index - 1]?.type, "Gap");
         assert.equal(
@@ -223,6 +231,7 @@ for (const [label, expected] of [
   ["menu.account.signOut", "sign-out"],
   ["menu.thisKaata.settings", "manage"],
   ["menu.allKaatas.add", "add"],
+  ["notificationSettings.title", "/notification-settings"],
 ] as const) {
   const form = fixture();
   const action = form.row(label);

@@ -3321,6 +3321,7 @@ const accountHooks = hookStore();
 // What GET /v1/account/me answers (null: unreachable), the session, the name state.
 let accountMe: Record<string, unknown> | null = null;
 let accountSession: "provider" | "email" | null = "email";
+let accountSignedIn = true;
 let accountNameStateNow: "settled" | "owed" | "invalid" = "settled";
 let accountCalls: string[] = [];
 let accountToasts: Array<[string, unknown]> = [];
@@ -3415,7 +3416,7 @@ const accountModule = load<{ default: () => unknown }>("../../app/account", {
       if (!accountMe) throw new auth.SignInFailedError("network", "offline");
       return accountMe;
     },
-    getSessionJWT: async () => "jwt",
+    getSessionJWT: async () => (accountSignedIn ? "jwt" : null),
     hasPendingAccountDeletion: async () => false,
     removePassword: async () => {},
     resetRetiredInstall: async () => {},
@@ -3527,12 +3528,14 @@ async function openAccount(over: {
   nameState?: "settled" | "owed" | "invalid";
   locale?: import("../i18n").LocaleCode;
   country?: string;
+  signedIn?: boolean;
 }): Promise<Node[]> {
   accountHooks.reset();
   accountLocale = over.locale ?? "en";
   accountDefaultCountry = over.country ?? "AF";
   accountMe = over.me === undefined ? null : over.me;
   accountSession = over.session ?? "email";
+  accountSignedIn = over.signedIn ?? true;
   accountNameStateNow = over.nameState ?? "settled";
   accountCalls = [];
   accountToasts = [];
@@ -3644,6 +3647,24 @@ const accountMeOf = (providers: string[]) => ({
   providers,
   name: "Ahmad Karimi",
   setupEmail: null,
+});
+
+componentTest("account: global notifications have one home in Profile settings", async () => {
+  for (const locale of ["en", "fa", "ps"] as const)
+    for (const signedIn of [false, true]) {
+      const tree = await openAccount({ locale, signedIn, me: accountMeOf(["email"]) });
+      const rows = tree.filter((node) => node.type === "NavRow");
+      assert.ok(
+        !rows.some((node) => node.props.label === "notificationSettings.title"),
+        "Account settings must not duplicate the global Notifications entry",
+      );
+      assert.ok(rows.some((node) => node.props.label === "settings.language.label"));
+      assert.ok(
+        tree.some((node) => node.type === "MotionPreferenceSetting"),
+        "Other personal preferences remain available in both session states",
+      );
+      assert.deepEqual(accountRoutes, [], "Reading account preferences does not redirect");
+    }
 });
 
 componentTest(

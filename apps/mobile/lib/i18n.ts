@@ -17,9 +17,9 @@ const en = {
     "Some shared-alert changes are waiting to sync. Connect to the internet to apply them.",
   "tab.link.clientUpdate": "Update Kaata to use notification-only tallies.",
   "notificationSettings.title": "Notifications",
-  "notificationSettings.contact.title": "Notification settings",
+  "notificationSettings.contact.title": "Contact notifications",
   "notificationSettings.description":
-    "Personal settings for this phone. Your tallies and approval history stay unchanged.",
+    "Default notification settings for all your Kaatas on this phone. You can customize alerts for individual contacts from their pages.",
   "notificationSettings.contact.hint":
     "Applies to this contact in this Kaata, across all currencies.",
   "notificationSettings.useDefaults": "Use app settings",
@@ -2426,9 +2426,9 @@ const fa: Partial<Record<Key, string>> = {
     "بعضی تغییرات هشدارهای حساب وصل‌شده در انتظار همگام‌سازی است. برای تطبیق آن به انترنت وصل شوید.",
   "tab.link.clientUpdate": "برای استفاده از ثبت‌های بدون نیاز به تأیید، کاتا را به‌روز کنید.",
   "notificationSettings.title": "اطلاعیه‌ها",
-  "notificationSettings.contact.title": "تنظیمات اطلاعیه‌ها",
+  "notificationSettings.contact.title": "اطلاعیه‌های مخاطب",
   "notificationSettings.description":
-    "تنظیمات شخصی این تلفون. ثبت‌ها و سابقۀ تأیید شما تغییر نمی‌کند.",
+    "تنظیمات پیش‌فرض اطلاعیه‌ها برای تمام کاتاهای شما در این تلفون. اطلاعیه‌های هر مخاطب را می‌توانید از صفحهٔ خودش تنظیم کنید.",
   "notificationSettings.contact.hint": "برای این مخاطب در این کاتا، در تمام اسعار تطبیق می‌شود.",
   "notificationSettings.useDefaults": "استفاده از تنظیمات برنامه",
   "notificationSettings.useDefaults.hint": "برای تنظیم جداگانۀ اطلاعیه‌های این مخاطب خاموش کنید.",
@@ -4564,9 +4564,9 @@ const ps: Record<Key, string> = {
     "د نښلولي حساب د خبرتیاوو ځینې بدلونونه همغږۍ ته په تمه دي. د پلي کېدو لپاره یې له انټرنېټ سره ونښلئ.",
   "tab.link.clientUpdate": "د بې تاییده ثبتونو د کارولو لپاره کاټا تازه کړئ.",
   "notificationSettings.title": "خبرتیاوې",
-  "notificationSettings.contact.title": "د خبرتیاوو امستنې",
+  "notificationSettings.contact.title": "د اړیکې خبرتیاوې",
   "notificationSettings.description":
-    "د دې ټیلیفون شخصي امستنې. ثبتونه او د تایید مخینه مو نه بدلېږي.",
+    "په دې ټیلیفون کې ستاسو د ټولو کاټاګانو د خبرتیاوو اصلي امستنې. د هرې اړیکې خبرتیاوې د هغې له پاڼې بدلولای شئ.",
   "notificationSettings.contact.hint": "په دې کاټا کې د دې اړیکې پر ټولو اسعارو پلي کېږي.",
   "notificationSettings.useDefaults": "د اپ امستنې کارول",
   "notificationSettings.useDefaults.hint": "د دې اړیکې د خبرتیاوو د جلا امستلو لپاره یې بند کړئ.",
