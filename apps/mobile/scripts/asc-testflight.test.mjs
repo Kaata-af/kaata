@@ -6,13 +6,13 @@ import { readFileSync } from "node:fs";
 import { enableBuild, makeClient, parseArgs, setNotes, status } from "./asc-testflight.mjs";
 
 const APP_ID = "6789651127";
-const BUILD_ID = "test-build-45";
+const BUILD_ID = "test-build-46";
 const GROUP_ID = "fcb33597-43b6-42ba-8582-b85d26fc3895";
 const cfg = {
   appId: APP_ID,
   bundleId: "af.kaata.app",
   version: "2.3.0",
-  buildNumber: "45",
+  buildNumber: "46",
   exemptEncryption: true,
 };
 const opts = {
@@ -38,7 +38,7 @@ function fixture(overrides = {}, options = opts, notesGrant = null) {
     type: "builds",
     id: BUILD_ID,
     attributes: {
-      version: "45",
+      version: "46",
       processingState: "VALID",
       expired: false,
       usesNonExemptEncryption: false,
@@ -72,7 +72,7 @@ function fixture(overrides = {}, options = opts, notesGrant = null) {
     assert.equal(url.origin, "https://api.appstoreconnect.apple.com");
     assert.equal(init.redirect, "error");
     if (init.method === "POST" && route === "/betaBuildLocalizations") {
-      const localization = { ...body.data, id: "english-notes-45" };
+      const localization = { ...body.data, id: "english-notes-46" };
       localizations.push(localization);
       return Response.json({ data: localization }, { status: 201 });
     }
@@ -138,7 +138,7 @@ function fixture(overrides = {}, options = opts, notesGrant = null) {
       return Response.json({
         data: {
           type: "buildBetaDetails",
-          id: "detail-45",
+          id: "detail-46",
           attributes: {
             internalBuildState: state,
             externalBuildState: "READY_FOR_BETA_SUBMISSION",
@@ -274,7 +274,7 @@ test("wrong train, wrong number, invalid processing, expired build and unrelated
 });
 
 test("enable refuses a different local build number or a different internal group before requests", async () => {
-  for (const buildNumber of ["39", "40", "41", "42", "43", "44", "46", "", "forty"]) {
+  for (const buildNumber of ["39", "40", "41", "42", "43", "44", "45", "47", "", "forty"]) {
     const { asc, calls } = fixture();
     await assert.rejects(enableBuild(asc, { ...cfg, buildNumber }, opts), /restricted/);
     assert.equal(calls.length, 0);
@@ -398,7 +398,7 @@ test("notes creates only English beta metadata for the verified test build, pres
     ],
   );
   assert.equal(result.locale, "en-US");
-  assert.equal(result.localizationId, "english-notes-45");
+  assert.equal(result.localizationId, "english-notes-46");
   assert.equal(result.characters, notes.text.length);
   assert.equal(result.changed, true);
   assert.equal(result.production.versions[0].buildId, "production-build-39");
@@ -408,7 +408,7 @@ test("notes creates only English beta metadata for the verified test build, pres
 test("notes updates only the exact build's existing English localization and is idempotent", async () => {
   const english = {
     type: "betaBuildLocalizations",
-    id: "english-notes-45",
+    id: "english-notes-46",
     attributes: { locale: "en-US", whatsNew: "Old test notes" },
   };
   const otherLocale = {
@@ -423,11 +423,11 @@ test("notes updates only the exact build's existing English localization and is 
     [
       {
         method: "PATCH",
-        route: "/betaBuildLocalizations/english-notes-45",
+        route: "/betaBuildLocalizations/english-notes-46",
         body: {
           data: {
             type: "betaBuildLocalizations",
-            id: "english-notes-45",
+            id: "english-notes-46",
             attributes: { whatsNew: notes.text },
           },
         },
@@ -480,13 +480,13 @@ test("notes capability cannot be granted to another local version or build", () 
     { ...cfg, buildNumber: "39" },
     { ...cfg, buildNumber: "41" },
   ])
-    assert.throws(() => makeClient(local, { notes }), /exact 2\.3\.0 \/ 45/);
+    assert.throws(() => makeClient(local, { notes }), /exact 2\.3\.0 \/ 46/);
 });
 
 test("notes capability requires preflight and blocks unrelated IDs, changed payloads and App Store metadata", async () => {
   const english = {
     type: "betaBuildLocalizations",
-    id: "english-notes-45",
+    id: "english-notes-46",
     attributes: { locale: "en-US", whatsNew: "Old" },
   };
   const { asc, calls } = fixture({ localizations: [english] }, null, notes);

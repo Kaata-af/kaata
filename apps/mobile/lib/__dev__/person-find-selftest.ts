@@ -210,9 +210,12 @@ const nodes = (node: any): Node[] =>
                 : null
               : node.type === "HomeFilterPopover" && (!node.props.visible || !node.props.anchor)
                 ? null
-                : node.type === "SearchControlSlot" && !node.props.visible
+                : node.type === "SettledAccountsSection" &&
+                    (node.props.count <= 0 || !node.props.expanded)
                   ? null
-                  : node.props?.children,
+                  : node.type === "SearchControlSlot" && !node.props.visible
+                    ? null
+                    : node.props?.children,
           ),
         ];
 const text = (node: any): string =>
@@ -487,6 +490,7 @@ const libMocks: Record<string, any> = {
   "customer-list": require("../customer-list"),
   "selection-summary": require("../selection-summary"),
   "multi-currency-view": require("../multi-currency-view"),
+  "settled-customers": require("../settled-customers"),
   "profile-settings-context": { ProfileSettingsSource: "Settings" },
   "customer-groups": { readCustomerGroups: async () => ({ ...groupState, groupByPerson: {} }) },
   "credit-limits": {
@@ -642,6 +646,7 @@ const componentMocks: Record<string, any> = {
   HomeBalanceSummary: { HomeBalanceSummary: "HomeBalanceSummary" },
   HomeBalanceFilterSwipe: { HomeBalanceFilterSwipe: "HomeBalanceFilterSwipe" },
   HomeFilterPopover: { HomeFilterPopover: "HomeFilterPopover" },
+  SettledAccountsSection: { SettledAccountsSection: "SettledAccountsSection" },
   SelectionToolbar: { SelectionToolbar: "SelectionToolbar", SelectionMark: "SelectionMark" },
   SelectionMark: { SelectionMark: "SelectionMark" },
   ProfileSettingsSheet: { ProfileSettingsSheet: "Settings" },
@@ -1904,6 +1909,9 @@ async function main() {
   ledgerEvents.emitLedgerApplied(vaultId, "remote");
   await runTimers();
   assert.deepEqual(homeIds(), ["zain", "matee", "aa3h"], "Reload preserves an explicit Home sort");
+  assert.equal(byLabel("search.clearAll"), undefined, "A sort choice alone is not a filter");
+  find("TextInput")!.props.onChangeText("Matee");
+  await flush();
   byLabel("search.clearAll")!.props.onPress();
   await flush();
   assert.deepEqual(homeOptions().props.preference, {
