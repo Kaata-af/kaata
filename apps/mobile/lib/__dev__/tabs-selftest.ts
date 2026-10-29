@@ -45,6 +45,8 @@ import type {
 
 let fixture: Database.Database;
 let afterMissingRelationshipRead: (() => void) | null = null;
+type ObservedRead = { sql: string; args: unknown[]; rows: number };
+let observedReads: ObservedRead[] | null = null;
 
 const sqlite = {
   execAsync: async (sql: string) => {
@@ -64,7 +66,11 @@ const sqlite = {
     }
     return row;
   },
-  getAllAsync: async (sql: string, ...args: unknown[]) => fixture.prepare(sql).all(...args),
+  getAllAsync: async (sql: string, ...args: unknown[]) => {
+    const rows = fixture.prepare(sql).all(...args);
+    observedReads?.push({ sql, args, rows: rows.length });
+    return rows;
+  },
   withTransactionAsync: async (callback: () => Promise<void>) => {
     fixture.exec("BEGIN");
     try {
@@ -337,6 +343,7 @@ function openFixture(): void {
   ledgerEmits.length = 0;
   server.reset();
   afterMissingRelationshipRead = null;
+  observedReads = null;
 }
 
 function count(table: string, where = ""): number {
@@ -1624,6 +1631,163 @@ async function main(): Promise<void> {
       assert.equal(bList[0].tab?.by, "me");
     } finally {
       off();
+    }
+  });
+
+  await test("pull cache: idle polls skip history; deltas and full replacements compare only received rows", async () => {
+    await tabsDb.upsertTabLink(link());
+    const history = Array.from({ length: 2400 }, (_, index) =>
+      server.seed({
+        id: `old-${index}`,
+        created_by: "a",
+        direction: "a_to_b",
+        amount: "1",
+      }),
+    );
+    const oldTheirs = server.seed({
+      id: "old-theirs",
+      created_by: "b",
+      direction: "b_to_a",
+      amount: "2",
+    });
+    await tabsDb.upsertTabFromWire(link(), {
+      tab: server.view("a"),
+      entries: server.entries,
+      full: true,
+    });
+    await tabsDb.insertOptimisticEntry(link(), {
+      id: "unsent",
+      type: "debt",
+      amount: 3,
+      note: null,
+      occurred_at: 20_000,
+    });
+    const before = fixture.prepare("SELECT * FROM tab_entries ORDER BY id").all();
+    const applied: import("../tabs/types").TabAppliedEvent[] = [];
+    const off = events.onTabApplied((event) => applied.push(event));
+    const readResponse = async (response: TabResponse) => {
+      const reads: ObservedRead[] = [];
+      observedReads = reads;
+      try {
+        const result = await tabsDb.upsertTabFromWire(link(), response);
+        return {
+          result,
+          reads: reads.filter((read) => /\bFROM\s+tab_entries\b/i.test(read.sql)),
+        };
+      } finally {
+        observedReads = null;
+      }
+    };
+    try {
+      const quietLedger = ledgerEmits.length;
+      const idle = await readResponse({ tab: server.view("a"), entries: [], full: false });
+      assert.deepEqual(idle.result, { newFromThem: 0, statusChangedOnMine: 0 });
+      assert.equal(idle.reads.length, 0, "An unchanged poll never materializes cached history");
+      assert.deepEqual(fixture.prepare("SELECT * FROM tab_entries ORDER BY id").all(), before);
+      assert.equal(applied.length, 0, "An idle response does not refresh screens or send notices");
+      assert.equal(ledgerEmits.length, quietLedger);
+
+      // Empty entry pages may still change link metadata. Skipping history is
+      // not an early return that loses a newly joined party or its label.
+      server.parties.b.label = "Renamed party";
+      const metadata = await readResponse({ tab: server.view("a"), entries: [], full: false });
+      assert.equal(metadata.reads.length, 0);
+      assert.equal(storedLink().other_label, "Renamed party");
+      assert.equal(applied.length, 1);
+      assert.equal(ledgerEmits.length, quietLedger + 1);
+
+      const reviewed = history.slice(0, 601);
+      for (const entry of reviewed) {
+        entry.status = "accepted";
+        entry.status_at_ms = 30_000;
+        entry.rev = ++server.rev;
+      }
+      const voidMine = server.seed({
+        id: "void-mine",
+        created_by: "a",
+        direction: "b_to_a",
+        amount: "1",
+        kind: "void",
+        status: "accepted",
+        voids_entry_id: reviewed[0].id,
+      });
+      reviewed[0].voided_by_entry_id = voidMine.id;
+      reviewed[0].rev = ++server.rev;
+      const voidTheirs = server.seed({
+        id: "void-theirs",
+        created_by: "b",
+        direction: "a_to_b",
+        amount: "2",
+        kind: "void",
+        status: "accepted",
+        voids_entry_id: oldTheirs.id,
+      });
+      oldTheirs.voided_by_entry_id = voidTheirs.id;
+      oldTheirs.rev = ++server.rev;
+      const newTheirs = server.seed({
+        id: "new-theirs",
+        created_by: "b",
+        direction: "b_to_a",
+        amount: "4",
+      });
+      const delta = await readResponse({
+        tab: server.view("a"),
+        entries: [...reviewed, oldTheirs, voidMine, voidTheirs, newTheirs],
+        full: false,
+      });
+      assert.deepEqual(delta.result, { newFromThem: 1, statusChangedOnMine: 601 });
+      assert.equal(
+        delta.reads.reduce((sum, read) => sum + read.rows, 0),
+        602,
+        "Only received existing rows cross the SQLite boundary, not the other 1,800 rows",
+      );
+      assert.ok(
+        delta.reads.length > 1 && delta.reads.every((read) => read.args.length <= 501),
+        "Large responses stay within a conservative SQLite bind limit",
+      );
+      const notices = applied.at(-1)!.changes!;
+      for (const [entryId, kind] of [
+        [reviewed[0].id, "entry_voided"],
+        [reviewed[1].id, "entry_accepted"],
+        [oldTheirs.id, "entry_voided"],
+        [newTheirs.id, "entry_created"],
+      ])
+        assert.ok(notices.some((notice) => notice.entryId === entryId && notice.kind === kind));
+      assert.equal(applied.length, 2, "The delta publishes one committed change event");
+
+      // Compare prior states before deleting an authoritative full snapshot.
+      // Existing received rows must not be announced as new after replacement.
+      server.entries = [reviewed[1], newTheirs];
+      server.rev++;
+      const replaced = await readResponse({
+        tab: server.view("a"),
+        entries: server.entries,
+        full: true,
+      });
+      assert.deepEqual(replaced.result, { newFromThem: 0, statusChangedOnMine: 0 });
+      assert.equal(
+        replaced.reads.reduce((sum, read) => sum + read.rows, 0),
+        2,
+      );
+      assert.equal(count("tab_entries"), 3, "Omitted acknowledged history is removed");
+      assert.equal(count("tab_entries", "WHERE id='unsent' AND local_pending=1"), 1);
+      assert.equal(applied.length, 3);
+
+      server.entries = [];
+      server.rev++;
+      const cleared = await readResponse({ tab: server.view("a"), entries: [], full: true });
+      assert.deepEqual(cleared.result, { newFromThem: 0, statusChangedOnMine: 0 });
+      assert.equal(cleared.reads.length, 0);
+      assert.equal(
+        count("tab_entries"),
+        1,
+        "An empty full snapshot still clears acknowledged rows",
+      );
+      assert.equal(count("tab_entries", "WHERE id='unsent' AND local_pending=1"), 1);
+      assert.equal(applied.length, 4);
+    } finally {
+      off();
+      observedReads = null;
     }
   });
 

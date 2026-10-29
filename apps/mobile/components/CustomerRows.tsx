@@ -91,6 +91,9 @@ export function CustomerRows({
     let visibleIndex = 0;
     return rows.map(({ person, hidden }) => {
       const divider = !hidden && visibleIndex++ > 0;
+      // Visibility belongs to this wrapper and the live callback lease. Keep
+      // it out of PersonRow's props so a filter can hide/reveal an unchanged
+      // memoized row without rebuilding its text and currency descendants.
       return (
         <View
           key={person.id}
@@ -111,7 +114,7 @@ export function CustomerRows({
             }
             selecting={props.selecting}
             selected={props.selecting && props.selectedIds?.has(person.id)}
-            disabled={props.selectionBusy || hidden}
+            disabled={props.selectionBusy}
             showDirection={props.showDirection}
           />
         </View>

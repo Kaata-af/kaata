@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useIsFocused } from "expo-router";
-import { useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   AccessibilityInfo,
   AppState,
@@ -25,12 +25,16 @@ import { getCurrentCurrencyCode, getCurrencyLabel, getCurrencySymbol } from "../
 import { textDir, useIsRTL } from "../lib/direction";
 import { fonts } from "../lib/fonts";
 import { formatAmount } from "../lib/format";
-import { t } from "../lib/i18n";
+import { getLocale, t, type LocaleCode } from "../lib/i18n";
 import { currencyBalances } from "../lib/multi-currency-view";
 import type { PersonWithBalance } from "../lib/types";
 import { useSheetMotionPreference } from "./SheetBackdrop";
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
+const PAGE_GAP = 12;
+// Android prefetch catch-up must settle before its page can be painted. Keep
+// iOS's existing passive layout timing and presentation unchanged.
+const useCardLayoutEffect = Platform.OS === "android" ? useLayoutEffect : useEffect;
 
 // Use the same balance colors as the customer page for amounts and arrows.
 const board = {
@@ -92,6 +96,7 @@ export function HomeBalanceSummary({
   interactionEnabled?: boolean;
 }) {
   const isRTL = useIsRTL();
+  const locale = getLocale();
   const focused = useIsFocused();
   const { width, fontScale = 1 } = useWindowDimensions();
   // Android can resize the window for the IME. Only the physical screen size
@@ -104,7 +109,7 @@ export function HomeBalanceSummary({
   const viewport = measuredWidth || Math.max(0, width - 32);
   const multiple = rows.length > 1;
   const pageWidth = Math.max(0, viewport);
-  const step = pageWidth + 12;
+  const step = pageWidth + PAGE_GAP;
   const cardHeight =
     (small ? (fontScale > 1.3 ? 114 : 104) : fontScale > 1.3 ? 144 : 132) -
     (multiple ? 0 : small ? 28 : 32);
@@ -224,23 +229,26 @@ export function HomeBalanceSummary({
       settleTimer.current = null;
     };
   }, []);
-  const stopAutomaticScroll = () => {
+  const stopAutomaticScroll = useCallback(() => {
     if (!mounted.current) return;
     stopped.current = true;
     setManuallyStopped(true);
-  };
-  const toggleDirection = (side: "collect" | "pay", rowCurrency: string) => {
-    const latest = latestInteraction.current;
-    if (
-      !mounted.current ||
-      !latest.enabled ||
-      !latest.onDirectionChange ||
-      !latest.currencies.includes(rowCurrency)
-    )
-      return;
-    stopAutomaticScroll();
-    latest.onDirectionChange(side, rowCurrency);
-  };
+  }, []);
+  const toggleDirection = useCallback(
+    (side: "collect" | "pay", rowCurrency: string) => {
+      const latest = latestInteraction.current;
+      if (
+        !mounted.current ||
+        !latest.enabled ||
+        !latest.onDirectionChange ||
+        !latest.currencies.includes(rowCurrency)
+      )
+        return;
+      stopAutomaticScroll();
+      latest.onDirectionChange(side, rowCurrency);
+    },
+    [stopAutomaticScroll],
+  );
   const currentGeometry = () => mounted.current && latest.current.epoch === epoch;
   const cancelSettle = () => {
     settleVersion.current++;
@@ -253,10 +261,12 @@ export function HomeBalanceSummary({
     loop ? (physical - 1 + rows.length) % rows.length : physical;
   const observeMotionOffset = (x: number) => {
     if (Platform.OS !== "android") return;
-    const page = x / step;
     const lastPage = rows.length - 1 + (loop ? 2 : 0);
-    const first = Math.max(0, Math.min(lastPage, Math.floor(page)));
-    const last = Math.max(first, Math.min(lastPage, Math.ceil(page)));
+    // Card rectangles exclude the gap. Fractional native offsets near a snap
+    // must not treat the empty gutter as a second visible page; genuine partial
+    // card intersections still keep both pages current and animated.
+    const first = Math.max(0, Math.min(lastPage, Math.floor((x + PAGE_GAP) / step)));
+    const last = Math.max(first, Math.min(lastPage, Math.ceil((x + pageWidth) / step) - 1));
     setMotionPages((previous) =>
       previous.epoch === epoch && previous.first === first && previous.last === last
         ? previous
@@ -391,6 +401,14 @@ export function HomeBalanceSummary({
     ...rows.map((row) => ({ row, kind: "real" as const })),
     ...(loop ? [{ row: rows[0], kind: "trailing" as const }] : []),
   ];
+  const prefetchedCurrencies = new Set(
+    pages
+      .filter(
+        (_, physical) =>
+          physical >= visibleMotionPages.first - 1 && physical <= visibleMotionPages.last + 1,
+      )
+      .map(({ row }) => row.currency),
+  );
   const summaryLabel = current.pending
     ? `${getCurrencyLabel(current.currency)}, ${t("home.total.pending")}`
     : `${getCurrencyLabel(current.currency)}, ${t("home.total.label.collect")}: ${formatAmount(current.collect)}, ${t("home.total.label.pay")}: ${formatAmount(current.pay)}`;
@@ -423,7 +441,7 @@ export function HomeBalanceSummary({
         horizontal
         accessible={false}
         style={{ height: cardHeight, flexGrow: 0, direction: "ltr" }}
-        contentContainerStyle={{ gap: 12, direction: "ltr" }}
+        contentContainerStyle={{ gap: PAGE_GAP, direction: "ltr" }}
         scrollEnabled={multiple}
         showsHorizontalScrollIndicator={false}
         // Absolute targets avoid accumulated interval rounding on Android
@@ -498,7 +516,9 @@ export function HomeBalanceSummary({
             small={small}
             fontScale={fontScale}
             isRTL={isRTL}
+            locale={locale}
             reducedMotion={reducedMotion}
+            prefetched={Platform.OS !== "android" || prefetchedCurrencies.has(row.currency)}
             animationEnabled={
               Platform.OS !== "android" ||
               (active &&
@@ -557,9 +577,49 @@ export function HomeBalanceSummary({
   );
 }
 
+type CurrencyBalanceCardProps = {
+  idPrefix?: string;
+  row: HomeCurrencyBalance;
+  multiple: boolean;
+  pageWidth: number;
+  cardHeight: number;
+  small: boolean;
+  fontScale: number;
+  isRTL: boolean;
+  locale: LocaleCode;
+  reducedMotion: boolean;
+  prefetched: boolean;
+  animationEnabled: boolean;
+  direction: CustomerBalanceFilter;
+  visible: boolean;
+  enabled: boolean;
+  onDirectionChange: (side: "collect" | "pay", currency: string) => void;
+};
+
+function sameAndroidCard(before: CurrencyBalanceCardProps, after: CurrencyBalanceCardProps) {
+  if (Platform.OS !== "android") return false;
+  // Data, language (including Dari → Pashto), dimensions, motion and access
+  // changes always publish. Only a far page's direction may wait; entering the
+  // viewport-plus-neighbors range forces a fresh render before it is needed.
+  const keys = Object.keys(after) as (keyof CurrencyBalanceCardProps)[];
+  if (Object.keys(before).length !== keys.length) return false;
+  return keys.every((key) => {
+    if (key === "direction" && !after.prefetched) return true;
+    if (key === "row")
+      return (
+        before.row.currency === after.row.currency &&
+        Object.is(before.row.collect, after.row.collect) &&
+        Object.is(before.row.pay, after.row.pay) &&
+        before.row.pending === after.row.pending
+      );
+    return Object.is(before[key], after[key]);
+  });
+}
+
 /** Each denomination owns its animation so a currency-specific filter never
- * stretches another currency's collect/pay pair. */
-function CurrencyBalanceCard({
+ * stretches another currency's collect/pay pair. Android defers far-page-only
+ * direction changes instead of rebuilding their native text on every swipe. */
+const CurrencyBalanceCard = memo(function CurrencyBalanceCard({
   idPrefix = "home-balance",
   row,
   multiple,
@@ -569,27 +629,13 @@ function CurrencyBalanceCard({
   fontScale,
   isRTL,
   reducedMotion,
+  prefetched,
   animationEnabled,
   direction,
   visible,
   enabled,
   onDirectionChange,
-}: {
-  idPrefix?: string;
-  row: HomeCurrencyBalance;
-  multiple: boolean;
-  pageWidth: number;
-  cardHeight: number;
-  small: boolean;
-  fontScale: number;
-  isRTL: boolean;
-  reducedMotion: boolean;
-  animationEnabled: boolean;
-  direction: CustomerBalanceFilter;
-  visible: boolean;
-  enabled: boolean;
-  onDirectionChange: (side: "collect" | "pay", currency: string) => void;
-}) {
+}: CurrencyBalanceCardProps) {
   const innerWidth = Math.max(0, pageWidth - 2);
   const compactWidth = Math.min(innerWidth / 2, fontScale > 1.3 ? 92 : 80);
   const targetCollectWidth =
@@ -609,21 +655,23 @@ function CurrencyBalanceCard({
   const payStyle = useAnimatedStyle(() => ({
     width: Math.max(0, innerWidth - collectWidth.value),
   }));
-  const previousLayout = useRef({ pageWidth, targetCollectWidth });
-  useEffect(() => {
+  const previousLayout = useRef({ pageWidth, targetCollectWidth, prefetched });
+  useCardLayoutEffect(() => {
     // Resize immediately when rotating; only the user's filter change stretches
     // the pair. Amount refreshes and keyboard events never restart this motion.
     const resized = previousLayout.current.pageWidth !== pageWidth;
     const changed = previousLayout.current.targetCollectWidth !== targetCollectWidth;
-    previousLayout.current = { pageWidth, targetCollectWidth };
+    const entering = prefetched && !previousLayout.current.prefetched;
+    previousLayout.current = { pageWidth, targetCollectWidth, prefetched };
     // Comparing requested targets avoids a synchronous UI-runtime read on JS.
-    // Hidden Android pages snap to the final layout and are ready when revealed.
-    if (!resized && !changed && animationEnabled && !reducedMotion) return;
+    // Prefetched neighbors and pages arriving from farther away take their
+    // final layout immediately; a carousel swipe never replays old filters.
+    if (!resized && !changed && !entering && animationEnabled && !reducedMotion) return;
     collectWidth.value =
-      reducedMotion || resized || !animationEnabled
+      reducedMotion || resized || entering || !animationEnabled
         ? targetCollectWidth
         : withTiming(targetCollectWidth, { duration: 200 });
-  }, [targetCollectWidth, pageWidth, reducedMotion, animationEnabled, collectWidth]);
+  }, [targetCollectWidth, pageWidth, reducedMotion, prefetched, animationEnabled, collectWidth]);
   return (
     <View
       testID={`${idPrefix}-${row.currency}`}
@@ -769,7 +817,7 @@ function CurrencyBalanceCard({
       </View>
     </View>
   );
-}
+}, sameAndroidCard);
 
 const styles = StyleSheet.create({
   summary: {

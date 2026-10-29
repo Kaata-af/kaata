@@ -24,6 +24,13 @@ const dividers = (tree: UINode) =>
   wrappers(tree)
     .flatMap(children)
     .filter((node) => node.type === "View" && flattenStyle(node.props.style)?.height === 1);
+const assertMemoPropsEqual = (actual: UINode, expected: UINode, message: string) => {
+  // React.memo's default comparison checks prop values with Object.is. A deep
+  // comparison would miss a fresh person object that still rebuilds native text.
+  assert.deepEqual(Object.keys(actual.props).sort(), Object.keys(expected.props).sort(), message);
+  for (const key of Object.keys(expected.props))
+    assert.ok(Object.is(actual.props[key], expected.props[key]), `${message}: ${key}`);
+};
 
 function fixture(platform: string, people = [a], complete = universe) {
   const hooks = uiHooks();
@@ -82,6 +89,7 @@ assert.deepEqual(
   "Never mount other accounts from the complete universe upfront",
 );
 const initialA = rowFor(test.tree, "a");
+const initialPersonA = personRow(initialA);
 const firstPress = personRow(initialA).props.onPress;
 const firstLongPress = personRow(initialA).props.onLongPress;
 const initialContent = test.tree.props.children;
@@ -101,7 +109,11 @@ const hiddenA = rowFor(test.tree, "a");
 assert.equal(hiddenA.props.pointerEvents, "none");
 assert.equal(hiddenA.props.accessibilityElementsHidden, true);
 assert.equal(hiddenA.props.importantForAccessibility, "no-hide-descendants");
-assert.equal(personRow(hiddenA).props.disabled, true);
+assertMemoPropsEqual(
+  personRow(hiddenA),
+  initialPersonA,
+  "A no-results filter leaves unchanged PersonRow props memo-stable",
+);
 firstPress(a);
 firstLongPress(a);
 assert.equal(
@@ -119,6 +131,11 @@ test.render({ people: universe });
 assert.deepEqual(ids(test.tree), ["a", "b", "c"]);
 assert.equal((rowFor(test.tree, "a") as any).key, (initialA as any).key);
 assert.equal(personRow(rowFor(test.tree, "a")).props.onPress, firstPress);
+assertMemoPropsEqual(
+  personRow(rowFor(test.tree, "a")),
+  initialPersonA,
+  "Restoring all customers reuses the unchanged row's text subtree",
+);
 assert.equal(dividers(test.tree).length, 2);
 assert.equal(hidden(test.tree), false);
 test.render({ people: [c, a, b] });
@@ -202,6 +219,60 @@ assert.deepEqual(
   ["b"],
   "Settled history without active-row retention preserves its existing lifecycle",
 );
+
+const multiA = {
+  ...a,
+  currency: "AFN",
+  currency_balances: [
+    { ...a, currency: "AFN" },
+    { ...a, currency: "USD", balance: -5 },
+  ],
+} as PersonWithBalance;
+const fullRecords = [multiA, b, c];
+const filtering = fixture("android", fullRecords, fullRecords);
+const mountedRows = new Map(
+  wrappers(filtering.tree).map((wrapper: any) => [wrapper.key, personRow(wrapper)]),
+);
+for (const people of [[multiA, c], [b], [], fullRecords, [b], fullRecords]) {
+  filtering.render({ people });
+  const shown = new Set(people.map((person) => person.id));
+  for (const wrapper of wrappers(filtering.tree)) {
+    const id = (wrapper as any).key;
+    assertMemoPropsEqual(
+      personRow(wrapper),
+      mountedRows.get(id)!,
+      "Direction/empty/all filters preserve every unchanged single/multi-currency row's memo props",
+    );
+    assert.equal(hidden(wrapper), !shown.has(id));
+    assert.equal(wrapper.props.pointerEvents, shown.has(id) ? "auto" : "none");
+    assert.equal(wrapper.props.accessibilityElementsHidden, !shown.has(id));
+    assert.equal(
+      wrapper.props.importantForAccessibility,
+      shown.has(id) ? "auto" : "no-hide-descendants",
+    );
+    const beforePress = filtering.pressed.length;
+    const beforeHold = filtering.held.length;
+    // Delayed native/assistive callbacks retained before the filter still
+    // resolve against visible IDs, not the leaf's unchanged disabled prop.
+    mountedRows.get(id)!.props.onPress(fullRecords.find((person) => person.id === id));
+    mountedRows.get(id)!.props.onLongPress(fullRecords.find((person) => person.id === id));
+    assert.equal(filtering.pressed.length, beforePress + (shown.has(id) ? 1 : 0));
+    assert.equal(filtering.held.length, beforeHold + (shown.has(id) ? 1 : 0));
+  }
+}
+filtering.render({ people: [b], selectionBusy: true });
+const beforeBusyPress = filtering.pressed.length;
+const beforeBusyHold = filtering.held.length;
+for (const wrapper of wrappers(filtering.tree)) {
+  const leaf = personRow(wrapper);
+  assert.equal(leaf.props.disabled, true, "Real busy state disables visible and retained rows");
+  leaf.props.onPress(leaf.props.person);
+  leaf.props.onLongPress(leaf.props.person);
+}
+assert.equal(filtering.pressed.length, beforeBusyPress);
+assert.equal(filtering.held.length, beforeBusyHold);
+filtering.hooks.unmount();
+
 console.log(
-  "PASS customer rows: Android filtered/empty/return child identity without upfront mounting, hidden layout/touch/accessibility, current sort/dividers, authoritative update/delete/settled-universe pruning, currency projections, selection/role/stale/ABA/unmount guards, unchanged iOS and non-retained history",
+  "PASS customer rows: Android filter/empty/return memo-stable leaves without upfront mounting, hidden layout/touch/accessibility, current sort/dividers, authoritative update/delete/settled-universe pruning, currency projections, selection/role/stale/ABA/unmount guards, unchanged iOS and non-retained history",
 );

@@ -87,7 +87,7 @@ function fixture(
   initialProps: Partial<SummaryProps> = {},
 ) {
   language.setLocale(locale);
-  const screenHeight = height;
+  let screenHeight = height;
   const hooks = uiHooks();
   let activeHooks = hooks;
   let animationCurrency: string | undefined;
@@ -95,6 +95,8 @@ function fixture(
   let sharedValueReads = 0;
   let insideAnimatedStyle = false;
   const cardHooks = new Map<string, ReturnType<typeof uiHooks>>();
+  const cardCache = new Map<string, { props: Record<string, any>; tree: UINode }>();
+  const cardRenders = new Map<string, number>();
   let renderedKeys = new Set<string>();
   const react = Object.fromEntries(
     Object.keys(hooks.react).map((name) => [
@@ -102,10 +104,20 @@ function fixture(
       (...args: any[]) => (activeHooks.react as any)[name](...args),
     ]),
   );
+  react.useLayoutEffect = (...args: any[]) => (activeHooks.react.useEffect as any)(...args);
+  react.memo = (
+    component: (props: any) => UINode,
+    compare: (before: any, after: any) => boolean,
+  ) => {
+    const memoized = (props: any) => component(props);
+    memoized.compare = compare;
+    return memoized;
+  };
   const unmount = hooks.unmount;
   hooks.unmount = () => {
     for (const child of cardHooks.values()) child.unmount();
     cardHooks.clear();
+    cardCache.clear();
     unmount();
   };
   let focused = true;
@@ -144,6 +156,8 @@ function fixture(
       const currency = props.row.currency as string;
       const identity = key ?? currency;
       renderedKeys.add(identity);
+      const previous = cardCache.get(identity);
+      if (previous && type.compare?.(previous.props, props)) return previous.tree;
       let child = cardHooks.get(identity);
       if (!child) cardHooks.set(identity, (child = uiHooks()));
       const previousHooks = activeHooks;
@@ -153,7 +167,10 @@ function fixture(
       animationCurrency = currency;
       animationPage = identity;
       try {
-        return child.render(() => type(props));
+        cardRenders.set(identity, (cardRenders.get(identity) ?? 0) + 1);
+        const tree = child.render(() => type(props));
+        cardCache.set(identity, { props, tree });
+        return tree;
       } finally {
         activeHooks = previousHooks;
         animationCurrency = previousCurrency;
@@ -258,6 +275,7 @@ function fixture(
       if (renderedKeys.has(identity)) continue;
       child.unmount();
       cardHooks.delete(identity);
+      cardCache.delete(identity);
     }
     return tree;
   };
@@ -332,6 +350,7 @@ function fixture(
     timers,
     timerHistory,
     animations,
+    cardRenders: () => new Map(cardRenders),
     sharedValueReads: () => sharedValueReads,
     ready: async (reader = false, motion = false) => {
       readerQuery.resolve(reader);
@@ -346,8 +365,21 @@ function fixture(
       width = value;
       render();
     },
+    setFontScale: (value: number) => {
+      fontScale = value;
+      render();
+    },
+    setLocale: (value: "en" | "fa" | "ps") => {
+      locale = value;
+      language.setLocale(value);
+      render();
+    },
     setWindowHeight: (value: number) => {
       height = value;
+      render();
+    },
+    setScreenHeight: (value: number) => {
+      screenHeight = value;
       render();
     },
     emitAccessibility: (event: string, value: boolean) => {
@@ -998,6 +1030,304 @@ async function main() {
     balances[1],
     { currency: "EUR", collect: 7, pay: 3, pending: false },
   ];
+  const widerBalances = [
+    ...rotatingBalances,
+    { currency: "GBP", collect: 41, pay: 42, pending: false },
+    { currency: "CAD", collect: 51, pay: 52, pending: false },
+    { currency: "AUD", collect: 61, pay: 62, pending: false },
+  ];
+  const changedCards = (before: Map<string, number>, after: Map<string, number>) =>
+    [...after]
+      .filter(([key, count]) => count !== (before.get(key) ?? 0))
+      .map(([key]) => key)
+      .sort();
+  const cardWidths = (root: UINode, id: string) =>
+    nodes(byId(root, id))
+      .filter((node) => node.type === "AnimatedPressable")
+      .map((cell) => style(cell).width);
+  {
+    const current = fixture("en", 390, 1, 844, "android", { balances: widerBalances });
+    await current.ready();
+    current.measure();
+    const step = pageStep(current.scroll());
+    let direction: "collect" | "pay" = "pay";
+    const checkWindow = (x: number, updating: string[], animated: string[], message: string) => {
+      current.onScroll(x);
+      const before = current.cardRenders();
+      current.animations.length = 0;
+      direction = direction === "collect" ? "pay" : "collect";
+      current.render({ direction });
+      assert.deepEqual(
+        changedCards(before, current.cardRenders()),
+        updating.slice().sort(),
+        message,
+      );
+      assert.deepEqual(
+        current.animations.map((animation) => animation.page).sort(),
+        animated.slice().sort(),
+        `${message}: only actual intersecting card rectangles animate`,
+      );
+    };
+    for (const gapOffset of [-12, -6, -0.49, -0.00001, 0, 0.00001, 0.49, 6, 12])
+      checkWindow(
+        step * 4 + gapOffset,
+        ["EUR:real", "GBP:real", "CAD:real"],
+        ["GBP:real"],
+        "Native fractional snap offsets and empty gutters retain exactly one visible card plus its neighbors",
+      );
+    checkWindow(
+      step * 4 - 12.01,
+      ["USD:real", "EUR:real", "GBP:real", "CAD:real"],
+      ["EUR:real", "GBP:real"],
+      "Even a tiny genuine previous-card intersection keeps both visible pages current",
+    );
+    checkWindow(
+      step * 4 + 12.01,
+      ["EUR:real", "GBP:real", "CAD:real", "AUD:real", "AUD:leading"],
+      ["GBP:real", "CAD:real"],
+      "A tiny next-card intersection also prefetches its next neighbor and loop equivalent",
+    );
+    checkWindow(
+      step * 7 - 6,
+      ["AFN:real", "AFN:trailing", "AUD:real", "AUD:leading"],
+      ["AFN:trailing"],
+      "The final gutter does not animate the previous card while both wrap equivalents remain ready",
+    );
+    checkWindow(
+      6,
+      ["AFN:real", "AFN:trailing", "AUD:real", "AUD:leading"],
+      ["AUD:leading"],
+      "The leading gutter likewise excludes the next card from the visible set",
+    );
+    current.hooks.unmount();
+  }
+  for (const reduced of [false, true]) {
+    const calls: string[] = [];
+    const current = fixture("en", 390, 1, 844, "android", {
+      balances: widerBalances,
+      onDirectionChange: (side, code) => calls.push(`old:${side}:${code}`),
+    });
+    await current.ready(false, reduced);
+    current.measure();
+    const step = pageStep(current.scroll());
+    const firstWindow = ["AFN:real", "AFN:trailing", "AUD:leading", "AUD:real", "USD:real"];
+    const farPage = byId(current.hooks.tree, "home-balance-GBP");
+    let before = current.cardRenders();
+    current.render({ direction: "collect" });
+    assert.deepEqual(
+      changedCards(before, current.cardRenders()),
+      firstWindow,
+      "Global direction changes rebuild only the viewport, neighbors and equivalent loop copies, even with motion Off",
+    );
+    assert.equal(
+      byId(current.hooks.tree, "home-balance-GBP"),
+      farPage,
+      "A far direction-only change retains the complete native text subtree",
+    );
+    assert.deepEqual(cardWidths(current.hooks.tree, "home-balance-GBP"), [178, 178]);
+    assert.deepEqual(cardWidths(current.hooks.tree, "home-balance-USD"), [276, 80]);
+    assert.deepEqual(
+      current.animations.map((animation) => animation.page),
+      reduced ? [] : ["AFN:real"],
+      "Only the physical visible page animates; prefetched copies take their final layout",
+    );
+    before = current.cardRenders();
+    current.render({ onDirectionChange: (side, code) => calls.push(`new:${side}:${code}`) });
+    assert.deepEqual(
+      changedCards(before, current.cardRenders()),
+      [],
+      "A fresh parent callback does not invalidate memoized cards",
+    );
+    byId(current.hooks.tree, "home-balance-pay-GBP").props.onPress();
+    current.render();
+    assert.deepEqual(
+      calls,
+      ["new:pay:GBP"],
+      "A skipped page's retained press uses the latest handler",
+    );
+    before = current.cardRenders();
+    current.render({ direction: "pay" });
+    assert.deepEqual(changedCards(before, current.cardRenders()), firstWindow);
+    current.render({ currencyFilter: ["GBP"] });
+    assert.deepEqual(cardWidths(current.hooks.tree, "home-balance-AFN"), [178, 178]);
+    assert.deepEqual(
+      cardWidths(current.hooks.tree, "home-balance-GBP"),
+      [178, 178],
+      "A currency-specific far-page filter can also wait outside the prefetch range",
+    );
+    current.animations.length = 0;
+    current.onScroll(step * 2);
+    current.onScroll(step * 3);
+    assert.deepEqual(
+      cardWidths(current.hooks.tree, "home-balance-GBP"),
+      [80, 276],
+      "The next currency catches up while it is still an offscreen neighbor",
+    );
+    assert.equal(current.animations.length, 0, "Prefetch never replays a deferred expansion");
+    before = current.cardRenders();
+    current.render({ direction: "collect", currencyFilter: undefined });
+    assert.deepEqual(
+      changedCards(before, current.cardRenders()),
+      ["EUR:real", "GBP:real", "USD:real"],
+      "Moving through the carousel moves the bounded set of direction updates",
+    );
+    current.animations.length = 0;
+    current.beginDrag();
+    current.onScroll(step * 7);
+    assert.deepEqual(cardWidths(current.hooks.tree, "home-balance-loop-trailing-AFN"), [276, 80]);
+    assert.deepEqual(
+      cardWidths(current.hooks.tree, "home-balance-AFN"),
+      [276, 80],
+      "The real first card is ready before native can recenter from its trailing copy",
+    );
+    assert.equal(current.animations.length, 0, "A direct far-page arrival snaps before paint");
+    current.endDrag(step * 7);
+    assert.deepEqual(current.calls.at(-1), { x: step, animated: false });
+    current.render({ direction: "pay" });
+    current.beginDrag();
+    current.onScroll(0);
+    assert.deepEqual(cardWidths(current.hooks.tree, "home-balance-loop-leading-AUD"), [80, 276]);
+    assert.deepEqual(
+      cardWidths(current.hooks.tree, "home-balance-AUD"),
+      [80, 276],
+      "The last real card also matches its leading copy before recentering",
+    );
+    current.endDrag(0);
+    assert.deepEqual(current.calls.at(-1), { x: step * 6, animated: false });
+    current.hooks.unmount();
+  }
+  {
+    const current = fixture("en", 390, 1, 844, "android", {
+      balances: widerBalances,
+    });
+    await current.ready();
+    current.measure();
+    current.render({ direction: "pay", currencyFilter: ["GBP"] });
+    assert.deepEqual(cardWidths(current.hooks.tree, "home-balance-GBP"), [178, 178]);
+    const step = pageStep(current.scroll());
+    for (let turn = 0; turn < 9; turn++) {
+      const command = current.advance(false);
+      const target = children(current.scroll())[Math.round(command.x / step)];
+      const cells = nodes(target).filter((node) => node.type === "AnimatedPressable");
+      assert.deepEqual(
+        cells.map((cell) => style(cell).width),
+        target.props.testID.endsWith("GBP") ? [80, 276] : [178, 178],
+        "Autoplay's next destination is correct before its first native scroll event, including the loop copy",
+      );
+      current.onScroll(command.x);
+      current.momentumEnd(command.x);
+    }
+    current.hooks.unmount();
+  }
+  for (const reduced of [false, true]) {
+    const current = fixture("en", 390, 1, 844, "ios", { balances: widerBalances });
+    await current.ready(false, reduced);
+    current.measure();
+    const before = current.cardRenders();
+    current.render({ direction: "pay" });
+    assert.deepEqual(
+      changedCards(before, current.cardRenders()),
+      [...before.keys()].sort(),
+      "iOS retains immediate direction rendering for every real and loop page",
+    );
+    for (const page of children(current.scroll()))
+      assert.deepEqual(
+        nodes(page)
+          .filter((node) => node.type === "AnimatedPressable")
+          .map((cell) => style(cell).width),
+        [80, 276],
+      );
+    current.hooks.unmount();
+  }
+  {
+    const changes: string[] = [];
+    const current = fixture("fa", 390, 1, 844, "android", {
+      balances: widerBalances,
+      onDirectionChange: (side, code) => changes.push(`${side}:${code}`),
+    });
+    await current.ready(false, true);
+    current.measure();
+    current.render({ direction: "collect" });
+    const allKeys = [...current.cardRenders().keys()].sort();
+    let before = current.cardRenders();
+    current.render({ balances: widerBalances.map((row) => ({ ...row })) });
+    assert.deepEqual(
+      changedCards(before, current.cardRenders()),
+      [],
+      "Equivalent fresh balance objects do not rebuild card text",
+    );
+    const freshAmounts = widerBalances.map((row) => ({
+      ...row,
+      collect: row.currency === "GBP" ? 12345.67 : row.collect,
+    }));
+    before = current.cardRenders();
+    current.render({ balances: freshAmounts });
+    assert.deepEqual(changedCards(before, current.cardRenders()), ["GBP:real"]);
+    assert.ok(
+      text(byId(current.hooks.tree, "home-balance-GBP")).includes("12,345.67"),
+      "A far-page balance update is published immediately instead of cached",
+    );
+    current.render({
+      balances: freshAmounts.map((row) => ({ ...row, pending: row.currency === "GBP" })),
+    });
+    assert.ok(text(byId(current.hooks.tree, "home-balance-GBP")).includes("…"));
+    assert.ok(!text(byId(current.hooks.tree, "home-balance-GBP")).includes("12,345.67"));
+    const dari = text(byId(current.hooks.tree, "home-balance-GBP"));
+    before = current.cardRenders();
+    current.setLocale("ps");
+    assert.deepEqual(
+      changedCards(before, current.cardRenders()),
+      allKeys,
+      "Dari → Pashto invalidates every card even though both layouts are RTL",
+    );
+    assert.notEqual(text(byId(current.hooks.tree, "home-balance-GBP")), dari);
+    before = current.cardRenders();
+    current.measure(288);
+    assert.deepEqual(changedCards(before, current.cardRenders()), allKeys);
+    for (const page of children(current.scroll())) {
+      assert.equal(style(page).width, 288);
+      assert.deepEqual(
+        nodes(page)
+          .filter((node) => node.type === "AnimatedPressable")
+          .map((cell) => style(cell).width),
+        [206, 80],
+        "A geometry change brings every final layout up to date without animation",
+      );
+    }
+    before = current.cardRenders();
+    current.setFontScale(1.8);
+    assert.deepEqual(changedCards(before, current.cardRenders()), allKeys);
+    assert.ok(children(current.scroll()).every((page) => style(page).height === 144));
+    before = current.cardRenders();
+    current.setScreenHeight(400);
+    assert.deepEqual(changedCards(before, current.cardRenders()), allKeys);
+    assert.ok(children(current.scroll()).every((page) => style(page).height === 114));
+    before = current.cardRenders();
+    current.emitAccessibility("reduceMotionChanged", false);
+    assert.deepEqual(changedCards(before, current.cardRenders()), allKeys);
+    assert.equal(
+      current.animations.length,
+      0,
+      "Mode changes alone do not replay completed layouts",
+    );
+    const retained = byId(current.hooks.tree, "home-balance-pay-GBP").props.onPress;
+    before = current.cardRenders();
+    current.render({ interactionEnabled: false });
+    assert.deepEqual(changedCards(before, current.cardRenders()), allKeys);
+    assert.ok(
+      nodes(current.hooks.tree)
+        .filter((node) => node.type === "AnimatedPressable")
+        .every((node) => node.props.disabled && node.props.accessibilityState.disabled),
+      "Interaction/role changes disable every physical card, including far pages",
+    );
+    retained();
+    assert.deepEqual(
+      changes,
+      [],
+      "Previously retained far-page callbacks cannot bypass disabled state",
+    );
+    current.hooks.unmount();
+  }
   for (const platform of ["android", "ios"]) {
     const current = fixture("en", 390, 1, 844, platform, { balances: rotatingBalances });
     await current.ready();
@@ -1017,7 +1347,7 @@ async function main() {
       assert.deepEqual(
         cells.map((cell) => style(cell).width),
         [276, 80],
-        "Hidden cards and both loop copies already hold the final filtered layout",
+        "The three-currency window and both loop equivalents hold the final filtered layout",
       );
     }
     if (platform === "android") {
@@ -1721,7 +2051,7 @@ async function main() {
     );
   }
   console.log(
-    "PASS home balances: bounded seamless currency looping, forward autoplay and manual/assistive wraps, native settling and stale geometry guards, currency-specific collect/pay taps and independent expansion, exact amounts, EN/FA/PS LTR, stable keyboard layout, permanent manual stop, accessibility/AppState pauses and cleanup; customer-row currencies preserved",
+    "PASS home balances: bounded seamless currency looping, forward autoplay and manual/assistive wraps, native settling/stale guards, Android memoized direction prefetch with ready loop equivalents, immediate data/locale/geometry/mode/access changes, unchanged iOS, exact amounts, EN/FA/PS LTR, stable keyboard layout, permanent manual stop, accessibility/AppState pauses and cleanup; customer-row currencies preserved",
   );
 }
 void main();

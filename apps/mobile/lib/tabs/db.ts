@@ -450,6 +450,8 @@ const ENTRY_COLUMNS = `id, tab_id, seq, rev, created_by, direction, amount_minor
    reviewer_member_role, review_semantics_version, local_action_pending`;
 
 type PrevRow = Pick<TabEntryRow, "id" | "created_by" | "status" | "voided_by_entry_id">;
+// Stay below SQLite's historical bind limit, including the tab-id parameter.
+const PREVIOUS_ENTRY_BATCH_SIZE = 500;
 
 /**
  * Apply a server response to the cache.
@@ -602,11 +604,21 @@ export async function upsertTabFromWire(
         "The shared currency source boundary is missing",
       );
 
-    const prevRows = await db.getAllAsync<PrevRow>(
-      `SELECT id, created_by, status, voided_by_entry_id FROM tab_entries WHERE tab_id = ?`,
-      link.tab_id,
-    );
-    const prev = new Map(prevRows.map((r) => [r.id, r]));
+    // Counts and review notices only compare rows present in this response.
+    // A routine empty incremental poll must not copy the contact's complete
+    // history into JS. Read before a full replacement deletes cached rows, too.
+    const prev = new Map<string, PrevRow>();
+    const incomingIds = [...new Set(resp.entries.map((entry) => entry.id))];
+    for (let start = 0; start < incomingIds.length; start += PREVIOUS_ENTRY_BATCH_SIZE) {
+      const ids = incomingIds.slice(start, start + PREVIOUS_ENTRY_BATCH_SIZE);
+      const rows = await db.getAllAsync<PrevRow>(
+        `SELECT id, created_by, status, voided_by_entry_id FROM tab_entries
+          WHERE tab_id = ? AND id IN (${ids.map(() => "?").join(",")})`,
+        link.tab_id,
+        ...ids,
+      );
+      for (const row of rows) prev.set(row.id, row);
+    }
 
     if (resp.full) {
       const del = await db.runAsync(
