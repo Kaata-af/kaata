@@ -74,6 +74,7 @@ export function SheetBlurProvider({ children }: PropsWithChildren) {
 }
 
 export const useSheetMotionPreference = () => useContext(Context).reducedMotion;
+export const useSheetTransparencyPreference = () => useContext(Context).reducedTransparency;
 
 /** The tint is always present: older Android and transparency preferences keep
  * a readable dim backdrop without changing sheet layout or hit testing. */

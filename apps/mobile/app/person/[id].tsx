@@ -33,6 +33,7 @@ import { EmptyState } from "../../components/EmptyState";
 import { TallyHighlight } from "../../components/TallyHighlight";
 import { TallyFlowSummary } from "../../components/TallyFlowSummary";
 import { CustomerBalanceCarousel } from "../../components/CustomerBalanceCarousel";
+import { BalanceCardGlass } from "../../components/BalanceCardGlass";
 import { HomeBalanceFilterSwipe } from "../../components/HomeBalanceFilterSwipe";
 import { CustomerTallyFilterPopover } from "../../components/CustomerTallyFilterPopover";
 import type { FilterAnchor } from "../../components/HomeFilterPopover";
@@ -2822,6 +2823,7 @@ export default function PersonDetailScreen() {
                               sharedAccountLinkStatus(link) === "waiting";
                             return (
                               <View key={code} style={styles.balanceOverview}>
+                                <BalanceCardGlass />
                                 {!singleBalanceCurrency ? (
                                   <View
                                     testID={`customer-balance-header-${code}`}
@@ -4079,9 +4081,9 @@ const styles = StyleSheet.create({
   info: { paddingHorizontal: 16, paddingTop: 4, paddingBottom: 20 },
   balanceOverview: {
     borderWidth: 1,
-    borderColor: colors.borderDefault,
+    borderColor: colors.borderBalanceGlass,
     borderRadius: radius.lg,
-    backgroundColor: colors.bgDefault,
+    backgroundColor: colors.bgBalanceGlass,
     overflow: "hidden",
   },
   balanceHeader: {
@@ -4092,7 +4094,7 @@ const styles = StyleSheet.create({
     gap: 12,
     paddingHorizontal: 14,
     paddingVertical: 8,
-    backgroundColor: colors.bgMuted,
+    backgroundColor: colors.bgBalanceGlassHeader,
   },
   balanceHeadline: {
     direction: "ltr",
@@ -4101,7 +4103,7 @@ const styles = StyleSheet.create({
     gap: 12,
     minWidth: 0,
   },
-  balanceStatus: { backgroundColor: colors.bgDefault, maxWidth: "48%", flexShrink: 0 },
+  balanceStatus: { maxWidth: "48%", flexShrink: 0 },
   balanceAmountRow: {
     flex: 1,
     direction: "ltr",

@@ -329,6 +329,7 @@ const components = Object.fromEntries(
     "TallyHighlight",
     "TallyFlowSummary",
     "CustomerBalanceCarousel",
+    "BalanceCardGlass",
     "HomeBalanceFilterSwipe",
     "CustomerTallyFilterPopover",
     "CreditIntentList",
@@ -1962,7 +1963,8 @@ async function singleCurrencyBalanceTests() {
     const status = byId("customer-balance-status-USD")!;
     assert.equal(
       flattenStyle(status.props.style).backgroundColor,
-      mocks["../../lib/colors"].colors.bgDefault,
+      undefined,
+      "Balance status shares the card surface",
     );
     assert.equal(
       nodes(status).find((node) => node.type === "Chip")!.props.label,

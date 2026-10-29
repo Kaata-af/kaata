@@ -29,6 +29,7 @@ import { getLocale, t, type LocaleCode } from "../lib/i18n";
 import { currencyBalances } from "../lib/multi-currency-view";
 import type { PersonWithBalance } from "../lib/types";
 import { useSheetMotionPreference } from "./SheetBackdrop";
+import { BalanceCardGlass } from "./BalanceCardGlass";
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 const PAGE_GAP = 12;
@@ -38,9 +39,9 @@ const useCardLayoutEffect = Platform.OS === "android" ? useLayoutEffect : useEff
 
 // Use the same balance colors as the customer page for amounts and arrows.
 const board = {
-  surface: colors.bgDefault,
-  header: colors.bgMuted,
-  rule: colors.borderDefault,
+  surface: colors.bgBalanceGlass,
+  header: colors.bgBalanceGlassHeader,
+  rule: colors.borderBalanceGlass,
   text: colors.textEmphasis,
   muted: colors.textSubtle,
   collect: colors.collectStrong,
@@ -679,6 +680,7 @@ const CurrencyBalanceCard = memo(function CurrencyBalanceCard({
       accessibilityElementsHidden={!visible}
       importantForAccessibility={visible ? "auto" : "no-hide-descendants"}
     >
+      <BalanceCardGlass />
       {multiple ? (
         <View style={[styles.boardHeader, small && styles.compactHeader]}>
           <Text

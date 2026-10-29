@@ -35,6 +35,10 @@ export const colors = {
   bgMuted: "#F7F7F7",
   bgSubtle: "#EFEFEF",
   bgInverted: "#000000",
+  // Light frosted balance cards, with an opaque fallback on older phones.
+  bgBalanceGlass: "#F6F9F7",
+  bgBalanceGlassHeader: "#FFFFFF80",
+  borderBalanceGlass: "#DBE4DF",
 
   // Text
   textEmphasis: "#171717",
