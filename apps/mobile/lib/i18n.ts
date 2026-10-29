@@ -85,16 +85,16 @@ const en = {
   "notificationSettings.alert.connection": "A linked account was updated.",
   "tab.notify.detail.recorded": "{name} recorded a tally ({amount}).",
   "tab.recordingMode.label": "Tally recording",
-  "tab.recordingMode.notify": "Notifications only",
+  "tab.recordingMode.notify": "Both can write",
   "tab.recordingMode.notifyHint":
     "Both people can add tallies. They are recorded immediately without approval from the other person.",
   "tab.recordingMode.review": "Require approval",
   "tab.recordingMode.reviewHint":
     "Both people can add tallies. Each tally stays pending until the other person accepts or rejects it.",
-  "tab.recordingMode.oneWay": "Only I can add",
-  "tab.recordingMode.oneWayFixed": "Only the link creator can add",
+  "tab.recordingMode.oneWay": "Notify",
+  "tab.recordingMode.oneWayFixed": "Notify",
   "tab.recordingMode.oneWayHint":
-    "You record tallies immediately. The other person can view the account and receive notifications without approving each tally.",
+    "You add tallies immediately. The other person can only view the account and receive notifications; no approval is needed.",
   "tab.recordingMode.oneWayReadOnly":
     "Only the person who created this link can add tallies. You can view the account and receive notifications.",
   "tab.recordingMode.fixed": "This link uses {mode}. To change it, unlink and create a new link.",
@@ -2438,14 +2438,14 @@ const fa: Partial<Record<Key, string>> = {
   "notificationSettings.alert.connection": "یک حساب وصل‌شده تغییر کرد.",
   "tab.notify.detail.recorded": "{name} یک مبلغ ({amount}) ثبت کرد.",
   "tab.recordingMode.label": "شیوۀ ثبت حساب",
-  "tab.recordingMode.notify": "فقط اطلاع‌رسانی",
+  "tab.recordingMode.notify": "هر دو می‌توانند ثبت کنند",
   "tab.recordingMode.notifyHint":
     "هر دو طرف می‌توانند ثبت اضافه کنند. ثبت‌ها فوری و بدون نیاز به تأیید طرف مقابل در حساب می‌آیند.",
   "tab.recordingMode.review": "نیاز به تأیید",
   "tab.recordingMode.reviewHint":
     "هر دو طرف می‌توانند ثبت اضافه کنند. هر ثبت تا تأیید یا رد طرف مقابل در انتظار می‌ماند.",
-  "tab.recordingMode.oneWay": "فقط من ثبت می‌کنم",
-  "tab.recordingMode.oneWayFixed": "فقط سازندۀ اتصال ثبت می‌کند",
+  "tab.recordingMode.oneWay": "اطلاع‌رسانی",
+  "tab.recordingMode.oneWayFixed": "اطلاع‌رسانی",
   "tab.recordingMode.oneWayHint":
     "شما ثبت‌ها را فوری درج می‌کنید. طرف مقابل فقط حساب را می‌بیند و اطلاعیه می‌گیرد؛ نیازی به تأیید هر ثبت نیست.",
   "tab.recordingMode.oneWayReadOnly":
@@ -4516,16 +4516,16 @@ const ps: Record<Key, string> = {
   "notificationSettings.alert.connection": "یو نښلول شوی حساب بدل شو.",
   "tab.notify.detail.recorded": "{name} یو مبلغ ({amount}) ثبت کړ.",
   "tab.recordingMode.label": "د حساب ثبتولو ډول",
-  "tab.recordingMode.notify": "یوازې خبر ورکول",
+  "tab.recordingMode.notify": "دواړه ثبتولای شي",
   "tab.recordingMode.notifyHint":
     "دواړه کسان ثبتونه زیاتولای شي. ثبتونه د بل کس له تایید پرته سمدستي په حساب کې راځي.",
   "tab.recordingMode.review": "تایید ته اړتیا",
   "tab.recordingMode.reviewHint":
     "دواړه کسان ثبتونه زیاتولای شي. هر ثبت د بل کس تر منلو یا ردولو پورې په تمه پاتې کېږي.",
-  "tab.recordingMode.oneWay": "یوازې زه ثبتونه زیاتوم",
-  "tab.recordingMode.oneWayFixed": "یوازې د اړیکې جوړوونکی ثبتونه زیاتوي",
+  "tab.recordingMode.oneWay": "خبر ورکول",
+  "tab.recordingMode.oneWayFixed": "خبر ورکول",
   "tab.recordingMode.oneWayHint":
-    "تاسو ثبتونه سمدستي لیکئ. بل کس حساب کتلای شي او خبرتیاوې ترلاسه کوي؛ د هر ثبت تایید ته اړتیا نشته.",
+    "تاسو ثبتونه سمدستي لیکئ. بل کس یوازې حساب کتلای شي او خبرتیاوې ترلاسه کوي؛ د هر ثبت تایید ته اړتیا نشته.",
   "tab.recordingMode.oneWayReadOnly":
     "یوازې د دې اړیکې جوړوونکی ثبتونه زیاتولای شي. تاسو حساب کتلای شئ او خبرتیاوې ترلاسه کوئ.",
   "tab.recordingMode.fixed": "دا اړیکه «{mode}» کاروي. د بدلولو لپاره یې پرې او بیا ونښلوئ.",

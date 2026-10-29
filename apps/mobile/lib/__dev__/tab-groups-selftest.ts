@@ -524,6 +524,18 @@ async function main() {
   await apiChecks();
   {
     const f = fixture();
+    const group = await f.module.linkContactGroup("person", { myLabel: "Owner" });
+    assert.equal(f.sent[0].recording_mode, "notify_one_way");
+    assert.equal(group.group.recording_mode, "notify_one_way");
+    assert.ok(group.links.every((link) => link.recording_mode === "notify_one_way"));
+    assert.ok(group.links.every((link) => canWriteSharedTallies(link)));
+    assert.ok(
+      group.links.every((link) => !canWriteSharedTallies({ ...link, role: "b" })),
+      "New invitations default to creator-written tallies and a read-only notified recipient",
+    );
+  }
+  {
+    const f = fixture();
     f.pendingSource();
     await assert.rejects(
       f.module.linkContactGroup("person", { myLabel: "Owner" }),
@@ -591,6 +603,9 @@ async function main() {
   for (const recordingMode of ["notify", "review", "notify_one_way"] as const) {
     const f = fixture();
     const group = await f.module.linkContactGroup("person", { myLabel: " Owner ", recordingMode });
+    assert.equal(f.sent[0].recording_mode, recordingMode);
+    assert.equal(group.group.recording_mode, recordingMode);
+    assert.ok(group.links.every((link) => link.recording_mode === recordingMode));
     assert.deepEqual(group.group.currencies, ["AFN", "EUR", "USD"]);
     assert.equal(group.links.length, 3);
     assert.deepEqual(
@@ -606,6 +621,36 @@ async function main() {
     assert.equal(f.sent[0].currencies[2].opening!.direction, "b_to_a");
     assert.equal(f.sent[0].currencies[2].opening!.amount, "20");
     assert.ok([...f.meta.values()].every((value) => value === ""));
+  }
+  {
+    const f = fixture();
+    f.loseCreate();
+    await assert.rejects(
+      f.module.linkContactGroup("person", { myLabel: "Owner", recordingMode: "notify" }),
+      (error: any) => error.code === "network",
+    );
+    const originalPending = [...f.meta.entries()];
+    await assert.rejects(
+      f.module.linkContactGroup("person", { myLabel: "Owner" }),
+      (error: any) => error.code === "shared_account_changed",
+      "The new default cannot replace an ambiguous invitation made with the previous default",
+    );
+    assert.equal(f.sent.length, 1, "A changed default never sends a second invitation");
+    assert.equal(f.cache.size, 0);
+    assert.equal(f.notices, 0);
+    assert.deepEqual([...f.meta.entries()], originalPending);
+    assert.deepEqual(await f.module.getPendingContactGroupSettings("person"), {
+      myLabel: "Owner",
+      recordingMode: "notify",
+    });
+    f.missingLookup();
+    const recovered = await f.module.linkContactGroup("person", {
+      myLabel: "New profile name",
+      recordingMode: "notify",
+    });
+    assert.deepEqual(f.sent[1], f.sent[0], "Retry preserves the original mode and source snapshot");
+    assert.equal(recovered.group.recording_mode, "notify");
+    assert.ok(recovered.links.every((link) => canWriteSharedTallies({ ...link, role: "b" })));
   }
   {
     const f = fixture();

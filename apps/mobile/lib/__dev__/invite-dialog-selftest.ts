@@ -5,6 +5,12 @@ import { readFileSync } from "node:fs";
 import ts from "typescript";
 import { TabAlreadyLinkedError, TabAuthUnavailableError, TabApiError } from "../tabs/errors";
 import type { TabLink } from "../tabs/types";
+import { compileUI } from "./ui-fixture";
+
+const translations = compileUI("../i18n", {
+  "expo-localization": { getLocales: () => [{ languageCode: "en" }] },
+  "./db": { getAppMeta: async () => null },
+}) as typeof import("../i18n");
 
 type Element = { type: string; props: Record<string, any> };
 let slots: any[] = [],
@@ -60,7 +66,7 @@ function schedule() {
 }
 const jsx = (type: string, props: Record<string, any>) => ({ type, props });
 const mocks: Record<string, any> = {
-  "@expo/vector-icons": { Ionicons: "Ionicons" },
+  "@expo/vector-icons": { Ionicons: "Ionicons", MaterialCommunityIcons: "MaterialCommunityIcons" },
   "./SheetBackdrop": { SheetBackdrop: "SheetBackdrop" },
   "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
   react: {
@@ -204,7 +210,12 @@ function reset(
   copied = [];
   openResult = true;
   copyFails = false;
-  create = async () => ({ link: fresh });
+  create = async () => ({
+    link: {
+      ...fresh,
+      recording_mode: createArguments.at(-1)?.[1]?.recordingMode ?? fresh.recording_mode,
+    },
+  });
   recoveredLinks = [fresh];
   pendingSettings = pending;
   props = {
@@ -231,6 +242,9 @@ function assertOneModal() {
 }
 
 async function main() {
+  assert.equal(translations.tIn("en", "tab.recordingMode.oneWay"), "Notify");
+  assert.equal(translations.tIn("en", "tab.recordingMode.notify"), "Both can write");
+  assert.equal(translations.tIn("en", "tab.recordingMode.review"), "Require approval");
   for (const [code, key] of [
     ["shared_account_pending", "tab.group.pending"],
     ["shared_account_source_unsynced", "tab.group.syncFirst"],
@@ -252,21 +266,22 @@ async function main() {
     assert.equal(button("tab.link.action").props.disabled, false, "The invitation can be retried");
   }
 
-  reset(
-    null,
-    "auto",
-    null,
-    Promise.resolve({ myLabel: "Original label", recordingMode: "review" }),
-  );
-  await settle();
-  assert.equal(
-    nodes(tree).find((node) => node.props.accessibilityLabel === "tab.recordingMode.review")!.props
-      .accessibilityState.checked,
-    true,
-    "Retrying an unfinished invitation restores its original recording contract",
-  );
-  await tap("tab.link.action");
-  assert.equal(createArguments[0][1].recordingMode, "review");
+  for (const [recordingMode, label] of [
+    ["notify_one_way", "tab.recordingMode.oneWay"],
+    ["notify", "tab.recordingMode.notify"],
+    ["review", "tab.recordingMode.review"],
+  ] as const) {
+    reset(null, "auto", null, Promise.resolve({ myLabel: "Original label", recordingMode }));
+    await settle();
+    assert.equal(
+      nodes(tree).find((node) => node.props.accessibilityLabel === label)!.props.accessibilityState
+        .checked,
+      true,
+      "Retrying an unfinished invitation restores its original recording contract",
+    );
+    await tap("tab.link.action");
+    assert.equal(createArguments[0][1].recordingMode, recordingMode);
+  }
   let resolvePending!: (settings: PendingSettings) => void;
   reset(
     null,
@@ -516,9 +531,20 @@ async function main() {
   );
   assert.equal(
     createArguments[0][1].recordingMode,
-    "notify",
-    "new links default to notifications without per-tally approval",
+    "notify_one_way",
+    "new links default to creator writing and recipient notifications",
   );
+  assert.deepEqual(invitationMessages, ["tab.invite.oneWayMessage"]);
+  reset("+93700000000");
+  await settle();
+  nodes(tree)
+    .find((node) => node.props.accessibilityLabel === "tab.recordingMode.notify")!
+    .props.onPress();
+  await settle();
+  assert.ok(nodes(tree).some((node) => node.props.children === "tab.group.confirm.notifyBody"));
+  await tap("tab.link.whatsapp");
+  assert.equal(createArguments[0][1].recordingMode, "notify", "Both can write remains explicit");
+  assert.deepEqual(invitationMessages, ["tab.invite.notifyMessage"]);
   reset("+93700000000");
   await settle();
   const reviewMode = nodes(tree).find(
@@ -537,7 +563,25 @@ async function main() {
     locale = lang;
     render();
     await settle();
-    assert.equal(nodes(tree).filter((node) => node.props.accessibilityRole === "radio").length, 3);
+    const choices = nodes(tree).filter((node) => node.props.accessibilityRole === "radio");
+    assert.deepEqual(
+      choices.map((choice) => choice.props.accessibilityLabel),
+      ["tab.recordingMode.oneWay", "tab.recordingMode.notify", "tab.recordingMode.review"],
+      "Notify precedes Both can write and Require approval in every language",
+    );
+    assert.deepEqual(
+      choices.map((choice) => choice.props.accessibilityState.checked),
+      [true, false, false],
+      "Notify is the selected default before any choice is tapped",
+    );
+    assert.ok(
+      nodes(choices[2]).some(
+        (node) =>
+          node.type === "MaterialCommunityIcons" &&
+          /^handshake(?:-outline)?$/.test(node.props.name),
+      ),
+      "Require approval has a handshake visual aid",
+    );
     const oneWay = nodes(tree).find(
       (node) => node.props.accessibilityLabel === "tab.recordingMode.oneWay",
     )!;
@@ -550,15 +594,49 @@ async function main() {
     assert.deepEqual(invitationMessages, ["tab.invite.oneWayMessage"]);
     assert.equal(shares[0].text, lang + ":Shop:" + fresh.invite_url);
   }
-  reset(null, "auto", { ...fresh, recording_mode: "notify_one_way" });
+  for (const [mode, message] of [
+    ["notify_one_way", "tab.invite.oneWayMessage"],
+    ["notify", "tab.invite.notifyMessage"],
+    ["review", "tab.invite.message"],
+  ] as const) {
+    reset(null, "auto", { ...fresh, recording_mode: mode });
+    await settle();
+    assert.equal(
+      nodes(tree).filter((node) => node.props.accessibilityRole === "radiogroup").length,
+      0,
+      "an existing link cannot be silently switched to the new default",
+    );
+    await tap("tab.share.whatsapp");
+    assert.equal(createCalls, 0);
+    assert.deepEqual(invitationMessages, [message], "resharing preserves the existing contract");
+  }
+  reset(null, "auto", { ...fresh, recording_mode_known: 0 });
   await settle();
+  assert.ok(nodes(tree).some((node) => node.props.children === "tab.recordingMode.unknown"));
   assert.equal(
     nodes(tree).filter((node) => node.props.accessibilityRole === "radiogroup").length,
     0,
-    "an existing one-way link cannot be silently switched to another mode",
+    "an existing unknown contract remains guarded rather than adopting the new default",
   );
   console.log(
-    "PASS: three recording modes, creator-only disclosure and fixed existing links in EN/FA/PS",
+    "PASS: Notify default, ordered recording modes, explicit two-way/approval choices, pending contracts and fixed existing links in EN/FA/PS",
+  );
+  reset(null);
+  await settle();
+  nodes(tree)
+    .find((node) => node.props.accessibilityLabel === "tab.recordingMode.notify")!
+    .props.onPress();
+  await settle();
+  props.visible = false;
+  render();
+  props.visible = true;
+  render();
+  await settle();
+  assert.equal(
+    nodes(tree).find((node) => node.props.accessibilityLabel === "tab.recordingMode.oneWay")!.props
+      .accessibilityState.checked,
+    true,
+    "A fresh invitation reopens with Notify selected",
   );
   for (const owner of ["account", "vault"]) {
     reset("+93700000000");

@@ -294,7 +294,7 @@ export async function linkContactGroup(
     openingNote?: string | null;
   },
 ): Promise<LinkedTabGroup> {
-  const mode = options.recordingMode ?? "notify";
+  const mode = options.recordingMode ?? "notify_one_way";
   if (!isTabRecordingMode(mode))
     groupError("recording_upgrade_required", "Unknown recording mode", 426);
   const label = cleanLabel(options.myLabel);

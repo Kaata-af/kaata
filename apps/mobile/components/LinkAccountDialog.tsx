@@ -1,5 +1,5 @@
 import { SheetBackdrop } from "./SheetBackdrop";
-import { Ionicons } from "@expo/vector-icons";
+import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { useEffect, useRef, useState } from "react";
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -44,9 +44,8 @@ const recordingModeHint = {
   notify_one_way: "tab.recordingMode.oneWayHint",
 } as const;
 const recordingModeIcon = {
-  notify: "notifications-outline",
-  review: "checkmark-done-outline",
-  notify_one_way: "create-outline",
+  notify: "people-outline",
+  notify_one_way: "notifications-outline",
 } as const;
 
 /** One surface from confirmation through creation/sharing, including retries.
@@ -72,7 +71,7 @@ export function LinkAccountDialog(props: {
   const [askLanguage, setAskLanguage] = useState(false);
   const [languageReady, setLanguageReady] = useState(false);
   const [pendingSettingsReady, setPendingSettingsReady] = useState(false);
-  const [recordingMode, setRecordingMode] = useState<TabRecordingMode>("notify");
+  const [recordingMode, setRecordingMode] = useState<TabRecordingMode>("notify_one_way");
   const [sharedCurrencies, setSharedCurrencies] = useState<readonly string[]>([]);
   const target = useRef<TabLink | null>(null);
   const modeVersion = useRef(0);
@@ -113,7 +112,7 @@ export function LinkAccountDialog(props: {
     setLanguageReady(false);
     setLanguage(getLocale());
     setAskLanguage(false);
-    setRecordingMode(props.link?.recording_mode ?? "notify");
+    setRecordingMode(props.link ? (props.link.recording_mode ?? "review") : "notify_one_way");
     const modeRead = ++modeVersion.current;
     pendingMode.current = null;
     setPendingSettingsReady(!!props.link);
@@ -355,7 +354,7 @@ export function LinkAccountDialog(props: {
                   accessibilityRole="radiogroup"
                   accessibilityLabel={t("tab.recordingMode.label")}
                 >
-                  {(["notify", "review", "notify_one_way"] as const).map((mode) => (
+                  {(["notify_one_way", "notify", "review"] as const).map((mode) => (
                     <Pressable
                       key={mode}
                       disabled={busy}
@@ -377,11 +376,23 @@ export function LinkAccountDialog(props: {
                           accessibilityElementsHidden
                           importantForAccessibility="no-hide-descendants"
                         >
-                          <Ionicons
-                            name={recordingModeIcon[mode]}
-                            size={20}
-                            color={recordingMode === mode ? colors.textEmphasis : colors.textSubtle}
-                          />
+                          {mode === "review" ? (
+                            <MaterialCommunityIcons
+                              name="handshake-outline"
+                              size={20}
+                              color={
+                                recordingMode === mode ? colors.textEmphasis : colors.textSubtle
+                              }
+                            />
+                          ) : (
+                            <Ionicons
+                              name={recordingModeIcon[mode]}
+                              size={20}
+                              color={
+                                recordingMode === mode ? colors.textEmphasis : colors.textSubtle
+                              }
+                            />
+                          )}
                         </View>
                         <Text style={[styles.modeLabel, textDir(rtl)]}>
                           {t(recordingModeLabel[mode])}
