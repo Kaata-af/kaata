@@ -4042,10 +4042,13 @@ async function main() {
     );
     assert.deepEqual(
       nodes(tree)
-        .filter((node) => /^customer-balance-header-/.test(node.props.testID ?? ""))
-        .map((node) => node.props.testID),
-      ["customer-balance-header-AFN", "customer-balance-header-USD"],
-      "Multiple currencies retain their separate labeled header strips",
+        .filter((node) => /^customer-balance-amount-/.test(node.props.testID ?? ""))
+        .map((node) => kids(node).map(words)),
+      [
+        ["amount:100", "AFN"],
+        ["amount:100", "USD"],
+      ],
+      "Each currency appears beside its balance without a separate header row",
     );
     assert.equal(
       nodes(tree).some((node) => /^customer-balance-symbol-/.test(node.props.testID ?? "")),

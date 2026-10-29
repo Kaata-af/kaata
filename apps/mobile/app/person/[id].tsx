@@ -2896,33 +2896,19 @@ export default function PersonDetailScreen() {
                             return (
                               <View key={code} style={styles.balanceOverview}>
                                 <BalanceCardGlass />
-                                {!singleBalanceCurrency ? (
-                                  <View
-                                    testID={`customer-balance-header-${code}`}
-                                    style={styles.balanceHeader}
-                                  >
-                                    <Text style={styles.balanceCurrency}>
-                                      {getCurrencyLabel(code)}
-                                    </Text>
-                                  </View>
-                                ) : null}
                                 <View style={styles.balanceSide}>
                                   <View style={styles.balanceHeadline}>
                                     <View
                                       testID={`customer-balance-amount-${code}`}
                                       style={styles.balanceAmountRow}
-                                      accessible={singleBalanceCurrency}
-                                      accessibilityLabel={
-                                        singleBalanceCurrency
-                                          ? `${getCurrencyLabel(code)} ${person.tab_unsynced === 1 ? t("tab.notDownloaded") : formatAmount(abs)}`
-                                          : undefined
-                                      }
+                                      accessible
+                                      accessibilityLabel={`${getCurrencyLabel(code)} ${person.tab_unsynced === 1 ? t("tab.notDownloaded") : formatAmount(abs)}`}
                                     >
                                       <Text
                                         testID={`customer-balance-value-${code}`}
                                         style={[
                                           styles.balance,
-                                          singleBalanceCurrency && styles.balanceWithCurrency,
+                                          styles.balanceWithCurrency,
                                           {
                                             color:
                                               person.tab_unsynced === 1
@@ -2937,15 +2923,22 @@ export default function PersonDetailScreen() {
                                       >
                                         {person.tab_unsynced === 1 ? "…" : formatAmount(abs)}
                                       </Text>
-                                      {singleBalanceCurrency ? (
-                                        <Text
-                                          testID={`customer-balance-symbol-${code}`}
-                                          style={styles.balanceSymbol}
-                                          maxFontSizeMultiplier={1.4}
-                                        >
-                                          {ltrIsolate(getCurrencySymbol(code))}
-                                        </Text>
-                                      ) : null}
+                                      <Text
+                                        testID={`customer-balance-${singleBalanceCurrency ? "symbol" : "currency"}-${code}`}
+                                        style={
+                                          singleBalanceCurrency
+                                            ? styles.balanceSymbol
+                                            : styles.balanceCurrency
+                                        }
+                                        numberOfLines={1}
+                                        maxFontSizeMultiplier={1.4}
+                                      >
+                                        {ltrIsolate(
+                                          singleBalanceCurrency
+                                            ? getCurrencySymbol(code)
+                                            : getCurrencyLabel(code),
+                                        )}
+                                      </Text>
                                     </View>
                                     {hasBalanceStatus ? (
                                       <View
@@ -4184,15 +4177,6 @@ const styles = StyleSheet.create({
     borderRadius: radius.lg,
     backgroundColor: colors.bgBalanceGlass,
     overflow: "hidden",
-  },
-  balanceHeader: {
-    direction: "ltr",
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
   },
   balanceHeadline: {
     direction: "ltr",
