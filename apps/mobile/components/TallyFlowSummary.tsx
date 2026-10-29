@@ -213,6 +213,10 @@ function TallyFlowFilterFooter({
           const selected = filter === direction;
           const compact = filter !== "all" && !selected;
           const received = direction === "received";
+          const targetWidth = received ? targetReceivedWidth : width - targetReceivedWidth;
+          // Text fits its final lane once. Measuring it against every animated
+          // button width makes native auto-fit repeatedly shrink/grow glyphs.
+          const contentWidth = Math.max(0, targetWidth - (compact ? 12 : 24) - (received ? 0 : 1));
           const tone = received ? colors.entryActionReceivedText : colors.entryActionGaveText;
           const label = t(received ? "person.flows.received" : "person.flows.gave", {
             count: flow.count,
@@ -244,45 +248,54 @@ function TallyFlowFilterFooter({
                 received ? receivedStyle : gaveStyle,
               ]}
             >
-              <View style={[styles.flowHeading, compact && styles.compactFlowHeading]}>
-                <Ionicons
-                  accessible={false}
-                  accessibilityElementsHidden
-                  importantForAccessibility="no-hide-descendants"
-                  name={received ? "arrow-down-outline" : "arrow-up-outline"}
-                  size={compact ? 18 : 12}
-                  color={tone}
-                />
-                <Text
-                  accessible={false}
-                  numberOfLines={compact ? 2 : 1}
-                  adjustsFontSizeToFit
-                  maxFontSizeMultiplier={1.3}
-                  style={[
-                    styles.footerLabel,
-                    styles.flowButtonLabel,
-                    { writingDirection: isRTL ? "rtl" : "ltr" },
-                    compact && styles.compactFlowLabel,
-                    selected && { color: tone },
-                  ]}
-                >
-                  {compact
-                    ? t(received ? "person.action.iReceived" : "person.action.iGave")
-                    : label}
-                </Text>
+              <View
+                testID={`tally-flow-content-${direction}`}
+                style={[
+                  styles.flowContent,
+                  { width: contentWidth, alignSelf: received ? "flex-start" : "flex-end" },
+                ]}
+              >
+                <View style={[styles.flowHeading, compact && styles.compactFlowHeading]}>
+                  <Ionicons
+                    accessible={false}
+                    accessibilityElementsHidden
+                    importantForAccessibility="no-hide-descendants"
+                    name={received ? "arrow-down-outline" : "arrow-up-outline"}
+                    size={compact ? 18 : 12}
+                    color={tone}
+                  />
+                  <Text
+                    testID={`tally-flow-label-${direction}`}
+                    accessible={false}
+                    numberOfLines={compact ? 2 : 1}
+                    adjustsFontSizeToFit
+                    maxFontSizeMultiplier={1.3}
+                    style={[
+                      styles.footerLabel,
+                      styles.flowButtonLabel,
+                      { writingDirection: isRTL ? "rtl" : "ltr" },
+                      compact && styles.compactFlowLabel,
+                      selected && { color: tone },
+                    ]}
+                  >
+                    {compact
+                      ? t(received ? "person.action.iReceived" : "person.action.iGave")
+                      : label}
+                  </Text>
+                </View>
+                {!compact ? (
+                  <Text
+                    accessible={false}
+                    style={[styles.footerAmount, selected && { color: tone }]}
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.1}
+                    maxFontSizeMultiplier={1.3}
+                  >
+                    {formatAmount(flow.amount)}
+                  </Text>
+                ) : null}
               </View>
-              {!compact ? (
-                <Text
-                  accessible={false}
-                  style={[styles.footerAmount, selected && { color: tone }]}
-                  numberOfLines={1}
-                  adjustsFontSizeToFit
-                  minimumFontScale={0.1}
-                  maxFontSizeMultiplier={1.3}
-                >
-                  {formatAmount(flow.amount)}
-                </Text>
-              ) : null}
             </AnimatedPressable>
           );
         })}
@@ -327,9 +340,10 @@ const styles = StyleSheet.create({
     minHeight: 66,
     paddingHorizontal: 12,
     paddingVertical: 10,
-    gap: 4,
     justifyContent: "center",
+    overflow: "hidden",
   },
+  flowContent: { flexShrink: 0, gap: 4 },
   flowButtonGave: { borderLeftWidth: 1, borderLeftColor: colors.borderDefault },
   flowHeading: { flexDirection: "row", direction: "ltr", alignItems: "center", gap: 5 },
   flowButtonLabel: { flex: 1, minWidth: 0 },

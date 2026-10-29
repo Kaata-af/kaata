@@ -250,7 +250,12 @@ console.log(
       animationEnabled = true,
       sharedValueReads = 0,
       insideAnimatedStyle = false;
-    const animations: { target: number; duration: number }[] = [];
+    type WidthAnimation = {
+      target: number;
+      duration: number;
+      sample?: (progress: number) => void;
+    };
+    const animations: WidthAnimation[] = [];
     const taps: string[] = [];
     let props = {
       summary: {
@@ -285,8 +290,15 @@ console.log(
               if (!insideAnimatedStyle) sharedValueReads++;
               return value;
             },
-            set value(next: number) {
-              value = next;
+            set value(next: number | WidthAnimation) {
+              if (typeof next === "number") value = next;
+              else {
+                const from = value;
+                next.sample = (progress) => {
+                  value = from + (next.target - from) * progress;
+                };
+                value = next.target;
+              }
             },
           }).current,
         useAnimatedStyle: (compute: () => any) => ({
@@ -300,8 +312,9 @@ console.log(
           },
         }),
         withTiming: (target: number, config: { duration: number }) => {
-          animations.push({ target, duration: config.duration });
-          return target;
+          const animation = { target, duration: config.duration };
+          animations.push(animation);
+          return animation;
         },
       },
       "@expo/vector-icons": { Ionicons: "Icon" },
@@ -332,6 +345,11 @@ console.log(
       hooks,
       taps,
       animations,
+      sampleAnimation(progress: number) {
+        const animation = animations.at(-1);
+        assert.ok(animation?.sample, "A real width transition must be available to sample");
+        animation.sample(progress);
+      },
       sharedValueReads: () => sharedValueReads,
       buttons: () => nodes(hooks.tree).filter((node) => node.type === "Animated.Pressable"),
       update(next: Partial<typeof props>) {
@@ -366,6 +384,7 @@ console.log(
     assert.equal(gave.props.testID, "tally-flow-filter-gave");
     assert.equal(flattenStyle(received.props.style).width, 180);
     assert.equal(flattenStyle(gave.props.style).width, 180);
+    assert.deepEqual(contentWidths(f.hooks.tree), [156, 155]);
     assert.ok(received.props.accessibilityLabel.includes("90,000,000,000,000.25 USD"));
     assert.ok(gave.props.accessibilityLabel.includes("12.34 USD"));
     for (const button of f.buttons()) {
@@ -401,6 +420,52 @@ console.log(
       ),
     );
     assert.equal(f.animations.at(-1)!.duration, 200);
+    const headingLanes = f.buttons().map((button) => {
+      const content = nodes(button).find((node) =>
+        node.props.testID?.startsWith("tally-flow-content-"),
+      )!;
+      const label = nodes(button).find((node) =>
+        node.props.testID?.startsWith("tally-flow-label-"),
+      )!;
+      const contentStyle = flattenStyle(content.props.style);
+      const labelStyle = flattenStyle(label.props.style);
+      assert.equal(contentStyle.flexShrink, 0, "Animated parents cannot squeeze a text lane");
+      assert.equal(
+        flattenStyle(button.props.style).overflow,
+        "hidden",
+        "Intermediate shell bounds clip final-width text",
+      );
+      assert.equal(
+        label.props.adjustsFontSizeToFit,
+        true,
+        "Locale/large-text fitting is retained within the final lane",
+      );
+      assert.equal(label.props.maxFontSizeMultiplier, 1.3);
+      assert.equal(labelStyle.writingDirection, locale === "en" ? "ltr" : "rtl");
+      return {
+        width: contentStyle.width,
+        anchor: contentStyle.alignSelf,
+        fontSize: labelStyle.fontSize,
+        lines: label.props.numberOfLines,
+      };
+    });
+    assert.deepEqual(headingLanes, [
+      { width: 256, anchor: "flex-start", fontSize: 12, lines: 1 },
+      { width: 67, anchor: "flex-end", fontSize: 12, lines: 2 },
+    ]);
+    for (const progress of [0, 0.2, 0.5, 0.8, 1]) {
+      f.sampleAnimation(progress);
+      assert.deepEqual(
+        f.buttons().map((button) => flattenStyle(button.props.style).width),
+        [180 + 100 * progress, 180 - 100 * progress],
+        "The shells continue their expansion without freezing the card animation",
+      );
+      assert.deepEqual(
+        contentWidths(f.hooks.tree),
+        [256, 67],
+        "Text lanes never inherit intermediate animated widths",
+      );
+    }
     expanded.props.onPress();
     assert.equal(
       f.taps.at(-1),
@@ -420,12 +485,18 @@ console.log(
     f.measure(400);
     const widths = f.buttons().map((button) => flattenStyle(button.props.style).width);
     assert.deepEqual(widths, [296, 104]);
+    assert.deepEqual(
+      contentWidths(f.hooks.tree),
+      [272, 91],
+      "Large text receives a stable, wider compact lane",
+    );
     f.motion(true);
     f.update({ filter: "gave" });
     assert.deepEqual(
       f.buttons().map((button) => flattenStyle(button.props.style).width),
       [104, 296],
     );
+    assert.deepEqual(contentWidths(f.hooks.tree), [92, 271]);
     assert.equal(
       f.animations.length,
       animationCount,
@@ -479,6 +550,30 @@ console.log(
     assert.equal(hidden.animations.length, 1, "Hidden changes cannot schedule layout animations");
     assert.equal(hidden.sharedValueReads(), 0);
     hidden.hooks.unmount();
+
+    const reverse = filterFooter(locale);
+    reverse.measure(360);
+    reverse.update({ filter: "gave" });
+    for (const progress of [0, 0.25, 0.5, 0.75, 1]) {
+      reverse.sampleAnimation(progress);
+      assert.deepEqual(
+        reverse.buttons().map((button) => flattenStyle(button.props.style).width),
+        [180 - 100 * progress, 180 + 100 * progress],
+      );
+      assert.deepEqual(
+        contentWidths(reverse.hooks.tree),
+        [68, 255],
+        "Gave expansion also keeps both text lanes fixed",
+      );
+    }
+    assert.equal(reverse.sharedValueReads(), 0);
+    reverse.hooks.unmount();
+  }
+  function contentWidths(tree: any) {
+    return ["received", "gave"].map((side) => {
+      const node = nodes(tree).find((node) => node.props.testID === `tally-flow-content-${side}`)!;
+      return flattenStyle(node.props.style).width;
+    });
   }
   function hooksColumns(tree: any) {
     return nodes(tree).find((node) => flattenStyle(node.props.style).flexDirection === "row")!;
