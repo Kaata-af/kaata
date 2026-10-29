@@ -90,20 +90,21 @@ export function HomeBalanceFilterSwipe(props: {
       )
         return;
       accepted.current = { epoch: request, id };
+      const nextDirection = current.direction === target ? "all" : target;
       const pending = {
         epoch: request,
         id,
         contextKey: current.contextKey,
-        target,
+        target: nextDirection,
         sign,
         width: current.width,
         nativeGesture: current.nativeGesture,
         reducedMotion: current.reducedMotion,
       };
       incoming.current = pending;
-      current.onDirectionChange(target);
-      // A repeated-side swipe or rejected parent request may not render a new
-      // direction. One bounded fallback cannot leave that content displaced.
+      current.onDirectionChange(nextDirection);
+      // A rejected parent request may not render a new direction. One bounded
+      // fallback cannot leave that content displaced.
       if (incoming.current === pending) {
         fallbackFrame.current = requestAnimationFrame(() => {
           fallbackFrame.current = null;

@@ -1174,9 +1174,15 @@ export default function PersonDetailScreen() {
   };
   const changeTallySwipeDirection = (side: "all" | "collect" | "pay") => {
     const current = tallyInteraction.current;
-    if (!filterIsCurrent() || !current.directionEnabled || compactDock || side === "all") return;
+    if (!filterIsCurrent() || !current.directionEnabled || compactDock) return;
     changeTallyFilter(
-      swipeTallyDirection(current.filter, side === "collect" ? "received" : "gave", current.codes),
+      side === "all"
+        ? { ...current.filter, direction: "all", currencies: [] }
+        : swipeTallyDirection(
+            current.filter,
+            side === "collect" ? "received" : "gave",
+            current.codes,
+          ),
     );
   };
   const updateTallyFilterAnchor = useCallback(() => {
@@ -2552,11 +2558,11 @@ export default function PersonDetailScreen() {
                 keyboardShouldPersistTaps="handled"
                 automaticallyAdjustKeyboardInsets={false}
                 contentContainerStyle={{
+                  flexGrow: 1,
                   paddingTop: selecting
                     ? (selectionMeasurement.scope === flowScope ? selectionMeasurement.height : 0) +
                       12
                     : 0,
-                  paddingBottom: actionsHeight + 24,
                 }}
               >
                 <View>
@@ -2941,6 +2947,7 @@ export default function PersonDetailScreen() {
                   }
                   onDirectionChange={changeTallySwipeDirection}
                   nativeGesture={nativeTallyScroll}
+                  style={{ paddingBottom: actionsHeight + 24 }}
                   onLayout={(event) => {
                     if (!filterIsCurrent()) return;
                     const y = event.nativeEvent.layout.y;

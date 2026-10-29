@@ -651,6 +651,7 @@ const homeScroll = () =>
   nodes(tree).find(
     (node) => node.type === "ScrollView" && node.props.ref === renderedPage!.props.scrollRef,
   )!;
+const homeSwipe = () => homeNodes().find((node) => node.props.testID === "home-customer-content")!;
 const customerContentTop = () =>
   flattenStyle(
     homeNodes().find((node) => node.props.testID === "home-customer-content")!.props.style,
@@ -1002,6 +1003,22 @@ async function main() {
     false,
     "Home does not save defaults during load",
   );
+  writeCaps = { resolved: true, canCreate: false, canAmend: false };
+  render();
+  assert.equal(homeSwipe().props.enabled, true, "View-only members retain list filtering");
+  homeSwipe().props.onDirectionChange("collect");
+  render();
+  assert.equal(renderedPage!.props.direction, "collect");
+  homeSwipe().props.onDirectionChange("all");
+  render();
+  assert.equal(
+    renderedPage!.props.direction,
+    "all",
+    "A repeated-side swipe can clear viewer filters",
+  );
+  assert.equal(addButton(), undefined, "Filtering never grants write controls");
+  writeCaps = { resolved: true, canCreate: true, canAmend: true };
+  render();
   assert.equal(
     initialSummary().props.onCurrencyChange,
     undefined,
@@ -1473,6 +1490,52 @@ async function main() {
     "choices include unused enabled and disabled historical currencies",
   );
   assert.equal(searchRows().find((row) => row.props.person.id === "c")!.props.creditStatus, "over");
+  options().props.onChange({
+    ...options().props.preference,
+    currency: "USD",
+    direction: "pay",
+    sort: "name_asc",
+    group: ["g"],
+  });
+  input().props.onChangeText("Cyrus");
+  render();
+  homeNodes()
+    .find((node) => node.type === "HomeFilterPopover")!
+    .props.onDismiss();
+  render();
+  homeNodes()
+    .find((node) => node.props.accessibilityLabel === "common.hideKeyboard")!
+    .props.onPress();
+  emitKeyboard(native.Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide");
+  emitKeyboard("keyboardDidHide");
+  render();
+  assert.equal(homeSwipe().props.direction, "pay");
+  assert.equal(homeSwipe().props.enabled, true);
+  // The shared gesture resolves a repeated-side drag to "all" before calling Home.
+  homeSwipe().props.onDirectionChange("all");
+  render();
+  assert.equal(renderedPage!.props.direction, "all");
+  assert.equal(renderedPage!.props.directionCurrencyKey, "[]");
+  assert.equal(input().props.value, "Cyrus", "Swipe reset preserves the customer query");
+  assert.equal(
+    JSON.parse(metadata.get("customer_home:account-a:vault-a")!).sort,
+    "name_asc",
+    "Swipe reset preserves a compatible sort",
+  );
+  assert.deepEqual(JSON.parse(metadata.get("customer_home:account-a:vault-a")!).group, ["g"]);
+  assert.deepEqual(searchIds(), ["c"]);
+  assert.deepEqual(initialSummary().props.balances, fullCurrencyCards);
+  assert.equal(initialSummary().props.people, fullCurrencyPeople);
+  homeSwipe().props.onDirectionChange("collect");
+  render();
+  assert.equal(renderedPage!.props.direction, "collect");
+  homeSwipe().props.onDirectionChange("all");
+  render();
+  assert.equal(renderedPage!.props.direction, "all", "Both repeated sides restore all directions");
+  assert.equal(input().props.value, "Cyrus");
+  input().props.onChangeText("");
+  options().props.onChange(customerList.DEFAULT_CUSTOMER_LIST);
+  render();
   const currencyReadCount = listRequests.length;
   const currencyInputRef = input().props.ref;
   options().props.onChange({ ...options().props.preference, currency: "USD", sort: "amount_desc" });
@@ -1525,7 +1588,18 @@ async function main() {
   );
   options().props.onChange({ ...options().props.preference, direction: "all" });
   render();
+  const beforeSelectionSwipe = homeSwipe().props.onDirectionChange;
   startFromContactMenu();
+  const selectedCurrencyPreference = JSON.parse(metadata.get("customer_home:account-a:vault-a")!);
+  beforeSelectionSwipe("all");
+  render();
+  assert.equal(homeSwipe().props.enabled, false);
+  assert.equal(toolbar().props.count, 1, "A retained list swipe preserves contact selection");
+  assert.deepEqual(
+    JSON.parse(metadata.get("customer_home:account-a:vault-a")!),
+    selectedCurrencyPreference,
+    "Selection rejects a retained swipe that would remove its currency filter",
+  );
   assert.deepEqual(
     toolbar().props.financialSummaries.map((row: any) => [
       row.currency,

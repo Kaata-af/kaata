@@ -293,8 +293,8 @@ for (const direction of ["all", "collect", "pay"] as const) {
   f.swipe(80);
   assert.deepEqual(
     f.changes,
-    ["pay", "collect"],
-    "Physical swipes choose the same side in all languages, including repeated side",
+    [direction === "pay" ? "all" : "pay", direction === "collect" ? "all" : "collect"],
+    "Physical swipes choose their side, or clear that side when it is already selected",
   );
   assert.deepEqual(f.gesture().config, {
     enabled: true,
@@ -314,6 +314,32 @@ for (const direction of ["all", "collect", "pay"] as const) {
   const styled = nodes(f.hooks.tree).find((node) => node.type === "Animated.View")!;
   assert.equal(styled.props.testID, "home-customer-content");
   assert.equal(flattenStyle(styled.props.style).paddingTop, 12);
+}
+
+for (const sign of [-1, 1]) {
+  const f = fixture();
+  const side = sign < 0 ? "pay" : "collect";
+  const opposite = sign < 0 ? "collect" : "pay";
+  f.update({
+    onDirectionChange: (direction) => {
+      f.changes.push(direction);
+      f.update({ direction });
+    },
+  });
+  f.swipe(sign * 60);
+  f.swipe(sign * 60);
+  f.swipe(sign * 60);
+  f.swipe(-sign * 60);
+  f.swipe(-sign * 60);
+  assert.deepEqual(
+    f.changes,
+    [side, "all", side, opposite, "all"],
+    "Repeated swipes toggle each physical side; an opposite swipe selects the other side",
+  );
+  assert.equal(f.handoffCount, 5, "Each completed stroke requests exactly one change");
+  assert.equal(f.frames.size, 0, "Every accepted toggle receives its own committed render");
+  assert.equal(f.offset, 0);
+  assert.equal(f.animations.at(-1)!.from, sign * 24, "Clearing a side keeps the incoming motion");
 }
 
 {
@@ -540,8 +566,8 @@ for (const change of [
   f.swipe(60);
   assert.deepEqual(
     f.changes,
-    ["collect"],
-    "Same side still dispatches so the root can clear currency filtering",
+    ["all"],
+    "Repeating a currency-scoped side clears direction and lets the parent clear currency filtering",
   );
   assert.equal(
     f.animations.at(-1)!.from,

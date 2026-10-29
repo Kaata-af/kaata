@@ -1063,7 +1063,7 @@ async function tallySelectionTests() {
       false,
       "bottom search has no duplicate selection toolbar",
     );
-    const bottomInset = flattenStyle(find("ScrollView")!.props.contentContainerStyle).paddingBottom;
+    const bottomInset = flattenStyle(byTestId("customer-tally-content")!.props.style).paddingBottom;
     assert.equal(
       flattenStyle(find("ScrollView")!.props.contentContainerStyle).paddingTop,
       12,
@@ -1082,7 +1082,7 @@ async function tallySelectionTests() {
     await flush();
     assert.equal(flattenStyle(find("ScrollView")!.props.contentContainerStyle).paddingTop, 232);
     assert.equal(
-      flattenStyle(find("ScrollView")!.props.contentContainerStyle).paddingBottom,
+      flattenStyle(byTestId("customer-tally-content")!.props.style).paddingBottom,
       bottomInset,
       "selection spacing leaves the search dock's bottom reservation unchanged",
     );
@@ -3008,7 +3008,8 @@ async function customerTallyFilterTests() {
     flow(code).props.onDirectionChange(side);
     await flush();
   };
-  const swipe = async (side: "collect" | "pay") => {
+  // Gesture callbacks already resolve a repeated-side swipe to "all".
+  const swipe = async (side: "all" | "collect" | "pay") => {
     listSwipe().props.onDirectionChange(side);
     await flush();
   };
@@ -3081,10 +3082,14 @@ async function customerTallyFilterTests() {
       await swipe("pay");
       assert.equal(filter().direction, "gave");
       assert.deepEqual(new Set(rowIds()), new Set(["new-tea", "old-rice"]));
-      await swipe("pay");
-      assert.equal(filter().direction, "gave", "Repeating a list swipe retains the selected side");
-      await tapCard("gave");
+      await swipe("all");
       assert.equal(filter().direction, "all");
+      assert.deepEqual(historyRowIds("current"), ["new-rice", "new-tea"]);
+      assert.deepEqual(filter().currencies, [], "A repeated-side swipe returns to every currency");
+      await swipe("collect");
+      assert.equal(filter().direction, "received");
+      await swipe("all");
+      assert.equal(filter().direction, "all", "Either repeated side can restore the complete view");
       unmount();
 
       prepareMultiple();
@@ -3102,6 +3107,11 @@ async function customerTallyFilterTests() {
         carouselCodes,
         "Filtering keeps every currency card reachable",
       );
+      await swipe("all");
+      assert.equal(filter().direction, "all");
+      assert.deepEqual(filter().currencies, [], "Clearing a scoped card by swipe widens globally");
+      assert.equal(rowIds().length, 4);
+      assert.deepEqual([flow("AFN").props.filter, flow("USD").props.filter], ["all", "all"]);
       await tapCard("gave", "AFN");
       assert.deepEqual(filter().currencies, ["AFN"]);
       assert.deepEqual(rowIds(), ["afn-gave"]);
@@ -3127,6 +3137,18 @@ async function customerTallyFilterTests() {
         "Direction, currency, note and date filters compose",
       );
       assert.deepEqual([flow("AFN").props.summary, flow("USD").props.summary], summaries);
+      await changeFilter({ sort: "date_asc" });
+      await swipe("all");
+      assert.equal(filter().direction, "all");
+      assert.deepEqual(filter().currencies, []);
+      assert.equal(filter().sort, "date_asc", "Swipe reset preserves compatible date ordering");
+      assert.equal(find("TextInput")!.props.value, "rice", "Swipe reset retains the note query");
+      assert.deepEqual(
+        dateControl().props.range,
+        { start: 300, end: 401 },
+        "Swipe reset retains the date filter",
+      );
+      assert.deepEqual(rowIds(), ["afn-received", "afn-gave"]);
       filterPopup().props.onClear();
       await flush();
       assert.equal(
@@ -3218,6 +3240,7 @@ async function customerTallyFilterTests() {
   prepareMultiple();
   await flush();
   await tapCard("received", "USD");
+  const selectionSwipe = listSwipe().props.onDirectionChange;
   find("OverflowMenu")!
     .props.actions.find((action: any) => action.label === "selection.start")
     .onPress();
@@ -3225,6 +3248,15 @@ async function customerTallyFilterTests() {
   assert.equal(listSwipe().props.enabled, false);
   find("SelectionToolbar")!.props.onToggleAll();
   await flush();
+  assert.equal(find("SelectionToolbar")!.props.count, 1);
+  const selectedFilter = filter();
+  selectionSwipe("all");
+  await flush();
+  assert.deepEqual(
+    filter(),
+    selectedFilter,
+    "A retained swipe cannot clear an active selection's view",
+  );
   assert.equal(find("SelectionToolbar")!.props.count, 1);
   query("no matching note");
   await flush();
@@ -4091,7 +4123,7 @@ async function main() {
   const measureDock = (height: number) =>
     nativeDock().props.onLayout({ nativeEvent: { layout: { height: height + dockSkirt } } });
   const listPadding = () =>
-    flattenStyle(find("ScrollView")!.props.contentContainerStyle).paddingBottom;
+    flattenStyle(byTestId("customer-tally-content")!.props.style).paddingBottom;
   const stableInputRef = find("TextInput")!.props.ref;
   measureDock(200);
   await flush();
@@ -4237,6 +4269,22 @@ async function main() {
   assert.ok(
     nodes(tree).some((node) => node.props.accessibilityLabel === "person.date.title"),
     "viewers keep date filter",
+  );
+  assert.equal(
+    tallies().some((row) => row.props.onLongPress),
+    false,
+  );
+  const viewerSource = JSON.stringify(entries);
+  byTestId("customer-tally-content")!.props.onDirectionChange("pay");
+  await flush();
+  assert.equal(find("CustomerTallyFilterPopover")!.props.filter.direction, "gave");
+  byTestId("customer-tally-content")!.props.onDirectionChange("all");
+  await flush();
+  assert.equal(find("CustomerTallyFilterPopover")!.props.filter.direction, "all");
+  assert.equal(
+    JSON.stringify(entries),
+    viewerSource,
+    "View-only swipe filters leave tallies intact",
   );
   assert.equal(
     tallies().some((row) => row.props.onLongPress),

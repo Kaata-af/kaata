@@ -2675,7 +2675,6 @@ function HomePage(
           keyboardShouldPersistTaps="always"
           keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
           contentContainerStyle={{
-            paddingBottom: props.paddingBottom,
             flexGrow: 1,
           }}
         >
@@ -2705,7 +2704,10 @@ function HomePage(
             onDirectionChange={props.onDirectionChange}
             style={[
               styles.customerContent,
-              { paddingTop: props.selecting ? selectionHeight + 12 : 12 },
+              {
+                paddingTop: props.selecting ? selectionHeight + 12 : 12,
+                paddingBottom: props.paddingBottom,
+              },
             ]}
           >
             {props.controls}
