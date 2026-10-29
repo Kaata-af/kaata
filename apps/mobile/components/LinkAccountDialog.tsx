@@ -1,7 +1,8 @@
+import { ProtectedModal as Modal } from "./ProtectedModal";
 import { SheetBackdrop } from "./SheetBackdrop";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { useEffect, useRef, useState } from "react";
-import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import * as Clipboard from "expo-clipboard";
 import { Button } from "./Button";

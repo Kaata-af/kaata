@@ -22,7 +22,11 @@ let slots: any[] = [],
 let capturedStyles: any;
 const colors = require("../colors").colors;
 const mocks: Record<string, any> = {
-  "./SheetBackdrop": { SheetBackdrop: "SheetBackdrop" },
+  "./ProtectedModal": { ProtectedModal: "Modal" },
+  "./SheetBackdrop": {
+    SheetBackdrop: "SheetBackdrop",
+    useSheetMotionPreference: () => true,
+  },
   "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
   react: {
     memo: (f: any) => f,

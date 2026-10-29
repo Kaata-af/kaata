@@ -139,6 +139,7 @@ function sheetFixture(name: "BottomSheet" | "OptionSheet") {
     "react-native-safe-area-context": safeArea,
     "@expo/vector-icons": { Ionicons: "Icon" },
     "./SheetSurface": surface,
+    "./ProtectedModal": { ProtectedModal: "Modal" },
     "./SheetBackdrop": { SheetBackdrop: "SheetBackdrop" },
     "./SheetHandle": { SheetHandle: "SheetHandle" },
     "../lib/use-overlay-animation": {

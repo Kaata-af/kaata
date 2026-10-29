@@ -1,3 +1,4 @@
+import { ProtectedModal as Modal } from "./ProtectedModal";
 import { SheetBackdrop } from "./SheetBackdrop";
 import { SheetHandle } from "./SheetHandle";
 import { SheetSurface } from "./SheetSurface";
@@ -10,7 +11,7 @@ import { useSheetDrag } from "../lib/use-sheet-drag";
 // hairline dividers, 220ms exit defer, numeric maxHeight cap).
 
 import { Ionicons } from "@expo/vector-icons";
-import { Animated, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Animated, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { colors } from "../lib/colors";
 import {
   SETTINGS_ROW_LABEL_FONT_SIZE,

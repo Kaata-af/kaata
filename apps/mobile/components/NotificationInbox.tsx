@@ -1,3 +1,4 @@
+import { ProtectedModal as Modal } from "./ProtectedModal";
 import type { ViewInstance } from "react-native";
 import { SheetBackdrop, useSheetMotionPreference } from "./SheetBackdrop";
 import { Ionicons } from "@expo/vector-icons";
@@ -5,7 +6,6 @@ import { useRef, useState, useEffect } from "react";
 import {
   ActivityIndicator,
   Animated,
-  Modal,
   Pressable,
   ScrollView,
   StyleSheet,

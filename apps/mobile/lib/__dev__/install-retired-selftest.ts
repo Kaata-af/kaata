@@ -551,6 +551,7 @@ const dialogModule = load<{
   ConfirmDialog: (props: DialogProps) => unknown;
   DESTRUCTIVE_ARM_MS: number;
 }>("../../components/ConfirmDialog", {
+  "./ProtectedModal": { ProtectedModal: "Modal" },
   "./SheetBackdrop": { SheetBackdrop: "SheetBackdrop" },
   "../lib/use-overlay-animation": {
     useOverlayAnimation: (visible: boolean) => ({ rendered: visible, opacity: 1, position: 1 }),

@@ -911,6 +911,51 @@ const en = {
   "settings.saved": "Saved",
   "settings.language.label": "Language",
   "settings.motion.label": "Animations",
+  "settings.appLock.label": "App lock",
+  "settings.appLock.checking": "Checking fingerprint and Face ID support…",
+  "settings.appLock.hintOff": "Turn on to lock Kaata with fingerprint or Face ID.",
+  "settings.appLock.hintOn": "Unlock when opening Kaata or returning from the background.",
+  "settings.appLock.fallbackHint": "Your phone passcode is also available as a backup.",
+  "settings.appLock.legacyHint":
+    "Unlocks with your fingerprint. If fingerprints stop working, add one in your phone’s security settings using your phone PIN.",
+  "settings.appLock.androidPrivacyHint":
+    "While app lock is on, screenshots, recordings, and recent-app previews are hidden for privacy.",
+  "settings.appLock.capability.unknown": "Checking fingerprint and Face ID support…",
+  "settings.appLock.capability.no_hardware": "This phone has no supported biometric sensor.",
+  "settings.appLock.capability.not_enrolled":
+    "Set up a fingerprint or Face ID in your phone settings first.",
+  "settings.appLock.capability.weak":
+    "Set up a fingerprint or secure face unlock in your phone settings first.",
+  "settings.appLock.capability.unavailable": "Biometrics are unavailable right now. Try again.",
+  "settings.appLock.openSettings": "Open phone settings",
+  "settings.appLock.openSettingsFailed":
+    "Couldn’t open phone settings. Open Settings on your phone to set up biometrics.",
+  "settings.appLock.error.storage": "Couldn’t read or save app lock. Try again.",
+  "settings.appLock.error.unavailable": "Authentication is unavailable right now. Try again.",
+  "settings.appLock.error.not_enrolled":
+    "Set up a fingerprint or Face ID in your phone settings first.",
+  "settings.appLock.error.weak":
+    "A fingerprint or secure face unlock is required to enable app lock.",
+  "settings.appLock.error.authentication": "Couldn’t verify your identity. Try again.",
+  "settings.appLock.error.lockout":
+    "Biometrics are temporarily locked. Try again with your phone passcode.",
+  "settings.appLock.error.legacyLockout":
+    "Fingerprints are temporarily locked. Check your phone’s security settings, then try again.",
+  "appLock.auth.enable": "Verify your identity to turn on Kaata app lock",
+  "appLock.auth.disable": "Verify your identity to turn off Kaata app lock",
+  "appLock.auth.unlock": "Unlock Kaata",
+  "appLock.auth.passcode": "Use phone passcode",
+  "appLock.title": "Kaata is locked",
+  "appLock.subtitle": "Use your fingerprint, Face ID, or phone passcode to continue.",
+  "appLock.biometricOnlySubtitle": "Use your fingerprint to continue.",
+  "appLock.legacyRecovery":
+    "If fingerprints stop working, add one in your phone’s security settings using your phone PIN.",
+  "appLock.openSecuritySettings": "Open security settings",
+  "appLock.unlock": "Unlock",
+  "appLock.unlocking": "Unlocking…",
+  "appLock.loading": "Checking app lock…",
+  "appLock.retry": "Try again",
+  "appLock.privacyTitle": "Kaata",
   "settings.motion.hint": "Saved on this phone. System Reduce Motion is always respected.",
   "settings.motion.option.auto": "Automatic",
   "settings.motion.option.auto.hint": "Turn off animations and blur on less capable phones.",
@@ -3247,6 +3292,53 @@ const fa: Partial<Record<Key, string>> = {
   "settings.saved": "ذخیره شد",
   "settings.language.label": "زبان",
   "settings.motion.label": "جلوه‌های حرکتی",
+  "settings.appLock.label": "قفل برنامه",
+  "settings.appLock.checking": "در حال بررسی اثر انگشت و شناسایی چهره…",
+  "settings.appLock.hintOff":
+    "برای باز کردن کاتا با اثر انگشت یا شناسایی چهره، این گزینه را روشن کنید.",
+  "settings.appLock.hintOn": "هر بار که کاتا را باز می‌کنید یا به آن برمی‌گردید، قفل را باز کنید.",
+  "settings.appLock.fallbackHint": "رمز تلفن نیز برای باز کردن قفل قابل استفاده است.",
+  "settings.appLock.legacyHint":
+    "قفل با اثر انگشت باز می‌شود. اگر اثر انگشت کار نکرد، با استفاده از رمز تلفن، در تنظیمات امنیتی تلفن یک اثر انگشت اضافه کنید.",
+  "settings.appLock.androidPrivacyHint":
+    "وقتی قفل برنامه روشن باشد، گرفتن عکس یا ویدیوی صفحه و پیش‌نمایش برنامه در بخش برنامه‌های اخیر برای حفظ حریم خصوصی مسدود می‌شود.",
+  "settings.appLock.capability.unknown": "در حال بررسی اثر انگشت و شناسایی چهره…",
+  "settings.appLock.capability.no_hardware": "این تلفن حسگر پشتیبانی‌شدهٔ اثر انگشت یا چهره ندارد.",
+  "settings.appLock.capability.not_enrolled":
+    "نخست اثر انگشت یا شناسایی چهره را در تنظیمات تلفن فعال کنید.",
+  "settings.appLock.capability.weak":
+    "نخست اثر انگشت یا شناسایی امن چهره را در تنظیمات تلفن فعال کنید.",
+  "settings.appLock.capability.unavailable":
+    "اثر انگشت یا شناسایی چهره فعلاً در دسترس نیست. دوباره تلاش کنید.",
+  "settings.appLock.openSettings": "باز کردن تنظیمات تلفن",
+  "settings.appLock.openSettingsFailed":
+    "تنظیمات تلفن باز نشد. برای فعال‌سازی اثر انگشت یا شناسایی چهره، تنظیمات تلفن را باز کنید.",
+  "settings.appLock.error.storage": "تنظیم قفل برنامه خوانده یا ذخیره نشد. دوباره تلاش کنید.",
+  "settings.appLock.error.unavailable": "تأیید هویت فعلاً در دسترس نیست. دوباره تلاش کنید.",
+  "settings.appLock.error.not_enrolled":
+    "نخست اثر انگشت یا شناسایی چهره را در تنظیمات تلفن فعال کنید.",
+  "settings.appLock.error.weak":
+    "برای روشن کردن قفل برنامه، اثر انگشت یا شناسایی امن چهره لازم است.",
+  "settings.appLock.error.authentication": "هویت شما تأیید نشد. دوباره تلاش کنید.",
+  "settings.appLock.error.lockout":
+    "اثر انگشت یا شناسایی چهره موقتاً قفل شده است. با رمز تلفن دوباره تلاش کنید.",
+  "settings.appLock.error.legacyLockout":
+    "اثر انگشت موقتاً قفل شده است. تنظیمات امنیتی تلفن را بررسی کنید و دوباره تلاش کنید.",
+  "appLock.auth.enable": "برای روشن کردن قفل کاتا، هویت خود را تأیید کنید",
+  "appLock.auth.disable": "برای خاموش کردن قفل کاتا، هویت خود را تأیید کنید",
+  "appLock.auth.unlock": "باز کردن قفل کاتا",
+  "appLock.auth.passcode": "استفاده از رمز تلفن",
+  "appLock.title": "کاتا قفل است",
+  "appLock.subtitle": "برای ادامه از اثر انگشت، شناسایی چهره یا رمز تلفن استفاده کنید.",
+  "appLock.biometricOnlySubtitle": "برای ادامه از اثر انگشت استفاده کنید.",
+  "appLock.legacyRecovery":
+    "اگر اثر انگشت کار نکرد، با استفاده از رمز تلفن، در تنظیمات امنیتی تلفن یک اثر انگشت اضافه کنید.",
+  "appLock.openSecuritySettings": "باز کردن تنظیمات امنیتی",
+  "appLock.unlock": "باز کردن قفل",
+  "appLock.unlocking": "در حال باز کردن قفل…",
+  "appLock.loading": "در حال بررسی قفل برنامه…",
+  "appLock.retry": "تلاش دوباره",
+  "appLock.privacyTitle": "کاتا",
   "settings.motion.hint": "در همین تلفن ذخیره می‌شود. تنظیم کاهش حرکت تلفن همیشه رعایت می‌شود.",
   "settings.motion.option.auto": "خودکار",
   "settings.motion.option.auto.hint":
@@ -4834,6 +4926,53 @@ const ps: Record<Key, string> = {
   "settings.saved": "خوندي شول",
   "settings.language.label": "ژبه",
   "settings.motion.label": "خوځنده اغېزې",
+  "settings.appLock.label": "د اپ قلف",
+  "settings.appLock.checking": "د ګوتې نښې او د مخ پېژندنې ملاتړ کتل کېږي…",
+  "settings.appLock.hintOff": "کاتا ته د ننوتلو لپاره د ګوتې نښه یا د مخ پېژندنه فعاله کړئ.",
+  "settings.appLock.hintOn": "هر ځل چې کاتا پرانیزئ یا بېرته ورته راشئ، قلف یې خلاص کړئ.",
+  "settings.appLock.fallbackHint": "د ټیلیفون پټ کوډ هم د قلف خلاصولو لپاره کارولی شئ.",
+  "settings.appLock.legacyHint":
+    "قلف د ګوتې په نښه خلاصېږي. که د ګوتې نښه کار ونه کړي، د ټیلیفون په امنیتي تنظیماتو کې د خپل پټ کوډ په وسیله د ګوتې نښه ورزیاته کړئ.",
+  "settings.appLock.androidPrivacyHint":
+    "کله چې د اپ قلف فعال وي، د محرمیت لپاره د پردې انځور، ثبتول او د وروستیو اپونو مخکتنې پټېږي.",
+  "settings.appLock.capability.unknown": "د ګوتې نښې او د مخ پېژندنې ملاتړ کتل کېږي…",
+  "settings.appLock.capability.no_hardware":
+    "دا ټیلیفون د ګوتې نښې یا د مخ پېژندنې مناسب حسګر نه لري.",
+  "settings.appLock.capability.not_enrolled":
+    "لومړی د ټیلیفون په تنظیماتو کې د ګوتې نښه یا د مخ پېژندنه فعاله کړئ.",
+  "settings.appLock.capability.weak":
+    "لومړی د ټیلیفون په تنظیماتو کې د ګوتې نښه یا د مخ خوندي پېژندنه فعاله کړئ.",
+  "settings.appLock.capability.unavailable":
+    "د ګوتې نښه یا د مخ پېژندنه اوس د کارولو وړ نه ده. بیا هڅه وکړئ.",
+  "settings.appLock.openSettings": "د ټیلیفون تنظیمات پرانیزئ",
+  "settings.appLock.openSettingsFailed":
+    "د ټیلیفون تنظیمات پرانیستل نه شول. د ګوتې نښې یا د مخ پېژندنې د فعالولو لپاره یې په خپله پرانیزئ.",
+  "settings.appLock.error.storage": "د اپ د قلف تنظیم لوستل یا خوندي کول ونه شول. بیا هڅه وکړئ.",
+  "settings.appLock.error.unavailable": "اوس هویت نه شي تاییدېدای. بیا هڅه وکړئ.",
+  "settings.appLock.error.not_enrolled":
+    "لومړی د ټیلیفون په تنظیماتو کې د ګوتې نښه یا د مخ پېژندنه فعاله کړئ.",
+  "settings.appLock.error.weak":
+    "د اپ د قلف د فعالولو لپاره د ګوتې نښه یا د مخ خوندي پېژندنه اړینه ده.",
+  "settings.appLock.error.authentication": "ستاسو هویت تایید نه شو. بیا هڅه وکړئ.",
+  "settings.appLock.error.lockout":
+    "د ګوتې نښه یا د مخ پېژندنه لنډمهاله بنده ده. د ټیلیفون په پټ کوډ بیا هڅه وکړئ.",
+  "settings.appLock.error.legacyLockout":
+    "د ګوتې نښه لنډمهاله بنده ده. د ټیلیفون امنیتي تنظیمات وګورئ او بیا هڅه وکړئ.",
+  "appLock.auth.enable": "د کاتا د قلف د فعالولو لپاره خپل هویت تایید کړئ",
+  "appLock.auth.disable": "د کاتا د قلف د بندولو لپاره خپل هویت تایید کړئ",
+  "appLock.auth.unlock": "د کاتا قلف خلاص کړئ",
+  "appLock.auth.passcode": "د ټیلیفون پټ کوډ وکاروئ",
+  "appLock.title": "کاتا قلف ده",
+  "appLock.subtitle": "د دوام لپاره د ګوتې نښه، د مخ پېژندنه یا د ټیلیفون پټ کوډ وکاروئ.",
+  "appLock.biometricOnlySubtitle": "د دوام لپاره د ګوتې نښه وکاروئ.",
+  "appLock.legacyRecovery":
+    "که د ګوتې نښه کار ونه کړي، د ټیلیفون په امنیتي تنظیماتو کې د خپل پټ کوډ په وسیله د ګوتې نښه ورزیاته کړئ.",
+  "appLock.openSecuritySettings": "امنیتي تنظیمات پرانیزئ",
+  "appLock.unlock": "قلف خلاص کړئ",
+  "appLock.unlocking": "قلف خلاصېږي…",
+  "appLock.loading": "د اپ قلف کتل کېږي…",
+  "appLock.retry": "بیا هڅه وکړئ",
+  "appLock.privacyTitle": "کاتا",
   "settings.motion.hint":
     "یوازې په همدې ټیلیفون کې خوندي کېږي. د ټیلیفون د حرکت کمولو تنظیم تل مراعاتېږي.",
   "settings.motion.option.auto": "اتومات",

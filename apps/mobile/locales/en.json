@@ -1,5 +1,6 @@
 {
   "ios": {
+    "NSFaceIDUsageDescription": "Unlock Kaata with Face ID when you enable app lock.",
     "NSContactsUsageDescription": "Kaata uses your contacts so you can add a customer by picking them from your phone book, and saves customers you add in Kaata back to your contacts.",
     "NSCameraUsageDescription": "Kaata uses the camera to scan pairing codes when you add another phone you own."
   }

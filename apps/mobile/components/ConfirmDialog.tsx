@@ -1,7 +1,8 @@
+import { ProtectedModal as Modal } from "./ProtectedModal";
 import { SheetBackdrop } from "./SheetBackdrop";
 import { useOverlayAnimation } from "../lib/use-overlay-animation";
 import { useEffect, useRef } from "react";
-import { Animated, Modal, Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { Animated, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { colors } from "../lib/colors";
 import { rowDir, textDir, trackingSafe, useIsRTL } from "../lib/direction";
 import { fonts } from "../lib/fonts";

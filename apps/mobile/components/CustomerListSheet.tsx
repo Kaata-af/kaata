@@ -1,6 +1,7 @@
+import { ProtectedModal as Modal } from "./ProtectedModal";
 import { Ionicons } from "@expo/vector-icons";
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Animated, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Animated, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { colors } from "../lib/colors";
 import { getCurrencyLabel } from "../lib/currency";
 import { fonts } from "../lib/fonts";

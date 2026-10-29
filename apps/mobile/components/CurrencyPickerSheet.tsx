@@ -1,10 +1,10 @@
+import { ProtectedModal as Modal } from "./ProtectedModal";
 import { Ionicons } from "@expo/vector-icons";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
   FlatList,
   Keyboard,
-  Modal,
   Platform,
   Pressable,
   StyleSheet,

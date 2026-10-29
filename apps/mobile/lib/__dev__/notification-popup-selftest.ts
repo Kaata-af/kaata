@@ -41,6 +41,7 @@ function fixture() {
   const component = compileUI(
     "../../components/NotificationInbox",
     {
+      "./ProtectedModal": { ProtectedModal: "Modal" },
       "./SheetBackdrop": {
         SheetBackdrop: "SheetBackdrop",
         useSheetMotionPreference: () => reducedMotion,

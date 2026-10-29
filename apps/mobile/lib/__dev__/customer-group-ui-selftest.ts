@@ -107,6 +107,7 @@ export async function customerGroupUIChecks() {
         toggleCustomerCurrencyFilter,
         toggleCustomerGroupFilter,
       },
+      "./ProtectedModal": { ProtectedModal: "Modal" },
       "./SheetBackdrop": {
         SheetBackdrop: "SheetBackdrop",
         useSheetMotionPreference: () => reducedMotion,

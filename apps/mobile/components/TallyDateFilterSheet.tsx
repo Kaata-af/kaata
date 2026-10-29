@@ -1,16 +1,8 @@
+import { ProtectedModal as Modal } from "./ProtectedModal";
 import { Ionicons } from "@expo/vector-icons";
 import DateTimePicker, { DateTimePickerAndroid } from "@react-native-community/datetimepicker";
 import { useEffect, useMemo, useRef, useState } from "react";
-import {
-  Animated,
-  Modal,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+import { Animated, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { Button } from "./Button";
 import { SheetBackdrop } from "./SheetBackdrop";
 import type { Calendar } from "../lib/calendar";

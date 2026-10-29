@@ -299,6 +299,7 @@ function fixture() {
     "./SheetSurface": surfaceModule,
     "./SearchKeyboardMotion": { SearchKeyboardFrame: "SearchKeyboardFrame" },
     "./Button": { Button: "Button" },
+    "./ProtectedModal": { ProtectedModal: "Modal" },
     "./SheetBackdrop": { SheetBackdrop: "SheetBackdrop" },
     "./SheetHandle": { SheetHandle: "SheetHandle" },
     "../lib/use-overlay-animation": {

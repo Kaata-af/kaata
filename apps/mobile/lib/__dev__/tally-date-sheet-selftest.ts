@@ -63,6 +63,7 @@ for (const calendar of ["gregorian", "jalali", "qamari"] as Calendar[])
           "./SheetSurface": { SheetSurface: "SheetSurface" },
           "@expo/vector-icons": { Ionicons: "Icon" },
           "./Button": { Button: "Button" },
+          "./ProtectedModal": { ProtectedModal: "Modal" },
           "./SheetBackdrop": { SheetBackdrop: "SheetBackdrop" },
           "./SheetHandle": { SheetHandle: "SheetHandle" },
           "../lib/colors": require("../colors"),

@@ -1,3 +1,4 @@
+import { ProtectedModal as Modal } from "./ProtectedModal";
 import { SheetBackdrop } from "./SheetBackdrop";
 import { SheetHandle } from "./SheetHandle";
 import { SheetSurface } from "./SheetSurface";
@@ -6,7 +7,7 @@ import { useSheetDrag } from "../lib/use-sheet-drag";
 import { Ionicons } from "@expo/vector-icons";
 import { useEffect, useMemo, useRef } from "react";
 import type { ComponentProps } from "react";
-import { Animated, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Animated, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { colors } from "../lib/colors";
 import { getCurrencySymbol } from "../lib/currency";
 import { rowDir, textDir, trackingSafe, useIsRTL } from "../lib/direction";

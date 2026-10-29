@@ -69,6 +69,7 @@ for (const calendar of ["gregorian", "jalali", "qamari"] as Calendar[])
         "../lib/tally-date-filter": { localDayStart },
         "../lib/tokens": { radius: { sm: 8, sheet: 18 }, TOUCH_MIN: 44, typography: {} },
         "./CalendarDayPicker": { CalendarDayPicker: "CalendarDayPicker" },
+        "./ProtectedModal": { ProtectedModal: "Modal" },
         "./SheetBackdrop": { useSheetMotionPreference: () => reducedMotion },
       },
       {

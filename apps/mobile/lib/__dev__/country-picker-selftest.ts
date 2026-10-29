@@ -111,6 +111,7 @@ for (const locale of ["en", "fa", "ps"] as LocaleCode[]) {
     "react-native": native,
     "./SheetSurface": surface,
     "@expo/vector-icons": { Ionicons: "Icon" },
+    "./ProtectedModal": { ProtectedModal: "Modal" },
     "./SheetBackdrop": { SheetBackdrop: "SheetBackdrop" },
     "./SheetHandle": { SheetHandle: "SheetHandle" },
     "../lib/use-overlay-animation": {

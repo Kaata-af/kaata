@@ -52,6 +52,7 @@ import { ConfirmDialog } from "../components/ConfirmDialog";
 import { CountryPickerSheet } from "../components/CountryPickerSheet";
 import { OptionSheet } from "../components/OptionSheet";
 import { MotionPreferenceSetting } from "../components/MotionPreferenceSetting";
+import { AppLockSetting } from "../components/AppLockSetting";
 import { ScreenLoading } from "../components/ScreenLoading";
 import { NavRow, ScreenHeader, SectionGap, SectionHeader } from "../components/SettingsScreen";
 import { useToast } from "../components/Toast";
@@ -888,6 +889,7 @@ export default function AccountScreen() {
             </View>
           ) : null}
           <SectionHeader label={t("account.privacy.section")} isRTL={isRTL} />
+          <AppLockSetting />
           <NavRow
             icon="shield-checkmark-outline"
             label={t("account.privacy.label")}

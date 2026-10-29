@@ -1,3 +1,4 @@
+import { ProtectedModal as Modal } from "./ProtectedModal";
 import { SheetBackdrop } from "./SheetBackdrop";
 import { SheetHandle } from "./SheetHandle";
 import { SheetSurface } from "./SheetSurface";
@@ -8,7 +9,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
   FlatList,
-  Modal,
   Pressable,
   type ScrollViewInstance,
   StyleSheet,

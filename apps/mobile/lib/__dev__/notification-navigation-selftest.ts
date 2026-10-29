@@ -163,7 +163,7 @@ function notificationTapFixture(
     .map((node) => node.getText(source))
     .join("\n");
   const root = source.statements.find(
-    (node) => ts.isFunctionDeclaration(node) && node.name?.text === "RootLayout",
+    (node) => ts.isFunctionDeclaration(node) && node.name?.text === "RootLayoutContent",
   ) as ts.FunctionDeclaration;
   const effect = root.body!.statements.find(
     (node) =>

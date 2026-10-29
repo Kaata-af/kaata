@@ -1,9 +1,9 @@
+import { ProtectedModal as Modal } from "./ProtectedModal";
 import { Ionicons } from "@expo/vector-icons";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
   FlatList,
-  Modal,
   Pressable,
   StyleSheet,
   Text,

@@ -44,6 +44,7 @@ import { PendingEmailFlowResume } from "../components/PendingEmailFlowResume";
 import { ToastProvider } from "../components/Toast";
 import { SheetBlurProvider } from "../components/SheetBackdrop";
 import { MotionStack } from "../components/MotionStack";
+import { AppLockGate } from "../components/AppLockGate";
 import { SearchKeyboardProvider } from "../components/SearchKeyboardMotion";
 import { stopShopModeForegroundService } from "../lib/mesh/foreground";
 import {
@@ -247,6 +248,14 @@ async function routeFromNotificationData(
 }
 
 export default function RootLayout() {
+  return (
+    <AppLockGate>
+      <RootLayoutContent />
+    </AppLockGate>
+  );
+}
+
+function RootLayoutContent() {
   // First-launch gate: if the Activity came up RTL (v0.2.4 upgrader OR a
   // fresh install on a Persian-locale device), we cannot relayout the
   // current view tree — Yoga has already auto-flipped `flexDirection: row`

@@ -120,6 +120,7 @@ for (const platform of ["ios", "android"]) {
           },
         }),
       },
+      "./ProtectedModal": { ProtectedModal: "Modal" },
       "./SheetBackdrop": { SheetBackdrop: "SheetBackdrop" },
       "./SheetHandle": { SheetHandle: "SheetHandle" },
     });

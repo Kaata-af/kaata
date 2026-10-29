@@ -75,7 +75,11 @@ for (const os of ["ios", "android"] as const) {
   let slots: any[] = [];
   let cursor = 0;
   const mocks: Record<string, any> = {
-    "./SheetBackdrop": { SheetBackdrop: "SheetBackdrop" },
+    "./ProtectedModal": { ProtectedModal: "Modal" },
+    "./SheetBackdrop": {
+      SheetBackdrop: "SheetBackdrop",
+      useSheetMotionPreference: () => false,
+    },
     "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
     react: {
       useState: (initial: any) => {

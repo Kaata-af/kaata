@@ -1,6 +1,7 @@
+import { ProtectedModal as Modal } from "./ProtectedModal";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { useEffect, useState } from "react";
-import { Animated, Modal, Platform, StyleSheet, Text } from "react-native";
+import { Animated, Platform, StyleSheet, Text } from "react-native";
 import { Button } from "./Button";
 import { SheetBackdrop } from "./SheetBackdrop";
 import { SheetHandle } from "./SheetHandle";

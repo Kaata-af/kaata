@@ -3435,6 +3435,7 @@ const accountModule = load<{ default: () => unknown }>("../../app/account", {
   "../components/CountryPickerSheet": { CountryPickerSheet: "CountryPicker" },
   "../components/OptionSheet": { OptionSheet: "OptionSheet" },
   "../components/MotionPreferenceSetting": { MotionPreferenceSetting: "MotionPreferenceSetting" },
+  "../components/AppLockSetting": { AppLockSetting: "AppLockSetting" },
   "../components/ScreenLoading": { ScreenLoading: "ScreenLoading" },
   "../components/SettingsScreen": {
     NavRow: "NavRow",

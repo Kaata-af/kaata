@@ -1,3 +1,4 @@
+import { ProtectedModal as Modal } from "./ProtectedModal";
 import { SheetBackdrop } from "./SheetBackdrop";
 import { useOverlayAnimation } from "../lib/use-overlay-animation";
 import { useSheetDrag } from "../lib/use-sheet-drag";
@@ -5,7 +6,7 @@ import { SheetHandle } from "./SheetHandle";
 import { SheetSurface } from "./SheetSurface";
 import { Ionicons } from "@expo/vector-icons";
 import { useEffect, useRef } from "react";
-import { Animated, Modal, Pressable, StyleSheet, Text, View } from "react-native";
+import { Animated, Pressable, StyleSheet, Text, View } from "react-native";
 import type { ComponentProps } from "react";
 import { colors } from "../lib/colors";
 import { rowDir, textDir, useIsRTL } from "../lib/direction";

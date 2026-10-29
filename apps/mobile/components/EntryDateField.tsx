@@ -1,6 +1,7 @@
+import { ProtectedModal as Modal } from "./ProtectedModal";
 import { Ionicons } from "@expo/vector-icons";
 import { useEffect, useRef } from "react";
-import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useCalendar } from "../lib/calendar";
 import { colors } from "../lib/colors";
