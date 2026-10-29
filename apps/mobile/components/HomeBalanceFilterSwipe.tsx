@@ -262,20 +262,16 @@ export function HomeBalanceFilterSwipe(props: {
         const current = stroke.value;
         const owner = lease.value;
         if (current.epoch !== epoch || owner.epoch !== epoch) return;
+        if (current.blocked || !current.active || current.commitRequested || !owner.enabled) return;
+        if (owner.reducedMotion) {
+          offset.value = 0;
+          return;
+        }
         const x = event.absoluteX - current.x;
-        const y = event.absoluteY - current.y;
-        offset.value =
-          current.blocked ||
-          !current.active ||
-          current.commitRequested ||
-          !owner.enabled ||
-          owner.reducedMotion ||
-          !Number.isFinite(x) ||
-          !Number.isFinite(y) ||
-          Math.abs(y) > 24 ||
-          Math.abs(x) < Math.abs(y) * 2
-            ? 0
-            : Math.max(-96, Math.min(96, x * 0.65));
+        // Native activation has already chosen this horizontal drag. Finger
+        // drift while holding must not jump the content back to zero. Release
+        // still checks direction and distance before applying a filter.
+        if (Number.isFinite(x)) offset.value = Math.max(-96, Math.min(96, x * 0.65));
       })
       .onEnd((event, success) => {
         "worklet";
@@ -339,7 +335,9 @@ export function HomeBalanceFilterSwipe(props: {
         "worklet";
         const current = stroke.value;
         if (current.epoch !== epoch || lease.value.epoch !== epoch) return;
-        if (!current.commitRequested) settle();
+        // onEnd already settles rejected releases. Finalization only needs to
+        // return an active drag that the native recognizer cancelled instead.
+        if (current.active && !current.commitRequested) settle();
         stroke.value = { ...current, active: false, blocked: true };
       });
     return props.nativeGesture

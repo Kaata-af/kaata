@@ -374,6 +374,37 @@ for (const direction of ["all", "collect", "pay"] as const) {
   );
 }
 
+{
+  const f = fixture();
+  const pan = f.begin();
+  pan.update(f.event(-60));
+  assert.equal(f.offset, -39);
+  f.time(1200);
+  let failures = 0;
+  pan.move({ numberOfTouches: 1, allTouches: [f.event(-60, 0, 25)] }, { fail: () => failures++ });
+  pan.update(f.event(-60, 0, 25));
+  assert.equal(f.offset, -39, "Holding with vertical drift keeps the active horizontal offset");
+  pan.update(f.event(-40, 0, 21));
+  assert.equal(f.offset, -26, "Crossing the release angle guard cannot snap a held drag to zero");
+  pan.update(f.event(Number.NaN));
+  assert.equal(f.offset, -26, "An invalid movement sample preserves the last valid offset");
+  f.update({ onDirectionChange: (side) => f.changes.push(side) });
+  assert.equal(f.offset, -26, "An ordinary rerender does not move a held finger");
+  assert.equal(f.animations.length, 0, "No return animation runs before release");
+  assert.equal(failures, 0);
+  assert.deepEqual(f.changes, []);
+  pan.end(f.event(-40, 0, 21), true);
+  pan.finalize();
+  assert.equal(f.animations.length, 1, "Finalizing a rejected release does not restart its return");
+  assert.equal(f.animations.at(-1)!.from, -26);
+  assert.equal(f.animations.at(-1)!.target, 0);
+  assert.equal(f.animations.at(-1)!.config.duration, 120);
+  f.settle();
+  assert.deepEqual(f.changes, [], "A diagonal release still settles without changing the filter");
+  f.swipe(-60);
+  assert.deepEqual(f.changes, ["pay"], "A fresh horizontal swipe still filters normally");
+}
+
 // Every native closure and queued RN callback must expire across scope ABA,
 // search/modal blocking, direction, currency selection, rotation or relation changes.
 for (const change of [
