@@ -2551,7 +2551,7 @@ type CustomerScrollProps = {
 };
 
 /** One bordered card keeps the existing row behavior in idle and search. */
-function CustomerRows(props: CustomerRowsProps) {
+function CustomerRows(props: CustomerRowsProps & { separated?: boolean }) {
   const {
     people,
     creditByPerson,
@@ -2595,7 +2595,9 @@ function CustomerRows(props: CustomerRowsProps) {
       showDirection,
     ],
   );
-  return <View style={styles.peopleCard}>{rows}</View>;
+  return (
+    <View style={[styles.peopleCard, props.separated && styles.separatedPeopleCard]}>{rows}</View>
+  );
 }
 
 function GroupFilterChip(props: GroupFilterChipProps) {
@@ -2784,7 +2786,12 @@ function HomePage(
               onToggle={props.onToggleSettled}
               disabled={props.selecting || props.selectionBusy || !props.active}
             >
-              <CustomerRows {...props} people={props.settledPeople} showDirection />
+              <CustomerRows
+                {...props}
+                people={props.settledPeople}
+                showDirection
+                separated={props.people.length > 0}
+              />
             </SettledAccountsSection>
           </HomeBalanceFilterSwipe>
         </ScrollView>
@@ -3013,6 +3020,7 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     backgroundColor: colors.bgDefault,
   },
+  separatedPeopleCard: { marginTop: 16 },
   divider: { height: 1, backgroundColor: colors.borderDefault },
   homeToastDock: {
     backgroundColor: colors.bgDefault,

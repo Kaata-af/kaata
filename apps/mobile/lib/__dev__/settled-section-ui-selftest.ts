@@ -135,7 +135,7 @@ for (const locale of ["en", "fa", "ps"] as const) {
   const collapsed = render();
   assert.equal(collapsed.type, "Fragment", "no native wrapper changes the card's measured origin");
   assert.ok(!nodes(collapsed).includes(accountsCard), "collapsed settled accounts are not mounted");
-  const trigger = collapsed.props.children[0];
+  const trigger = collapsed.props.children[1];
   assert.equal(trigger.type, SettledHistoryToggle);
   assert.equal(trigger.props.kind, "accounts");
   assert.equal(trigger.props.horizontalInset, 16);
@@ -144,16 +144,17 @@ for (const locale of ["en", "fa", "ps"] as const) {
 
   const expanded = render(true);
   const children = expanded.props.children;
-  assert.equal(children[1], accountsCard, "the accounts card stays a direct sibling of the toggle");
-  const close = children[0];
+  assert.equal(children[0], accountsCard, "revealed accounts take the toggle's former position");
+  const close = children[1];
+  assert.equal(close.type, SettledHistoryToggle, "the close control follows all settled accounts");
   assert.equal(close.props.expanded, true);
   close.props.onToggle();
   assert.equal(toggles, 2);
 
-  const blocked = render(true, true).props.children[0];
+  const blocked = render(true, true).props.children[1];
   assert.equal(blocked.props.disabled, true);
   assert.equal(render(false, false, 0), null, "no settled accounts leaves no separator or gap");
-  assert.equal(render(false, false, 155).props.children[0].props.count, 155);
+  assert.equal(render(false, false, 155).props.children[1].props.count, 155);
 }
 console.log(
   "PASS settled history controls: account/tally EN/FA/PS labels, RTL/wrapping/accessibility, disabled guards, one gutter and collapsed account child unmount",

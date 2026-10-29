@@ -46,7 +46,6 @@ export function SettledHistoryToggle({
         styles.toggle,
         { marginHorizontal: horizontalInset },
         rowDir(isRTL),
-        kind === "accounts" && expanded && styles.expanded,
         disabled && styles.disabled,
         pressed && !disabled && styles.pressed,
       ]}
@@ -98,7 +97,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   count: { ...typography.numMeta, color: colors.textSubtle, writingDirection: "ltr" },
-  expanded: { marginBottom: space.md },
   pressed: { backgroundColor: colors.bgSubtle },
   disabled: { opacity: 0.4 },
 });

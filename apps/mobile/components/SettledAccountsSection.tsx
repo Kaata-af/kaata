@@ -18,6 +18,7 @@ export function SettledAccountsSection({
   if (count <= 0) return null;
   return (
     <>
+      {expanded ? children : null}
       <SettledHistoryToggle
         kind="accounts"
         count={count}
@@ -26,7 +27,6 @@ export function SettledAccountsSection({
         onToggle={onToggle}
         horizontalInset={16}
       />
-      {expanded ? children : null}
     </>
   );
 }
