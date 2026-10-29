@@ -22,7 +22,9 @@ import { updateTargetUrl } from "../lib/update-url";
 // delivers the touch (a child's hit area outside its parent's bounds is clipped).
 const CTA_HIT_SLOP = { top: 8, bottom: 8 } as const;
 
-export function UpdateBanner() {
+export function UpdateBanner(props: {
+  welcomeGuidance?: "add_customer" | "open_customer" | "empty_read_only";
+}) {
   const { update, announcement, refresh } = useAppMeta();
   const isRTL = useIsRTL();
   const toast = useToast();
@@ -79,17 +81,35 @@ export function UpdateBanner() {
   }
 
   if (announcement) {
+    // The original server-seeded welcome is also cached on existing phones.
+    // Adapt only that exact legacy message; ordinary announcements keep their
+    // own copy and update notices above remain available on an empty Kaata.
+    const legacyWelcome =
+      announcement.id === 1 &&
+      announcement.title === "Welcome to Kaata" &&
+      announcement.body === "Tap a customer to see their kaata.";
+    if (legacyWelcome && !props.welcomeGuidance) return null;
+    const title = legacyWelcome ? t("welcomeBanner.title") : announcement.title;
+    const body = legacyWelcome
+      ? t(
+          props.welcomeGuidance === "add_customer"
+            ? "welcomeBanner.addCustomer"
+            : props.welcomeGuidance === "open_customer"
+              ? "welcomeBanner.openCustomer"
+              : "welcomeBanner.emptyReadOnly",
+        )
+      : announcement.body;
     return (
       <View style={[styles.banner, styles.bannerLight, rowDir(isRTL)]}>
         <View style={[styles.body, isRTL ? styles.bodyRTL : styles.bodyLTR]}>
           <Text style={[styles.title, textDir(isRTL), { color: colors.textEmphasis }]}>
-            {announcement.title}
+            {title}
           </Text>
           <Text
             style={[styles.note, textDir(isRTL), { color: colors.textSubtle }]}
             numberOfLines={3}
           >
-            {announcement.body}
+            {body}
           </Text>
         </View>
         {announcement.cta_url ? (

@@ -357,6 +357,10 @@ const en = {
     "Add a person, then record what you give or receive. Kaata keeps the balance for you.",
   "onboardingSuccess.ledgerLabel": "Your kaata",
   "onboardingSuccess.cta": "Open my kaata",
+  "welcomeBanner.title": "Welcome to Kaata",
+  "welcomeBanner.addCustomer": "Tap + below to add your first customer.",
+  "welcomeBanner.openCustomer": "Tap a customer to see their account.",
+  "welcomeBanner.emptyReadOnly": "This Kaata has no customers yet.",
 
   // Permanent guide screen (app/guide.tsx), linked from the settings sheet.
   "guide.title": "How kaata works",
@@ -2757,6 +2761,10 @@ const fa: Partial<Record<Key, string>> = {
     "یک نفر را اضافه کنید و داد و گرفت‌تان را ثبت کنید. کاتا بیلانس را برای‌تان حساب می‌کند.",
   "onboardingSuccess.ledgerLabel": "کاتای شما",
   "onboardingSuccess.cta": "باز کردن کاتای من",
+  "welcomeBanner.title": "به کاتا خوش آمدید",
+  "welcomeBanner.addCustomer": "برای افزودن نخستین مشتری، دکمهٔ + را در پایین بزنید.",
+  "welcomeBanner.openCustomer": "برای دیدن حساب مشتری، روی نام او بزنید.",
+  "welcomeBanner.emptyReadOnly": "این کاتا هنوز مشتری ندارد.",
 
   // Permanent guide screen
   "guide.title": "کاتا چطور کار می‌کند",
@@ -4737,6 +4745,10 @@ const ps: Record<Key, string> = {
     "یو کس ورزیات کړئ، بیا چې څه ورکوئ یا ترلاسه کوئ، ثبت یې کړئ. Kaata مو پاتې حساب ساتي.",
   "onboardingSuccess.ledgerLabel": "ستاسې کاټه",
   "onboardingSuccess.cta": "زما کاټه پرانیزئ",
+  "welcomeBanner.title": "کاټې ته ښه راغلاست",
+  "welcomeBanner.addCustomer": "د لومړي پېرودونکي د زیاتولو لپاره لاندې + تڼۍ ووهئ.",
+  "welcomeBanner.openCustomer": "د پېرودونکي د حساب لیدلو لپاره د هغه پر نوم ووهئ.",
+  "welcomeBanner.emptyReadOnly": "په دې کاټه کې لا پېرودونکي نشته.",
   "guide.title": "کاټه څنګه کار کوي",
   "guide.p1": "کاټه ستاسې د دوکان د حساب کتابچه ده. یوه کاټه د یوه دوکان ټول حسابونه ساتي.",
   "guide.p2":

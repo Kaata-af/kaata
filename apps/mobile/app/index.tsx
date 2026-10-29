@@ -1893,7 +1893,17 @@ export default function HomeScreen() {
             </Pressable>
           </View>
 
-          <UpdateBanner />
+          <UpdateBanner
+            welcomeGuidance={
+              loaded && !loadError && currentPeopleScope && currentVaultScope && caps.resolved
+                ? visibleAllPeople.length > 0
+                  ? "open_customer"
+                  : canCreate
+                    ? "add_customer"
+                    : "empty_read_only"
+                : undefined
+            }
+          />
 
           {/* Each host avoids only the keyboard overlap its native window leaves. */}
           <SearchKeyboardFrame style={styles.body} avoidAndroidKeyboard>
