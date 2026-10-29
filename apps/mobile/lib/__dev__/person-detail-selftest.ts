@@ -12,6 +12,7 @@ import {
   formatDateRangeLabel,
 } from "../tally-date-filter";
 import { summarizeTallyFlows } from "../tally-summary";
+import * as tallyListFilter from "../tally-list-filter";
 import type { Calendar } from "../calendar";
 import { toJalali, toQamari } from "../jalali";
 import { afterSharedSettlement, sharedHistory, visibleTally } from "../tabs/chapters";
@@ -81,6 +82,9 @@ const react = {
       before?.cleanup?.();
       slots[i].cleanup = fn();
     });
+  },
+  useLayoutEffect(fn: () => void | (() => void), deps?: unknown[]) {
+    react.useEffect(fn, deps);
   },
 };
 const jsx = (type: string, props: any): Node => ({ type, props });
@@ -270,6 +274,7 @@ const native: any = {
   TextInput: "TextInput",
   ScrollView: "ScrollView",
   ActivityIndicator: "Spinner",
+  useWindowDimensions: () => ({ width: 390, height: 844, fontScale: 1, scale: 3 }),
   KeyboardAvoidingView: "Keyboard",
   BackHandler: {
     addEventListener: (_: string, fn: () => boolean) => {
@@ -317,6 +322,8 @@ const components = Object.fromEntries(
     "TallyHighlight",
     "TallyFlowSummary",
     "CustomerBalanceCarousel",
+    "HomeBalanceFilterSwipe",
+    "CustomerTallyFilterPopover",
     "CreditIntentList",
     "CreditStatusBadge",
     "EntryRow",
@@ -340,6 +347,19 @@ const mocks: Record<string, any> = {
   "react-native": native,
   "@expo/vector-icons": { Ionicons: "Icon" },
   "expo-crypto": { randomUUID: () => "uuid" },
+  "expo-blur": { BlurTargetView: "BlurTargetView" },
+  "expo-haptics": { impactAsync: async () => {}, ImpactFeedbackStyle: { Soft: "soft" } },
+  "react-native-gesture-handler": {
+    GestureDetector: "GestureDetector",
+    Gesture: {
+      Native: () => {
+        const gesture: any = {};
+        for (const key of ["shouldActivateOnStart", "disallowInterruption"])
+          gesture[key] = () => gesture;
+        return gesture;
+      },
+    },
+  },
   "expo-router": {
     useLocalSearchParams: () => params,
     useRouter: () => ({
@@ -496,6 +516,7 @@ const mocks: Record<string, any> = {
   "../../lib/tally-search": { filterTallies, noteSearchTerms },
   "../../lib/tally-date-filter": { filterTalliesByDate, formatDateRangeLabel },
   "../../lib/tally-summary": { summarizeTallyFlows },
+  "../../lib/tally-list-filter": tallyListFilter,
   "../../lib/selection-summary": { summarizeSelectionEntries },
   "../../lib/multi-currency-view": multiCurrencyView,
   "../../lib/tabs/link-status": require("../tabs/link-status"),
@@ -999,7 +1020,7 @@ async function tallySelectionTests() {
       (node) => node.props.testID === "customer-selection-controls",
     )!;
     assert.ok(selectionTop, "selection controls remain fixed over the scrolling list");
-    const screenChildren = kids(find("Safe"));
+    const screenChildren = kids(find("BlurTargetView"));
     assert.ok(
       nodes(screenChildren[0]).some((node) => node.props.accessibilityLabel === "common.back"),
     );
@@ -1009,10 +1030,11 @@ async function tallySelectionTests() {
       "selection does not move the keyboard-aware viewport below the header",
     );
     const frameContent = kids(find("SearchKeyboardFrame"))[0];
-    assert.deepEqual(
-      kids(frameContent).slice(0, 2),
-      [selectionTop, find("ScrollView")],
-      "selection controls precede their scrolling sibling for accessibility",
+    const frameSiblings = kids(frameContent).slice(0, 2);
+    assert.equal(frameSiblings[0], selectionTop);
+    assert.ok(
+      nodes(frameSiblings[1]).includes(find("ScrollView")!),
+      "selection controls precede their gesture-wrapped scrolling sibling for accessibility",
     );
     assert.ok(kids(selectionTop).includes(toolbar()));
     const overlayStyle = flattenStyle(selectionTop.props.style);
@@ -2674,6 +2696,7 @@ async function settledTalliesSectionTests() {
   const scroll = find("ScrollView")!;
   scroll.props.ref.current = { scrollTo: (position: any) => scrolled.push(position) };
   scroll.props.onLayout({ nativeEvent: { layout: { height: 400 } } });
+  byTestId("customer-tally-content")!.props.onLayout({ nativeEvent: { layout: { y: 312 } } });
   const target = tallies().find((row) => row.props.entry.id === "old-rice")!;
   const targetRow = nodes(tree).find((node) => node.props.onLayout && kids(node).includes(target))!;
   historyRows("settled")!.props.onLayout({ nativeEvent: { layout: { y: 1000 } } });
@@ -2685,13 +2708,13 @@ async function settledTalliesSectionTests() {
   assert.equal(
     scrolled.at(-1).y,
     tallyScrollTarget({
-      top: 1090,
+      top: 1402,
       height: 60,
       offset: 0,
       viewport: 400,
       bottomInset: 100,
     }),
-    "settled notification scrolling uses its own card, never the active card's last layout",
+    "settled notification scrolling includes the list wrapper and its own card, never the active card's last layout",
   );
   const highlighted = tallies().find((row) => row.props.entry.id === "old-rice")!;
   const highlightedRow = nodes(tree).find(
@@ -2701,6 +2724,7 @@ async function settledTalliesSectionTests() {
 
   const oldCardLayout = historyRows("settled")!.props.onLayout;
   const oldRowLayout = targetRow.props.onLayout;
+  const oldContentLayout = byTestId("customer-tally-content")!.props.onLayout;
   settledSection()!.props.onToggle();
   await flush();
   assert.equal(settledSection()!.props.expanded, false);
@@ -2721,6 +2745,8 @@ async function settledTalliesSectionTests() {
   find("ScrollView")!.props.onContentSizeChange();
   await flush();
   assert.equal(scrolled.length, 0, "a reopened notification waits for its new card measurements");
+  byTestId("customer-tally-content")!.props.onLayout({ nativeEvent: { layout: { y: 420 } } });
+  oldContentLayout({ nativeEvent: { layout: { y: 9999 } } });
   oldCardLayout({ nativeEvent: { layout: { y: 1000 } } });
   oldRowLayout({ nativeEvent: { layout: { y: 90, height: 60 } } });
   runFrames();
@@ -2747,7 +2773,7 @@ async function settledTalliesSectionTests() {
   assert.equal(
     scrolled[0].y,
     tallyScrollTarget({
-      top: 1890,
+      top: 2310,
       height: 60,
       offset: 0,
       viewport: 400,
@@ -2970,7 +2996,326 @@ async function groupedSharingUITests() {
   );
 }
 
+async function customerTallyFilterTests() {
+  const originalPlatform = platform,
+    originalRTL = rtl;
+  const filterPopup = () => find("CustomerTallyFilterPopover")!;
+  const filter = () => filterPopup().props.filter;
+  const listSwipe = () => byTestId("customer-tally-content")!;
+  const flow = (code = "AFN") =>
+    nodes(tree).find((node) => node.type === "TallyFlowSummary" && node.props.currency === code)!;
+  const tapCard = async (side: "received" | "gave", code = "AFN") => {
+    flow(code).props.onDirectionChange(side);
+    await flush();
+  };
+  const swipe = async (side: "collect" | "pay") => {
+    listSwipe().props.onDirectionChange(side);
+    await flush();
+  };
+  const changeFilter = async (next: Record<string, any>) => {
+    find("TextInput")!.props.onFocus();
+    await flush();
+    byTestId("customer-tally-filter-trigger")!.props.onPress();
+    await flush();
+    assert.equal(filterPopup().props.visible, true);
+    assert.equal(find("BlurTargetView")!.props.accessibilityElementsHidden, true);
+    assert.equal(find("BlurTargetView")!.props.importantForAccessibility, "no-hide-descendants");
+    filterPopup().props.onChange({ ...filter(), ...next });
+    await flush();
+    filterPopup().props.onDismiss();
+    await flush();
+    assert.equal(find("BlurTargetView")!.props.accessibilityElementsHidden, false);
+    assert.equal(find("BlurTargetView")!.props.importantForAccessibility, "auto");
+  };
+  const prepareMultiple = () => {
+    fixture();
+    settlement = { count: 0, lastSettledAtMs: null };
+    boundaries = [];
+    const afn = { ...person, currency: "AFN", balance: 15 };
+    const usd = { ...person, currency: "USD", balance: 4 };
+    person = { ...afn, currency_balances: [afn, usd] };
+    entries = [
+      { ...tally("afn-gave", "rice gave", 20, 400), currency: "AFN" },
+      { ...tally("afn-received", "rice received", 5, 350, undefined, "payment"), currency: "AFN" },
+      { ...tally("usd-gave", "tea gave", 7, 300), currency: "USD" },
+      { ...tally("usd-received", "rice received", 3, 250, undefined, "payment"), currency: "USD" },
+    ];
+  };
+  for (const os of ["android", "ios"])
+    for (const isRTL of [false, true]) {
+      platform = os;
+      rtl = isRTL;
+      fixture();
+      await flush();
+      assert.equal(filter().direction, "all");
+      assert.equal(listSwipe().props.enabled, true);
+      assert.ok(
+        !nodes(listSwipe()).includes(find("CustomerBalanceCarousel")!),
+        "Card swipes remain outside list filtering",
+      );
+      assert.equal(
+        byTestId("customer-tally-filter-trigger"),
+        undefined,
+        "Filters are tucked away until search opens",
+      );
+      const totals = flow().props.summary;
+      await tapCard("received");
+      assert.equal(filter().direction, "received");
+      assert.deepEqual(
+        filter().currencies,
+        [],
+        "A single-currency card needs no currency constraint",
+      );
+      assert.deepEqual(new Set(rowIds()), new Set(["new-rice", "old-cash"]));
+      assert.equal(flow().props.filter, "received");
+      assert.deepEqual(
+        flow().props.summary,
+        totals,
+        "Filtering does not recalculate known handovers",
+      );
+      assert.equal(flow().props.allTime, true);
+      assert.ok(byTestId("customer-tally-filter-chips"));
+      await tapCard("received");
+      assert.equal(filter().direction, "all", "Tapping the exact selected card clears its filter");
+      assert.deepEqual(historyRowIds("current"), ["new-rice", "new-tea"]);
+      await swipe("pay");
+      assert.equal(filter().direction, "gave");
+      assert.deepEqual(new Set(rowIds()), new Set(["new-tea", "old-rice"]));
+      await swipe("pay");
+      assert.equal(filter().direction, "gave", "Repeating a list swipe retains the selected side");
+      await tapCard("gave");
+      assert.equal(filter().direction, "all");
+      unmount();
+
+      prepareMultiple();
+      await flush();
+      const carouselCodes = [...find("CustomerBalanceCarousel")!.props.currencies];
+      const summaries = [flow("AFN").props.summary, flow("USD").props.summary];
+      await tapCard("received", "USD");
+      assert.equal(filter().direction, "received");
+      assert.deepEqual(filter().currencies, ["USD"]);
+      assert.deepEqual(rowIds(), ["usd-received"]);
+      assert.equal(flow("USD").props.filter, "received");
+      assert.equal(flow("AFN").props.filter, "all", "A scoped card tap only expands that currency");
+      assert.deepEqual(
+        find("CustomerBalanceCarousel")!.props.currencies,
+        carouselCodes,
+        "Filtering keeps every currency card reachable",
+      );
+      await tapCard("gave", "AFN");
+      assert.deepEqual(filter().currencies, ["AFN"]);
+      assert.deepEqual(rowIds(), ["afn-gave"]);
+      await tapCard("gave", "AFN");
+      assert.equal(filter().direction, "all");
+      assert.deepEqual(filter().currencies, []);
+      assert.equal(rowIds().length, 4);
+      await tapCard("gave", "USD");
+      await swipe("collect");
+      assert.equal(filter().direction, "received");
+      assert.deepEqual(filter().currencies, [], "A list swipe widens to all currencies");
+      assert.deepEqual(rowIds(), ["afn-received", "usd-received"]);
+      assert.deepEqual(
+        [flow("AFN").props.filter, flow("USD").props.filter],
+        ["received", "received"],
+      );
+      query("rice");
+      dateControl().props.onChange({ start: 300, end: 401 });
+      await flush();
+      assert.deepEqual(
+        rowIds(),
+        ["afn-received"],
+        "Direction, currency, note and date filters compose",
+      );
+      assert.deepEqual([flow("AFN").props.summary, flow("USD").props.summary], summaries);
+      filterPopup().props.onClear();
+      await flush();
+      assert.equal(
+        find("TextInput")!.props.value,
+        "rice",
+        "Clear filters preserves the separate text query",
+      );
+      assert.equal(dateControl().props.range, null);
+      assert.deepEqual(filter().currencies, []);
+      assert.equal(filter().direction, "all");
+      query("");
+      await flush();
+      await changeFilter({ currencies: ["AFN", "USD"], direction: "gave" });
+      assert.deepEqual(
+        rowIds(),
+        ["afn-gave", "usd-gave"],
+        "Currency selection supports several buttons at once",
+      );
+      await changeFilter({ currencies: ["USD"], direction: "all", sort: "amount_asc" });
+      assert.deepEqual(rowIds(), ["usd-received", "usd-gave"]);
+      await swipe("pay");
+      assert.deepEqual(filter().currencies, []);
+      assert.equal(
+        filter().sort,
+        "recent",
+        "Widening a swipe cannot compare amounts across currencies",
+      );
+      assert.deepEqual(rowIds(), ["afn-gave", "usd-gave"]);
+      unmount();
+    }
+
+  platform = "android";
+  rtl = false;
+  fixture(true);
+  await flush();
+  const originalSharedSource = JSON.stringify({ entries, preLink, failed });
+  const originalSharedTotals = flow().props.summary;
+  seen.length = 0;
+  await tapCard("gave");
+  assert.deepEqual(
+    rowIds().filter((id) => id.startsWith("pre-")),
+    ["pre-rice", "pre-tea"],
+    "Default filtering preserves the retained pre-link book's supplied history order",
+  );
+  query("rice");
+  await flush();
+  assert.deepEqual(
+    new Set(rowIds()),
+    new Set(["rejected-rice", "old-rice", "failed-rice", "pre-rice"]),
+    "The same view filter spans current, rejected, pre-link, failed and settled sources",
+  );
+  assert.deepEqual(flow().props.summary, originalSharedTotals);
+  assert.equal(JSON.stringify({ entries, preLink, failed }), originalSharedSource);
+  link.rev++;
+  tabListeners.forEach((listener) => listener({ relationshipId: "relationship", origin: "pull" }));
+  await flush();
+  assert.equal(
+    seen.length,
+    0,
+    "Filtered-out shared records are not marked read by a background pull",
+  );
+  query("");
+  await tapCard("gave");
+  assert.ok(seen.length > 0, "Showing the whole ledger resumes ordinary read receipts");
+  unmount();
+
+  prepareMultiple();
+  await flush();
+  const heldCard = flow("USD").props.onDirectionChange;
+  const heldSwipe = listSwipe().props.onDirectionChange;
+  const calendarButton = nodes(searchFooter()).find(
+    (node) => node.props.accessibilityLabel === "person.date.title",
+  )!;
+  calendarButton.props.onPress();
+  await flush();
+  assert.equal(dateControl().props.visible, true);
+  assert.equal(listSwipe().props.enabled, false);
+  assert.equal(flow("USD").props.interactionEnabled, false);
+  heldCard("received");
+  heldSwipe("pay");
+  await flush();
+  assert.equal(filter().direction, "all", "An open date sheet blocks retained list/card gestures");
+  assert.deepEqual(filter().currencies, []);
+  dateControl().props.onDismiss();
+  await flush();
+  assert.equal(listSwipe().props.enabled, true);
+  unmount();
+
+  prepareMultiple();
+  await flush();
+  await tapCard("received", "USD");
+  find("OverflowMenu")!
+    .props.actions.find((action: any) => action.label === "selection.start")
+    .onPress();
+  await flush();
+  assert.equal(listSwipe().props.enabled, false);
+  find("SelectionToolbar")!.props.onToggleAll();
+  await flush();
+  assert.equal(find("SelectionToolbar")!.props.count, 1);
+  query("no matching note");
+  await flush();
+  assert.equal(
+    find("SelectionToolbar")!.props.count,
+    1,
+    "Filtering preserves already-selected eligible rows",
+  );
+  assert.equal(find("SelectionToolbar")!.props.total, 0);
+  find("SelectionToolbar")!.props.onClose();
+  await flush();
+  find("OverflowMenu")!
+    .props.actions.find((action: any) => action.label === "personEdit.export")
+    .onPress();
+  await flush();
+  const exportSheet = nodes(tree).find(
+    (node) =>
+      node.type === "BottomSheet" && node.props.visible && node.props.title === "personEdit.export",
+  )!;
+  await exportSheet.props.actions[0].onPress();
+  await flush();
+  assert.equal(exports.length, 1);
+  assert.equal(
+    exports[0][0],
+    "person",
+    "Statement export targets the complete contact, not the filtered rows",
+  );
+  unmount();
+
+  prepareMultiple();
+  await flush();
+  await tapCard("received", "USD");
+  query("no matching note");
+  dateControl().props.onChange({ start: 1000, end: 2000 });
+  await flush();
+  justSaved = "afn-gave";
+  await ledgerRefresh();
+  await flush();
+  assert.equal(filter().direction, "all", "A newly saved tally clears a hiding direction filter");
+  assert.deepEqual(filter().currencies, []);
+  assert.equal(find("TextInput")!.props.value, "");
+  assert.equal(dateControl().props.range, null);
+  await tapCard("received", "USD");
+  params = { id: "person", entryId: "afn-gave", notificationKey: "direction-reveal" };
+  dirty = true;
+  await flush();
+  assert.equal(
+    filter().direction,
+    "all",
+    "A notification reveals tallies outside the prior filter",
+  );
+  assert.deepEqual(filter().currencies, []);
+  assert.ok(rowIds().includes("afn-gave"));
+  unmount();
+
+  for (const departure of ["person", "vault", "account", "currency", "blur"] as const) {
+    prepareMultiple();
+    await flush();
+    const staleCard = flow("USD").props.onDirectionChange;
+    const staleSwipe = listSwipe().props.onDirectionChange;
+    const staleChange = filterPopup().props.onChange;
+    const staleClear = filterPopup().props.onClear;
+    if (departure === "person") params = { id: "different-person" };
+    else if (departure === "vault") vaultId = "different-vault";
+    else if (departure === "account") accountId = "different-account";
+    else if (departure === "currency") selectedCurrency = "USD";
+    else blur();
+    dirty = true;
+    await flush();
+    const before = filterPopup()?.props.filter;
+    staleCard("received");
+    staleSwipe("pay");
+    staleChange({ direction: "gave", currencies: ["USD"], sort: "date_asc" });
+    staleClear();
+    await flush();
+    assert.deepEqual(
+      filterPopup()?.props.filter,
+      before,
+      `${departure} rejects retained filter callbacks`,
+    );
+    unmount();
+  }
+  platform = originalPlatform;
+  rtl = originalRTL;
+  console.log(
+    "PASS customer tally filters: scoped card taps, global slow-swipe callbacks, multi-currency picks and safe amount order, search/date/settled composition, full totals/export/selection, reveals and stale-scope guards in Android/iOS LTR/RTL",
+  );
+}
+
 async function main() {
+  await customerTallyFilterTests();
   await groupedSharingUITests();
   await customerHeaderIdentityTests();
   await settledTalliesSectionTests();

@@ -1,4 +1,6 @@
-import type { ScrollViewInstance, TextInputInstance } from "react-native";
+import type { ScrollViewInstance, TextInputInstance, ViewInstance } from "react-native";
+import { BlurTargetView } from "expo-blur";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { Ionicons } from "@expo/vector-icons";
 import * as Crypto from "expo-crypto";
 import {
@@ -31,6 +33,9 @@ import { EmptyState } from "../../components/EmptyState";
 import { TallyHighlight } from "../../components/TallyHighlight";
 import { TallyFlowSummary } from "../../components/TallyFlowSummary";
 import { CustomerBalanceCarousel } from "../../components/CustomerBalanceCarousel";
+import { HomeBalanceFilterSwipe } from "../../components/HomeBalanceFilterSwipe";
+import { CustomerTallyFilterPopover } from "../../components/CustomerTallyFilterPopover";
+import type { FilterAnchor } from "../../components/HomeFilterPopover";
 import { CreditIntentList } from "../../components/CreditIntentList";
 import { CreditStatusBadge } from "../../components/CreditStatusBadge";
 import { EntryRow } from "../../components/EntryRow";
@@ -106,6 +111,17 @@ import {
   type TallyDateRange,
 } from "../../lib/tally-date-filter";
 import { summarizeTallyFlows } from "../../lib/tally-summary";
+import {
+  DEFAULT_TALLY_LIST_FILTER,
+  filterTallyEntries,
+  normalizeTallyCurrencies,
+  normalizeTallyListFilter,
+  sortTallyEntries,
+  swipeTallyDirection,
+  toggleTallyCardFilter,
+  type TallyDirectionFilter,
+  type TallyListFilter,
+} from "../../lib/tally-list-filter";
 import {
   getTabLink,
   getFinancialTabLinkForPerson,
@@ -394,7 +410,30 @@ export default function PersonDetailScreen() {
     if (typeof routeCurrency === "string") setCurrentCurrency(routeCurrency);
   }, [routeCurrency]);
   const flowScope = `${getAccountIdSync() ?? "local"}:${getActiveVaultIdSyncMaybe() ?? "none"}:${id}:${selectedCurrency}`;
+  const nativeTallyScroll = useMemo(
+    () => Gesture.Native().shouldActivateOnStart(false).disallowInterruption(false),
+    [],
+  );
+  const filterSurfaceRef = useRef<ViewInstance | null>(null);
+  const filterBlurTarget = useRef<ViewInstance | null>(null);
+  const tallyFilterTrigger = useRef<ViewInstance | null>(null);
+  const [filterSurface, setFilterSurface] = useState({ width: 0, height: 0 });
+  const [tallyFilterAnchor, setTallyFilterAnchor] = useState<FilterAnchor | null>(null);
+  const [tallyFiltersVisible, setTallyFiltersVisible] = useState(false);
+  const tallyFiltersVisibleRef = useRef(false);
+  tallyFiltersVisibleRef.current = tallyFiltersVisible;
+  const filterMeasureVersion = useRef(0);
+  const filterIntent = JSON.stringify([flowScope, entryId, notificationKey]);
+  const filterOwnership = useRef({ scope: filterIntent, epoch: 0 });
+  if (filterOwnership.current.scope !== filterIntent)
+    filterOwnership.current = { scope: filterIntent, epoch: filterOwnership.current.epoch + 1 };
+  const filterEpoch = filterOwnership.current.epoch;
+  const [tallyView, setTallyView] = useState({
+    scope: flowScope,
+    filter: DEFAULT_TALLY_LIST_FILTER,
+  });
   const scrollRef = useRef<ScrollViewInstance>(null);
+  const tallyContentY = useRef(0);
   const entriesCardY = useRef(new Map<string, number>());
   const entryPositions = useRef(new Map<string, { y: number; height: number; card: string }>());
   const notificationCard = useRef(`${flowScope}:current`);
@@ -403,6 +442,7 @@ export default function PersonDetailScreen() {
   const settledLayoutGeneration = useRef(0);
   if (layoutScope.current !== flowScope) {
     layoutScope.current = flowScope;
+    tallyContentY.current = 0;
     entriesCardY.current.clear();
     entryPositions.current.clear();
   }
@@ -484,6 +524,10 @@ export default function PersonDetailScreen() {
   useEffect(() => {
     setSearchQuery("");
     setDateRange(null);
+    setTallyView({ scope: flowScope, filter: DEFAULT_TALLY_LIST_FILTER });
+    setTallyFiltersVisible(false);
+    setTallyFilterAnchor(null);
+    filterMeasureVersion.current++;
     setDateSheetVisible(false);
     setSheetFor(null);
     setLinkCurrencyVisible(false);
@@ -509,7 +553,7 @@ export default function PersonDetailScreen() {
     if (cardY == null) return;
     highlightedRequest.current = key;
     const target = tallyScrollTarget({
-      top: cardY + row.y,
+      top: tallyContentY.current + cardY + row.y,
       height: row.height,
       offset: viewport.current.offset,
       viewport: viewport.current.height,
@@ -733,22 +777,59 @@ export default function PersonDetailScreen() {
     }
     return new Map([...groups].map(([code, entries]) => [code, summarizeTallyFlows(entries)]));
   }, [flowHistory, flowScope]);
+  const tallyCurrencyCodes = useMemo(
+    () =>
+      normalizeTallyCurrencies([
+        ...(person ? personCurrencyRows(person) : []).map(
+          (row) => row.currency ?? selectedCurrency,
+        ),
+        ...[...entries, ...preLink, ...failedTallies].map(
+          (entry) => entry.currency ?? selectedCurrency,
+        ),
+      ]),
+    [person, entries, preLink, failedTallies, selectedCurrency],
+  );
+  const tallyFilter = normalizeTallyListFilter(
+    tallyView.scope === flowScope ? tallyView.filter : DEFAULT_TALLY_LIST_FILTER,
+    tallyCurrencyCodes,
+  );
+  const tallyFilterKey = JSON.stringify(tallyFilter);
+  const tallyFilterRef = useRef(tallyFilter);
+  tallyFilterRef.current = tallyFilter;
   const searchTerms = useMemo(() => noteSearchTerms(searchQuery), [searchQuery]);
-  const searching = searchTerms.length > 0 || dateRange != null;
+  const directionalFiltering = tallyFilter.direction !== "all" || tallyFilter.currencies.length > 0;
+  const searching = searchTerms.length > 0 || dateRange != null || directionalFiltering;
   const searchingRef = useRef(searching);
   searchingRef.current = searching;
   const matchedEntries = useMemo(
-    () => filterTalliesByDate(filterTallies(displayedEntries, searchTerms), dateRange),
-    [displayedEntries, searchTerms, dateRange],
+    () =>
+      filterTallyEntries(
+        filterTalliesByDate(filterTallies(displayedEntries, searchTerms), dateRange),
+        tallyFilter,
+        selectedCurrency,
+      ),
+    [displayedEntries, searchTerms, dateRange, tallyFilterKey, selectedCurrency],
   );
-  const matchedPreLink = useMemo(
-    () => filterTalliesByDate(filterTallies(preLink, searchTerms), dateRange),
-    [preLink, searchTerms, dateRange],
-  );
-  const matchedFailedTallies = useMemo(
-    () => filterTalliesByDate(filterTallies(failedTallies, searchTerms), dateRange),
-    [failedTallies, searchTerms, dateRange],
-  );
+  const matchedPreLink = useMemo(() => {
+    const matched = filterTallyEntries(
+      filterTalliesByDate(filterTallies(preLink, searchTerms), dateRange),
+      tallyFilter,
+      selectedCurrency,
+    );
+    return tallyFilter.sort === "recent"
+      ? matched
+      : sortTallyEntries(matched, tallyFilter.sort, selectedCurrency);
+  }, [preLink, searchTerms, dateRange, tallyFilterKey, selectedCurrency]);
+  const matchedFailedTallies = useMemo(() => {
+    const matched = filterTallyEntries(
+      filterTalliesByDate(filterTallies(failedTallies, searchTerms), dateRange),
+      tallyFilter,
+      selectedCurrency,
+    );
+    return tallyFilter.sort === "recent"
+      ? matched
+      : sortTallyEntries(matched, tallyFilter.sort, selectedCurrency);
+  }, [failedTallies, searchTerms, dateRange, tallyFilterKey, selectedCurrency]);
   const hasTallies = entries.length > 0 || preLink.length > 0 || failedTallies.length > 0;
   const dateRangeLabel = formatDateRangeLabel(dateRange, locale, calendar);
   const searchResultCount =
@@ -913,6 +994,22 @@ export default function PersonDetailScreen() {
       if (!settledEntryIds.has(entry.id)) historyItems.push({ kind: "entry", entry });
   }
   const settledTallyCount = settledHistoryItems.filter((item) => item.kind === "entry").length;
+  // Settlement lines describe chronological chapters. Alternate view ordering
+  // must never place those lines beside an unrelated amount or reversed date.
+  if (tallyFilter.sort !== "recent") {
+    for (const section of [historyItems, settledHistoryItems]) {
+      const sorted = sortTallyEntries(
+        section.flatMap((item) => (item.kind === "entry" ? [item.entry] : [])),
+        tallyFilter.sort,
+        selectedCurrency,
+      );
+      section.splice(
+        0,
+        section.length,
+        ...sorted.map((entry) => ({ kind: "entry" as const, entry })),
+      );
+    }
+  }
   const settledExpanded = showFullHistory || (searching && settledTallyCount > 0);
   const settledVisible = settledExpanded && settledTallyCount > 0;
   if (settledLayoutOpen.current !== settledVisible) {
@@ -1023,6 +1120,130 @@ export default function PersonDetailScreen() {
         flowScope,
     [flowScope, id],
   );
+  const tallyPopupEnabled =
+    loaded &&
+    person?.id === id &&
+    flowHistory?.scope === flowScope &&
+    !selectionBusy &&
+    !sheetFor &&
+    !confirmDeleteFor &&
+    !dateSheetVisible &&
+    !askLangVisible &&
+    !exportSheetVisible &&
+    !inviteVisible &&
+    !linkedSheetVisible &&
+    !linkCurrencyVisible &&
+    !confirmRegenerate &&
+    !confirmUnlink &&
+    !confirmSettle &&
+    !confirmSelectionDelete;
+  const tallyDirectionEnabled = tallyPopupEnabled && !selecting && !tallyFiltersVisible;
+  const tallyInteraction = useRef({
+    filter: tallyFilter,
+    codes: tallyCurrencyCodes,
+    enabled: tallyPopupEnabled,
+    directionEnabled: tallyDirectionEnabled,
+  });
+  tallyInteraction.current = {
+    filter: tallyFilter,
+    codes: tallyCurrencyCodes,
+    enabled: tallyPopupEnabled,
+    directionEnabled: tallyDirectionEnabled,
+  };
+  const filterIsCurrent = () => screenIsCurrent() && filterOwnership.current.epoch === filterEpoch;
+  const changeTallyFilter = (next: TallyListFilter) => {
+    if (!filterIsCurrent() || !tallyInteraction.current.enabled || selectionBusyRef.current) return;
+    setTallyView({
+      scope: flowScope,
+      filter: normalizeTallyListFilter(next, tallyInteraction.current.codes),
+    });
+  };
+  const clearTallyFilters = () => {
+    if (!filterIsCurrent() || !tallyInteraction.current.enabled || selectionBusyRef.current) return;
+    setTallyView({ scope: flowScope, filter: DEFAULT_TALLY_LIST_FILTER });
+    setDateRange(null);
+  };
+  const changeTallyCardDirection = (
+    direction: Exclude<TallyDirectionFilter, "all">,
+    currency: string,
+  ) => {
+    const current = tallyInteraction.current;
+    if (!filterIsCurrent() || !current.directionEnabled) return;
+    changeTallyFilter(toggleTallyCardFilter(current.filter, direction, currency, current.codes));
+    dismissSearchKeyboard();
+  };
+  const changeTallySwipeDirection = (side: "all" | "collect" | "pay") => {
+    const current = tallyInteraction.current;
+    if (!filterIsCurrent() || !current.directionEnabled || compactDock || side === "all") return;
+    changeTallyFilter(
+      swipeTallyDirection(current.filter, side === "collect" ? "received" : "gave", current.codes),
+    );
+  };
+  const updateTallyFilterAnchor = useCallback(() => {
+    const surface = filterSurfaceRef.current;
+    const trigger = tallyFilterTrigger.current;
+    if (
+      !tallyFiltersVisibleRef.current ||
+      !screenIsCurrent() ||
+      !surface?.measureInWindow ||
+      !trigger?.measureInWindow
+    )
+      return;
+    const request = ++filterMeasureVersion.current;
+    surface.measureInWindow((sx, sy, width, height) => {
+      trigger.measureInWindow((x, y, triggerWidth, triggerHeight) => {
+        if (
+          request !== filterMeasureVersion.current ||
+          !tallyFiltersVisibleRef.current ||
+          !screenIsCurrent() ||
+          filterOwnership.current.epoch !== filterEpoch
+        )
+          return;
+        if (
+          ![sx, sy, width, height, x, y, triggerWidth, triggerHeight].every(Number.isFinite) ||
+          width <= 0 ||
+          height <= 0 ||
+          triggerWidth <= 0 ||
+          triggerHeight <= 0
+        )
+          return;
+        setFilterSurface({ width, height });
+        setTallyFilterAnchor({ x: x - sx, y: y - sy, width: triggerWidth, height: triggerHeight });
+      });
+    });
+  }, [flowScope, filterEpoch, screenIsCurrent]);
+  useEffect(() => {
+    if (!tallyFiltersVisible) return;
+    const frame = requestAnimationFrame(updateTallyFilterAnchor);
+    return () => cancelAnimationFrame(frame);
+  }, [
+    tallyFiltersVisible,
+    updateTallyFilterAnchor,
+    compactDock,
+    filterSurface.width,
+    filterSurface.height,
+    insets.top,
+  ]);
+  useEffect(() => {
+    if (!tallyPopupEnabled) {
+      tallyFiltersVisibleRef.current = false;
+      setTallyFiltersVisible(false);
+      setTallyFilterAnchor(null);
+      filterMeasureVersion.current++;
+    }
+  }, [tallyPopupEnabled]);
+  useRouteFocusEffect(
+    useCallback(
+      () => () => {
+        filterOwnership.current.epoch++;
+        tallyFiltersVisibleRef.current = false;
+        filterMeasureVersion.current++;
+        setTallyFiltersVisible(false);
+        setTallyFilterAnchor(null);
+      },
+      [],
+    ),
+  );
   const startSelection = useCallback(
     (entry?: Entry) => {
       if (
@@ -1037,6 +1258,7 @@ export default function PersonDetailScreen() {
       dismissSearchKeyboard();
       setSheetFor(null);
       setDateSheetVisible(false);
+      setTallyFiltersVisible(false);
       setSelectionScope(flowScope);
       setSelectedEntryIds(new Set(entry && selectableIds.has(entry.id) ? [entry.id] : []));
     },
@@ -1443,6 +1665,7 @@ export default function PersonDetailScreen() {
         if (searchingRef.current) {
           setSearchQuery("");
           setDateRange(null);
+          setTallyView({ scope, filter: DEFAULT_TALLY_LIST_FILTER });
         }
         // The moment a customer should hear about a tally is right after it
         // is written: offer the WhatsApp ping then (audit #1).
@@ -2073,190 +2296,209 @@ export default function PersonDetailScreen() {
   // action. Selection keeps only Back, with an equally sized empty end slot.
   const headerSideWidth = selecting ? 40 : entries.length > 0 ? TOUCH_MIN * 2 + 10 : TOUCH_MIN;
   return (
-    <SafeAreaView style={styles.container} edges={["top"]}>
-      <View testID="customer-header" style={[styles.headerNav, rowDir(isRTL)]}>
-        <View
-          testID="customer-header-back"
-          style={[styles.headerSide, rowDir(isRTL), { width: headerSideWidth }]}
-        >
-          <Pressable
-            onPress={() => (selecting ? closeSelection() : router.back())}
-            hitSlop={8}
-            accessibilityRole="button"
-            accessibilityLabel={t("common.back")}
-            style={({ pressed }) => [styles.iconBtn, pressed && { opacity: 0.5 }]}
+    <SafeAreaView
+      ref={filterSurfaceRef}
+      style={styles.container}
+      edges={["top"]}
+      onLayout={(event) => {
+        if (!filterIsCurrent()) return;
+        const { width, height } = event.nativeEvent.layout;
+        if (![width, height].every(Number.isFinite) || width <= 0 || height <= 0) return;
+        setFilterSurface((before) =>
+          before.width === width && before.height === height ? before : { width, height },
+        );
+        updateTallyFilterAnchor();
+      }}
+    >
+      <BlurTargetView
+        ref={filterBlurTarget}
+        style={{ flex: 1 }}
+        accessibilityElementsHidden={tallyFiltersVisible}
+        importantForAccessibility={tallyFiltersVisible ? "no-hide-descendants" : "auto"}
+      >
+        <View testID="customer-header" style={[styles.headerNav, rowDir(isRTL)]}>
+          <View
+            testID="customer-header-back"
+            style={[styles.headerSide, rowDir(isRTL), { width: headerSideWidth }]}
           >
-            <Ionicons
-              name={isRTL ? "chevron-forward" : "chevron-back"}
-              size={icon.header}
-              color={colors.textEmphasis}
-            />
-          </Pressable>
-        </View>
-        <View testID="customer-header-identity" style={styles.headerIdentity}>
-          <View style={[styles.headerTitleRow, rowDir(isRTL)]}>
-            <Text
-              testID="customer-header-name"
-              accessibilityRole="header"
-              style={styles.headerName}
-              numberOfLines={1}
-              ellipsizeMode="tail"
+            <Pressable
+              onPress={() => (selecting ? closeSelection() : router.back())}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel={t("common.back")}
+              style={({ pressed }) => [styles.iconBtn, pressed && { opacity: 0.5 }]}
             >
-              {person.name}
-            </Text>
-            {sharedAccountStatus === "joined" ? (
-              <SharedAccountBadge
-                size={16}
-                name={person.name}
-                fontSize={typography.title.fontSize}
+              <Ionicons
+                name={isRTL ? "chevron-forward" : "chevron-back"}
+                size={icon.header}
+                color={colors.textEmphasis}
+              />
+            </Pressable>
+          </View>
+          <View testID="customer-header-identity" style={styles.headerIdentity}>
+            <View style={[styles.headerTitleRow, rowDir(isRTL)]}>
+              <Text
+                testID="customer-header-name"
+                accessibilityRole="header"
+                style={styles.headerName}
+                numberOfLines={1}
+                ellipsizeMode="tail"
+              >
+                {person.name}
+              </Text>
+              {sharedAccountStatus === "joined" ? (
+                <SharedAccountBadge
+                  size={16}
+                  name={person.name}
+                  fontSize={typography.title.fontSize}
+                />
+              ) : null}
+            </View>
+          </View>
+          <View
+            testID="customer-header-actions"
+            style={[
+              styles.headerSide,
+              styles.headerActions,
+              rowDir(isRTL),
+              { width: headerSideWidth },
+            ]}
+          >
+            {!selecting && entries.length > 0 ? (
+              <Pressable
+                testID="whatsapp-reminder"
+                onPress={() => void sendPing()}
+                disabled={pinging}
+                accessibilityRole="button"
+                accessibilityLabel={t(
+                  pingStage === "preparing"
+                    ? "person.ping.preparing"
+                    : pingStage === "opening"
+                      ? "person.ping.opening"
+                      : "person.ping.button",
+                )}
+                accessibilityHint={t("person.ping.hint", { name: person.name })}
+                accessibilityState={{ disabled: pinging, busy: pinging }}
+                style={({ pressed }) => [styles.headerShare, pressed && { opacity: 0.5 }]}
+              >
+                {pinging ? (
+                  <ActivityIndicator size="small" color={colors.actionPrimary} />
+                ) : (
+                  <Ionicons name="logo-whatsapp" size={icon.header} color={colors.actionPrimary} />
+                )}
+              </Pressable>
+            ) : null}
+            {!selecting ? (
+              <OverflowMenu
+                actions={[
+                  ...(selectableEntries.length > 0
+                    ? [
+                        {
+                          label: t("selection.start"),
+                          icon: "checkmark-circle-outline" as const,
+                          onPress: () => startSelection(),
+                        },
+                      ]
+                    : []),
+                  ...(canAmend
+                    ? [
+                        {
+                          label: t("person.sheet.edit"),
+                          icon: "create-outline" as const,
+                          onPress: () =>
+                            router.push({
+                              pathname: "/person/[id]/edit",
+                              params: { id: person.id },
+                            }),
+                        },
+                        {
+                          label:
+                            openGroupLink || legacyLinkedPeriods.length > 0
+                              ? t("tab.join.title")
+                              : t("tab.link.title"),
+                          icon: "link-outline" as const,
+                          onPress: () => {
+                            if (!screenIsCurrent() || !canAmend || selectionBusyRef.current) return;
+                            if (openGroupLink) {
+                              setManagementCurrency(openGroupLink.currency);
+                              setLinkedSheetVisible(true);
+                            } else if (legacyLinkedPeriods.length > 1) {
+                              linkCurrencyBusy.current = false;
+                              setLinkCurrencyVisible(true);
+                            } else if (legacyLinkedPeriods.length === 1) {
+                              setManagementCurrency(legacyLinkedPeriods[0].currency);
+                              setLinkedSheetVisible(true);
+                            } else {
+                              setManagementCurrency(null);
+                              setInviteVisible(true);
+                            }
+                          },
+                        },
+                        {
+                          label: t("groups.personAction"),
+                          icon: "pricetags-outline" as const,
+                          onPress: () =>
+                            router.push({
+                              pathname: "/person/[id]/group",
+                              params: { id: person.id, vaultId: activeVaultId ?? "" },
+                            }),
+                        },
+                      ]
+                    : []),
+                  ...(canManageCredit
+                    ? [
+                        {
+                          label: t("credit.title"),
+                          icon: "speedometer-outline" as const,
+                          onPress: () =>
+                            router.push({
+                              pathname: "/person/[id]/credit-limit",
+                              params: { id: person.id, vaultId: activeVaultId ?? "" },
+                            }),
+                        },
+                      ]
+                    : []),
+                  {
+                    label: t("notificationSettings.contact.title"),
+                    icon: "notifications-outline",
+                    onPress: () => {
+                      if (!screenIsCurrent()) return;
+                      dismissSearchKeyboard();
+                      router.push({
+                        pathname: "/notification-settings",
+                        params: { personId: person.id, vaultId: activeVaultId ?? "" },
+                      });
+                    },
+                  },
+                  {
+                    label: t("reminders.title"),
+                    icon: "alarm-outline",
+                    onPress: () => {
+                      if (
+                        !screenIsCurrent() ||
+                        selectionBusyRef.current ||
+                        selectionContext.current.selecting
+                      )
+                        return;
+                      dismissSearchKeyboard();
+                      router.push({
+                        pathname: "/person/[id]/reminders",
+                        params: { id: person.id, vaultId: activeVaultId ?? "" },
+                      });
+                    },
+                  },
+                  {
+                    label: t("personEdit.export"),
+                    icon: "document-text-outline",
+                    disabled: exporting,
+                    onPress: () => setExportSheetVisible(true),
+                  },
+                ]}
               />
             ) : null}
           </View>
         </View>
-        <View
-          testID="customer-header-actions"
-          style={[
-            styles.headerSide,
-            styles.headerActions,
-            rowDir(isRTL),
-            { width: headerSideWidth },
-          ]}
-        >
-          {!selecting && entries.length > 0 ? (
-            <Pressable
-              testID="whatsapp-reminder"
-              onPress={() => void sendPing()}
-              disabled={pinging}
-              accessibilityRole="button"
-              accessibilityLabel={t(
-                pingStage === "preparing"
-                  ? "person.ping.preparing"
-                  : pingStage === "opening"
-                    ? "person.ping.opening"
-                    : "person.ping.button",
-              )}
-              accessibilityHint={t("person.ping.hint", { name: person.name })}
-              accessibilityState={{ disabled: pinging, busy: pinging }}
-              style={({ pressed }) => [styles.headerShare, pressed && { opacity: 0.5 }]}
-            >
-              {pinging ? (
-                <ActivityIndicator size="small" color={colors.actionPrimary} />
-              ) : (
-                <Ionicons name="logo-whatsapp" size={icon.header} color={colors.actionPrimary} />
-              )}
-            </Pressable>
-          ) : null}
-          {!selecting ? (
-            <OverflowMenu
-              actions={[
-                ...(selectableEntries.length > 0
-                  ? [
-                      {
-                        label: t("selection.start"),
-                        icon: "checkmark-circle-outline" as const,
-                        onPress: () => startSelection(),
-                      },
-                    ]
-                  : []),
-                ...(canAmend
-                  ? [
-                      {
-                        label: t("person.sheet.edit"),
-                        icon: "create-outline" as const,
-                        onPress: () =>
-                          router.push({
-                            pathname: "/person/[id]/edit",
-                            params: { id: person.id },
-                          }),
-                      },
-                      {
-                        label:
-                          openGroupLink || legacyLinkedPeriods.length > 0
-                            ? t("tab.join.title")
-                            : t("tab.link.title"),
-                        icon: "link-outline" as const,
-                        onPress: () => {
-                          if (!screenIsCurrent() || !canAmend || selectionBusyRef.current) return;
-                          if (openGroupLink) {
-                            setManagementCurrency(openGroupLink.currency);
-                            setLinkedSheetVisible(true);
-                          } else if (legacyLinkedPeriods.length > 1) {
-                            linkCurrencyBusy.current = false;
-                            setLinkCurrencyVisible(true);
-                          } else if (legacyLinkedPeriods.length === 1) {
-                            setManagementCurrency(legacyLinkedPeriods[0].currency);
-                            setLinkedSheetVisible(true);
-                          } else {
-                            setManagementCurrency(null);
-                            setInviteVisible(true);
-                          }
-                        },
-                      },
-                      {
-                        label: t("groups.personAction"),
-                        icon: "pricetags-outline" as const,
-                        onPress: () =>
-                          router.push({
-                            pathname: "/person/[id]/group",
-                            params: { id: person.id, vaultId: activeVaultId ?? "" },
-                          }),
-                      },
-                    ]
-                  : []),
-                ...(canManageCredit
-                  ? [
-                      {
-                        label: t("credit.title"),
-                        icon: "speedometer-outline" as const,
-                        onPress: () =>
-                          router.push({
-                            pathname: "/person/[id]/credit-limit",
-                            params: { id: person.id, vaultId: activeVaultId ?? "" },
-                          }),
-                      },
-                    ]
-                  : []),
-                {
-                  label: t("notificationSettings.contact.title"),
-                  icon: "notifications-outline",
-                  onPress: () => {
-                    if (!screenIsCurrent()) return;
-                    dismissSearchKeyboard();
-                    router.push({
-                      pathname: "/notification-settings",
-                      params: { personId: person.id, vaultId: activeVaultId ?? "" },
-                    });
-                  },
-                },
-                {
-                  label: t("reminders.title"),
-                  icon: "alarm-outline",
-                  onPress: () => {
-                    if (
-                      !screenIsCurrent() ||
-                      selectionBusyRef.current ||
-                      selectionContext.current.selecting
-                    )
-                      return;
-                    dismissSearchKeyboard();
-                    router.push({
-                      pathname: "/person/[id]/reminders",
-                      params: { id: person.id, vaultId: activeVaultId ?? "" },
-                    });
-                  },
-                },
-                {
-                  label: t("personEdit.export"),
-                  icon: "document-text-outline",
-                  disabled: exporting,
-                  onPress: () => setExportSheetVisible(true),
-                },
-              ]}
-            />
-          ) : null}
-        </View>
-      </View>
-      {/* One person's tallies are bounded, so render them as ONE bordered card
+        {/* One person's tallies are bounded, so render them as ONE bordered card
           (ScrollView + map), exactly like the home people list. The old
           FlatList + per-row cardRowFirst/cardRowLast emulation caused the
           blank-row bug: adding a 2nd entry shifted the old row from index 0 to
@@ -2264,813 +2506,1007 @@ export default function PersonDetailScreen() {
           ("the old one shows blank text after the second one is added, fixed
           by going back and returning"). A single uniform card has no per-row
           style flip, so it can't happen. */}
-      <SearchKeyboardFrame style={{ flex: 1 }} avoidAndroidKeyboard>
-        {/* The shared frame also handles Android hosts that overlay the IME
+        <SearchKeyboardFrame style={{ flex: 1 }} avoidAndroidKeyboard>
+          {/* The shared frame also handles Android hosts that overlay the IME
             instead of resizing the viewport. */}
-        <View style={{ flex: 1 }}>
-          {selecting ? (
-            <View
-              testID="customer-selection-controls"
-              style={styles.selectionTop}
-              pointerEvents="box-none"
-              onLayout={(event) => {
-                if (
-                  !screenIsCurrent() ||
-                  !selectionContext.current.selecting ||
-                  selectionContext.current.scope !== flowScope ||
-                  confirmationVersion !== selectionConfirmationVersion.current
-                )
-                  return;
-                const { height } = event.nativeEvent.layout;
-                if (!Number.isFinite(height) || height <= 0) return;
-                const previous = selectionMeasurementRef.current;
-                if (previous.scope === flowScope && previous.height === height) return;
-                const measured = { scope: flowScope, height };
-                selectionMeasurementRef.current = measured;
-                setSelectionMeasurement(measured);
-              }}
-            >
-              {selectionToolbar}
-            </View>
-          ) : null}
-          <ScrollView
-            ref={scrollRef}
-            onLayout={(event) => {
-              viewport.current.height = event.nativeEvent.layout.height;
-              revealNotificationTally();
-            }}
-            onScroll={(event) => {
-              viewport.current.offset = event.nativeEvent.contentOffset.y;
-            }}
-            scrollEventThrottle={16}
-            onContentSizeChange={revealNotificationTally}
-            showsVerticalScrollIndicator={false}
-            keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
-            keyboardShouldPersistTaps="handled"
-            automaticallyAdjustKeyboardInsets={false}
-            contentContainerStyle={{
-              paddingTop: selecting
-                ? (selectionMeasurement.scope === flowScope ? selectionMeasurement.height : 0) + 12
-                : 0,
-              paddingBottom: actionsHeight + 24,
-            }}
-          >
-            <View>
-              <View style={styles.info}>
-                {sharedAccountStatus === "waiting" || personGroupNames.length > 0 ? (
-                  <View testID="customer-metadata" style={[styles.metadataRow, rowDir(isRTL)]}>
-                    {sharedAccountStatus === "waiting" ? (
+          <View style={{ flex: 1 }}>
+            {selecting ? (
+              <View
+                testID="customer-selection-controls"
+                style={styles.selectionTop}
+                pointerEvents="box-none"
+                onLayout={(event) => {
+                  if (
+                    !screenIsCurrent() ||
+                    !selectionContext.current.selecting ||
+                    selectionContext.current.scope !== flowScope ||
+                    confirmationVersion !== selectionConfirmationVersion.current
+                  )
+                    return;
+                  const { height } = event.nativeEvent.layout;
+                  if (!Number.isFinite(height) || height <= 0) return;
+                  const previous = selectionMeasurementRef.current;
+                  if (previous.scope === flowScope && previous.height === height) return;
+                  const measured = { scope: flowScope, height };
+                  selectionMeasurementRef.current = measured;
+                  setSelectionMeasurement(measured);
+                }}
+              >
+                {selectionToolbar}
+              </View>
+            ) : null}
+            <GestureDetector gesture={nativeTallyScroll}>
+              <ScrollView
+                ref={scrollRef}
+                onLayout={(event) => {
+                  viewport.current.height = event.nativeEvent.layout.height;
+                  revealNotificationTally();
+                }}
+                onScroll={(event) => {
+                  viewport.current.offset = event.nativeEvent.contentOffset.y;
+                }}
+                scrollEventThrottle={16}
+                onContentSizeChange={revealNotificationTally}
+                showsVerticalScrollIndicator={false}
+                keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+                keyboardShouldPersistTaps="handled"
+                automaticallyAdjustKeyboardInsets={false}
+                contentContainerStyle={{
+                  paddingTop: selecting
+                    ? (selectionMeasurement.scope === flowScope ? selectionMeasurement.height : 0) +
+                      12
+                    : 0,
+                  paddingBottom: actionsHeight + 24,
+                }}
+              >
+                <View>
+                  <View style={styles.info}>
+                    {sharedAccountStatus === "waiting" || personGroupNames.length > 0 ? (
+                      <View testID="customer-metadata" style={[styles.metadataRow, rowDir(isRTL)]}>
+                        {sharedAccountStatus === "waiting" ? (
+                          <Text
+                            testID="customer-link-waiting"
+                            style={[styles.linkWaiting, textDir(isRTL)]}
+                            numberOfLines={1}
+                          >
+                            {t("tab.chip.waiting")}
+                          </Text>
+                        ) : null}
+                        {personGroupNames.length > 0 ? (
+                          <View style={[styles.groupBadges, rowDir(isRTL)]}>
+                            {personGroupNames.map((name) => (
+                              <View key={name} style={styles.groupBadge}>
+                                <Text style={[styles.groupBadgeText, textDir(isRTL)]}>{name}</Text>
+                              </View>
+                            ))}
+                          </View>
+                        ) : null}
+                      </View>
+                    ) : null}
+                    {entryCurrencies.scope === flowScope &&
+                    entryCurrencies.codes.length === 0 &&
+                    currencyPeriods.some(
+                      (period) =>
+                        period.tab?.closed_at == null &&
+                        period.tab?.recording_mode === "notify_one_way" &&
+                        period.tab.role === "b",
+                    ) ? (
                       <Text
-                        testID="customer-link-waiting"
-                        style={[styles.linkWaiting, textDir(isRTL)]}
-                        numberOfLines={1}
+                        testID="customer-one-way-read-only"
+                        style={[styles.groups, textDir(isRTL)]}
                       >
-                        {t("tab.chip.waiting")}
+                        {t("tab.recordingMode.oneWayReadOnly")}
                       </Text>
                     ) : null}
-                    {personGroupNames.length > 0 ? (
-                      <View style={[styles.groupBadges, rowDir(isRTL)]}>
-                        {personGroupNames.map((name) => (
-                          <View key={name} style={styles.groupBadge}>
-                            <Text style={[styles.groupBadgeText, textDir(isRTL)]}>{name}</Text>
-                          </View>
-                        ))}
+                    {/* Unlinking preserves shared history and pending reviews; tallies written
+                    after it are private and carry no review state, which made
+                    them look like accepted shared ones (audit #6). */}
+                    {tabHistory?.closed_at != null || person.tab_close_pending === 1 ? (
+                      <Text style={[styles.groups, textDir(isRTL)]}>
+                        {person.tab_close_pending === 1
+                          ? t("tab.unlink.pending")
+                          : t("tab.closedNote", { date: formatDate(tabHistory!.closed_at!) })}
+                      </Text>
+                    ) : null}
+                    <View
+                      testID="customer-balances"
+                      accessible={false}
+                      style={selecting ? styles.hiddenBalances : undefined}
+                      pointerEvents={selecting ? "none" : "auto"}
+                      accessibilityElementsHidden={selecting}
+                      importantForAccessibility={selecting ? "no-hide-descendants" : "auto"}
+                    >
+                      <View style={{ height: 16 }} />
+                      <CustomerBalanceCarousel
+                        key={JSON.stringify([getAccountIdSync(), activeVaultId, person.id])}
+                        currencies={balanceRows.map((row) => row.currency ?? selectedCurrency)}
+                        interactionActive={directionalFiltering}
+                        active={
+                          !compactDock &&
+                          !selecting &&
+                          !tallyFiltersVisible &&
+                          !dateSheetVisible &&
+                          !sheetFor &&
+                          !askLangVisible &&
+                          !exportSheetVisible &&
+                          !inviteVisible &&
+                          !linkedSheetVisible &&
+                          !linkCurrencyVisible &&
+                          !confirmRegenerate &&
+                          !confirmUnlink &&
+                          !confirmSettle &&
+                          !confirmDeleteFor
+                        }
+                      >
+                        {balanceRows.map((balancePerson) => {
+                          const code = balancePerson.currency ?? selectedCurrency;
+                          const person = balancePerson;
+                          const period = currencyPeriods.find((period) => period.currency === code);
+                          const tabHistory = period?.tab;
+                          const financialTabHistory = period?.financialTab;
+                          const link = tabHistory?.closed_at == null ? tabHistory : null;
+                          const abs = Math.abs(person.balance);
+                          const chipLabel =
+                            person.balance > 0
+                              ? t("person.balance.theyOwe")
+                              : person.balance < 0
+                                ? t("person.balance.youOwe")
+                                : null;
+                          const chipVariant =
+                            person.balance > 0
+                              ? ("collect" as const)
+                              : person.balance < 0
+                                ? ("pay" as const)
+                                : null;
+                          const balanceColor =
+                            person.balance > 0
+                              ? colors.collectStrong
+                              : person.balance < 0
+                                ? colors.payStrong
+                                : colors.textEmphasis;
+                          const settledCount = period
+                            ? period.financialTab
+                              ? period.sharedSettlements.length
+                              : period.settlement.count
+                            : 0;
+                          const chapterCoherent =
+                            !period ||
+                            sumAmounts(currencyChapter(period).map(balanceContribution)) ===
+                              person.balance;
+                          const sharedReviewPending =
+                            (person.tab_pending_count ?? 0) > 0 ||
+                            (period?.entries ?? []).some(
+                              (entry) =>
+                                entry.tab &&
+                                (entry.tab.local_pending ||
+                                  (!entry.tab.voided &&
+                                    entry.tab.kind !== "void" &&
+                                    entry.tab.status === "pending")),
+                            );
+                          const unsettledOriginalCount = period
+                            ? currencyChapter(period).length
+                            : 0;
+                          const hasBalanceStatus =
+                            (person.tab_unsynced !== 1 &&
+                              (chipLabel ||
+                                (settledCount > 0 &&
+                                  chapterCoherent &&
+                                  !sharedReviewPending &&
+                                  unsettledOriginalCount === 0) ||
+                                displayedEntries.length > 0)) ||
+                            sharedAccountLinkStatus(link) === "waiting";
+                          return (
+                            <View key={code} style={styles.balanceOverview}>
+                              {!singleBalanceCurrency ? (
+                                <View
+                                  testID={`customer-balance-header-${code}`}
+                                  style={styles.balanceHeader}
+                                >
+                                  <Text style={styles.balanceCurrency}>
+                                    {getCurrencyLabel(code)}
+                                  </Text>
+                                </View>
+                              ) : null}
+                              <View style={styles.balanceSide}>
+                                <View style={styles.balanceHeadline}>
+                                  <View
+                                    testID={`customer-balance-amount-${code}`}
+                                    style={styles.balanceAmountRow}
+                                    accessible={singleBalanceCurrency}
+                                    accessibilityLabel={
+                                      singleBalanceCurrency
+                                        ? `${getCurrencyLabel(code)} ${person.tab_unsynced === 1 ? t("tab.notDownloaded") : formatAmount(abs)}`
+                                        : undefined
+                                    }
+                                  >
+                                    <Text
+                                      testID={`customer-balance-value-${code}`}
+                                      style={[
+                                        styles.balance,
+                                        singleBalanceCurrency && styles.balanceWithCurrency,
+                                        {
+                                          color:
+                                            person.tab_unsynced === 1
+                                              ? colors.textMuted
+                                              : balanceColor,
+                                        },
+                                      ]}
+                                      numberOfLines={1}
+                                      adjustsFontSizeToFit
+                                      minimumFontScale={0.1}
+                                      maxFontSizeMultiplier={1.4}
+                                    >
+                                      {person.tab_unsynced === 1 ? "…" : formatAmount(abs)}
+                                    </Text>
+                                    {singleBalanceCurrency ? (
+                                      <Text
+                                        testID={`customer-balance-symbol-${code}`}
+                                        style={styles.balanceSymbol}
+                                        maxFontSizeMultiplier={1.4}
+                                      >
+                                        {ltrIsolate(getCurrencySymbol(code))}
+                                      </Text>
+                                    ) : null}
+                                  </View>
+                                  {hasBalanceStatus ? (
+                                    <View
+                                      testID={`customer-balance-status-${code}`}
+                                      style={[
+                                        styles.chipRow,
+                                        styles.balanceStatus,
+                                        rowDir(isRTL),
+                                        { justifyContent: isRTL ? "flex-start" : "flex-end" },
+                                      ]}
+                                    >
+                                      {person.tab_unsynced === 1 ? null : chipLabel &&
+                                        chipVariant ? (
+                                        <Chip label={chipLabel} variant={chipVariant} />
+                                      ) : settledCount > 0 &&
+                                        chapterCoherent &&
+                                        !sharedReviewPending &&
+                                        unsettledOriginalCount === 0 ? (
+                                        // "SETTLED" only when the user actually drew the line and it
+                                        // covers everything.
+                                        <Chip
+                                          label={t("person.balance.settled")}
+                                          variant="neutral"
+                                        />
+                                      ) : displayedEntries.length > 0 ? (
+                                        // A tally that merely SUMS to zero (or whose chapter no longer
+                                        // adds up after a sync) is not a settled account — say so
+                                        // rather than leaving the chip slot blank while every other
+                                        // state labels itself. Hollow pill: true, but not an
+                                        // achievement. The settle-row invitation sits below.
+                                        // Contacts with no entries at all keep an empty slot — there
+                                        // is no tally yet to have a state.
+                                        <Chip
+                                          label={t("person.balance.notSettled")}
+                                          variant="outline"
+                                        />
+                                      ) : null}
+                                      {sharedAccountLinkStatus(link) === "waiting" ? (
+                                        // Keep the invitation-waiting cue until the other side joins.
+                                        // Once linked, the name badge is enough; no duplicate chip.
+                                        <Pressable
+                                          onPress={
+                                            canAmend
+                                              ? () => {
+                                                  setManagementCurrency(code);
+                                                  setLinkedSheetVisible(true);
+                                                }
+                                              : undefined
+                                          }
+                                          disabled={!canAmend}
+                                          accessibilityRole={canAmend ? "button" : "text"}
+                                          style={({ pressed }) => [
+                                            styles.readOnlyChip,
+                                            pressed && { opacity: 0.5 },
+                                          ]}
+                                        >
+                                          <Ionicons
+                                            name="link-outline"
+                                            size={14}
+                                            color={colors.textSubtle}
+                                          />
+                                          <Text
+                                            style={styles.readOnlyChipText}
+                                            allowFontScaling={false}
+                                            numberOfLines={1}
+                                          >
+                                            {t("tab.chip.waiting")}
+                                          </Text>
+                                        </Pressable>
+                                      ) : null}
+                                    </View>
+                                  ) : null}
+                                </View>
+                                {/* A discovered shared account that has not been pulled yet
+                        has no known balance; the pull is already queued. */}
+                                {person.tab_unsynced === 1 ? (
+                                  <Text style={[styles.unsyncedNote, textDir(isRTL)]}>
+                                    {t("tab.notDownloaded")}
+                                  </Text>
+                                ) : null}
+                                {financialTabHistory && person.tab_unsynced !== 1 ? (
+                                  <Text style={[styles.unsyncedNote, textDir(isRTL)]}>
+                                    {financialTabHistory.recording_mode_known === 0
+                                      ? t("tab.recordingMode.unknown")
+                                      : t(
+                                          isNotificationOnlyMode(financialTabHistory.recording_mode)
+                                            ? "tab.balance.recorded"
+                                            : "tab.balance.confirmed",
+                                          {
+                                            amount: signedSharedAmount(
+                                              isNotificationOnlyMode(
+                                                financialTabHistory.recording_mode,
+                                              )
+                                                ? person.balance
+                                                : (person.tab_confirmed_balance ?? 0),
+                                            ),
+                                            currency: getCurrencyLabel(code),
+                                          },
+                                        )}
+                                  </Text>
+                                ) : null}
+                                {(person.tab_pending_count ?? 0) > 0 &&
+                                person.tab_unsynced !== 1 ? (
+                                  <Text style={[styles.unsyncedNote, textDir(isRTL)]}>
+                                    {t("tab.balance.pending", {
+                                      count: person.tab_pending_count ?? 0,
+                                      amount: signedSharedAmount(person.tab_pending_balance ?? 0),
+                                      currency: getCurrencyLabel(code),
+                                    })}
+                                  </Text>
+                                ) : null}
+                                <CreditStatusBadge
+                                  personId={person.id}
+                                  vaultId={activeVaultId}
+                                  currency={code}
+                                />
+                              </View>
+                              <TallyFlowSummary
+                                summary={flowSummaries.get(code) ?? summarizeTallyFlows([])}
+                                currency={code}
+                                isRTL={isRTL}
+                                variant="footer"
+                                allTime={searching}
+                                filter={
+                                  tallyFilter.currencies.length &&
+                                  !tallyFilter.currencies.includes(code)
+                                    ? "all"
+                                    : tallyFilter.direction
+                                }
+                                onDirectionChange={(direction) =>
+                                  changeTallyCardDirection(direction, code)
+                                }
+                                interactionEnabled={tallyDirectionEnabled}
+                              />
+                            </View>
+                          );
+                        })}
+                      </CustomerBalanceCarousel>
+                    </View>
+                    {pingNudge && person.phone && !link && entries.length > 0 && !pinging ? (
+                      <View style={[styles.pingNudge, rowDir(isRTL)]}>
+                        <Ionicons name="logo-whatsapp" size={18} color={colors.textEmphasis} />
+                        <Text style={[styles.pingNudgeText, textDir(isRTL)]} numberOfLines={2}>
+                          {t("person.ping.nudge", { name: person.name })}
+                        </Text>
+                        <Pressable
+                          accessibilityRole="button"
+                          accessibilityLabel={t("person.ping.button")}
+                          onPress={() => {
+                            setPingNudge(false);
+                            void sendPing();
+                          }}
+                          hitSlop={{ top: 8, bottom: 8 }}
+                          style={({ pressed }) => [
+                            styles.pingNudgeSend,
+                            pressed && { opacity: 0.7 },
+                          ]}
+                        >
+                          <Text style={styles.pingNudgeSendText}>{t("person.ping.nudgeSend")}</Text>
+                        </Pressable>
+                        <Pressable
+                          accessibilityRole="button"
+                          accessibilityLabel={t("common.notNow")}
+                          onPress={() => setPingNudge(false)}
+                          hitSlop={12}
+                          style={styles.pingNudgeClose}
+                        >
+                          <Ionicons name="close" size={16} color={colors.textSubtle} />
+                        </Pressable>
                       </View>
                     ) : null}
                   </View>
-                ) : null}
-                {entryCurrencies.scope === flowScope &&
-                entryCurrencies.codes.length === 0 &&
-                currencyPeriods.some(
-                  (period) =>
-                    period.tab?.closed_at == null &&
-                    period.tab?.recording_mode === "notify_one_way" &&
-                    period.tab.role === "b",
-                ) ? (
-                  <Text testID="customer-one-way-read-only" style={[styles.groups, textDir(isRTL)]}>
-                    {t("tab.recordingMode.oneWayReadOnly")}
-                  </Text>
-                ) : null}
-                {/* Unlinking preserves shared history and pending reviews; tallies written
-                    after it are private and carry no review state, which made
-                    them look like accepted shared ones (audit #6). */}
-                {tabHistory?.closed_at != null || person.tab_close_pending === 1 ? (
-                  <Text style={[styles.groups, textDir(isRTL)]}>
-                    {person.tab_close_pending === 1
-                      ? t("tab.unlink.pending")
-                      : t("tab.closedNote", { date: formatDate(tabHistory!.closed_at!) })}
-                  </Text>
-                ) : null}
-                <View
-                  testID="customer-balances"
-                  accessible={false}
-                  style={selecting ? styles.hiddenBalances : undefined}
-                  pointerEvents={selecting ? "none" : "auto"}
-                  accessibilityElementsHidden={selecting}
-                  importantForAccessibility={selecting ? "no-hide-descendants" : "auto"}
-                >
-                  <View style={{ height: 16 }} />
-                  <CustomerBalanceCarousel
-                    key={JSON.stringify([getAccountIdSync(), activeVaultId, person.id])}
-                    currencies={balanceRows.map((row) => row.currency ?? selectedCurrency)}
-                    active={
-                      !compactDock &&
-                      !selecting &&
-                      !dateSheetVisible &&
-                      !sheetFor &&
-                      !askLangVisible &&
-                      !exportSheetVisible &&
-                      !inviteVisible &&
-                      !linkedSheetVisible &&
-                      !linkCurrencyVisible &&
-                      !confirmRegenerate &&
-                      !confirmUnlink &&
-                      !confirmSettle &&
-                      !confirmDeleteFor
-                    }
-                  >
-                    {balanceRows.map((balancePerson) => {
-                      const code = balancePerson.currency ?? selectedCurrency;
-                      const person = balancePerson;
-                      const period = currencyPeriods.find((period) => period.currency === code);
-                      const tabHistory = period?.tab;
-                      const financialTabHistory = period?.financialTab;
-                      const link = tabHistory?.closed_at == null ? tabHistory : null;
-                      const abs = Math.abs(person.balance);
-                      const chipLabel =
-                        person.balance > 0
-                          ? t("person.balance.theyOwe")
-                          : person.balance < 0
-                            ? t("person.balance.youOwe")
-                            : null;
-                      const chipVariant =
-                        person.balance > 0
-                          ? ("collect" as const)
-                          : person.balance < 0
-                            ? ("pay" as const)
-                            : null;
-                      const balanceColor =
-                        person.balance > 0
-                          ? colors.collectStrong
-                          : person.balance < 0
-                            ? colors.payStrong
-                            : colors.textEmphasis;
-                      const settledCount = period
-                        ? period.financialTab
-                          ? period.sharedSettlements.length
-                          : period.settlement.count
-                        : 0;
-                      const chapterCoherent =
-                        !period ||
-                        sumAmounts(currencyChapter(period).map(balanceContribution)) ===
-                          person.balance;
-                      const sharedReviewPending =
-                        (person.tab_pending_count ?? 0) > 0 ||
-                        (period?.entries ?? []).some(
-                          (entry) =>
-                            entry.tab &&
-                            (entry.tab.local_pending ||
-                              (!entry.tab.voided &&
-                                entry.tab.kind !== "void" &&
-                                entry.tab.status === "pending")),
-                        );
-                      const unsettledOriginalCount = period ? currencyChapter(period).length : 0;
-                      const hasBalanceStatus =
-                        (person.tab_unsynced !== 1 &&
-                          (chipLabel ||
-                            (settledCount > 0 &&
-                              chapterCoherent &&
-                              !sharedReviewPending &&
-                              unsettledOriginalCount === 0) ||
-                            displayedEntries.length > 0)) ||
-                        sharedAccountLinkStatus(link) === "waiting";
-                      return (
-                        <View key={code} style={styles.balanceOverview}>
-                          {!singleBalanceCurrency ? (
-                            <View
-                              testID={`customer-balance-header-${code}`}
-                              style={styles.balanceHeader}
-                            >
-                              <Text style={styles.balanceCurrency}>{getCurrencyLabel(code)}</Text>
-                            </View>
-                          ) : null}
-                          <View style={styles.balanceSide}>
-                            <View style={styles.balanceHeadline}>
-                              <View
-                                testID={`customer-balance-amount-${code}`}
-                                style={styles.balanceAmountRow}
-                                accessible={singleBalanceCurrency}
-                                accessibilityLabel={
-                                  singleBalanceCurrency
-                                    ? `${getCurrencyLabel(code)} ${person.tab_unsynced === 1 ? t("tab.notDownloaded") : formatAmount(abs)}`
-                                    : undefined
-                                }
-                              >
-                                <Text
-                                  testID={`customer-balance-value-${code}`}
-                                  style={[
-                                    styles.balance,
-                                    singleBalanceCurrency && styles.balanceWithCurrency,
-                                    {
-                                      color:
-                                        person.tab_unsynced === 1 ? colors.textMuted : balanceColor,
-                                    },
-                                  ]}
-                                  numberOfLines={1}
-                                  adjustsFontSizeToFit
-                                  minimumFontScale={0.1}
-                                  maxFontSizeMultiplier={1.4}
-                                >
-                                  {person.tab_unsynced === 1 ? "…" : formatAmount(abs)}
-                                </Text>
-                                {singleBalanceCurrency ? (
-                                  <Text
-                                    testID={`customer-balance-symbol-${code}`}
-                                    style={styles.balanceSymbol}
-                                    maxFontSizeMultiplier={1.4}
-                                  >
-                                    {ltrIsolate(getCurrencySymbol(code))}
-                                  </Text>
-                                ) : null}
-                              </View>
-                              {hasBalanceStatus ? (
-                                <View
-                                  testID={`customer-balance-status-${code}`}
-                                  style={[
-                                    styles.chipRow,
-                                    styles.balanceStatus,
-                                    rowDir(isRTL),
-                                    { justifyContent: isRTL ? "flex-start" : "flex-end" },
-                                  ]}
-                                >
-                                  {person.tab_unsynced === 1 ? null : chipLabel && chipVariant ? (
-                                    <Chip label={chipLabel} variant={chipVariant} />
-                                  ) : settledCount > 0 &&
-                                    chapterCoherent &&
-                                    !sharedReviewPending &&
-                                    unsettledOriginalCount === 0 ? (
-                                    // "SETTLED" only when the user actually drew the line and it
-                                    // covers everything.
-                                    <Chip label={t("person.balance.settled")} variant="neutral" />
-                                  ) : displayedEntries.length > 0 ? (
-                                    // A tally that merely SUMS to zero (or whose chapter no longer
-                                    // adds up after a sync) is not a settled account — say so
-                                    // rather than leaving the chip slot blank while every other
-                                    // state labels itself. Hollow pill: true, but not an
-                                    // achievement. The settle-row invitation sits below.
-                                    // Contacts with no entries at all keep an empty slot — there
-                                    // is no tally yet to have a state.
-                                    <Chip
-                                      label={t("person.balance.notSettled")}
-                                      variant="outline"
-                                    />
-                                  ) : null}
-                                  {sharedAccountLinkStatus(link) === "waiting" ? (
-                                    // Keep the invitation-waiting cue until the other side joins.
-                                    // Once linked, the name badge is enough; no duplicate chip.
-                                    <Pressable
-                                      onPress={
-                                        canAmend
-                                          ? () => {
-                                              setManagementCurrency(code);
-                                              setLinkedSheetVisible(true);
-                                            }
-                                          : undefined
-                                      }
-                                      disabled={!canAmend}
-                                      accessibilityRole={canAmend ? "button" : "text"}
-                                      style={({ pressed }) => [
-                                        styles.readOnlyChip,
-                                        pressed && { opacity: 0.5 },
-                                      ]}
-                                    >
-                                      <Ionicons
-                                        name="link-outline"
-                                        size={14}
-                                        color={colors.textSubtle}
-                                      />
-                                      <Text
-                                        style={styles.readOnlyChipText}
-                                        allowFontScaling={false}
-                                        numberOfLines={1}
-                                      >
-                                        {t("tab.chip.waiting")}
-                                      </Text>
-                                    </Pressable>
-                                  ) : null}
-                                </View>
-                              ) : null}
-                            </View>
-                            {/* A discovered shared account that has not been pulled yet
-                        has no known balance; the pull is already queued. */}
-                            {person.tab_unsynced === 1 ? (
-                              <Text style={[styles.unsyncedNote, textDir(isRTL)]}>
-                                {t("tab.notDownloaded")}
-                              </Text>
-                            ) : null}
-                            {financialTabHistory && person.tab_unsynced !== 1 ? (
-                              <Text style={[styles.unsyncedNote, textDir(isRTL)]}>
-                                {financialTabHistory.recording_mode_known === 0
-                                  ? t("tab.recordingMode.unknown")
-                                  : t(
-                                      isNotificationOnlyMode(financialTabHistory.recording_mode)
-                                        ? "tab.balance.recorded"
-                                        : "tab.balance.confirmed",
-                                      {
-                                        amount: signedSharedAmount(
-                                          isNotificationOnlyMode(financialTabHistory.recording_mode)
-                                            ? person.balance
-                                            : (person.tab_confirmed_balance ?? 0),
-                                        ),
-                                        currency: getCurrencyLabel(code),
-                                      },
-                                    )}
-                              </Text>
-                            ) : null}
-                            {(person.tab_pending_count ?? 0) > 0 && person.tab_unsynced !== 1 ? (
-                              <Text style={[styles.unsyncedNote, textDir(isRTL)]}>
-                                {t("tab.balance.pending", {
-                                  count: person.tab_pending_count ?? 0,
-                                  amount: signedSharedAmount(person.tab_pending_balance ?? 0),
-                                  currency: getCurrencyLabel(code),
-                                })}
-                              </Text>
-                            ) : null}
-                            <CreditStatusBadge
-                              personId={person.id}
-                              vaultId={activeVaultId}
-                              currency={code}
-                            />
-                          </View>
-                          <TallyFlowSummary
-                            summary={flowSummaries.get(code) ?? summarizeTallyFlows([])}
-                            currency={code}
-                            isRTL={isRTL}
-                            variant="footer"
-                          />
-                        </View>
-                      );
-                    })}
-                  </CustomerBalanceCarousel>
                 </View>
-                {pingNudge && person.phone && !link && entries.length > 0 && !pinging ? (
-                  <View style={[styles.pingNudge, rowDir(isRTL)]}>
-                    <Ionicons name="logo-whatsapp" size={18} color={colors.textEmphasis} />
-                    <Text style={[styles.pingNudgeText, textDir(isRTL)]} numberOfLines={2}>
-                      {t("person.ping.nudge", { name: person.name })}
-                    </Text>
-                    <Pressable
-                      accessibilityRole="button"
-                      accessibilityLabel={t("person.ping.button")}
-                      onPress={() => {
-                        setPingNudge(false);
-                        void sendPing();
-                      }}
-                      hitSlop={{ top: 8, bottom: 8 }}
-                      style={({ pressed }) => [styles.pingNudgeSend, pressed && { opacity: 0.7 }]}
-                    >
-                      <Text style={styles.pingNudgeSendText}>{t("person.ping.nudgeSend")}</Text>
-                    </Pressable>
-                    <Pressable
-                      accessibilityRole="button"
-                      accessibilityLabel={t("common.notNow")}
-                      onPress={() => setPingNudge(false)}
-                      hitSlop={12}
-                      style={styles.pingNudgeClose}
-                    >
-                      <Ionicons name="close" size={16} color={colors.textSubtle} />
-                    </Pressable>
-                  </View>
-                ) : null}
-              </View>
-            </View>
 
-            {/* Settle-up affordance — deliberately NOT a button. A ruled line,
+                <HomeBalanceFilterSwipe
+                  testID="customer-tally-content"
+                  enabled={tallyDirectionEnabled && !compactDock}
+                  contextKey={JSON.stringify([
+                    filterIntent,
+                    filterEpoch,
+                    searchQuery,
+                    dateRange,
+                    tallyCurrencyCodes,
+                  ])}
+                  currencyKey={JSON.stringify(tallyFilter.currencies)}
+                  direction={
+                    tallyFilter.direction === "received"
+                      ? "collect"
+                      : tallyFilter.direction === "gave"
+                        ? "pay"
+                        : "all"
+                  }
+                  onDirectionChange={changeTallySwipeDirection}
+                  nativeGesture={nativeTallyScroll}
+                  onLayout={(event) => {
+                    if (!filterIsCurrent()) return;
+                    const y = event.nativeEvent.layout.y;
+                    if (!Number.isFinite(y) || y < 0) return;
+                    tallyContentY.current = y;
+                    revealNotificationTally();
+                  }}
+                >
+                  {directionalFiltering || tallyFilter.sort !== "recent" ? (
+                    <View testID="customer-tally-filter-chips" style={styles.tallyFilterChips}>
+                      <Pressable accessibilityRole="button" onPress={clearTallyFilters}>
+                        <Text style={[styles.tallyFilterClear, textDir(isRTL)]}>
+                          {t("search.clearAll")}
+                        </Text>
+                      </Pressable>
+                      <View style={[styles.tallyFilterChipRow, rowDir(isRTL)]}>
+                        {tallyFilter.direction !== "all" ? (
+                          <Pressable
+                            accessibilityRole="button"
+                            onPress={() =>
+                              changeTallyFilter({ ...tallyFilterRef.current, direction: "all" })
+                            }
+                            style={[styles.tallyFilterChip, rowDir(isRTL)]}
+                          >
+                            <Text style={styles.searchSummary}>
+                              {t(
+                                tallyFilter.direction === "received"
+                                  ? "person.filters.received"
+                                  : "person.filters.gave",
+                              )}
+                            </Text>
+                            <Ionicons name="close" size={14} color={colors.textSubtle} />
+                          </Pressable>
+                        ) : null}
+                        {tallyFilter.currencies.map((code) => (
+                          <Pressable
+                            key={code}
+                            accessibilityRole="button"
+                            accessibilityLabel={`${getCurrencyLabel(code)}, ${t("customers.currencyFilter.clear")}`}
+                            onPress={() =>
+                              changeTallyFilter({
+                                ...tallyFilterRef.current,
+                                currencies: tallyFilterRef.current.currencies.filter(
+                                  (value) => value !== code,
+                                ),
+                              })
+                            }
+                            style={styles.tallyFilterChip}
+                          >
+                            <Text style={styles.searchSummary}>{getCurrencyLabel(code)}</Text>
+                            <Ionicons name="close" size={14} color={colors.textSubtle} />
+                          </Pressable>
+                        ))}
+                        {tallyFilter.sort !== "recent" ? (
+                          <Pressable
+                            accessibilityRole="button"
+                            onPress={() =>
+                              changeTallyFilter({ ...tallyFilterRef.current, sort: "recent" })
+                            }
+                            style={[styles.tallyFilterChip, rowDir(isRTL)]}
+                          >
+                            <Text style={styles.searchSummary}>
+                              {t(
+                                tallyFilter.sort === "date_asc"
+                                  ? "person.filters.oldest"
+                                  : tallyFilter.sort === "amount_asc"
+                                    ? "customers.sort.amount_asc"
+                                    : "customers.sort.amount_desc",
+                              )}
+                            </Text>
+                            <Ionicons name="close" size={14} color={colors.textSubtle} />
+                          </Pressable>
+                        ) : null}
+                      </View>
+                    </View>
+                  ) : null}
+                  {/* Settle-up affordance — deliberately NOT a button. A ruled line,
             the same mark a paper khata gets when an account is closed. It
             only exists in the exact moment it means something: balance is
             zero AND the current chapter has entries. Tapping it draws the
             line for real. */}
-            {canSettle && !searching && !selecting
-              ? settleablePeriods.map((period) => (
-                  <Pressable
-                    key={period.currency}
-                    onPress={() => {
-                      setSettleCurrency(period.currency);
-                      setConfirmSettle(true);
-                    }}
-                    accessibilityRole="button"
-                    accessibilityLabel={
-                      currencyPeriods.length > 1
-                        ? `${t("person.settle.row")} · ${getCurrencyLabel(period.currency)}`
-                        : t("person.settle.row")
-                    }
-                    style={({ pressed }) => [
-                      styles.settleRow,
-                      rowDir(isRTL),
-                      pressed && { opacity: 0.5 },
-                    ]}
-                  >
-                    <View style={styles.settleRule} />
-                    <Text style={styles.settleRowText} allowFontScaling={false}>
-                      {t("person.settle.row")} · {getCurrencyLabel(period.currency)}
-                    </Text>
-                    <View style={styles.settleRule} />
-                  </Pressable>
-                ))
-              : null}
+                  {canSettle && !searching && !selecting
+                    ? settleablePeriods.map((period) => (
+                        <Pressable
+                          key={period.currency}
+                          onPress={() => {
+                            setSettleCurrency(period.currency);
+                            setConfirmSettle(true);
+                          }}
+                          accessibilityRole="button"
+                          accessibilityLabel={
+                            currencyPeriods.length > 1
+                              ? `${t("person.settle.row")} · ${getCurrencyLabel(period.currency)}`
+                              : t("person.settle.row")
+                          }
+                          style={({ pressed }) => [
+                            styles.settleRow,
+                            rowDir(isRTL),
+                            pressed && { opacity: 0.5 },
+                          ]}
+                        >
+                          <View style={styles.settleRule} />
+                          <Text style={styles.settleRowText} allowFontScaling={false}>
+                            {t("person.settle.row")} · {getCurrencyLabel(period.currency)}
+                          </Text>
+                          <View style={styles.settleRule} />
+                        </Pressable>
+                      ))
+                    : null}
 
-            {/* Waiting and refused clerk attempts stay on the complete ledger. */}
-            {!searching && !selecting ? (
-              <CreditIntentList personId={person.id} vaultId={activeVaultId} allCurrencies />
-            ) : null}
-
-            {historyItems.length === 0 ? (
-              searching ? (
-                searchResultCount === 0 ? (
-                  <EmptyState
-                    title={t("person.search.empty.title")}
-                    subtitle={t("person.search.empty.subtitle")}
-                    isRTL={isRTL}
-                  />
-                ) : null
-              ) : settledCount > 0 ? (
-                <EmptyState
-                  title={t("person.freshChapter.title")}
-                  subtitle={t("person.freshChapter.subtitle")}
-                  isRTL={isRTL}
-                />
-              ) : (
-                <EmptyState
-                  title={t("person.empty.title")}
-                  subtitle={t("person.empty.subtitle")}
-                  isRTL={isRTL}
-                />
-              )
-            ) : (
-              renderTallyHistory(historyItems)
-            )}
-
-            {matchedFailedTallies.length > 0 ? (
-              <>
-                <Pressable
-                  onPress={() => setFailedTalliesOpen((v) => !v)}
-                  disabled={searching}
-                  accessibilityRole="button"
-                  accessibilityState={{
-                    expanded: searching || failedTalliesOpen,
-                    disabled: searching,
-                  }}
-                  style={[styles.foldRow, rowDir(isRTL)]}
-                >
-                  <Text style={styles.historyRowText}>
-                    {t("tab.notSent", { count: matchedFailedTallies.length })}
-                  </Text>
-                  {!searching ? (
-                    <Ionicons
-                      name={failedTalliesOpen ? "chevron-up" : "chevron-down"}
-                      size={14}
-                      color={colors.textSubtle}
-                    />
+                  {/* Waiting and refused clerk attempts stay on the complete ledger. */}
+                  {!searching && !selecting ? (
+                    <CreditIntentList personId={person.id} vaultId={activeVaultId} allCurrencies />
                   ) : null}
-                </Pressable>
-                {searching || failedTalliesOpen ? (
-                  <View style={[styles.entriesCard, styles.preLinkCard]}>
-                    <Text style={[styles.historyRowText, { padding: 14 }, textDir(isRTL)]}>
-                      {t("tab.notSent.body")}
-                    </Text>
-                    {matchedFailedTallies.map((entry) => (
-                      <EntryRow
-                        key={entry.id}
-                        entry={entry}
-                        showFullNote={searchTerms.length > 0}
+
+                  {historyItems.length === 0 ? (
+                    searching ? (
+                      searchResultCount === 0 ? (
+                        <EmptyState
+                          title={t("person.search.empty.title")}
+                          subtitle={t("person.search.empty.subtitle")}
+                          isRTL={isRTL}
+                        />
+                      ) : null
+                    ) : settledCount > 0 ? (
+                      <EmptyState
+                        title={t("person.freshChapter.title")}
+                        subtitle={t("person.freshChapter.subtitle")}
+                        isRTL={isRTL}
                       />
-                    ))}
-                  </View>
-                ) : null}
-              </>
-            ) : null}
+                    ) : (
+                      <EmptyState
+                        title={t("person.empty.title")}
+                        subtitle={t("person.empty.subtitle")}
+                        isRTL={isRTL}
+                      />
+                    )
+                  ) : (
+                    renderTallyHistory(historyItems)
+                  )}
 
-            {tabHistory?.closed_reason === "account_deleted" ? (
-              <Text
-                style={[
-                  styles.historyRowText,
-                  { paddingHorizontal: 14, paddingVertical: 10 },
-                  textDir(isRTL),
-                ]}
-              >
-                {t("export.record.closedDeleted")}
-              </Text>
-            ) : null}
+                  {matchedFailedTallies.length > 0 ? (
+                    <>
+                      <Pressable
+                        onPress={() => setFailedTalliesOpen((v) => !v)}
+                        disabled={searching}
+                        accessibilityRole="button"
+                        accessibilityState={{
+                          expanded: searching || failedTalliesOpen,
+                          disabled: searching,
+                        }}
+                        style={[styles.foldRow, rowDir(isRTL)]}
+                      >
+                        <Text style={styles.historyRowText}>
+                          {t("tab.notSent", { count: matchedFailedTallies.length })}
+                        </Text>
+                        {!searching ? (
+                          <Ionicons
+                            name={failedTalliesOpen ? "chevron-up" : "chevron-down"}
+                            size={14}
+                            color={colors.textSubtle}
+                          />
+                        ) : null}
+                      </Pressable>
+                      {searching || failedTalliesOpen ? (
+                        <View style={[styles.entriesCard, styles.preLinkCard]}>
+                          <Text style={[styles.historyRowText, { padding: 14 }, textDir(isRTL)]}>
+                            {t("tab.notSent.body")}
+                          </Text>
+                          {matchedFailedTallies.map((entry) => (
+                            <EntryRow
+                              key={entry.id}
+                              entry={entry}
+                              showFullNote={searchTerms.length > 0}
+                            />
+                          ))}
+                        </View>
+                      ) : null}
+                    </>
+                  ) : null}
 
-            {/* Pre-link history (D8). Visible but folded, in the settled-history
+                  {tabHistory?.closed_reason === "account_deleted" ? (
+                    <Text
+                      style={[
+                        styles.historyRowText,
+                        { paddingHorizontal: 14, paddingVertical: 10 },
+                        textDir(isRTL),
+                      ]}
+                    >
+                      {t("export.record.closedDeleted")}
+                    </Text>
+                  ) : null}
+
+                  {/* Pre-link history (D8). Visible but folded, in the settled-history
             row's visual language: these rows are the book as it was before
             the account became shared, their sum is already the opening tally
             on the tab, and nothing here can be edited (TabLinkedEntryError).
             No long-press, no attribution: frozen pages. */}
-            {currencyPeriods.some((period) => period.financialTab) && matchedPreLink.length > 0 ? (
-              <>
-                <Pressable
-                  onPress={() => setPreLinkOpen((v) => !v)}
-                  disabled={searching}
-                  accessibilityRole="button"
-                  accessibilityState={{ expanded: searching || preLinkOpen, disabled: searching }}
-                  style={({ pressed }) => [
-                    styles.foldRow,
-                    rowDir(isRTL),
-                    pressed && { opacity: 0.5 },
-                  ]}
-                >
-                  <Text style={styles.historyRowText} allowFontScaling={false}>
-                    {t("tab.beforeLinking", { count: matchedPreLink.length })}
-                  </Text>
-                  {!searching ? (
-                    <Ionicons
-                      name={preLinkOpen ? "chevron-up" : "chevron-down"}
-                      size={14}
-                      color={colors.textSubtle}
-                    />
+                  {currencyPeriods.some((period) => period.financialTab) &&
+                  matchedPreLink.length > 0 ? (
+                    <>
+                      <Pressable
+                        onPress={() => setPreLinkOpen((v) => !v)}
+                        disabled={searching}
+                        accessibilityRole="button"
+                        accessibilityState={{
+                          expanded: searching || preLinkOpen,
+                          disabled: searching,
+                        }}
+                        style={({ pressed }) => [
+                          styles.foldRow,
+                          rowDir(isRTL),
+                          pressed && { opacity: 0.5 },
+                        ]}
+                      >
+                        <Text style={styles.historyRowText} allowFontScaling={false}>
+                          {t("tab.beforeLinking", { count: matchedPreLink.length })}
+                        </Text>
+                        {!searching ? (
+                          <Ionicons
+                            name={preLinkOpen ? "chevron-up" : "chevron-down"}
+                            size={14}
+                            color={colors.textSubtle}
+                          />
+                        ) : null}
+                      </Pressable>
+                      {searching || preLinkOpen ? (
+                        <View style={[styles.entriesCard, styles.preLinkCard]}>
+                          {matchedPreLink.map((entry, index) => (
+                            <View key={entry.id}>
+                              {index > 0 ? <View style={styles.divider} /> : null}
+                              <EntryRow entry={entry} showFullNote={searchTerms.length > 0} />
+                            </View>
+                          ))}
+                        </View>
+                      ) : null}
+                    </>
                   ) : null}
-                </Pressable>
-                {searching || preLinkOpen ? (
-                  <View style={[styles.entriesCard, styles.preLinkCard]}>
-                    {matchedPreLink.map((entry, index) => (
-                      <View key={entry.id}>
-                        {index > 0 ? <View style={styles.divider} /> : null}
-                        <EntryRow entry={entry} showFullNote={searchTerms.length > 0} />
-                      </View>
-                    ))}
-                  </View>
-                ) : null}
-              </>
-            ) : null}
 
-            <SettledTalliesSection
-              count={settledTallyCount}
-              expanded={settledExpanded}
-              disabled={searching}
-              onToggle={() => {
-                if (screenIsCurrent() && !searching && !selectionBusyRef.current)
-                  setShowFullHistory((value) => !value);
-              }}
-            >
-              {settledVisible ? renderTallyHistory(settledHistoryItems, "settled") : null}
-            </SettledTalliesSection>
-          </ScrollView>
+                  <SettledTalliesSection
+                    count={settledTallyCount}
+                    expanded={settledExpanded}
+                    disabled={searching}
+                    onToggle={() => {
+                      if (screenIsCurrent() && !searching && !selectionBusyRef.current)
+                        setShowFullHistory((value) => !value);
+                    }}
+                  >
+                    {settledVisible ? renderTallyHistory(settledHistoryItems, "settled") : null}
+                  </SettledTalliesSection>
+                </HomeBalanceFilterSwipe>
+              </ScrollView>
+            </GestureDetector>
 
-          {/* Opaque dock: it takes every tap on its own background. The old
+            {/* Opaque dock: it takes every tap on its own background. The old
           ping bar was a floating button and passed taps through ("box-none"),
           which here reached tally rows hidden behind the dock, Accept/Reject
           included. It still lifts above toasts, over its own DOCK_SKIRT, but not
           above an open keyboard. Received LEFT, gave RIGHT regardless of
           language. */}
-          {canCreate || hasTallies ? (
-            <Animated.View
-              onLayout={(event) => {
-                measuredActionsHeight.current = Math.max(
-                  0,
-                  event.nativeEvent.layout.height - DOCK_SKIRT,
-                );
-                if (Platform.OS !== "ios" || !keyboardMoving.current) publishActionsHeight();
-              }}
-              style={[
-                styles.actions,
-                {
-                  bottom: -DOCK_SKIRT,
-                  transform: [{ translateY: compactDock ? 0 : toastOffset }],
-                },
-              ]}
-            >
-              <SearchKeyboardFooter
-                closedPadding={20 + insets.bottom + DOCK_SKIRT}
-                openPadding={8 + DOCK_SKIRT}
-                keyboardShown={compactDock}
-                style={styles.actionsContent}
+            {canCreate || hasTallies ? (
+              <Animated.View
+                onLayout={(event) => {
+                  measuredActionsHeight.current = Math.max(
+                    0,
+                    event.nativeEvent.layout.height - DOCK_SKIRT,
+                  );
+                  if (Platform.OS !== "ios" || !keyboardMoving.current) publishActionsHeight();
+                }}
+                style={[
+                  styles.actions,
+                  {
+                    bottom: -DOCK_SKIRT,
+                    transform: [{ translateY: compactDock ? 0 : toastOffset }],
+                  },
+                ]}
               >
-                {/* While typing a search the entry buttons step aside so the
+                <SearchKeyboardFooter
+                  onLayout={updateTallyFilterAnchor}
+                  closedPadding={20 + insets.bottom + DOCK_SKIRT}
+                  openPadding={8 + DOCK_SKIRT}
+                  keyboardShown={compactDock}
+                  style={styles.actionsContent}
+                >
+                  {/* While typing a search the entry buttons step aside so the
                   results above the keyboard get their room (0-1 rows before,
                   audit #31); they return with the keyboard's close. */}
-                {!selecting && canCreate && writableEntryCurrency && !compactDock ? (
-                  <View style={styles.actionRow}>
-                    <View style={styles.actionBtnWrap}>
-                      <Pressable
-                        accessibilityRole="button"
-                        onPress={() =>
-                          router.push({
-                            pathname: "/entry/new",
-                            params: { personId: person.id, type: "payment" },
-                          })
-                        }
-                        style={({ pressed }) => [
-                          styles.actionBtn,
-                          styles.actionReceived,
-                          pressed && styles.actionBtnPressed,
-                        ]}
-                      >
-                        {/* 16 is composed INTO the fixed 26px coin (see
-                      actionIconCoin), so the icon scale does not apply here —
-                      icon.trailing/row would fill or overflow the well. */}
-                        <View style={[styles.actionIconCoin, styles.actionReceivedCoin]}>
-                          <Ionicons
-                            name="arrow-down-outline"
-                            size={16}
-                            color={colors.entryActionReceivedText}
-                          />
-                        </View>
-                        <Text
-                          style={[
-                            styles.actionText,
-                            styles.actionReceivedText,
-                            trackingSafe(isRTL),
+                  {!selecting && canCreate && writableEntryCurrency && !compactDock ? (
+                    <View style={styles.actionRow}>
+                      <View style={styles.actionBtnWrap}>
+                        <Pressable
+                          accessibilityRole="button"
+                          onPress={() =>
+                            router.push({
+                              pathname: "/entry/new",
+                              params: { personId: person.id, type: "payment" },
+                            })
+                          }
+                          style={({ pressed }) => [
+                            styles.actionBtn,
+                            styles.actionReceived,
+                            pressed && styles.actionBtnPressed,
                           ]}
                         >
-                          {t("person.action.iReceived")}
-                        </Text>
-                      </Pressable>
-                    </View>
-                    <View style={styles.actionBtnWrap}>
-                      <Pressable
-                        accessibilityRole="button"
-                        onPress={() =>
-                          router.push({
-                            pathname: "/entry/new",
-                            params: { personId: person.id, type: "debt" },
-                          })
-                        }
-                        style={({ pressed }) => [
-                          styles.actionBtn,
-                          styles.actionGave,
-                          pressed && styles.actionBtnPressed,
-                        ]}
-                      >
-                        {/* 16, composed into the coin — same reason as "I received". */}
-                        <View style={[styles.actionIconCoin, styles.actionGaveCoin]}>
-                          <Ionicons
-                            name="arrow-up-outline"
-                            size={16}
-                            color={colors.entryActionGaveText}
-                          />
-                        </View>
-                        <Text
-                          style={[styles.actionText, styles.actionGaveText, trackingSafe(isRTL)]}
-                        >
-                          {t("person.action.iGave")}
-                        </Text>
-                      </Pressable>
-                    </View>
-                  </View>
-                ) : null}
-                {hasTallies ? (
-                  <View style={styles.searchArea}>
-                    <View style={styles.searchControls}>
-                      <View style={styles.searchBox}>
-                        <Ionicons
-                          name="search-outline"
-                          size={icon.trailing}
-                          color={colors.textSubtle}
-                        />
-                        <TextInput
-                          ref={searchInputRef}
-                          value={searchQuery}
-                          onChangeText={(value) => {
-                            if (searchIsCurrent()) setSearchQuery(value);
-                          }}
-                          onPress={
-                            Platform.OS === "android"
-                              ? () => {
-                                  if (searchIsCurrent()) setSearchFocused(true);
-                                }
-                              : undefined
-                          }
-                          onFocus={() => {
-                            if (searchIsCurrent()) setSearchFocused(true);
-                          }}
-                          onBlur={() => {
-                            if (screenIsCurrent()) setSearchFocused(false);
-                          }}
-                          placeholder={t("person.search.placeholder")}
-                          accessibilityLabel={t("person.search.placeholder")}
-                          placeholderTextColor={colors.textSubtle}
-                          style={[styles.searchInput, textDir(isRTL)]}
-                          returnKeyType="search"
-                          submitBehavior="blurAndSubmit"
-                          onSubmitEditing={dismissSearchKeyboard}
-                          autoCorrect={false}
-                          maxLength={500}
-                        />
-                        <SearchControlSlot
-                          visible={searchQuery.length > 0}
-                          width={TOUCH_MIN}
-                          height={TOUCH_MIN}
-                          style={styles.clearSearchLTR}
-                        >
-                          <Pressable
-                            onPress={() => {
-                              if (searchIsCurrent()) setSearchQuery("");
-                            }}
-                            accessibilityRole="button"
-                            accessibilityLabel={t("person.search.clear")}
-                            style={styles.clearSearch}
+                          {/* 16 is composed INTO the fixed 26px coin (see
+                      actionIconCoin), so the icon scale does not apply here —
+                      icon.trailing/row would fill or overflow the well. */}
+                          <View style={[styles.actionIconCoin, styles.actionReceivedCoin]}>
+                            <Ionicons
+                              name="arrow-down-outline"
+                              size={16}
+                              color={colors.entryActionReceivedText}
+                            />
+                          </View>
+                          <Text
+                            style={[
+                              styles.actionText,
+                              styles.actionReceivedText,
+                              trackingSafe(isRTL),
+                            ]}
                           >
-                            <Ionicons name="close" size={icon.trailing} color={colors.textSubtle} />
-                          </Pressable>
-                        </SearchControlSlot>
-                      </View>
-                      <Pressable
-                        onPress={() => {
-                          if (!searchIsCurrent()) return;
-                          dismissSearchKeyboard();
-                          setDateSheetVisible(true);
-                        }}
-                        accessibilityRole="button"
-                        accessibilityLabel={
-                          dateRange
-                            ? t("person.date.active", { range: dateRangeLabel })
-                            : t("person.date.title")
-                        }
-                        accessibilityState={{ selected: dateRange != null }}
-                        style={[styles.dateButton, dateRange && styles.dateButtonActive]}
-                      >
-                        <Ionicons
-                          name="calendar-outline"
-                          size={icon.row}
-                          color={dateRange ? colors.textEmphasis : colors.textSubtle}
-                        />
-                      </Pressable>
-                      <SearchControlSlot
-                        visible={dismissControlVisible}
-                        width={TOUCH_MIN}
-                        height={TOUCH_MIN}
-                        collapse
-                        // Opening keeps its existing motion. Closing commits a
-                        // numeric width with willHide, without a second JS tween.
-                        animate={Platform.OS === "ios" && dismissControlVisible}
-                        gap={8}
-                        isRTL={false}
-                      >
-                        <Pressable
-                          onPress={dismissSearchKeyboard}
-                          accessibilityRole="button"
-                          accessibilityLabel={t("common.hideKeyboard")}
-                          style={styles.dateButton}
-                        >
-                          <Ionicons
-                            name="chevron-down"
-                            size={icon.row}
-                            color={colors.textEmphasis}
-                          />
+                            {t("person.action.iReceived")}
+                          </Text>
                         </Pressable>
-                      </SearchControlSlot>
-                    </View>
-                    {dateRange ? (
-                      <View style={[styles.dateSummary, rowDir(isRTL)]}>
+                      </View>
+                      <View style={styles.actionBtnWrap}>
                         <Pressable
-                          style={styles.dateSummaryLabel}
+                          accessibilityRole="button"
+                          onPress={() =>
+                            router.push({
+                              pathname: "/entry/new",
+                              params: { personId: person.id, type: "debt" },
+                            })
+                          }
+                          style={({ pressed }) => [
+                            styles.actionBtn,
+                            styles.actionGave,
+                            pressed && styles.actionBtnPressed,
+                          ]}
+                        >
+                          {/* 16, composed into the coin — same reason as "I received". */}
+                          <View style={[styles.actionIconCoin, styles.actionGaveCoin]}>
+                            <Ionicons
+                              name="arrow-up-outline"
+                              size={16}
+                              color={colors.entryActionGaveText}
+                            />
+                          </View>
+                          <Text
+                            style={[styles.actionText, styles.actionGaveText, trackingSafe(isRTL)]}
+                          >
+                            {t("person.action.iGave")}
+                          </Text>
+                        </Pressable>
+                      </View>
+                    </View>
+                  ) : null}
+                  {hasTallies ? (
+                    <View style={styles.searchArea}>
+                      <View style={styles.searchControls}>
+                        <View style={styles.searchBox}>
+                          <Ionicons
+                            name="search-outline"
+                            size={icon.trailing}
+                            color={colors.textSubtle}
+                          />
+                          <TextInput
+                            ref={searchInputRef}
+                            value={searchQuery}
+                            onChangeText={(value) => {
+                              if (searchIsCurrent()) setSearchQuery(value);
+                            }}
+                            onPress={
+                              Platform.OS === "android"
+                                ? () => {
+                                    if (searchIsCurrent()) setSearchFocused(true);
+                                  }
+                                : undefined
+                            }
+                            onFocus={() => {
+                              if (searchIsCurrent()) setSearchFocused(true);
+                            }}
+                            onBlur={() => {
+                              if (screenIsCurrent()) setSearchFocused(false);
+                            }}
+                            placeholder={t("person.search.placeholder")}
+                            accessibilityLabel={t("person.search.placeholder")}
+                            placeholderTextColor={colors.textSubtle}
+                            style={[styles.searchInput, textDir(isRTL)]}
+                            returnKeyType="search"
+                            submitBehavior="blurAndSubmit"
+                            onSubmitEditing={dismissSearchKeyboard}
+                            autoCorrect={false}
+                            maxLength={500}
+                          />
+                          <SearchControlSlot
+                            visible={searchQuery.length > 0}
+                            width={TOUCH_MIN}
+                            height={TOUCH_MIN}
+                            style={styles.clearSearchLTR}
+                          >
+                            <Pressable
+                              onPress={() => {
+                                if (searchIsCurrent()) setSearchQuery("");
+                              }}
+                              accessibilityRole="button"
+                              accessibilityLabel={t("person.search.clear")}
+                              style={styles.clearSearch}
+                            >
+                              <Ionicons
+                                name="close"
+                                size={icon.trailing}
+                                color={colors.textSubtle}
+                              />
+                            </Pressable>
+                          </SearchControlSlot>
+                        </View>
+                        {searchFocused || compactDock || tallyFiltersVisible ? (
+                          <Pressable
+                            ref={tallyFilterTrigger}
+                            testID="customer-tally-filter-trigger"
+                            accessibilityRole="button"
+                            accessibilityLabel={t("person.filters.title")}
+                            accessibilityState={{
+                              expanded: tallyFiltersVisible,
+                              selected: directionalFiltering || tallyFilter.sort !== "recent",
+                            }}
+                            disabled={!tallyPopupEnabled}
+                            onPress={() => {
+                              if (!filterIsCurrent() || !tallyInteraction.current.enabled) return;
+                              const next = !tallyFiltersVisibleRef.current;
+                              tallyFiltersVisibleRef.current = next;
+                              setTallyFiltersVisible(next);
+                              if (next) {
+                                dismissSearchKeyboard();
+                                requestAnimationFrame(updateTallyFilterAnchor);
+                              }
+                            }}
+                            onLayout={updateTallyFilterAnchor}
+                            style={[
+                              styles.dateButton,
+                              (directionalFiltering || tallyFilter.sort !== "recent") &&
+                                styles.dateButtonActive,
+                            ]}
+                          >
+                            <Ionicons
+                              name="options-outline"
+                              size={icon.row}
+                              color={colors.textEmphasis}
+                            />
+                          </Pressable>
+                        ) : null}
+                        <Pressable
                           onPress={() => {
                             if (!searchIsCurrent()) return;
                             dismissSearchKeyboard();
                             setDateSheetVisible(true);
                           }}
                           accessibilityRole="button"
-                          accessibilityLabel={t("person.date.active", { range: dateRangeLabel })}
+                          accessibilityLabel={
+                            dateRange
+                              ? t("person.date.active", { range: dateRangeLabel })
+                              : t("person.date.title")
+                          }
+                          accessibilityState={{ selected: dateRange != null }}
+                          style={[styles.dateButton, dateRange && styles.dateButtonActive]}
                         >
-                          <Text numberOfLines={2} style={[styles.searchSummary, textDir(isRTL)]}>
-                            {dateRangeLabel}
-                          </Text>
+                          <Ionicons
+                            name="calendar-outline"
+                            size={icon.row}
+                            color={dateRange ? colors.textEmphasis : colors.textSubtle}
+                          />
                         </Pressable>
-                        <Pressable
-                          style={styles.clearDate}
-                          onPress={() => {
-                            if (searchIsCurrent()) setDateRange(null);
-                          }}
-                          accessibilityRole="button"
-                          accessibilityLabel={t("person.date.clear")}
+                        <SearchControlSlot
+                          visible={dismissControlVisible}
+                          width={TOUCH_MIN}
+                          height={TOUCH_MIN}
+                          collapse
+                          // Opening keeps its existing motion. Closing commits a
+                          // numeric width with willHide, without a second JS tween.
+                          animate={Platform.OS === "ios" && dismissControlVisible}
+                          gap={8}
+                          isRTL={false}
                         >
-                          <Ionicons name="close" size={16} color={colors.textSubtle} />
-                        </Pressable>
+                          <Pressable
+                            onPress={dismissSearchKeyboard}
+                            accessibilityRole="button"
+                            accessibilityLabel={t("common.hideKeyboard")}
+                            style={styles.dateButton}
+                          >
+                            <Ionicons
+                              name="chevron-down"
+                              size={icon.row}
+                              color={colors.textEmphasis}
+                            />
+                          </Pressable>
+                        </SearchControlSlot>
                       </View>
-                    ) : null}
-                    {searching ? (
-                      <Text
-                        style={[styles.searchSummary, textDir(isRTL)]}
-                        accessibilityLiveRegion="polite"
-                      >
-                        {t(
-                          searchResultCount === 1
-                            ? "person.search.result"
-                            : "person.search.results",
-                          {
-                            count: searchResultCount,
-                          },
-                        )}
-                      </Text>
-                    ) : null}
-                  </View>
-                ) : null}
-              </SearchKeyboardFooter>
-            </Animated.View>
-          ) : null}
-        </View>
-      </SearchKeyboardFrame>
+                      {dateRange ? (
+                        <View style={[styles.dateSummary, rowDir(isRTL)]}>
+                          <Pressable
+                            style={styles.dateSummaryLabel}
+                            onPress={() => {
+                              if (!searchIsCurrent()) return;
+                              dismissSearchKeyboard();
+                              setDateSheetVisible(true);
+                            }}
+                            accessibilityRole="button"
+                            accessibilityLabel={t("person.date.active", { range: dateRangeLabel })}
+                          >
+                            <Text numberOfLines={2} style={[styles.searchSummary, textDir(isRTL)]}>
+                              {dateRangeLabel}
+                            </Text>
+                          </Pressable>
+                          <Pressable
+                            style={styles.clearDate}
+                            onPress={() => {
+                              if (searchIsCurrent()) setDateRange(null);
+                            }}
+                            accessibilityRole="button"
+                            accessibilityLabel={t("person.date.clear")}
+                          >
+                            <Ionicons name="close" size={16} color={colors.textSubtle} />
+                          </Pressable>
+                        </View>
+                      ) : null}
+                      {searching ? (
+                        <Text
+                          style={[styles.searchSummary, textDir(isRTL)]}
+                          accessibilityLiveRegion="polite"
+                        >
+                          {t(
+                            searchResultCount === 1
+                              ? "person.search.result"
+                              : "person.search.results",
+                            {
+                              count: searchResultCount,
+                            },
+                          )}
+                        </Text>
+                      ) : null}
+                    </View>
+                  ) : null}
+                </SearchKeyboardFooter>
+              </Animated.View>
+            ) : null}
+          </View>
+        </SearchKeyboardFrame>
+      </BlurTargetView>
+      <CustomerTallyFilterPopover
+        visible={tallyFiltersVisible && tallyPopupEnabled}
+        contextKey={`${filterIntent}:${filterEpoch}`}
+        anchor={tallyFilterAnchor}
+        viewport={{ ...filterSurface, topInset: insets.top }}
+        blurTarget={filterBlurTarget}
+        filter={tallyFilter}
+        availableCodes={tallyCurrencyCodes}
+        onChange={changeTallyFilter}
+        onClear={clearTallyFilters}
+        isRTL={isRTL}
+        keyboardVisible={compactDock}
+        onDismissKeyboard={dismissSearchKeyboard}
+        onDismiss={() => {
+          if (filterIsCurrent()) setTallyFiltersVisible(false);
+        }}
+      />
       <TallyDateFilterSheet
         visible={dateSheetVisible}
         contextKey={flowScope}
@@ -3361,6 +3797,20 @@ export default function PersonDetailScreen() {
 const ACTION_COIN_SIZE = 26;
 
 const styles = StyleSheet.create({
+  tallyFilterChips: { paddingHorizontal: 16, paddingBottom: 12, gap: 8 },
+  tallyFilterClear: { ...typography.bodySm, color: colors.textEmphasis },
+  tallyFilterChipRow: { flexWrap: "wrap", gap: 8 },
+  tallyFilterChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    minHeight: 32,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderWidth: 1,
+    borderColor: colors.borderDefault,
+    borderRadius: 20,
+  },
   container: { flex: 1, backgroundColor: colors.bgDefault },
   fillCenter: { flex: 1, alignItems: "center", justifyContent: "center" },
   notFoundText: { fontSize: 14, fontFamily: fonts.sansRegular, color: colors.textSubtle },

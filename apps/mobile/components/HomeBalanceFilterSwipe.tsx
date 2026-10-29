@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, type ReactNode } from "react";
-import { StyleSheet, useWindowDimensions, type StyleProp, type ViewStyle } from "react-native";
+import {
+  StyleSheet,
+  useWindowDimensions,
+  type LayoutChangeEvent,
+  type StyleProp,
+  type ViewStyle,
+} from "react-native";
 import { Gesture, GestureDetector, type GestureType } from "react-native-gesture-handler";
 import Animated, {
   cancelAnimation,
@@ -23,6 +29,7 @@ export function HomeBalanceFilterSwipe(props: {
   nativeGesture?: GestureType;
   style?: StyleProp<ViewStyle>;
   testID?: string;
+  onLayout?: (event: LayoutChangeEvent) => void;
   children: ReactNode;
 }) {
   const { width } = useWindowDimensions();
@@ -355,6 +362,7 @@ export function HomeBalanceFilterSwipe(props: {
       <Animated.View
         testID={props.testID ?? "home-balance-filter-swipe"}
         collapsable={false}
+        onLayout={props.onLayout}
         style={[styles.content, props.style, animatedStyle]}
       >
         {props.children}

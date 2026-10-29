@@ -1,4 +1,12 @@
-import { StyleSheet, Text, View } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import { useEffect, useRef, useState } from "react";
+import { Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import Animated, {
+  ReduceMotion,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from "react-native-reanimated";
 import { colors } from "../lib/colors";
 import { getCurrentCurrencySymbol, getCurrencyLabel } from "../lib/currency";
 import { rowDir } from "../lib/direction";
@@ -6,6 +14,11 @@ import { formatAmount } from "../lib/format";
 import { fonts, monoLineHeight, sansLineHeight } from "../lib/fonts";
 import { t } from "../lib/i18n";
 import type { TallyFlowSummary as FlowSummary } from "../lib/tally-summary";
+import { TOUCH_MIN } from "../lib/tokens";
+import { useSheetMotionPreference } from "./SheetBackdrop";
+
+const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
+export type TallyFlowDirection = "received" | "gave";
 
 /** Confirmed handovers, kept separate from the customer's net balance.
  *  Inline stays within half the balance header; footer uses two columns. */
@@ -15,6 +28,9 @@ export function TallyFlowSummary({
   allTime = false,
   currency: currencyCode,
   variant = "inline",
+  filter = "all",
+  onDirectionChange,
+  interactionEnabled = true,
 }: {
   summary: FlowSummary;
   isRTL: boolean;
@@ -22,9 +38,25 @@ export function TallyFlowSummary({
   allTime?: boolean;
   currency?: string;
   variant?: "inline" | "footer";
+  filter?: "all" | TallyFlowDirection;
+  onDirectionChange?: (direction: TallyFlowDirection) => void;
+  interactionEnabled?: boolean;
 }) {
-  if (summary.gave.count === 0 && summary.received.count === 0) return null;
+  const interactive = variant === "footer" && onDirectionChange;
+  if (summary.gave.count === 0 && summary.received.count === 0 && !interactive) return null;
   const currency = currencyCode ? getCurrencyLabel(currencyCode) : getCurrentCurrencySymbol();
+  if (interactive)
+    return (
+      <TallyFlowFilterFooter
+        summary={summary}
+        isRTL={isRTL}
+        allTime={allTime}
+        currency={currency}
+        filter={filter}
+        onDirectionChange={interactive}
+        interactionEnabled={interactionEnabled}
+      />
+    );
   if (variant === "footer") {
     return (
       <View style={styles.footer}>
@@ -113,6 +145,172 @@ export function TallyFlowSummary({
   );
 }
 
+function TallyFlowFilterFooter({
+  summary,
+  isRTL,
+  allTime,
+  currency,
+  filter,
+  onDirectionChange,
+  interactionEnabled,
+}: {
+  summary: FlowSummary;
+  isRTL: boolean;
+  allTime: boolean;
+  currency: string;
+  filter: "all" | TallyFlowDirection;
+  onDirectionChange: (direction: TallyFlowDirection) => void;
+  interactionEnabled: boolean;
+}) {
+  const { width: windowWidth, fontScale } = useWindowDimensions();
+  const reducedMotion = useSheetMotionPreference();
+  const [measurement, setMeasurement] = useState({ windowWidth, width: 0 });
+  const width = Math.max(
+    0,
+    measurement.windowWidth === windowWidth && measurement.width > 0
+      ? measurement.width
+      : windowWidth - 34,
+  );
+  const compactWidth = Math.min(width / 2, Math.max(TOUCH_MIN, fontScale > 1.3 ? 104 : 80));
+  const targetReceivedWidth =
+    filter === "received" ? width - compactWidth : filter === "gave" ? compactWidth : width / 2;
+  const receivedWidth = useSharedValue(targetReceivedWidth);
+  const receivedStyle = useAnimatedStyle(() => ({
+    width: Math.max(0, Math.min(width, receivedWidth.value)),
+  }));
+  const gaveStyle = useAnimatedStyle(() => ({
+    width: Math.max(0, width - receivedWidth.value),
+  }));
+  const previousWidth = useRef(width);
+  const mounted = useRef(true);
+  const latest = useRef({ windowWidth, interactionEnabled });
+  latest.current = { windowWidth, interactionEnabled };
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  useEffect(() => {
+    const resized = previousWidth.current !== width;
+    previousWidth.current = width;
+    if (!resized && receivedWidth.value === targetReceivedWidth) return;
+    receivedWidth.value =
+      reducedMotion || resized
+        ? targetReceivedWidth
+        : withTiming(targetReceivedWidth, { duration: 200, reduceMotion: ReduceMotion.System });
+  }, [width, targetReceivedWidth, receivedWidth, reducedMotion]);
+  return (
+    <View
+      testID="tally-flow-filter-footer"
+      style={[styles.footer, styles.interactiveFooter]}
+      onLayout={(event) => {
+        const measured = event.nativeEvent.layout.width;
+        if (
+          mounted.current &&
+          latest.current.windowWidth === windowWidth &&
+          Number.isFinite(measured) &&
+          measured > 0
+        )
+          setMeasurement((previous) =>
+            previous.windowWidth === windowWidth && previous.width === measured
+              ? previous
+              : { windowWidth, width: measured },
+          );
+      }}
+    >
+      {allTime ? (
+        <Text
+          style={[
+            styles.caption,
+            styles.interactiveCaption,
+            { textAlign: isRTL ? "right" : "left" },
+          ]}
+        >
+          {t("person.flows.allTime")}
+        </Text>
+      ) : null}
+      <View style={styles.footerColumns}>
+        {(["received", "gave"] as const).map((direction) => {
+          const flow = summary[direction];
+          const selected = filter === direction;
+          const compact = filter !== "all" && !selected;
+          const received = direction === "received";
+          const tone = received ? colors.entryActionReceivedText : colors.entryActionGaveText;
+          const label = t(received ? "person.flows.received" : "person.flows.gave", {
+            count: flow.count,
+          });
+          return (
+            <AnimatedPressable
+              key={direction}
+              testID={`tally-flow-filter-${direction}`}
+              accessible
+              accessibilityRole="button"
+              accessibilityLabel={`${label}, ${formatAmount(flow.amount)} ${currency}`}
+              accessibilityHint={
+                selected ? t("customers.balanceFilter.clear") : t("person.flows.hint")
+              }
+              accessibilityState={{ selected, disabled: !interactionEnabled }}
+              disabled={!interactionEnabled}
+              onPress={() => {
+                if (mounted.current && latest.current.interactionEnabled)
+                  onDirectionChange(direction);
+              }}
+              style={[
+                styles.flowButton,
+                !received && styles.flowButtonGave,
+                compact && styles.compactFlowButton,
+                selected && {
+                  backgroundColor: received ? colors.entryActionReceived : colors.entryActionGave,
+                },
+                !interactionEnabled && styles.disabledFlowButton,
+                received ? receivedStyle : gaveStyle,
+              ]}
+            >
+              <View style={[styles.flowHeading, compact && styles.compactFlowHeading]}>
+                <Ionicons
+                  accessible={false}
+                  accessibilityElementsHidden
+                  importantForAccessibility="no-hide-descendants"
+                  name={received ? "arrow-down-outline" : "arrow-up-outline"}
+                  size={compact ? 18 : 12}
+                  color={tone}
+                />
+                <Text
+                  accessible={false}
+                  style={[
+                    styles.footerLabel,
+                    styles.flowButtonLabel,
+                    { writingDirection: isRTL ? "rtl" : "ltr" },
+                    compact && styles.compactFlowLabel,
+                    selected && { color: tone },
+                  ]}
+                >
+                  {compact
+                    ? t(received ? "person.action.iReceived" : "person.action.iGave")
+                    : label}
+                </Text>
+              </View>
+              {!compact ? (
+                <Text
+                  accessible={false}
+                  style={[styles.footerAmount, selected && { color: tone }]}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.1}
+                  maxFontSizeMultiplier={1.3}
+                >
+                  {formatAmount(flow.amount)}
+                </Text>
+              ) : null}
+            </AnimatedPressable>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   // Content-sized up to half the row, so a large balance keeps its room.
   summary: { flexShrink: 1, maxWidth: "50%", minWidth: 0, justifyContent: "center", gap: 6 },
@@ -148,6 +346,24 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   footerColumns: { direction: "ltr", flexDirection: "row", alignItems: "stretch" },
+  interactiveFooter: { paddingHorizontal: 0, paddingVertical: 0, gap: 0 },
+  interactiveCaption: { paddingHorizontal: 14, paddingTop: 8, paddingBottom: 6 },
+  flowButton: {
+    flexShrink: 0,
+    minWidth: 0,
+    minHeight: 66,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    gap: 4,
+    justifyContent: "center",
+  },
+  flowButtonGave: { borderLeftWidth: 1, borderLeftColor: colors.borderDefault },
+  flowHeading: { flexDirection: "row", direction: "ltr", alignItems: "center", gap: 5 },
+  flowButtonLabel: { flex: 1, minWidth: 0 },
+  compactFlowButton: { paddingHorizontal: 6, alignItems: "center" },
+  compactFlowHeading: { flexDirection: "column", gap: 4 },
+  compactFlowLabel: { flex: 0, textAlign: "center", color: colors.textDefault },
+  disabledFlowButton: { opacity: 0.55 },
   footerColumn: { flex: 1, minWidth: 0, gap: 4 },
   footerReceived: { paddingRight: 14 },
   footerGave: { paddingLeft: 14, borderLeftWidth: 1, borderLeftColor: colors.borderDefault },

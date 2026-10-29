@@ -86,12 +86,21 @@ console.log(
   }) as typeof import("../i18n");
   let translate: typeof language.t = (key, vars) => `${key}(${vars?.count ?? ""})`;
   const { TallyFlowSummary } = compileUI("../../components/TallyFlowSummary", {
+    react: {},
+    "@expo/vector-icons": { Ionicons: "Icon" },
     "react/jsx-runtime": { jsx, jsxs: jsx },
     "react-native": {
       StyleSheet: { create: (s: any) => s },
+      Pressable: "Pressable",
       Text: "Text",
       View: "View",
     },
+    "react-native-reanimated": {
+      __esModule: true,
+      default: { createAnimatedComponent: () => "Animated.Pressable" },
+    },
+    "./SheetBackdrop": { useSheetMotionPreference: () => false },
+    "../lib/tokens": { TOUCH_MIN: 44 },
     "../lib/colors": { colors: { textEmphasis: "neutral", borderDefault: "separator" } },
     "../lib/currency": {
       getCurrentCurrencySymbol: () => "AFN",
@@ -227,6 +236,199 @@ console.log(
   "PASS flow footer: independent exact currency totals, received-left/gave-right in EN/FA/PS, wrapped counts, separate announcements and no empty separator",
 );
 
+{
+  const { compileUI, flattenStyle, jsx, nodes, uiHooks } =
+    require("./ui-fixture") as typeof import("./ui-fixture");
+  const language = compileUI("../i18n", {
+    "expo-localization": { getLocales: () => [{ languageCode: "en" }] },
+    "./db": { getAppMeta: async () => null },
+  }) as typeof import("../i18n");
+  function filterFooter(locale: "en" | "fa" | "ps") {
+    const hooks = uiHooks();
+    let windowWidth = 390,
+      fontScale = 1,
+      reducedMotion = false;
+    const animations: { target: number; duration: number }[] = [];
+    const taps: string[] = [];
+    let props = {
+      summary: {
+        received: { count: 2, amount: 90_000_000_000_000.25 },
+        gave: { count: 1_234_567, amount: 12.34 },
+      },
+      isRTL: locale !== "en",
+      currency: "USD",
+      variant: "footer" as const,
+      filter: "all" as "all" | "received" | "gave",
+      allTime: true,
+      interactionEnabled: true,
+      onDirectionChange: (direction: string) => taps.push(direction),
+    };
+    language.setLocale(locale);
+    const { TallyFlowSummary } = compileUI("../../components/TallyFlowSummary", {
+      react: hooks.react,
+      "react/jsx-runtime": { jsx, jsxs: jsx },
+      "react-native": {
+        StyleSheet: { create: (value: unknown) => value },
+        Pressable: "Pressable",
+        Text: "Text",
+        View: "View",
+        useWindowDimensions: () => ({ width: windowWidth, fontScale }),
+      },
+      "react-native-reanimated": {
+        __esModule: true,
+        default: { createAnimatedComponent: () => "Animated.Pressable" },
+        ReduceMotion: { System: "system" },
+        useSharedValue: (initial: unknown) => hooks.react.useRef({ value: initial }).current,
+        useAnimatedStyle: (compute: () => any) => ({
+          get width() {
+            return compute().width;
+          },
+        }),
+        withTiming: (target: number, config: { duration: number }) => {
+          animations.push({ target, duration: config.duration });
+          return target;
+        },
+      },
+      "@expo/vector-icons": { Ionicons: "Icon" },
+      "./SheetBackdrop": { useSheetMotionPreference: () => reducedMotion },
+      "../lib/tokens": { TOUCH_MIN: 44 },
+      "../lib/colors": require("../colors"),
+      "../lib/currency": {
+        getCurrentCurrencySymbol: () => "AFN",
+        getCurrencyLabel: (code: string) => code,
+      },
+      "../lib/direction": {
+        rowDir: (rtl: boolean) => ({ flexDirection: rtl ? "row-reverse" : "row" }),
+      },
+      "../lib/format": { formatAmount: formatMoneyAmount },
+      "../lib/fonts": { fonts: {}, monoLineHeight: () => 20, sansLineHeight: () => 18 },
+      "../lib/i18n": { t: language.t },
+    });
+    const render = () =>
+      hooks.render(() => {
+        const root = TallyFlowSummary(props);
+        return typeof root.type === "function" ? root.type(root.props) : root;
+      });
+    render();
+    return {
+      hooks,
+      taps,
+      animations,
+      buttons: () => nodes(hooks.tree).filter((node) => node.type === "Animated.Pressable"),
+      update(next: Partial<typeof props>) {
+        props = { ...props, ...next };
+        render();
+      },
+      resize(width: number, scale = fontScale) {
+        windowWidth = width;
+        fontScale = scale;
+        render();
+      },
+      motion(value: boolean) {
+        reducedMotion = value;
+        render();
+      },
+      measure(width: number) {
+        hooks.tree.props.onLayout({ nativeEvent: { layout: { width } } });
+        render();
+      },
+    };
+  }
+  for (const locale of ["en", "fa", "ps"] as const) {
+    const f = filterFooter(locale);
+    f.measure(360);
+    const [received, gave] = f.buttons();
+    assert.equal(flattenStyle(hooksColumns(f.hooks.tree).props.style).direction, "ltr");
+    assert.equal(received.props.testID, "tally-flow-filter-received");
+    assert.equal(gave.props.testID, "tally-flow-filter-gave");
+    assert.equal(flattenStyle(received.props.style).width, 180);
+    assert.equal(flattenStyle(gave.props.style).width, 180);
+    assert.ok(received.props.accessibilityLabel.includes("90,000,000,000,000.25 USD"));
+    assert.ok(gave.props.accessibilityLabel.includes("12.34 USD"));
+    for (const button of f.buttons()) {
+      assert.equal(button.props.accessibilityRole, "button");
+      assert.deepEqual(button.props.accessibilityState, { selected: false, disabled: false });
+      assert.ok(flattenStyle(button.props.style).minHeight >= 44);
+      const amounts = nodes(button).filter(
+        (node) => node.type === "Text" && node.props.adjustsFontSizeToFit,
+      );
+      assert.equal(amounts.length, 1);
+      assert.equal(flattenStyle(amounts[0].props.style).writingDirection, "ltr");
+      assert.equal(amounts[0].props.minimumFontScale, 0.1);
+    }
+    received.props.onPress();
+    gave.props.onPress();
+    assert.deepEqual(f.taps, ["received", "gave"]);
+    f.update({ filter: "received" });
+    const [expanded, compact] = f.buttons();
+    assert.equal(flattenStyle(expanded.props.style).width, 280);
+    assert.equal(flattenStyle(compact.props.style).width, 80);
+    assert.equal(expanded.props.accessibilityState.selected, true);
+    assert.equal(compact.props.accessibilityState.selected, false);
+    assert.equal(expanded.props.accessibilityHint, language.t("customers.balanceFilter.clear"));
+    assert.ok(
+      !nodes(compact).some((node) => node.type === "Text" && node.props.adjustsFontSizeToFit),
+    );
+    assert.equal(f.animations.at(-1)!.duration, 200);
+    expanded.props.onPress();
+    assert.equal(
+      f.taps.at(-1),
+      "received",
+      "a repeated tap is delegated so the parent can clear its scope",
+    );
+    const animationCount = f.animations.length;
+    f.update({
+      summary: { received: { count: 5, amount: 1.01 }, gave: { count: 6, amount: 2.02 } },
+    });
+    assert.equal(
+      f.animations.length,
+      animationCount,
+      "amount-only refreshes do not restart expansion",
+    );
+    f.resize(430, 1.8);
+    f.measure(400);
+    const widths = f.buttons().map((button) => flattenStyle(button.props.style).width);
+    assert.deepEqual(widths, [296, 104]);
+    f.motion(true);
+    f.update({ filter: "gave" });
+    assert.deepEqual(
+      f.buttons().map((button) => flattenStyle(button.props.style).width),
+      [104, 296],
+    );
+    assert.equal(
+      f.animations.length,
+      animationCount,
+      "rotation and reduced motion update widths immediately",
+    );
+    const retained = f.buttons()[0].props.onPress;
+    f.update({ interactionEnabled: false });
+    retained();
+    assert.equal(f.taps.length, 3, "retained press callbacks respect the latest disabled state");
+    assert.ok(
+      f
+        .buttons()
+        .every((button) => button.props.disabled && button.props.accessibilityState.disabled),
+    );
+    f.update({
+      interactionEnabled: true,
+      filter: "all",
+      summary: { received: { count: 0, amount: 0 }, gave: { count: 0, amount: 0 } },
+    });
+    assert.equal(f.buttons().length, 2, "empty directions still have filter controls");
+    f.hooks.unmount();
+    f.buttons()[0].props.onPress();
+    assert.equal(f.taps.length, 3, "an unmounted card cannot change filters");
+    assert.equal(f.hooks.lateWrites, 0);
+  }
+  function hooksColumns(tree: any) {
+    return nodes(tree).find((node) => flattenStyle(node.props.style).flexDirection === "row")!;
+  }
+  language.setLocale("en");
+}
+console.log(
+  "PASS flow filter footer: accessible LTR received/gave controls, independent expansion, exact totals, live disable guard, large text, reduced motion and cleanup in EN/FA/PS",
+);
+
 // Execute the real pager without replacing its hooks or event handlers.
 {
   const { compileUI, deferred, flattenStyle, jsx, nodes, settleUI, uiHooks } =
@@ -236,6 +438,7 @@ console.log(
     const hooks = uiHooks();
     let width = 390;
     let active = true,
+      interactionActive = false,
       focused = true,
       nextTimer = 0;
     const readerQuery = deferred<boolean>(),
@@ -317,7 +520,12 @@ console.log(
       codes = nextCodes;
       content = nextContent;
       return hooks.render(() =>
-        CustomerBalanceCarousel({ currencies: codes, children: content, active }),
+        CustomerBalanceCarousel({
+          currencies: codes,
+          children: content,
+          active,
+          interactionActive,
+        }),
       );
     };
     const find = (id: string) =>
@@ -366,6 +574,10 @@ console.log(
       },
       setActive: (value: boolean) => {
         active = value;
+        render();
+      },
+      setInteractionActive: (value: boolean) => {
+        interactionActive = value;
         render();
       },
       setFocused: (value: boolean) => {
@@ -616,7 +828,14 @@ console.log(
     );
     f.hooks.unmount();
 
-    for (const interaction of ["touch", "swipe", "indicator", "assistive", "native"] as const) {
+    for (const interaction of [
+      "touch",
+      "swipe",
+      "indicator",
+      "assistive",
+      "native",
+      "filter",
+    ] as const) {
       const stopped = carousel(false, "android");
       await stopped.ready();
       stopped.measure(358);
@@ -629,7 +848,9 @@ console.log(
           .find("indicator")
           .props.onAccessibilityAction({ nativeEvent: { actionName: "increment" } });
       else if (interaction === "assistive") stopped.find("indicator").props.onAccessibilityTap();
-      else stopped.find("scroll").props.onMomentumScrollEnd(stopped.event(370));
+      else if (interaction === "native")
+        stopped.find("scroll").props.onMomentumScrollEnd(stopped.event(370));
+      else stopped.setInteractionActive(true);
       const afterInteraction = stopped.calls.length;
       queued.run();
       stopped.render();
@@ -639,6 +860,12 @@ console.log(
         `${interaction} revokes a queued tick before React commits`,
       );
       assert.equal(stopped.timers.size, 0);
+      stopped.setInteractionActive(false);
+      assert.equal(
+        stopped.timers.size,
+        0,
+        "clearing filters cannot resume autoplay after interaction",
+      );
       stopped.rotate(320);
       stopped.measure(288);
       stopped.render(["EUR", "USD", "AFN"], stopped.cards(["EUR", "USD", "AFN"]));
