@@ -319,6 +319,7 @@ const components = Object.fromEntries(
     "CreditStatusBadge",
     "EntryRow",
     "SelectionToolbar",
+    "SettledHistoryToggle",
     "SharedAccountBadge",
     "LinkAccountDialog",
     "OverflowMenu",
@@ -1001,10 +1002,8 @@ async function tallySelectionTests() {
       [
         ["new-rice", true],
         ["new-tea", true],
-        ["old-cash", false],
-        ["old-rice", false],
       ],
-      "settled rows remain visible without gaining selection actions",
+      "settled rows stay folded outside the editable selection",
     );
     assert.equal(
       nodes(tree).some((node) => node.props.testID === "select-tallies"),
@@ -2084,8 +2083,8 @@ async function unjoinedInvitationLedgerTests() {
     await flush();
     assert.deepEqual(
       rowIds(),
-      ["new-rice", "new-tea", "old-cash", "old-rice"],
-      "an unused invitation preserves the complete private history",
+      ["new-rice", "new-tea"],
+      "an unused invitation preserves the private current-chapter view",
     );
     assert.equal(balanceValue(), "amount:3");
     assert.equal(words(tree).includes("tab.beforeLinking"), false);
@@ -2236,7 +2235,7 @@ async function unjoinedInvitationLedgerTests() {
   currencyPeriods.set("AFN", { tab: link, financialTab: null });
   currencyPeriods.set("USD", { settlement: { count: 0, lastSettledAtMs: null }, boundaries: [] });
   await flush();
-  assert.deepEqual(rowIds(), ["new-rice", "usd-current", "new-tea", "old-cash", "old-rice"]);
+  assert.deepEqual(rowIds(), ["new-rice", "usd-current", "new-tea"]);
   query("rice");
   await flush();
   assert.deepEqual(rowIds(), ["new-rice", "old-rice"]);
@@ -2406,8 +2405,13 @@ async function oneWayAccountUITests() {
   );
 }
 
-async function completeTallyHistoryTests() {
+async function settledTallyHistoryTests() {
   const originalIds = ["new-rice", "new-tea", "old-cash", "old-rice"];
+  const historyToggle = () => find("SettledHistoryToggle")!;
+  const toggleHistory = async () => {
+    historyToggle().props.onToggle();
+    await flush();
+  };
   const clearCurrentChapter = async () => {
     const action = nodes(tree).find((node) =>
       node.props.accessibilityLabel?.startsWith("person.settle.row"),
@@ -2431,41 +2435,57 @@ async function completeTallyHistoryTests() {
     person.balance = 0;
     entries[1] = { ...entries[1], amount_afn: 2 };
     await flush();
-    assert.deepEqual(historyRowIds("current"), originalIds);
+    assert.deepEqual(historyRowIds("current"), ["new-rice", "new-tea"]);
     assert.equal(historyRows("settled"), undefined, "all tallies share one chronological timeline");
+    assert.equal(historyToggle().props.kind, "tallies");
     assert.equal(
-      find("SettledTalliesSection"),
-      undefined,
-      "customer history has no settled disclosure",
+      historyToggle().props.horizontalInset,
+      16,
+      "history toggle aligns with tally cards",
     );
+    assert.equal(historyToggle().props.count, 2);
+    assert.equal(historyToggle().props.expanded, false);
+    await toggleHistory();
+    assert.deepEqual(historyRowIds("current"), originalIds);
     assert.equal(
       tallies().find((row) => row.props.entry.id === "old-rice")?.props.onLongPress,
       undefined,
-      "always-visible settled history retains its read-only action guard",
+      "expanded settled history retains its read-only action guard",
     );
+    const heldToggle = historyToggle().props.onToggle;
+    find("OverflowMenu")!
+      .props.actions.find((action: any) => action.label === "selection.start")
+      .onPress();
+    await flush();
+    assert.equal(historyToggle().props.disabled, true);
+    heldToggle();
+    await flush();
+    assert.equal(historyToggle().props.expanded, true, "selection blocks retained history toggles");
+    find("SelectionToolbar")!.props.onClose();
+    await flush();
+    await toggleHistory();
     settlementWriteImpl = async (args) => {
       settlement = { count: 2, lastSettledAtMs: args.settledAtMs };
       boundaries = [200, args.settledAtMs];
     };
     await clearCurrentChapter();
     assert.equal(settledWrites.length, 1, "the existing settlement command is used once");
-    assert.deepEqual(
-      historyRowIds("current"),
-      originalIds,
-      "settling never hides recorded tallies",
-    );
+    assert.deepEqual(historyRowIds("current"), [], "settling starts a fresh visible chapter");
+    assert.equal(historyToggle().props.count, 4, "settlement keeps a path to every source tally");
     assert.equal(words(tree).includes("person.freshChapter.title"), false);
     await ledgerRefresh();
     await flush();
     assert.deepEqual(
       historyRowIds("current"),
-      originalIds,
-      "refresh preserves the complete history",
+      [],
+      "refresh preserves the collapsed settled chapter",
     );
     entries.unshift(tally("next-chapter", "new cash", 7, settlement.lastSettledAtMs + 1));
     person.balance = 7;
     await ledgerRefresh();
     await flush();
+    assert.deepEqual(historyRowIds("current"), ["next-chapter"]);
+    await toggleHistory();
     assert.deepEqual(historyRowIds("current"), ["next-chapter", ...originalIds]);
     assert.ok(
       words(tree).includes("amount:7"),
@@ -2491,7 +2511,11 @@ async function completeTallyHistoryTests() {
   );
   await flush();
   const sharedIds = new Set(["rejected-rice", "new-tea", "old-cash", "old-rice", "backdated-new"]);
-  assert.deepEqual(new Set(historyRowIds("current")), sharedIds);
+  assert.deepEqual(
+    new Set(historyRowIds("current")),
+    new Set(["rejected-rice", "new-tea", "backdated-new"]),
+    "recent server sequences stay in the current chapter even with old business dates",
+  );
   sharedSettlementImpl = async () => {
     markers.push({ id: "new-clearance", through_seq: 6, settled_at_ms: 1000, actor_name: "Actor" });
     link = { ...link, rev: 7 };
@@ -2500,9 +2524,13 @@ async function completeTallyHistoryTests() {
   assert.equal(sharedActions.filter((action) => action.name === "settleSharedTab").length, 1);
   assert.deepEqual(
     new Set(historyRowIds("current")),
-    sharedIds,
-    "shared clearance retains every source row",
+    new Set(),
+    "shared clearance folds the completed sequence range",
   );
+  assert.equal(historyToggle().props.count, sharedIds.size);
+  await toggleHistory();
+  assert.deepEqual(new Set(historyRowIds("current")), sharedIds);
+  await toggleHistory();
   entries.unshift(
     tally("unsent", "not confirmed", 999, 1, {
       tab_id: "tab",
@@ -2557,8 +2585,11 @@ async function completeTallyHistoryTests() {
     ),
   );
   await flush();
+  assert.equal(rowIds().length, 2);
+  await toggleHistory();
   const recipientIds = rowIds();
   assert.equal(recipientIds.length, 4);
+  await toggleHistory();
   assert.equal(
     nodes(tree).some((node) => node.props.accessibilityLabel?.startsWith("person.settle.row")),
     false,
@@ -2575,9 +2606,11 @@ async function completeTallyHistoryTests() {
   await flush();
   assert.deepEqual(
     new Set(rowIds()),
-    new Set(recipientIds),
-    "remote clearance retains the recipient's history",
+    new Set(),
+    "remote clearance folds the recipient's settled chapter",
   );
+  await toggleHistory();
+  assert.deepEqual(new Set(rowIds()), new Set(recipientIds));
   assert.equal(sharedActions.length, 0, "observing a clearance never posts a financial action");
   unmount();
 
@@ -2603,7 +2636,13 @@ async function completeTallyHistoryTests() {
   );
   unmount();
 
-  for (const unknownFlag of ["tab_unsynced", "tab_close_pending"]) {
+  for (const unknownFlag of [
+    "tab_unsynced",
+    "tab_close_pending",
+    "tab_pending",
+    "tab_pending_count",
+    "tab_pending_balance",
+  ]) {
     fixture();
     person[unknownFlag] = 1;
     await flush();
@@ -2613,19 +2652,60 @@ async function completeTallyHistoryTests() {
 
   fixture();
   await flush();
+  const retainedSearchToggle = historyToggle().props.onToggle;
   query("rice");
+  await flush();
+  assert.equal(historyToggle(), undefined, "search has no competing settled toggle");
+  retainedSearchToggle();
   await flush();
   assert.deepEqual(historyRowIds("current"), ["new-rice", "old-rice"]);
   query("");
   await flush();
-  assert.deepEqual(historyRowIds("current"), originalIds, "clearing search restores every tally");
+  assert.deepEqual(
+    historyRowIds("current"),
+    ["new-rice", "new-tea"],
+    "clearing search restores the collapsed chapter",
+  );
   query("tea");
   await flush();
   assert.deepEqual(historyRowIds("current"), ["new-tea"]);
   query("");
   await flush();
-  assert.deepEqual(historyRowIds("current"), originalIds);
+  assert.deepEqual(historyRowIds("current"), ["new-rice", "new-tea"]);
+  await toggleHistory();
+  query("rice");
+  await flush();
+  query("");
+  await flush();
+  assert.deepEqual(historyRowIds("current"), originalIds, "search preserves an explicit full view");
   unmount();
+
+  for (const scope of ["person", "account", "vault", "currency", "blur"] as const) {
+    fixture();
+    await flush();
+    const heldToggle = historyToggle().props.onToggle;
+    if (scope === "person") params = { id: "another-person" };
+    else if (scope === "account") accountId = "another-account";
+    else if (scope === "vault") vaultId = "another-vault";
+    else if (scope === "currency") selectedCurrency = "USD";
+    else blur();
+    dirty = true;
+    await flush();
+    heldToggle();
+    await flush();
+    params = { id: "person" };
+    accountId = "account";
+    vaultId = "vault";
+    selectedCurrency = "AFN";
+    if (scope === "blur") refocus();
+    dirty = true;
+    await flush();
+    heldToggle();
+    await flush();
+    assert.equal(historyToggle().props.expanded, false, `${scope} return rejects stale toggles`);
+    assert.deepEqual(historyRowIds("current"), ["new-rice", "new-tea"]);
+    unmount();
+  }
 
   fixture();
   params = { id: "person", entryId: "old-rice", notificationKey: "settled-notice" };
@@ -2699,7 +2779,7 @@ async function completeTallyHistoryTests() {
   );
   unmount();
   console.log(
-    "PASS complete history: visible local/shared settled rows, read-only safety, pending/backdated/multi-currency records and notification coordinates",
+    "PASS settled history: original single-timeline fold, local/shared clearance, read-only and pending/backdated/multi-currency safety, search and notification coordinates",
   );
 }
 
@@ -2994,13 +3074,13 @@ async function customerTallyFilterTests() {
       assert.ok(byTestId("customer-tally-filter-chips"));
       await tapCard("received");
       assert.equal(filter().direction, "all", "Tapping the exact selected card clears its filter");
-      assert.deepEqual(historyRowIds("current"), ["new-rice", "new-tea", "old-cash", "old-rice"]);
+      assert.deepEqual(historyRowIds("current"), ["new-rice", "new-tea"]);
       await swipe("pay");
       assert.equal(filter().direction, "gave");
       assert.deepEqual(new Set(rowIds()), new Set(["new-tea", "old-rice"]));
       await swipe("all");
       assert.equal(filter().direction, "all");
-      assert.deepEqual(historyRowIds("current"), ["new-rice", "new-tea", "old-cash", "old-rice"]);
+      assert.deepEqual(historyRowIds("current"), ["new-rice", "new-tea"]);
       assert.deepEqual(filter().currencies, [], "A repeated-side swipe returns to every currency");
       await swipe("collect");
       assert.equal(filter().direction, "received");
@@ -3266,7 +3346,7 @@ async function main() {
   await customerTallyFilterTests();
   await groupedSharingUITests();
   await customerHeaderIdentityTests();
-  await completeTallyHistoryTests();
+  await settledTallyHistoryTests();
   await oneWayAccountUITests();
   await unjoinedInvitationLedgerTests();
   await singleCurrencyBalanceTests();
@@ -3875,11 +3955,7 @@ async function main() {
         find("ScrollView")!.props.keyboardDismissMode,
         p === "ios" ? "interactive" : "on-drag",
       );
-      assert.deepEqual(
-        rowIds(),
-        ["new-rice", "new-tea", "old-cash", "old-rice"],
-        "settled history stays visible",
-      );
+      assert.deepEqual(rowIds(), ["new-rice", "new-tea"], "settled history starts folded");
       query("rice");
       find("TextInput")!.props.onFocus();
       await flush();
@@ -4020,8 +4096,8 @@ async function main() {
       await flush();
       assert.deepEqual(
         rowIds(),
-        ["new-rice", "new-tea", "old-cash", "old-rice"],
-        "clearing returns to the complete history",
+        ["new-rice", "new-tea"],
+        "clearing returns to the current chapter",
       );
     }
   console.log(

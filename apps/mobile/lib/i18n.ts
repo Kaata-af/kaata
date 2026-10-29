@@ -491,6 +491,9 @@ const en = {
   "home.settled.show": "See settled accounts",
   "home.settled.hide": "Hide settled accounts",
   "home.settled.count": "Settled accounts: {count}",
+  "person.history.seeSettled": "See settled tallies",
+  "person.history.hideSettled": "Hide settled tallies",
+  "person.history.settledCount": "Settled tallies: {count}",
   // Dated ruled-off line between chapters in the full-history view. {date}
   // is Solar Hijri with Afghan month names for fa, Gregorian for en.
   "person.history.settledOn": "Settled · {date}",
@@ -2812,6 +2815,9 @@ const fa: Partial<Record<Key, string>> = {
   "home.settled.show": "دیدن حساب‌های تصفیه‌شده",
   "home.settled.hide": "پنهان کردن حساب‌های تصفیه‌شده",
   "home.settled.count": "حساب‌های تصفیه‌شده: {count}",
+  "person.history.seeSettled": "دیدن ثبت‌های تصفیه‌شده",
+  "person.history.hideSettled": "پنهان کردن ثبت‌های تصفیه‌شده",
+  "person.history.settledCount": "ثبت‌های تصفیه‌شده: {count}",
   "person.history.settledOn": "تصفیه شد · {date}",
   "entry.settledLocked":
     "این ثبت زیر خط تصفیه است و قابل تغییر نیست. به جای آن یک ثبت اصلاحی اضافه کنید.",
@@ -5053,6 +5059,9 @@ const ps: Record<Key, string> = {
   "home.settled.show": "تصفیه شوي حسابونه وګورئ",
   "home.settled.hide": "تصفیه شوي حسابونه پټ کړئ",
   "home.settled.count": "تصفیه شوي حسابونه: {count}",
+  "person.history.seeSettled": "تصفیه شوي ثبتونه وګورئ",
+  "person.history.hideSettled": "تصفیه شوي ثبتونه پټ کړئ",
+  "person.history.settledCount": "تصفیه شوي ثبتونه: {count}",
   "person.history.settledOn": "تصفیه شوی · {date}",
   "person.freshChapter.title": "ټول حساب تصفیه شوی",
   "person.freshChapter.subtitle": "نوې پاڼه. پخوانی ګډ حساب مو لاندې ساتل شوی دی.",

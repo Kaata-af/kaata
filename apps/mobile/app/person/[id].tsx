@@ -43,6 +43,7 @@ import { SharedAccountBadge } from "../../components/SharedAccountBadge";
 import { SearchControlSlot } from "../../components/SearchControlSlot";
 import { SearchKeyboardFooter, SearchKeyboardFrame } from "../../components/SearchKeyboardMotion";
 import { SelectionToolbar } from "../../components/SelectionToolbar";
+import { SettledHistoryToggle } from "../../components/SettledHistoryToggle";
 import { personCurrencyRows, selectedEntriesByCurrency } from "../../lib/multi-currency-view";
 import { getPersonEnabledCurrencies } from "../../lib/person-currency";
 import { sharedAccountLinkStatus } from "../../lib/tabs/link-status";
@@ -486,7 +487,7 @@ export default function PersonDetailScreen() {
   const [confirmDeleteFor, setConfirmDeleteFor] = useState<Entry | null>(null);
   // Settle-up ("rule off the account", 2026-07-27). No persistent buttons:
   // the affordance is a ruled-line row that only exists at balance zero with
-  // an open chapter. Earlier tallies remain visible in the complete history.
+  // an open chapter. Earlier tallies stay behind the full-history toggle.
   const [settlement, setSettlement] = useState<{ count: number; lastSettledAtMs: number | null }>({
     count: 0,
     lastSettledAtMs: null,
@@ -502,6 +503,8 @@ export default function PersonDetailScreen() {
   });
   const [settleCurrency, setSettleCurrency] = useState<string | null>(null);
   const settlementRequest = useRef<{ id: string; throughSeq: number; tabId: string } | null>(null);
+  const [historyDisclosure, setHistoryDisclosure] = useState({ key: "", expanded: false });
+  const showFullHistory = historyDisclosure.key === layoutKey && historyDisclosure.expanded;
   const [searchQuery, setSearchQuery] = useState("");
   const [dateRange, setDateRange] = useState<TallyDateRange | null>(null);
   const [dateSheetVisible, setDateSheetVisible] = useState(false);
@@ -532,9 +535,19 @@ export default function PersonDetailScreen() {
     setManagementCurrency(null);
     dismissSearchKeyboard();
   }, [flowScope, entryId, notificationKey, dismissSearchKeyboard]);
+  useEffect(() => {
+    // A notification may target an old chapter. Prepare its full timeline once;
+    // ordinary filters and re-renders must not reopen a manually closed history.
+    setHistoryDisclosure({ key: layoutKey, expanded: !!entryId });
+  }, [layoutKey]);
   const revealNotificationTally = useCallback(() => {
     const key = [id, entryId, notificationKey].join(":");
-    if (!entryId || !entries.some((e) => e.id === entryId) || highlightedRequest.current === key)
+    if (
+      !entryId ||
+      !showFullHistory ||
+      !entries.some((e) => e.id === entryId) ||
+      highlightedRequest.current === key
+    )
       return;
     const row = entryPositions.current.get(entryId);
     if (!row || row.card !== `${flowScope}:current` || !viewport.current.height) return;
@@ -550,7 +563,17 @@ export default function PersonDetailScreen() {
     });
     if (target != null) scrollRef.current?.scrollTo({ y: target, animated: true });
     setHighlight({ id: entryId, key });
-  }, [id, entryId, notificationKey, flowScope, entries, canCreate, actionsHeight, insets.bottom]);
+  }, [
+    id,
+    entryId,
+    notificationKey,
+    flowScope,
+    showFullHistory,
+    entries,
+    canCreate,
+    actionsHeight,
+    insets.bottom,
+  ]);
   useEffect(() => {
     // Wait for history layout; onLayout/content-size handle cold loads.
     const frame = requestAnimationFrame(revealNotificationTally);
@@ -816,6 +839,45 @@ export default function PersonDetailScreen() {
   const dateRangeLabel = formatDateRangeLabel(dateRange, locale, calendar);
   const searchResultCount =
     matchedEntries.length + matchedPreLink.length + matchedFailedTallies.length;
+  const chapterEntries = useMemo(
+    () =>
+      displayedEntries.filter((entry) => {
+        const period = currencyPeriods.find(
+          (period) => period.currency === (entry.currency ?? person?.currency ?? selectedCurrency),
+        );
+        if (!period) return true;
+        return period.financialTab
+          ? afterSharedSettlement(
+              entry,
+              period.sharedSettlements.at(-1)?.through_seq ?? 0,
+              period.financialTab.tab_id,
+            )
+          : period.settlement.lastSettledAtMs == null ||
+              entry.created_at > period.settlement.lastSettledAtMs;
+      }),
+    [displayedEntries, currencyPeriods, person?.currency, selectedCurrency],
+  );
+  // The current chapter must explain the complete balance in every currency.
+  // Retroactive edits, backdated amounts and unknown/pending shared changes
+  // keep the full history visible rather than hiding records behind a boundary.
+  const chapterCoherent = currencyPeriods.every(
+    (period) =>
+      period.person.tab_unsynced !== 1 &&
+      period.person.tab_close_pending !== 1 &&
+      (period.person.tab_pending ?? 0) === 0 &&
+      (period.person.tab_pending_count ?? 0) === 0 &&
+      (period.person.tab_pending_balance ?? 0) === 0 &&
+      !period.entries.some(
+        (entry) =>
+          entry.tab &&
+          (entry.tab.local_pending ||
+            (!entry.tab.voided && entry.tab.kind !== "void" && entry.tab.status === "pending")),
+      ) &&
+      sumAmounts(currencyChapter(period).map(balanceContribution)) === period.person.balance,
+  );
+  const settledTallyCount = displayedEntries.length - chapterEntries.length;
+  const effectiveShowFull = showFullHistory || !chapterCoherent;
+  const visibleEntries = effectiveShowFull ? displayedEntries : chapterEntries;
   // Full-history render list: entries interleaved with the ruled-off lines,
   // each marker at its chronological position with the settlement date —
   // like the visible lines in a paper khata. Adjacent markers (a concurrent
@@ -842,19 +904,23 @@ export default function PersonDetailScreen() {
     },
     [boundaries],
   );
-  // Keep the complete history in one timeline, with dated settlement lines.
-  // Search and view filters narrow rows without changing balances or history.
+  // Expanding history uses this same timeline. Search and view filters always
+  // span settled chapters without changing balances or stored records.
   const allHistoryItems = useMemo<HistoryItem[]>(() => {
     if (currencyPeriods.length > 1) {
-      const list = searching ? matchedEntries : displayedEntries;
+      const list = searching ? matchedEntries : visibleEntries;
       const items: HistoryItem[] = currencyPeriods.flatMap((period) => {
         const rows = list.filter(
           (entry) => (entry.currency ?? person?.currency ?? selectedCurrency) === period.currency,
         );
         if (period.financialTab)
-          return sharedHistory(rows, period.sharedSettlements, period.financialTab.tab_id).map(
-            (item) => (item.kind === "marker" ? { ...item, currency: period.currency } : item),
-          );
+          return sharedHistory(
+            rows,
+            searching || effectiveShowFull ? period.sharedSettlements : [],
+            period.financialTab.tab_id,
+          ).map((item) => (item.kind === "marker" ? { ...item, currency: period.currency } : item));
+        if (!(searching || effectiveShowFull))
+          return rows.map((entry) => ({ kind: "entry" as const, entry }));
         const markers = period.boundaries
           .filter((ms) => rows.some((entry) => entry.created_at <= ms))
           .map((ms) => ({ kind: "marker" as const, ms, currency: period.currency }));
@@ -877,14 +943,21 @@ export default function PersonDetailScreen() {
       return shown;
     }
     if (financialTabHistory)
-      return sharedHistory(displayedEntries, sharedSettlements, financialTabHistory.tab_id);
-    if (boundaries.length === 0) return displayedEntries.map((entry) => ({ kind: "entry", entry }));
+      return sharedHistory(
+        visibleEntries,
+        effectiveShowFull ? sharedSettlements : [],
+        financialTabHistory.tab_id,
+      );
+    if (!effectiveShowFull || boundaries.length === 0)
+      return visibleEntries.map((entry) => ({ kind: "entry", entry }));
     return withLocalMarkers(displayedEntries);
   }, [
     searching,
     matchedEntries,
     financialTabHistory,
+    effectiveShowFull,
     displayedEntries,
+    visibleEntries,
     sharedSettlements,
     boundaries.length,
     withLocalMarkers,
@@ -1236,6 +1309,7 @@ export default function PersonDetailScreen() {
         });
       }
       if (!screenIsCurrent()) return;
+      setHistoryDisclosure({ key: layoutKey, expanded: false });
       toast.push(
         currencyPeriods.length > 1
           ? `${t("person.settle.done")} · ${getCurrencyLabel(target.currency)}`
@@ -2996,7 +3070,7 @@ export default function PersonDetailScreen() {
                           isRTL={isRTL}
                         />
                       ) : null
-                    ) : (
+                    ) : settledTallyCount > 0 && !effectiveShowFull ? null : (
                       <EmptyState
                         title={t("person.empty.title")}
                         subtitle={t("person.empty.subtitle")}
@@ -3103,6 +3177,28 @@ export default function PersonDetailScreen() {
                         </View>
                       ) : null}
                     </>
+                  ) : null}
+                  {chapterCoherent && !searching ? (
+                    <SettledHistoryToggle
+                      kind="tallies"
+                      horizontalInset={16}
+                      count={settledTallyCount}
+                      expanded={showFullHistory}
+                      disabled={selecting || selectionBusy}
+                      onToggle={() => {
+                        if (
+                          !filterIsCurrent() ||
+                          searchingRef.current ||
+                          selectionContext.current.selecting ||
+                          selectionBusyRef.current
+                        )
+                          return;
+                        setHistoryDisclosure((previous) => ({
+                          key: layoutKey,
+                          expanded: !(previous.key === layoutKey && previous.expanded),
+                        }));
+                      }}
+                    />
                   ) : null}
                 </HomeBalanceFilterSwipe>
               </ScrollView>
