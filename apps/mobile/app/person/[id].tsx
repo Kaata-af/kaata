@@ -798,6 +798,8 @@ export default function PersonDetailScreen() {
   tallyFilterRef.current = tallyFilter;
   const searchTerms = useMemo(() => noteSearchTerms(searchQuery), [searchQuery]);
   const directionalFiltering = tallyFilter.direction !== "all" || tallyFilter.currencies.length > 0;
+  const tallyFiltersActive =
+    directionalFiltering || dateRange != null || tallyFilter.sort !== "recent";
   const searching = searchTerms.length > 0 || dateRange != null || directionalFiltering;
   const searchingRef = useRef(searching);
   searchingRef.current = searching;
@@ -2955,114 +2957,141 @@ export default function PersonDetailScreen() {
                     revealNotificationTally();
                   }}
                 >
-                  {directionalFiltering || dateRange != null || tallyFilter.sort !== "recent" ? (
+                  {searching || tallyFiltersActive ? (
                     <View testID="customer-tally-filter-chips" style={styles.tallyFilterChips}>
-                      <Pressable
-                        accessibilityRole="button"
-                        onPress={clearTallyFilters}
-                        style={{ alignSelf: isRTL ? "flex-end" : "flex-start" }}
-                      >
-                        <Text style={[styles.tallyFilterClear, textDir(isRTL)]}>
-                          {t("search.clearAll")}
-                        </Text>
-                      </Pressable>
-                      <View style={[styles.tallyFilterChipRow, rowDir(isRTL)]}>
-                        {tallyFilter.direction !== "all" ? (
+                      <View style={[styles.tallyFilterHeading, rowDir(isRTL)]}>
+                        {tallyFiltersActive ? (
                           <Pressable
                             accessibilityRole="button"
-                            onPress={() =>
-                              changeTallyFilter({ ...tallyFilterRef.current, direction: "all" })
-                            }
-                            style={[styles.tallyFilterChip, rowDir(isRTL)]}
+                            onPress={clearTallyFilters}
+                            style={styles.tallyFilterClearButton}
                           >
-                            <Text
-                              style={[
-                                styles.searchSummary,
-                                styles.tallyFilterChipLabel,
-                                textDir(isRTL),
-                              ]}
-                            >
-                              {t(
-                                tallyFilter.direction === "received"
-                                  ? "person.filters.received"
-                                  : "person.filters.gave",
-                              )}
+                            <Text style={[styles.tallyFilterClear, textDir(isRTL)]}>
+                              {t("search.clearAll")}
                             </Text>
-                            <Ionicons name="close" size={14} color={colors.textSubtle} />
                           </Pressable>
                         ) : null}
-                        {tallyFilter.currencies.map((code) => (
-                          <Pressable
-                            key={code}
-                            accessibilityRole="button"
-                            accessibilityLabel={`${getCurrencyLabel(code)}, ${t("customers.currencyFilter.clear")}`}
-                            onPress={() =>
-                              changeTallyFilter({
-                                ...tallyFilterRef.current,
-                                currencies: tallyFilterRef.current.currencies.filter(
-                                  (value) => value !== code,
-                                ),
-                              })
-                            }
-                            style={styles.tallyFilterChip}
+                        {searching ? (
+                          <Text
+                            style={[
+                              styles.searchSummary,
+                              styles.tallyFilterCount,
+                              textDir(isRTL),
+                              { textAlign: isRTL ? "left" : "right" },
+                            ]}
+                            accessibilityLiveRegion="polite"
+                            accessibilityHint={t("person.search.balanceHint")}
                           >
-                            <Text style={[styles.searchSummary, styles.tallyFilterChipLabel]}>
-                              {getCurrencyLabel(code)}
-                            </Text>
-                            <Ionicons name="close" size={14} color={colors.textSubtle} />
-                          </Pressable>
-                        ))}
-                        {dateRange ? (
-                          <Pressable
-                            testID="customer-tally-date-chip"
-                            accessibilityRole="button"
-                            accessibilityLabel={t("person.date.active", { range: dateRangeLabel })}
-                            accessibilityHint={t("person.date.clear")}
-                            onPress={() => {
-                              if (searchIsCurrent()) setDateRange(null);
-                            }}
-                            style={[styles.tallyFilterChip, rowDir(isRTL)]}
-                          >
-                            <Text
-                              numberOfLines={2}
-                              style={[
-                                styles.searchSummary,
-                                styles.tallyFilterChipLabel,
-                                textDir(isRTL),
-                              ]}
-                            >
-                              {dateRangeLabel}
-                            </Text>
-                            <Ionicons name="close" size={14} color={colors.textSubtle} />
-                          </Pressable>
-                        ) : null}
-                        {tallyFilter.sort !== "recent" ? (
-                          <Pressable
-                            accessibilityRole="button"
-                            onPress={() =>
-                              changeTallyFilter({ ...tallyFilterRef.current, sort: "recent" })
-                            }
-                            style={[styles.tallyFilterChip, rowDir(isRTL)]}
-                          >
-                            <Text
-                              style={[
-                                styles.searchSummary,
-                                styles.tallyFilterChipLabel,
-                                textDir(isRTL),
-                              ]}
-                            >
-                              {t(
-                                tallyFilter.sort === "date_asc"
-                                  ? "person.filters.oldest"
-                                  : tallyFilter.sort === "amount_asc"
-                                    ? "customers.sort.amount_asc"
-                                    : "customers.sort.amount_desc",
-                              )}
-                            </Text>
-                            <Ionicons name="close" size={14} color={colors.textSubtle} />
-                          </Pressable>
+                            {t(
+                              searchResultCount === 1
+                                ? "person.search.result"
+                                : "person.search.results",
+                              { count: searchResultCount },
+                            )}
+                          </Text>
                         ) : null}
                       </View>
+                      {tallyFiltersActive ? (
+                        <View style={[styles.tallyFilterChipRow, rowDir(isRTL)]}>
+                          {tallyFilter.direction !== "all" ? (
+                            <Pressable
+                              accessibilityRole="button"
+                              onPress={() =>
+                                changeTallyFilter({ ...tallyFilterRef.current, direction: "all" })
+                              }
+                              style={[styles.tallyFilterChip, rowDir(isRTL)]}
+                            >
+                              <Text
+                                style={[
+                                  styles.searchSummary,
+                                  styles.tallyFilterChipLabel,
+                                  textDir(isRTL),
+                                ]}
+                              >
+                                {t(
+                                  tallyFilter.direction === "received"
+                                    ? "person.filters.received"
+                                    : "person.filters.gave",
+                                )}
+                              </Text>
+                              <Ionicons name="close" size={14} color={colors.textSubtle} />
+                            </Pressable>
+                          ) : null}
+                          {tallyFilter.currencies.map((code) => (
+                            <Pressable
+                              key={code}
+                              accessibilityRole="button"
+                              accessibilityLabel={`${getCurrencyLabel(code)}, ${t("customers.currencyFilter.clear")}`}
+                              onPress={() =>
+                                changeTallyFilter({
+                                  ...tallyFilterRef.current,
+                                  currencies: tallyFilterRef.current.currencies.filter(
+                                    (value) => value !== code,
+                                  ),
+                                })
+                              }
+                              style={styles.tallyFilterChip}
+                            >
+                              <Text style={[styles.searchSummary, styles.tallyFilterChipLabel]}>
+                                {getCurrencyLabel(code)}
+                              </Text>
+                              <Ionicons name="close" size={14} color={colors.textSubtle} />
+                            </Pressable>
+                          ))}
+                          {dateRange ? (
+                            <Pressable
+                              testID="customer-tally-date-chip"
+                              accessibilityRole="button"
+                              accessibilityLabel={t("person.date.active", {
+                                range: dateRangeLabel,
+                              })}
+                              accessibilityHint={t("person.date.clear")}
+                              onPress={() => {
+                                if (searchIsCurrent()) setDateRange(null);
+                              }}
+                              style={[styles.tallyFilterChip, rowDir(isRTL)]}
+                            >
+                              <Text
+                                numberOfLines={2}
+                                style={[
+                                  styles.searchSummary,
+                                  styles.tallyFilterChipLabel,
+                                  textDir(isRTL),
+                                ]}
+                              >
+                                {dateRangeLabel}
+                              </Text>
+                              <Ionicons name="close" size={14} color={colors.textSubtle} />
+                            </Pressable>
+                          ) : null}
+                          {tallyFilter.sort !== "recent" ? (
+                            <Pressable
+                              accessibilityRole="button"
+                              onPress={() =>
+                                changeTallyFilter({ ...tallyFilterRef.current, sort: "recent" })
+                              }
+                              style={[styles.tallyFilterChip, rowDir(isRTL)]}
+                            >
+                              <Text
+                                style={[
+                                  styles.searchSummary,
+                                  styles.tallyFilterChipLabel,
+                                  textDir(isRTL),
+                                ]}
+                              >
+                                {t(
+                                  tallyFilter.sort === "date_asc"
+                                    ? "person.filters.oldest"
+                                    : tallyFilter.sort === "amount_asc"
+                                      ? "customers.sort.amount_asc"
+                                      : "customers.sort.amount_desc",
+                                )}
+                              </Text>
+                              <Ionicons name="close" size={14} color={colors.textSubtle} />
+                            </Pressable>
+                          ) : null}
+                        </View>
+                      ) : null}
                     </View>
                   ) : null}
                   {/* Settle-up affordance — deliberately NOT a button. A ruled line,
@@ -3487,21 +3516,6 @@ export default function PersonDetailScreen() {
                           </Pressable>
                         </SearchControlSlot>
                       </View>
-                      {searching ? (
-                        <Text
-                          style={[styles.searchSummary, textDir(isRTL)]}
-                          accessibilityLiveRegion="polite"
-                        >
-                          {t(
-                            searchResultCount === 1
-                              ? "person.search.result"
-                              : "person.search.results",
-                            {
-                              count: searchResultCount,
-                            },
-                          )}
-                        </Text>
-                      ) : null}
                     </View>
                   ) : null}
                 </SearchKeyboardFooter>
@@ -3818,7 +3832,10 @@ const ACTION_COIN_SIZE = 26;
 
 const styles = StyleSheet.create({
   tallyFilterChips: { paddingHorizontal: 16, paddingBottom: 12, gap: 8 },
+  tallyFilterHeading: { alignItems: "center", gap: 12 },
+  tallyFilterClearButton: { maxWidth: "50%" },
   tallyFilterClear: { ...typography.bodySm, color: colors.textEmphasis },
+  tallyFilterCount: { flex: 1, minWidth: 0 },
   tallyFilterChipRow: { flexWrap: "wrap", alignItems: "center", gap: 8, width: "100%" },
   tallyFilterChip: {
     flexDirection: "row",
