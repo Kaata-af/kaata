@@ -110,6 +110,7 @@ type WebLedgerEntry struct {
 	Currency       string  `json:"currency"`
 	Note           *string `json:"note"`
 	CreatedAt      int64   `json:"created_at"`
+	RecordedAtMS   int64   `json:"recorded_at_ms,omitempty"`
 	UpdatedAt      int64   `json:"updated_at"`
 	CurrentEventID string  `json:"current_event_id"`
 	IsDeleted      bool    `json:"is_deleted"`
@@ -311,13 +312,17 @@ func populateWebLedger(view *WebLedger, p *Projection, events []LedgerEvent, lin
 		if err != nil {
 			return fmt.Errorf("entry %s: %w", entry.ID, err)
 		}
+		recordedAt := entry.RecordedAtMS
+		if recordedAt == 0 {
+			recordedAt = entry.CreatedAt // Older snapshots predate editable business dates.
+		}
 		row := WebLedgerEntry{ID: entry.ID, RelationshipID: entry.RelationshipID, Type: entry.Type,
 			AmountAFN: amount, Currency: currency, Note: entry.Note,
-			CreatedAt: entry.CreatedAt, UpdatedAt: entry.UpdatedAt, CurrentEventID: entry.CurrentEventID,
+			CreatedAt: entry.CreatedAt, RecordedAtMS: recordedAt, UpdatedAt: entry.UpdatedAt, CurrentEventID: entry.CurrentEventID,
 			IsDeleted: entry.IsDeleted || entry.DeletedAt != nil, SettledAt: entry.SettledAt,
 			ReadOnly: entry.IsSettled || entry.SettledAt != nil || rel.ArchivedAt != nil || view.ArchivedAtMS != nil}
 		for _, closed := range settlements[entry.RelationshipID] {
-			if closed.currency == currency && entry.CreatedAt <= closed.at {
+			if closed.currency == currency && recordedAt <= closed.at {
 				row.ReadOnly = true
 				if row.SettledAt == nil || closed.at < *row.SettledAt {
 					at := closed.at
@@ -347,8 +352,9 @@ func populateWebLedger(view *WebLedger, p *Projection, events []LedgerEvent, lin
 // ones, and a merely-zero balance is not an explicit settlement.
 func setWebPersonActivity(view *WebLedger) error {
 	type currencyActivity struct {
-		latest  int64
-		balance *big.Int
+		latest         int64
+		recordedLatest int64
+		balance        *big.Int
 	}
 	activity := map[string]map[string]*currencyActivity{}
 	for _, entry := range view.Entries {
@@ -367,6 +373,13 @@ func setWebPersonActivity(view *WebLedger) error {
 		}
 		if entry.CreatedAt > current.latest {
 			current.latest = entry.CreatedAt
+		}
+		recordedAt := entry.RecordedAtMS
+		if recordedAt == 0 {
+			recordedAt = entry.CreatedAt
+		}
+		if recordedAt > current.recordedLatest {
+			current.recordedLatest = recordedAt
 		}
 		// Every row has already passed canonicalWebMoney: at most two decimal
 		// places, no exponent, and no narrowing of large historical amounts.
@@ -396,7 +409,7 @@ func setWebPersonActivity(view *WebLedger) error {
 				person.LastEntryAt = &latest
 			}
 			boundary, explicit := person.SettledThrough[currency]
-			if current.balance.Sign() != 0 || !explicit || boundary < current.latest {
+			if current.balance.Sign() != 0 || !explicit || boundary < current.recordedLatest {
 				settled = false
 			}
 		}

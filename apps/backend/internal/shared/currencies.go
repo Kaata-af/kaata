@@ -9,12 +9,13 @@ import (
 )
 
 type shareEntry struct {
-	ID       string  `json:"id,omitempty"`
-	Type     string  `json:"type"`
-	Amount   float64 `json:"amount"`
-	Note     *string `json:"note"`
-	Date     int64   `json:"date"`
-	Currency string  `json:"currency"`
+	ID           string  `json:"id,omitempty"`
+	Type         string  `json:"type"`
+	Amount       float64 `json:"amount"`
+	Note         *string `json:"note"`
+	Date         int64   `json:"date"`
+	RecordedAtMS *int64  `json:"recorded_at_ms,omitempty"`
+	Currency     string  `json:"currency"`
 }
 
 type shareHistorySettlement struct {
@@ -79,6 +80,9 @@ func validateSharePayload(p sharePayload) error {
 	validateEntry := func(entry shareEntry, code string) error {
 		if entry.Currency != code || (entry.Type != "debt" && entry.Type != "payment") || entry.Amount < 0 || !validMoney(entry.Amount) || entry.Date < 0 || entry.Date > 8640000000000000 {
 			return errors.New("invalid currency entry")
+		}
+		if entry.RecordedAtMS != nil && (*entry.RecordedAtMS < 0 || *entry.RecordedAtMS > 8640000000000000) {
+			return errors.New("invalid entry recording date")
 		}
 		if p.V == 3 {
 			if strings.TrimSpace(entry.ID) == "" || entryIDs[entry.ID] {

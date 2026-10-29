@@ -18,6 +18,7 @@ const ledger = [
   deleted_at: null,
   disputed_at: null,
   updated_at: row.created_at,
+  recorded_at_ms: row.created_at,
   proposed_by_user_id: null,
   accepted_at: null,
   disputed_reason: null,
@@ -30,10 +31,25 @@ let changeCalendarWhileListing = false;
 let linked = false;
 let invalidPreLinkCurrency = false;
 let waitingSharedHistory = false;
+const privateBoundaries: Record<string, number[]> = {};
 const scoped = (code: string) => ledger.filter((entry) => entry.currency === code);
 const preLinkHistory = [
-  { ...ledger[1], id: "before-gave", type: "debt", amount_afn: 100, created_at: 1500 },
-  { ...ledger[1], id: "before-received", type: "payment", amount_afn: 30, created_at: 1600 },
+  {
+    ...ledger[1],
+    id: "before-gave",
+    type: "debt",
+    amount_afn: 100,
+    created_at: 1500,
+    recorded_at_ms: 1500,
+  },
+  {
+    ...ledger[1],
+    id: "before-received",
+    type: "payment",
+    amount_afn: 30,
+    created_at: 1600,
+    recorded_at_ms: 1600,
+  },
 ];
 const money = require("../money");
 const records = require("../export/shared-record");
@@ -119,12 +135,13 @@ const data = compileUI("../export/data", {
     },
     listSettlementBoundaries: async (_id: string, code: string) => {
       calls.push(["settlements", code]);
-      return linked && code === "USD" ? [1550] : [];
+      return privateBoundaries[code] ?? (linked && code === "USD" ? [1550] : []);
     },
     listArchivedSharedPeriodsForExport: async () => [],
   },
   "../jalali": { toJalali, toQamari },
   "../money": money,
+  "../entry-date": require("../entry-date"),
   "./shared-record": records,
   "../tabs/db": {
     getFinancialTabLinkForPerson: async (_id: string, code: string) =>
@@ -291,6 +308,57 @@ async function main() {
   const statement = await data.buildPersonStatement("p", "en", "USD", "$", 3000);
   assert.equal(statement?.balance, -20);
   assert.equal(statement?.rows.length, 1);
+  const originalLedger = [...ledger];
+  const base = ledger[0];
+  ledger.splice(
+    0,
+    ledger.length,
+    { ...base, id: "old-gave", amount_afn: 3100, created_at: 900, recorded_at_ms: 100 },
+    {
+      ...base,
+      id: "old-paid",
+      type: "payment",
+      amount_afn: 3100,
+      created_at: 120,
+      recorded_at_ms: 120,
+    },
+    { ...base, id: "backdated-gave", amount_afn: 2660, created_at: 50, recorded_at_ms: 300 },
+    {
+      ...base,
+      id: "new-paid",
+      type: "payment",
+      amount_afn: 2660,
+      created_at: 400,
+      recorded_at_ms: 400,
+    },
+    originalLedger[1],
+  );
+  privateBoundaries.AFN = [200];
+  const repaired = await data.buildPersonStatements("p", "vault", "en", 1000);
+  const repairedAfn = repaired.find((item) => item.currencyCode === "AFN")!;
+  assert.equal(repairedAfn.balance, 0);
+  assert.deepEqual(
+    repairedAfn.rows.map((row) =>
+      row.kind === "entry"
+        ? [row.entry.id, row.entry.created_at, row.balanceAfter]
+        : ["settled", row.ms, row.balanceAfter],
+    ),
+    [
+      ["old-gave", 900, 3100],
+      ["old-paid", 120, 0],
+      ["settled", 200, 0],
+      ["backdated-gave", 50, 2660],
+      ["new-paid", 400, 0],
+    ],
+    "export chapters follow immutable recording order while preserving business dates and every amount",
+  );
+  assert.equal(
+    repaired.find((item) => item.currencyCode === "USD")?.balance,
+    -20,
+    "settling AFN never folds or nets the other currency",
+  );
+  ledger.splice(0, ledger.length, ...originalLedger);
+  delete privateBoundaries.AFN;
   assert.equal(statement?.currencyCode, "USD");
   assert.ok(calls.some(([kind, code]) => kind === "settlements" && code === "USD"));
   const statements = await data.buildPersonStatements("p", "vault", "en", 3000);

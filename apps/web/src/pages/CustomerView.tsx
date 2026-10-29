@@ -9,6 +9,7 @@ import {
   billCurrencyLabel,
   isMultiCurrencyBill,
   parseSharedLedger,
+  sharedEntryRecordedAt,
   type SharedEntry,
   type SharedHistoryGroup,
   type SharedLedger,
@@ -451,8 +452,10 @@ function SingleLedger({
     window.addEventListener("beforeprint", before);
     return () => window.removeEventListener("beforeprint", before);
   }, [currencySection]);
-  const currentEntries = boundary == null ? d.entries : d.entries.filter((e) => e.date > boundary);
-  const settledEntries = boundary == null ? [] : d.entries.filter((e) => e.date <= boundary);
+  const currentEntries =
+    boundary == null ? d.entries : d.entries.filter((e) => sharedEntryRecordedAt(e) > boundary);
+  const settledEntries =
+    boundary == null ? [] : d.entries.filter((e) => sharedEntryRecordedAt(e) <= boundary);
   // Match the app and SSR renderer: sum integer hundredths, never binary
   // fractions. An unsafe/invalid amount must leave the full history visible.
   const chapterSum = currentEntries.reduce((sum, e) => {
@@ -483,8 +486,10 @@ function SingleLedger({
     const desc = [...allBoundaries].sort((a, b) => b - a);
     shownItems = [];
     let bi = 0;
-    for (const e of shownEntries) {
-      while (bi < desc.length && desc[bi] >= e.date) {
+    for (const e of [...shownEntries].sort(
+      (a, b) => sharedEntryRecordedAt(b) - sharedEntryRecordedAt(a),
+    )) {
+      while (bi < desc.length && desc[bi] >= sharedEntryRecordedAt(e)) {
         if (shownItems.length === 0 || shownItems[shownItems.length - 1].kind !== "marker") {
           shownItems.push({ kind: "marker", ms: desc[bi] });
         }

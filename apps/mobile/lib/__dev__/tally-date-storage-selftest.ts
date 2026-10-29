@@ -4,7 +4,12 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import ts from "typescript";
 import Database from "better-sqlite3";
-import { entryRecordedAtSql, isValidEntryDate, restoredEntryDateHLCs } from "../entry-date";
+import {
+  entryRecordedAt,
+  entryRecordedAtSql,
+  isValidEntryDate,
+  restoredEntryDateHLCs,
+} from "../entry-date";
 import type { SQLiteTx } from "../db-tx";
 import type { EntryCreatedEvent, EntryAmendedEvent } from "../events";
 
@@ -190,8 +195,92 @@ async function run() {
   await apply({ ...dateWinner, hlc: { pms: 13000, l: 0, did: "a" } });
   assert.equal(row().created_at, 300, "date edits cannot mutate tombstones");
   assert.equal(row().current_event_id, "deleted");
+  assert.equal(entryRecordedAt({ created_at: 1234 }), 1234);
+  for (const invalid of [0, -1, Number.NaN, Infinity])
+    assert.equal(entryRecordedAt({ created_at: 1234, recorded_at_ms: invalid }), 1234);
+
+  // A remote marker may arrive before any of its chapter's entries. The
+  // immutable authoring metadata resolves membership in either arrival order,
+  // including a snapshot restore without the original creator event log.
+  store.exec(`DELETE FROM entries;
+    CREATE TABLE settlements(id TEXT PRIMARY KEY,vault_id TEXT,relationship_id TEXT,settled_at_ms INTEGER,created_at INTEGER,currency TEXT);`);
+  const marker = {
+    ...create,
+    event_type: "entry_settled" as const,
+    event_id: "remote-settlement",
+    relationship_id: create.payload.relationship_id,
+    target_id: create.payload.relationship_id,
+    hlc: { pms: 3000, l: 0, did: "remote" },
+    payload: { settled_at_ms: 3000, currency: "AFN" },
+  };
+  await appliers.applyEntrySettled(tx, marker);
+  await appliers.applyEntrySettled(tx, marker);
+  const entries = [
+    { id: "old-give", type: "debt", amount: 3100, occurred: 100, recorded: 1000 },
+    { id: "old-receive", type: "payment", amount: 3100, occurred: 200, recorded: 2000 },
+    { id: "backdated-give", type: "debt", amount: 2660, occurred: 50, recorded: 4000 },
+    { id: "new-receive", type: "payment", amount: 2660, occurred: 5000, recorded: 5000 },
+  ] as const;
+  for (const entry of [...entries].reverse())
+    await appliers.applyEntryCreated(tx, {
+      ...create,
+      event_id: `${entry.id}-create`,
+      target_id: entry.id,
+      hlc: { pms: entry.recorded, l: 0, did: "remote" },
+      payload: {
+        ...create.payload,
+        currency: "AFN",
+        entry_id: entry.id,
+        type: entry.type,
+        amount_afn: entry.amount,
+        occurred_at_ms: entry.occurred,
+        recorded_at_ms: entry.recorded,
+      },
+    });
+  const openIDs = () =>
+    (
+      store
+        .prepare(
+          `SELECT e.id FROM entries e
+    WHERE ${entryRecordedAtSql("e")} > (SELECT MAX(settled_at_ms) FROM settlements)
+    ORDER BY e.id`,
+        )
+        .all() as { id: string }[]
+    ).map((entry) => entry.id);
+  assert.deepEqual(openIDs(), ["backdated-give", "new-receive"]);
+  assert.equal(
+    (store.prepare("SELECT count(*) AS n FROM settlements").get() as { n: number }).n,
+    1,
+  );
+  const moneyBefore = store.prepare("SELECT id,type,amount_afn FROM entries ORDER BY id").all();
+  const restoredRows = store.prepare("SELECT id,created_at,field_hlcs FROM entries").all() as any[];
+  for (const entry of restoredRows) {
+    const immutable = JSON.parse(entry.field_hlcs).recorded_at_ms.pms;
+    store.prepare("UPDATE entries SET field_hlcs=? WHERE id=?").run(
+      restoredEntryDateHLCs(JSON.stringify({ note: { pms: 9000, l: 0, did: "" } }), {
+        created_at: entry.created_at,
+        recorded_at_ms: immutable,
+      }),
+      entry.id,
+    );
+  }
+  assert.deepEqual(
+    openIDs(),
+    ["backdated-give", "new-receive"],
+    "snapshot-only metadata restores the same chapter",
+  );
+  await appliers.applyEntrySettled(tx, {
+    ...marker,
+    event_id: "second-settlement",
+    payload: { settled_at_ms: 6000, currency: "AFN" },
+  });
+  assert.deepEqual(openIDs(), []);
+  assert.deepEqual(
+    store.prepare("SELECT id,type,amount_afn FROM entries ORDER BY id").all(),
+    moneyBefore,
+  );
   console.log(
-    "PASS tally date projection, concurrent field winners, restore, immutable recording time and tombstones",
+    "PASS tally date projection, concurrent field winners, restore, immutable recording time, out-of-order settlement chapters and tombstones",
   );
 }
 void run()

@@ -152,12 +152,24 @@ test("browser signs device admission and safely retries a lost save response wit
             currency: event.payload.currency,
             note: event.payload.note,
             created_at: event.payload.occurred_at_ms,
+            recorded_at_ms: event.payload.recorded_at_ms,
             updated_at: event.hlc.physical_ms,
             current_event_id: event.event_id,
             is_deleted: false,
             read_only: false,
             settled_at: null,
           });
+        if (event.event_type === "entry_amended") {
+          const row = ledger.entries.find((entry) => entry.id === event.target_id)!;
+          const changes = event.payload.changes;
+          if (changes.amount_afn !== undefined) row.amount_afn = String(changes.amount_afn);
+          if (changes.currency !== undefined) row.currency = changes.currency;
+          if (changes.type !== undefined) row.type = changes.type;
+          if (changes.note !== undefined) row.note = changes.note;
+          if (changes.occurred_at_ms !== undefined) row.created_at = changes.occurred_at_ms;
+          row.current_event_id = event.event_id;
+          row.updated_at = event.hlc.physical_ms;
+        }
         accepted.push({ event_id: event.event_id, server_seq: ledger.server_seq });
       }
       if (
@@ -202,16 +214,74 @@ test("browser signs device admission and safely retries a lost save response wit
     settled.settled_at = Date.now();
     await assert.rejects(client.deleteWebEntry(ledger, settled), /no longer/);
 
-    ledger.people[0].settled_through = { AFN: Date.now() };
+    // A remotely settled frontier can be ahead of this browser's clock.
+    // Business dates remain editable; immutable recording time keeps the
+    // backdated new pair in the open chapter instead of stranding a zero.
+    const boundary = Date.now() + 60_000;
+    ledger.people[0].settled_through = { AFN: boundary };
+    const backdatedInput = {
+      type: "debt" as const,
+      amount: "2660",
+      currency: "AFN",
+      note: null,
+      occurred_at_ms: boundary - 5 * 86_400_000,
+    };
+    await client.createWebEntry(ledger, ledger.people[0], backdatedInput);
+    const backdated = ledger.entries.at(-1)!;
+    assert.equal(backdated.created_at, backdatedInput.occurred_at_ms);
+    assert.equal(
+      backdated.recorded_at_ms,
+      boundary + 1,
+      "recording advances beyond the settled frontier",
+    );
+    await client.createWebEntry(ledger, ledger.people[0], {
+      ...backdatedInput,
+      type: "payment",
+      occurred_at_ms: Date.now(),
+    });
+    assert.equal(ledger.entries.at(-1)!.recorded_at_ms, boundary + 1);
+    assert.equal(
+      ledger.entries
+        .filter((entry) => entry.currency === "AFN")
+        .reduce(
+          (total, entry) => total + (entry.type === "debt" ? 1 : -1) * Number(entry.amount_afn),
+          0,
+        ),
+      0,
+    );
+    await client.updateWebEntry(ledger, backdated, {
+      ...backdatedInput,
+      note: "Earlier business day",
+      occurred_at_ms: boundary - 10 * 86_400_000,
+    });
+    assert.equal(backdated.created_at, boundary - 10 * 86_400_000);
+    assert.equal(
+      backdated.recorded_at_ms,
+      boundary + 1,
+      "date edits never move chapter membership",
+    );
+    ledger.people[0].settled_through.USD = boundary + 100;
+    const beforeCurrencyMove = events.size;
     await assert.rejects(
-      client.createWebEntry(ledger, ledger.people[0], {
-        type: "debt",
-        amount: "1",
-        currency: "AFN",
-        note: null,
-        occurred_at_ms: Date.now() - 86_400_000,
+      client.updateWebEntry(ledger, backdated, { ...backdatedInput, currency: "USD" }),
+      {
+        code: "entry_read_only",
+      },
+    );
+    assert.equal(
+      events.size,
+      beforeCurrencyMove,
+      "a currency change cannot enter that currency's closed history",
+    );
+    ledger.people[0].settled_through.AFN = boundary + 1;
+    backdated.read_only = true;
+    backdated.settled_at = boundary + 1;
+    await assert.rejects(
+      client.updateWebEntry(ledger, backdated, {
+        ...backdatedInput,
+        occurred_at_ms: boundary + 1000,
       }),
-      /last settled account/,
+      { code: "entry_read_only" },
     );
 
     const linked: WebPerson = {

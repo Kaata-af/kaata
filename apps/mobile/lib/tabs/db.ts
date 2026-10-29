@@ -24,6 +24,7 @@
 import { getAccountIdSync, getActiveVaultIdSyncMaybe, getDb } from "../db-tx";
 import { getLedgerCurrencyCode, effectiveEntryCurrencySql } from "../currency-scope";
 import { fromMinorUnits, toMinorUnits } from "../money";
+import { entryRecordedAtSql } from "../entry-date";
 import type { Entry, EntryType } from "../types";
 import { directionFor, entryTypeFor, otherRole } from "./direction";
 import { emitTabApplied } from "./events";
@@ -1139,7 +1140,8 @@ export async function listPreLinkEntries(link: TabLink): Promise<Entry[]> {
   const db = await getDb();
   return db.getAllAsync<Entry>(
     `SELECT e.id, e.relationship_id, e.type, e.amount_afn, e.note, ${effectiveEntryCurrencySql("e")} AS currency,
-            e.created_at, e.updated_at, e.deleted_at, e.proposed_by_user_id,
+            e.created_at, ${entryRecordedAtSql("e")} AS recorded_at_ms,
+            e.updated_at, e.deleted_at, e.proposed_by_user_id,
             e.accepted_at, e.disputed_at, e.disputed_reason, e.settled_at
        FROM entries e
       WHERE e.relationship_id = ?

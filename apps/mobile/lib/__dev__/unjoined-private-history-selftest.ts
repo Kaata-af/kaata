@@ -130,6 +130,7 @@ const credit = compile<typeof import("../credit-limits")>("../credit-limits", (n
   return {};
 });
 const data = compile<typeof import("../export/data")>("../export/data", (name) => {
+  if (name === "../entry-date") return require("../entry-date");
   if (name === "../db") return { ...db, getLocalSelf: async () => null };
   if (name === "../tabs/db") return tabDb;
   if (name === "../projection") return { applyEventMutex: mutex };

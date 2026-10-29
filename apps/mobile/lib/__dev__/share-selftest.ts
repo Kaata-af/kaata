@@ -129,6 +129,11 @@ async function main() {
   assert.equal(opens.length, 0, "WhatsApp waits while the statement is preparing");
   assert.equal(snapshot!.locale, "fa");
   assert.equal(snapshot!.calendar, "jalali");
+  assert.equal(
+    snapshot!.entries[0].recorded_at_ms,
+    1,
+    "legacy rows retain their immutable date fallback in new bills",
+  );
   assert.equal("qamari_offset" in snapshot!, false, "no adjustment field off Qamari");
   assert.deepEqual(
     snapshot!.entries.map((entry: any) => entry.note),
@@ -411,7 +416,7 @@ async function main() {
   assert.equal(snapshot!.locale, "ps");
   assert.equal(snapshot!.currencies[0].balance, 1);
   assert.deepEqual(snapshot!.currencies[0].entries, [
-    { currency: "AFN", type: "debt", amount: 1, note: "Original note", date: 1 },
+    { currency: "AFN", type: "debt", amount: 1, note: "Original note", date: 1, recorded_at_ms: 1 },
   ]);
   assert.deepEqual(snapshot!.currencies[0].settled_boundaries, [1]);
   assert.equal(
@@ -581,6 +586,77 @@ async function main() {
     "Shared clearances follow server sequence rather than an editable tally date",
   );
   assert.match(new URL(opens.at(-1)!).searchParams.get("text")!, /\/v3\/full-history/);
+  const privateRows = [
+    {
+      ...tally("old-gave", "Old given"),
+      currency: "AFN",
+      amount_afn: 3100,
+      created_at: 900,
+      recorded_at_ms: 100,
+    },
+    {
+      ...tally("old-paid", "Old received"),
+      currency: "AFN",
+      type: "payment" as const,
+      amount_afn: 3100,
+      created_at: 120,
+      recorded_at_ms: 120,
+    },
+    {
+      ...tally("backdated-gave", "New backdated given"),
+      currency: "AFN",
+      amount_afn: 2660,
+      created_at: 50,
+      recorded_at_ms: 300,
+    },
+    {
+      ...tally("new-paid", "New received"),
+      currency: "AFN",
+      type: "payment" as const,
+      amount_afn: 2660,
+      created_at: 400,
+      recorded_at_ms: 400,
+    },
+  ];
+  await shareKaataCurrenciesViaWhatsApp(
+    person,
+    null,
+    [
+      {
+        currency: "AFN",
+        balance: 0,
+        entries: privateRows,
+        settled: { settledChapters: 1, settledBoundaryMs: 200, settledBoundaries: [200] },
+        history: [
+          {
+            kind: "pre_link",
+            entries: privateRows.map((entry) => ({ ...entry, id: `prior-${entry.id}` })),
+            settledBoundaries: [200],
+          },
+        ],
+      },
+    ],
+    "en",
+  );
+  assert.deepEqual(
+    snapshot!.currencies[0].entries.map((entry: any) => [entry.date, entry.recorded_at_ms]),
+    [
+      [900, 100],
+      [120, 120],
+      [50, 300],
+      [400, 400],
+    ],
+    "bill keeps the displayed dates separate from settlement membership",
+  );
+  assert.deepEqual(
+    snapshot!.currencies[0].history[0].entries.map((entry: any) => entry.id),
+    ["prior-old-gave", "prior-old-paid", "prior-backdated-gave", "prior-new-paid"],
+  );
+  assert.deepEqual(
+    snapshot!.currencies[0].history[0].settlements,
+    [{ after_entry_id: "prior-old-paid", date: 200 }],
+    "private bill history anchors the true settled pair, never the later backdated row",
+  );
   await shareKaataCurrenciesViaWhatsApp(
     person,
     null,

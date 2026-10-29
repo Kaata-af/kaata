@@ -59,6 +59,7 @@ export type WebEntry = {
   currency: string;
   note: string | null;
   created_at: number;
+  recorded_at_ms?: number;
   updated_at: number;
   current_event_id: string;
   is_deleted: boolean;
@@ -694,8 +695,9 @@ export async function createWebEntry(
     false,
     (fresh) => {
       const current = writablePerson(fresh, person.relationship_id);
-      if (input.occurred_at_ms <= (current.settled_through?.[input.currency] ?? 0))
-        throw new WebLedgerError("Choose a date after the last settled account.", "settled_date");
+      // Settlement chapters follow recording order. A backdated business day
+      // must not place this newly authored tally inside immutable history.
+      const recordedAt = Math.max(Date.now(), (current.settled_through?.[input.currency] ?? 0) + 1);
       const id = crypto.randomUUID();
       return {
         result: id,
@@ -708,7 +710,7 @@ export async function createWebEntry(
               ...entryPayload(input, fresh.enabled_currencies),
               entry_id: id,
               relationship_id: person.relationship_id,
-              recorded_at_ms: Date.now(),
+              recorded_at_ms: recordedAt,
             },
           },
         ],
@@ -725,8 +727,15 @@ export async function updateWebEntry(
   await write(ledger, { action: "entry-edit", id: original.id, ...input }, true, (fresh) => {
     const entry = writableEntry(fresh, original);
     const person = writablePerson(fresh, entry.relationship_id);
-    if (input.occurred_at_ms <= (person.settled_through?.[input.currency] ?? 0))
-      throw new WebLedgerError("Choose a date after the last settled account.", "settled_date");
+    const recordedAt = entry.recorded_at_ms ?? entry.created_at;
+    if (
+      input.currency !== entry.currency &&
+      recordedAt <= (person.settled_through?.[input.currency] ?? 0)
+    )
+      throw new WebLedgerError(
+        "This currency's settled history cannot be changed.",
+        "entry_read_only",
+      );
     const values = entryPayload(input, [...fresh.enabled_currencies, entry.currency]);
     // Delta-only amendments preserve concurrent changes to untouched fields.
     const changes: Record<string, unknown> = {};

@@ -31,6 +31,7 @@ import type { LocaleCode } from "../i18n";
 import { toJalali, toQamari } from "../jalali";
 import type { Entry, PersonWithBalance, Self } from "../types";
 import { addAmounts } from "../money";
+import { entryRecordedAt } from "../entry-date";
 import { balanceContribution, recordTotals, type RecordTotals } from "./shared-record";
 import {
   getFinancialTabLinkForPerson,
@@ -132,14 +133,14 @@ function sharedStatementRows(
 
 function privateStatementRows(entries: Entry[], boundaries: number[]): StatementRow[] {
   const asc = [...entries].sort(
-    (a, b) => a.created_at - b.created_at || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+    (a, b) => entryRecordedAt(a) - entryRecordedAt(b) || a.id.localeCompare(b.id),
   );
   const rows: StatementRow[] = [];
   let running = 0;
   let index = 0;
   for (const boundary of boundaries) {
     let consumed = 0;
-    while (index < asc.length && asc[index].created_at <= boundary) {
+    while (index < asc.length && entryRecordedAt(asc[index]) <= boundary) {
       const entry = asc[index++];
       running = addAmounts(running, balanceContribution(entry));
       rows.push({ kind: "entry", entry, balanceAfter: running });

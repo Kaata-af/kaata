@@ -4,6 +4,8 @@ export type SharedEntry = {
   amount: number;
   note: string | null;
   date: number;
+  /** Immutable recording time; the separate date remains the displayed business day. */
+  recorded_at_ms?: number;
   currency?: string;
 };
 
@@ -59,6 +61,11 @@ const validDate = (value: unknown): value is number =>
   value >= 0 &&
   value <= 8640000000000000;
 
+/** Older permanent bills predate recording metadata and retain their date fallback. */
+export function sharedEntryRecordedAt(entry: SharedEntry): number {
+  return validDate(entry.recorded_at_ms) ? entry.recorded_at_ms : entry.date;
+}
+
 /** Legacy snapshots retain their interpretation; historical V3 money stays separate. */
 export function parseSharedLedger(raw: unknown): SharedLedger | null {
   if (!raw || typeof raw !== "object") return null;
@@ -90,6 +97,7 @@ export function parseSharedLedger(raw: unknown): SharedLedger | null {
       !validMoney(entry.amount) ||
       entry.amount < 0 ||
       !validDate(entry.date) ||
+      (entry.recorded_at_ms != null && !validDate(entry.recorded_at_ms)) ||
       (entry.note != null && typeof entry.note !== "string")
     )
       return false;

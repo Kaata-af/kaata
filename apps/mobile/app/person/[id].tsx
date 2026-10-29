@@ -99,6 +99,7 @@ import {
 import { fonts, sansLineHeight } from "../../lib/fonts";
 import { formatAmount, formatDate } from "../../lib/format";
 import { sumAmounts } from "../../lib/money";
+import { entryRecordedAt } from "../../lib/entry-date";
 import { getReducedMotion } from "../../lib/reduced-motion";
 import { getLocale, getShareLangPref, resolveShareLang, t, type LocaleCode } from "../../lib/i18n";
 import { formatSettlementDate } from "../../lib/jalali";
@@ -222,7 +223,7 @@ function currencyChapter(period: CurrencyPeriod): Entry[] {
       period.financialTab
         ? afterSharedSettlement(entry, through, period.financialTab.tab_id)
         : period.settlement.lastSettledAtMs == null ||
-          entry.created_at > period.settlement.lastSettledAtMs,
+          entryRecordedAt(entry) > period.settlement.lastSettledAtMs,
     );
 }
 
@@ -234,8 +235,14 @@ function canSettlePeriod(period: CurrencyPeriod): boolean {
     period.person.tab_close_pending !== 1 &&
     period.person.balance === 0 &&
     chapter.length > 0 &&
-    sumAmounts(chapter.map(balanceContribution)) === 0 &&
+    // Older private boundaries could split a balanced pair by business date.
+    // An explicit new marker can close that known, zero ledger atomically;
+    // the command rechecks its full balance and covers all recorded rows.
+    // Shared history must still prove its exact sequence chapter is zero.
+    (!period.financialTab || sumAmounts(chapter.map(balanceContribution)) === 0) &&
+    (period.person.tab_pending ?? 0) === 0 &&
     (period.person.tab_pending_count ?? 0) === 0 &&
+    (period.person.tab_pending_balance ?? 0) === 0 &&
     !period.entries.some(
       (entry) =>
         entry.tab &&
@@ -767,10 +774,9 @@ export default function PersonDetailScreen() {
     };
   }, [isShared, activeVaultId, entries]);
 
-  // Chapter view: entries after the latest settlement boundary. Boundary
-  // compares created_at, which the applier sets to the entry's BUSINESS date
-  // (occurred_at) — so a deliberately backdated entry files into its earlier
-  // chapter. The settled section changes visibility, never stored money.
+  // Private chapter membership follows immutable recording time. An editable
+  // business date changes the row's date, never which settlement closed it.
+  // The settled section changes visibility, never stored money.
   //
   // Shared chapters use server sequence, so backdating a new tally can never
   // tuck it behind an old settlement. Local boundaries only apply locally.
@@ -858,7 +864,7 @@ export default function PersonDetailScreen() {
               period.financialTab.tab_id,
             )
           : period.settlement.lastSettledAtMs == null ||
-              entry.created_at > period.settlement.lastSettledAtMs;
+              entryRecordedAt(entry) > period.settlement.lastSettledAtMs;
       }),
     [displayedEntries, currencyPeriods, person?.currency, selectedCurrency],
   );
@@ -883,21 +889,37 @@ export default function PersonDetailScreen() {
   const settledTallyCount = displayedEntries.length - chapterEntries.length;
   const effectiveShowFull = showFullHistory || !chapterCoherent;
   const visibleEntries = effectiveShowFull ? displayedEntries : chapterEntries;
-  // Full-history render list: entries interleaved with the ruled-off lines,
-  // each marker at its chronological position with the settlement date —
-  // like the visible lines in a paper khata. Adjacent markers (a concurrent
-  // double-settle artifact) collapse to one; markers below the oldest entry
-  // have nothing to rule off and are dropped.
+  // Full history keeps each row in its recorded chapter and uses business
+  // dates only to order rows within that chapter. Adjacent empty settlement
+  // markers collapse; a later backdated row cannot move beneath an old line.
   type HistoryItem =
     | { kind: "entry"; entry: Entry }
     | { kind: "marker"; ms: number; settlement?: TabSettlement; currency?: string };
   const withLocalMarkers = useCallback(
-    (list: Entry[]): HistoryItem[] => {
+    (list: Entry[], localBoundaries = boundaries): HistoryItem[] => {
       const items: HistoryItem[] = [];
-      const desc = [...boundaries].sort((a, b) => b - a);
+      const desc = [...new Set(localBoundaries)].sort((a, b) => b - a);
+      const chapter = (recordedAt: number) => {
+        let first = 0;
+        let end = desc.length;
+        while (first < end) {
+          const middle = (first + end) >>> 1;
+          if (desc[middle] >= recordedAt) first = middle + 1;
+          else end = middle;
+        }
+        return first;
+      };
+      const ordered = list
+        .map((entry) => ({ entry, chapter: chapter(entryRecordedAt(entry)) }))
+        .sort(
+          (a, b) =>
+            a.chapter - b.chapter ||
+            b.entry.created_at - a.entry.created_at ||
+            b.entry.id.localeCompare(a.entry.id),
+        );
       let bi = 0;
-      for (const e of list) {
-        while (bi < desc.length && desc[bi] >= e.created_at) {
+      for (const { entry: e } of ordered) {
+        while (bi < desc.length && desc[bi] >= entryRecordedAt(e)) {
           if (items.length === 0 || items[items.length - 1].kind !== "marker") {
             items.push({ kind: "marker", ms: desc[bi] });
           }
@@ -914,7 +936,7 @@ export default function PersonDetailScreen() {
   const allHistoryItems = useMemo<HistoryItem[]>(() => {
     if (currencyPeriods.length > 1) {
       const list = searching ? matchedEntries : visibleEntries;
-      const items: HistoryItem[] = currencyPeriods.flatMap((period) => {
+      const streams: HistoryItem[][] = currencyPeriods.map((period) => {
         const rows = list.filter(
           (entry) => (entry.currency ?? person?.currency ?? selectedCurrency) === period.currency,
         );
@@ -926,16 +948,26 @@ export default function PersonDetailScreen() {
           ).map((item) => (item.kind === "marker" ? { ...item, currency: period.currency } : item));
         if (!(searching || effectiveShowFull))
           return rows.map((entry) => ({ kind: "entry" as const, entry }));
-        const markers = period.boundaries
-          .filter((ms) => rows.some((entry) => entry.created_at <= ms))
-          .map((ms) => ({ kind: "marker" as const, ms, currency: period.currency }));
-        return [...rows.map((entry) => ({ kind: "entry" as const, entry })), ...markers];
+        return withLocalMarkers(rows, period.boundaries).map((item) =>
+          item.kind === "marker" ? { ...item, currency: period.currency } : item,
+        );
       });
-      return items.sort(
-        (a, b) =>
-          (b.kind === "entry" ? b.entry.created_at : b.ms) -
-          (a.kind === "entry" ? a.entry.created_at : a.ms),
-      );
+      // Merge the currency timelines without reordering either one's chapter
+      // markers (or a shared period's authoritative server sequences).
+      const positions = streams.map(() => 0);
+      const merged: HistoryItem[] = [];
+      const stamp = (item: HistoryItem) =>
+        item.kind === "marker" ? item.ms : item.entry.created_at;
+      for (;;) {
+        let next = -1;
+        for (let i = 0; i < streams.length; i++) {
+          const head = streams[i][positions[i]];
+          if (head && (next < 0 || stamp(head) > stamp(streams[next][positions[next]]))) next = i;
+        }
+        if (next < 0) break;
+        merged.push(streams[next][positions[next]++]);
+      }
+      return merged;
     }
     if (searching) {
       const items = financialTabHistory
@@ -1080,7 +1112,7 @@ export default function PersonDetailScreen() {
               (!period?.tab || period.tab.closed_at != null) &&
               period?.person.tab_close_pending !== 1 &&
               (period?.settlement.lastSettledAtMs == null ||
-                entry.created_at > period.settlement.lastSettledAtMs)
+                entryRecordedAt(entry) > period.settlement.lastSettledAtMs)
             );
           })
         : [],
@@ -1368,7 +1400,7 @@ export default function PersonDetailScreen() {
     settlingRef.current = true;
     try {
       // Both paths recheck the balance under their authoritative transaction.
-      // Shared boundaries use sequence; local boundaries use the business date.
+      // Shared boundaries use sequence; private boundaries use recording time.
       if (target.financialTab) {
         if (target.financialTab.closed_at != null) throw new TabClosedError();
         const throughSeq = Math.max(
@@ -1392,7 +1424,7 @@ export default function PersonDetailScreen() {
         settlementRequest.current = null;
       } else {
         const chapter = currencyChapter(target);
-        const settledAtMs = Math.max(Date.now(), ...chapter.map((e) => e.created_at + 1));
+        const settledAtMs = Math.max(Date.now(), ...chapter.map((e) => entryRecordedAt(e) + 1));
         await appendEntrySettled({
           relationshipId: chapter[0].relationship_id,
           currency: target.currency,
@@ -1413,13 +1445,15 @@ export default function PersonDetailScreen() {
         const code = err.code;
         toast.push(
           t(
-            code === "settlement_not_zero"
-              ? "person.settle.notZero"
-              : code === "settlement_pending"
-                ? "tab.settle.pending"
-                : code === "stale_settlement" || code === "settlement_empty"
-                  ? "tab.settle.changed"
-                  : "tab.settle.failed",
+            code === "credit_confirmation_pending"
+              ? "tab.settle.pending"
+              : code === "settlement_not_zero"
+                ? "person.settle.notZero"
+                : code === "settlement_pending"
+                  ? "tab.settle.pending"
+                  : code === "stale_settlement" || code === "settlement_empty"
+                    ? "tab.settle.changed"
+                    : "tab.settle.failed",
           ),
           "error",
         );
@@ -2208,7 +2242,8 @@ export default function PersonDetailScreen() {
           (period) => period.currency === (entry.currency ?? person.currency ?? selectedCurrency),
         );
         const boundary = period?.settlement.lastSettledAtMs;
-        const inSettledChapter = !entry.tab && boundary != null && entry.created_at <= boundary;
+        const inSettledChapter =
+          !entry.tab && boundary != null && entryRecordedAt(entry) <= boundary;
         const tabSettlements =
           entry.tab?.tab_id === period?.financialTab?.tab_id
             ? (period?.sharedSettlements ?? [])

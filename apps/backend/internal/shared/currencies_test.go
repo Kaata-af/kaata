@@ -34,6 +34,8 @@ func TestMultiCurrencyBillValidation(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, mutate := range []func(*sharePayload){
+		func(p *sharePayload) { n := int64(-1); p.Currencies[0].Entries[0].RecordedAtMS = &n },
+		func(p *sharePayload) { n := int64(8640000000000001); p.Currencies[0].Entries[0].RecordedAtMS = &n },
 		func(p *sharePayload) { p.Currencies[1].CurrencyCode = "AFN" },
 		func(p *sharePayload) { p.Currencies[1].Entries[0].Currency = "AFN" },
 		func(p *sharePayload) { p.Currencies[0].Balance = nil },
@@ -353,6 +355,17 @@ async function run(payload){
  const printed=bill.print();assert.deepEqual(bill.groups.map(rows),[3,3,2]);assert.equal((printed.match(/class="chline"/g)||[]).length,3,'duplicate same-currency boundaries collapse');
  assert.match(printed,/<span class="rcur">AUD<\/span>/);assert.ok(!printed.includes('NaN'));
  const old=await run({...payload,...payload.currencies[0],v:1});assert.equal(rows(old.groups[0]),1);old.print();assert.equal(rows(old.groups[0]),3,'v1 print still includes all settled rows');
+ const backdated={...payload,...payload.currencies[0],v:1,balance:0,entries:[
+  {type:'debt',amount:3100,date:900,recorded_at_ms:100,note:'old future given'},
+  {type:'payment',amount:3100,date:120,recorded_at_ms:120,note:'old received'},
+  {type:'debt',amount:2660,date:50,recorded_at_ms:300,note:'new backdated given'},
+  {type:'payment',amount:2660,date:400,recorded_at_ms:400,note:'new received'}]};
+ const frozenBackdated=JSON.stringify(backdated),recovered=await run(backdated);
+ assert.equal(rows(recovered.groups[0]),2,'recorded chapter keeps both balanced new tallies visible');
+ assert.ok(recovered.groups[0].innerHTML.includes('new backdated given')&&!recovered.groups[0].innerHTML.includes('old future given'));
+ const repairedPrint=recovered.print(),divider=repairedPrint.indexOf('class="chline"');
+ assert.ok(repairedPrint.indexOf('new backdated given')<divider&&divider<repairedPrint.indexOf('old future given'),'printing preserves recorded settlement boundary despite reversed business dates');
+ assert.equal(JSON.stringify(backdated),frozenBackdated,'display never changes an immutable saved bill');
  for(const [code,label] of [['USD','$ USD'],['USD','USD $'],['AUD','AUD A$']]){
   const saved={v:1,currency_code:code,currency:label,balance:1,entries:[{type:'debt',amount:1,date:1}]};
   const frozen=JSON.stringify(saved),single=await run(saved);

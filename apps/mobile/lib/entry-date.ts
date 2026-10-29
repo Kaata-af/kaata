@@ -19,6 +19,13 @@ export function isValidEntryDate(ms: number): boolean {
 export function entryRecordedAtSql(alias: string): string {
   return `COALESCE(json_extract(${alias}.field_hlcs, '$.recorded_at_ms.pms'), ${alias}.created_at)`;
 }
+/** Settlement membership follows the immutable save order, never the editable
+ * business date. Legacy rows were authored before backdating was available. */
+export function entryRecordedAt(entry: { created_at: number; recorded_at_ms?: number }): number {
+  return entry.recorded_at_ms != null && isValidEntryDate(entry.recorded_at_ms)
+    ? entry.recorded_at_ms
+    : entry.created_at;
+}
 /** Keep date-specific registers exact on recovery, even when a newer note or
  * amount change made the row's general updated_at floor more recent. */
 export function restoredEntryDateHLCs(

@@ -3188,10 +3188,10 @@ async function runMigration024(db: SQLite.SQLiteDatabase): Promise<void> {
 
 // Settlements ("ruled-off" chapter markers, docs feature 2026-07-27): one row
 // per applied entry_settled event. The boundary (settled_at_ms) partitions a
-// person's entries into settled chapters (created_at <= boundary) and the
-// current open chapter. Projection-only — balances never consult this table;
-// settlement is allowed only at balance zero, so every chapter nets to zero
-// and the total balance equals the current chapter's sum.
+// person's entries by immutable recording time, independently of the editable
+// business date. Projection-only — balances never consult this table. A new
+// marker requires full-ledger balance zero; old markers and any historically
+// incoherent chapters remain untouched when the user deliberately rules off.
 async function runMigration025(db: SQLite.SQLiteDatabase): Promise<void> {
   await db.withTransactionAsync(async () => {
     await db.execAsync(`
@@ -4665,8 +4665,8 @@ async function selectAllPeopleRaw(
               WHEN ftl.tab_id IS NULL
                AND ${signedEntryMinorSumSql("e")} = 0
                AND (SELECT MAX(s.settled_at_ms) FROM settlements s
-                     WHERE s.relationship_id = r.id AND ${entryCurrencyMatchesSql("s", currencyCode)})
-                   >= COALESCE(MAX(CASE WHEN e.deleted_at IS NULL THEN e.created_at END), 0)
+                     WHERE s.relationship_id = r.id AND s.vault_id = r.vault_id AND ${entryCurrencyMatchesSql("s", currencyCode)})
+                   >= COALESCE(MAX(CASE WHEN e.deleted_at IS NULL THEN ${entryRecordedAtSql("e")} END), 0)
               THEN 1 ELSE 0
             END AS is_settled,
             ${TAB_PERSON_COLUMNS}
@@ -5021,17 +5021,18 @@ export async function getSettlementSummary(
   //    person must not be haunted by the old relationship's markers.
   const row = await db.getFirstAsync<{ n: number; last_ms: number | null }>(
     `SELECT
-        (SELECT COUNT(*) FROM settlements s
+        (SELECT COUNT(DISTINCT s.relationship_id || ':' || s.settled_at_ms) FROM settlements s
           INNER JOIN relationships r ON r.id = s.relationship_id
           WHERE r.user_b_id = ? AND r.vault_id = ? AND r.archived_at IS NULL
             AND ${entryCurrencyMatchesSql("s", currencyCode)}
             AND EXISTS (
               SELECT 1 FROM entries e
                WHERE e.relationship_id = s.relationship_id
+                 AND e.vault_id = s.vault_id
                  AND e.deleted_at IS NULL
                  AND ${entryCurrencyMatchesSql("e", currencyCode)}
-                 AND e.created_at <= s.settled_at_ms
-                 AND e.created_at > COALESCE((
+                 AND ${entryRecordedAtSql("e")} <= s.settled_at_ms
+                 AND ${entryRecordedAtSql("e")} > COALESCE((
                    SELECT MAX(s2.settled_at_ms) FROM settlements s2
                     WHERE s2.relationship_id = s.relationship_id
                       AND ${entryCurrencyMatchesSql("s2", currencyCode)}
@@ -5100,7 +5101,7 @@ export async function listEntries(
       listEffectiveSharedEntries(link),
       db.getAllAsync<Entry>(
         `SELECT e.id, e.relationship_id, e.type, e.amount_afn, e.note, ${effectiveEntryCurrencySql("e")} AS currency,
-                e.created_at, e.updated_at, e.deleted_at, e.proposed_by_user_id,
+                e.created_at, ${entryRecordedAtSql("e")} AS recorded_at_ms, e.updated_at, e.deleted_at, e.proposed_by_user_id,
                 e.accepted_at, e.disputed_at, e.disputed_reason, e.settled_at
          FROM entries e
          WHERE e.relationship_id = ?
@@ -5119,7 +5120,7 @@ export async function listEntries(
   }
   return db.getAllAsync<Entry>(
     `SELECT e.id, e.relationship_id, e.type, e.amount_afn, e.note, ${effectiveEntryCurrencySql("e")} AS currency,
-            e.created_at, e.updated_at, e.deleted_at, e.proposed_by_user_id,
+            e.created_at, ${entryRecordedAtSql("e")} AS recorded_at_ms, e.updated_at, e.deleted_at, e.proposed_by_user_id,
             e.accepted_at, e.disputed_at, e.disputed_reason, e.settled_at
      FROM entries e
      INNER JOIN relationships r ON r.id = e.relationship_id
@@ -5221,6 +5222,7 @@ export type ExportEntryRow = {
   note: string | null;
   currency?: string;
   created_at: number;
+  recorded_at_ms?: number;
   person_id: string;
   person_name: string;
   person_phone: string | null;
@@ -5281,6 +5283,7 @@ export async function listEntriesForExport(
             e.note         AS note,
             ${effectiveEntryCurrencySql("e")} AS currency,
             e.created_at   AS created_at,
+            ${entryRecordedAtSql("e")} AS recorded_at_ms,
             'entry'        AS kind,
             u.id           AS person_id,
             u.display_name AS person_name,
@@ -5304,6 +5307,7 @@ export async function listEntriesForExport(
             te.note        AS note,
             tl.currency    AS currency,
             te.occurred_at AS created_at,
+            te.created_at  AS recorded_at_ms,
             te.kind        AS kind,
             u.id           AS person_id,
             u.display_name AS person_name,
@@ -5531,7 +5535,7 @@ async function assertNotInSettledChapter(
     `SELECT 1 AS one
        FROM entries e
        INNER JOIN settlements s ON s.relationship_id = e.relationship_id
-      WHERE e.id = ? AND s.settled_at_ms >= e.created_at
+      WHERE e.id = ? AND s.vault_id = e.vault_id AND s.settled_at_ms >= ${entryRecordedAtSql("e")}
         AND ${effectiveEntryCurrencySql("e")} = ${effectiveEntryCurrencySql("s")}
       LIMIT 1`,
     entryId,
@@ -5693,13 +5697,13 @@ export async function updateEntry(
           throw new EntryEditChangedError();
         await assertNotTabLinked(tx, id);
         await assertNotInSettledChapter(tx, id);
-        if (currencyChanged || occurredAtMs !== undefined) {
+        if (currencyChanged) {
           const settled = await tx.getFirstAsync<{ one: number }>(
             `SELECT 1 AS one FROM settlements s WHERE s.vault_id=? AND s.relationship_id=? AND ${effectiveEntryCurrencySql("s")}=? AND s.settled_at_ms>=? LIMIT 1`,
             vaultId,
             current.relationship_id,
             currency,
-            occurredAtMs ?? current.created_at,
+            current.recorded_at,
           );
           if (settled) throw new SettledChapterError();
         }
@@ -5772,7 +5776,7 @@ export async function getEntry(id: string): Promise<Entry | null> {
   if (!vaultId) return null;
   const row = await db.getFirstAsync<Entry>(
     `SELECT id, relationship_id, type, amount_afn, note, ${effectiveEntryCurrencySql("entries")} AS currency,
-            created_at, updated_at, deleted_at, proposed_by_user_id,
+            created_at, ${entryRecordedAtSql("entries")} AS recorded_at_ms, updated_at, deleted_at, proposed_by_user_id,
             accepted_at, disputed_at, disputed_reason, settled_at
      FROM entries
      WHERE id = ?

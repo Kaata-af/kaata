@@ -54,6 +54,8 @@ export type Entry = {
   amount_afn: number;
   note: string | null;
   created_at: number;
+  /** Immutable save time used for private settlement chapters. */
+  recorded_at_ms?: number;
   updated_at: number;
   deleted_at: number | null;
   // Phase 2 columns — nullable in v1, populated when a customer-side app exists.

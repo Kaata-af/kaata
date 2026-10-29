@@ -175,6 +175,28 @@ test("actual SPA renders all three currencies independently, including zero and 
   );
 });
 
+test("bill settlement membership uses recording time while keeping backdated and future business dates", () => {
+  const bill = fixture();
+  bill.currencies[0].balance = 0;
+  bill.currencies[0].entries = [
+    { ...entry("AFN", 3100, 900, "debt", "old future date"), recorded_at_ms: 100 },
+    { ...entry("AFN", 3100, 120, "payment", "old paid"), recorded_at_ms: 120 },
+    { ...entry("AFN", 2660, 50, "debt", "new backdated given"), recorded_at_ms: 300 },
+    { ...entry("AFN", 2660, 400, "payment", "new paid"), recorded_at_ms: 400 },
+  ];
+  const frozen = JSON.stringify(bill);
+  assert.equal(parseSharedLedger(bill), bill);
+  const html = render(bill);
+  assert.ok(html.includes("new backdated given") && html.includes("new paid"));
+  assert.ok(!html.includes("old future date") && !html.includes("old paid"));
+  assert.ok(html.includes("usd current"), "AFN boundaries do not hide another currency");
+  assert.equal(JSON.stringify(bill), frozen, "rendering never rewrites a saved statement");
+  for (const invalid of [-1, 8640000000000001, 0.5, NaN]) {
+    bill.currencies[0].entries[0].recorded_at_ms = invalid;
+    assert.equal(parseSharedLedger(bill), null);
+  }
+});
+
 test("bill currency display uses one code while preserving legacy symbol-only snapshots", () => {
   assert.equal(billCurrencyLabel("AUD", "A$"), "AUD");
   assert.equal(billCurrencyLabel("USD", "$ USD"), "USD");

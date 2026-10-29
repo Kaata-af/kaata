@@ -397,10 +397,14 @@ a{color:inherit;text-decoration:none;}
           el = document.createElement('div'); el.className = 'rows'; container.appendChild(el);
         }
       var all = (p && p.entries) || [];
+      function recordedAt(entry){
+        return Number.isSafeInteger(entry.recorded_at_ms) && entry.recorded_at_ms >= 0
+          && entry.recorded_at_ms <= 8640000000000000 ? entry.recorded_at_ms : entry.date;
+      }
       var cur = currencyLabel(p);
       var history = payload.v === 3 ? (p.history || []) : [];
       var historyCount = history.reduce(function(total, group){ return total + group.entries.length; }, 0);
-      // Settled-chapter collapse (parity with the app + SPA): entries dated
+      // Settled-chapter collapse (parity with the app + SPA): entries recorded
       // at/before the boundary are ruled-off history behind one collapsed row.
       // COHERENCE RULE: collapse only while the current chapter's sum
       // exactly explains the balance — otherwise fall open, never hide
@@ -409,7 +413,7 @@ a{color:inherit;text-decoration:none;}
       var chapters = (p && p.settled_chapters) || 0;
       var current = [], settled = [];
       for(var i=0;i<all.length;i++){
-        (boundary != null && all[i].date <= boundary ? settled : current).push(all[i]);
+        (boundary != null && recordedAt(all[i]) <= boundary ? settled : current).push(all[i]);
       }
       // Amounts stay in major units on the wire. Sum integer hundredths so
       // 0.10 + 0.20 - 0.30 is settled, without float residuals opening history.
@@ -432,7 +436,7 @@ a{color:inherit;text-decoration:none;}
       }
       var open = false;
       function render(){
-        var list = open ? all : current;
+        var list = open ? all.slice().sort(function(a,b){ return recordedAt(b)-recordedAt(a); }) : current;
         counts[index] = list.length + historyCount;
         var totalCount = counts.reduce(function(sum, count){ return sum + count; }, 0);
         document.getElementById('txCount').textContent = totalCount ? fmtAmt(totalCount) : '';
@@ -445,7 +449,7 @@ a{color:inherit;text-decoration:none;}
           // (adjacent markers from a concurrent double-settle collapse to one).
           var bi = 0, lastWasMarker = false;
           for(var k=0;k<list.length;k++){
-            while(bi < bounds.length && bounds[bi] >= list[k].date){
+            while(bi < bounds.length && bounds[bi] >= recordedAt(list[k])){
               if(!lastWasMarker){ html += markerHtml(bounds[bi]); lastWasMarker = true; }
               bi++;
             }

@@ -18,6 +18,7 @@ import { toJalali, toQamari } from "../jalali";
 import { afterSharedSettlement, sharedHistory, visibleTally } from "../tabs/chapters";
 import { sumAmounts } from "../money";
 import * as money from "../money";
+import { entryRecordedAt } from "../entry-date";
 import { tallyScrollTarget } from "../tally-viewport";
 import { compareTallyReviews } from "../tally-review-feedback";
 import { entryTypeFor } from "../tabs/direction";
@@ -351,6 +352,7 @@ const mocks: Record<string, any> = {
   "../../lib/reduced-motion": {
     getReducedMotion: () => reducedMotion,
   },
+  "../../lib/entry-date": { entryRecordedAt },
   "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
   react,
   "react-native": native,
@@ -3606,12 +3608,351 @@ async function androidTimelineReuseTests() {
   );
 }
 
+async function privateRecordedSettlementTests() {
+  const settleActions = () =>
+    nodes(tree).filter((node) => node.props.accessibilityLabel?.startsWith("person.settle.row"));
+  const historyToggle = () => find("SettledHistoryToggle")!;
+  const status = (currency = "AFN") =>
+    nodes(byTestId(`customer-balance-status-${currency}`)).find((node) => node.type === "Chip")
+      ?.props.label;
+  const screenshotRows = () => [
+    {
+      ...tally(
+        "closed-gave",
+        "future business date, recorded before settlement",
+        3100,
+        Date.now() + 365 * 86400000,
+      ),
+      recorded_at_ms: 100,
+    },
+    {
+      ...tally("current-received", "received today", 2660, 400, undefined, "payment"),
+      recorded_at_ms: 400,
+    },
+    {
+      ...tally("closed-received", "old repayment", 3100, 150, undefined, "payment"),
+      recorded_at_ms: 150,
+    },
+    { ...tally("current-gave", "backdated after settlement", 2660, 50), recorded_at_ms: 300 },
+  ];
+  const confirmSettlement = async () => {
+    settleActions()[0].props.onPress();
+    await flush();
+    const confirm = nodes(tree).find(
+      (node) =>
+        node.type === "ConfirmDialog" &&
+        node.props.visible &&
+        node.props.title === "person.settle.confirm.title",
+    );
+    assert.ok(confirm);
+    await confirm.props.onConfirm();
+    await flush();
+  };
+  for (const os of ["ios", "android"])
+    for (const isRTL of [false, true]) {
+      platform = os;
+      rtl = isRTL;
+      fixture();
+      person.balance = 0;
+      entries = screenshotRows();
+      const original = JSON.stringify(entries);
+      await flush();
+      assert.deepEqual(
+        historyRowIds("current"),
+        ["current-received", "current-gave"],
+        `${os}/${isRTL}: a late backdated tally stays in the current chapter`,
+      );
+      assert.equal(historyToggle().props.count, 2, "future-dated settled rows stay behind history");
+      assert.equal(
+        status(),
+        "person.balance.notSettled",
+        "a zero balance still requires explicit settlement",
+      );
+      assert.equal(settleActions().length, 1, "the screenshot's balanced open pair can be settled");
+      for (const row of tallies()) assert.equal(typeof row.props.onLongPress, "function");
+      historyToggle().props.onToggle();
+      await flush();
+      assert.deepEqual(
+        visibleNodes(historyRows("current")).flatMap((node) =>
+          node.type === "EntryRow"
+            ? [node.props.entry.id]
+            : node.type === "Text" && words(node) === "person.history.settledOn"
+              ? ["settled-line"]
+              : [],
+        ),
+        ["current-received", "current-gave", "settled-line", "closed-gave", "closed-received"],
+        "markers keep recording chapters intact while business dates sort within each chapter",
+      );
+      for (const row of tallies().filter((node) => node.props.entry.id.startsWith("closed-")))
+        assert.equal(row.props.onLongPress, undefined, "old settled records stay read-only");
+      find("OverflowMenu")!
+        .props.actions.find((action: any) => action.label === "selection.start")
+        .onPress();
+      await flush();
+      assert.equal(
+        find("SelectionToolbar")!.props.total,
+        2,
+        "selection includes both current records and no closed ones",
+      );
+      find("SelectionToolbar")!.props.onClose();
+      await flush();
+      historyToggle().props.onToggle();
+      await flush();
+      settlementWriteImpl = async (args) => {
+        settlement = { count: 2, lastSettledAtMs: args.settledAtMs };
+        boundaries = [200, args.settledAtMs];
+      };
+      const beforeSettlement = Date.now();
+      await confirmSettlement();
+      assert.equal(settledWrites.length, 1);
+      assert.equal(settledWrites[0].relationshipId, "relationship");
+      assert.equal(settledWrites[0].currency, "AFN");
+      assert.ok(
+        settledWrites[0].settledAtMs >= beforeSettlement &&
+          settledWrites[0].settledAtMs <= Date.now(),
+        "new boundary follows recording time, not a future business date",
+      );
+      assert.deepEqual(historyRowIds("current"), []);
+      assert.equal(status(), "person.balance.settled");
+      assert.equal(historyToggle().props.count, 4);
+      assert.equal(
+        JSON.stringify(entries),
+        original,
+        "settling never rewrites financial records or business dates",
+      );
+      await ledgerRefresh();
+      await flush();
+      assert.deepEqual(historyRowIds("current"), [], "refresh keeps both dated tallies settled");
+      unmount();
+    }
+  rtl = false;
+  platform = "android";
+  fixture();
+  const afn = { ...person, currency: "AFN", balance: 0 };
+  const usd = { ...person, currency: "USD", balance: 9 };
+  person = { ...afn, currency_balances: [afn, usd] };
+  entries = [
+    ...screenshotRows(),
+    {
+      ...tally("usd-open", "independent dollar credit", 9, 30),
+      currency: "USD",
+      recorded_at_ms: 350,
+    },
+  ];
+  currencyPeriods.set("USD", { settlement: { count: 0, lastSettledAtMs: null }, boundaries: [] });
+  await flush();
+  assert.equal(settleActions().length, 1);
+  assert.equal(settleActions()[0].props.accessibilityLabel, "person.settle.row · AFN");
+  assert.deepEqual(
+    new Set(historyRowIds("current")),
+    new Set(["current-received", "current-gave", "usd-open"]),
+  );
+  historyToggle().props.onToggle();
+  await flush();
+  const full = visibleNodes(historyRows("current"));
+  const markerAt = full.findIndex(
+    (node) => node.type === "Text" && words(node).startsWith("person.history.settledOn"),
+  );
+  for (const id of ["current-received", "current-gave"])
+    assert.ok(
+      full.findIndex((node) => node.type === "EntryRow" && node.props.entry.id === id) < markerAt,
+      "multi-currency merging cannot place an AFN current tally beneath its settled marker",
+    );
+  settlementWriteImpl = async (args) => {
+    settlement = { count: 2, lastSettledAtMs: args.settledAtMs };
+    boundaries = [200, args.settledAtMs];
+  };
+  await confirmSettlement();
+  assert.deepEqual(
+    settledWrites.map((write) => write.currency),
+    ["AFN"],
+  );
+  assert.deepEqual(
+    historyRowIds("current"),
+    ["usd-open"],
+    "AFN settlement never folds the dollar account",
+  );
+  assert.equal(status("AFN"), "person.balance.settled");
+  assert.equal(status("USD"), "person.balance.theyOwe");
+  unmount();
+
+  const legacySplitRows = () => [
+    {
+      ...tally("late-repayment", "after the broken boundary", 2660, 700, undefined, "payment"),
+      recorded_at_ms: 600,
+    },
+    {
+      ...tally("late-backdated-debt", "old app put this behind its boundary", 2660, 50),
+      recorded_at_ms: 300,
+    },
+    {
+      ...tally("original-repayment", "original closed repayment", 3100, 150, undefined, "payment"),
+      recorded_at_ms: 150,
+    },
+    { ...tally("original-debt", "original closed debt", 3100, 100), recorded_at_ms: 100 },
+  ];
+  for (const os of ["ios", "android"]) {
+    platform = os;
+    fixture();
+    person.balance = 0;
+    settlement = { count: 1, lastSettledAtMs: 500 };
+    boundaries = [500];
+    entries = legacySplitRows();
+    const original = JSON.stringify(entries);
+    await flush();
+    assert.deepEqual(
+      new Set(historyRowIds("current")),
+      new Set(entries.map((entry) => entry.id)),
+      "an incoherent legacy boundary keeps every explaining source tally visible",
+    );
+    assert.equal(
+      status(),
+      "person.balance.notSettled",
+      "zero alone never repairs settlement status",
+    );
+    assert.equal(
+      settleActions().length,
+      1,
+      "a fully known private zero ledger can explicitly close an older split chapter",
+    );
+    for (const flag of [
+      "tab_unsynced",
+      "tab_close_pending",
+      "tab_pending",
+      "tab_pending_count",
+      "tab_pending_balance",
+    ]) {
+      person[flag] = 1;
+      await ledgerRefresh();
+      await flush();
+      assert.equal(
+        settleActions().length,
+        0,
+        `${flag}: unknown or pending money cannot use legacy recovery`,
+      );
+      delete person[flag];
+    }
+    const privateRows = entries;
+    entries = [
+      ...privateRows,
+      tally("foreign-shared-debt", "retained shared period", 10, 800, {
+        tab_id: "earlier-shared-period",
+        seq: 1,
+        status: "accepted",
+        kind: "entry",
+        by: "me",
+        voided: false,
+      }),
+      tally(
+        "foreign-shared-payment",
+        "retained shared repayment",
+        10,
+        801,
+        {
+          tab_id: "earlier-shared-period",
+          seq: 2,
+          status: "accepted",
+          kind: "entry",
+          by: "me",
+          voided: false,
+        },
+        "payment",
+      ),
+    ];
+    await ledgerRefresh();
+    await flush();
+    assert.equal(
+      settleActions().length,
+      0,
+      "legacy private recovery cannot rule across retained shared financial records",
+    );
+    entries = privateRows;
+    await ledgerRefresh();
+    await flush();
+    settlementWriteImpl = async () => {
+      throw Object.assign(new dummyError("A private financial change is waiting for admission"), {
+        code: "credit_confirmation_pending",
+      });
+    };
+    await confirmSettlement();
+    assert.deepEqual(
+      toasts.at(-1),
+      ["tab.settle.pending", "error"],
+      "a pending private credit change explains why settlement must wait",
+    );
+    assert.equal(settlement.count, 1, "a refused settlement creates no replacement marker");
+    assert.equal(status(), "person.balance.notSettled");
+    assert.deepEqual(
+      new Set(historyRowIds("current")),
+      new Set(privateRows.map((entry) => entry.id)),
+      "the private-intent guard cannot hide or alter the existing ledger",
+    );
+    settlementWriteImpl = async (args) => {
+      settlement = { count: 2, lastSettledAtMs: args.settledAtMs };
+      boundaries = [500, args.settledAtMs];
+    };
+    await confirmSettlement();
+    assert.equal(
+      settledWrites.length,
+      2,
+      "a refused attempt can be retried only through a genuine new settlement",
+    );
+    assert.deepEqual(historyRowIds("current"), []);
+    assert.equal(status(), "person.balance.settled");
+    assert.equal(
+      JSON.stringify(entries),
+      original,
+      "recovery changes no amounts, business dates or old records",
+    );
+    await ledgerRefresh();
+    await flush();
+    assert.deepEqual(historyRowIds("current"), [], "a refreshed recovered ledger remains settled");
+    unmount();
+  }
+
+  fixture(true);
+  person.balance = 0;
+  link = { ...link, role: "a", other_joined_at: 1, closed_at: null };
+  markers = [{ id: "old-shared-marker", through_seq: 2, settled_at_ms: 500, actor_name: "Owner" }];
+  entries = [
+    tally(
+      "shared-new-payment",
+      "current shared repayment",
+      2660,
+      700,
+      { tab_id: "tab", seq: 3, status: "accepted", kind: "entry", by: "me", voided: false },
+      "payment",
+    ),
+    tally("shared-old-debt", "shared sequence chapter does not balance", 2660, 50, {
+      tab_id: "tab",
+      seq: 1,
+      status: "accepted",
+      kind: "entry",
+      by: "me",
+      voided: false,
+    }),
+  ];
+  await flush();
+  assert.equal(
+    settleActions().length,
+    0,
+    "legacy private recovery cannot bypass the authoritative shared chapter's nonzero balance",
+  );
+  assert.equal(status(), "person.balance.notSettled");
+  assert.equal(sharedActions.length, 0);
+  unmount();
+  console.log(
+    "PASS private settlement recording-time chapters: screenshot zero-balance repair, backdated/current and future-dated/closed rows, edit/select guards, stable markers, independent currencies and explicit legacy recovery with strict shared/pending guards in Android/iOS LTR/RTL",
+  );
+}
+
 async function main() {
   await androidTimelineReuseTests();
   await customerTallyFilterTests();
   await groupedSharingUITests();
   await customerHeaderIdentityTests();
   await settledTallyHistoryTests();
+  await privateRecordedSettlementTests();
   await oneWayAccountUITests();
   await unjoinedInvitationLedgerTests();
   await singleCurrencyBalanceTests();

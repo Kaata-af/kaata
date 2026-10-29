@@ -194,6 +194,80 @@ func TestWebLedgerActivityRequiresEveryActiveCurrencyExplicitlySettled(t *testin
 	}
 }
 
+func TestWebLedgerSettlementUsesRecordingTimeAcrossBackdatedEntriesAndRecovery(t *testing.T) {
+	rel := "relationship"
+	events := []LedgerEvent{{EventID: "person", EventType: EventPersonAdded, VaultID: "vault", TargetID: "user", RelationshipID: &rel,
+		HLC: HLC{PMS: 10}, Payload: json.RawMessage(`{"user_id":"user","name":"Customer"}`)}}
+	appendEntry := func(id, kind, currency string, amount, business, recorded int64) {
+		raw, err := json.Marshal(map[string]any{"entry_id": id, "relationship_id": rel, "type": kind, "currency": currency,
+			"amount_afn": amount, "occurred_at_ms": business, "recorded_at_ms": recorded})
+		if err != nil {
+			t.Fatal(err)
+		}
+		events = append(events, LedgerEvent{EventID: id, EventType: EventEntryCreated, VaultID: "vault", TargetID: id,
+			RelationshipID: &rel, HLC: HLC{PMS: recorded}, Payload: raw})
+	}
+	settle := func(currency string, at int64) {
+		raw, _ := json.Marshal(map[string]any{"currency": currency, "settled_at_ms": at})
+		events = append(events, LedgerEvent{EventID: currency + "-settle-" + string(raw), EventType: EventEntrySettled,
+			VaultID: "vault", RelationshipID: &rel, HLC: HLC{PMS: at, L: 1}, Payload: raw})
+	}
+	assertView := func(wantSettled bool, wantReadOnly map[string]bool) {
+		t.Helper()
+		projection, err := ApplyEvents(events)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Older create events may be absent from a restored event tail. Test
+		// the actual stored projection round-trip, retaining immutable clocks.
+		raw, err := ProjectionToJSON(projection)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var restored Projection
+		if err := json.Unmarshal(raw, &restored); err != nil {
+			t.Fatal(err)
+		}
+		for _, current := range []*Projection{&projection, &restored} {
+			view := &WebLedger{LegacyCurrency: "AFN", DefaultEntryCurrency: "AFN"}
+			if err := populateWebLedger(view, current, events, nil); err != nil {
+				t.Fatal(err)
+			}
+			if view.People[0].IsSettled == nil || *view.People[0].IsSettled != wantSettled {
+				t.Fatalf("settled=%v, want %v", view.People[0].IsSettled, wantSettled)
+			}
+			for _, row := range view.Entries {
+				if row.ReadOnly != wantReadOnly[row.ID] {
+					t.Fatalf("%s readOnly=%v, want %v (business %d, recorded %d)", row.ID, row.ReadOnly, wantReadOnly[row.ID], row.CreatedAt, row.RecordedAtMS)
+				}
+				if row.RecordedAtMS != current.Entries[row.ID].RecordedAtMS {
+					t.Fatalf("recording clock changed: %+v", row)
+				}
+			}
+		}
+	}
+	appendEntry("old-debt", "debt", "AFN", 3100, 700, 100)
+	appendEntry("old-payment", "payment", "AFN", 3100, 710, 110)
+	settle("AFN", 200)
+	closed := map[string]bool{"old-debt": true, "old-payment": true}
+	assertView(true, closed) // Future business dates cannot reopen recorded history.
+	appendEntry("backdated-debt", "debt", "AFN", 2660, 50, 300)
+	appendEntry("new-payment", "payment", "AFN", 2660, 900, 400)
+	assertView(false, closed) // Zero total still needs a new settlement, both new rows are open.
+	settle("AFN", 400)
+	closed["backdated-debt"], closed["new-payment"] = true, true
+	assertView(true, closed)
+	events = append(events, LedgerEvent{EventID: "date-edit", EventType: EventEntryAmended, VaultID: "vault", TargetID: "old-debt",
+		RelationshipID: &rel, HLC: HLC{PMS: 450}, Payload: json.RawMessage(`{"changes":{"occurred_at_ms":2000000}}`)})
+	assertView(true, closed) // A replayed date-only amendment cannot move an existing row's chapter.
+	appendEntry("usd-debt", "debt", "USD", 20, 20, 500)
+	appendEntry("usd-payment", "payment", "USD", 20, 30, 510)
+	assertView(false, closed) // AFN's frontier cannot close an unrelated zero-balance currency.
+	settle("USD", 510)
+	closed["usd-debt"], closed["usd-payment"] = true, true
+	assertView(true, closed)
+}
+
 func TestWebLedgerSharedActivityRemainsUnknown(t *testing.T) {
 	p := NewProjection()
 	p.Users["user"] = &UserProjection{ID: "user", CreatedAt: 42}

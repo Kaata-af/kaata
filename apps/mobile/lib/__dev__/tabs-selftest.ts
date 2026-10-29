@@ -28,6 +28,7 @@ import { join } from "node:path";
 import Database from "better-sqlite3";
 import type { SQLiteTx } from "../db-tx";
 import type { Entry } from "../types";
+import { entryRecordedAt } from "../entry-date";
 import type {
   TabLink,
   TabResponse,
@@ -709,6 +710,349 @@ const vectors = JSON.parse(
 // ---------------------------------------------------------------------------
 
 async function main(): Promise<void> {
+  await test("same-millisecond private settlement markers count one chapter without rewriting either marker", async () => {
+    const realNow = Date.now;
+    Date.now = () => 1_000;
+    try {
+      await db.createEntryDetailed(CONTACT, "debt", 10, null);
+      await db.createEntryDetailed(CONTACT, "payment", 10, null);
+      const first = await eventLog.appendEntrySettled({ relationshipId: REL, currency: "AFN" });
+      const firstMarker = fixture
+        .prepare("SELECT * FROM settlements WHERE id=?")
+        .get(first.event_id);
+      const second = await eventLog.appendEntrySettled({ relationshipId: REL, currency: "AFN" });
+      assert.notEqual(first.event_id, second.event_id);
+      assert.equal(count("settlements"), 2, "distinct signed markers remain intact");
+      assert.deepEqual(await db.getSettlementSummary(CONTACT, "AFN"), {
+        count: 1,
+        lastSettledAtMs: 1_000,
+      });
+      assert.deepEqual(
+        fixture.prepare("SELECT * FROM settlements WHERE id=?").get(first.event_id),
+        firstMarker,
+      );
+      assert.equal(
+        (
+          fixture
+            .prepare("SELECT settled_at_ms FROM settlements WHERE id=?")
+            .get(second.event_id) as any
+        ).settled_at_ms,
+        1_000,
+      );
+      assert.equal((await db.getPerson(CONTACT, "AFN"))?.balance, 0);
+    } finally {
+      Date.now = realNow;
+    }
+  });
+  await test("backdated private tallies stay in the open settlement chapter and zero can settle", async () => {
+    const realNow = Date.now;
+    let now = 1_000;
+    Date.now = () => now;
+    try {
+      const save = (type: "debt" | "payment", amount: number, occurredAtMs: number) =>
+        db.createEntryDetailed(CONTACT, type, amount, null, { occurredAtMs, currency: "AFN" });
+      const oldGive = await save("debt", 3100, 100);
+      now = 2_000;
+      await save("payment", 3100, 200);
+      now = 3_000;
+      await eventLog.appendEntrySettled({ relationshipId: REL, currency: "AFN" });
+      assert.equal(
+        (await db.listAllPeopleForSearch(VAULT)).find((person) => person.id === CONTACT)
+          ?.is_settled,
+        1,
+      );
+      now = 4_000;
+      const backdated = await save("debt", 2660, 50);
+      now = 5_000;
+      const received = await save("payment", 2660, 5_000);
+      const rows = await db.listEntries(CONTACT);
+      const summary = await db.getSettlementSummary(CONTACT);
+      const open = rows.filter((row) => entryRecordedAt(row) > summary.lastSettledAtMs!);
+      assert.deepEqual(
+        new Set(open.map((row) => row.id)),
+        new Set([backdated.entry_id, received.entry_id]),
+      );
+      assert.equal(
+        open.reduce((balance, row) => balance + (row.type === "debt" ? 1 : -1) * row.amount_afn, 0),
+        0,
+      );
+      assert.equal((await db.getPerson(CONTACT))?.balance, 0);
+      assert.equal(
+        (await db.listAllPeopleForSearch(VAULT)).find((person) => person.id === CONTACT)
+          ?.is_settled,
+        0,
+        "a later zero chapter needs deliberate settlement",
+      );
+      assert.equal(summary.count, 1, "the backdated row cannot fabricate another closed chapter");
+      assert.equal((await db.getEntry(backdated.entry_id))?.recorded_at_ms, 4_000);
+      assert.equal(
+        (await db.listEntriesForExport(VAULT)).find((row) => row.id === backdated.entry_id)
+          ?.recorded_at_ms,
+        4_000,
+      );
+      // Editing the business date of an OPEN row must not freeze it into a
+      // closed chapter or change the money/order that the settlement covers.
+      await db.updateEntry(backdated.entry_id, 2660, "backdated correction", 25);
+      assert.equal((await db.getEntry(backdated.entry_id))?.recorded_at_ms, 4_000);
+      await assert.rejects(
+        db.updateEntry(oldGive.entry_id, 3100, "closed history"),
+        db.SettledChapterError,
+      );
+      const before = fixture
+        .prepare("SELECT id,type,amount_afn,created_at,field_hlcs FROM entries ORDER BY id")
+        .all();
+      now = 6_000;
+      await eventLog.appendEntrySettled({ relationshipId: REL, currency: "AFN" });
+      assert.equal(
+        (await db.listAllPeopleForSearch(VAULT)).find((person) => person.id === CONTACT)
+          ?.is_settled,
+        1,
+      );
+      assert.equal((await db.getSettlementSummary(CONTACT)).count, 2);
+      assert.deepEqual(
+        fixture
+          .prepare("SELECT id,type,amount_afn,created_at,field_hlcs FROM entries ORDER BY id")
+          .all(),
+        before,
+        "settling never edits dates, amounts or signed field history",
+      );
+      await assert.rejects(
+        db.updateEntry(backdated.entry_id, 2660, "after settlement"),
+        db.SettledChapterError,
+      );
+      await assert.rejects(db.softDeleteEntry(backdated.entry_id), db.SettledChapterError);
+      assert.equal((await db.getPerson(CONTACT))?.balance, 0);
+    } finally {
+      Date.now = realNow;
+    }
+  });
+  await test("private settlement uses recording time across future business dates and lagging/same-ms clocks", async () => {
+    const realNow = Date.now;
+    let now = 1_000;
+    Date.now = () => now;
+    try {
+      const save = (type: "debt" | "payment", occurredAtMs: number, currency = "AFN") =>
+        db.createEntryDetailed(CONTACT, type, 10, null, { occurredAtMs, currency });
+      await save("debt", 8_000_000);
+      await save("payment", 1);
+      await eventLog.appendEntrySettled({ relationshipId: REL, currency: "AFN" });
+      assert.equal(
+        (await db.getSettlementSummary(CONTACT)).lastSettledAtMs,
+        1_000,
+        "a future business day does not push the ruling-off time into the future",
+      );
+      now = 500;
+      const give = await save("debt", 10);
+      const receive = await save("payment", 20);
+      for (const id of [give.entry_id, receive.entry_id])
+        assert.equal((await db.getEntry(id))?.recorded_at_ms, 1_001);
+      assert.equal(
+        (await db.listAllPeopleForSearch(VAULT)).find((person) => person.id === CONTACT)
+          ?.is_settled,
+        0,
+      );
+      await eventLog.appendEntrySettled({ relationshipId: REL, currency: "AFN" });
+      assert.equal(
+        (await db.getSettlementSummary(CONTACT)).lastSettledAtMs,
+        1_001,
+        "a lagging device still covers the rows visible inside the write transaction",
+      );
+      assert.equal(
+        (await db.listAllPeopleForSearch(VAULT)).find((person) => person.id === CONTACT)
+          ?.is_settled,
+        1,
+      );
+      assert.equal((await db.getSettlementSummary(CONTACT)).count, 2);
+      const usd = await save("debt", 5, "USD");
+      assert.equal(
+        (await db.getEntry(usd.entry_id))?.recorded_at_ms,
+        500,
+        "AFN settlement cannot shift a USD save into another period",
+      );
+      assert.equal((await db.getPerson(CONTACT, "USD"))?.balance, 10);
+      assert.equal((await db.getPerson(CONTACT, "AFN"))?.balance, 0);
+    } finally {
+      Date.now = realNow;
+    }
+  });
+  await test("private currency edits check destination settlement by immutable recording time, never business date", async () => {
+    session.jwt = null;
+    fixture.exec(
+      "ALTER TABLE vaults ADD COLUMN archived_at INTEGER; ALTER TABLE entries ADD COLUMN original_currency TEXT",
+    );
+    const realNow = Date.now;
+    let now = 1_000;
+    Date.now = () => now;
+    try {
+      const save = (type: "debt" | "payment", currency: string, occurredAtMs = now) =>
+        db.createEntryDetailed(CONTACT, type, 10, null, { occurredAtMs, currency });
+      await save("debt", "USD");
+      await save("payment", "USD");
+      now = 2_000;
+      const older = await save("debt", "AFN", 100_000);
+      now = 3_000;
+      await eventLog.appendEntrySettled({ relationshipId: REL, currency: "USD" });
+      await assert.rejects(
+        db.updateEntry(older.entry_id, 10, null, 100_000, "USD"),
+        db.SettledChapterError,
+        "future business date cannot move an older recorded tally into a closed destination chapter",
+      );
+      now = 4_000;
+      const newer = await save("debt", "AFN", 1);
+      await db.updateEntry(newer.entry_id, 10, "moved", 1, "USD");
+      assert.equal(
+        (await db.getEntry(newer.entry_id))?.currency,
+        "USD",
+        "newly recorded backdated tally remains open in the destination",
+      );
+      assert.equal((await db.getEntry(newer.entry_id))?.recorded_at_ms, 4_000);
+      assert.equal(
+        (await db.listAllPeopleForSearch(VAULT, "USD")).find((person) => person.id === CONTACT)
+          ?.is_settled,
+        0,
+      );
+      assert.equal((await db.getPerson(CONTACT, "USD"))?.balance, 10);
+    } finally {
+      Date.now = realNow;
+    }
+  });
+  await test("an existing incoherent private chapter can be deliberately settled at full zero without rewriting history", async () => {
+    const realNow = Date.now;
+    let now = 1_000;
+    Date.now = () => now;
+    try {
+      await db.createEntryDetailed(CONTACT, "debt", 3100, null, { occurredAtMs: 100 });
+      await db.createEntryDetailed(CONTACT, "payment", 3100, null, { occurredAtMs: 200 });
+      // Older apps could choose a future cutoff from a BUSINESS date and
+      // later record a backdated tally under it. Preserve that exact evidence.
+      now = 2_000;
+      await eventLog.appendEntrySettled({ relationshipId: REL, settledAtMs: 10_000 });
+      fixture
+        .prepare(
+          `INSERT INTO entries(id,vault_id,relationship_id,type,amount_afn,currency,created_at,updated_at,field_hlcs)
+        VALUES('legacy-backdated',?,?,'debt',2660,'AFN',50,4000,?)`,
+        )
+        .run(VAULT, REL, JSON.stringify({ recorded_at_ms: { pms: 4000, l: 0, did: "" } }));
+      now = 20_000;
+      await db.createEntryDetailed(CONTACT, "payment", 2660, null, { occurredAtMs: 20_000 });
+      const rows = await db.listEntries(CONTACT);
+      const boundary = (await db.getSettlementSummary(CONTACT)).lastSettledAtMs!;
+      assert.equal(
+        rows
+          .filter((row) => entryRecordedAt(row) > boundary)
+          .reduce((sum, row) => sum + (row.type === "debt" ? 1 : -1) * row.amount_afn, 0),
+        -2660,
+        "the preserved legacy chapter is incoherent",
+      );
+      assert.equal((await db.getPerson(CONTACT))?.balance, 0);
+      assert.equal(
+        (await db.listAllPeopleForSearch(VAULT)).find((person) => person.id === CONTACT)
+          ?.is_settled,
+        0,
+        "zero alone does not silently clear the account",
+      );
+      const before = fixture.prepare("SELECT * FROM entries ORDER BY id").all();
+      await eventLog.appendEntrySettled({ relationshipId: REL });
+      assert.equal(
+        (await db.listAllPeopleForSearch(VAULT)).find((person) => person.id === CONTACT)
+          ?.is_settled,
+        1,
+      );
+      assert.equal((await db.getSettlementSummary(CONTACT)).lastSettledAtMs, 20_000);
+      assert.deepEqual(fixture.prepare("SELECT * FROM entries ORDER BY id").all(), before);
+      assert.equal(
+        (
+          fixture
+            .prepare("SELECT settled_at_ms FROM settlements ORDER BY settled_at_ms LIMIT 1")
+            .get() as any
+        ).settled_at_ms,
+        10_000,
+        "repair appends a real marker and preserves the old cutoff",
+      );
+    } finally {
+      Date.now = realNow;
+    }
+  });
+  await test("private settlement waits for pending credit money in either affected currency, not unrelated or resolved intents", async () => {
+    const given = (await db.createEntryDetailed(CONTACT, "debt", 10, null, { currency: "AFN" }))
+      .entry_id;
+    await db.createEntryDetailed(CONTACT, "payment", 10, null, { currency: "AFN" });
+    const intent = (id: string, eventType: string, payload: unknown, target = id) => {
+      fixture
+        .prepare(
+          `INSERT INTO event_log(event_id,event_type,vault_id,target_id,relationship_id,
+        hlc_physical_ms,hlc_logical,hlc_device_id,device_id,author_user_id_local_only,payload_json,payload_schema,appended_at,origin,ingested_at)
+        VALUES(?,?,?,?,?,1,0,'fixture-device','fixture-device',?,?,1,1,'local',1)`,
+        )
+        .run(id, eventType, VAULT, target, REL, SELF, JSON.stringify(payload));
+      fixture
+        .prepare(
+          "INSERT INTO credit_admission_intents(event_id,vault_id,relationship_id,status) VALUES(?,?,?,'pending')",
+        )
+        .run(id, VAULT, REL);
+    };
+    const settle = (currency: string) =>
+      eventLog.appendEntrySettled({ relationshipId: REL, currency });
+    const pendingError = (error: unknown) =>
+      error instanceof errors.TabApiError && error.code === "credit_confirmation_pending";
+    intent("pending-usd", "entry_created", {
+      entry_id: "pending-usd",
+      relationship_id: REL,
+      type: "debt",
+      amount_afn: 1,
+      currency: "USD",
+      occurred_at_ms: 1,
+      recorded_at_ms: 1,
+    });
+    await settle("AFN");
+    await assert.rejects(settle("USD"), pendingError);
+    fixture
+      .prepare("UPDATE credit_admission_intents SET status='refused' WHERE event_id='pending-usd'")
+      .run();
+    await settle("USD");
+    intent(
+      "pending-move",
+      "entry_amended",
+      { changes: { amount_afn: 10, currency: "USD" } },
+      given,
+    );
+    const before = count("settlements");
+    await assert.rejects(
+      settle("AFN"),
+      pendingError,
+      "a pending currency move still affects its source",
+    );
+    await assert.rejects(
+      settle("USD"),
+      pendingError,
+      "a pending currency move also affects its destination",
+    );
+    assert.equal(count("settlements"), before);
+    fixture.prepare("UPDATE event_log SET server_acked_at=10 WHERE event_id='pending-move'").run();
+    await assert.rejects(
+      settle("USD"),
+      pendingError,
+      "acknowledged but not projected money is still pending",
+    );
+    fixture.prepare("UPDATE event_log SET applied_at=10 WHERE event_id='pending-move'").run();
+    await settle("USD");
+    intent("pending-delete", "entry_deleted", {}, given);
+    await assert.rejects(settle("AFN"), pendingError);
+    await settle("USD");
+    fixture
+      .prepare(
+        "UPDATE credit_admission_intents SET status='refused' WHERE event_id='pending-delete'",
+      )
+      .run();
+    intent("pending-note", "entry_amended", { changes: { note: "does not move money" } }, given);
+    await settle("AFN");
+    assert.equal((await db.getPerson(CONTACT, "AFN"))?.balance, 0);
+    assert.equal(
+      count("entries"),
+      2,
+      "pending settlement checks never apply or discard financial intents",
+    );
+  });
   for (const scope of ["private", "shared-a", "shared-b"] as const) {
     for (const type of ["debt", "payment"] as const) {
       await test(`credit warnings survive ${scope} ${type} saves in both balance directions`, async () => {

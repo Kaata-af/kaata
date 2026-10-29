@@ -63,11 +63,13 @@ import { parseAmountInput } from "./money";
 import { signedEntryMinorSumSql } from "./money-sql";
 import { TabApiError, TabLinkedEntryError } from "./tabs/errors";
 import { unjoinedInvitationSql } from "./tabs/history";
-import { isValidEntryDate } from "./entry-date";
+import { entryRecordedAtSql, isValidEntryDate } from "./entry-date";
 import {
   getLedgerCurrencyCode,
   requireCurrencyCode,
   entryCurrencyMatchesSql,
+  effectiveEntryCurrencySql,
+  currencySqlLiteral,
 } from "./currency-scope";
 
 // Re-exported so existing callers that do `import { applyEvent,
@@ -273,6 +275,16 @@ export async function appendEntryCreated(args: {
           "shared_account_changed",
           "The shared history changed; retry this tally",
         );
+      // Private settlements also cut by immutable recording order. Compute
+      // this under the write lock so a same-millisecond or lagging clock,
+      // including a settlement that raced the form, cannot hide a new tally.
+      const privateBoundary = await tx.getFirstAsync<{ boundary: number | null }>(
+        `SELECT MAX(settled_at_ms) AS boundary FROM settlements s
+          WHERE s.vault_id=? AND s.relationship_id=? AND ${entryCurrencyMatchesSql("s", currency)}`,
+        vaultId,
+        args.relationshipId,
+      );
+      event.payload.recorded_at_ms = Math.max(recordedAtMs, (privateBoundary?.boundary ?? 0) + 1);
       return false;
     },
   });
@@ -295,10 +307,10 @@ export async function appendEntryCreated(args: {
 /**
  * Rule off a person's account ("settle up", 2026-07-27): append the chapter
  * marker that partitions their ledger into settled history and a fresh open
- * chapter. Caller must verify balance === 0 first — the UI only offers the
- * affordance then, and the zero-balance precondition is what keeps every
- * chapter self-contained (each nets to zero, so the total balance always
- * equals the current chapter's sum). Nothing is mutated or deleted; the
+ * chapter using immutable recording time. The full recorded balance must be
+ * zero and known financial intents must be resolved. This also lets the user
+ * recover an old date-partitioned chapter without rewriting historical money.
+ * Nothing is mutated or deleted; the
  * marker is an ordinary synced event, so chapters survive restore and
  * appear on every device.
  */
@@ -306,9 +318,8 @@ export async function appendEntrySettled(args: {
   relationshipId: string;
   currency?: string;
   /**
-   * Chapter boundary. Callers pass max(now, newest chapter entry + 1) so a
-   * device with a lagging clock can never rule a boundary that excludes
-   * entries it can already see. Defaults to now.
+   * Requested ruling-off time. The transaction also includes the newest
+   * immutable save time, so editable business dates never partition history.
    */
   settledAtMs?: number;
 }): Promise<{ event_id: string }> {
@@ -367,12 +378,57 @@ export async function appendEntrySettled(args: {
     // is enforced where it can't race.
     preflightAbort: async (tx) => {
       await assertPrivateGroupWrite(args.relationshipId, vaultId, tx);
-      const row = await tx.getFirstAsync<{ bal: number }>(
-        `SELECT ${signedEntryMinorSumSql("e")} AS bal
-           FROM entries e WHERE relationship_id = ? AND ${entryCurrencyMatchesSql("e", currency)}`,
+      // A durable credit intent has not changed recorded money yet. Do not
+      // freeze a chapter that a later acknowledgement could still change.
+      // Currency amendments affect BOTH their current source and destination.
+      const pending = await tx.getFirstAsync<{ one: number }>(
+        `SELECT 1 AS one FROM credit_admission_intents ci
+          JOIN event_log ce ON ce.event_id=ci.event_id
+          LEFT JOIN entries pe ON pe.id=ce.target_id AND pe.vault_id=ce.vault_id
+          WHERE ci.vault_id=? AND ci.relationship_id=? AND ci.status='pending'
+            AND ce.rejected_at IS NULL
+            AND (ce.server_acked_at IS NULL OR ce.applied_at IS NULL)
+            AND (
+              (ce.event_type='entry_created' AND
+                COALESCE(json_extract(ce.payload_json,'$.currency'),
+                  (SELECT COALESCE(v.legacy_currency,v.currency,'AFN') FROM vaults v WHERE v.id=ce.vault_id),'AFN')=${currencySqlLiteral(currency)})
+              OR (ce.event_type IN ('entry_amended','entry_deleted') AND
+                (ce.event_type='entry_deleted'
+                  OR json_type(ce.payload_json,'$.changes.amount_afn') IS NOT NULL
+                  OR json_type(ce.payload_json,'$.changes.type') IS NOT NULL
+                  OR json_type(ce.payload_json,'$.changes.currency') IS NOT NULL)
+                AND (pe.id IS NULL OR ${effectiveEntryCurrencySql("pe")}=${currencySqlLiteral(currency)}
+                  OR json_extract(ce.payload_json,'$.changes.currency')=${currencySqlLiteral(currency)}))
+            ) LIMIT 1`,
+        vaultId,
         args.relationshipId,
       );
-      return (row?.bal ?? 0) !== 0;
+      if (pending)
+        throw new TabApiError(
+          409,
+          "credit_confirmation_pending",
+          "Wait for pending credit changes before settling",
+        );
+      const row = await tx.getFirstAsync<{ bal: number; newest_recorded: number | null }>(
+        `SELECT ${signedEntryMinorSumSql("e")} AS bal,
+                MAX(CASE WHEN e.deleted_at IS NULL THEN ${entryRecordedAtSql("e")} END) AS newest_recorded
+           FROM entries e WHERE e.vault_id=? AND relationship_id = ? AND ${entryCurrencyMatchesSql("e", currency)}`,
+        vaultId,
+        args.relationshipId,
+      );
+      if ((row?.bal ?? 0) !== 0) return true;
+      const previous = await tx.getFirstAsync<{ boundary: number | null }>(
+        `SELECT MAX(s.settled_at_ms) AS boundary FROM settlements s
+          WHERE s.vault_id=? AND s.relationship_id=? AND ${entryCurrencyMatchesSql("s", currency)}`,
+        vaultId,
+        args.relationshipId,
+      );
+      event.payload.settled_at_ms = Math.max(
+        event.payload.settled_at_ms,
+        row?.newest_recorded ?? 0,
+        previous?.boundary ?? 0,
+      );
+      return false;
     },
   });
   if (!result.applied) {

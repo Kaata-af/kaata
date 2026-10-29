@@ -10,6 +10,7 @@ import type { Entry, Self } from "./types";
 import { countsTowardBalance } from "./export/shared-record";
 import { requireCurrencyCode } from "./currency-scope";
 import { toMinorUnits } from "./money";
+import { entryRecordedAt } from "./entry-date";
 import type { TabSettlement } from "./tabs/types";
 
 // The public endpoint rejects an oversized bill as a whole. Never publish a
@@ -76,9 +77,10 @@ async function uploadSharedLedger(args: {
       // document would have no description at all.
       note: e.note ?? (e.tab?.kind === "opening" ? tIn(args.lang, "tab.opening.note") : null),
       date: e.created_at,
+      recorded_at_ms: e.tab?.recorded_at ?? entryRecordedAt(e),
     })),
     // Settled-chapter structure (2026-07-27): the web view collapses entries
-    // dated at/before the boundary behind an "N settled accounts" row — the
+    // recorded at/before the boundary behind an "N settled accounts" row — the
     // customer sees the current account, with history one tap away. The
     // backend stores this payload verbatim (unknown fields pass through),
     // so no server change is needed; old payloads simply lack the fields.
@@ -286,6 +288,7 @@ export async function shareKaataCurrenciesViaWhatsApp(
       amount: entry.amount_afn,
       note: entry.note ?? (entry.tab?.kind === "opening" ? tIn(lang, "tab.opening.note") : null),
       date: entry.created_at,
+      recorded_at_ms: entry.tab?.recorded_at ?? entryRecordedAt(entry),
     };
   };
   const sections = statements.map((statement, index) => {
@@ -302,7 +305,9 @@ export async function shareKaataCurrenciesViaWhatsApp(
         .slice()
         .sort(
           (a, b) =>
-            (group.kind === "closed_shared" ? (a.tab?.seq ?? 0) - (b.tab?.seq ?? 0) : 0) ||
+            (group.kind === "closed_shared"
+              ? (a.tab?.seq ?? 0) - (b.tab?.seq ?? 0)
+              : entryRecordedAt(a) - entryRecordedAt(b)) ||
             a.created_at - b.created_at ||
             a.id.localeCompare(b.id),
         );
@@ -322,7 +327,7 @@ export async function shareKaataCurrenciesViaWhatsApp(
               .sort((a, b) => a - b)
               .map((date) => ({
                 after_entry_id:
-                  ordered.filter((entry) => entry.created_at <= date).at(-1)?.id ?? null,
+                  ordered.filter((entry) => entryRecordedAt(entry) <= date).at(-1)?.id ?? null,
                 date,
               }));
       return [
