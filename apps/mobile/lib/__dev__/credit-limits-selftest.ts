@@ -14,6 +14,7 @@ import { cacheCreditPolicies } from "../credit-policy-cache";
 import { Mutex } from "../util/mutex";
 import { toMinorUnits } from "../money";
 import { signedEntryMinorSumSql } from "../money-sql";
+import { effectiveEntryCurrencySql, isValidCurrencyCode } from "../currency-scope";
 import type { SQLiteTx } from "../db-tx";
 import { applyCurrencyMigration } from "./currency-fixture";
 import type {
@@ -112,6 +113,33 @@ function compile<T>(path: string, required: (name: string) => unknown): T {
   new Function("require", "exports", js)(required, exports);
   return exports as T;
 }
+// Reuse the shipped currency readers with the same SQLite fixture, without
+// importing the native database initialization or React hooks into Node.
+const dbAST = ts.createSourceFile("db.ts", dbSource, ts.ScriptTarget.Latest, true);
+const ledgerCurrencyDeclaration = dbAST.statements.find(
+  (node) => ts.isFunctionDeclaration(node) && node.name?.text === "listLedgerCurrencies",
+);
+assert.ok(ledgerCurrencyDeclaration, "actual ledger currency discovery");
+const ledgerCurrencyReaders = {} as Pick<typeof import("../db"), "listLedgerCurrencies">;
+new Function(
+  "exports",
+  "getDb",
+  "effectiveEntryCurrencySql",
+  "isValidCurrencyCode",
+  ts.transpileModule("export " + ledgerCurrencyDeclaration.getText(dbAST), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+  }).outputText,
+)(ledgerCurrencyReaders, async () => db, effectiveEntryCurrencySql, isValidCurrencyCode);
+const currencyReaders = compile<typeof import("../currency")>("../currency", (name) => {
+  if (name === "./db") return ledgerCurrencyReaders;
+  if (name === "./db-tx") return { getDb: async () => db };
+  if (name === "./i18n") return { getLocale: () => "en" };
+  if (name === "react") return {};
+  if (name === "./currency-scope") return require("../currency-scope");
+  if (name === "./currency-settings") return require("../currency-settings");
+  if (name === "./currency-catalog") return require("../currency-catalog");
+  throw Error(`unexpected currency reader import ${name}`);
+});
 const fieldHLCs = compile<typeof import("../projection/field-hlc")>(
   "../projection/field-hlc",
   (name) => {
@@ -162,6 +190,8 @@ const roleGate = compile<typeof import("../projection/role-gate")>(
   },
 );
 const credit = compile<typeof import("../credit-limits")>("../credit-limits", (name) => {
+  if (name === "./currency") return currencyReaders;
+  if (name === "./db") return ledgerCurrencyReaders;
   if (name === "./currency-scope") return require("../currency-scope");
   if (name === "./currency-sync")
     return { ...require("../currency-sync"), ensureCurrencySyncSupported: async () => {} };
@@ -1557,6 +1587,7 @@ async function run() {
 
   await currencyMoveWarningChecks();
   await directionalWarningChecks();
+  await currencySettingsChecks();
 
   // Owners and managers hear what a limit stopped (audit #24); nobody else
   // asks, and an older server's 404 is an empty list.
@@ -1620,6 +1651,105 @@ async function run() {
     "PASS actual signed-out/local paired role gate, mesh parity, offline clerk tallies unless a hard limit applies, stale-limit refusals leave the balance, clerk enrollment activation guard",
   );
 }
+async function currencySettingsChecks() {
+  fixture.exec(`CREATE TABLE IF NOT EXISTS vault_settings(vault_id TEXT,key TEXT,value TEXT,PRIMARY KEY(vault_id,key));
+    INSERT INTO vaults(id,currency,legacy_currency,default_entry_currency)
+      VALUES('v-credit-currencies','AFN','AFN','USD'),('v-credit-other','KRW','KRW','KRW');
+    INSERT INTO relationships(id,vault_id,user_b_id,created_at)
+      VALUES('r-credit-currencies','v-credit-currencies','p-credit-currencies',1),
+            ('r-credit-foreign','v-credit-currencies','p-credit-foreign',1),
+            ('r-credit-other','v-credit-other','p-credit-other',1);
+    INSERT INTO vault_settings VALUES('v-credit-currencies','default_entry_currency','"GBP"'),
+      ('v-credit-currencies','enabled_currencies','["USD","EUR","GBP"]');
+    INSERT INTO entries(id,vault_id,relationship_id,type,amount_afn,currency,created_at)
+      VALUES('credit-history-afn','v-credit-currencies','r-credit-currencies','debt',1,'AFN',1),
+            ('credit-history-aud','v-credit-currencies','r-credit-currencies','payment',1,'AUD',1),
+            ('credit-history-other','v-credit-other','r-credit-other','debt',1,'ZAR',1);
+    INSERT INTO tab_links(tab_id,vault_id,relationship_id,role,currency,linked_at)
+      VALUES('credit-history-chf','v-credit-currencies','r-credit-currencies','a','CHF',1);`);
+  const own: CreditPolicy = {
+    relationship_id: "r-credit-currencies",
+    currency: "USD",
+    max_collect_minor: 12345,
+    max_pay_minor: null,
+    mode: "warn",
+    restrict_editors: false,
+    updated_at_ms: 1,
+  };
+  const defaultUSD: CreditPolicy = {
+    ...own,
+    relationship_id: KAATA_DEFAULT_CREDIT_ID,
+    max_collect_minor: 1000,
+    max_pay_minor: 2000,
+    mode: "clerk_block",
+    restrict_editors: true,
+  };
+  await cacheCreditPolicies(
+    db,
+    "v-credit-currencies",
+    [
+      own,
+      { ...own, currency: "CAD", mode: "clerk_block", restrict_editors: true },
+      { ...own, relationship_id: "r-credit-foreign", currency: "SEK" },
+      defaultUSD,
+      { ...defaultUSD, currency: "NZD" },
+      { ...defaultUSD, currency: "AUD" },
+    ],
+    2,
+  );
+  await cacheCreditPolicies(db, "v-credit-other", [{ ...defaultUSD, currency: "KRW" }], 2);
+  const selectedBefore = require("../currency-scope").getLedgerCurrencyCode();
+  const settings = await credit.listCreditCurrencySettings(
+    "r-credit-currencies",
+    "v-credit-currencies",
+  );
+  assert.deepEqual(
+    settings.map((row) => row.currency),
+    ["GBP", "USD", "EUR", "AFN", "AUD", "CAD", "CHF", "NZD"],
+    "preferred and enabled currencies precede stable history/configured currencies, including disabled rules",
+  );
+  const byCode = new Map(settings.map((row) => [row.currency, row]));
+  assert.deepEqual(
+    byCode.get("USD"),
+    { currency: "USD", policy: own, defaultPolicy: defaultUSD },
+    "an explicit unlimited opposite cap stays distinct from the stricter default",
+  );
+  assert.equal(
+    byCode.get("CAD")?.policy?.restrict_editors,
+    true,
+    "SQLite editor restrictions normalize to boolean",
+  );
+  assert.equal(byCode.get("CAD")?.policy?.mode, "clerk_block");
+  assert.equal(byCode.get("NZD")?.policy, null, "a default-only currency remains inherited");
+  assert.equal(byCode.get("NZD")?.defaultPolicy?.restrict_editors, true);
+  assert.deepEqual(byCode.get("GBP"), { currency: "GBP", policy: null, defaultPolicy: null });
+  const defaults = await credit.listCreditCurrencySettings(
+    KAATA_DEFAULT_CREDIT_ID,
+    "v-credit-currencies",
+  );
+  assert.deepEqual(
+    defaults.map((row) => row.currency),
+    ["GBP", "USD", "EUR", "AFN", "AUD", "CHF", "NZD"],
+    "the default route excludes customer-only configurations and other vaults",
+  );
+  assert.deepEqual(
+    defaults.find((row) => row.currency === "USD"),
+    {
+      currency: "USD",
+      policy: defaultUSD,
+      defaultPolicy: null,
+    },
+  );
+  assert.equal(
+    require("../currency-scope").getLedgerCurrencyCode(),
+    selectedBefore,
+    "reading credit settings never changes the selected or write currency",
+  );
+  console.log(
+    "PASS multi-currency credit settings discover enabled/history/disabled rules, retain own/default policies and role flags, and isolate customer/vault scope",
+  );
+}
+
 async function directionalWarningChecks() {
   const caps = { max_collect_minor: 10000, max_pay_minor: 20000 };
   for (const scope of ["own", "inherited", "override", "currency"] as const) {

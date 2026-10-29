@@ -1,7 +1,9 @@
-import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
-import { useCallback, useRef, useState } from "react";
+import { Ionicons } from "@expo/vector-icons";
+import { useFocusEffect, useLocalSearchParams, usePreventRemove, useRouter } from "expo-router";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -13,15 +15,23 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "../../../components/Button";
+import { ConfirmDialog } from "../../../components/ConfirmDialog";
+import { CurrencyPickerSheet } from "../../../components/CurrencyPickerSheet";
 import { SelectionMark } from "../../../components/SelectionMark";
 import { ScreenHeader } from "../../../components/SettingsScreen";
 import { useToast } from "../../../components/Toast";
 import { colors } from "../../../lib/colors";
-import { currencyNeedsPrecisionHint, getCurrencyLabel, useCurrency } from "../../../lib/currency";
 import {
+  currencyNeedsPrecisionHint,
+  getCurrencyLabel,
+  getCurrencyName,
+} from "../../../lib/currency";
+import {
+  type CreditCurrencySettings,
   type CreditPolicy,
   KAATA_DEFAULT_CREDIT_ID,
-  readCreditPolicy,
+  listCreditCurrencySettings,
+  creditBalanceInTx,
   refreshCreditPolicies,
   relationshipForCredit,
   saveCreditPolicy,
@@ -29,7 +39,7 @@ import {
   CreditOnlineSaveRequiredError,
 } from "../../../lib/credit-limits";
 import { KAATA_DEFAULT_ROUTE_ID } from "../../../lib/credit-policy";
-import { getActiveVaultIdSyncMaybe } from "../../../lib/db-tx";
+import { getActiveVaultIdSyncMaybe, getDb } from "../../../lib/db-tx";
 import {
   applyForUnchangedLocalSession,
   captureCurrentSession,
@@ -39,10 +49,35 @@ import {
 import { rowDir, textDir, useIsRTL } from "../../../lib/direction";
 import { getPerson } from "../../../lib/db";
 import { fonts, sansLineHeight } from "../../../lib/fonts";
+import { formatAmount } from "../../../lib/format";
 import { t } from "../../../lib/i18n";
 import { fromMinorUnits, normalizeAmountInput, toMinorUnits } from "../../../lib/money";
 import { readVaultRole, useActiveVaultWriteCaps } from "../../../lib/use-vault-role";
 
+type Draft = {
+  collect: string;
+  pay: string;
+  mode: CreditPolicy["mode"];
+  restrictEditors: boolean;
+  dirty: boolean;
+};
+type Context = {
+  vaultId: string;
+  relationshipId: string;
+  session: SessionSnapshot;
+  lifetime: number;
+};
+function draftFor(row: CreditCurrencySettings): Draft {
+  const policy = row.policy ?? row.defaultPolicy;
+  return {
+    collect:
+      policy?.max_collect_minor == null ? "" : String(fromMinorUnits(policy.max_collect_minor)),
+    pay: policy?.max_pay_minor == null ? "" : String(fromMinorUnits(policy.max_pay_minor)),
+    mode: policy?.mode ?? "warn",
+    restrictEditors: !!policy?.restrict_editors,
+    dirty: false,
+  };
+}
 function parseCap(raw: string): number | null | undefined {
   const normalized = normalizeAmountInput(raw);
   if (!normalized) return null;
@@ -57,26 +92,25 @@ export default function CreditLimitScreen() {
   const router = useRouter();
   const toast = useToast();
   const isRTL = useIsRTL();
-  const currencyCode = useCurrency();
-  const currency = getCurrencyLabel(currencyCode);
-  const [collect, setCollect] = useState("");
-  const [pay, setPay] = useState("");
-  const [mode, setMode] = useState<CreditPolicy["mode"]>("warn");
-  const [restrictEditors, setRestrictEditors] = useState(false);
-  const [context, setContext] = useState<{
-    vaultId: string;
-    relationshipId: string;
-    session: SessionSnapshot;
-    lifetime: number;
-    currency: string;
-  } | null>(null);
-  const [canSave, setCanSave] = useState(false);
-  // Whose limits these are: the screen used to name no one (audit #24).
-  const [customerName, setCustomerName] = useState<string | null>(null);
-  // The kaata-wide default (no customer), and for a customer whether the
-  // default covers them while they have no limit of their own.
   const isDefault = id === KAATA_DEFAULT_ROUTE_ID;
-  const [inheritsDefault, setInheritsDefault] = useState(false);
+  const [context, setContext] = useState<Context | null>(null);
+  const [settings, setSettings] = useState<CreditCurrencySettings[]>([]);
+  const settingsRef = useRef(settings);
+  const [drafts, setDrafts] = useState<Record<string, Draft>>({});
+  const draftsRef = useRef(drafts);
+  // Protect both unsaved edits and successful saves from an older in-flight refresh.
+  const touched = useRef(new Set<string>());
+  const [currencyCode, setCurrencyCode] = useState<string | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [canSave, setCanSave] = useState(false);
+  const [customerName, setCustomerName] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [balance, setBalance] = useState<{ currency: string; minor: number } | null>(null);
+  const [discardOpen, setDiscardOpen] = useState(false);
+  const leave = useRef<(() => void) | null>(null);
+  const saving = useRef<symbol | null>(null);
+  const lifetime = useRef(0);
   const liveVaultId = context?.vaultId ?? null;
   const caps = useActiveVaultWriteCaps(liveVaultId);
   const editable =
@@ -84,114 +118,218 @@ export default function CreditLimitScreen() {
     canSave &&
     caps.resolved &&
     caps.canConfigureCredit &&
-    context.currency === currencyCode &&
     getActiveVaultIdSyncMaybe() === liveVaultId;
-  const [busy, setBusy] = useState(false);
   const controlsDisabled = !editable || busy;
-  const [error, setError] = useState<string | null>(null);
-  const saving = useRef(false);
-  const lifetime = useRef(0);
-  const editVersion = useRef(0);
+  const selected = settings.find((row) => row.currency === currencyCode);
+  const draft = currencyCode ? drafts[currencyCode] : undefined;
+  const dirtyCount = Object.values(drafts).filter((value) => value.dirty).length;
+  const disablePrevention = usePreventRemove(
+    !!context && getActiveVaultIdSyncMaybe() === context.vaultId && (busy || dirtyCount > 0),
+    ({ repeat }) => {
+      if (saving.current) return;
+      leave.current = repeat;
+      setDiscardOpen(true);
+    },
+  );
+
   useFocusEffect(
     useCallback(() => {
       let alive = true;
       const focus = ++lifetime.current;
-      editVersion.current = 0;
       const vaultId = getActiveVaultIdSyncMaybe();
+      saving.current = null;
+      setBusy(false);
+      setDiscardOpen(false);
+      leave.current = null;
+      touched.current = new Set();
+      settingsRef.current = [];
+      draftsRef.current = {};
+      setSettings([]);
+      setDrafts({});
       setContext(null);
+      setCustomerName(null);
+      setCurrencyCode(null);
+      setPickerOpen(false);
       setCanSave(false);
+      setError(null);
+      const current = () =>
+        alive && lifetime.current === focus && getActiveVaultIdSyncMaybe() === vaultId;
+      const applyRows = (rows: CreditCurrencySettings[]) => {
+        const next = rows.map((row) =>
+          touched.current.has(row.currency)
+            ? (settingsRef.current.find((old) => old.currency === row.currency) ?? row)
+            : row,
+        );
+        for (const old of settingsRef.current) {
+          if (
+            touched.current.has(old.currency) &&
+            !next.some((row) => row.currency === old.currency)
+          )
+            next.push(old);
+        }
+        const nextDrafts = Object.fromEntries(
+          next.map((row) => [
+            row.currency,
+            touched.current.has(row.currency) && draftsRef.current[row.currency]
+              ? draftsRef.current[row.currency]
+              : draftFor(row),
+          ]),
+        );
+        settingsRef.current = next;
+        draftsRef.current = nextDrafts;
+        setSettings(next);
+        setDrafts(nextDrafts);
+        setCurrencyCode((code) =>
+          next.some((row) => row.currency === code) ? code : (next[0]?.currency ?? null),
+        );
+      };
       void (async () => {
         if (!id || !vaultId || (routeVaultId && routeVaultId !== vaultId)) return;
         const session = await captureCurrentSession();
         const relationshipId = isDefault
           ? KAATA_DEFAULT_CREDIT_ID
           : await relationshipForCredit(id, vaultId);
-        const p = await readCreditPolicy(relationshipId, vaultId, currencyCode);
-        const covered =
-          !isDefault &&
-          !p &&
-          (await readCreditPolicy(KAATA_DEFAULT_CREDIT_ID, vaultId, currencyCode)) != null;
-        const role = await readVaultRole(vaultId, session.accountId);
-        const customer = isDefault ? null : await getPerson(id);
+        const [rows, role, customer] = await Promise.all([
+          listCreditCurrencySettings(relationshipId, vaultId),
+          readVaultRole(vaultId, session.accountId),
+          isDefault ? null : getPerson(id),
+        ]);
         await applyForUnchangedLocalSession(session, async () => {
-          if (!alive || lifetime.current !== focus || getActiveVaultIdSyncMaybe() !== vaultId)
-            return;
+          if (!current()) return;
           setCustomerName(customer?.name ?? null);
-          setContext({ vaultId, relationshipId, session, lifetime: focus, currency: currencyCode });
-          setCollect(
-            p?.max_collect_minor == null ? "" : String(fromMinorUnits(p.max_collect_minor)),
-          );
-          setPay(p?.max_pay_minor == null ? "" : String(fromMinorUnits(p.max_pay_minor)));
-          setMode(p?.mode ?? "warn");
-          setRestrictEditors(!!p?.restrict_editors);
-          setInheritsDefault(covered);
+          setContext({ vaultId, relationshipId, session, lifetime: focus });
           setCanSave(role === "owner" || role === "manager");
+          applyRows(rows);
         });
+        if (!current()) return;
         await refreshCreditPolicies(vaultId, session).catch(() => undefined);
-        const fresh = await readCreditPolicy(relationshipId, vaultId, currencyCode);
+        const fresh = await listCreditCurrencySettings(relationshipId, vaultId);
         await applyForUnchangedLocalSession(session, async () => {
-          if (
-            !alive ||
-            lifetime.current !== focus ||
-            editVersion.current !== 0 ||
-            getActiveVaultIdSyncMaybe() !== vaultId
-          )
-            return;
-          setCollect(
-            fresh?.max_collect_minor == null ? "" : String(fromMinorUnits(fresh.max_collect_minor)),
-          );
-          setPay(fresh?.max_pay_minor == null ? "" : String(fromMinorUnits(fresh.max_pay_minor)));
-          setMode(fresh?.mode ?? "warn");
-          setRestrictEditors(!!fresh?.restrict_editors);
+          if (current()) applyRows(fresh);
         });
       })().catch((err) => {
-        // A failed LOAD is not a failed save.
-        if (alive && lifetime.current === focus && !(err instanceof SessionChangedError))
-          setError(t("credit.loadFailed"));
+        if (current() && !(err instanceof SessionChangedError)) setError(t("credit.loadFailed"));
       });
       return () => {
         alive = false;
         lifetime.current++;
       };
-    }, [id, routeVaultId, isDefault, currencyCode]),
+    }, [id, routeVaultId, isDefault]),
   );
+
+  useEffect(() => {
+    let alive = true;
+    setBalance(null);
+    if (!context || !currencyCode || isDefault) return;
+    const scope = context;
+    void (async () => {
+      const minor = await creditBalanceInTx(
+        await getDb(),
+        scope.vaultId,
+        scope.relationshipId,
+        currencyCode,
+      );
+      await applyForUnchangedLocalSession(scope.session, async () => {
+        if (
+          alive &&
+          lifetime.current === scope.lifetime &&
+          getActiveVaultIdSyncMaybe() === scope.vaultId
+        )
+          setBalance({ currency: currencyCode, minor });
+      });
+    })().catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [context, currencyCode, isDefault]);
+
+  function changeDraft(change: Partial<Draft>) {
+    if (!editable || saving.current || !currencyCode || !draftsRef.current[currencyCode]) return;
+    if (
+      !context ||
+      lifetime.current !== context.lifetime ||
+      getActiveVaultIdSyncMaybe() !== context.vaultId
+    )
+      return;
+    touched.current.add(currencyCode);
+    const value = { ...draftsRef.current[currencyCode], ...change };
+    const row = settingsRef.current.find((item) => item.currency === currencyCode);
+    if (!row) return;
+    const original = draftFor(row);
+    value.dirty =
+      parseCap(value.collect) !== parseCap(original.collect) ||
+      parseCap(value.pay) !== parseCap(original.pay) ||
+      value.mode !== original.mode ||
+      value.restrictEditors !== original.restrictEditors;
+    const next = {
+      ...draftsRef.current,
+      [currencyCode]: value,
+    };
+    draftsRef.current = next;
+    setDrafts(next);
+    setError(null);
+  }
   async function save() {
-    if (!context || !editable || saving.current) return;
-    const maxCollect = parseCap(collect);
-    const maxPay = parseCap(pay);
+    if (!context || !editable || saving.current || !currencyCode) return;
+    if (lifetime.current !== context.lifetime || getActiveVaultIdSyncMaybe() !== context.vaultId)
+      return;
+    const code = currencyCode;
+    const value = draftsRef.current[code];
+    if (!value) return;
+    const maxCollect = parseCap(value.collect);
+    const maxPay = parseCap(value.pay);
     if (maxCollect === undefined || maxPay === undefined) {
       setError(t("credit.limitInvalid"));
       return;
     }
-    if (getActiveVaultIdSyncMaybe() !== context.vaultId) return;
-    saving.current = true;
+    const saveAttempt = Symbol("credit-save");
+    saving.current = saveAttempt;
     setBusy(true);
     setError(null);
     try {
-      await saveCreditPolicy(
+      const saved = await saveCreditPolicy(
         context.vaultId,
         {
           relationship_id: context.relationshipId,
-          currency: context.currency,
+          currency: code,
           max_collect_minor: maxCollect,
           max_pay_minor: maxPay,
-          mode,
-          restrict_editors: restrictEditors,
+          mode: value.mode,
+          restrict_editors: value.restrictEditors,
           updated_at_ms: 0,
         },
         context.session,
       );
       await applyForUnchangedLocalSession(context.session, async () => {
         if (
-          lifetime.current === context.lifetime &&
-          getActiveVaultIdSyncMaybe() === context.vaultId
-        ) {
-          toast.push(t("credit.saved"), "success");
+          lifetime.current !== context.lifetime ||
+          getActiveVaultIdSyncMaybe() !== context.vaultId
+        )
+          return;
+        touched.current.add(code);
+        const rows = settingsRef.current.map((row) =>
+          row.currency === code ? { ...row, policy: saved } : row,
+        );
+        settingsRef.current = rows;
+        setSettings(rows);
+        const next = {
+          ...draftsRef.current,
+          [code]: draftFor({ currency: code, policy: saved, defaultPolicy: null }),
+        };
+        draftsRef.current = next;
+        setDrafts(next);
+        toast.push(t("credit.saved"), "success");
+        if (rows.length === 1) {
+          disablePrevention();
           router.back();
         }
       });
     } catch (err) {
-      if (lifetime.current === context.lifetime && !(err instanceof SessionChangedError))
+      if (
+        lifetime.current === context.lifetime &&
+        getActiveVaultIdSyncMaybe() === context.vaultId &&
+        !(err instanceof SessionChangedError)
+      )
         setError(
           t(
             err instanceof ClerkCloudEnrollmentRequiredError
@@ -202,9 +340,33 @@ export default function CreditLimitScreen() {
           ),
         );
     } finally {
-      saving.current = false;
-      setBusy(false);
+      if (saving.current === saveAttempt) {
+        saving.current = null;
+        if (lifetime.current === context.lifetime) setBusy(false);
+      }
     }
+  }
+  function usage(raw: string, direction: "collect" | "pay") {
+    if (!balance || balance.currency !== currencyCode) return null;
+    const outstanding = Math.max(0, direction === "collect" ? balance.minor : -balance.minor);
+    const cap = parseCap(raw);
+    return (
+      <View style={styles.usage}>
+        <Text style={[styles.help, textDir(isRTL)]}>
+          {t("credit.outstanding", { amount: formatAmount(fromMinorUnits(outstanding)) })}
+        </Text>
+        {cap != null ? (
+          <Text style={[styles.help, textDir(isRTL), outstanding > cap && styles.error]}>
+            {t(outstanding > cap ? "credit.limitOver" : "credit.limitLeft", {
+              limit: formatAmount(fromMinorUnits(cap)),
+              [outstanding > cap ? "over" : "left"]: formatAmount(
+                fromMinorUnits(Math.abs(cap - outstanding)),
+              ),
+            })}
+          </Text>
+        ) : null}
+      </View>
+    );
   }
   return (
     <SafeAreaView style={styles.screen}>
@@ -214,8 +376,6 @@ export default function CreditLimitScreen() {
         isRTL={isRTL}
         backDisabled={busy}
       />
-      {/* Android does not resize for the keyboard; without this the decimal
-          pad covered Save (audit #24). iOS adjusts the ScrollView insets. */}
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior="height"
@@ -234,106 +394,191 @@ export default function CreditLimitScreen() {
           {context === null && !error ? <ActivityIndicator color={colors.textDefault} /> : null}
           {isDefault ? (
             <Text style={[styles.help, textDir(isRTL)]}>{t("credit.defaultHelp")}</Text>
-          ) : inheritsDefault ? (
-            <Text style={[styles.help, textDir(isRTL)]}>{t("credit.usesDefault")}</Text>
           ) : null}
-          <Text style={[styles.label, textDir(isRTL)]}>
-            {t("credit.maxCollect")} ({currency})
-          </Text>
-          <TextInput
-            style={[styles.input, textDir(isRTL), controlsDisabled && styles.inputDisabled]}
-            value={collect}
-            onChangeText={(v) => {
-              editVersion.current++;
-              setCollect(normalizeAmountInput(v));
-            }}
-            placeholder={t("credit.unlimited")}
-            keyboardType="decimal-pad"
-            editable={editable && !busy}
-            accessibilityState={{ disabled: controlsDisabled }}
-            accessibilityLabel={`${t("credit.maxCollect")} (${currency})`}
-          />
-          <Text style={[styles.label, textDir(isRTL)]}>
-            {t("credit.maxPay")} ({currency})
-          </Text>
-          <TextInput
-            style={[styles.input, textDir(isRTL), controlsDisabled && styles.inputDisabled]}
-            value={pay}
-            onChangeText={(v) => {
-              editVersion.current++;
-              setPay(normalizeAmountInput(v));
-            }}
-            placeholder={t("credit.unlimited")}
-            keyboardType="decimal-pad"
-            editable={editable && !busy}
-            accessibilityState={{ disabled: controlsDisabled }}
-            accessibilityLabel={`${t("credit.maxPay")} (${currency})`}
-          />
-          {currencyNeedsPrecisionHint(currencyCode) ? (
-            <Text style={[styles.help, textDir(isRTL)]}>{t("currency.precisionHint")}</Text>
-          ) : null}
-          <Text style={[styles.help, textDir(isRTL)]}>{t("credit.zeroHelp")}</Text>
-          <Text style={[styles.help, textDir(isRTL)]}>{t("credit.modeHelp")}</Text>
-          <View
-            style={[styles.modeCard, controlsDisabled && styles.modeCardDisabled]}
-            accessibilityRole="radiogroup"
-          >
-            {(["warn", "clerks", "editors"] as const).map((choice, index) => {
-              const selected =
-                choice === "warn"
-                  ? mode === "warn"
-                  : mode === "clerk_block" && restrictEditors === (choice === "editors");
-              return (
-                <Pressable
-                  key={choice}
-                  accessibilityRole="radio"
-                  accessibilityState={{ checked: selected, disabled: controlsDisabled }}
-                  disabled={controlsDisabled}
-                  style={({ pressed }) => [
-                    styles.modeRow,
-                    rowDir(isRTL),
-                    index > 0 && styles.modeDivider,
-                    selected && styles.modeSelected,
-                    controlsDisabled && styles.modeDisabled,
-                    pressed && !controlsDisabled && { opacity: 0.65 },
-                  ]}
-                  onPress={() => {
-                    editVersion.current++;
-                    setMode(choice === "warn" ? "warn" : "clerk_block");
-                    setRestrictEditors(choice === "editors");
-                  }}
-                >
-                  <SelectionMark selected={selected} disabled={controlsDisabled} />
-                  <Text
-                    style={[
-                      styles.modeLabel,
-                      textDir(isRTL),
-                      controlsDisabled && { color: colors.textMuted },
-                    ]}
+          {selected && draft ? (
+            <>
+              <View style={styles.currencySection}>
+                <Text style={[styles.label, textDir(isRTL)]}>{t("credit.currency")}</Text>
+                {settings.length > 1 ? (
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={t("credit.currency")}
+                    accessibilityState={{ expanded: pickerOpen, disabled: busy }}
+                    disabled={busy}
+                    onPress={() => {
+                      if (!saving.current) {
+                        Keyboard.dismiss();
+                        setPickerOpen(true);
+                      }
+                    }}
+                    style={[styles.currencySelect, rowDir(isRTL), busy && styles.inputDisabled]}
                   >
-                    {t(
-                      choice === "warn"
-                        ? "credit.warnMode"
-                        : choice === "clerks"
-                          ? "credit.hardMode"
-                          : "credit.editorsMode",
-                    )}
+                    <View style={styles.currencyText}>
+                      <Text style={[styles.currencyCode, textDir(isRTL)]}>
+                        {getCurrencyLabel(selected.currency)}
+                      </Text>
+                      <Text style={[styles.help, textDir(isRTL)]}>
+                        {getCurrencyName(selected.currency)}
+                      </Text>
+                    </View>
+                    <Ionicons name="chevron-down" size={18} color={colors.textMuted} />
+                  </Pressable>
+                ) : (
+                  <Text style={[styles.currencyCode, textDir(isRTL)]}>
+                    {getCurrencyLabel(selected.currency)}
                   </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-          <Text style={[styles.help, textDir(isRTL)]}>{t("credit.hardHelp")}</Text>
-          <Text style={[styles.help, textDir(isRTL)]}>{t("credit.onlineSave")}</Text>
-          {error ? <Text style={[styles.error, textDir(isRTL)]}>{error}</Text> : null}
-          <Button
-            label={t("credit.save")}
-            onPress={() => void save()}
-            disabled={!editable || busy}
-            loading={busy}
-          />
+                )}
+                <Text style={[styles.help, textDir(isRTL)]}>{t("credit.currencyHelp")}</Text>
+                {dirtyCount > 0 && settings.length > 1 ? (
+                  <Text style={[styles.help, textDir(isRTL)]}>
+                    {t("credit.unsavedCurrencies", { count: dirtyCount })}
+                  </Text>
+                ) : null}
+              </View>
+              {!isDefault && !selected.policy && selected.defaultPolicy ? (
+                <Text style={[styles.help, textDir(isRTL)]}>{t("credit.usesDefault")}</Text>
+              ) : null}
+              <Text style={[styles.help, textDir(isRTL)]}>{t("credit.balanceHelp")}</Text>
+              <Text style={[styles.label, textDir(isRTL)]}>
+                {t("credit.maxCollect")} ({getCurrencyLabel(selected.currency)})
+              </Text>
+              <TextInput
+                style={[styles.input, textDir(isRTL), controlsDisabled && styles.inputDisabled]}
+                value={draft.collect}
+                onChangeText={(value) => changeDraft({ collect: normalizeAmountInput(value) })}
+                placeholder={t("credit.unlimited")}
+                keyboardType="decimal-pad"
+                editable={!controlsDisabled}
+                accessibilityState={{ disabled: controlsDisabled }}
+                accessibilityLabel={`${t("credit.maxCollect")} (${selected.currency})`}
+              />
+              {usage(draft.collect, "collect")}
+              <Text style={[styles.label, textDir(isRTL)]}>
+                {t("credit.maxPay")} ({getCurrencyLabel(selected.currency)})
+              </Text>
+              <TextInput
+                style={[styles.input, textDir(isRTL), controlsDisabled && styles.inputDisabled]}
+                value={draft.pay}
+                onChangeText={(value) => changeDraft({ pay: normalizeAmountInput(value) })}
+                placeholder={t("credit.unlimited")}
+                keyboardType="decimal-pad"
+                editable={!controlsDisabled}
+                accessibilityState={{ disabled: controlsDisabled }}
+                accessibilityLabel={`${t("credit.maxPay")} (${selected.currency})`}
+              />
+              {usage(draft.pay, "pay")}
+              {currencyNeedsPrecisionHint(selected.currency) ? (
+                <Text style={[styles.help, textDir(isRTL)]}>{t("currency.precisionHint")}</Text>
+              ) : null}
+              <Text style={[styles.help, textDir(isRTL)]}>{t("credit.zeroHelp")}</Text>
+              <Text style={[styles.help, textDir(isRTL)]}>{t("credit.modeHelp")}</Text>
+              <View
+                style={[styles.modeCard, controlsDisabled && styles.modeCardDisabled]}
+                accessibilityRole="radiogroup"
+              >
+                {(["warn", "clerks", "editors"] as const).map((choice, index) => {
+                  const checked =
+                    choice === "warn"
+                      ? draft.mode === "warn"
+                      : draft.mode === "clerk_block" &&
+                        draft.restrictEditors === (choice === "editors");
+                  return (
+                    <Pressable
+                      key={choice}
+                      accessibilityRole="radio"
+                      accessibilityState={{ checked, disabled: controlsDisabled }}
+                      disabled={controlsDisabled}
+                      style={({ pressed }) => [
+                        styles.modeRow,
+                        rowDir(isRTL),
+                        index > 0 && styles.modeDivider,
+                        checked && styles.modeSelected,
+                        controlsDisabled && styles.modeDisabled,
+                        pressed && !controlsDisabled && { opacity: 0.65 },
+                      ]}
+                      onPress={() =>
+                        changeDraft({
+                          mode: choice === "warn" ? "warn" : "clerk_block",
+                          restrictEditors: choice === "editors",
+                        })
+                      }
+                    >
+                      <SelectionMark selected={checked} disabled={controlsDisabled} />
+                      <Text
+                        style={[
+                          styles.modeLabel,
+                          textDir(isRTL),
+                          controlsDisabled && { color: colors.textMuted },
+                        ]}
+                      >
+                        {t(
+                          choice === "warn"
+                            ? "credit.warnMode"
+                            : choice === "clerks"
+                              ? "credit.hardMode"
+                              : "credit.editorsMode",
+                        )}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+              <Text style={[styles.help, textDir(isRTL)]}>{t("credit.hardHelp")}</Text>
+              <Text style={[styles.help, textDir(isRTL)]}>{t("credit.onlineSave")}</Text>
+              {error ? <Text style={[styles.error, textDir(isRTL)]}>{error}</Text> : null}
+              <Button
+                label={
+                  settings.length > 1
+                    ? t("credit.saveCurrency", { currency: selected.currency })
+                    : t("credit.save")
+                }
+                onPress={() => void save()}
+                disabled={controlsDisabled}
+                loading={busy}
+              />
+            </>
+          ) : error ? (
+            <Text style={[styles.error, textDir(isRTL)]}>{error}</Text>
+          ) : null}
         </ScrollView>
       </KeyboardAvoidingView>
+      <CurrencyPickerSheet
+        visible={pickerOpen && !!context && getActiveVaultIdSyncMaybe() === context.vaultId}
+        selectedCode={currencyCode ?? ""}
+        title={t("credit.currency")}
+        allowedCurrencies={settings.map((row) => row.currency)}
+        disabled={busy}
+        onSelect={(code) => {
+          if (
+            !context ||
+            lifetime.current !== context.lifetime ||
+            getActiveVaultIdSyncMaybe() !== context.vaultId
+          )
+            return;
+          if (saving.current || !settingsRef.current.some((row) => row.currency === code)) return;
+          setCurrencyCode(code);
+          setPickerOpen(false);
+          setError(null);
+        }}
+        onDismiss={() => setPickerOpen(false)}
+      />
+      <ConfirmDialog
+        visible={discardOpen && !!context && getActiveVaultIdSyncMaybe() === context.vaultId}
+        title={t("credit.discardTitle")}
+        description={t("credit.discardHelp")}
+        confirmLabel={t("credit.discard")}
+        onCancel={() => {
+          leave.current = null;
+          setDiscardOpen(false);
+        }}
+        onConfirm={() => {
+          setDiscardOpen(false);
+          disablePrevention();
+          const action = leave.current;
+          leave.current = null;
+          action?.();
+        }}
+      />
     </SafeAreaView>
   );
 }
@@ -353,6 +598,18 @@ const styles = StyleSheet.create({
   modeLabel: { fontFamily: fonts.sansMedium, fontSize: 14, color: colors.textEmphasis, flex: 1 },
   screen: { flex: 1, backgroundColor: colors.bgDefault },
   body: { padding: 20, gap: 12 },
+  currencySection: { gap: 8 },
+  currencySelect: {
+    borderWidth: 1,
+    borderColor: colors.borderDefault,
+    borderRadius: 12,
+    padding: 14,
+    alignItems: "center",
+    gap: 12,
+  },
+  currencyText: { flex: 1, gap: 4 },
+  currencyCode: { fontFamily: fonts.sansMedium, fontSize: 18, color: colors.textEmphasis },
+  usage: { gap: 2 },
   label: { fontFamily: fonts.sansMedium, fontSize: 15, color: colors.textDefault },
   input: {
     borderWidth: 1,
@@ -376,5 +633,4 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
   },
   error: { fontFamily: fonts.sansRegular, color: colors.danger, fontSize: 14 },
-  gap: { height: 0 },
 });

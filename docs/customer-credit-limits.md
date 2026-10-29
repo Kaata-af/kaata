@@ -33,11 +33,26 @@ sentinel identity must sign in and sync before enforcement can be configured.
 
 ## Customer policy
 
-Each customer relationship has two optional amounts in the kaata's currency:
+Each customer relationship has two optional amounts for each currency:
 maximum **they owe us** and maximum **we owe them**. Storage uses exact integer
 hundredths. Blank means unlimited; zero forbids new exposure in that direction.
 A customer's own policy wins over the kaata-wide default, including an explicit
 warn-only policy. The default covers future customers and re-added contacts.
+Currencies remain independent: an AFN limit never governs or converts a USD
+balance. The Kaata default can also specify different limits and restriction
+modes for every currency.
+
+The credit-settings screen has a searchable currency selector when more than
+one currency is available. It includes enabled currencies, ledger history, and
+currencies with customer/default rules, so disabling a currency does not hide
+its existing limit. Each currency keeps its own draft while switching. Save
+applies only to the displayed currency and stays on a multi-currency form;
+leaving with unsaved drafts requires confirmation. Customer settings display
+the current exposure and remaining credit separately for each direction, using
+the same pending-inclusive balance reader as enforcement. An inherited rule is
+shown with its real values; saving it creates a customer-specific override for
+that currency. Blank caps create an explicit unlimited override, not a reset to
+inheritance. There is no policy-delete/reset API in this change.
 
 The screen offers three choices:
 

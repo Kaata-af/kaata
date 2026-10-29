@@ -28,6 +28,7 @@ import {
   currencySqlLiteral,
   effectiveEntryCurrencySql,
   entryCurrencyMatchesSql,
+  isValidCurrencyCode,
   requireCurrencyCode,
 } from "./currency-scope";
 import { emitCreditPoliciesChanged } from "./credit-policy-events";
@@ -108,6 +109,57 @@ export async function readCreditPolicy(
     currencyCode,
   );
   return row ? { ...row, restrict_editors: !!row.restrict_editors } : null;
+}
+
+export type CreditCurrencySettings = {
+  currency: string;
+  policy: CreditPolicy | null;
+  defaultPolicy: CreditPolicy | null;
+};
+
+/** Settings include disabled denominations that still have history or a rule.
+ * A customer's explicit rule stays distinct from the inherited Kaata default. */
+export async function listCreditCurrencySettings(
+  relationshipId: string,
+  vaultId: string,
+): Promise<CreditCurrencySettings[]> {
+  const [{ getEnabledCurrencies, getDefaultEntryCurrency }, { listLedgerCurrencies }, db] =
+    await Promise.all([import("./currency"), import("./db"), getDb()]);
+  const [preferred, enabled, recorded, rows] = await Promise.all([
+    getDefaultEntryCurrency(vaultId),
+    getEnabledCurrencies(vaultId),
+    listLedgerCurrencies(vaultId),
+    db.getAllAsync<CreditPolicy>(
+      `SELECT relationship_id,currency,max_collect_minor,max_pay_minor,mode,updated_at_ms,restrict_editors
+         FROM customer_credit_limits WHERE vault_id=? AND relationship_id=?
+       UNION ALL
+       SELECT ? AS relationship_id,currency,max_collect_minor,max_pay_minor,mode,updated_at_ms,restrict_editors
+         FROM kaata_credit_defaults WHERE vault_id=?`,
+      vaultId,
+      relationshipId,
+      KAATA_DEFAULT_CREDIT_ID,
+      vaultId,
+    ),
+  ]);
+  const own = new Map<string, CreditPolicy>();
+  const defaults = new Map<string, CreditPolicy>();
+  for (const row of rows) {
+    if (!isValidCurrencyCode(row.currency)) continue;
+    const policy = { ...row, restrict_editors: !!row.restrict_editors };
+    if (row.relationship_id === relationshipId) own.set(row.currency, policy);
+    if (row.relationship_id === KAATA_DEFAULT_CREDIT_ID) defaults.set(row.currency, policy);
+  }
+  const historical = [...new Set([...recorded, ...own.keys(), ...defaults.keys()])].sort((a, b) =>
+    a.localeCompare(b),
+  );
+  return [...new Set([preferred, ...enabled, ...historical])]
+    .filter(isValidCurrencyCode)
+    .map((currency) => ({
+      currency,
+      policy: own.get(currency) ?? null,
+      defaultPolicy:
+        relationshipId === KAATA_DEFAULT_CREDIT_ID ? null : (defaults.get(currency) ?? null),
+    }));
 }
 
 /** The customer's own limit, else the kaata default, else null. */
