@@ -13,7 +13,7 @@ import {
 import { AccessibilityInfo, Platform, Pressable, StyleSheet, View } from "react-native";
 import { SHEET_BLUR_METHOD } from "../lib/blur";
 import { t } from "../lib/i18n";
-import { useMotionPreference } from "../lib/motion-preference";
+import { useReducedMotion } from "../lib/reduced-motion";
 
 type BackdropContext = {
   target: RefObject<ViewInstance | null> | undefined;
@@ -31,7 +31,7 @@ const Context = createContext<BackdropContext>({
 export function SheetBlurProvider({ children }: PropsWithChildren) {
   const target = useRef<ViewInstance | null>(null);
   const [targetReady, setTargetReady] = useState(false);
-  const { effectiveReducedMotion: reducedMotion } = useMotionPreference();
+  const reducedMotion = useReducedMotion();
   const [reducedTransparency, setReducedTransparency] = useState(false);
   const context = useMemo(
     () => ({ target: targetReady ? target : undefined, reducedMotion, reducedTransparency }),

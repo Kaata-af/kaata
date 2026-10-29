@@ -252,7 +252,7 @@ assert.equal(
 assert.equal(
   springs.length,
   liteSpringCount + 2,
-  "Only full-mode dock subscriptions animate before rerender",
+  "Only dock subscriptions allowing system motion animate before rerender",
 );
 // Consumers receive the shared preference update together in the real tree.
 customer.render();

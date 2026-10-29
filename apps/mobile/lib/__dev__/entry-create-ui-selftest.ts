@@ -270,8 +270,8 @@ function fixture({
         queuePendingToast: (...args: any[]) => queued.push(args),
       },
       "../../lib/colors": { colors: require("../colors").colors },
-      "../../lib/motion-preference": {
-        getMotionPreferenceSnapshot: () => ({ effectiveReducedMotion: reducedMotion }),
+      "../../lib/reduced-motion": {
+        getReducedMotion: () => reducedMotion,
       },
       "../../lib/auth": {
         SessionChangedError,

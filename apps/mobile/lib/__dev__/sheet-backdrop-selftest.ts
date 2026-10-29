@@ -8,7 +8,7 @@ async function main() {
   let os = "android",
     sdk = 35;
   const transparency = deferred<boolean>();
-  let policyReduced = false;
+  let systemReduced = false;
   const listeners = new Map<string, (value: boolean) => void>();
   let context: any;
   const module = compileUI("../../components/SheetBackdrop", {
@@ -41,8 +41,8 @@ async function main() {
     },
     "../lib/blur": require("../blur"),
     "../lib/i18n": { t: (key: string) => key },
-    "../lib/motion-preference": {
-      useMotionPreference: () => ({ effectiveReducedMotion: policyReduced }),
+    "../lib/reduced-motion": {
+      useReducedMotion: () => systemReduced,
     },
   });
   const provider = () => {
@@ -140,7 +140,7 @@ async function main() {
     false,
     "a local target does not bypass the older Android performance fallback",
   );
-  policyReduced = true;
+  systemReduced = true;
   const reducedTree = provider();
   assert.equal(module.useSheetMotionPreference(), true);
   assert.equal(
@@ -150,18 +150,18 @@ async function main() {
   assert.equal(
     nodes(reducedTree).find((node) => node.type === "BlurTargetView")!.props.ref,
     target.props.ref,
-    "Switching motion modes does not replace the native target or its child tree",
+    "Changing the system motion preference does not replace the native target or its child tree",
   );
   const reducedDismiss = nodes(backdrop()).find((node) => node.type === "Pressable")!;
   reducedDismiss.props.onPress();
-  assert.equal(dismisses, 3, "Reduced mode keeps outside dismissal usable without blur");
-  policyReduced = false;
+  assert.equal(dismisses, 3, "System Reduce Motion keeps outside dismissal usable without blur");
+  systemReduced = false;
   provider();
   assert.equal(module.useSheetMotionPreference(), false);
   assert.equal(
     nodes(backdrop()).some((node) => node.type === "BlurView"),
     false,
-    "Android SDK30 still uses the existing platform fallback after full motion resumes",
+    "Android SDK30 still uses the existing platform fallback after normal motion resumes",
   );
   hooks.unmount();
   assert.equal(listeners.size, 0);
@@ -192,8 +192,8 @@ async function main() {
     },
     "../lib/blur": require("../blur"),
     "../lib/i18n": { t: (key: string) => key },
-    "../lib/motion-preference": {
-      useMotionPreference: () => ({ effectiveReducedMotion: policyReduced }),
+    "../lib/reduced-motion": {
+      useReducedMotion: () => systemReduced,
     },
   });
   const iosProvider = () => {

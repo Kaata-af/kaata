@@ -1,4 +1,4 @@
-// Exercise decorative motion consumers against the shared policy. No device,
+// Exercise decorative motion consumers against the system preference. No device,
 // account, recovery operation, notification or financial record is accessed.
 import assert from "node:assert/strict";
 import { compileUI, flattenStyle, jsx, nodes, uiHooks } from "./ui-fixture";
@@ -80,8 +80,8 @@ const shared = {
   },
 };
 
-// Validation remains visible without a shake; changing mode during a shake
-// settles it without replaying the current error when full mode returns.
+// Validation remains visible without a shake; changing the OS preference during
+// a shake settles it without replaying the error when normal motion returns.
 {
   const hooks = uiHooks(),
     native = nativeMotion();
@@ -131,8 +131,8 @@ const shared = {
   hooks.unmount();
 }
 
-// Restore progress still reports actual progress in reduced mode and never
-// starts a repeating shimmer. Full shimmer uses a native transform.
+// System Reduce Motion retains actual progress without repeating shimmer.
+// Normal shimmer uses a native transform.
 {
   const hooks = uiHooks(),
     native = nativeMotion();
@@ -263,7 +263,7 @@ function toastFixture(initialReduced: boolean) {
     get pan() {
       return pan;
     },
-    policy(value: boolean) {
+    systemPreference(value: boolean) {
       reduced = value;
       render();
     },
@@ -287,9 +287,13 @@ const changedToast = toastFixture(false);
 changedToast.native.motions.at(-1)!.finish();
 changedToast.pan.onEndHandler({ translationX: 100, velocityX: 0 });
 const leaving = changedToast.native.motions.at(-1)!;
-changedToast.policy(true);
+changedToast.systemPreference(true);
 assert.equal(leaving.stopped, true);
-assert.equal(changedToast.dismissals.length, 1, "A preference change completes pending dismissal");
+assert.equal(
+  changedToast.dismissals.length,
+  1,
+  "An OS preference change completes pending dismissal",
+);
 leaving.finish(true);
 assert.equal(changedToast.dismissals.length, 1, "A stale completion cannot dismiss twice");
 changedToast.item.unmount();
@@ -301,5 +305,5 @@ unmountedToast.item.unmount();
 pending.finish(true);
 assert.equal(unmountedToast.dismissals.length, 0, "An unmounted toast ignores queued completions");
 console.log(
-  "PASS motion consumers: static validation/progress/toasts, native full-mode shimmer, live preference changes, direct gestures and stale/unmount cleanup",
+  "PASS system motion consumers: static validation/progress/toasts, native shimmer, live OS preference changes, direct gestures and stale/unmount cleanup",
 );

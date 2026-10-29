@@ -3435,7 +3435,6 @@ const accountModule = load<{ default: () => unknown }>("../../app/account", {
   "../components/ConfirmDialog": { ConfirmDialog: "Dialog" },
   "../components/CountryPickerSheet": { CountryPickerSheet: "CountryPicker" },
   "../components/OptionSheet": { OptionSheet: "OptionSheet" },
-  "../components/MotionPreferenceSetting": { MotionPreferenceSetting: "MotionPreferenceSetting" },
   "../components/AppLockSetting": { AppLockSetting: "AppLockSetting" },
   "../components/ScreenLoading": { ScreenLoading: "ScreenLoading" },
   "../components/SettingsScreen": {
@@ -3660,9 +3659,10 @@ componentTest("account: global notifications have one home in Profile settings",
       );
       assert.ok(rows.some((node) => node.props.label === "settings.language.label"));
       assert.ok(
-        tree.some((node) => node.type === "MotionPreferenceSetting"),
-        "Other personal preferences remain available in both session states",
+        !tree.some((node) => node.type === "MotionPreferenceSetting"),
+        "The removed animation preference is not offered in either session state",
       );
+      assert.ok(tree.some((node) => node.type === "AppLockSetting"));
       assert.deepEqual(accountRoutes, [], "Reading account preferences does not redirect");
     }
 });

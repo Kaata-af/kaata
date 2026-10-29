@@ -1058,8 +1058,8 @@ export async function customerGroupUIChecks() {
         "../lib/event-log": { RoleGateRejectionError: class extends Error {} },
         "../lib/fonts": { fonts: {} },
         "../lib/i18n": { t: (key: string) => key },
-        "../lib/motion-preference": {
-          getMotionPreferenceSnapshot: () => ({ effectiveReducedMotion: reducedMotion }),
+        "../lib/reduced-motion": {
+          getReducedMotion: () => reducedMotion,
         },
         "../lib/use-customer-groups": {
           useCustomerGroups: () => ({ groups: [], loaded: true, failed: false, refresh() {} }),

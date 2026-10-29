@@ -59,7 +59,7 @@ import { withEntryDay } from "../../lib/entry-date";
 import { localDayStart } from "../../lib/tally-date-filter";
 import { onLedgerApplied } from "../../lib/ledger-events";
 import { parseAmountInput } from "../../lib/money";
-import { getMotionPreferenceSnapshot } from "../../lib/motion-preference";
+import { getReducedMotion } from "../../lib/reduced-motion";
 import { evaluateCalculation } from "../../lib/calculator";
 import {
   calculatorDraft,
@@ -316,7 +316,7 @@ export default function EntryFormScreen({
     if (clippedAbove || y + height > formScrollY.current + viewport - bottom)
       scrollRef.current?.scrollTo({
         y: Math.max(0, clippedAbove ? y - top : Math.min(y - top, y + height - viewport + bottom)),
-        animated: !getMotionPreferenceSnapshot().effectiveReducedMotion,
+        animated: !getReducedMotion(),
       });
   }
 
@@ -358,7 +358,7 @@ export default function EntryFormScreen({
         // Consume before dispatch: late keyboard/layout events cannot restart it.
         noteScrollRequest.current = null;
         scrollRef.current?.scrollToEnd({
-          animated: !getMotionPreferenceSnapshot().effectiveReducedMotion,
+          animated: !getReducedMotion(),
         });
       });
       noteScrollFrame.current = layoutFrame;

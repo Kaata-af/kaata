@@ -348,8 +348,8 @@ const mocks: Record<string, any> = {
     SearchKeyboardFooter: "SearchKeyboardFooter",
   },
   "../../components/SheetBackdrop": { useSheetMotionPreference: () => reducedMotion },
-  "../../lib/motion-preference": {
-    getMotionPreferenceSnapshot: () => ({ effectiveReducedMotion: reducedMotion }),
+  "../../lib/reduced-motion": {
+    getReducedMotion: () => reducedMotion,
   },
   "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
   react,

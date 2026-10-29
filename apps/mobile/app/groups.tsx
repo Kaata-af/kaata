@@ -29,7 +29,7 @@ import { rowDir, textDir, useIsRTL } from "../lib/direction";
 import { RoleGateRejectionError } from "../lib/event-log";
 import { fonts } from "../lib/fonts";
 import { t } from "../lib/i18n";
-import { getMotionPreferenceSnapshot } from "../lib/motion-preference";
+import { getReducedMotion } from "../lib/reduced-motion";
 import { useCustomerGroups } from "../lib/use-customer-groups";
 import { useActiveVaultWriteCaps } from "../lib/use-vault-role";
 import { icon, radius } from "../lib/tokens";
@@ -67,7 +67,7 @@ export default function GroupsScreen() {
     if (!editorOpen) return;
     const timer = setTimeout(() => {
       scrollRef.current?.scrollToEnd({
-        animated: !getMotionPreferenceSnapshot().effectiveReducedMotion,
+        animated: !getReducedMotion(),
       });
       nameRef.current?.focus();
     }, 280);

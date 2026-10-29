@@ -9,7 +9,7 @@
     "web": "expo start --web",
     "typecheck": "tsc --noEmit",
     "selftest:app-lock": "tsx lib/__dev__/app-lock-selftest.ts && tsx lib/__dev__/app-lock-settings-selftest.ts && tsx lib/__dev__/app-lock-gate-selftest.ts && tsx lib/__dev__/protected-modal-selftest.ts && tsx lib/__dev__/app-lock-screen-privacy-selftest.ts",
-    "selftest:motion": "tsx lib/__dev__/motion-preference-selftest.ts && tsx lib/__dev__/motion-settings-selftest.ts && tsx lib/__dev__/motion-consumers-selftest.ts && tsx lib/__dev__/motion-integration-selftest.ts",
+    "selftest:motion": "tsx lib/__dev__/reduced-motion-selftest.ts && tsx lib/__dev__/motion-consumers-selftest.ts && tsx lib/__dev__/motion-integration-selftest.ts",
     "submit:ios": "node scripts/asc-submit.mjs",
     "promote:android": "node scripts/play-promote.mjs",
     "selftest:hlc": "tsx lib/__dev__/hlc-selftest.ts",

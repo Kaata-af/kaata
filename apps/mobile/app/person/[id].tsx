@@ -99,7 +99,7 @@ import {
 import { fonts, sansLineHeight } from "../../lib/fonts";
 import { formatAmount, formatDate } from "../../lib/format";
 import { sumAmounts } from "../../lib/money";
-import { getMotionPreferenceSnapshot } from "../../lib/motion-preference";
+import { getReducedMotion } from "../../lib/reduced-motion";
 import { getLocale, getShareLangPref, resolveShareLang, t, type LocaleCode } from "../../lib/i18n";
 import { formatSettlementDate } from "../../lib/jalali";
 import { useCalendar } from "../../lib/calendar";
@@ -565,7 +565,7 @@ export default function PersonDetailScreen() {
     if (target != null)
       scrollRef.current?.scrollTo({
         y: target,
-        animated: !getMotionPreferenceSnapshot().effectiveReducedMotion,
+        animated: !getReducedMotion(),
       });
     setHighlight({ id: entryId, key });
   }, [

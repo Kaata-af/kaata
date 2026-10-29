@@ -21,5 +21,5 @@ assert.equal(quiet.props.screenOptions.contentStyle.backgroundColor, "white");
 reducedMotion = false;
 assert.equal(MotionStack({ children }).props.screenOptions.animation, "default");
 console.log(
-  "PASS adaptive navigator: immediate reduced transitions, normal restoration and unchanged navigator/route identity",
+  "PASS system motion navigator: reduced transitions, normal restoration and unchanged navigator/route identity",
 );

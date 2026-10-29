@@ -36,37 +36,7 @@ export type SaveFileResult = {
 type NativeKaataSaveFile = {
   saveToDownloads(sourceUri: string, fileName: string, mimeType: string): Promise<SaveFileResult>;
   exportFile(sourceUri: string, fileName: string): Promise<SaveFileResult | null>;
-  getMotionHardware?: () => Promise<unknown>;
 };
-
-/** Read-only coarse capability signals. No device identifiers are collected. */
-export type MotionHardware = {
-  totalMemoryBytes: number | null;
-  lowRamDevice: boolean | null;
-};
-
-/** Optional on older installed builds and Expo Go; absence keeps Auto normal. */
-export async function getMotionHardware(): Promise<MotionHardware | null> {
-  if (Platform.OS !== "android" && Platform.OS !== "ios") return null;
-  try {
-    const native = getNative();
-    if (typeof native.getMotionHardware !== "function") return null;
-    const value = await native.getMotionHardware();
-    if (!value || typeof value !== "object") return null;
-    const result = value as Record<string, unknown>;
-    return {
-      totalMemoryBytes:
-        typeof result.totalMemoryBytes === "number" &&
-        Number.isFinite(result.totalMemoryBytes) &&
-        result.totalMemoryBytes > 0
-          ? result.totalMemoryBytes
-          : null,
-      lowRamDevice: typeof result.lowRamDevice === "boolean" ? result.lowRamDevice : null,
-    };
-  } catch {
-    return null;
-  }
-}
 
 let _native: NativeKaataSaveFile | null = null;
 function getNative(): NativeKaataSaveFile {
