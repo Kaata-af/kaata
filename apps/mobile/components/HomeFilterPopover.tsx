@@ -36,6 +36,7 @@ export function HomeFilterPopover(props: {
   keyboardVisible?: boolean;
   onDismissKeyboard?: () => void;
   onDismiss: () => void;
+  renderToggle?: (control: { onPress: () => void; disabled: boolean }) => ReactNode;
   children: ReactNode;
 }) {
   const latest = useRef(props);
@@ -96,12 +97,29 @@ export function HomeFilterPopover(props: {
           {props.children}
         </ScrollView>
       </View>
+      {props.renderToggle ? (
+        <View
+          testID="filter-popover-toggle"
+          style={[
+            styles.toggle,
+            {
+              left: props.anchor.x,
+              top: props.anchor.y,
+              width: props.anchor.width,
+              height: props.anchor.height,
+            },
+          ]}
+        >
+          {props.renderToggle({ onPress: dismiss, disabled: Boolean(props.disabled) })}
+        </View>
+      ) : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   overlay: { ...StyleSheet.absoluteFill, zIndex: 40 },
+  toggle: { position: "absolute" },
   panel: {
     position: "absolute",
     borderWidth: 1,

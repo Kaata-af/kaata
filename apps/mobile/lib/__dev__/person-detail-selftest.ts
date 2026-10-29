@@ -3046,9 +3046,36 @@ async function customerTallyFilterTests() {
     assert.equal(filterPopup().props.visible, true);
     assert.equal(find("BlurTargetView")!.props.accessibilityElementsHidden, true);
     assert.equal(find("BlurTargetView")!.props.importantForAccessibility, "no-hide-descendants");
+    const sharpToggle = () =>
+      filterPopup().props.renderToggle({
+        onPress: filterPopup().props.onDismiss,
+        disabled: false,
+      });
+    const closeToggle = sharpToggle();
+    assert.equal(closeToggle.props.testID, "customer-tally-filter-close-toggle");
+    assert.equal(closeToggle.props.accessibilityRole, "button");
+    assert.equal(closeToggle.props.accessibilityLabel, "person.filters.title");
+    assert.equal(closeToggle.props.accessibilityState.expanded, true);
+    assert.equal(closeToggle.props.disabled, false);
+    assert.equal(
+      closeToggle.props.ref,
+      undefined,
+      "The sharp copy cannot replace the measured trigger",
+    );
+    assert.equal(closeToggle.props.onLayout, undefined);
+    const closeStyle = flattenStyle(closeToggle.props.style);
+    assert.equal(closeStyle.width, "100%");
+    assert.equal(closeStyle.height, "100%");
+    assert.ok(
+      [
+        mocks["../../lib/colors"].colors.bgDefault,
+        mocks["../../lib/colors"].colors.bgMuted,
+      ].includes(closeStyle.backgroundColor),
+      "The customer toggle is opaque rather than showing blurred content through its fill",
+    );
     filterPopup().props.onChange({ ...filter(), ...next });
     await flush();
-    filterPopup().props.onDismiss();
+    sharpToggle().props.onPress();
     await flush();
     assert.equal(find("BlurTargetView")!.props.accessibilityElementsHidden, false);
     assert.equal(find("BlurTargetView")!.props.importantForAccessibility, "auto");

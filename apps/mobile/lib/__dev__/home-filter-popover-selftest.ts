@@ -133,12 +133,49 @@ let props = {
   onDismissKeyboard: () => keyboardDismissals++,
   blurTarget: { current: null },
   onDismiss: () => dismissals++,
+  renderToggle: ({ onPress, disabled }: { onPress: () => void; disabled: boolean }) =>
+    jsx("Pressable", {
+      testID: "sharp-filter-toggle",
+      accessibilityRole: "button",
+      accessibilityState: { expanded: true, disabled },
+      disabled,
+      onPress,
+    }),
   children: CustomerListOptions({ ...optionsProps, embedded: true }),
 };
 const render = () => hooks.render(() => HomeFilterPopover(props));
 render();
 const popup = () => nodes(hooks.tree);
 const backdrop = () => popup().find((node) => node.type === "SheetBackdrop")!;
+const foreground = () => popup().find((node) => node.props.testID === "filter-popover-toggle")!;
+const toggle = () => popup().find((node) => node.props.testID === "sharp-filter-toggle")!;
+assert.deepEqual(
+  { ...flattenStyle(foreground().props.style) },
+  { position: "absolute", left: 260, top: 548, width: 52, height: 52 },
+  "The sharp toggle occupies exactly the original trigger's measured rectangle",
+);
+assert.equal(toggle().props.accessibilityState.expanded, true);
+assert.equal(toggle().props.disabled, false);
+assert.ok(
+  !nodes(backdrop()).includes(foreground()),
+  "The clear toggle is a foreground sibling, outside the backdrop's blur layer",
+);
+const overlayChildren = [hooks.tree.props.children].flat().filter(Boolean);
+assert.ok(
+  overlayChildren.indexOf(foreground()) > overlayChildren.indexOf(backdrop()),
+  "The toggle is drawn after the blur and remains the topmost close target",
+);
+props = { ...props, anchor: { x: 16, y: 310, width: 60, height: 44 } };
+render();
+assert.deepEqual(flattenStyle(foreground().props.style), {
+  position: "absolute",
+  left: 16,
+  top: 310,
+  width: 60,
+  height: 44,
+});
+props = { ...props, anchor: { x: 260, y: 548, width: 52, height: 52 } };
+render();
 assert.equal(
   backdrop().props.blurTarget,
   props.blurTarget,
@@ -177,7 +214,8 @@ assert.equal(
   "the existing popup scroll container owns spacing before Manage groups",
 );
 const oldDismiss = backdrop().props.onDismiss;
-oldDismiss();
+const oldTogglePress = toggle().props.onPress;
+oldTogglePress();
 assert.equal(dismissals, 1);
 assert.equal([...backHandlers][0](), true);
 assert.equal(dismissals, 2, "Android Back dismisses the popup before leaving Home");
@@ -198,11 +236,15 @@ assert.equal(
   "the popup itself freezes controls without an extra Home wrapper",
 );
 assert.equal(backdrop().props.disabled, true, "busy state reaches the shared blur backdrop");
+assert.equal(toggle().props.disabled, true, "The sharp close toggle shares the busy guard");
+oldTogglePress();
+assert.equal(dismissals, 3, "A retained sharp toggle cannot dismiss during a busy operation");
 backdrop().props.onDismiss();
 assert.equal(dismissals, 3, "A busy selection freezes popup actions");
 props = { ...props, disabled: false, contextKey: "account-b:vault-b:USD" };
 render();
 oldDismiss();
+oldTogglePress();
 assert.equal(dismissals, 3, "A retained backdrop callback cannot dismiss another account's popup");
 props = { ...props, visible: false };
 render();
@@ -211,8 +253,10 @@ assert.equal(backHandlers.size, 0);
 props = { ...props, visible: true };
 render();
 const dismissedAfterUnmount = backdrop().props.onDismiss;
+const toggleAfterUnmount = toggle().props.onPress;
 hooks.unmount();
 dismissedAfterUnmount();
+toggleAfterUnmount();
 assert.equal(dismissals, 3);
 assert.equal(backHandlers.size, 0);
 

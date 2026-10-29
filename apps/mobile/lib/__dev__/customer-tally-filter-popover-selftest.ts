@@ -18,6 +18,8 @@ function fixture(isRTL = false, availableCodes = ["AFN", "USD", "AUD"]) {
     keyboardVisible: false,
     onDismissKeyboard() {},
     onDismiss() {},
+    renderToggle: ({ onPress, disabled }: { onPress: () => void; disabled: boolean }) =>
+      jsx("Pressable", { testID: "customer-sharp-toggle", onPress, disabled }),
     filter: { ...filters.DEFAULT_TALLY_LIST_FILTER, currencies: [] as string[] },
     availableCodes,
     isRTL,
@@ -83,6 +85,11 @@ for (const rtl of [false, true]) {
   assert.equal(f.hooks.tree.type, "HomeFilterPopover");
   assert.equal(f.hooks.tree.props.anchor, f.props.anchor);
   assert.equal(f.hooks.tree.props.viewport, f.props.viewport);
+  assert.equal(
+    f.hooks.tree.props.renderToggle,
+    f.props.renderToggle,
+    "The customer filter content forwards its sharp close-toggle renderer to the shared overlay",
+  );
   assert.equal(
     f.hooks.tree.props.blurTarget,
     f.props.blurTarget,

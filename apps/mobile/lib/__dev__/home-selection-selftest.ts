@@ -1452,12 +1452,35 @@ async function main() {
     "Home uses the popup's card rather than nesting standalone section cards",
   );
   assert.equal(popup.props.disabled, false, "the popup owns the controls' interaction gate");
+  const sharpToggle = popup.props.renderToggle({
+    onPress: popup.props.onDismiss,
+    disabled: popup.props.disabled,
+  });
+  assert.equal(sharpToggle.props.testID, "home-filter-close-toggle");
+  assert.equal(sharpToggle.props.accessibilityRole, "button");
+  assert.equal(sharpToggle.props.accessibilityLabel, "customers.listOptions");
+  assert.equal(sharpToggle.props.accessibilityState.expanded, true);
+  assert.equal(
+    sharpToggle.props.accessibilityState.selected,
+    filterTrigger()!.props.accessibilityState.selected,
+  );
+  assert.equal(sharpToggle.props.disabled, false);
+  assert.equal(
+    sharpToggle.props.ref,
+    undefined,
+    "Only the original trigger owns anchor measurement",
+  );
+  assert.equal(sharpToggle.props.onLayout, undefined);
+  const sharpStyle = flattenStyle(sharpToggle.props.style);
+  assert.equal(sharpStyle.width, "100%");
+  assert.equal(sharpStyle.height, "100%");
+  assert.equal(sharpStyle.backgroundColor, colors.actionPrimary);
   assert.equal(
     homeScrollCalls().length,
     beforePopupScroll,
     "The filter popup never scrolls or reflows the list",
   );
-  popup.props.onDismiss();
+  sharpToggle.props.onPress();
   render();
   assert.equal(
     homeNodes().find((node) => node.type === "BlurTargetView")!.props.importantForAccessibility,

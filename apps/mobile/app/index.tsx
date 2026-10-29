@@ -2092,6 +2092,19 @@ export default function HomeScreen() {
         onDismiss={() => {
           if (isCurrentHome() && !selectionBusyRef.current) setFiltersExpanded(false);
         }}
+        renderToggle={({ onPress, disabled }) => (
+          <Pressable
+            testID="home-filter-close-toggle"
+            accessibilityRole="button"
+            accessibilityLabel={t("customers.listOptions")}
+            accessibilityState={{ expanded: true, selected: listCustomized, disabled }}
+            disabled={disabled}
+            onPress={onPress}
+            style={[styles.filterButton, styles.filterButtonActive, styles.filterCloseToggle]}
+          >
+            <Ionicons name="options-outline" size={icon.row} color={colors.textInverted} />
+          </Pressable>
+        )}
       >
         {filterContent}
       </HomeFilterPopover>
@@ -3005,6 +3018,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.bgDefault,
   },
   filterButtonActive: { backgroundColor: colors.actionPrimary, borderColor: colors.actionPrimary },
+  filterCloseToggle: { width: "100%", height: "100%" },
   resultsHeading: { marginTop: 4 },
   resultCount: { fontSize: 13, fontFamily: fonts.sansRegular, color: colors.textSubtle },
   clearLabel: {

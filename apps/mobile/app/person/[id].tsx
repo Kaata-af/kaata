@@ -3635,6 +3635,27 @@ export default function PersonDetailScreen() {
         onDismiss={() => {
           if (filterIsCurrent()) setTallyFiltersVisible(false);
         }}
+        renderToggle={({ onPress, disabled }) => (
+          <Pressable
+            testID="customer-tally-filter-close-toggle"
+            accessibilityRole="button"
+            accessibilityLabel={t("person.filters.title")}
+            accessibilityState={{
+              expanded: true,
+              selected: directionalFiltering || tallyFilter.sort !== "recent",
+              disabled,
+            }}
+            disabled={disabled}
+            onPress={onPress}
+            style={[
+              styles.dateButton,
+              styles.filterCloseToggle,
+              (directionalFiltering || tallyFilter.sort !== "recent") && styles.dateButtonActive,
+            ]}
+          >
+            <Ionicons name="options-outline" size={icon.row} color={colors.textEmphasis} />
+          </Pressable>
+        )}
       />
       <TallyDateFilterSheet
         visible={dateSheetVisible}
@@ -4160,6 +4181,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.sm,
   },
   dateButtonActive: { backgroundColor: colors.bgMuted, borderColor: colors.borderEmphasis },
+  filterCloseToggle: { width: "100%", height: "100%", backgroundColor: colors.bgDefault },
   searchBox: {
     flex: 1,
     flexDirection: "row",
