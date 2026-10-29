@@ -13,19 +13,20 @@ the inline filter popup. No tally, customer or financial record was saved,
 edited, settled or deleted. Screen recording was not running during profiling.
 The device selected its 50 Hz display mode; thermal status remained 0.
 
-Completed application FrameTimeline frames, excluding unfinished `dur=-1`
-records:
+Completed application FrameTimeline frames for the first Home capture,
+recomputed by excluding every unfinished/nonpositive-duration record before
+aggregation:
 
 | Interaction                       | Completed frames | App deadline misses | Longest completed frame |
 | --------------------------------- | ---------------: | ------------------: | ----------------------: |
-| Home card taps                    |               51 |                   3 |                118.8 ms |
-| Home list swipes / filters        |              182 |                  24 |                129.2 ms |
+| Home card taps                    |               50 |                   2 |                118.8 ms |
+| Home list swipes / filters        |              180 |                  22 |                129.2 ms |
 | Profile settings open / close     |              126 |                   6 |                 44.3 ms |
 | Home search keyboard open / close |               31 |                   0 |                 19.9 ms |
-| Customer card taps                |               55 |                   3 |                115.9 ms |
-| Customer currency carousel swipes |              107 |                   4 |                 29.9 ms |
-| Customer list swipes / filters    |               78 |                  28 |                110.3 ms |
-| Home filter popup / search cycles |               78 |                   4 |                 97.7 ms |
+
+The second capture's longest positive-duration frames were 115.9 ms for
+customer card taps, 29.9 ms for the customer currency carousel, 110.3 ms for
+customer list filtering and 97.7 ms for Home filter popup/search cycles.
 
 These are small, controlled workloads on one phone, not universal FPS or touch
 latency measurements. The popup workload also includes opening search and
@@ -114,5 +115,71 @@ The phone's Google Play signing certificate differs from the local upload-key
 certificate. A locally signed APK cannot update the installed app in place.
 The build will therefore require a matching Google-signed generated APK before
 installation. No uninstall, data clear, signing replacement or production
-promotion is part of this request. Build, signing and installation verification
-are pending; the version reservation is not a delivery claim.
+promotion is part of this request.
+
+### Completed local installation — Android 80
+
+Built from committed source `73750940a0a3671fcd3800916cf22ccac943565d`, including
+the Android optimizations in `05ae256`. Fresh release constants and Hermes
+compilation passed, followed by incremental Android release packaging with the
+existing native compilation outputs and upload signer. All **74 AAB checks**,
+**14 local APK checks** and **10 Google-signed APK checks** passed. The 18 cached
+native tests were bound to their unchanged tested source and passing output.
+
+After explicit authorization for Google signing, the verified bundle was
+uploaded once and saved as an **unassigned artifact**. Google required an
+artifact save before exposing the generated APK. The save used
+`changesInReviewBehavior=ERROR_IF_IN_REVIEW`, with no track or release writes.
+The initial unsupported optional save parameter was refused before any commit;
+its intent and receipt were retained before the reviewed corrective request.
+Independent readback verified that all tracks, details, listings, images and
+tester configuration remained unchanged. No build-80 testing or production
+release was created: internal testing remains 79 and production remains 73.
+
+| Artifact                             | SHA-256                                                            |
+| ------------------------------------ | ------------------------------------------------------------------ |
+| AAB, 95,128,986 bytes                | `662e0c26f7757abaead3be61e20ad5ffa11b653637602d8022c1af5aaa5aab60` |
+| Local APK, 142,892,456 bytes         | `6099706720793fb97c3c3551296484133f4866ed5709f04e4bb391de3c1577fa` |
+| Google-signed APK, 142,969,503 bytes | `6f1e97f29aea76ddec36f71441c19c6188546508d49eb1f1a32d53ceb8332368` |
+
+The final APK's actual certificate matched a freshly pulled installed APK.
+`adb install -r --no-incremental` returned success. Android code 80 retained the
+original application UID and first-install time; no uninstall, data clear,
+permission grant, downgrade or replacement signing identity was used. Cold
+startup succeeded, and the existing signed-in Kaata and multi-currency customer
+history were visible. These checks establish an in-place update and retained
+visible history, not a full database checksum comparison.
+
+Private installation, signing and artifact receipts remain ignored under
+`build/release-2.3.0-80/`. Code 80 is now a saved Play artifact and an installed
+local candidate; future testing updates must use a higher code. iOS build 46
+and all public mobile releases remain unchanged.
+
+### Installed build 80 animation check
+
+The repeated Home workload completed on the physical phone without a process
+restart. Home returned to its unfiltered list with the keyboard and settings
+closed. Existing multi-currency customer history was also inspected after the
+update without saving any records.
+
+Home swipes produced 251 completed app frames, 22 application deadline misses
+and a longest completed frame of 70.0 ms. Main-thread frame work peaked at
+43.3 ms, compared with 119.9 ms in the earlier code-79 capture. Native text-view
+creation during swipes fell from 492 to 58, and text measurements from 1,426 to 658. This supports removal of the large repeated mounting cost, while remaining
+missed deadlines show that the work is not complete.
+
+These runs are not an exact controlled A/B: visible list content differed
+slightly, and the fresh session's early idle/card phase had substantial extra
+rendering. The code-80 card phase had 276 completed frames and 26 application
+deadline misses, with a longest frame of 243.8 ms; it does not establish a card
+performance improvement. A warm card-only comparison is needed before changing
+the remaining visible-card width animation. Settings produced 129 completed
+frames / 6 app deadline misses and keyboard 32 / 1. Baseline and final display
+snapshots showed 50 Hz, but the actual build-80 swipe phase switched to a
+16.667 ms frame budget (60 Hz), compared with build 79's 20 ms (50 Hz). These
+cadence differences also prevent a controlled FPS or miss-rate comparison.
+The trace dropped 13 negative-timestamp events and is not lossless.
+
+Private post-install traces and query results remain ignored under
+`build/android-motion80-20261029/`. The app is left open on the Xiaomi homepage
+for the user's own testing; no public release or production promotion occurred.
