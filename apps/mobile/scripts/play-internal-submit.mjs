@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Upload ONLY Kaata 2.3.0/code 79 to Play INTERNAL testing, preserving reviews.
+// Upload ONLY Kaata 2.3.0/code 81 to Play INTERNAL testing, preserving reviews.
 // No track-selection or review-cancellation flag exists. Every commit uses
 // ERROR_IF_IN_REVIEW; a refusal is final, with no automatic retry or fallback.
 // Run only after every other Android EAS submission has finished: one open edit
@@ -16,7 +16,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const MOBILE_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const PACKAGE = "af.kaata.app";
 const VERSION = "2.3.0";
-const CODE = 79;
+const CODE = 81;
 const ORIGIN = "https://androidpublisher.googleapis.com";
 const BASE = `${ORIGIN}/androidpublisher/v3/applications/${PACKAGE}`;
 const COMMIT_GUARD = "changesInReviewBehavior=ERROR_IF_IN_REVIEW";
