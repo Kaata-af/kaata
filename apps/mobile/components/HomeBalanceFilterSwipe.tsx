@@ -246,15 +246,23 @@ export function HomeBalanceFilterSwipe(props: {
           }
         }
       })
-      .onStart(() => {
+      .onStart((event) => {
         "worklet";
         const current = stroke.value;
         if (current.epoch !== epoch || lease.value.epoch !== epoch) return;
+        const x = event.absoluteX - current.x;
+        const y = event.absoluteY - current.y;
         stroke.value = {
           ...current,
           active: true,
           blocked:
-            current.blocked || (!current.moving && performance.now() - current.startedAt >= 350),
+            current.blocked ||
+            (!current.moving && performance.now() - current.startedAt >= 350) ||
+            !Number.isFinite(x) ||
+            !Number.isFinite(y) ||
+            Math.abs(x) < 24 ||
+            Math.abs(y) > 16 ||
+            (!current.moving && Math.abs(x) < Math.abs(y) * 2),
         };
       })
       .onUpdate((event) => {
@@ -270,7 +278,7 @@ export function HomeBalanceFilterSwipe(props: {
         const x = event.absoluteX - current.x;
         // Native activation has already chosen this horizontal drag. Finger
         // drift while holding must not jump the content back to zero. Release
-        // still checks direction and distance before applying a filter.
+        // still checks distance before applying a filter; the axis stays locked.
         if (Number.isFinite(x)) offset.value = Math.max(-96, Math.min(96, x * 0.65));
       })
       .onEnd((event, success) => {
@@ -295,11 +303,8 @@ export function HomeBalanceFilterSwipe(props: {
           owner.width <= 0 ||
           !Number.isFinite(x) ||
           !Number.isFinite(y) ||
-          !Number.isFinite(velocity) ||
           Math.abs(x) < 24 ||
-          (Math.abs(x) < 32 && !flick) ||
-          Math.abs(y) > 24 ||
-          Math.abs(x) < Math.abs(y) * 2
+          (Math.abs(x) < 32 && !flick)
         ) {
           settle();
           return;

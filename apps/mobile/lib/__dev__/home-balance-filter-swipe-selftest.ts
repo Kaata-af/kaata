@@ -13,7 +13,7 @@ type Swipe = {
 type Pan = {
   config: Record<string, unknown>;
   begin: (event: Swipe) => void;
-  start: () => void;
+  start: (event: Swipe) => void;
   move: (event: any, manager: { fail: () => void }) => void;
   update: (event: Swipe) => void;
   end: (event: Swipe, success?: boolean) => void;
@@ -88,6 +88,11 @@ function fixture() {
       set(next) {
         cancel(result);
         if (next?.animation) {
+          // Reanimated completes an animation to its current value immediately.
+          if (next.target === value) {
+            next.callback?.(true);
+            return;
+          }
           const animation: Animation = {
             ...next,
             from: value,
@@ -197,7 +202,7 @@ function fixture() {
   });
   const begin = (pan = gesture()) => {
     pan.begin(event());
-    pan.start();
+    pan.start(event(25));
     return pan;
   };
   const finishAnimations = () => {
@@ -353,17 +358,12 @@ for (const direction of ["all", "collect", "pay"] as const) {
   f.swipe(-23, -900);
   f.swipe(24, 449);
   f.swipe(24, -900);
-  f.swipe(90, 0, 25);
-  f.swipe(40, 0, 21);
   f.swipe(90, 0, 0, false);
   f.swipe(Number.NaN);
-  f.swipe(90, Number.POSITIVE_INFINITY);
+  f.swipe(24, Number.POSITIVE_INFINITY);
+  f.swipe(24, Number.NaN);
   f.swipe(90, 0, Number.NaN);
-  assert.deepEqual(
-    f.changes,
-    [],
-    "Short, reversed, diagonal, failed and invalid gestures do not commit",
-  );
+  assert.deepEqual(f.changes, [], "Short, reversed, failed and invalid gestures do not commit");
   f.swipe(-24, -450);
   f.swipe(24, 450);
   f.swipe(32, -900);
@@ -384,25 +384,82 @@ for (const direction of ["all", "collect", "pay"] as const) {
   pan.move({ numberOfTouches: 1, allTouches: [f.event(-60, 0, 25)] }, { fail: () => failures++ });
   pan.update(f.event(-60, 0, 25));
   assert.equal(f.offset, -39, "Holding with vertical drift keeps the active horizontal offset");
-  pan.update(f.event(-40, 0, 21));
-  assert.equal(f.offset, -26, "Crossing the release angle guard cannot snap a held drag to zero");
+  pan.update(f.event(-20, 0, 21));
+  assert.equal(f.offset, -13, "Vertical drift cannot snap a held drag to zero");
   pan.update(f.event(Number.NaN));
-  assert.equal(f.offset, -26, "An invalid movement sample preserves the last valid offset");
+  assert.equal(f.offset, -13, "An invalid movement sample preserves the last valid offset");
   f.update({ onDirectionChange: (side) => f.changes.push(side) });
-  assert.equal(f.offset, -26, "An ordinary rerender does not move a held finger");
+  assert.equal(f.offset, -13, "An ordinary rerender does not move a held finger");
   assert.equal(f.animations.length, 0, "No return animation runs before release");
   assert.equal(failures, 0);
   assert.deepEqual(f.changes, []);
-  pan.end(f.event(-40, 0, 21), true);
+  pan.end(f.event(-20, 0, 21), true);
   pan.finalize();
   assert.equal(f.animations.length, 1, "Finalizing a rejected release does not restart its return");
-  assert.equal(f.animations.at(-1)!.from, -26);
+  assert.equal(f.animations.at(-1)!.from, -13);
   assert.equal(f.animations.at(-1)!.target, 0);
   assert.equal(f.animations.at(-1)!.config.duration, 120);
   f.settle();
-  assert.deepEqual(f.changes, [], "A diagonal release still settles without changing the filter");
+  assert.deepEqual(f.changes, [], "Pulling back below the distance threshold cancels on release");
   f.swipe(-60);
   assert.deepEqual(f.changes, ["pay"], "A fresh horizontal swipe still filters normally");
+}
+
+for (const sign of [-1, 1]) {
+  const f = fixture();
+  const pan = f.gesture();
+  pan.begin(f.event());
+  f.time(200);
+  pan.move({ numberOfTouches: 1, allTouches: [f.event(sign * 8)] }, { fail: () => assert.fail() });
+  f.time(700);
+  pan.start(f.event(sign * 25));
+  for (const [time, x, y] of [
+    [1000, 60, 12],
+    [2000, 140, 30],
+    [4000, 220, 55],
+  ]) {
+    f.time(time);
+    pan.update(f.event(sign * x, 0, y));
+  }
+  assert.equal(f.offset, sign * 96);
+  assert.equal(f.animations.length, 0, "Slow movement stays under the finger until release");
+  assert.deepEqual(f.changes, []);
+  pan.end(f.event(sign * 220, 0, 55), true);
+  pan.finalize();
+  assert.equal(f.handoffCount, 1, "Releasing at the visual cap completes without another frame");
+  f.settle();
+  assert.deepEqual(
+    f.changes,
+    [sign < 0 ? "pay" : "collect"],
+    "A slow full swipe uses distance, not speed or later vertical drift",
+  );
+  assert.equal(f.offset, 0);
+}
+
+for (const [x, y] of [
+  [25, 15],
+  [25, 20],
+  [0, 30],
+]) {
+  const f = fixture();
+  const pan = f.gesture();
+  pan.begin(f.event());
+  pan.start(f.event(x, 0, y));
+  pan.update(f.event(200));
+  pan.end(f.event(200), true);
+  pan.finalize();
+  f.settle();
+  assert.deepEqual(
+    f.changes,
+    [],
+    "Initial diagonal or vertical intent cannot become a filter swipe",
+  );
+}
+
+{
+  const f = fixture();
+  f.swipe(90, Number.NaN, 40);
+  assert.deepEqual(f.changes, ["collect"], "A full-distance swipe does not need a velocity sample");
 }
 
 // Every native closure and queued RN callback must expire across scope ABA,
@@ -432,7 +489,7 @@ for (const change of [
   });
   f.flushRN();
   old.begin(f.event());
-  old.start();
+  old.start(f.event(25));
   old.end(f.event(-100, -600), true);
   f.settle();
   assert.deepEqual(f.changes, [], "Old closures and queued completions cannot revive after ABA");
@@ -560,7 +617,7 @@ for (const change of [
   held.begin(f.event());
   f.time(400);
   held.move({ numberOfTouches: 1, allTouches: [f.event(60)] }, { fail: () => failures++ });
-  held.start();
+  held.start(f.event(60));
   held.end(f.event(60), true);
   held.finalize();
   f.settle();
@@ -571,7 +628,7 @@ for (const change of [
   f.time(500);
   slow.move({ numberOfTouches: 1, allTouches: [f.event(7)] }, { fail: () => failures++ });
   f.time(1100);
-  slow.start();
+  slow.start(f.event(25));
   slow.update(f.event(-60));
   slow.end(f.event(-60), true);
   slow.finalize();
@@ -620,7 +677,7 @@ for (const change of [
   f.flushRN();
   f.flushFrames();
   pan.begin(f.event());
-  pan.start();
+  pan.start(f.event(25));
   pan.end(f.event(60), true);
   f.settle();
   assert.deepEqual(f.changes, [], "Unmount rejects pending native/RN/animation completions");
