@@ -1536,6 +1536,43 @@ async function main() {
   assert.equal(options().props.amountSortAvailable, true);
   options().props.onChange({ ...options().props.preference, sort: "amount_desc" });
   render();
+  const clearFilters = () =>
+    homeNodes().find((node) => node.props.accessibilityLabel === "search.clearAll");
+  for (const sort of [
+    "name_asc",
+    "name_desc",
+    "date_asc",
+    "outstanding_name",
+    "amount_asc",
+    "amount_desc",
+  ] as const) {
+    options().props.onChange({ ...options().props.preference, sort });
+    render();
+    assert.equal(clearFilters(), undefined, "Sorting alone is not a clearable filter");
+    assert.equal(renderedPage!.props.controls, null, "Sort-only lists have no empty filter gap");
+    assert.equal(options().props.preference.sort, sort);
+  }
+  input().props.onChangeText("Cyrus");
+  render();
+  assert.ok(clearFilters(), "A search query is still clearable with a custom sort");
+  input().props.onChangeText("  ");
+  render();
+  assert.equal(clearFilters(), undefined, "Whitespace does not make sort-only lists filtered");
+  input().props.onChangeText("");
+  options().props.onChange({ ...options().props.preference, group: ["g"] });
+  render();
+  const retainedClearFilters = clearFilters()!.props.onPress;
+  assert.ok(clearFilters(), "Actual group filters remain clearable with a custom sort");
+  options().props.onChange({ ...options().props.preference, group: "all" });
+  render();
+  assert.equal(clearFilters(), undefined);
+  retainedClearFilters();
+  render();
+  assert.equal(
+    options().props.preference.sort,
+    "amount_desc",
+    "A removed Clear control cannot reset a sort-only preference",
+  );
   homeNodes()
     .find((node) => node.type === "HomeFilterPopover")!
     .props.onDismiss();

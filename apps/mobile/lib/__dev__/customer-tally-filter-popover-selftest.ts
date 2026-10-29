@@ -14,6 +14,7 @@ function fixture(isRTL = false, availableCodes = ["AFN", "USD", "AUD"]) {
     viewport: { width: 390, height: 844, topInset: 44 },
     blurTarget: { current: null },
     disabled: false,
+    hasDateFilter: false,
     keyboardVisible: false,
     onDismissKeyboard() {},
     onDismiss() {},
@@ -88,6 +89,7 @@ for (const rtl of [false, true]) {
     "Uses the same full-navigation blur target as Home",
   );
   assert.equal(f.button("direction-received").props.accessibilityRole, "radio");
+  assert.equal(f.button("clear"), undefined, "Default view has no filters to clear");
   assert.equal(f.button("currency-USD").props.accessibilityRole, "checkbox");
   assert.equal(f.button("sort-amount_asc").props.disabled, true);
   assert.equal(
@@ -155,13 +157,15 @@ for (const rtl of [false, true]) {
 {
   const f = fixture();
   const staleCurrency = f.button("currency-USD").props.onPress;
+  f.button("direction-gave").props.onPress();
+  f.flush();
   const staleClear = f.button("clear").props.onPress;
   f.update({ visible: false });
   f.update({ contextKey: "other-contact", visible: true });
   f.update({ contextKey: "account:kaata:person" });
   staleCurrency();
   staleClear();
-  assert.equal(f.changes.length, 0);
+  assert.equal(f.changes.length, 1);
   assert.equal(f.clears, 0, "Old controls cannot revive after close/reopen or contact ABA");
   f.update({ disabled: true });
   for (const node of nodes(f.hooks.tree).filter((candidate) => candidate.type === "Pressable")) {
@@ -176,14 +180,40 @@ for (const rtl of [false, true]) {
     );
     node.props.onPress();
   }
-  assert.equal(f.changes.length, 0);
+  assert.equal(f.changes.length, 1);
   assert.equal(f.clears, 0);
   f.update({ disabled: false });
   const afterUnmount = f.button("direction-gave").props.onPress;
   f.hooks.unmount();
   afterUnmount();
-  assert.equal(f.changes.length, 0);
+  assert.equal(f.changes.length, 1);
   assert.equal(f.hooks.lateWrites, 0);
+}
+
+for (const rtl of [false, true]) {
+  const f = fixture(rtl, ["AFN"]);
+  for (const sort of ["date_asc", "amount_asc", "amount_desc"] as const) {
+    const sorted = { ...filters.DEFAULT_TALLY_LIST_FILTER, currencies: [], sort };
+    f.update({ filter: sorted });
+    assert.equal(f.button("clear"), undefined, "Sorting alone never displays Clear all filters");
+    assert.equal(f.button(`sort-${sort}`).props.accessibilityState.selected, true);
+    f.button("direction-gave").props.onPress();
+    f.flush();
+    const heldClear = f.button("clear").props.onPress;
+    f.update({ filter: sorted });
+    heldClear();
+    assert.equal(f.clears, 0, "A retained Clear button cannot clear a sort-only view");
+    assert.equal(f.props.filter.sort, sort);
+  }
+  f.update({ hasDateFilter: true });
+  assert.ok(f.button("clear"), "A date-only filter still displays Clear all filters");
+  const dateClear = f.button("clear").props.onPress;
+  f.update({ hasDateFilter: false });
+  dateClear();
+  assert.equal(f.clears, 0, "A removed date filter retires the old Clear callback");
+  f.update({ hasDateFilter: true });
+  f.button("clear").props.onPress();
+  assert.equal(f.clears, 1);
 }
 
 console.log(

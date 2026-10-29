@@ -3005,6 +3005,8 @@ async function customerTallyFilterTests() {
     originalRTL = rtl;
   const filterPopup = () => find("CustomerTallyFilterPopover")!;
   const filter = () => filterPopup().props.filter;
+  const clearFiltersButton = () =>
+    nodes(tree).find((node) => node.type === "Pressable" && words(node) === "search.clearAll");
   const listSwipe = () => byTestId("customer-tally-content")!;
   const flow = (code = "AFN") =>
     nodes(tree).find((node) => node.type === "TallyFlowSummary" && node.props.currency === code)!;
@@ -3185,6 +3187,62 @@ async function customerTallyFilterTests() {
         "Widening a swipe cannot compare amounts across currencies",
       );
       assert.deepEqual(rowIds(), ["afn-gave", "usd-gave"]);
+      unmount();
+
+      fixture();
+      await flush();
+      await changeFilter({ sort: "date_asc" });
+      assert.equal(
+        clearFiltersButton(),
+        undefined,
+        "Sorting alone has no Clear all filters button",
+      );
+      assert.equal(
+        byTestId("customer-tally-filter-heading"),
+        undefined,
+        "Sort-only chips have no empty heading gap",
+      );
+      assert.ok(
+        byTestId("customer-tally-filter-chips"),
+        "The removable sort chip remains available",
+      );
+      assert.equal(filter().sort, "date_asc");
+      assert.equal(filterPopup().props.hasDateFilter, false);
+      query("rice");
+      await flush();
+      assert.ok(byTestId("customer-tally-filter-heading"), "Search still has its results heading");
+      assert.equal(
+        clearFiltersButton(),
+        undefined,
+        "Search with sorting does not add an inert filter clear",
+      );
+      query("");
+      await tapCard("received");
+      const heldClear = clearFiltersButton()!.props.onPress;
+      await swipe("all");
+      assert.equal(clearFiltersButton(), undefined);
+      heldClear();
+      await flush();
+      assert.equal(
+        filter().sort,
+        "date_asc",
+        "A retired Clear button cannot reset sort-only preferences",
+      );
+      dateControl().props.onChange({ start: 300, end: 401 });
+      await flush();
+      assert.ok(clearFiltersButton(), "A date-only filter still has Clear all filters");
+      assert.equal(
+        filterPopup().props.hasDateFilter,
+        true,
+        "The popup receives the active date filter",
+      );
+      const heldDateClear = clearFiltersButton()!.props.onPress;
+      dateControl().props.onChange(null);
+      await flush();
+      assert.equal(clearFiltersButton(), undefined);
+      heldDateClear();
+      await flush();
+      assert.equal(filter().sort, "date_asc");
       unmount();
     }
 

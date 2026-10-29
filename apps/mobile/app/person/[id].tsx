@@ -801,8 +801,8 @@ export default function PersonDetailScreen() {
   tallyFilterRef.current = tallyFilter;
   const searchTerms = useMemo(() => noteSearchTerms(searchQuery), [searchQuery]);
   const directionalFiltering = tallyFilter.direction !== "all" || tallyFilter.currencies.length > 0;
-  const tallyFiltersActive =
-    directionalFiltering || dateRange != null || tallyFilter.sort !== "recent";
+  const tallyFiltersApplied = directionalFiltering || dateRange != null;
+  const tallyFiltersActive = tallyFiltersApplied || tallyFilter.sort !== "recent";
   const searching = searchTerms.length > 0 || dateRange != null || directionalFiltering;
   const searchingRef = useRef(searching);
   searchingRef.current = searching;
@@ -1095,12 +1095,14 @@ export default function PersonDetailScreen() {
   const tallyDirectionEnabled = tallyPopupEnabled && !selecting && !tallyFiltersVisible;
   const tallyInteraction = useRef({
     filter: tallyFilter,
+    hasFilters: tallyFiltersApplied,
     codes: tallyCurrencyCodes,
     enabled: tallyPopupEnabled,
     directionEnabled: tallyDirectionEnabled,
   });
   tallyInteraction.current = {
     filter: tallyFilter,
+    hasFilters: tallyFiltersApplied,
     codes: tallyCurrencyCodes,
     enabled: tallyPopupEnabled,
     directionEnabled: tallyDirectionEnabled,
@@ -1115,6 +1117,7 @@ export default function PersonDetailScreen() {
   };
   const clearTallyFilters = () => {
     if (!filterIsCurrent() || !tallyInteraction.current.enabled || selectionBusyRef.current) return;
+    if (!tallyInteraction.current.hasFilters) return;
     setTallyView({ scope: flowScope, filter: DEFAULT_TALLY_LIST_FILTER });
     setDateRange(null);
   };
@@ -2894,38 +2897,43 @@ export default function PersonDetailScreen() {
                 >
                   {searching || tallyFiltersActive ? (
                     <View testID="customer-tally-filter-chips" style={styles.tallyFilterChips}>
-                      <View style={[styles.tallyFilterHeading, rowDir(isRTL)]}>
-                        {tallyFiltersActive ? (
-                          <Pressable
-                            accessibilityRole="button"
-                            onPress={clearTallyFilters}
-                            style={styles.tallyFilterClearButton}
-                          >
-                            <Text style={[styles.tallyFilterClear, textDir(isRTL)]}>
-                              {t("search.clearAll")}
+                      {searching || tallyFiltersApplied ? (
+                        <View
+                          testID="customer-tally-filter-heading"
+                          style={[styles.tallyFilterHeading, rowDir(isRTL)]}
+                        >
+                          {tallyFiltersApplied ? (
+                            <Pressable
+                              accessibilityRole="button"
+                              onPress={clearTallyFilters}
+                              style={styles.tallyFilterClearButton}
+                            >
+                              <Text style={[styles.tallyFilterClear, textDir(isRTL)]}>
+                                {t("search.clearAll")}
+                              </Text>
+                            </Pressable>
+                          ) : null}
+                          {searching ? (
+                            <Text
+                              style={[
+                                styles.searchSummary,
+                                styles.tallyFilterCount,
+                                textDir(isRTL),
+                                { textAlign: isRTL ? "left" : "right" },
+                              ]}
+                              accessibilityLiveRegion="polite"
+                              accessibilityHint={t("person.search.balanceHint")}
+                            >
+                              {t(
+                                searchResultCount === 1
+                                  ? "person.search.result"
+                                  : "person.search.results",
+                                { count: searchResultCount },
+                              )}
                             </Text>
-                          </Pressable>
-                        ) : null}
-                        {searching ? (
-                          <Text
-                            style={[
-                              styles.searchSummary,
-                              styles.tallyFilterCount,
-                              textDir(isRTL),
-                              { textAlign: isRTL ? "left" : "right" },
-                            ]}
-                            accessibilityLiveRegion="polite"
-                            accessibilityHint={t("person.search.balanceHint")}
-                          >
-                            {t(
-                              searchResultCount === 1
-                                ? "person.search.result"
-                                : "person.search.results",
-                              { count: searchResultCount },
-                            )}
-                          </Text>
-                        ) : null}
-                      </View>
+                          ) : null}
+                        </View>
+                      ) : null}
                       {tallyFiltersActive ? (
                         <View style={[styles.tallyFilterChipRow, rowDir(isRTL)]}>
                           {tallyFilter.direction !== "all" ? (
@@ -3470,6 +3478,7 @@ export default function PersonDetailScreen() {
         viewport={{ ...filterSurface, topInset: insets.top }}
         blurTarget={filterBlurTarget}
         filter={tallyFilter}
+        hasDateFilter={dateRange != null}
         availableCodes={tallyCurrencyCodes}
         onChange={changeTallyFilter}
         onClear={clearTallyFilters}

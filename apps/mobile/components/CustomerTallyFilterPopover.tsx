@@ -22,6 +22,12 @@ type Props = Omit<ComponentProps<typeof HomeFilterPopover>, "children"> & {
   onChange: (filter: TallyListFilter) => void;
   onClear: () => void;
   isRTL: boolean;
+  hasDateFilter?: boolean;
+};
+
+const hasActiveFilters = (props: Props) => {
+  const filter = normalizeTallyListFilter(props.filter, props.availableCodes);
+  return filter.direction !== "all" || filter.currencies.length > 0 || !!props.hasDateFilter;
 };
 
 /** Same content-sized overlay as Home; all changes affect the visible ledger only. */
@@ -31,6 +37,7 @@ export function CustomerTallyFilterPopover(props: Props) {
     availableCodes: _codes,
     onChange: _change,
     onClear: _clear,
+    hasDateFilter: _date,
     isRTL,
     ...popover
   } = props;
@@ -227,22 +234,29 @@ export function CustomerTallyFilterPopover(props: Props) {
       {!amountSort ? (
         <Text style={[styles.help, textDir(isRTL)]}>{t("customers.sort.selectCurrencyHelp")}</Text>
       ) : null}
-      <Pressable
-        testID="tally-filter-clear"
-        accessibilityRole="button"
-        accessibilityLabel={t("search.clearAll")}
-        accessibilityState={{ disabled: !!props.disabled }}
-        disabled={!!props.disabled}
-        onPress={() => {
-          if (!current()) return;
-          const live = latest.current;
-          latest.current = { ...live, filter: { ...DEFAULT_TALLY_LIST_FILTER, currencies: [] } };
-          live.onClear();
-        }}
-        style={[styles.clear, props.disabled && styles.disabled]}
-      >
-        <Text style={styles.clearText}>{t("search.clearAll")}</Text>
-      </Pressable>
+      {hasActiveFilters(props) ? (
+        <Pressable
+          testID="tally-filter-clear"
+          accessibilityRole="button"
+          accessibilityLabel={t("search.clearAll")}
+          accessibilityState={{ disabled: !!props.disabled }}
+          disabled={!!props.disabled}
+          onPress={() => {
+            if (!current()) return;
+            const live = latest.current;
+            if (!hasActiveFilters(live)) return;
+            latest.current = {
+              ...live,
+              filter: { ...DEFAULT_TALLY_LIST_FILTER, currencies: [] },
+              hasDateFilter: false,
+            };
+            live.onClear();
+          }}
+          style={[styles.clear, props.disabled && styles.disabled]}
+        >
+          <Text style={styles.clearText}>{t("search.clearAll")}</Text>
+        </Pressable>
+      ) : null}
     </HomeFilterPopover>
   );
 }

@@ -1034,11 +1034,8 @@ export default function HomeScreen() {
       setListPreference((p) => ({ ...p, group: effectiveGroup }));
   }, [effectiveGroup, listPreference.group]);
   const balanceFilter = listPreference.direction ?? "all";
-  const listCustomized =
-    !!currencyFilter ||
-    balanceFilter !== "all" ||
-    effectiveGroup !== "all" ||
-    listPreference.sort !== DEFAULT_CUSTOMER_LIST.sort;
+  const listFiltered = !!currencyFilter || balanceFilter !== "all" || effectiveGroup !== "all";
+  const listCustomized = listFiltered || listPreference.sort !== DEFAULT_CUSTOMER_LIST.sort;
   // Keep selected group names beside the list they filter.
   const groupFilterLabel = useMemo(() => {
     if (effectiveGroup === "all") return null;
@@ -1109,6 +1106,7 @@ export default function HomeScreen() {
     confirming: confirmRemoveIds !== null,
     searchOpen: keyboardLayoutShown,
     filtersExpanded,
+    canClearFilters: customerQuery.trim().length > 0 || listFiltered,
   });
   homeInteraction.current = {
     people: homePeopleById,
@@ -1118,6 +1116,7 @@ export default function HomeScreen() {
     confirming: confirmRemoveIds !== null,
     searchOpen: keyboardLayoutShown,
     filtersExpanded,
+    canClearFilters: customerQuery.trim().length > 0 || listFiltered,
   };
 
   const directionContextKey = JSON.stringify([
@@ -1600,9 +1599,9 @@ export default function HomeScreen() {
     </View>
   );
   const inlineControls =
-    customerQuery.trim() || listCustomized || groupFilterLabel ? (
+    customerQuery.trim() || listFiltered ? (
       <View style={styles.inlineControls}>
-        {customerQuery.trim().length > 0 || listCustomized ? (
+        {customerQuery.trim().length > 0 || listFiltered ? (
           <View style={[styles.resultsHeading, { alignItems: isRTL ? "flex-end" : "flex-start" }]}>
             {customerQuery.trim().length > 0 ? (
               <Text style={[styles.resultCount, textDir(isRTL)]} accessibilityLiveRegion="polite">
@@ -1614,7 +1613,7 @@ export default function HomeScreen() {
                 )}
               </Text>
             ) : null}
-            {customerQuery || listCustomized ? (
+            {customerQuery.trim() || listFiltered ? (
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel={t("search.clearAll")}
@@ -1622,6 +1621,7 @@ export default function HomeScreen() {
                 onPress={() => {
                   if (
                     !isCurrentHome() ||
+                    !homeInteraction.current.canClearFilters ||
                     selectionBusyRef.current ||
                     homeInteraction.current.confirming
                   )
