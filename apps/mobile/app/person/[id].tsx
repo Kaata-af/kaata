@@ -4193,7 +4193,6 @@ const styles = StyleSheet.create({
     gap: 12,
     paddingHorizontal: 14,
     paddingVertical: 8,
-    backgroundColor: colors.bgBalanceGlassHeader,
   },
   balanceHeadline: {
     direction: "ltr",

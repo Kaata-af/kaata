@@ -37,7 +37,6 @@ export const colors = {
   bgInverted: "#000000",
   // Light frosted balance cards, with an opaque fallback on older phones.
   bgBalanceGlass: "#F6F9F7",
-  bgBalanceGlassHeader: "#FFFFFF80",
   borderBalanceGlass: "#DBE4DF",
 
   // Text

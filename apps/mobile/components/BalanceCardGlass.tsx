@@ -8,6 +8,7 @@ import { useSheetTransparencyPreference } from "./SheetBackdrop";
  * capture the app-wide sheet target here: it also contains this card. */
 export const BalanceCardGlass = memo(function BalanceCardGlass() {
   const target = useRef<ViewInstance | null>(null);
+  const android = Platform.OS === "android";
   const reducedTransparency = useSheetTransparencyPreference();
   // Older Android uses an opaque pearl surface, without a RenderScript blur.
   const blur =
@@ -25,14 +26,20 @@ export const BalanceCardGlass = memo(function BalanceCardGlass() {
           {/* This sibling's ref attaches before BlurView mounts. The source
               contains decoration only, so the amounts are never blurred. */}
           <BlurTargetView ref={target} collapsable={false} style={styles.source}>
+            {/* Android records the target's children, not its host background.
+                An opaque base keeps the sharp source shapes from showing
+                through the blurred copy. iOS keeps its existing material. */}
+            {android ? <View style={styles.androidBase} /> : null}
             <View style={[styles.glow, styles.collectGlow]} />
             <View style={[styles.glow, styles.payGlow]} />
           </BlurTargetView>
           <BlurView
             blurTarget={target}
             blurMethod="dimezisBlurViewSdk31Plus"
-            intensity={55}
-            blurReductionFactor={1}
+            // Android derives both its white tint and radius from intensity.
+            // Reduce the veil while retaining roughly the same blur radius.
+            intensity={android ? 38 : 55}
+            blurReductionFactor={android ? 0.7 : 1}
             tint="light"
             style={StyleSheet.absoluteFill}
           />
@@ -45,6 +52,7 @@ export const BalanceCardGlass = memo(function BalanceCardGlass() {
 
 const styles = StyleSheet.create({
   source: { ...StyleSheet.absoluteFill, overflow: "hidden" },
+  androidBase: { ...StyleSheet.absoluteFill, backgroundColor: colors.bgBalanceGlass },
   glow: { position: "absolute", width: 240, height: 200, borderRadius: 120 },
   collectGlow: { top: -90, left: -55, backgroundColor: colors.entryActionReceived },
   payGlow: { bottom: -140, right: -75, backgroundColor: colors.entryActionGave },

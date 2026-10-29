@@ -50,23 +50,6 @@ const quoteRow = (page: UINode) =>
   nodes(page).find((node) => children(node).filter(isBalanceCell).length === 2)!;
 const currencySymbols: Record<string, string> = { AFN: "؋", USD: "$", EUR: "€" };
 const currencyLabel = (code: string) => code;
-const compositeColor = (color: string, background: string) => {
-  assert.match(color, /^#[\da-f]{6}([\da-f]{2})?$/i);
-  const alpha = color.length === 9 ? parseInt(color.slice(7), 16) / 255 : 1;
-  return (
-    "#" +
-    [1, 3, 5]
-      .map((at) =>
-        Math.round(
-          parseInt(color.slice(at, at + 2), 16) * alpha +
-            parseInt(background.slice(at, at + 2), 16) * (1 - alpha),
-        )
-          .toString(16)
-          .padStart(2, "0"),
-      )
-      .join("")
-  );
-};
 const luminance = (color: string) => {
   assert.match(color, /^#[\da-f]{6}$/i);
   return [1, 3, 5]
@@ -750,13 +733,8 @@ async function main() {
         );
         assert.equal(style(pay).borderLeftWidth, 1, "a fine separator divides the paired values");
         const amounts = nodes(page).filter((node) => node.props.minimumFontScale !== undefined);
-        const currencyText = byId(page, `home-balance-currency-${row.currency}`);
-        const header = nodes(page).find((node) => children(node).includes(currencyText))!;
-        const headerTexts = nodes(header).filter((node) => node.type === "Text");
         for (const label of nodes(page).filter((node) => node.type === "Text")) {
-          const background = headerTexts.includes(label)
-            ? compositeColor(style(header).backgroundColor, style(page).backgroundColor)
-            : style(page).backgroundColor;
+          const background = style(page).backgroundColor;
           assert.ok(
             contrast(style(label).color, background) >= 4.5,
             "currency, captions and exact balances stay readable against their light surfaces",

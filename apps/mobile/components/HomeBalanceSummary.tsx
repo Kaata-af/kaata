@@ -40,7 +40,6 @@ const useCardLayoutEffect = Platform.OS === "android" ? useLayoutEffect : useEff
 // Use the same balance colors as the customer page for amounts and arrows.
 const board = {
   surface: colors.bgBalanceGlass,
-  header: colors.bgBalanceGlassHeader,
   rule: colors.borderBalanceGlass,
   text: colors.textEmphasis,
   muted: colors.textSubtle,
@@ -846,7 +845,6 @@ const styles = StyleSheet.create({
     gap: 12,
     paddingHorizontal: 12,
     paddingVertical: 6,
-    backgroundColor: board.header,
     borderBottomWidth: 1,
     borderBottomColor: board.rule,
   },
