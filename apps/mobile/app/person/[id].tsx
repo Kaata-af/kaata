@@ -2951,7 +2951,11 @@ export default function PersonDetailScreen() {
                 >
                   {directionalFiltering || tallyFilter.sort !== "recent" ? (
                     <View testID="customer-tally-filter-chips" style={styles.tallyFilterChips}>
-                      <Pressable accessibilityRole="button" onPress={clearTallyFilters}>
+                      <Pressable
+                        accessibilityRole="button"
+                        onPress={clearTallyFilters}
+                        style={{ alignSelf: isRTL ? "flex-end" : "flex-start" }}
+                      >
                         <Text style={[styles.tallyFilterClear, textDir(isRTL)]}>
                           {t("search.clearAll")}
                         </Text>
@@ -2965,7 +2969,13 @@ export default function PersonDetailScreen() {
                             }
                             style={[styles.tallyFilterChip, rowDir(isRTL)]}
                           >
-                            <Text style={styles.searchSummary}>
+                            <Text
+                              style={[
+                                styles.searchSummary,
+                                styles.tallyFilterChipLabel,
+                                textDir(isRTL),
+                              ]}
+                            >
                               {t(
                                 tallyFilter.direction === "received"
                                   ? "person.filters.received"
@@ -2990,7 +3000,9 @@ export default function PersonDetailScreen() {
                             }
                             style={styles.tallyFilterChip}
                           >
-                            <Text style={styles.searchSummary}>{getCurrencyLabel(code)}</Text>
+                            <Text style={[styles.searchSummary, styles.tallyFilterChipLabel]}>
+                              {getCurrencyLabel(code)}
+                            </Text>
                             <Ionicons name="close" size={14} color={colors.textSubtle} />
                           </Pressable>
                         ))}
@@ -3002,7 +3014,13 @@ export default function PersonDetailScreen() {
                             }
                             style={[styles.tallyFilterChip, rowDir(isRTL)]}
                           >
-                            <Text style={styles.searchSummary}>
+                            <Text
+                              style={[
+                                styles.searchSummary,
+                                styles.tallyFilterChipLabel,
+                                textDir(isRTL),
+                              ]}
+                            >
                               {t(
                                 tallyFilter.sort === "date_asc"
                                   ? "person.filters.oldest"
@@ -3799,11 +3817,14 @@ const ACTION_COIN_SIZE = 26;
 const styles = StyleSheet.create({
   tallyFilterChips: { paddingHorizontal: 16, paddingBottom: 12, gap: 8 },
   tallyFilterClear: { ...typography.bodySm, color: colors.textEmphasis },
-  tallyFilterChipRow: { flexWrap: "wrap", gap: 8 },
+  tallyFilterChipRow: { flexWrap: "wrap", alignItems: "center", gap: 8, width: "100%" },
   tallyFilterChip: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
+    maxWidth: "100%",
+    minWidth: 0,
+    flexShrink: 1,
     minHeight: 32,
     paddingHorizontal: 10,
     paddingVertical: 6,
@@ -3811,6 +3832,7 @@ const styles = StyleSheet.create({
     borderColor: colors.borderDefault,
     borderRadius: 20,
   },
+  tallyFilterChipLabel: { flexShrink: 1 },
   container: { flex: 1, backgroundColor: colors.bgDefault },
   fillCenter: { flex: 1, alignItems: "center", justifyContent: "center" },
   notFoundText: { fontSize: 14, fontFamily: fonts.sansRegular, color: colors.textSubtle },

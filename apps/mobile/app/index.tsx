@@ -1566,7 +1566,7 @@ export default function HomeScreen() {
     customerQuery.trim() || listCustomized || groupFilterLabel ? (
       <View style={styles.inlineControls}>
         {customerQuery.trim().length > 0 || listCustomized ? (
-          <View style={[styles.resultsHeading, rowDir(isRTL)]}>
+          <View style={[styles.resultsHeading, { alignItems: isRTL ? "flex-end" : "flex-start" }]}>
             {customerQuery.trim().length > 0 ? (
               <Text style={[styles.resultCount, textDir(isRTL)]} accessibilityLiveRegion="polite">
                 {t(
@@ -1593,30 +1593,32 @@ export default function HomeScreen() {
                   changeListPreference({ ...DEFAULT_CUSTOMER_LIST });
                 }}
               >
-                <Text style={styles.clearLabel}>{t("search.clearAll")}</Text>
+                <Text style={[styles.clearLabel, textDir(isRTL)]}>{t("search.clearAll")}</Text>
               </Pressable>
             ) : null}
           </View>
         ) : null}
-        {balanceFilter !== "all" ? (
-          <CustomerFilterChip
-            label={t(`customers.balanceFilter.${balanceFilter}`)}
-            clearHint={t("customers.balanceFilter.clear")}
-            onClear={() => changeListPreference({ ...listPreference, direction: "all" })}
+        <View style={[styles.filterChipRow, rowDir(isRTL)]}>
+          {balanceFilter !== "all" ? (
+            <CustomerFilterChip
+              label={t(`customers.balanceFilter.${balanceFilter}`)}
+              clearHint={t("customers.balanceFilter.clear")}
+              onClear={() => changeListPreference({ ...listPreference, direction: "all" })}
+            />
+          ) : null}
+          {currencyFilter ? (
+            <CustomerFilterChip
+              label={`${t("customers.currencyFilter")}: ${selectedFilterCurrencies.map(getCurrencyLabel).join(locale === "en" ? ", " : "، ")}`}
+              clearHint={t("customers.currencyFilter.clear")}
+              onClear={() => changeListPreference({ ...listPreference, currency: undefined })}
+            />
+          ) : null}
+          <GroupFilterChip
+            groupFilterLabel={groupFilterLabel}
+            groupFilterCount={groupFilterCount}
+            onClearGroupFilter={() => changeListPreference({ ...listPreference, group: "all" })}
           />
-        ) : null}
-        {currencyFilter ? (
-          <CustomerFilterChip
-            label={`${t("customers.currencyFilter")}: ${selectedFilterCurrencies.map(getCurrencyLabel).join(locale === "en" ? ", " : "، ")}`}
-            clearHint={t("customers.currencyFilter.clear")}
-            onClear={() => changeListPreference({ ...listPreference, currency: undefined })}
-          />
-        ) : null}
-        <GroupFilterChip
-          groupFilterLabel={groupFilterLabel}
-          groupFilterCount={groupFilterCount}
-          onClearGroupFilter={() => changeListPreference({ ...listPreference, group: "all" })}
-        />
+        </View>
       </View>
     ) : null;
 
@@ -2876,14 +2878,13 @@ const styles = StyleSheet.create({
     backgroundColor: colors.bgMuted,
   },
   groupChip: {
-    alignSelf: "flex-start",
     alignItems: "center",
     gap: 6,
-    maxWidth: "90%",
+    maxWidth: "100%",
+    minWidth: 0,
+    flexShrink: 1,
     minHeight: 32,
     paddingHorizontal: 12,
-    marginHorizontal: 16,
-    marginBottom: 8,
     borderRadius: 16,
     borderWidth: 1,
     borderColor: colors.borderDefault,
@@ -2958,6 +2959,7 @@ const styles = StyleSheet.create({
     borderTopColor: colors.borderDefault,
   },
   inlineControls: { marginHorizontal: 16, marginBottom: 12 },
+  filterChipRow: { flexWrap: "wrap", alignItems: "center", gap: 8, width: "100%" },
   searchRow: { flexDirection: "row", direction: "ltr", gap: 8, alignItems: "center" },
   searchField: {
     flexDirection: "row",
@@ -2993,8 +2995,8 @@ const styles = StyleSheet.create({
     backgroundColor: colors.bgDefault,
   },
   filterButtonActive: { backgroundColor: colors.actionPrimary, borderColor: colors.actionPrimary },
-  resultsHeading: { marginTop: 4, gap: 8, alignItems: "center", justifyContent: "space-between" },
-  resultCount: { flex: 1, fontSize: 13, fontFamily: fonts.sansRegular, color: colors.textSubtle },
+  resultsHeading: { marginTop: 4 },
+  resultCount: { fontSize: 13, fontFamily: fonts.sansRegular, color: colors.textSubtle },
   clearLabel: {
     fontSize: 13,
     fontFamily: fonts.sansSemi,
