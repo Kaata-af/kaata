@@ -51,6 +51,7 @@ import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { CountryPickerSheet } from "../components/CountryPickerSheet";
 import { OptionSheet } from "../components/OptionSheet";
+import { MotionPreferenceSetting } from "../components/MotionPreferenceSetting";
 import { ScreenLoading } from "../components/ScreenLoading";
 import { NavRow, ScreenHeader, SectionGap, SectionHeader } from "../components/SettingsScreen";
 import { useToast } from "../components/Toast";
@@ -824,6 +825,7 @@ export default function AccountScreen() {
             onPress={() => router.push("/notification-settings")}
             isRTL={isRTL}
           />
+          <MotionPreferenceSetting />
           <NavRow
             icon="language-outline"
             label={t("settings.language.label")}

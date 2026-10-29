@@ -4,6 +4,7 @@ import {
   createContext,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type PropsWithChildren,
@@ -12,6 +13,7 @@ import {
 import { AccessibilityInfo, Platform, Pressable, StyleSheet, View } from "react-native";
 import { SHEET_BLUR_METHOD } from "../lib/blur";
 import { t } from "../lib/i18n";
+import { useMotionPreference } from "../lib/motion-preference";
 
 type BackdropContext = {
   target: RefObject<ViewInstance | null> | undefined;
@@ -29,28 +31,21 @@ const Context = createContext<BackdropContext>({
 export function SheetBlurProvider({ children }: PropsWithChildren) {
   const target = useRef<ViewInstance | null>(null);
   const [targetReady, setTargetReady] = useState(false);
-  const [reducedMotion, setReducedMotion] = useState(false);
+  const { effectiveReducedMotion: reducedMotion } = useMotionPreference();
   const [reducedTransparency, setReducedTransparency] = useState(false);
+  const context = useMemo(
+    () => ({ target: targetReady ? target : undefined, reducedMotion, reducedTransparency }),
+    [targetReady, reducedMotion, reducedTransparency],
+  );
   useEffect(() => {
     // Descendant Modal lifecycle methods can run before the ancestor target's
     // ref attaches. Mount Android BlurViews only after that first commit.
     setTargetReady(true);
     let alive = true;
-    let motionChanged = false;
     let transparencyChanged = false;
-    void AccessibilityInfo.isReduceMotionEnabled()
-      .then((value) => {
-        if (alive && !motionChanged) setReducedMotion(value);
-      })
-      .catch(() => undefined);
-    const motion = AccessibilityInfo.addEventListener("reduceMotionChanged", (value) => {
-      motionChanged = true;
-      setReducedMotion(value);
-    });
     if (Platform.OS !== "ios")
       return () => {
         alive = false;
-        motion.remove();
       };
     void AccessibilityInfo.isReduceTransparencyEnabled()
       .then((value) => {
@@ -66,14 +61,11 @@ export function SheetBlurProvider({ children }: PropsWithChildren) {
     );
     return () => {
       alive = false;
-      motion.remove();
       transparency.remove();
     };
   }, []);
   return (
-    <Context.Provider
-      value={{ target: targetReady ? target : undefined, reducedMotion, reducedTransparency }}
-    >
+    <Context.Provider value={context}>
       <BlurTargetView ref={target} collapsable={false} style={{ flex: 1 }}>
         {children}
       </BlurTargetView>
@@ -95,12 +87,13 @@ export function SheetBackdrop({
   blurTarget?: RefObject<ViewInstance | null>;
   disabled?: boolean;
 }) {
-  const { target: globalTarget, reducedTransparency } = useContext(Context);
+  const { target: globalTarget, reducedTransparency, reducedMotion } = useContext(Context);
   // A supplied but unattached local target must not fall back to an ancestor
   // that also contains this overlay and would capture the blur itself.
   const target = blurTarget ?? globalTarget;
   const supportsBlur =
     !reducedTransparency &&
+    !reducedMotion &&
     (Platform.OS !== "android" || (Number(Platform.Version) >= 31 && !!target?.current));
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents="box-none">

@@ -112,6 +112,11 @@ function fixture(
   let props: SummaryProps = { people: [], ...initialProps };
   const readerQuery = deferred<boolean>();
   const motionQuery = deferred<boolean>();
+  let reducedMotion = true;
+  let motionChanged = false;
+  void motionQuery.promise.then((value) => {
+    if (!motionChanged) reducedMotion = value;
+  });
   const accessibility = new Map<string, Set<(value: boolean) => void>>();
   const appListeners = new Map<string, Set<(value: string) => void>>();
   const calls: { x: number; animated?: boolean }[] = [];
@@ -167,6 +172,7 @@ function fixture(
       react,
       "react/jsx-runtime": { jsx: summaryJsx, jsxs: summaryJsx },
       "expo-router": { useIsFocused: () => focused },
+      "./SheetBackdrop": { useSheetMotionPreference: () => reducedMotion },
       "react-native": {
         View: "View",
         Text: "Text",
@@ -345,6 +351,10 @@ function fixture(
       render();
     },
     emitAccessibility: (event: string, value: boolean) => {
+      if (event === "reduceMotionChanged") {
+        motionChanged = true;
+        reducedMotion = value;
+      }
       for (const callback of accessibility.get(event) ?? []) callback(value);
       render();
     },
@@ -1535,6 +1545,28 @@ async function main() {
       resumedCalls,
       "the old timeout remains stale after resuming",
     );
+    current.hooks.unmount();
+  }
+  {
+    const current = fixture("en", 390, 1, 844, "android");
+    current.render({ balances: rotatingBalances });
+    current.measure();
+    await current.ready();
+    current.advance(false);
+    assert.equal(current.calls.at(-1)!.animated, true);
+    current.emitAccessibility("reduceMotionChanged", true);
+    assert.equal(
+      current.calls.at(-1)!.animated,
+      false,
+      "Off cancels an active native autoplay glide",
+    );
+    assert.equal(current.timers.size, 0);
+    current.emitAccessibility("reduceMotionChanged", false);
+    current.advance(false);
+    current.beginDrag();
+    const beforeOff = current.calls.length;
+    current.emitAccessibility("reduceMotionChanged", true);
+    assert.equal(current.calls.length, beforeOff, "Off cannot take scroll control from a finger");
     current.hooks.unmount();
   }
   for (const preference of ["screenReaderChanged", "reduceMotionChanged"] as const) {

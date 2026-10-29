@@ -5,6 +5,7 @@ import { colors } from "../lib/colors";
 import { textDir, useIsRTL } from "../lib/direction";
 import { fonts } from "../lib/fonts";
 import { SETTINGS_DISABLED_OPACITY } from "../lib/design-tokens";
+import { useSheetMotionPreference } from "./SheetBackdrop";
 
 // Reusable form field that handles validation errors visibly — red border
 // on the input, a small inline error message below it, and a brief shake
@@ -42,6 +43,7 @@ export const FormField = forwardRef<TextInputInstance, FormFieldProps>(function 
   ref,
 ) {
   const isRTL = useIsRTL();
+  const reducedMotion = useSheetMotionPreference();
   const hasError = Boolean(error && error.length > 0);
   const disabled = inputProps.editable === false || inputProps.readOnly === true;
 
@@ -52,18 +54,23 @@ export const FormField = forwardRef<TextInputInstance, FormFieldProps>(function 
   const shake = useRef(new Animated.Value(0)).current;
   const prevHasError = useRef(hasError);
   useEffect(() => {
-    if (hasError && !prevHasError.current) {
-      shake.setValue(0);
-      Animated.sequence([
+    let animation: Animated.CompositeAnimation | undefined;
+    shake.setValue(0);
+    if (!reducedMotion && hasError && !prevHasError.current) {
+      animation = Animated.sequence([
         Animated.timing(shake, { toValue: -8, duration: 50, useNativeDriver: true }),
         Animated.timing(shake, { toValue: 8, duration: 60, useNativeDriver: true }),
         Animated.timing(shake, { toValue: -5, duration: 60, useNativeDriver: true }),
         Animated.timing(shake, { toValue: 5, duration: 60, useNativeDriver: true }),
         Animated.timing(shake, { toValue: 0, duration: 50, useNativeDriver: true }),
-      ]).start();
+      ]);
+      animation.start();
     }
     prevHasError.current = hasError;
-  }, [hasError, shake]);
+    return () => {
+      animation?.stop();
+    };
+  }, [hasError, shake, reducedMotion]);
 
   return (
     <View style={styles.field}>

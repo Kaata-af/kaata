@@ -910,6 +910,17 @@ const en = {
   // to the killed v0 Settings screen and were dropped (Phase 7).
   "settings.saved": "Saved",
   "settings.language.label": "Language",
+  "settings.motion.label": "Animations",
+  "settings.motion.hint": "Saved on this phone. System Reduce Motion is always respected.",
+  "settings.motion.option.auto": "Automatic",
+  "settings.motion.option.auto.hint": "Turn off animations and blur on less capable phones.",
+  "settings.motion.option.full": "On",
+  "settings.motion.option.full.hint":
+    "Keep animations and visual effects on when allowed by your phone settings.",
+  "settings.motion.option.reduced": "Off",
+  "settings.motion.option.reduced.hint":
+    "Turn off animations, automatic card movement and background blur.",
+  "settings.motion.saveFailed": "Couldn’t save the animation setting. Please try again.",
   "settings.language.option.system": "System default",
   "settings.language.option.en": "English",
   "settings.language.option.fa": "دری",
@@ -3235,6 +3246,17 @@ const fa: Partial<Record<Key, string>> = {
   // Settings — only "settings.saved" remains (person/edit auto-save toast).
   "settings.saved": "ذخیره شد",
   "settings.language.label": "زبان",
+  "settings.motion.label": "جلوه‌های حرکتی",
+  "settings.motion.hint": "در همین تلفن ذخیره می‌شود. تنظیم کاهش حرکت تلفن همیشه رعایت می‌شود.",
+  "settings.motion.option.auto": "خودکار",
+  "settings.motion.option.auto.hint":
+    "در تلفن‌های ضعیف‌تر، حرکت‌ها و محوسازی پس‌زمینه را خاموش می‌کند.",
+  "settings.motion.option.full": "روشن",
+  "settings.motion.option.full.hint": "حرکت‌ها و جلوه‌ها را مطابق تنظیمات تلفن روشن نگه می‌دارد.",
+  "settings.motion.option.reduced": "خاموش",
+  "settings.motion.option.reduced.hint":
+    "حرکت‌ها، جابه‌جایی خودکار کارت‌ها و محوسازی پس‌زمینه را خاموش می‌کند.",
+  "settings.motion.saveFailed": "تنظیم جلوه‌های حرکتی ذخیره نشد. دوباره تلاش کنید.",
   "settings.language.option.system": "پیش‌فرض سیستم",
   "settings.language.option.en": "English",
   "settings.language.option.fa": "دری",
@@ -4811,6 +4833,19 @@ const ps: Record<Key, string> = {
     "د حافظې او ناڅاپي بندېدو معلومات. که درڅخه وغوښتل شي، د پردې انځور واخلئ.",
   "settings.saved": "خوندي شول",
   "settings.language.label": "ژبه",
+  "settings.motion.label": "خوځنده اغېزې",
+  "settings.motion.hint":
+    "یوازې په همدې ټیلیفون کې خوندي کېږي. د ټیلیفون د حرکت کمولو تنظیم تل مراعاتېږي.",
+  "settings.motion.option.auto": "اتومات",
+  "settings.motion.option.auto.hint":
+    "په کمزورو ټیلیفونونو کې خوځنده اغېزې او د شالید تتوالی بندوي.",
+  "settings.motion.option.full": "چالان",
+  "settings.motion.option.full.hint":
+    "د ټیلیفون له تنظیماتو سره سم خوځنده او بصري اغېزې چالان ساتي.",
+  "settings.motion.option.reduced": "بند",
+  "settings.motion.option.reduced.hint":
+    "خوځنده اغېزې، د کارتونو اتومات بدلېدل او د شالید تتوالی بندوي.",
+  "settings.motion.saveFailed": "د خوځنده اغېزو تنظیم خوندي نه شو. بیا هڅه وکړئ.",
   "settings.language.option.system": "د ټیلیفون ټاکل شوې ژبه",
   "settings.language.option.en": "English",
   "settings.language.option.fa": "دری",

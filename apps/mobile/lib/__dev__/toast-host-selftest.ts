@@ -9,6 +9,7 @@ const contextValues = new Map<object, unknown>();
 const announcements: string[] = [];
 const timers = new Map<number, () => void>();
 let nextTimer = 0;
+let reducedMotion = false;
 class AnimatedValue {
   constructor(public value: number) {}
   setValue(value: number) {
@@ -70,6 +71,7 @@ const { ToastProvider, ToastHost, useToast, useToastOffset, TOAST_LIFT, queuePen
       "../lib/colors": { colors: {} },
       "../lib/direction": {},
       "../lib/fonts": { fonts: {}, sansLineHeight: (_size: number, height: number) => height },
+      "./SheetBackdrop": { useSheetMotionPreference: () => reducedMotion },
     },
     {
       setTimeout: (callback: () => void, delay: number) => {
@@ -237,6 +239,45 @@ assert.ok(
 assert.equal(home.render(20), home.offset, "Changing dock geometry retains its animated value");
 assert.equal(home.offset.value, customer.offset.value, "Live geometry changes update the lift");
 expire(nextTimer);
+reducedMotion = true;
+home.render(12);
+const liteSpringCount = springs.length;
+toast.push("Static feedback");
+renderProvider();
+assert.equal(
+  home.offset.value,
+  -TOAST_LIFT - 8,
+  "Reduced motion retains the required toast clearance",
+);
+assert.equal(
+  springs.length,
+  liteSpringCount + 2,
+  "Only full-mode dock subscriptions animate before rerender",
+);
+// Consumers receive the shared preference update together in the real tree.
+customer.render();
+late.render(12);
+const fullyReducedSpringCount = springs.length;
+toast.push("More static feedback");
+renderProvider();
+assert.equal(
+  springs.length,
+  fullyReducedSpringCount,
+  "Reduced docks never start spring animations",
+);
+home.offset.setValue(-10);
+home.render(12);
+assert.equal(home.offset.value, -10, "Unrelated renders do not replay lift writes");
+reducedMotion = false;
+home.render(12);
+assert.equal(
+  home.offset.value,
+  -TOAST_LIFT - 8,
+  "Re-enabling animation catches up to the live queue",
+);
+expire(nextTimer);
+expire(nextTimer - 1);
+home.render(20);
 assert.equal(customer.offset.value, 0);
 assert.equal(home.offset.value, 0);
 assert.equal(late.offset.value, 0);

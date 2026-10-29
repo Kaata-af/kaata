@@ -29,8 +29,7 @@ export async function customerGroupUIChecks() {
   let sequence = 0,
     managed = 0,
     dismissed = 0,
-    reduceListener: (value: boolean) => void = () => {};
-  const reduce = deferred<boolean>();
+    reducedMotion = false;
   const animations: { callback?: (event: { finished: boolean }) => void; stopped: boolean }[] = [];
   class Value {
     constructor(public value: number) {}
@@ -82,13 +81,6 @@ export async function customerGroupUIChecks() {
       "react-native": {
         Animated: { Value, spring: animate, timing: animate, View: "AnimatedView" },
         Dimensions: { get: () => ({ height: 800 }) },
-        AccessibilityInfo: {
-          isReduceMotionEnabled: () => reduce.promise,
-          addEventListener: (_name: string, fn: typeof reduceListener) => {
-            reduceListener = fn;
-            return { remove() {} };
-          },
-        },
         Modal: "Modal",
         Pressable: "Pressable",
         ScrollView: "ScrollView",
@@ -115,7 +107,10 @@ export async function customerGroupUIChecks() {
         toggleCustomerCurrencyFilter,
         toggleCustomerGroupFilter,
       },
-      "./SheetBackdrop": { SheetBackdrop: "SheetBackdrop" },
+      "./SheetBackdrop": {
+        SheetBackdrop: "SheetBackdrop",
+        useSheetMotionPreference: () => reducedMotion,
+      },
       "./SheetHandle": { SheetHandle: "SheetHandle" },
       "../lib/use-sheet-drag": {
         useSheetDrag: (_visible: boolean, entrance: unknown, onDismiss: () => void) => ({
@@ -667,7 +662,7 @@ export async function customerGroupUIChecks() {
   props.visible = true;
   render();
   assert.equal(timers.size, 0, "rapid reopen cancels deferred action");
-  reduceListener(true);
+  reducedMotion = true;
   render();
   assert.equal(frames.size, 0, "reduced motion does not enqueue animation frame");
   props.visible = false;
@@ -679,16 +674,12 @@ export async function customerGroupUIChecks() {
   render();
   const delayed = [...timers.values()];
   hooks.unmount();
-  reduce.resolve(false);
+  reducedMotion = false;
   await settleUI();
   delayed.forEach((fn) => fn());
   staleClose.callback?.({ finished: true });
   assert.equal(managed, 1);
-  assert.equal(
-    hooks.lateWrites,
-    0,
-    "late native/promise/timer callbacks do not write after unmount",
-  );
+  assert.equal(hooks.lateWrites, 0, "late native/timer callbacks do not write after unmount");
   console.log(
     "PASS real sort/filter sheet rapid reopen, coalesced manage, scope/unmount guards and reduced motion",
   );
@@ -1012,6 +1003,104 @@ export async function customerGroupUIChecks() {
     !/^\s*autoFocus(=|\s*$)/m.test(manageSource),
     "group name focuses by ref after the sheet closes",
   );
+
+  // Execute Manage groups too: the delayed editor reveal keeps its native
+  // focus timing, and reads motion at dispatch rather than capturing a mode.
+  for (const [initialReduced, currentReduced] of [
+    [false, false],
+    [false, true],
+    [true, false],
+  ]) {
+    const managerHooks = uiHooks();
+    const managerTimers = new Map<number, { delay: number; run: () => void }>();
+    const scrolls: unknown[] = [];
+    let timerId = 0,
+      focused = 0,
+      reducedMotion = initialReduced;
+    const { default: ManageGroups } = compileUI(
+      "../../app/groups.tsx",
+      {
+        react: managerHooks.react,
+        "react/jsx-runtime": { jsx, jsxs: jsx },
+        "react-native": {
+          ActivityIndicator: "ActivityIndicator",
+          KeyboardAvoidingView: "KeyboardAvoidingView",
+          Platform: { OS: "android" },
+          Pressable: "Pressable",
+          ScrollView: "ScrollView",
+          Text: "Text",
+          TextInput: "TextInput",
+          View: "View",
+          StyleSheet: { create: (value: unknown) => value, hairlineWidth: 1 },
+        },
+        "react-native-safe-area-context": { SafeAreaView: "SafeAreaView" },
+        "@expo/vector-icons": { Ionicons: "Ionicons" },
+        "expo-router": {
+          useRouter: () => ({ back() {}, push() {} }),
+          useLocalSearchParams: () => ({ vaultId: "v" }),
+        },
+        "../components/BottomSheet": { BottomSheet: "BottomSheet" },
+        "../components/Button": { Button: "Button" },
+        "../components/ConfirmDialog": { ConfirmDialog: "ConfirmDialog" },
+        "../components/SettingsScreen": { ScreenHeader: "ScreenHeader" },
+        "../lib/colors": { colors },
+        "../lib/customer-groups": { archiveCustomerGroup() {}, saveCustomerGroup() {} },
+        "../lib/db-tx": {
+          getAccountIdSync: () => "a",
+          getActiveVaultIdSyncMaybe: () => "v",
+        },
+        "../lib/direction": {
+          useIsRTL: () => false,
+          rowDir: () => ({}),
+          textDir: () => ({}),
+        },
+        "../lib/event-log": { RoleGateRejectionError: class extends Error {} },
+        "../lib/fonts": { fonts: {} },
+        "../lib/i18n": { t: (key: string) => key },
+        "../lib/motion-preference": {
+          getMotionPreferenceSnapshot: () => ({ effectiveReducedMotion: reducedMotion }),
+        },
+        "../lib/use-customer-groups": {
+          useCustomerGroups: () => ({ groups: [], loaded: true, failed: false, refresh() {} }),
+        },
+        "../lib/use-vault-role": {
+          useActiveVaultWriteCaps: () => ({ resolved: true, canAmend: true }),
+        },
+        "../lib/tokens": { icon: { row: 22 }, radius: { sm: 8 } },
+      },
+      {
+        setTimeout: (run: () => void, delay: number) => {
+          const id = ++timerId;
+          managerTimers.set(id, { run, delay });
+          return id;
+        },
+        clearTimeout: (id: number) => managerTimers.delete(id),
+      },
+    );
+    const managerRender = () => managerHooks.render(() => ManageGroups());
+    managerRender();
+    const scroll = nodes(managerHooks.tree).find((node) => node.type === "ScrollView")!;
+    scroll.props.ref.current = { scrollToEnd: (options: unknown) => scrolls.push(options) };
+    const add = nodes(managerHooks.tree).find(
+      (node) =>
+        node.type === "Pressable" &&
+        nodes(node).some((child) => child.props.children === "groups.add"),
+    )!;
+    add.props.onPress();
+    managerRender();
+    const input = nodes(managerHooks.tree).find((node) => node.type === "TextInput")!;
+    input.props.ref.current = { focus: () => focused++ };
+    assert.equal(focused, 0, "group editor does not focus under the closing sheet");
+    assert.equal(managerTimers.size, 1);
+    const timer = [...managerTimers.values()][0];
+    assert.equal(timer.delay, 280, "motion changes retain the existing modal/focus delay");
+    reducedMotion = currentReduced;
+    timer.run();
+    assert.deepEqual(scrolls, [{ animated: !currentReduced }]);
+    assert.equal(focused, 1, "group editor focuses once after its reveal");
+    managerHooks.unmount();
+    assert.equal(managerTimers.size, 0, "closing the screen clears the delayed editor work");
+  }
 
   // Group members: who is in a group, and many customers in or out at once.
   {

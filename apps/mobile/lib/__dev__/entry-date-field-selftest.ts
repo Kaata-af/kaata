@@ -27,6 +27,7 @@ for (const calendar of ["gregorian", "jalali", "qamari"] as Calendar[])
     let value = now;
     let expanded = false;
     let disabled = false;
+    let reducedMotion = false;
     const events: string[] = [];
     const words = {
       "entry.date.label": locale === "en" ? "Date" : locale === "fa" ? "تاریخ" : "نېټه",
@@ -68,6 +69,7 @@ for (const calendar of ["gregorian", "jalali", "qamari"] as Calendar[])
         "../lib/tally-date-filter": { localDayStart },
         "../lib/tokens": { radius: { sm: 8, sheet: 18 }, TOUCH_MIN: 44, typography: {} },
         "./CalendarDayPicker": { CalendarDayPicker: "CalendarDayPicker" },
+        "./SheetBackdrop": { useSheetMotionPreference: () => reducedMotion },
       },
       {
         Date: class extends Date {
@@ -114,6 +116,7 @@ for (const calendar of ["gregorian", "jalali", "qamari"] as Calendar[])
     assert.ok(calendarNode, "tap opens the calendar popup");
     const popup = nodes(tree).find((node) => node.type === "Modal")!;
     assert.equal(popup.props.transparent, true);
+    assert.equal(popup.props.animationType, "fade", "Normal mode retains the native fade");
     assert.equal(popup.props.presentationStyle, "overFullScreen");
     assert.ok(nodes(popup).includes(calendarNode), "The calendar overlays the native form");
     assert.equal(
@@ -175,10 +178,27 @@ for (const calendar of ["gregorian", "jalali", "qamari"] as Calendar[])
     assert.equal(calendarNode.props.calendar, calendar);
     assert.equal(calendarNode.props.isRTL, locale !== "en");
     assert.equal(calendarNode.props.minimum, undefined, "past dates are offered for backdating");
+    reducedMotion = true;
+    tree = render();
+    const quietPopup = nodes(tree).find((node) => node.type === "Modal")!;
+    assert.equal(
+      quietPopup.props.animationType,
+      "none",
+      "Off/system/automatic reduction removes native motion",
+    );
+    assert.equal(grid(tree)!.props.value, now, "Changing motion keeps the selected date");
+    assert.equal(expanded, true, "Changing motion leaves an open date popup open");
+    assert.deepEqual(events, ["toggle"], "Changing motion never submits or dismisses the date");
+    const quietSurface = nodes(quietPopup).find((node) => node.props.accessibilityViewIsModal)!;
+    assert.deepEqual(
+      flattenStyle(quietSurface.props.style),
+      flattenStyle(popupSurface.props.style),
+    );
     calendarNode.props.onChange(past);
     assert.deepEqual(events, ["toggle", "change", "toggle"], "choose day then collapse");
     assert.equal(value, past, "the date field emits the chosen local day without changing time");
     assert.equal(expanded, false);
+    reducedMotion = false;
     tree = render();
     const chosenEvents = events.length;
     calendarNode.props.onChange(now);
@@ -277,5 +297,5 @@ for (const calendar of ["gregorian", "jalali", "qamari"] as Calendar[])
   }
 
 console.log(
-  "PASS: date popup overlay, Back/escape dismissal, stale/disabled guards, backdating, Today/Done and EN/FA/PS calendars",
+  "PASS: date popup overlay, normal/reduced motion without layout or date changes, Back/escape dismissal, stale/disabled guards, backdating, Today/Done and EN/FA/PS calendars",
 );

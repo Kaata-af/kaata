@@ -15,6 +15,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors } from "../lib/colors";
 import { rowDir, textDir, trackingSafe, useIsRTL } from "../lib/direction";
 import { fonts, sansLineHeight } from "../lib/fonts";
+import { useSheetMotionPreference } from "./SheetBackdrop";
 
 // In-app toasts. Calm white card with a single colored icon for state — the
 // rest of the chrome stays monochrome, matching the wider kaata design
@@ -254,6 +255,7 @@ export const TOAST_LIFT = BASE_LIFT + LIFT_GAP; // constant — no insets depend
 export function useToastOffset(
   bottomOffsetAboveSafeArea = BUTTON_OFFSET_ABOVE_SAFE_AREA,
 ): Animated.Value {
+  const reducedMotion = useSheetMotionPreference();
   const translateY = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
@@ -267,6 +269,10 @@ export function useToastOffset(
     // settle anywhere along the path.
     const apply = (count: number) => {
       animation?.stop();
+      if (reducedMotion) {
+        translateY.setValue(count > 0 ? -lift : 0);
+        return;
+      }
       animation = Animated.spring(translateY, {
         toValue: count > 0 ? -lift : 0,
         useNativeDriver: true,
@@ -283,7 +289,7 @@ export function useToastOffset(
       visibleCountListeners.delete(apply);
       animation?.stop();
     };
-  }, [translateY, bottomOffsetAboveSafeArea]);
+  }, [translateY, bottomOffsetAboveSafeArea, reducedMotion]);
 
   return translateY;
 }
@@ -314,12 +320,42 @@ const ICON_FOR_KIND = {
 
 function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: (id: string) => void }) {
   const isRTL = useIsRTL();
+  const reducedMotion = useSheetMotionPreference();
   const translateY = useRef(new Animated.Value(40)).current;
   const translateX = useRef(new Animated.Value(0)).current;
   const opacity = useRef(new Animated.Value(0)).current;
+  const motion = useRef<Animated.CompositeAnimation | null>(null);
+  const dismissal = useRef<Animated.CompositeAnimation | null>(null);
+  const dismissing = useRef(false);
+  const mounted = useRef(true);
+  const latest = useRef({ reducedMotion, onDismiss, id: toast.id });
+  latest.current = { reducedMotion, onDismiss, id: toast.id };
+  const finishDismiss = () => {
+    if (!mounted.current || !dismissing.current) return;
+    dismissing.current = false;
+    latest.current.onDismiss(latest.current.id);
+  };
 
   useEffect(() => {
-    Animated.parallel([
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      motion.current?.stop();
+      dismissal.current?.stop();
+    };
+  }, []);
+
+  useEffect(() => {
+    motion.current?.stop();
+    if (reducedMotion) {
+      dismissal.current?.stop();
+      translateY.setValue(0);
+      translateX.setValue(0);
+      opacity.setValue(1);
+      finishDismiss();
+      return;
+    }
+    motion.current = Animated.parallel([
       Animated.spring(translateY, {
         toValue: 0,
         useNativeDriver: true,
@@ -331,8 +367,10 @@ function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: (id: string)
         duration: ANIM_MS,
         useNativeDriver: true,
       }),
-    ]).start();
-  }, [translateY, opacity]);
+    ]);
+    motion.current.start();
+    return () => motion.current?.stop();
+  }, [translateY, translateX, opacity, reducedMotion]);
 
   // Horizontal swipe-to-dismiss. Follow the finger via translateX.setValue
   // during the drag (matches the home-rail pattern), commit on release if
@@ -356,16 +394,27 @@ function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: (id: string)
     // throws on undefined, so the event fields are coalesced rather than
     // trusted; a defensive floor, not a diagnosis.
     .onUpdate((e) => {
+      if (!mounted.current || dismissing.current) return;
+      if (dismissal.current) {
+        dismissal.current.stop();
+        dismissal.current = null;
+      }
       translateX.setValue(e.translationX ?? 0);
     })
     .onEnd((e) => {
+      if (!mounted.current || dismissing.current) return;
       const tx = e.translationX ?? 0;
       const vx = e.velocityX ?? 0;
       const shouldDismiss =
         Math.abs(tx) > SWIPE_DISMISS_DISTANCE || Math.abs(vx) > SWIPE_DISMISS_VELOCITY;
       if (shouldDismiss) {
+        dismissing.current = true;
+        if (latest.current.reducedMotion) {
+          finishDismiss();
+          return;
+        }
         const direction = tx === 0 ? Math.sign(vx) || 1 : Math.sign(tx);
-        Animated.parallel([
+        dismissal.current = Animated.parallel([
           Animated.timing(translateX, {
             toValue: direction * SWIPE_DISMISS_TRAVEL,
             duration: SWIPE_DISMISS_DURATION,
@@ -376,14 +425,20 @@ function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: (id: string)
             duration: SWIPE_DISMISS_DURATION,
             useNativeDriver: true,
           }),
-        ]).start(() => onDismiss(toast.id));
+        ]);
+        dismissal.current.start(({ finished }) => {
+          if (finished) finishDismiss();
+        });
+      } else if (latest.current.reducedMotion) {
+        translateX.setValue(0);
       } else {
-        Animated.spring(translateX, {
+        dismissal.current = Animated.spring(translateX, {
           toValue: 0,
           useNativeDriver: true,
           friction: 9,
           tension: 110,
-        }).start();
+        });
+        dismissal.current.start();
       }
     });
 

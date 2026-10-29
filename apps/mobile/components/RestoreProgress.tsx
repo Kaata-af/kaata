@@ -21,9 +21,9 @@
 //   - "dark"  → dark fill on a light track (default; for white backgrounds).
 //   - "light" → white fill on a translucent track (for the inverted overlay).
 //
-// Width/translate animate layout, so every Animated value here is JS-driven
-// (useNativeDriver:false) — consistent with the rest of the app's layout
-// animations (see the long note in app/index.tsx on the swipe rail).
+// Determinate width changes use JS only when the real progress changes. The
+// indeterminate transform runs on the native driver. Reduced motion keeps the
+// status and static progress visible without a continuous animation loop.
 
 import { useEffect, useRef, useState } from "react";
 import { Animated, Easing, StyleSheet, Text, View } from "react-native";
@@ -32,6 +32,7 @@ import { colors } from "../lib/colors";
 import { fonts, sansLineHeight } from "../lib/fonts";
 import { t } from "../lib/i18n";
 import type { RecoveryProgress } from "../lib/recovery";
+import { useSheetMotionPreference } from "./SheetBackdrop";
 
 const TRACK_HEIGHT = 6;
 const TRACK_RADIUS = TRACK_HEIGHT / 2;
@@ -110,6 +111,7 @@ export function RestoreProgress({
   isRTL = false,
   showPercent = true,
 }: Props) {
+  const reducedMotion = useSheetMotionPreference();
   const palette = PALETTES[tone];
   const determinate = typeof fraction === "number";
   const target = determinate ? clamp01(fraction as number) : 0;
@@ -120,18 +122,28 @@ export function RestoreProgress({
   const fill = useRef(new Animated.Value(target)).current;
   useEffect(() => {
     if (!determinate) return;
-    Animated.timing(fill, {
+    if (reducedMotion) {
+      fill.setValue(target);
+      return;
+    }
+    const animation = Animated.timing(fill, {
       toValue: target,
       duration: FILL_TWEEN_MS,
       easing: Easing.out(Easing.cubic),
       useNativeDriver: false,
-    }).start();
-  }, [determinate, target, fill]);
+    });
+    animation.start();
+    return () => animation.stop();
+  }, [determinate, target, fill, reducedMotion]);
 
   // Indeterminate shimmer: a chip that slides across the measured track width.
   const [trackWidth, setTrackWidth] = useState(0);
   const slide = useRef(new Animated.Value(0)).current;
   useEffect(() => {
+    if (reducedMotion) {
+      slide.setValue(0.5);
+      return;
+    }
     if (determinate || trackWidth === 0) return;
     slide.setValue(0);
     const loop = Animated.loop(
@@ -139,12 +151,12 @@ export function RestoreProgress({
         toValue: 1,
         duration: INDETERMINATE_LOOP_MS,
         easing: Easing.inOut(Easing.ease),
-        useNativeDriver: false,
+        useNativeDriver: true,
       }),
     );
     loop.start();
     return () => loop.stop();
-  }, [determinate, trackWidth, slide]);
+  }, [determinate, trackWidth, slide, reducedMotion]);
 
   const pct = Math.round(target * 100);
   const segmentWidth = Math.max(0, trackWidth * INDETERMINATE_SEGMENT);

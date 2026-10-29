@@ -21,6 +21,14 @@ public class KaataSaveFileModule: Module {
   public func definition() -> ModuleDefinition {
     Name("KaataSaveFile")
 
+    // Coarse memory capacity only, without device identifiers or permissions.
+    AsyncFunction("getMotionHardware") { () -> [String: Any] in
+      return [
+        "totalMemoryBytes": Double(ProcessInfo.processInfo.physicalMemory),
+        "lowRamDevice": NSNull(),
+      ]
+    }
+
     // Android's entry point; present so JS calls one name on both platforms.
     AsyncFunction("saveToDownloads") { (_: String, _: String, _: String, promise: Promise) in
       promise.reject(Exception(name: "E_UNSUPPORTED", description: "saveToDownloads is Android-only", code: "E_UNSUPPORTED"))

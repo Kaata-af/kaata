@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
-import { AccessibilityInfo, Animated, StyleSheet } from "react-native";
+import { Animated, StyleSheet } from "react-native";
 import { colors } from "../lib/colors";
+import { useSheetMotionPreference } from "./SheetBackdrop";
 
 /** A brief, touch-through cue for a notification or a live review decision.
  *  A decision flashes in its outcome's colour (the review dots' green/red);
@@ -12,60 +13,54 @@ export function TallyHighlight({
   requestKey: string;
   tone?: "neutral" | "accepted" | "rejected";
 }) {
+  const reducedMotion = useSheetMotionPreference();
   const opacity = useRef(new Animated.Value(0)).current;
+  const lifetime = useRef<{
+    requestKey: string;
+    tone: string;
+    endsAt: number;
+    finished: boolean;
+  } | null>(null);
   useEffect(() => {
     let cancelled = false;
-    let finished = false;
-    let preferenceChanged = false;
-    let endsAt = 0;
+    const previous = lifetime.current;
+    const current =
+      previous?.requestKey === requestKey && previous.tone === tone
+        ? previous
+        : { requestKey, tone, endsAt: Date.now() + 1500, finished: false };
+    lifetime.current = current;
+    const remaining = Math.max(0, current.endsAt - Date.now());
+    if (current.finished || remaining === 0) {
+      current.finished = true;
+      opacity.setValue(0);
+      return;
+    }
     let animation: Animated.CompositeAnimation | undefined;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const show = (reduced: boolean) => {
-      if (cancelled || finished) return;
+    // Keep the outcome visible in reduced mode, with the original expiry even
+    // when the shared motion preference changes while the cue is on screen.
+    const timer = setTimeout(() => {
+      if (cancelled) return;
+      current.finished = true;
       animation?.stop();
-      // A preference change may stop the fade, but must neither replay an old
-      // notification highlight nor extend this request's brief lifetime.
-      if (timer == null) {
-        endsAt = Date.now() + 1500;
-        timer = setTimeout(() => {
-          if (cancelled) return;
-          finished = true;
-          animation?.stop();
-          opacity.setValue(0);
-        }, 1500);
-      }
-      opacity.setValue(tone === "neutral" ? 0.4 : 0.22);
-      if (!reduced) {
-        const remaining = Math.max(0, endsAt - Date.now());
-        const delay = Math.min(300, remaining);
-        animation = Animated.timing(opacity, {
-          toValue: 0,
-          duration: remaining - delay,
-          delay,
-          useNativeDriver: true,
-        });
-        animation.start();
-      }
-    };
-    opacity.setValue(0);
-    const subscription = AccessibilityInfo.addEventListener("reduceMotionChanged", (reduced) => {
-      preferenceChanged = true;
-      show(reduced);
-    });
-    const initialPreference = (reduced: boolean) => {
-      // The bridge query describes an earlier moment than a delivered event.
-      if (!preferenceChanged) show(reduced);
-    };
-    void AccessibilityInfo.isReduceMotionEnabled().then(initialPreference, () =>
-      initialPreference(true),
-    );
+      opacity.setValue(0);
+    }, remaining);
+    opacity.setValue(tone === "neutral" ? 0.4 : 0.22);
+    if (!reducedMotion) {
+      const delay = Math.min(300, remaining);
+      animation = Animated.timing(opacity, {
+        toValue: 0,
+        duration: remaining - delay,
+        delay,
+        useNativeDriver: true,
+      });
+      animation.start();
+    }
     return () => {
       cancelled = true;
-      subscription.remove();
       animation?.stop();
-      if (timer) clearTimeout(timer);
+      clearTimeout(timer);
     };
-  }, [opacity, requestKey, tone]);
+  }, [opacity, requestKey, tone, reducedMotion]);
   return (
     <Animated.View
       pointerEvents="none"

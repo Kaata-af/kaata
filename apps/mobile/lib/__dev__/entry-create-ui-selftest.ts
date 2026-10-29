@@ -102,6 +102,7 @@ function fixture({
 } = {}) {
   const screenId = `entry-fixture-${++fixtureSequence}`;
   let selectedCurrency = initialLedgerCurrency;
+  let reducedMotion = false;
   let defaultCurrencyGate: ReturnType<typeof deferred<string>> | null = null;
   let enabledCurrencyGate: ReturnType<typeof deferred<string[]>> | null = null;
   const ledgerListeners = new Set<(vaultId: string) => void>();
@@ -269,6 +270,9 @@ function fixture({
         queuePendingToast: (...args: any[]) => queued.push(args),
       },
       "../../lib/colors": { colors: require("../colors").colors },
+      "../../lib/motion-preference": {
+        getMotionPreferenceSnapshot: () => ({ effectiveReducedMotion: reducedMotion }),
+      },
       "../../lib/auth": {
         SessionChangedError,
         captureCurrentSession: async () => {
@@ -563,6 +567,9 @@ function fixture({
     keyboardFrame,
     scrolls,
     endScrolls,
+    setReducedMotion: (value: boolean) => {
+      reducedMotion = value;
+    },
     blur,
     refocus,
     transitions,
@@ -3460,6 +3467,45 @@ async function main() {
     f.hooks.unmount();
     cases++;
   }
+  for (const os of ["ios", "android"] as const)
+    for (const reduced of [false, true]) {
+      const f = fixture({ os });
+      await f.ready();
+      const field = nodes(f.hooks.tree).find(
+        (n) =>
+          n.type === "View" && !n.props.ref && n.props.onLayout && nodes(n).includes(f.input()),
+      )!;
+      field.props.onLayout({ nativeEvent: { layout: { x: 0, y: 132, width: 358, height: 120 } } });
+      const form = () => nodes(f.hooks.tree).find((n) => n.type === "ScrollView")!;
+      const resize = (height: number) =>
+        form().props.onLayout({ nativeEvent: { layout: { x: 0, y: 0, width: 390, height } } });
+      resize(360);
+      f.openCalculator();
+      f.setReducedMotion(reduced);
+      resize(180);
+      assert.deepEqual(
+        f.scrolls.at(-1),
+        { y: 72, animated: !reduced },
+        `${os} amount reveal keeps its target and uses the current motion policy without a render`,
+      );
+      f.calculator()!.props.onNext();
+      f.render();
+      f.emitKeyboard("keyboardDidShow");
+      f.fireNoteFrames();
+      assert.deepEqual(f.endScrolls, [], "motion settings do not skip the final viewport frame");
+      assert.equal(f.noteFrames().length, 1);
+      // The setting changes after scheduling, before the native layout frame.
+      f.setReducedMotion(!reduced);
+      f.fireNoteFrames();
+      assert.deepEqual(
+        f.endScrolls,
+        [{ animated: reduced }],
+        `${os} the queued Note reveal reads the latest policy at dispatch`,
+      );
+      assert.equal(f.writes.length, 0);
+      f.hooks.unmount();
+      cases++;
+    }
   for (const status of [undefined, "pending", "refused"] as const) {
     const f = fixture();
     await f.ready();

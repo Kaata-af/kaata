@@ -1,6 +1,7 @@
 package expo.modules.kaatasavefile
 
 import android.content.ContentValues
+import android.app.ActivityManager
 import android.content.Context
 import android.net.Uri
 import android.os.Build
@@ -40,6 +41,21 @@ class KaataSaveFileModule : Module() {
 
   override fun definition() = ModuleDefinition {
     Name("KaataSaveFile")
+
+    // Coarse capability signals only; no files, identifiers or permission prompts.
+    AsyncFunction("getMotionHardware") {
+      try {
+        val manager = appCtx.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
+        val memory = ActivityManager.MemoryInfo()
+        manager?.getMemoryInfo(memory)
+        mapOf(
+          "totalMemoryBytes" to memory.totalMem.takeIf { it > 0 }?.toDouble(),
+          "lowRamDevice" to manager?.isLowRamDevice,
+        )
+      } catch (_: Throwable) {
+        mapOf("totalMemoryBytes" to null, "lowRamDevice" to null)
+      }
+    }
 
     AsyncFunction("saveToDownloads") { sourceUri: String, fileName: String, mimeType: String, promise: Promise ->
       try {

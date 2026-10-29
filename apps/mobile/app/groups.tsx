@@ -29,6 +29,7 @@ import { rowDir, textDir, useIsRTL } from "../lib/direction";
 import { RoleGateRejectionError } from "../lib/event-log";
 import { fonts } from "../lib/fonts";
 import { t } from "../lib/i18n";
+import { getMotionPreferenceSnapshot } from "../lib/motion-preference";
 import { useCustomerGroups } from "../lib/use-customer-groups";
 import { useActiveVaultWriteCaps } from "../lib/use-vault-role";
 import { icon, radius } from "../lib/tokens";
@@ -65,7 +66,9 @@ export default function GroupsScreen() {
   useEffect(() => {
     if (!editorOpen) return;
     const timer = setTimeout(() => {
-      scrollRef.current?.scrollToEnd({ animated: true });
+      scrollRef.current?.scrollToEnd({
+        animated: !getMotionPreferenceSnapshot().effectiveReducedMotion,
+      });
       nameRef.current?.focus();
     }, 280);
     return () => clearTimeout(timer);

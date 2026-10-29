@@ -7,8 +7,8 @@ async function main() {
   const hooks = uiHooks();
   let os = "android",
     sdk = 35;
-  const motion = deferred<boolean>(),
-    transparency = deferred<boolean>();
+  const transparency = deferred<boolean>();
+  let policyReduced = false;
   const listeners = new Map<string, (value: boolean) => void>();
   let context: any;
   const module = compileUI("../../components/SheetBackdrop", {
@@ -32,7 +32,6 @@ async function main() {
         },
       },
       AccessibilityInfo: {
-        isReduceMotionEnabled: () => motion.promise,
         isReduceTransparencyEnabled: () => transparency.promise,
         addEventListener: (name: string, callback: (value: boolean) => void) => {
           listeners.set(name, callback);
@@ -42,6 +41,9 @@ async function main() {
     },
     "../lib/blur": require("../blur"),
     "../lib/i18n": { t: (key: string) => key },
+    "../lib/motion-preference": {
+      useMotionPreference: () => ({ effectiveReducedMotion: policyReduced }),
+    },
   });
   const provider = () => {
     const tree = hooks.render(() => module.SheetBlurProvider({ children: "app" }));
@@ -49,6 +51,12 @@ async function main() {
     return tree;
   };
   let tree = provider();
+  const unchangedContext = tree.props.value;
+  assert.equal(
+    provider().props.value,
+    unchangedContext,
+    "Unchanged motion does not republish the global backdrop context",
+  );
   const target = nodes(tree).find((node) => node.type === "BlurTargetView")!;
   assert.equal(target.props.collapsable, false, "native target cannot be optimized away");
   target.props.ref.current = { nativeView: true };
@@ -132,19 +140,29 @@ async function main() {
     false,
     "a local target does not bypass the older Android performance fallback",
   );
-  listeners.get("reduceMotionChanged")!(false);
-  provider();
-  motion.resolve(true);
-  await settleUI();
-  provider();
-  assert.equal(
-    module.useSheetMotionPreference(),
-    false,
-    "a late getter cannot overwrite a newer accessibility event",
-  );
-  listeners.get("reduceMotionChanged")!(true);
-  provider();
+  policyReduced = true;
+  const reducedTree = provider();
   assert.equal(module.useSheetMotionPreference(), true);
+  assert.equal(
+    nodes(backdrop()).some((node) => node.type === "BlurView"),
+    false,
+  );
+  assert.equal(
+    nodes(reducedTree).find((node) => node.type === "BlurTargetView")!.props.ref,
+    target.props.ref,
+    "Switching motion modes does not replace the native target or its child tree",
+  );
+  const reducedDismiss = nodes(backdrop()).find((node) => node.type === "Pressable")!;
+  reducedDismiss.props.onPress();
+  assert.equal(dismisses, 3, "Reduced mode keeps outside dismissal usable without blur");
+  policyReduced = false;
+  provider();
+  assert.equal(module.useSheetMotionPreference(), false);
+  assert.equal(
+    nodes(backdrop()).some((node) => node.type === "BlurView"),
+    false,
+    "Android SDK30 still uses the existing platform fallback after full motion resumes",
+  );
   hooks.unmount();
   assert.equal(listeners.size, 0);
 
@@ -174,6 +192,9 @@ async function main() {
     },
     "../lib/blur": require("../blur"),
     "../lib/i18n": { t: (key: string) => key },
+    "../lib/motion-preference": {
+      useMotionPreference: () => ({ effectiveReducedMotion: policyReduced }),
+    },
   });
   const iosProvider = () => {
     const tree = iosHooks.render(() => iosModule.SheetBlurProvider({ children: "app" }));

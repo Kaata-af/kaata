@@ -504,6 +504,11 @@ console.log(
     let onCardInteraction: (() => void) | undefined;
     const readerQuery = deferred<boolean>(),
       motionQuery = deferred<boolean>();
+    let reducedMotion = true;
+    let motionChanged = false;
+    void motionQuery.promise.then((value) => {
+      if (!motionChanged) reducedMotion = value;
+    });
     const timers = new Map<number, { run: () => void; ms: number }>();
     const accessibility = new Map<string, Set<(value: boolean) => void>>();
     const appListeners = new Map<string, Set<(value?: string) => void>>();
@@ -563,6 +568,7 @@ console.log(
           },
         },
         "expo-router": { useIsFocused: () => focused },
+        "./SheetBackdrop": { useSheetMotionPreference: () => reducedMotion },
         "@expo/vector-icons": { Ionicons: "Icon" },
         "../lib/colors": require("../colors"),
         "../lib/currency": { getCurrencyLabel: (code: string) => `${code} unit` },
@@ -634,6 +640,10 @@ console.log(
         render();
       },
       emitAccessibility: (event: string, value: boolean) => {
+        if (event === "reduceMotionChanged") {
+          motionChanged = true;
+          reducedMotion = value;
+        }
         accessibility.get(event)?.forEach((run) => run(value));
         render();
       },
@@ -1039,6 +1049,21 @@ console.log(
       paused.hooks.unmount();
     }
 
+    {
+      const current = carousel(false, "android");
+      await current.ready();
+      current.measure(358);
+      current.tick();
+      assert.equal(current.calls.at(-1)!.animated, true);
+      current.emitAccessibility("reduceMotionChanged", true);
+      assert.equal(
+        current.calls.at(-1)!.animated,
+        false,
+        "Off ends a native autoplay glide immediately",
+      );
+      assert.equal(current.timers.size, 0);
+      current.hooks.unmount();
+    }
     for (const preference of ["screenReaderChanged", "reduceMotionChanged"]) {
       const pending = carousel(false);
       pending.measure(358);

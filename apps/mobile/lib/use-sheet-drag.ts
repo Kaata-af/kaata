@@ -71,6 +71,16 @@ export function useSheetDrag(visible: boolean, entrance: Animated.Value, onDismi
     };
   }, [visible, offset]);
 
+  useEffect(() => {
+    // A setting change can arrive while a released sheet is springing back.
+    // Settle that decorative motion immediately; a live finger keeps control.
+    if (!reducedMotion || !restoring.current) return;
+    restoring.current = false;
+    offset.stopAnimation();
+    offsetPosition.current = 0;
+    offset.setValue(0);
+  }, [reducedMotion, offset]);
+
   const drag = useMemo(() => {
     const enabled = () => mounted.current && latest.current.visible && !closing.current;
     const setOffset = (value: number) => {

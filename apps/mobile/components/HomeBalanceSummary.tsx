@@ -28,6 +28,7 @@ import { formatAmount } from "../lib/format";
 import { t } from "../lib/i18n";
 import { currencyBalances } from "../lib/multi-currency-view";
 import type { PersonWithBalance } from "../lib/types";
+import { useSheetMotionPreference } from "./SheetBackdrop";
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
@@ -118,7 +119,7 @@ export function HomeBalanceSummary({
   // Wait for both queries before starting motion. An initial async response
   // must not overwrite a preference changed while that query was in flight.
   const [screenReader, setScreenReader] = useState(true);
-  const [reducedMotion, setReducedMotion] = useState(true);
+  const reducedMotion = useSheetMotionPreference();
   // Only two extra cards are needed for a seamless edge in either direction.
   // Assistive navigation uses the real cards and wraps through its controls.
   const loop = multiple && !screenReader;
@@ -155,23 +156,13 @@ export function HomeBalanceSummary({
   useEffect(() => {
     let alive = true;
     let readerChanged = false;
-    let motionChanged = false;
     const reader = AccessibilityInfo.addEventListener("screenReaderChanged", (value) => {
       readerChanged = true;
       if (alive) setScreenReader(value);
     });
-    const motion = AccessibilityInfo.addEventListener("reduceMotionChanged", (value) => {
-      motionChanged = true;
-      if (alive) setReducedMotion(value);
-    });
     void AccessibilityInfo.isScreenReaderEnabled()
       .then((value) => {
         if (alive && !readerChanged) setScreenReader(value);
-      })
-      .catch(() => undefined);
-    void AccessibilityInfo.isReduceMotionEnabled()
-      .then((value) => {
-        if (alive && !motionChanged) setReducedMotion(value);
       })
       .catch(() => undefined);
     const app = AppState.addEventListener("change", (value) => {
@@ -192,7 +183,6 @@ export function HomeBalanceSummary({
     return () => {
       alive = false;
       reader.remove();
-      motion.remove();
       app.remove();
       blur?.remove();
       focus?.remove();
@@ -350,6 +340,19 @@ export function HomeBalanceSummary({
     // Amount refreshes retain both the geometry and manual control.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [epoch]);
+  useEffect(() => {
+    // Turning motion off also ends an autoplay glide already sent to native.
+    // User-controlled dragging and its native scroll physics keep ownership.
+    if (
+      reducedMotion &&
+      nativeCommand.current?.epoch === epoch &&
+      nativeCommand.current.animated &&
+      !dragging.current &&
+      !touching.current
+    )
+      scrollToPosition(alignedIndex, false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reducedMotion, epoch]);
   useEffect(() => {
     const version = ++timerVersion.current;
     if (!autoAllowed) return;

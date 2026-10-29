@@ -1,15 +1,14 @@
 // Real NotificationBell with controlled native measurement, motion, animation
 // completion and portal/navigation timing. No server or notification is sent.
 import assert from "node:assert/strict";
-import { compileUI, deferred, flattenStyle, jsx, nodes, settleUI, uiHooks } from "./ui-fixture";
+import { compileUI, flattenStyle, jsx, nodes, settleUI, uiHooks } from "./ui-fixture";
 
 function fixture() {
   const hooks = uiHooks();
   let openingCount = 0;
   const visibility: boolean[] = [];
   const onVisibilityChange = (visible: boolean) => visibility.push(visible);
-  const motion = deferred<boolean>();
-  const listeners = new Set<(value: boolean) => void>();
+  let reducedMotion = true;
   const measures: ((...coords: number[]) => void)[] = [];
   const routes: any[] = [],
     opens: any[] = [],
@@ -42,7 +41,10 @@ function fixture() {
   const component = compileUI(
     "../../components/NotificationInbox",
     {
-      "./SheetBackdrop": { SheetBackdrop: "SheetBackdrop" },
+      "./SheetBackdrop": {
+        SheetBackdrop: "SheetBackdrop",
+        useSheetMotionPreference: () => reducedMotion,
+      },
       "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
       react: hooks.react,
       "react-native": {
@@ -54,13 +56,6 @@ function fixture() {
         View: "View",
         StyleSheet: { create: (style: any) => style, absoluteFill: {} },
         useWindowDimensions: () => ({ height: 844 }),
-        AccessibilityInfo: {
-          isReduceMotionEnabled: () => motion.promise,
-          addEventListener: (_: string, fn: (value: boolean) => void) => {
-            listeners.add(fn);
-            return { remove: () => listeners.delete(fn) };
-          },
-        },
         Animated: {
           Value,
           View: "AnimatedView",
@@ -134,7 +129,10 @@ function fixture() {
     )!;
   return {
     hooks,
-    motion,
+    policy: (reduced: boolean) => {
+      reducedMotion = reduced;
+      render();
+    },
     measures,
     routes,
     timers,
@@ -168,7 +166,6 @@ function fixture() {
       find("Modal").props.onRequestClose();
       render();
     },
-    event: (value: boolean) => listeners.forEach((fn) => fn(value)),
     finish: (item = animations.at(-1)!, force = false) => {
       if (!item.stopped || force) {
         item.value.setValue(item.opts.toValue);
@@ -192,15 +189,12 @@ function fixture() {
         .props.onPress();
       render();
     },
-    get listenerCount() {
-      return listeners.size;
-    },
   };
 }
 
 async function main() {
   const normal = fixture();
-  normal.motion.resolve(false);
+  normal.policy(false);
   await settleUI();
   normal.open();
   assert.equal(normal.openingCount, 1, "Opening inbox cancels an idle review before native layout");
@@ -268,26 +262,27 @@ async function main() {
   const unmountedMeasure = pending.measures.shift()!;
   pending.hooks.unmount();
   unmountedMeasure(0, 300, 44, 44);
-  pending.motion.resolve(false);
   await settleUI();
   assert.equal(pending.hooks.lateWrites, 0);
-  assert.equal(pending.listenerCount, 0);
 
   const reduced = fixture();
-  reduced.event(true);
-  reduced.motion.resolve(false);
+  reduced.policy(true);
   await settleUI();
   reduced.open();
   reduced.measure();
   reduced.close();
-  assert.equal(reduced.animations.length, 0, "new motion event wins over older bridge query");
+  assert.equal(
+    reduced.animations.length,
+    0,
+    "The shared reduced-motion policy keeps popup transitions instant",
+  );
   assert.equal(reduced.find("Modal").props.visible, false);
   assert.equal(reduced.top(), 150);
-  reduced.event(false);
+  reduced.policy(false);
   reduced.open();
   reduced.measure();
   reduced.close();
-  reduced.event(true);
+  reduced.policy(true);
   reduced.render();
   assert.equal(
     reduced.find("Modal").props.visible,
@@ -296,7 +291,7 @@ async function main() {
   );
 
   const nav = fixture();
-  nav.motion.resolve(true);
+  nav.policy(true);
   await settleUI();
   assert.equal(nav.due(0), null, "due shortcut stays quiet when there are no tasks");
   const dueShortcut = nav.due(2);

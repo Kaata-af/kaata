@@ -1,10 +1,9 @@
 import type { ViewInstance } from "react-native";
-import { SheetBackdrop } from "./SheetBackdrop";
+import { SheetBackdrop, useSheetMotionPreference } from "./SheetBackdrop";
 import { Ionicons } from "@expo/vector-icons";
 import { useRef, useState, useEffect } from "react";
 import {
   ActivityIndicator,
-  AccessibilityInfo,
   Animated,
   Modal,
   Pressable,
@@ -237,9 +236,9 @@ export function NotificationBell({
   const phase = useRef<"closed" | "measuring" | "open" | "closing">("closed");
   const generation = useRef(0);
   const mounted = useRef(true);
-  // Until the bridge answers, prefer an instant transition. A newer native
-  // event always wins over that earlier asynchronous preference query.
-  const reducedMotion = useRef(true);
+  const motionPreference = useSheetMotionPreference();
+  const reducedMotion = useRef(motionPreference);
+  reducedMotion.current = motionPreference;
   const { height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   // Fill the safe viewport, not the bell\'s horizontal position (especially iPhone).
@@ -248,36 +247,19 @@ export function NotificationBell({
   const finishClose = useRef<(() => void) | null>(null);
   useEffect(() => {
     mounted.current = true;
-    let cancelled = false;
-    let preferenceChanged = false;
-    const applyPreference = (reduced: boolean) => {
-      if (cancelled || !mounted.current) return;
-      reducedMotion.current = reduced;
-      if (reduced) {
-        animation.current?.stop();
-        opacity.setValue(phase.current === "open" ? 1 : 0);
-        if (phase.current === "closing") finishClose.current?.();
-      }
-    };
-    const subscription = AccessibilityInfo.addEventListener("reduceMotionChanged", (reduced) => {
-      preferenceChanged = true;
-      applyPreference(reduced);
-    });
-    const initialPreference = (reduced: boolean) => {
-      if (!preferenceChanged) applyPreference(reduced);
-    };
-    void AccessibilityInfo.isReduceMotionEnabled().then(initialPreference, () =>
-      initialPreference(true),
-    );
     return () => {
-      cancelled = true;
       mounted.current = false;
       generation.current++;
       animation.current?.stop();
-      subscription.remove();
       if (timer.current) clearTimeout(timer.current);
     };
   }, [opacity]);
+  useEffect(() => {
+    if (!motionPreference) return;
+    animation.current?.stop();
+    opacity.setValue(phase.current === "open" ? 1 : 0);
+    if (phase.current === "closing") finishClose.current?.();
+  }, [motionPreference, opacity]);
   const close = (after?: () => void) => {
     // Keep the measured placement even after visible=false: the native Modal
     // can paint its last content frame while dismissing. Clearing it used to

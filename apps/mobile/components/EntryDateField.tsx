@@ -11,6 +11,7 @@ import { formatCalendarDate } from "../lib/jalali";
 import { localDayStart } from "../lib/tally-date-filter";
 import { radius, TOUCH_MIN, typography } from "../lib/tokens";
 import { CalendarDayPicker } from "./CalendarDayPicker";
+import { useSheetMotionPreference } from "./SheetBackdrop";
 
 /** The parent owns the open state; the calendar floats above the form. */
 export function EntryDateField(props: {
@@ -23,6 +24,7 @@ export function EntryDateField(props: {
 }) {
   const calendar = useCalendar();
   const isRTL = useIsRTL();
+  const reducedMotion = useSheetMotionPreference();
   const label = t("entry.date.label");
   const valueLabel = formatCalendarDate(props.value, getLocale(), calendar);
   const latest = useRef(props);
@@ -104,7 +106,7 @@ export function EntryDateField(props: {
         <Modal
           visible
           transparent
-          animationType="fade"
+          animationType={reducedMotion ? "none" : "fade"}
           presentationStyle="overFullScreen"
           statusBarTranslucent
           navigationBarTranslucent

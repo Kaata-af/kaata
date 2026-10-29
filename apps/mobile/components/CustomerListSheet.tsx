@@ -1,15 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import {
-  AccessibilityInfo,
-  Animated,
-  Modal,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+import { Animated, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { colors } from "../lib/colors";
 import { getCurrencyLabel } from "../lib/currency";
 import { fonts } from "../lib/fonts";
@@ -27,7 +18,7 @@ import {
 import type { CustomerGroup } from "../lib/customer-groups";
 import { radius, space, TOUCH_MIN, typography } from "../lib/tokens";
 import { Button } from "./Button";
-import { SheetBackdrop } from "./SheetBackdrop";
+import { SheetBackdrop, useSheetMotionPreference } from "./SheetBackdrop";
 import { SheetHandle } from "./SheetHandle";
 import { SheetSurface } from "./SheetSurface";
 import { useSheetDrag } from "../lib/use-sheet-drag";
@@ -309,7 +300,7 @@ export function CustomerListSheet(props: {
   onDismiss: () => void;
 }) {
   const [rendered, setRendered] = useState(false);
-  const [reducedMotion, setReducedMotion] = useState(false);
+  const reducedMotion = useSheetMotionPreference();
   const slide = useRef(new Animated.Value(600)).current;
   const drag = useSheetDrag(props.visible, slide, props.onDismiss);
   const actionTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -319,22 +310,10 @@ export function CustomerListSheet(props: {
     generation = useRef(0);
   useEffect(() => {
     mounted.current = true;
-    let alive = true;
-    void AccessibilityInfo.isReduceMotionEnabled()
-      .then((value) => {
-        if (alive) setReducedMotion(value);
-      })
-      .catch(() => undefined);
-    const subscription = AccessibilityInfo.addEventListener(
-      "reduceMotionChanged",
-      setReducedMotion,
-    );
     return () => {
-      alive = false;
       mounted.current = false;
       generation.current++;
       if (actionTimer.current) clearTimeout(actionTimer.current);
-      subscription.remove();
     };
   }, []);
   useEffect(() => {

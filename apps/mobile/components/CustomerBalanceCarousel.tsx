@@ -23,6 +23,7 @@ import { colors } from "../lib/colors";
 import { getCurrencyLabel } from "../lib/currency";
 import { useIsRTL } from "../lib/direction";
 import { t } from "../lib/i18n";
+import { useSheetMotionPreference } from "./SheetBackdrop";
 
 const PAGE_GAP = 12;
 const PageMotionContext = createContext(true);
@@ -72,7 +73,7 @@ export function CustomerBalanceCarousel({
   const [windowFocused, setWindowFocused] = useState(true);
   // Keep automatic motion off until both native preferences are known.
   const [screenReader, setScreenReader] = useState(true);
-  const [reducedMotion, setReducedMotion] = useState(true);
+  const reducedMotion = useSheetMotionPreference();
   const multiple = currencies.length > 1;
   // Assistive navigation uses only real pages; its controls still wrap.
   const loop = multiple && !screenReader;
@@ -228,23 +229,13 @@ export function CustomerBalanceCarousel({
   useEffect(() => {
     let alive = true;
     let readerChanged = false;
-    let motionChanged = false;
     const reader = AccessibilityInfo.addEventListener("screenReaderChanged", (value) => {
       readerChanged = true;
       if (alive) setScreenReader(value);
     });
-    const motion = AccessibilityInfo.addEventListener("reduceMotionChanged", (value) => {
-      motionChanged = true;
-      if (alive) setReducedMotion(value);
-    });
     void AccessibilityInfo.isScreenReaderEnabled()
       .then((value) => {
         if (alive && !readerChanged) setScreenReader(value);
-      })
-      .catch(() => undefined);
-    void AccessibilityInfo.isReduceMotionEnabled()
-      .then((value) => {
-        if (alive && !motionChanged) setReducedMotion(value);
       })
       .catch(() => undefined);
     const app = AppState.addEventListener("change", (value) => {
@@ -265,7 +256,6 @@ export function CustomerBalanceCarousel({
     return () => {
       alive = false;
       reader.remove();
-      motion.remove();
       app.remove();
       blur?.remove();
       focus?.remove();
@@ -284,6 +274,18 @@ export function CustomerBalanceCarousel({
     // Amount-only refreshes must not interrupt the user's native scroll.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [epoch]);
+  useEffect(() => {
+    if (
+      reducedMotion &&
+      nativeCommand.current?.epoch === epoch &&
+      nativeCommand.current.animated &&
+      !dragging.current &&
+      !touching.current
+    )
+      scrollToPosition(currentIndex(), false);
+    // Only cancel programmatic autoplay; a finger keeps native scroll control.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reducedMotion, epoch]);
   useEffect(() => {
     const version = ++timerVersion.current;
     if (!autoAllowed) return;

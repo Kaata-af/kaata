@@ -348,6 +348,9 @@ const mocks: Record<string, any> = {
     SearchKeyboardFooter: "SearchKeyboardFooter",
   },
   "../../components/SheetBackdrop": { useSheetMotionPreference: () => reducedMotion },
+  "../../lib/motion-preference": {
+    getMotionPreferenceSnapshot: () => ({ effectiveReducedMotion: reducedMotion }),
+  },
   "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
   react,
   "react-native": native,
@@ -2738,6 +2741,7 @@ async function settledTallyHistoryTests() {
   targetRow.props.onLayout({ nativeEvent: { layout: { y: 90, height: 60 } } });
   await flush();
   assert.ok(scrolled.length > 0);
+  assert.equal(scrolled.at(-1).animated, true, "normal motion animates the notification reveal");
   assert.equal(
     scrolled.at(-1).y,
     tallyScrollTarget({ top: 1402, height: 60, offset: 0, viewport: 400, bottomInset: 100 }),
@@ -2785,9 +2789,15 @@ async function settledTallyHistoryTests() {
   oldRowLayout({ nativeEvent: { layout: { y: 90, height: 60 } } });
   await flush();
   assert.equal(scrolled.length, 0);
+  reducedMotion = true;
   refreshedRow.props.onLayout({ nativeEvent: { layout: { y: 90, height: 60 } } });
   await flush();
   assert.equal(scrolled.length, 1);
+  assert.equal(
+    scrolled[0].animated,
+    false,
+    "notification layout callbacks use the latest reduced-motion policy without another render",
+  );
   assert.equal(
     scrolled[0].y,
     tallyScrollTarget({ top: 2310, height: 60, offset: 0, viewport: 400, bottomInset: 100 }),

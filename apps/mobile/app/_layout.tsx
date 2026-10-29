@@ -43,6 +43,7 @@ import { ProjectionConflictsListener } from "../components/ProjectionConflictsLi
 import { PendingEmailFlowResume } from "../components/PendingEmailFlowResume";
 import { ToastProvider } from "../components/Toast";
 import { SheetBlurProvider } from "../components/SheetBackdrop";
+import { MotionStack } from "../components/MotionStack";
 import { SearchKeyboardProvider } from "../components/SearchKeyboardMotion";
 import { stopShopModeForegroundService } from "../lib/mesh/foreground";
 import {
@@ -945,12 +946,7 @@ export default function RootLayout() {
                   })}
                 />
                 <ProfileSettingsProvider>
-                  <Stack
-                    screenOptions={{
-                      headerShown: false,
-                      contentStyle: { backgroundColor: colors.bgDefault },
-                    }}
-                  >
+                  <MotionStack>
                     <Stack.Screen name="index" />
                     {/* Resumable onboarding stack. Each screen is registered as
                   its own Stack screen so the resumed step doesn't push
@@ -1072,7 +1068,7 @@ export default function RootLayout() {
                     {/* Phase 5.1 deep-link handler for kaata://pair/<token>?p=...
                   Reuses the same 5-step issuance as vault/pair-scan.tsx. */}
                     <Stack.Screen name="pair/[token]" options={{ presentation: "modal" }} />
-                  </Stack>
+                  </MotionStack>
                 </ProfileSettingsProvider>
                 <PendingEmailFlowResume
                   hasOnboarded={hasOnboarded}

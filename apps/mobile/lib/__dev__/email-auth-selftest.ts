@@ -2445,11 +2445,14 @@ test("cold start: the real root layout mounts the resume gate beside its Stack",
       ts.isJsxElement(node) &&
       node.openingElement.tagName.getText(layout) === "AppMetaProvider"
     ) {
-      // The profile-sheet provider wraps the navigator; the resume gate must
-      // still mount after that real Stack within the same app-meta scope.
+      // The profile-sheet provider wraps the motion-aware navigator; the resume
+      // gate must still mount after it within the same app-meta scope.
       let stack: ts.JsxElement | undefined;
       const findStack = (child: ts.Node) => {
-        if (ts.isJsxElement(child) && child.openingElement.tagName.getText(layout) === "Stack") {
+        if (
+          ts.isJsxElement(child) &&
+          child.openingElement.tagName.getText(layout) === "MotionStack"
+        ) {
           stack = child;
           return;
         }
@@ -3431,6 +3434,7 @@ const accountModule = load<{ default: () => unknown }>("../../app/account", {
   "../components/ConfirmDialog": { ConfirmDialog: "Dialog" },
   "../components/CountryPickerSheet": { CountryPickerSheet: "CountryPicker" },
   "../components/OptionSheet": { OptionSheet: "OptionSheet" },
+  "../components/MotionPreferenceSetting": { MotionPreferenceSetting: "MotionPreferenceSetting" },
   "../components/ScreenLoading": { ScreenLoading: "ScreenLoading" },
   "../components/SettingsScreen": {
     NavRow: "NavRow",

@@ -99,6 +99,7 @@ import {
 import { fonts, sansLineHeight } from "../../lib/fonts";
 import { formatAmount, formatDate } from "../../lib/format";
 import { sumAmounts } from "../../lib/money";
+import { getMotionPreferenceSnapshot } from "../../lib/motion-preference";
 import { getLocale, getShareLangPref, resolveShareLang, t, type LocaleCode } from "../../lib/i18n";
 import { formatSettlementDate } from "../../lib/jalali";
 import { useCalendar } from "../../lib/calendar";
@@ -561,7 +562,11 @@ export default function PersonDetailScreen() {
       viewport: viewport.current.height,
       bottomInset: actionsHeight + (keyboardShownRef.current ? 0 : viewport.current.lift),
     });
-    if (target != null) scrollRef.current?.scrollTo({ y: target, animated: true });
+    if (target != null)
+      scrollRef.current?.scrollTo({
+        y: target,
+        animated: !getMotionPreferenceSnapshot().effectiveReducedMotion,
+      });
     setHighlight({ id: entryId, key });
   }, [
     id,

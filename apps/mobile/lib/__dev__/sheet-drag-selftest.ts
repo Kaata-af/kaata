@@ -109,6 +109,23 @@ release(2, 30);
 assert.equal(dismissed, 0, "a short drag does not dismiss");
 assert.equal(springs.at(-1)?.toValue, 0);
 assert.equal(springs.at(-1)?.useNativeDriver, true);
+
+const releasedSpring = springs.at(-1)!;
+reducedMotion = true;
+drag = render();
+assert.equal(releasedSpring.stopped, true, "Off stops a spring already running on native");
+assert.equal(offset.value, 0);
+reducedMotion = false;
+drag = render();
+begin(40);
+move(40, 30);
+reducedMotion = true;
+drag = render();
+assert.equal(offset.value, 30, "changing motion preserves a finger-controlled sheet drag");
+release(40, 30);
+assert.equal(offset.value, 0, "the released drag settles immediately in Off mode");
+reducedMotion = false;
+drag = render();
 offset.setValue(0);
 begin(3);
 move(3, 100);
@@ -349,9 +366,9 @@ function loadInteraction(name: string): any {
       configFile: false,
       babelrc: false,
       plugins: [
-        ["flow-parser/babel-plugin", { parseLangTypes: "flow" }],
-        "@babel/plugin-transform-flow-strip-types",
-        "@babel/plugin-transform-modules-commonjs",
+        [require.resolve("flow-parser/babel-plugin"), { parseLangTypes: "flow" }],
+        require.resolve("@babel/plugin-transform-flow-strip-types"),
+        require.resolve("@babel/plugin-transform-modules-commonjs"),
       ],
     },
   );
