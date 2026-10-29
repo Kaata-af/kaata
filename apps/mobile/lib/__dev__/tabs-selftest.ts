@@ -111,6 +111,7 @@ const networkListeners = new Set<(state: { isConnected: boolean }) => void>();
 const ledgerListeners = new Set<(vaultId: string, origin: string) => void>();
 
 stub("expo-crypto", { randomUUID, getRandomBytes: (n: number) => randomBytes(n) });
+stub("expo-localization", { getLocales: () => [{ languageCode: "en" }] });
 stub("expo-sqlite", { openDatabaseAsync: async () => sqlite });
 stub("react-native", {
   AppState: appState,
@@ -708,6 +709,51 @@ const vectors = JSON.parse(
 // ---------------------------------------------------------------------------
 
 async function main(): Promise<void> {
+  for (const scope of ["private", "shared-a", "shared-b"] as const) {
+    for (const type of ["debt", "payment"] as const) {
+      await test(`credit warnings survive ${scope} ${type} saves in both balance directions`, async () => {
+        fixture
+          .prepare(
+            `INSERT INTO customer_credit_limits
+             (vault_id,relationship_id,currency,max_collect_minor,max_pay_minor,mode,updated_at_ms)
+             VALUES (?,?,?,10000,7500,'warn',1)`,
+          )
+          .run(VAULT, REL, "AFN");
+        if (scope !== "private") {
+          const role = scope === "shared-a" ? "a" : "b";
+          server.jwtRole = role;
+          server.parties.b.joined_at_ms = 2_000;
+          await tabsDb.upsertTabLink(
+            link({
+              role,
+              party_token: `tok-${role}`,
+              other_joined_at: 2_000,
+              last_synced_at: 5_000,
+            }),
+          );
+        }
+        const cap = type === "debt" ? 100 : 75;
+        const save = (kind: "debt" | "payment", amount: number) =>
+          db.createEntryDetailed(CONTACT, kind, amount, null, { currency: "AFN" });
+        assert.equal((await save(type, cap)).credit_warning, false, "the exact cap is allowed");
+        assert.equal(
+          (await save(type, 0.01)).credit_warning,
+          true,
+          "save checks the resulting balance, independently of the typing preview",
+        );
+        assert.equal(
+          (await save(type, 0.01)).credit_warning,
+          true,
+          "further exposure above either cap still warns",
+        );
+        assert.equal(
+          (await save(type === "debt" ? "payment" : "debt", 1)).credit_warning,
+          false,
+          "a repayment towards zero does not warn",
+        );
+      });
+    }
+  }
   await test("recording mode helpers preserve legacy access and restrict only one-way recipients", () => {
     const recording = require("../tabs/recording-mode") as typeof import("../tabs/recording-mode");
     assert.equal(recording.canWriteSharedTallies(null), true);

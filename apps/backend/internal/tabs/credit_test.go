@@ -13,6 +13,66 @@ import (
 	syncapi "github.com/matee/kaata-backend/internal/sync"
 )
 
+func TestCreditSharedGiveAndReceiveAdmissionAndRefusalDetails(t *testing.T) {
+	for _, tc := range []struct {
+		direction, opposite, kind, atCap string
+	}{
+		{"a_to_b", "b_to_a", "debt", "100"},
+		{"b_to_a", "a_to_b", "payment", "170"},
+	} {
+		t.Run(tc.kind, func(t *testing.T) {
+			f := newTabFixture(t)
+			ctx := context.Background()
+			rel := uuid.NewString()
+			boundary := time.Now().UnixMilli()
+			f.svc.SetCreditBalanceReader(syncapi.CreditBalance)
+			created, err := f.svc.Create(ctx, CreateInput{Currency: "AFN", Label: "Store", AccountID: &f.acctA, VaultID: &f.vaultA, RelationshipID: &rel, LinkedAtMS: &boundary})
+			if err != nil {
+				t.Fatal(err)
+			}
+			clerk := seedAccount(t, f.pool, "credit-clerk@example.com", "Clerk")
+			seedMember(t, f.pool, f.vaultA, clerk, "clerk")
+			p, err := f.svc.PartyByAccount(ctx, created.Tab.ID, clerk)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := f.pool.Exec(ctx, `INSERT INTO customer_credit_limits(vault_id,relationship_id,max_collect_minor,max_pay_minor,mode,updated_at_ms) VALUES($1::uuid,$2::uuid,10000,17000,'clerk_block',1)`, f.vaultA, rel); err != nil {
+				t.Fatal(err)
+			}
+			appendOne := func(id, direction, amount string) error {
+				_, err := f.svc.Append(ctx, p, AppendInput{ID: id, Direction: direction, Amount: amount, OccurredAtMS: boundary + 1})
+				return err
+			}
+			if err := appendOne(uuid.NewString(), tc.direction, tc.atCap); err != nil {
+				t.Fatalf("exact cap including pending entries: %v", err)
+			}
+			overID := uuid.NewString()
+			for i := 0; i < 2; i++ {
+				if err := appendOne(overID, tc.direction, "0.01"); !errors.Is(err, credit.ErrLimit) {
+					t.Fatalf("over-cap attempt %d: %v", i, err)
+				}
+			}
+			var kind, actor string
+			var amount, count int64
+			if err := f.pool.QueryRow(ctx, `SELECT entry_type,amount_minor,actor_account_id::text FROM customer_credit_tab_refusals WHERE tab_id=$1::uuid AND entry_id=$2::uuid`, created.Tab.ID, overID).Scan(&kind, &amount, &actor); err != nil {
+				t.Fatal(err)
+			}
+			if kind != tc.kind || amount != 1 || actor != clerk {
+				t.Fatalf("refusal lost direction: %s %d %s", kind, amount, actor)
+			}
+			if err := f.pool.QueryRow(ctx, `SELECT count(*) FROM customer_credit_tab_refusals WHERE tab_id=$1::uuid`, created.Tab.ID).Scan(&count); err != nil || count != 1 {
+				t.Fatalf("retry duplicated refusal: %d %v", count, err)
+			}
+			if err := appendOne(uuid.NewString(), tc.opposite, "0.01"); err != nil {
+				t.Fatalf("repayment: %v", err)
+			}
+			if err := appendOne(uuid.NewString(), tc.direction, "0.01"); err != nil {
+				t.Fatalf("reusing repaid credit: %v", err)
+			}
+		})
+	}
+}
+
 func TestCreditSharedPendingRejectedAndCancelled(t *testing.T) {
 	f := newTabFixture(t)
 	ctx := context.Background()

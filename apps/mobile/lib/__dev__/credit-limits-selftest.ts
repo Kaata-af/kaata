@@ -1556,6 +1556,7 @@ async function run() {
   assert.equal(await credit.creditWarningForEdit("missing", 900, "v1"), false);
 
   await currencyMoveWarningChecks();
+  await directionalWarningChecks();
 
   // Owners and managers hear what a limit stopped (audit #24); nobody else
   // asks, and an older server's 404 is an empty list.
@@ -1619,6 +1620,182 @@ async function run() {
     "PASS actual signed-out/local paired role gate, mesh parity, offline clerk tallies unless a hard limit applies, stale-limit refusals leave the balance, clerk enrollment activation guard",
   );
 }
+async function directionalWarningChecks() {
+  const caps = { max_collect_minor: 10000, max_pay_minor: 20000 };
+  for (const scope of ["own", "inherited", "override", "currency"] as const) {
+    const vault = `v-warning-${scope}`;
+    const relationship = `r-warning-${scope}`;
+    const person = `p-warning-${scope}`;
+    const currency = scope === "currency" ? "USD" : "AFN";
+    fixture.prepare("INSERT INTO vaults(id) VALUES(?)").run(vault);
+    fixture
+      .prepare("INSERT INTO relationships VALUES(?,?,?,1,NULL)")
+      .run(relationship, vault, person);
+    const own: CreditPolicy = {
+      relationship_id: relationship,
+      currency,
+      ...caps,
+      mode: "warn",
+      updated_at_ms: 1,
+    };
+    const policies =
+      scope === "inherited" ? [{ ...own, relationship_id: KAATA_DEFAULT_CREDIT_ID }] : [own];
+    if (scope === "override" || scope === "currency")
+      policies.push({
+        ...own,
+        relationship_id: KAATA_DEFAULT_CREDIT_ID,
+        currency: "AFN",
+        max_collect_minor: 0,
+        max_pay_minor: 0,
+      });
+    await cacheCreditPolicies(db, vault, policies, 2);
+
+    // Rebuild only this synthetic contact's rows; every assertion uses the
+    // shipped balance reader and policy resolver, not just creditExceeded.
+    const setBalance = (before: number, type: "debt" | "payment", original?: number) => {
+      fixture.prepare("DELETE FROM entries WHERE vault_id=?").run(vault);
+      const insert = fixture.prepare(
+        "INSERT INTO entries(id,vault_id,relationship_id,type,amount_afn,currency,created_at) VALUES(?,?,?,?,?,?,1)",
+      );
+      const residual =
+        before - (original === undefined ? 0 : (type === "debt" ? 1 : -1) * original);
+      if (residual !== 0)
+        insert.run(
+          `${vault}-balance`,
+          vault,
+          relationship,
+          residual > 0 ? "debt" : "payment",
+          Math.abs(residual) / 100,
+          currency,
+        );
+      if (original !== undefined)
+        insert.run(`${vault}-edit`, vault, relationship, type, original / 100, currency);
+    };
+    for (const type of ["debt", "payment"] as const) {
+      const sign = type === "debt" ? 1 : -1;
+      const cap = type === "debt" ? caps.max_collect_minor : caps.max_pay_minor;
+      const oppositeCap = type === "debt" ? caps.max_pay_minor : caps.max_collect_minor;
+      const context = `${scope} ${currency} ${type}`;
+      const creationCases = [
+        { label: "at cap", before: 0, amount: cap, warning: false },
+        { label: "over cap", before: 0, amount: cap + 1, warning: true },
+        { label: "worsening", before: sign * (cap + 1), amount: 1, warning: true },
+        { label: "repayment", before: -sign * (oppositeCap + 100), amount: 1, warning: false },
+        { label: "cross zero to cap", before: -sign * 5000, amount: 5000 + cap, warning: false },
+        { label: "cross zero over cap", before: -sign * 5000, amount: 5001 + cap, warning: true },
+      ];
+      for (const test of creationCases) {
+        setBalance(test.before, type);
+        assert.equal(
+          await credit.creditWarning(person, type, test.amount / 100, vault, currency),
+          test.warning,
+          `${context} new ${test.label}`,
+        );
+      }
+      const editCases = [
+        {
+          label: "at cap",
+          before: sign * (cap - 1),
+          original: cap / 2 - 1,
+          amount: cap / 2,
+          warning: false,
+        },
+        {
+          label: "over cap",
+          before: sign * cap,
+          original: cap / 2,
+          amount: cap / 2 + 1,
+          warning: true,
+        },
+        {
+          label: "unchanged over cap",
+          before: sign * (cap + 1),
+          original: cap + 1,
+          amount: cap + 1,
+          warning: false,
+        },
+        {
+          label: "worsening",
+          before: sign * (cap + 1),
+          original: cap + 1,
+          amount: cap + 2,
+          warning: true,
+        },
+        {
+          label: "reducing exposure",
+          before: sign * (cap + 2),
+          original: cap + 2,
+          amount: cap + 1,
+          warning: false,
+        },
+        {
+          label: "repayment",
+          before: -sign * (oppositeCap + 100),
+          original: 100,
+          amount: 101,
+          warning: false,
+        },
+        {
+          label: "cross zero to cap",
+          before: -sign * 5000,
+          original: 100,
+          amount: 5100 + cap,
+          warning: false,
+        },
+        {
+          label: "cross zero over cap",
+          before: -sign * 5000,
+          original: 100,
+          amount: 5101 + cap,
+          warning: true,
+        },
+      ];
+      for (const test of editCases) {
+        setBalance(test.before, type, test.original);
+        assert.equal(
+          await credit.creditWarningForEdit(`${vault}-edit`, test.amount / 100, vault, currency),
+          test.warning,
+          `${context} edit ${test.label}`,
+        );
+      }
+    }
+    if (scope === "own") {
+      for (const limitedType of ["debt", "payment"] as const) {
+        await cacheCreditPolicies(
+          db,
+          vault,
+          [
+            {
+              ...own,
+              max_collect_minor: limitedType === "debt" ? 10000 : null,
+              max_pay_minor: limitedType === "payment" ? 20000 : null,
+              updated_at_ms: limitedType === "debt" ? 3 : 4,
+            },
+          ],
+          5,
+        );
+        for (const type of ["debt", "payment"] as const) {
+          setBalance(0, type);
+          assert.equal(
+            await credit.creditWarning(person, type, 201, vault, currency),
+            type === limitedType,
+            `${limitedType}-only cap: new ${type}`,
+          );
+          setBalance(type === "debt" ? 100 : -100, type, 100);
+          assert.equal(
+            await credit.creditWarningForEdit(`${vault}-edit`, 201, vault, currency),
+            type === limitedType,
+            `${limitedType}-only cap: edit ${type}`,
+          );
+        }
+      }
+    }
+  }
+  console.log(
+    "PASS give/receive warning parity for new/edit caps, worsening, repayment, zero crossings, own/default/override policies and nondefault currency",
+  );
+}
+
 async function currencyMoveWarningChecks() {
   fixture.exec(`INSERT INTO vaults(id) VALUES('v-warning');
     INSERT INTO relationships(id,vault_id,user_b_id,created_at) VALUES('r-warning','v-warning','p-warning',1);

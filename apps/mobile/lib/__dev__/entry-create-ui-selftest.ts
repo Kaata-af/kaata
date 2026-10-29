@@ -131,7 +131,9 @@ function fixture({
   let guardGate: ReturnType<typeof deferred<any>> | null = null;
   let captureGate: ReturnType<typeof deferred<void>> | null = null;
   let duplicateGate: ReturnType<typeof deferred<any>> | null = null;
+  let creditGate: ReturnType<typeof deferred<boolean>> | null = null;
   const timers = new Map<number, () => void>();
+  const timerDelays = new Map<number, number>();
   const frames = new Map<number, () => void>();
   let onEndScroll: (() => void) | undefined;
   const scrolls: any[] = [],
@@ -146,6 +148,12 @@ function fixture({
     noteBlurs = 0,
     noteFocuses = 0,
     overLimit = false;
+  const checkCredit = async (...args: any[]) => {
+    creditChecks.push(args);
+    const gate = creditGate;
+    creditGate = null;
+    return gate ? gate.promise : overLimit;
+  };
   const currencyEdges = {
     DEFAULT_CURRENCY: "AFN",
     getCurrentCurrencyCode: () => selectedCurrency,
@@ -333,14 +341,8 @@ function fixture({
       "../../lib/calculator": require("../calculator"),
       "../../lib/calculator-input": require("../calculator-input"),
       "../../lib/credit-limits": {
-        creditWarningForEdit: async (...args: any[]) => {
-          creditChecks.push(args);
-          return overLimit;
-        },
-        creditWarning: async (...args: any[]) => {
-          creditChecks.push(args);
-          return overLimit;
-        },
+        creditWarningForEdit: checkCredit,
+        creditWarning: checkCredit,
       },
       "../../lib/recent-entry": {
         noteSavedEntry: (personId: string, entryId: string) => savedNotes.push([personId, entryId]),
@@ -378,12 +380,16 @@ function fixture({
       "../../lib/types": { ENTRY_NOTE_MAX_LENGTH },
     },
     {
-      setTimeout: (fn: () => void) => {
+      setTimeout: (fn: () => void, delay: number) => {
         const id = ++timerID;
         timers.set(id, fn);
+        timerDelays.set(id, delay);
         return id;
       },
-      clearTimeout: (id: number) => timers.delete(id),
+      clearTimeout: (id: number) => {
+        timers.delete(id);
+        timerDelays.delete(id);
+      },
       requestAnimationFrame: (fn: () => void) => {
         const id = ++timerID;
         frames.set(id, fn);
@@ -577,6 +583,7 @@ function fixture({
     delayedGuard: () => (guardGate = deferred<any>()),
     delayedCapture: () => (captureGate = deferred<void>()),
     delayedDuplicate: () => (duplicateGate = deferred<any>()),
+    delayedCreditCheck: () => (creditGate = deferred<boolean>()),
     setResult: (next: Saved) => {
       saveGate = null;
       result = next;
@@ -588,6 +595,14 @@ function fixture({
       sessionJWT = signedIn ? "session" : null;
     },
     fireKeyboardTimers: () => [...timers.values()].forEach((fn) => fn()),
+    fireCreditTimers: () => {
+      for (const [id, fn] of [...timers.entries()]) {
+        if (timerDelays.get(id) !== 250) continue;
+        timers.delete(id);
+        timerDelays.delete(id);
+        fn();
+      }
+    },
     noteFrames: () => [...frames.values()],
     fireNoteFrames: () => {
       for (const [id, fn] of [...frames.entries()]) {
@@ -3733,26 +3748,81 @@ async function main() {
     f.hooks.unmount();
     cases++;
   }
-  {
-    // Audit #24: an amount over the credit limit is flagged while typing,
-    // not only after the save.
-    const f = fixture();
-    f.setOverLimit(true);
-    await f.ready();
-    f.fireKeyboardTimers();
-    await f.flush();
-    const warned = () =>
-      nodes(f.hooks.tree).some((n) => n.type === "Text" && n.props.children === "credit.warning");
-    assert.ok(warned(), "an over-limit amount is flagged before Save");
-    f.setOverLimit(false);
-    f.input().props.onChangeText("1");
-    f.render();
-    f.fireKeyboardTimers();
-    await f.flush();
-    assert.equal(warned(), false, "and clears once the amount is back under");
-    f.hooks.unmount();
-    cases++;
-  }
+  for (const os of ["android", "ios"] as const)
+    for (const rtl of [false, true])
+      for (const type of ["debt", "payment"] as const) {
+        const f = fixture({ os, rtl });
+        if (type === "payment") f.transitions.type();
+        await f.ready();
+        const gate = f.delayedCreditCheck();
+        const warned = () =>
+          nodes(f.hooks.tree).some(
+            (n) => n.type === "Text" && n.props.children === "credit.warning",
+          );
+        assert.deepEqual(f.creditChecks, [], "the typing check waits for its debounce");
+        assert.equal(warned(), false);
+        f.fireCreditTimers();
+        await f.flush();
+        assert.deepEqual(
+          f.creditChecks,
+          [["customer", type, 125.5, "vault", "AFN"]],
+          `${os}/${rtl}/${type}: the delayed preview uses the actual direction and amount`,
+        );
+        assert.equal(warned(), false, "an unresolved credit check does not invent a warning");
+        gate.resolve(true);
+        await f.flush();
+        assert.ok(warned(), `${type}: an over-limit amount is flagged before Save`);
+        f.input().props.onChangeText("1");
+        f.render();
+        f.fireCreditTimers();
+        await f.flush();
+        assert.deepEqual(f.creditChecks.at(-1), ["customer", type, 1, "vault", "AFN"]);
+        assert.equal(warned(), false, `${type}: the warning clears below the cap`);
+        assert.equal(f.writes.length, 0, "typing a warning never records a tally");
+        f.hooks.unmount();
+        cases++;
+      }
+  for (const os of ["android", "ios"] as const)
+    for (const type of ["debt", "payment"] as const)
+      for (const preview of ["debouncing", "pending"] as const) {
+        // The storage boundary returns its own save-time check. Saving must
+        // not wait for, or trust, the form's optional 250 ms typing preview.
+        const f = fixture({ os });
+        if (type === "payment") f.transitions.type();
+        await f.ready();
+        const previewGate = preview === "pending" ? f.delayedCreditCheck() : null;
+        if (previewGate) {
+          f.fireCreditTimers();
+          await f.flush();
+        }
+        const checksBeforeSave = f.creditChecks.length;
+        assert.equal(checksBeforeSave, previewGate ? 1 : 0);
+        const saveGate = f.delayedSave();
+        const saving = f.button().props.onPress();
+        await settleUI();
+        assert.equal(f.writes.length, 1, `${type}: Save starts before the preview finishes`);
+        assert.deepEqual(f.writes[0].slice(0, 3), ["customer", type, 125.5]);
+        assert.equal(f.writes[0][4].currency, "AFN");
+        assert.equal(f.creditChecks.length, checksBeforeSave);
+        assert.deepEqual(f.notices, [], "feedback waits for the actual save result");
+        saveGate.resolve({ ...normal, credit_warning: true });
+        await saving;
+        await f.flush();
+        assert.deepEqual(f.notices, [["entry.saved", "success"]]);
+        assert.deepEqual(
+          f.queued,
+          [["credit.warning", "info"]],
+          `${os}/${type}/${preview}: the authoritative save result queues the credit warning`,
+        );
+        assert.deepEqual(f.routes, ["back"]);
+        assert.deepEqual(f.reviewTallies, [], "an over-limit save never requests a review");
+        f.hooks.unmount();
+        previewGate?.resolve(false);
+        await settleUI();
+        assert.equal(f.hooks.lateWrites, 0, "a late preview cannot update the closed form");
+        assert.deepEqual(f.queued, [["credit.warning", "info"]]);
+        cases++;
+      }
   {
     // Audit #3: a saved tally is noted so its customer's page can show it
     // even under a search; a refused clerk attempt is not in the ledger.

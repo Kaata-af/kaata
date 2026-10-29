@@ -197,6 +197,74 @@ func seedCreditPolicy(t *testing.T, f *m1Fixture, rel, mode string, cap int64) {
 	}
 }
 
+func TestCreditGiveAndReceiveAdmissionAndRefusalDetails(t *testing.T) {
+	for _, tc := range []struct {
+		kind, opposite, atCap string
+	}{
+		{"debt", "payment", "100"},
+		{"payment", "debt", "170"},
+	} {
+		t.Run(tc.kind, func(t *testing.T) {
+			f := newM1Fixture(t)
+			ctx := context.Background()
+			rel := seedCreditContact(t, f)
+			seedCreditPolicy(t, f, rel, "clerk_block", 10000)
+			if _, err := f.pool.Exec(ctx, `UPDATE customer_credit_limits SET max_pay_minor=17000 WHERE vault_id=$1::uuid`, f.vaultID); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := f.pool.Exec(ctx, `UPDATE vault_members SET role='clerk' WHERE vault_id=$1::uuid`, f.vaultID); err != nil {
+				t.Fatal(err)
+			}
+			if got := f.push(t, creditEntry(f, rel, tc.kind, tc.atCap)); len(got.Accepted) != 1 {
+				t.Fatalf("exact directional cap: %+v", got)
+			}
+			over := creditEntry(f, rel, tc.kind, "0.01")
+			for i := 0; i < 2; i++ {
+				if got := f.push(t, over); len(got.Rejected) != 1 || got.Rejected[0].Reason != "credit_limit_exceeded" {
+					t.Fatalf("over-cap attempt %d: %+v", i, got)
+				}
+			}
+			var kind, actor string
+			var amount, count int64
+			if err := f.pool.QueryRow(ctx, `SELECT entry_type,amount_minor,actor_account_id::text FROM customer_credit_event_refusals WHERE event_id=$1::uuid`, over.EventID).Scan(&kind, &amount, &actor); err != nil {
+				t.Fatal(err)
+			}
+			if kind != tc.kind || amount != 1 || actor != f.accountID {
+				t.Fatalf("refusal lost direction: %s %d %s", kind, amount, actor)
+			}
+			if err := f.pool.QueryRow(ctx, `SELECT count(*) FROM customer_credit_event_refusals WHERE vault_id=$1::uuid`, f.vaultID).Scan(&count); err != nil || count != 1 {
+				t.Fatalf("retry duplicated refusal: %d %v", count, err)
+			}
+			if got := f.push(t, creditEntry(f, rel, tc.opposite, "0.01")); len(got.Accepted) != 1 {
+				t.Fatalf("repayment: %+v", got)
+			}
+			if got := f.push(t, creditEntry(f, rel, tc.kind, "0.01")); len(got.Accepted) != 1 {
+				t.Fatalf("reusing repaid credit: %+v", got)
+			}
+			if _, err := f.pool.Exec(ctx, `UPDATE vault_members SET role='owner' WHERE vault_id=$1::uuid`, f.vaultID); err != nil {
+				t.Fatal(err)
+			}
+			token, err := auth.SignSession(testJWTSecret, f.accountID, uuid.NewString(), "google", "sub-x")
+			if err != nil {
+				t.Fatal(err)
+			}
+			req := httptest.NewRequest("GET", "/v1/sync/credit-refusals?vault_id="+f.vaultID, nil)
+			req.Header.Set("Authorization", "Bearer "+token)
+			response := httptest.NewRecorder()
+			auth.RequireSession(testJWTSecret)(http.HandlerFunc(NewHandler(f.svc).CreditRefusals)).ServeHTTP(response, req)
+			var body struct {
+				Refusals []CreditRefusal `json:"refusals"`
+			}
+			if response.Code != 200 || json.Unmarshal(response.Body.Bytes(), &body) != nil || len(body.Refusals) != 1 {
+				t.Fatalf("owner refusal notice: %d %s", response.Code, response.Body.String())
+			}
+			if notice := body.Refusals[0]; notice.Type != tc.kind || notice.AmountMinor != 1 || notice.RelationshipID != rel {
+				t.Fatalf("owner notice lost direction: %+v", notice)
+			}
+		})
+	}
+}
+
 func TestCreditPushSerialAdmissionAndRepayment(t *testing.T) {
 	f := newM1Fixture(t)
 	rel := seedCreditContact(t, f)
