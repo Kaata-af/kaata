@@ -975,6 +975,87 @@ export default function PersonDetailScreen() {
           tallyFilter.sort,
           selectedCurrency,
         ).map((entry) => ({ kind: "entry" as const, entry }));
+  // Retain only Android rows already shown in this screen's active chapter.
+  // Repeated filtering can reuse native text views; settled/deleted/moved rows
+  // leave the authoritative chapter immediately and are never cached snapshots.
+  const reuseTallyRows = Platform.OS === "android";
+  const tallyRowsOwner = useRef({ scope: layoutKey, ids: [] as string[], alive: true });
+  if (tallyRowsOwner.current.scope !== layoutKey)
+    tallyRowsOwner.current = { scope: layoutKey, ids: [], alive: true };
+  const tallyRowsLease = tallyRowsOwner.current;
+  useEffect(() => {
+    tallyRowsLease.alive = true;
+    return () => {
+      tallyRowsLease.alive = false;
+    };
+  }, [tallyRowsLease]);
+  const renderedHistory = useMemo(() => {
+    const shown = historyItems.map((item, index) => ({ item, index, hidden: false }));
+    if (!reuseTallyRows) return shown;
+    const universe = new Map(
+      chapterEntries.filter((entry) => entry.deleted_at == null).map((entry) => [entry.id, entry]),
+    );
+    const visible = new Set(
+      historyItems.flatMap((item) => (item.kind === "entry" ? [item.entry.id] : [])),
+    );
+    const hiddenIds = tallyRowsLease.ids.filter((id) => !visible.has(id) && universe.has(id));
+    tallyRowsLease.ids = [...visible].filter((id) => universe.has(id)).concat(hiddenIds);
+    return [
+      ...shown,
+      ...hiddenIds.map((id) => ({
+        item: { kind: "entry" as const, entry: universe.get(id)! },
+        index: -1,
+        hidden: true,
+      })),
+    ];
+  }, [historyItems, chapterEntries, reuseTallyRows, tallyRowsLease]);
+  type TallyRowAction = "open" | "select" | "accept" | "reject" | "cancel";
+  const tallyRowActions = useRef({
+    lease: tallyRowsLease,
+    visible: new Map<string, Entry>(),
+    allowed: new Map<string, ReadonlySet<TallyRowAction>>(),
+    actions: {} as Partial<Record<TallyRowAction, (entry: Entry) => void | Promise<void>>>,
+  });
+  tallyRowActions.current = {
+    lease: tallyRowsLease,
+    visible: new Map(
+      historyItems.flatMap((item) =>
+        item.kind === "entry" ? [[item.entry.id, item.entry] as const] : [],
+      ),
+    ),
+    allowed: new Map(),
+    actions: {},
+  };
+  const runTallyRowAction = useCallback(
+    (action: TallyRowAction, entry: Entry) => {
+      const current = tallyRowActions.current;
+      if (!tallyRowsLease.alive || current.lease !== tallyRowsLease) return;
+      const fresh = current.visible.get(entry.id);
+      if (!fresh || !current.allowed.get(entry.id)?.has(action)) return;
+      return current.actions[action]?.(fresh);
+    },
+    [tallyRowsLease],
+  );
+  const openTallyRow = useCallback(
+    (entry: Entry) => runTallyRowAction("open", entry),
+    [runTallyRowAction],
+  );
+  const selectTallyRow = useCallback(
+    (entry: Entry) => runTallyRowAction("select", entry),
+    [runTallyRowAction],
+  );
+  const acceptTallyRow = useCallback(
+    (entry: Entry) => runTallyRowAction("accept", entry),
+    [runTallyRowAction],
+  );
+  const rejectTallyRow = useCallback(
+    (entry: Entry) => runTallyRowAction("reject", entry),
+    [runTallyRowAction],
+  );
+  const cancelTallyRow = useCallback(
+    (entry: Entry) => runTallyRowAction("cancel", entry),
+    [runTallyRowAction],
+  );
   // Shared and ruled-off tallies retain their existing individual workflows.
   // Eligibility spans this contact's full history. Search filters only decide
   // which eligible rows Select all toggles; already selected rows stay selected.
@@ -2068,17 +2149,35 @@ export default function PersonDetailScreen() {
     if (!searchIsCurrent()) return;
     await action(entry);
   };
-  const renderTallyHistory = (items: HistoryItem[]) => (
+  tallyRowActions.current.actions = {
+    open: (entry) => {
+      if (searchIsCurrent() && canAmend) setSheetFor(entry);
+    },
+    select: toggleSelection,
+    accept: guardedSearchAction(onAccept),
+    reject: guardedSearchAction(onReject),
+    cancel: guardedSearchAction(onVoid),
+  };
+  const renderTallyHistory = () => (
     <View
       testID="customer-current-tallies"
-      style={styles.entriesCard}
+      style={[styles.entriesCard, historyItems.length === 0 && { display: "none" }]}
+      pointerEvents={historyItems.length === 0 ? "none" : "auto"}
+      accessibilityElementsHidden={historyItems.length === 0}
+      importantForAccessibility={historyItems.length === 0 ? "no-hide-descendants" : "auto"}
       onLayout={(event) => {
-        if (!filterIsCurrent() || layoutScope.current !== flowScope) return;
+        if (
+          tallyRowActions.current.lease !== tallyRowsLease ||
+          tallyRowActions.current.visible.size === 0 ||
+          !filterIsCurrent() ||
+          layoutScope.current !== flowScope
+        )
+          return;
         entriesCardY.current.set(`${flowScope}:current`, event.nativeEvent.layout.y);
         revealNotificationTally();
       }}
     >
-      {items.map((item, index) => {
+      {renderedHistory.map(({ item, index, hidden }) => {
         if (item.kind === "marker") {
           // The ruled-off line, dated — a khata page's visible mark.
           return (
@@ -2129,17 +2228,42 @@ export default function PersonDetailScreen() {
           !entry.tab &&
           (!period?.tab || period.tab.closed_at != null) &&
           period?.person.tab_close_pending !== 1;
+        if (!hidden) {
+          const allowed = new Set<TallyRowAction>();
+          if (canOpenSheet) {
+            if (!selecting) allowed.add("open");
+            allowed.add("select");
+          }
+          if (canAmend && entry.tab && canWriteEntry) {
+            allowed.add("accept");
+            allowed.add("reject");
+            if (!recordedInSettledChapter) allowed.add("cancel");
+          }
+          tallyRowActions.current.allowed.set(entry.id, allowed);
+        }
         return (
           <View
             key={entry.id}
+            testID={`customer-tally-row-${entry.id}`}
+            style={hidden ? { display: "none" } : undefined}
+            pointerEvents={hidden ? "none" : "auto"}
+            accessibilityElementsHidden={hidden}
+            importantForAccessibility={hidden ? "no-hide-descendants" : "auto"}
             onLayout={(event) => {
-              if (!filterIsCurrent() || layoutScope.current !== flowScope) return;
+              if (
+                hidden ||
+                tallyRowActions.current.lease !== tallyRowsLease ||
+                !tallyRowActions.current.visible.has(entry.id) ||
+                !filterIsCurrent() ||
+                layoutScope.current !== flowScope
+              )
+                return;
               const { y, height } = event.nativeEvent.layout;
               entryPositions.current.set(entry.id, { y, height, card: `${flowScope}:current` });
               revealNotificationTally();
             }}
           >
-            {index > 0 && items[index - 1].kind !== "marker" ? (
+            {index > 0 && historyItems[index - 1].kind !== "marker" ? (
               <View style={styles.divider} />
             ) : null}
             {/* Tap-and-hold opens the existing tally actions. A tap toggles
@@ -2147,35 +2271,53 @@ export default function PersonDetailScreen() {
             <EntryRow
               entry={entry}
               onLongPress={
-                canOpenSheet
-                  ? (selectedEntry) => {
-                      if (searchIsCurrent()) setSheetFor(selectedEntry);
-                    }
+                !hidden && canOpenSheet
+                  ? reuseTallyRows
+                    ? openTallyRow
+                    : (selectedEntry) => {
+                        if (searchIsCurrent()) setSheetFor(selectedEntry);
+                      }
                   : undefined
               }
-              selecting={selecting && canOpenSheet}
-              selected={selecting && selectedEntryIds.has(entry.id)}
-              selectionDisabled={selectionBusy}
-              onToggleSelection={canOpenSheet ? toggleSelection : undefined}
+              selecting={hidden || (selecting && canOpenSheet)}
+              selected={!hidden && selecting && selectedEntryIds.has(entry.id)}
+              selectionDisabled={selectionBusy || hidden}
+              onToggleSelection={
+                !hidden && canOpenSheet
+                  ? reuseTallyRows
+                    ? selectTallyRow
+                    : toggleSelection
+                  : undefined
+              }
               attribution={attribution.get(entry.id)}
               tab={entry.tab}
               selfAccountId={getAccountIdSync()}
               onAccept={
-                canAmend && entry.tab && canWriteEntry ? guardedSearchAction(onAccept) : undefined
+                !hidden && canAmend && entry.tab && canWriteEntry
+                  ? reuseTallyRows
+                    ? acceptTallyRow
+                    : guardedSearchAction(onAccept)
+                  : undefined
               }
               onReject={
-                canAmend && entry.tab && canWriteEntry ? guardedSearchAction(onReject) : undefined
+                !hidden && canAmend && entry.tab && canWriteEntry
+                  ? reuseTallyRows
+                    ? rejectTallyRow
+                    : guardedSearchAction(onReject)
+                  : undefined
               }
               onCancel={
-                canAmend && entry.tab && canWriteEntry && !recordedInSettledChapter
-                  ? guardedSearchAction(onVoid)
+                !hidden && canAmend && entry.tab && canWriteEntry && !recordedInSettledChapter
+                  ? reuseTallyRows
+                    ? cancelTallyRow
+                    : guardedSearchAction(onVoid)
                   : undefined
               }
               showFullNote={searchTerms.length > 0}
             />
-            {highlight?.id === entry.id ? (
+            {!hidden && highlight?.id === entry.id ? (
               <TallyHighlight requestKey={highlight.key} />
-            ) : reviewHighlights.has(entry.id) ? (
+            ) : !hidden && reviewHighlights.has(entry.id) ? (
               <TallyHighlight
                 requestKey={reviewHighlights.get(entry.id)!.key}
                 tone={
@@ -3092,9 +3234,8 @@ export default function PersonDetailScreen() {
                         isRTL={isRTL}
                       />
                     )
-                  ) : (
-                    renderTallyHistory(historyItems)
-                  )}
+                  ) : null}
+                  {reuseTallyRows || historyItems.length > 0 ? renderTallyHistory() : null}
 
                   {matchedFailedTallies.length > 0 ? (
                     <>

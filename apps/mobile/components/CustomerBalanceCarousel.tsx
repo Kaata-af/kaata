@@ -1,5 +1,13 @@
 import { useIsFocused } from "expo-router";
-import { Children, useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  Children,
+  createContext,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   AccessibilityInfo,
   AppState,
@@ -17,6 +25,10 @@ import { useIsRTL } from "../lib/direction";
 import { t } from "../lib/i18n";
 
 const PAGE_GAP = 12;
+const PageMotionContext = createContext(true);
+
+/** Offscreen Android copies keep their final layout without animating it. */
+export const useCustomerBalancePageMotion = () => useContext(PageMotionContext);
 
 /** Presents existing currency cards without combining or changing their balances. */
 export function CustomerBalanceCarousel({
@@ -85,6 +97,10 @@ export function CustomerBalanceCarousel({
     initialOffset.current = { epoch, x: (index + (loop ? 1 : 0)) * step };
     offset.current = initialOffset.current.x;
   }
+  const [motionPages, setMotionPages] = useState({ epoch: -1, first: 0, last: 0 });
+  const initialPhysical = Math.round(initialOffset.current.x / step);
+  const visibleMotionPages =
+    motionPages.epoch === epoch ? motionPages : { first: initialPhysical, last: initialPhysical };
   const autoAllowed =
     active &&
     focused &&
@@ -123,9 +139,21 @@ export function CustomerBalanceCarousel({
   const physicalIndex = (x: number) => Math.max(0, Math.min(pageCount - 1, Math.round(x / step)));
   const logicalIndex = (physical: number) =>
     loop ? (physical - 1 + currencies.length) % currencies.length : physical;
+  const observeMotionOffset = (x: number) => {
+    if (Platform.OS !== "android") return;
+    const page = x / step;
+    const first = Math.max(0, Math.min(pageCount - 1, Math.floor(page)));
+    const last = Math.max(first, Math.min(pageCount - 1, Math.ceil(page)));
+    setMotionPages((previous) =>
+      previous.epoch === epoch && previous.first === first && previous.last === last
+        ? previous
+        : { epoch, first, last },
+    );
+  };
   const observeOffset = (x: number) => {
     if (!isCurrent() || !Number.isFinite(x)) return false;
     offset.current = Math.max(0, Math.min((pageCount - 1) * step, x));
+    observeMotionOffset(offset.current);
     select(logicalIndex(physicalIndex(offset.current)));
     return true;
   };
@@ -137,7 +165,10 @@ export function CustomerBalanceCarousel({
     // Store the command before native code can synchronously acknowledge it.
     nativeCommand.current = { epoch, x, animated };
     offset.current = x;
-    if (!animated) select(logicalIndex(next));
+    if (!animated) {
+      observeMotionOffset(x);
+      select(logicalIndex(next));
+    }
     scroll.current?.scrollTo({ x, animated });
   };
   const scrollToPosition = (position: number, animated: boolean) => {
@@ -482,7 +513,22 @@ export function CustomerBalanceCarousel({
             }
             pointerEvents={code === current ? "auto" : "none"}
           >
-            {child}
+            {Platform.OS === "android" ? (
+              <PageMotionContext.Provider
+                value={
+                  active &&
+                  focused &&
+                  appState === "active" &&
+                  windowFocused &&
+                  position >= visibleMotionPages.first &&
+                  position <= visibleMotionPages.last
+                }
+              >
+                {child}
+              </PageMotionContext.Provider>
+            ) : (
+              child
+            )}
           </View>
         ))}
       </ScrollView>

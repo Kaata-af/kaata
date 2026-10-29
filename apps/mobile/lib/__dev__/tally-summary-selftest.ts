@@ -100,6 +100,7 @@ console.log(
       default: { createAnimatedComponent: () => "Animated.Pressable" },
     },
     "./SheetBackdrop": { useSheetMotionPreference: () => false },
+    "./CustomerBalanceCarousel": { useCustomerBalancePageMotion: () => true },
     "../lib/tokens": { TOUCH_MIN: 44 },
     "../lib/colors": { colors: { textEmphasis: "neutral", borderDefault: "separator" } },
     "../lib/currency": {
@@ -245,7 +246,10 @@ console.log(
     const hooks = uiHooks();
     let windowWidth = 390,
       fontScale = 1,
-      reducedMotion = false;
+      reducedMotion = false,
+      animationEnabled = true,
+      sharedValueReads = 0,
+      insideAnimatedStyle = false;
     const animations: { target: number; duration: number }[] = [];
     const taps: string[] = [];
     let props = {
@@ -275,10 +279,24 @@ console.log(
         __esModule: true,
         default: { createAnimatedComponent: () => "Animated.Pressable" },
         ReduceMotion: { System: "system" },
-        useSharedValue: (initial: unknown) => hooks.react.useRef({ value: initial }).current,
+        useSharedValue: (value: number) =>
+          hooks.react.useRef({
+            get value() {
+              if (!insideAnimatedStyle) sharedValueReads++;
+              return value;
+            },
+            set value(next: number) {
+              value = next;
+            },
+          }).current,
         useAnimatedStyle: (compute: () => any) => ({
           get width() {
-            return compute().width;
+            insideAnimatedStyle = true;
+            try {
+              return compute().width;
+            } finally {
+              insideAnimatedStyle = false;
+            }
           },
         }),
         withTiming: (target: number, config: { duration: number }) => {
@@ -288,6 +306,9 @@ console.log(
       },
       "@expo/vector-icons": { Ionicons: "Icon" },
       "./SheetBackdrop": { useSheetMotionPreference: () => reducedMotion },
+      "./CustomerBalanceCarousel": {
+        useCustomerBalancePageMotion: () => animationEnabled,
+      },
       "../lib/tokens": { TOUCH_MIN: 44 },
       "../lib/colors": require("../colors"),
       "../lib/currency": {
@@ -311,6 +332,7 @@ console.log(
       hooks,
       taps,
       animations,
+      sharedValueReads: () => sharedValueReads,
       buttons: () => nodes(hooks.tree).filter((node) => node.type === "Animated.Pressable"),
       update(next: Partial<typeof props>) {
         props = { ...props, ...next };
@@ -323,6 +345,10 @@ console.log(
       },
       motion(value: boolean) {
         reducedMotion = value;
+        render();
+      },
+      pageMotion(value: boolean) {
+        animationEnabled = value;
         render();
       },
       measure(width: number) {
@@ -420,10 +446,39 @@ console.log(
       summary: { received: { count: 0, amount: 0 }, gave: { count: 0, amount: 0 } },
     });
     assert.equal(f.buttons().length, 2, "empty directions still have filter controls");
+    assert.equal(f.sharedValueReads(), 0, "JS compares requested layouts without reading UI state");
     f.hooks.unmount();
     f.buttons()[0].props.onPress();
     assert.equal(f.taps.length, 3, "an unmounted card cannot change filters");
     assert.equal(f.hooks.lateWrites, 0);
+
+    const hidden = filterFooter(locale);
+    hidden.measure(360);
+    hidden.pageMotion(false);
+    hidden.update({ filter: "received" });
+    assert.deepEqual(
+      hidden.buttons().map((button) => flattenStyle(button.props.style).width),
+      [280, 80],
+      "An offscreen page immediately adopts its final filtered layout",
+    );
+    assert.equal(hidden.animations.length, 0);
+    hidden.pageMotion(true);
+    assert.equal(
+      hidden.animations.length,
+      0,
+      "Revealing a hidden card cannot replay the expansion",
+    );
+    hidden.update({ filter: "gave" });
+    assert.equal(hidden.animations.length, 1, "A new filter change animates the visible footer");
+    hidden.pageMotion(false);
+    hidden.update({ filter: "all" });
+    assert.deepEqual(
+      hidden.buttons().map((button) => flattenStyle(button.props.style).width),
+      [180, 180],
+    );
+    assert.equal(hidden.animations.length, 1, "Hidden changes cannot schedule layout animations");
+    assert.equal(hidden.sharedValueReads(), 0);
+    hidden.hooks.unmount();
   }
   function hooksColumns(tree: any) {
     return nodes(tree).find((node) => flattenStyle(node.props.style).flexDirection === "row")!;
@@ -486,6 +541,8 @@ console.log(
       {
         react: {
           ...hooks.react,
+          createContext: (value: boolean) => ({ Provider: "PageMotionProvider", value }),
+          useContext: (context: { value: boolean }) => context.value,
           Children: { toArray: (value: any) => [value].flat().filter(Boolean) },
         },
         "react/jsx-runtime": { jsx: nativeJsx, jsxs: nativeJsx },
@@ -1296,7 +1353,86 @@ console.log(
       "PASS customer infinite loop: forward/reverse boundaries, held and slow swipes, two currencies, real-card accessibility/actions, stale recenter/ABA callbacks and geometry preservation in LTR/RTL",
     );
   }
-  void automaticMovement().then(infiniteMovement);
+  async function androidPageMotion() {
+    for (const rtl of [false, true]) {
+      const f = carousel(rtl, "android");
+      await f.ready();
+      f.measure(358);
+      const activePages = () =>
+        f
+          .find("scroll")
+          .props.children.filter((page: any) => page.props.children.props.value)
+          .map((page: any) => page.props.testID);
+      assert.deepEqual(activePages(), ["customer-balance-page-AFN"]);
+      const destination = f.tick();
+      assert.deepEqual(
+        activePages(),
+        ["customer-balance-page-AFN"],
+        "An animated command does not move the observed motion viewport to its destination",
+      );
+      f.find("scroll").props.onScroll(f.event(555));
+      f.render();
+      assert.deepEqual(
+        activePages(),
+        ["customer-balance-page-AFN", "customer-balance-page-USD"],
+        "Both partially visible physical cards may animate their footers",
+      );
+      f.find("scroll").props.onScroll(f.event(destination.x));
+      f.find("scroll").props.onMomentumScrollEnd(f.event(destination.x));
+      f.render();
+      assert.deepEqual(activePages(), ["customer-balance-page-USD"]);
+
+      const scroll = f.find("scroll").props;
+      scroll.onScrollBeginDrag(f.event(740));
+      scroll.onScroll(f.event(1480));
+      f.render();
+      assert.deepEqual(
+        activePages(),
+        ["customer-balance-loop-trailing-AFN"],
+        "The trailing copy can animate without animating its hidden real card",
+      );
+      scroll.onScroll(f.event(0));
+      f.render();
+      assert.deepEqual(activePages(), ["customer-balance-loop-leading-EUR"]);
+      scroll.onScrollEndDrag(f.event(0, { velocity: { x: 0, y: 0 } }));
+      f.render();
+      assert.deepEqual(
+        activePages(),
+        ["customer-balance-page-EUR"],
+        "Nonanimated recentering activates the destination in the same commit",
+      );
+
+      const oldScroll = f.find("scroll").props;
+      const oldEvent = f.event(1480);
+      f.render(["AFN"], f.cards(["AFN"]));
+      f.render(["AFN", "USD", "EUR"], f.cards(["AFN", "USD", "EUR"]));
+      oldScroll.onScroll(oldEvent);
+      f.render();
+      assert.deepEqual(
+        activePages(),
+        ["customer-balance-page-AFN"],
+        "Obsolete native callbacks cannot restore an old physical viewport after geometry ABA",
+      );
+      f.setActive(false);
+      assert.deepEqual(
+        activePages(),
+        [],
+        "Covered or inactive cards do not animate hidden layouts",
+      );
+      f.setActive(true);
+      assert.deepEqual(activePages(), ["customer-balance-page-AFN"]);
+      f.rotate(320);
+      f.measure(288);
+      assert.deepEqual(activePages(), ["customer-balance-page-AFN"]);
+      f.hooks.unmount();
+      oldScroll.onScroll(oldEvent);
+      assert.equal(f.hooks.lateWrites, 0);
+    }
+    console.log(
+      "PASS Android card motion: observed physical pages and partial neighbors only, both sentinel copies, recenter, rotation/ABA retirement and hidden footer snaps without JS/UI synchronization",
+    );
+  }
+  void automaticMovement().then(infiniteMovement).then(androidPageMotion);
 }
 console.log(
   "PASS customer balance carousel: independent cards/actions, manual code navigation, absolute fractional snaps, refresh/reorder/remove/rotation preservation and reachable-page accessibility in LTR/RTL",

@@ -15,6 +15,7 @@ import { fonts, monoLineHeight, sansLineHeight } from "../lib/fonts";
 import { t } from "../lib/i18n";
 import type { TallyFlowSummary as FlowSummary } from "../lib/tally-summary";
 import { TOUCH_MIN } from "../lib/tokens";
+import { useCustomerBalancePageMotion } from "./CustomerBalanceCarousel";
 import { useSheetMotionPreference } from "./SheetBackdrop";
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
@@ -148,6 +149,7 @@ function TallyFlowFilterFooter({
 }) {
   const { width: windowWidth, fontScale } = useWindowDimensions();
   const reducedMotion = useSheetMotionPreference();
+  const animationEnabled = useCustomerBalancePageMotion();
   const [measurement, setMeasurement] = useState({ windowWidth, width: 0 });
   const width = Math.max(
     0,
@@ -165,7 +167,7 @@ function TallyFlowFilterFooter({
   const gaveStyle = useAnimatedStyle(() => ({
     width: Math.max(0, width - receivedWidth.value),
   }));
-  const previousWidth = useRef(width);
+  const previousLayout = useRef({ width, targetReceivedWidth });
   const mounted = useRef(true);
   const latest = useRef({ windowWidth, interactionEnabled });
   latest.current = { windowWidth, interactionEnabled };
@@ -176,14 +178,16 @@ function TallyFlowFilterFooter({
     };
   }, []);
   useEffect(() => {
-    const resized = previousWidth.current !== width;
-    previousWidth.current = width;
-    if (!resized && receivedWidth.value === targetReceivedWidth) return;
+    const resized = previousLayout.current.width !== width;
+    const changed = previousLayout.current.targetReceivedWidth !== targetReceivedWidth;
+    previousLayout.current = { width, targetReceivedWidth };
+    // Compare requested targets on JS; reading the UI value here can block it.
+    if (!resized && !changed && animationEnabled && !reducedMotion) return;
     receivedWidth.value =
-      reducedMotion || resized
+      reducedMotion || resized || !animationEnabled
         ? targetReceivedWidth
         : withTiming(targetReceivedWidth, { duration: 200, reduceMotion: ReduceMotion.System });
-  }, [width, targetReceivedWidth, receivedWidth, reducedMotion]);
+  }, [width, targetReceivedWidth, receivedWidth, reducedMotion, animationEnabled]);
   return (
     <View
       testID="tally-flow-filter-footer"

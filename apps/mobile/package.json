@@ -60,7 +60,7 @@
     "selftest:toast-host": "tsx lib/__dev__/toast-host-selftest.ts",
     "selftest:selection-gesture": "tsx lib/__dev__/selection-gesture-selftest.ts",
     "selftest:selection-summary": "tsx lib/__dev__/selection-summary-selftest.ts",
-    "selftest:home-selection": "tsx lib/__dev__/home-selection-selftest.ts",
+    "selftest:home-selection": "tsx lib/__dev__/home-selection-selftest.ts && tsx lib/__dev__/customer-rows-selftest.ts",
     "selftest:home-balance-summary": "tsx lib/__dev__/home-balance-summary-selftest.ts",
     "selftest:home-balance-filter-swipe": "tsx lib/__dev__/home-balance-filter-swipe-selftest.ts",
     "selftest:store-review": "tsx lib/__dev__/store-review-selftest.ts && tsx lib/__dev__/store-review-prompt-selftest.ts",

@@ -445,6 +445,13 @@ for (const [file, exported] of [
   ["VaultPickerSheet", "VaultPickerSheet"],
 ])
   mocks[`../components/${file}`] = { [exported]: exported };
+mocks["../components/CustomerRows"] = compileUI("../../components/CustomerRows", {
+  react,
+  "react/jsx-runtime": mocks["react/jsx-runtime"],
+  "react-native": native,
+  "../lib/colors": { colors },
+  "./PersonRow": { PersonRow: "PersonRow" },
+});
 const meshMock = mocks["../lib/mesh"];
 Object.defineProperty(mocks, "../lib/mesh", {
   enumerable: true,
@@ -457,6 +464,7 @@ const Home = compileUI("../../app/index", mocks, { __DEV__: false }).default;
 
 // Home-local list components are real; imported visual components remain opaque.
 let pageHooks: { key: string | undefined; hooks: ReturnType<typeof uiHooks> } | undefined;
+const customerRowHooks = new Map<string, ReturnType<typeof uiHooks>>();
 function expand(value: any): any {
   if (Array.isArray(value)) return value.map(expand);
   if (!value?.props) return value;
@@ -473,6 +481,20 @@ function expand(value: any): any {
     };
   }
   if (typeof value.type === "function") {
+    if (value.type.name === "CustomerRows") {
+      const key = value.key ?? "active";
+      if (!customerRowHooks.has(key)) customerRowHooks.set(key, uiHooks());
+      const rowHooks = customerRowHooks.get(key)!;
+      const previousReact = activeReact;
+      let rows: UINode;
+      try {
+        activeReact = rowHooks.react;
+        rows = rowHooks.render(() => value.type(value.props));
+      } finally {
+        activeReact = previousReact;
+      }
+      return expand(rows);
+    }
     if (value.type.name === "HomePage") {
       // Model this page's actual keyed lifetime independently of Home's hooks.
       if (!pageHooks) pageHooks = { key: value.key, hooks: uiHooks() };
@@ -502,6 +524,8 @@ const render = () => {
   if (pageHooks && renderedPage?.key !== pageHooks.key) {
     pageHooks.hooks.unmount();
     pageHooks = undefined;
+    for (const rows of customerRowHooks.values()) rows.unmount();
+    customerRowHooks.clear();
   }
   return (tree = expand(screen));
 };

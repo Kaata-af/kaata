@@ -140,6 +140,13 @@ export function HomeBalanceSummary({
     offset.current = initialOffset.current.x;
     selectedCode.current = rows[alignedIndex].currency;
   }
+  // Native scroll commands store their destination before the first frame.
+  // Track the observed viewport separately so Android only lays out the cards
+  // actually on screen, including either physical copy at the loop boundary.
+  const [motionPages, setMotionPages] = useState({ epoch: -1, first: 0, last: 0 });
+  const initialPhysical = Math.round(initialOffset.current.x / step);
+  const visibleMotionPages =
+    motionPages.epoch === epoch ? motionPages : { first: initialPhysical, last: initialPhysical };
   const dragging = useRef(false);
   const touching = useRef(false);
   const nativeCommand = useRef<{ epoch: number; x: number; animated: boolean } | null>(null);
@@ -254,9 +261,22 @@ export function HomeBalanceSummary({
     Math.max(0, Math.min(rows.length - 1 + (loop ? 2 : 0), Math.round(x / step)));
   const logicalIndex = (physical: number) =>
     loop ? (physical - 1 + rows.length) % rows.length : physical;
+  const observeMotionOffset = (x: number) => {
+    if (Platform.OS !== "android") return;
+    const page = x / step;
+    const lastPage = rows.length - 1 + (loop ? 2 : 0);
+    const first = Math.max(0, Math.min(lastPage, Math.floor(page)));
+    const last = Math.max(first, Math.min(lastPage, Math.ceil(page)));
+    setMotionPages((previous) =>
+      previous.epoch === epoch && previous.first === first && previous.last === last
+        ? previous
+        : { epoch, first, last },
+    );
+  };
   const observeOffset = (x: number) => {
     if (!currentGeometry() || !Number.isFinite(x)) return false;
     offset.current = Math.max(0, Math.min((rows.length - 1 + (loop ? 2 : 0)) * step, x));
+    observeMotionOffset(offset.current);
     const logical = logicalIndex(physicalIndex(offset.current));
     selectedCode.current = rows[logical].currency;
     setPosition(logical);
@@ -272,6 +292,7 @@ export function HomeBalanceSummary({
     nativeCommand.current = { epoch, x, animated };
     offset.current = x;
     if (!animated) {
+      observeMotionOffset(x);
       const logical = logicalIndex(next);
       selectedCode.current = rows[logical].currency;
       setPosition(logical);
@@ -463,7 +484,7 @@ export function HomeBalanceSummary({
         scrollEventThrottle={64}
         keyboardShouldPersistTaps="always"
       >
-        {pages.map(({ row, kind }) => (
+        {pages.map(({ row, kind }, physical) => (
           <CurrencyBalanceCard
             key={`${row.currency}:${kind}`}
             idPrefix={kind === "real" ? "home-balance" : `home-balance-loop-${kind}`}
@@ -475,6 +496,15 @@ export function HomeBalanceSummary({
             fontScale={fontScale}
             isRTL={isRTL}
             reducedMotion={reducedMotion}
+            animationEnabled={
+              Platform.OS !== "android" ||
+              (active &&
+                focused &&
+                appState === "active" &&
+                windowFocused &&
+                physical >= visibleMotionPages.first &&
+                physical <= visibleMotionPages.last)
+            }
             direction={
               selectedCurrencies.length === 0 || selectedCurrencies.includes(row.currency)
                 ? balanceDirection
@@ -536,6 +566,7 @@ function CurrencyBalanceCard({
   fontScale,
   isRTL,
   reducedMotion,
+  animationEnabled,
   direction,
   visible,
   enabled,
@@ -550,6 +581,7 @@ function CurrencyBalanceCard({
   fontScale: number;
   isRTL: boolean;
   reducedMotion: boolean;
+  animationEnabled: boolean;
   direction: CustomerBalanceFilter;
   visible: boolean;
   enabled: boolean;
@@ -574,18 +606,21 @@ function CurrencyBalanceCard({
   const payStyle = useAnimatedStyle(() => ({
     width: Math.max(0, innerWidth - collectWidth.value),
   }));
-  const previousPageWidth = useRef(pageWidth);
+  const previousLayout = useRef({ pageWidth, targetCollectWidth });
   useEffect(() => {
     // Resize immediately when rotating; only the user's filter change stretches
     // the pair. Amount refreshes and keyboard events never restart this motion.
-    const resized = previousPageWidth.current !== pageWidth;
-    previousPageWidth.current = pageWidth;
-    if (!resized && collectWidth.value === targetCollectWidth) return;
+    const resized = previousLayout.current.pageWidth !== pageWidth;
+    const changed = previousLayout.current.targetCollectWidth !== targetCollectWidth;
+    previousLayout.current = { pageWidth, targetCollectWidth };
+    // Comparing requested targets avoids a synchronous UI-runtime read on JS.
+    // Hidden Android pages snap to the final layout and are ready when revealed.
+    if (!resized && !changed && animationEnabled && !reducedMotion) return;
     collectWidth.value =
-      reducedMotion || resized
+      reducedMotion || resized || !animationEnabled
         ? targetCollectWidth
         : withTiming(targetCollectWidth, { duration: 200 });
-  }, [targetCollectWidth, pageWidth, reducedMotion, collectWidth]);
+  }, [targetCollectWidth, pageWidth, reducedMotion, animationEnabled, collectWidth]);
   return (
     <View
       testID={`${idPrefix}-${row.currency}`}

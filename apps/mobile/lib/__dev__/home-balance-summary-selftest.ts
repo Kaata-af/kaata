@@ -91,6 +91,9 @@ function fixture(
   const hooks = uiHooks();
   let activeHooks = hooks;
   let animationCurrency: string | undefined;
+  let animationPage: string | undefined;
+  let sharedValueReads = 0;
+  let insideAnimatedStyle = false;
   const cardHooks = new Map<string, ReturnType<typeof uiHooks>>();
   let renderedKeys = new Set<string>();
   const react = Object.fromEntries(
@@ -114,7 +117,12 @@ function fixture(
   const calls: { x: number; animated?: boolean }[] = [];
   const timers = new Map<number, { ms: number; run: () => void }>();
   const timerHistory: { ms: number; run: () => void }[] = [];
-  const animations: { value: number; config: { duration: number }; currency?: string }[] = [];
+  const animations: {
+    value: number;
+    config: { duration: number };
+    currency?: string;
+    page?: string;
+  }[] = [];
   let nextTimer = 0;
   const subscribe = <T>(
     map: Map<string, Set<(value: T) => void>>,
@@ -135,13 +143,16 @@ function fixture(
       if (!child) cardHooks.set(identity, (child = uiHooks()));
       const previousHooks = activeHooks;
       const previousCurrency = animationCurrency;
+      const previousPage = animationPage;
       activeHooks = child;
       animationCurrency = currency;
+      animationPage = identity;
       try {
         return child.render(() => type(props));
       } finally {
         activeHooks = previousHooks;
         animationCurrency = previousCurrency;
+        animationPage = previousPage;
       }
     }
     if (type === "ScrollView" && props.ref && !props.ref.current)
@@ -180,14 +191,28 @@ function fixture(
       "react-native-reanimated": {
         __esModule: true,
         default: { createAnimatedComponent: () => "AnimatedPressable" },
-        useSharedValue: (value: number) => activeHooks.react.useRef({ value }).current,
+        useSharedValue: (value: number) =>
+          activeHooks.react.useRef({
+            get value() {
+              if (!insideAnimatedStyle) sharedValueReads++;
+              return value;
+            },
+            set value(next: number) {
+              value = next;
+            },
+          }).current,
         useAnimatedStyle: (updater: () => { width: number }) => ({
           get width() {
-            return updater().width;
+            insideAnimatedStyle = true;
+            try {
+              return updater().width;
+            } finally {
+              insideAnimatedStyle = false;
+            }
           },
         }),
         withTiming: (value: number, config: { duration: number }) => {
-          animations.push({ value, config, currency: animationCurrency });
+          animations.push({ value, config, currency: animationCurrency, page: animationPage });
           return value;
         },
       },
@@ -301,6 +326,7 @@ function fixture(
     timers,
     timerHistory,
     animations,
+    sharedValueReads: () => sharedValueReads,
     ready: async (reader = false, motion = false) => {
       readerQuery.resolve(reader);
       motionQuery.resolve(motion);
@@ -962,6 +988,92 @@ async function main() {
     balances[1],
     { currency: "EUR", collect: 7, pay: 3, pending: false },
   ];
+  for (const platform of ["android", "ios"]) {
+    const current = fixture("en", 390, 1, 844, platform, { balances: rotatingBalances });
+    await current.ready();
+    current.measure();
+    const step = pageStep(current.scroll());
+    const animatedPages = () => current.animations.map((animation) => animation.page).sort();
+    current.render({ direction: "collect" });
+    assert.deepEqual(
+      animatedPages(),
+      platform === "android"
+        ? ["AFN:real"]
+        : ["AFN:real", "AFN:trailing", "EUR:leading", "EUR:real", "USD:real"],
+      "Android only animates the observed physical card; iOS keeps its existing motion",
+    );
+    for (const page of children(current.scroll())) {
+      const cells = nodes(page).filter((node) => node.type === "AnimatedPressable");
+      assert.deepEqual(
+        cells.map((cell) => style(cell).width),
+        [276, 80],
+        "Hidden cards and both loop copies already hold the final filtered layout",
+      );
+    }
+    if (platform === "android") {
+      current.animations.length = 0;
+      current.beginDrag();
+      current.onScroll(step * 1.4);
+      current.render({ direction: "pay" });
+      assert.deepEqual(animatedPages(), ["AFN:real", "USD:real"], "Both partial neighbors animate");
+
+      current.animations.length = 0;
+      current.onScroll(step * 4);
+      current.render({ direction: "collect" });
+      assert.deepEqual(
+        animatedPages(),
+        ["AFN:trailing"],
+        "The physical trailing copy animates while its hidden real card snaps",
+      );
+      current.animations.length = 0;
+      current.onScroll(0);
+      current.render({ direction: "pay" });
+      assert.deepEqual(animatedPages(), ["EUR:leading"], "The leading copy also owns its motion");
+      current.endDrag(0);
+      current.animations.length = 0;
+      current.render({ direction: "collect" });
+      assert.deepEqual(
+        animatedPages(),
+        ["EUR:real"],
+        "A nonanimated boundary recenter immediately activates the real physical page",
+      );
+
+      const obsoleteScroll = current.scroll().props.onScroll;
+      current.render({ balances: [rotatingBalances[0]] });
+      current.render({ balances: rotatingBalances });
+      obsoleteScroll({ nativeEvent: { contentOffset: { x: step * 4, y: 0 } } });
+      current.render();
+      current.animations.length = 0;
+      current.render({ direction: "pay" });
+      assert.deepEqual(
+        animatedPages(),
+        ["AFN:real"],
+        "A geometry ABA retires old viewport callbacks",
+      );
+      current.animations.length = 0;
+      current.render({ direction: "collect", currencyFilter: ["USD"] });
+      // AFN returns to halves on screen; USD's selected layout is set offscreen.
+      assert.deepEqual(animatedPages(), ["AFN:real"]);
+      current.animations.length = 0;
+      current.onScroll(step * 2);
+      assert.deepEqual(
+        animatedPages(),
+        [],
+        "Revealing a snapped hidden card does not replay motion",
+      );
+      assert.deepEqual(
+        balanceCells(byId(current.hooks.tree, "home-balance-USD")).map((cell) => style(cell).width),
+        [276, 80],
+      );
+    }
+    assert.equal(
+      current.sharedValueReads(),
+      0,
+      "JS effects never synchronously read UI animation state",
+    );
+    current.hooks.unmount();
+    assert.equal(current.hooks.lateWrites, 0);
+  }
   for (const platform of ["ios", "android"]) {
     const changes: ["collect" | "pay", string][] = [];
     const current = fixture("fa", 390, 1, 844, platform, {

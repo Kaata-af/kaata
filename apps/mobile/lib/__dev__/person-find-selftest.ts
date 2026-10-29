@@ -18,6 +18,7 @@ let slots: any[] = [],
   tree: Node;
 let effects: (() => void)[] = [];
 let pageHooks: { key: string | number; hooks: ReturnType<typeof uiHooks> } | undefined;
+const customerRowHooks = new Map<string | number, ReturnType<typeof uiHooks>>();
 let activePageReact: ReturnType<typeof uiHooks>["react"] | null = null;
 const tParams = new Map<string, Record<string, unknown> | undefined>();
 let screen: () => Node;
@@ -624,6 +625,11 @@ const libMocks: Record<string, any> = {
   "use-device-contacts": contactsHook,
 };
 const componentMocks: Record<string, any> = {
+  CustomerRows: compile("../../components/CustomerRows", {
+    ...sharedMocks,
+    "../lib/colors": { colors },
+    "./PersonRow": { PersonRow: "PersonRow" },
+  }),
   CustomerListSheet: {
     CustomerListSheet: "CustomerListSheet",
     CustomerListOptions: "CustomerListOptions",
@@ -687,6 +693,8 @@ const addOrFind = compile("../../app/person/new", screenMocks("../../")).default
 function unmount() {
   pageHooks?.hooks.unmount();
   pageHooks = undefined;
+  for (const rows of customerRowHooks.values()) rows.unmount();
+  customerRowHooks.clear();
   activePageReact = null;
   for (const slot of slots) slot?.cleanup?.();
   slots = [];
@@ -941,6 +949,20 @@ async function main() {
   const renderList = (node: any): any => {
     if (Array.isArray(node)) return node.map(renderList);
     if (!node?.props) return node;
+    if (typeof node.type === "function" && node.type.name === "CustomerRows") {
+      const key = node.key ?? "active";
+      if (!customerRowHooks.has(key)) customerRowHooks.set(key, uiHooks());
+      const rowHooks = customerRowHooks.get(key)!;
+      const previous = activePageReact;
+      let rows: any;
+      try {
+        activePageReact = rowHooks.react;
+        rows = rowHooks.render(() => node.type(node.props));
+      } finally {
+        activePageReact = previous;
+      }
+      return renderList(rows);
+    }
     if (typeof node.type === "function" && node.type.name === "HomePage") {
       const key = node.key ?? node.props.scrollScope;
       if (pageHooks?.key !== key) {
@@ -989,7 +1011,15 @@ async function main() {
     }
     return find("CustomerListOptions")!;
   };
-  const homeRows = () => homeRenderedNodes().filter((node) => node.type === "PersonRow");
+  const homeRows = () => {
+    const rendered = homeRenderedNodes();
+    const hidden = new Set(
+      rendered
+        .filter((node) => flattenStyle(node.props.style)?.display === "none")
+        .flatMap((node) => nodes(node).filter((child) => child.type === "PersonRow")),
+    );
+    return rendered.filter((node) => node.type === "PersonRow" && !hidden.has(node));
+  };
   const resultCounts = () =>
     homeRenderedNodes().filter(
       (node) =>

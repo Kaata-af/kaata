@@ -29,7 +29,7 @@ import { Button } from "../components/Button";
 import { EmptyState } from "../components/EmptyState";
 import { InitialAvatar } from "../components/InitialAvatar";
 import { NotificationBell } from "../components/NotificationInbox";
-import { PersonRow } from "../components/PersonRow";
+import { CustomerRows, type CustomerRowsProps } from "../components/CustomerRows";
 import { HomeBalanceSummary } from "../components/HomeBalanceSummary";
 import { HomeBalanceFilterSwipe } from "../components/HomeBalanceFilterSwipe";
 import { SettledAccountsSection } from "../components/SettledAccountsSection";
@@ -2526,19 +2526,6 @@ export default function HomeScreen() {
   );
 }
 
-type CustomerRowsProps = {
-  people: PersonWithBalance[];
-  creditByPerson: Record<string, CreditStatus>;
-  sharedStatusByPerson: Record<string, ReturnType<typeof personSharedAccountStatus>>;
-  onPersonPress: (person: PersonWithBalance) => void;
-  // Omitted for a viewer (read-only) — long-press opens the edit/delete sheet.
-  onPersonLongPress?: (person: PersonWithBalance) => void;
-  selecting?: boolean;
-  selectedIds?: ReadonlySet<string>;
-  selectionBusy?: boolean;
-  showDirection?: boolean;
-};
-
 type GroupFilterChipProps = {
   groupFilterLabel: string | null;
   groupFilterCount: number;
@@ -2549,56 +2536,6 @@ type CustomerScrollProps = {
   scrollRef: React.RefObject<ScrollViewInstance | null>;
   paddingBottom: number;
 };
-
-/** One bordered card keeps the existing row behavior in idle and search. */
-function CustomerRows(props: CustomerRowsProps & { separated?: boolean }) {
-  const {
-    people,
-    creditByPerson,
-    sharedStatusByPerson,
-    onPersonPress,
-    onPersonLongPress,
-    selecting,
-    selectedIds,
-    selectionBusy,
-    showDirection,
-  } = props;
-  // Reuse the visible page's rows during unrelated Home updates. Rebuild only
-  // when displayed data, selection or actions change.
-  const rows = useMemo(
-    () =>
-      people.map((item, index) => (
-        <View key={item.id}>
-          {index > 0 ? <View style={styles.divider} /> : null}
-          <PersonRow
-            person={item}
-            creditStatus={creditByPerson[item.id] ?? "none"}
-            sharedStatus={sharedStatusByPerson[item.id]}
-            onPress={onPersonPress}
-            onLongPress={onPersonLongPress}
-            selecting={selecting}
-            selected={selecting && selectedIds?.has(item.id)}
-            disabled={selectionBusy}
-            showDirection={showDirection}
-          />
-        </View>
-      )),
-    [
-      people,
-      creditByPerson,
-      sharedStatusByPerson,
-      onPersonPress,
-      onPersonLongPress,
-      selecting,
-      selectedIds,
-      selectionBusy,
-      showDirection,
-    ],
-  );
-  return (
-    <View style={[styles.peopleCard, props.separated && styles.separatedPeopleCard]}>{rows}</View>
-  );
-}
 
 function GroupFilterChip(props: GroupFilterChipProps) {
   if (!props.groupFilterLabel) return null;
@@ -2662,6 +2599,10 @@ function HomePage(
   const nativeScrollGesture = useMemo(
     () => Gesture.Native().shouldActivateOnStart(false).disallowInterruption(false),
     [],
+  );
+  const activePeople = useMemo(
+    () => props.allPeople.filter((person) => !isSettledCustomer(person)),
+    [props.allPeople],
   );
   const [selectionSize, setSelectionSize] = useState({ scope: props.scrollScope, height: 0 });
   const selectionLayout = useRef({
@@ -2777,8 +2718,14 @@ function HomePage(
                 subtitle={props.filtered ? undefined : t("home.empty.subtitle")}
                 isRTL={isRTL}
               />
-            ) : props.people.length > 0 ? (
-              <CustomerRows {...props} showDirection />
+            ) : null}
+            {Platform.OS === "android" || props.people.length > 0 ? (
+              <CustomerRows
+                key="active"
+                {...props}
+                retained={{ scope: props.scrollScope, people: activePeople }}
+                showDirection
+              />
             ) : null}
             <SettledAccountsSection
               count={props.settledPeople.length}
@@ -2787,6 +2734,7 @@ function HomePage(
               disabled={props.selecting || props.selectionBusy || !props.active}
             >
               <CustomerRows
+                key="settled"
                 {...props}
                 people={props.settledPeople}
                 showDirection
@@ -3007,21 +2955,6 @@ const styles = StyleSheet.create({
     fontFamily: fonts.sansSemi,
     color: colors.textInverted,
   },
-  // The people list is ONE bordered card (uniform border on all 4 sides +
-  // overflow:hidden to clip the rounded corners). overflow:hidden is safe on this
-  // plain wrapper View (the old blank-row bug was overflow:hidden on intrinsic-
-  // height FlatList CELLS — this is not a cell). Replaces the per-row border
-  // emulation, whose asymmetric first/last borders Android rendered wrong.
-  peopleCard: {
-    marginHorizontal: 16,
-    borderWidth: 1,
-    borderColor: colors.borderDefault,
-    borderRadius: 12,
-    overflow: "hidden",
-    backgroundColor: colors.bgDefault,
-  },
-  separatedPeopleCard: { marginTop: 16 },
-  divider: { height: 1, backgroundColor: colors.borderDefault },
   homeToastDock: {
     backgroundColor: colors.bgDefault,
     paddingBottom: HOME_DOCK_SKIRT,

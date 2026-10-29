@@ -37,7 +37,7 @@ const translations = compileUI("../i18n", {
   "./db": { getAppMeta: async () => null },
 }) as typeof import("../i18n");
 
-type Node = { type: string; props: Record<string, any> };
+type Node = { type: string; props: Record<string, any>; key?: string };
 type Effect = { deps?: unknown[]; cleanup?: () => void };
 let slots: any[] = [],
   cursor = 0,
@@ -88,8 +88,9 @@ const react = {
   },
 };
 let carouselInteractions = 0;
-const jsx = (type: string, props: any): Node => ({
+const jsx = (type: string, props: any, key?: string): Node => ({
   type,
+  key,
   props:
     type === "CustomerBalanceCarousel" && typeof props.children === "function"
       ? { ...props, children: props.children(() => carouselInteractions++) }
@@ -111,12 +112,19 @@ const words = (n: any): string =>
         ? words(n.props.children)
         : "";
 const find = (type: string) => nodes(tree).find((n) => n.type === type);
-const tallies = () => nodes(tree).filter((n) => n.type === "EntryRow");
+// Mounted Android rows can be retained without occupying space in the list.
+const visibleNodes = (n: any): Node[] =>
+  Array.isArray(n)
+    ? n.flatMap(visibleNodes)
+    : n?.props && flattenStyle(n.props.style)?.display !== "none"
+      ? [n, ...visibleNodes(n.props.children)]
+      : [];
+const tallies = () => visibleNodes(tree).filter((n) => n.type === "EntryRow");
 const rowIds = () => tallies().map((n) => n.props.entry.id);
 const historyRows = (kind: "current" | "settled") =>
   nodes(tree).find((node) => node.props.testID === `customer-${kind}-tallies`);
 const historyRowIds = (kind: "current" | "settled") =>
-  nodes(historyRows(kind))
+  visibleNodes(historyRows(kind))
     .filter((node) => node.type === "EntryRow")
     .map((node) => node.props.entry.id);
 const query = (value: string) => find("TextInput")!.props.onChangeText(value);
@@ -2142,7 +2150,7 @@ async function unjoinedInvitationLedgerTests() {
     await flush();
     assert.deepEqual(rowIds(), ["new-rice", "old-rice"]);
     assert.deepEqual(
-      nodes(tree).flatMap((node) =>
+      visibleNodes(tree).flatMap((node) =>
         node.type === "EntryRow"
           ? [node.props.entry.id]
           : node.type === "Text" && words(node) === "person.history.settledOn"
@@ -3412,7 +3420,157 @@ async function customerTallyFilterTests() {
   );
 }
 
+async function androidTimelineReuseTests() {
+  const previousPlatform = platform;
+  const row = (id: string) => byTestId(`customer-tally-row-${id}`);
+  const rowEntry = (id: string) => nodes(row(id)).find((node) => node.type === "EntryRow");
+  const openSheet = () =>
+    nodes(tree).find((node) => node.type === "BottomSheet" && node.props.visible);
+  platform = "android";
+  fixture();
+  await flush();
+  const tea = rowEntry("new-tea")!;
+  const originalTea = tea.props.entry;
+  const openTea = tea.props.onLongPress;
+  assert.equal(row("new-tea")?.key, "new-tea");
+  query("rice");
+  await flush();
+  assert.deepEqual(rowIds(), ["new-rice", "old-rice"]);
+  const hiddenTea = row("new-tea")!;
+  assert.equal(hiddenTea.key, "new-tea", "Filtering preserves the native row's React identity");
+  assert.equal(flattenStyle(hiddenTea.props.style).display, "none");
+  assert.equal(hiddenTea.props.pointerEvents, "none");
+  assert.equal(hiddenTea.props.accessibilityElementsHidden, true);
+  assert.equal(hiddenTea.props.importantForAccessibility, "no-hide-descendants");
+  assert.equal(rowEntry("new-tea")?.props.selecting, true);
+  assert.equal(rowEntry("new-tea")?.props.selectionDisabled, true);
+  for (const action of ["onLongPress", "onToggleSelection", "onAccept", "onReject", "onCancel"])
+    assert.equal(rowEntry("new-tea")?.props[action], undefined);
+  openTea(originalTea);
+  await flush();
+  assert.equal(openSheet(), undefined, "A retained callback cannot open a hidden tally");
+  query("no matching records");
+  await flush();
+  assert.deepEqual(rowIds(), []);
+  assert.equal(flattenStyle(historyRows("current")?.props.style).display, "none");
+  assert.ok(
+    row("new-tea") && row("new-rice"),
+    "Zero results retain already shown active native rows",
+  );
+  assert.equal(row("old-rice"), undefined, "Settled search results are never retained when hidden");
+
+  entries = entries.map((entry) =>
+    entry.id === "new-tea" ? { ...entry, note: "Fresh tea", amount_afn: 7 } : entry,
+  );
+  person = { ...person, balance: 5 };
+  await ledgerRefresh();
+  await flush();
+  assert.equal(
+    rowEntry("new-tea")?.props.entry.note,
+    "Fresh tea",
+    "Hidden rows use fresh authoritative records",
+  );
+  assert.notEqual(rowEntry("new-tea")?.props.entry, originalTea);
+  query("tea");
+  await flush();
+  assert.deepEqual(rowIds(), ["new-tea"]);
+  assert.equal(row("new-tea")?.key, "new-tea");
+  assert.equal(
+    rowEntry("new-tea")?.props.onLongPress,
+    openTea,
+    "Revealing a row retains its memo-friendly handler",
+  );
+  assert.equal(
+    kids(row("new-tea"))[0].type,
+    "EntryRow",
+    "A revealed first row has no stale leading divider",
+  );
+  openTea(originalTea);
+  await flush();
+  assert.ok(
+    openSheet()?.props.title.includes("7"),
+    "A retained visible action resolves the latest amount",
+  );
+  openSheet()!.props.onDismiss();
+  await flush();
+
+  query("rice");
+  await flush();
+  entries = entries.filter((entry) => entry.id !== "new-tea");
+  person = { ...person, balance: -2 };
+  await ledgerRefresh();
+  await flush();
+  assert.equal(row("new-tea"), undefined, "An authoritative delete or move drops the retained row");
+  openTea(originalTea);
+  await flush();
+  assert.equal(openSheet(), undefined);
+  query("no matching records");
+  await flush();
+  settlement = { count: 2, lastSettledAtMs: 500 };
+  boundaries = [500, 200];
+  person = { ...person, balance: 0 };
+  await ledgerRefresh();
+  await flush();
+  assert.equal(
+    row("new-rice"),
+    undefined,
+    "A new settlement removes hidden rows from the active cache",
+  );
+  unmount();
+  openTea(originalTea);
+  assert.equal(tree, null, "A callback from an unmounted lease cannot revive the screen");
+
+  fixture(true);
+  await flush();
+  const incoming = rowEntry("new-tea")!;
+  const accept = incoming.props.onAccept;
+  query("rice");
+  await flush();
+  await accept(incoming.props.entry);
+  assert.deepEqual(
+    sharedActions,
+    [],
+    "Filtered shared tallies cannot be reviewed through old handlers",
+  );
+  query("");
+  await flush();
+  canAmend = false;
+  dirty = true;
+  await flush();
+  await accept(incoming.props.entry);
+  assert.deepEqual(
+    sharedActions,
+    [],
+    "A role downgrade disables retained review handlers immediately",
+  );
+  canAmend = true;
+  dirty = true;
+  await flush();
+  accountId = "other-account";
+  dirty = true;
+  await flush();
+  accountId = "account";
+  dirty = true;
+  await flush();
+  await accept(incoming.props.entry);
+  assert.deepEqual(sharedActions, [], "Account A→B→A does not reactivate an old row lease");
+  unmount();
+
+  platform = "ios";
+  fixture();
+  await flush();
+  query("rice");
+  await flush();
+  assert.equal(row("new-tea"), undefined, "iOS retains its existing filtered-row lifecycle");
+  unmount();
+  platform = previousPlatform;
+  console.log(
+    "PASS Android timeline reuse: stable native keys, fresh hidden data, zero-result retention, current dividers, settled/deleted eviction, hidden/role/ABA review guards and unchanged iOS lifecycle",
+  );
+}
+
 async function main() {
+  await androidTimelineReuseTests();
   await customerTallyFilterTests();
   await groupedSharingUITests();
   await customerHeaderIdentityTests();
@@ -4083,7 +4241,7 @@ async function main() {
       // The dated settlement line stays between a current and a settled
       // result, so an old paid tally never reads as current (audit #3).
       assert.deepEqual(
-        nodes(tree).flatMap((n) =>
+        visibleNodes(tree).flatMap((n) =>
           n.type === "EntryRow"
             ? [n.props.entry.id]
             : n.type === "Text" && words(n) === "person.history.settledOn"
@@ -4495,7 +4653,7 @@ async function main() {
   assert.equal(find("TextInput")!.props.value, "", "the search clears for the new tally");
   query("rice 10");
   await flush();
-  const searchRows = nodes(tree).filter((n) => n.type === "EntryRow");
+  const searchRows = visibleNodes(tree).filter((n) => n.type === "EntryRow");
   assert.ok(
     searchRows.length > 0 && searchRows.every((n) => n.props.showFullNote === true),
     "a note search shows whole notes, so a late match is visible (audit #3)",
