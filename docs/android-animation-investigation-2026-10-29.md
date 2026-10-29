@@ -100,5 +100,19 @@ production promotion. Expo Go does not establish release performance even when
 it loads successfully.
 
 Private screenshots, traces and offline query outputs remain ignored under
-`build/android-motion79-20261029/`. No new store build or production release was
-started for this investigation.
+`build/android-motion79-20261029/`. No store build or production release was
+started during the initial investigation.
+
+## Requested Xiaomi update
+
+The user subsequently requested a fresh build installed on the Xiaomi. A new
+read-only Play preflight on October 29 found Android code 80 unused, with code
+79 still on internal testing and production unchanged at 2.2.4/code 73.
+Android code 80 reserves this local testing candidate; iOS remains build 46.
+
+The phone's Google Play signing certificate differs from the local upload-key
+certificate. A locally signed APK cannot update the installed app in place.
+The build will therefore require a matching Google-signed generated APK before
+installation. No uninstall, data clear, signing replacement or production
+promotion is part of this request. Build, signing and installation verification
+are pending; the version reservation is not a delivery claim.
