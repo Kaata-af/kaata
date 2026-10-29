@@ -470,10 +470,10 @@ console.log(
       );
     let content = cards(codes);
     const calls: { x: number; animated: boolean }[] = [];
-    const nativeJsx: typeof jsx = (type, props) => {
+    const nativeJsx = (type: any, props: Record<string, any>, key?: any) => {
       if (type === "ScrollView" && props.ref && !props.ref.current)
         props.ref.current = { scrollTo: (call: (typeof calls)[number]) => calls.push(call) };
-      return jsx(type, props);
+      return { ...jsx(type, props), key };
     };
     const { CustomerBalanceCarousel } = compileUI(
       "../../components/CustomerBalanceCarousel",
@@ -530,13 +530,16 @@ console.log(
     };
     const find = (id: string) =>
       nodes(hooks.tree).find((node) => node.props.testID === `customer-balance-${id}`)!;
-    const event = (x: number) => ({
+    const event = (x: number, extra: Record<string, any> = {}) => ({
       nativeEvent: {
         contentOffset: { x },
         layoutMeasurement: { width: style(find(`page-${codes[0]}`)).width },
         contentSize: {
-          width: codes.length * style(find(`page-${codes[0]}`)).width + (codes.length - 1) * 12,
+          width:
+            find("scroll").props.children.length * style(find(`page-${codes[0]}`)).width +
+            (find("scroll").props.children.length - 1) * 12,
         },
+        ...extra,
       },
     });
     const measure = (next: number) => {
@@ -585,13 +588,21 @@ console.log(
         render();
       },
       tick: () => {
-        assert.equal(timers.size, 1);
-        const [id, timer] = [...timers][0];
-        assert.equal(timer.ms, 5000, "customer autoplay waits five seconds");
+        const automatic = [...timers].filter(([, timer]) => timer.ms === 5000);
+        assert.equal(automatic.length, 1, "customer autoplay waits five seconds");
+        const [id, timer] = automatic[0];
         timers.delete(id);
         timer.run();
         render();
         return calls.at(-1)!;
+      },
+      settle: () => {
+        const quiet = [...timers].filter(([, timer]) => timer.ms === 140);
+        assert.equal(quiet.length, 1, "one quiet-period timer completes a slow boundary swipe");
+        const [id, timer] = quiet[0];
+        timers.delete(id);
+        timer.run();
+        render();
       },
       rotate: (next: number) => {
         width = next;
@@ -650,10 +661,16 @@ console.log(
       "the thin line reaches its end for the final currency",
     );
     assert.deepEqual(f.calls.at(-1), { x: 740, animated: false });
-    const atEnd = f.calls.length;
     rapidNext({ nativeEvent: { actionName: "increment" } });
     f.render();
-    assert.equal(f.calls.length, atEnd, "adjustable navigation stays bounded at its last currency");
+    assert.ok(
+      f.position().includes("AFN unit"),
+      "adjustable navigation wraps at its last currency",
+    );
+    assert.deepEqual(f.calls.at(-1), { x: 0, animated: false });
+    f.find("indicator").props.onAccessibilityAction({ nativeEvent: { actionName: "decrement" } });
+    f.render();
+    assert.ok(f.position().includes("EUR unit"), "decrement wraps from the first to last currency");
     f.find("indicator").props.onAccessibilityAction({ nativeEvent: { actionName: "decrement" } });
     f.render();
     assert.ok(f.position().includes("USD unit"));
@@ -741,6 +758,7 @@ console.log(
       f.position().includes("AFN unit") && f.position().endsWith("2/3"),
       "fractional native offsets select the nearest code",
     );
+    scroll.onScrollEndDrag(f.event(362.25));
     scroll.onMomentumScrollEnd(f.event(362.25));
     f.render();
     f.rotate(320);
@@ -753,7 +771,7 @@ console.log(
       f.position().includes("USD unit") && f.position().endsWith("3/3"),
       "a settled native assistive scroll updates reachable currency without a touch drag",
     );
-    f.find("scroll").props.onMomentumScrollEnd(f.event(0));
+    f.find("scroll").props.onMomentumScrollEnd(f.event(370));
     f.render();
     f.find("scroll").props.onMomentumScrollEnd(f.event(300 - 12));
     f.render();
@@ -801,7 +819,7 @@ console.log(
     f.render();
     assert.equal(f.timers.size, 1, "same-page native layout alignment is not user navigation");
     const first = f.tick();
-    assert.deepEqual(first, { x: 370, animated: true });
+    assert.deepEqual(first, { x: 740, animated: true });
     assert.ok(
       f.position().includes("AFN unit"),
       "an animated request cannot announce its target before native movement",
@@ -816,8 +834,8 @@ console.log(
     }
     assert.deepEqual(
       positions,
-      [370, 740, 370, 0],
-      "five-second advances stay adjacent and reverse at either end",
+      [740, 1110, 1480, 740],
+      "five-second advances stay adjacent and loop forward through the trailing first card",
     );
     const cadence = [...f.timers.values()][0];
     f.render(undefined, f.cards(["AFN", "USD", "EUR"], "9.10 / 3.20"));
@@ -828,14 +846,7 @@ console.log(
     );
     f.hooks.unmount();
 
-    for (const interaction of [
-      "touch",
-      "swipe",
-      "indicator",
-      "assistive",
-      "native",
-      "filter",
-    ] as const) {
+    for (const interaction of ["touch", "swipe", "indicator", "assistive", "filter"] as const) {
       const stopped = carousel(false, "android");
       await stopped.ready();
       stopped.measure(358);
@@ -848,8 +859,6 @@ console.log(
           .find("indicator")
           .props.onAccessibilityAction({ nativeEvent: { actionName: "increment" } });
       else if (interaction === "assistive") stopped.find("indicator").props.onAccessibilityTap();
-      else if (interaction === "native")
-        stopped.find("scroll").props.onMomentumScrollEnd(stopped.event(370));
       else stopped.setInteractionActive(true);
       const afterInteraction = stopped.calls.length;
       queued.run();
@@ -884,6 +893,16 @@ console.log(
       );
       stopped.hooks.unmount();
     }
+
+    const native = carousel(false);
+    await native.ready(true, false);
+    native.measure(358);
+    native.find("scroll").props.onMomentumScrollEnd(native.event(370));
+    native.render();
+    assert.ok(native.position().includes("USD unit"));
+    native.emitAccessibility("screenReaderChanged", false);
+    assert.equal(native.timers.size, 0, "native assistive navigation also takes permanent control");
+    native.hooks.unmount();
 
     for (const reason of ["active", "route", "background", "window", "reader", "motion"] as const) {
       const paused = carousel(false, "android");
@@ -972,10 +991,265 @@ console.log(
       "late initial queries cannot revive an unmounted pager",
     );
     console.log(
-      "PASS customer autoplay: adjacent five-second reversals, native indicator timing, synchronous permanent interaction stop, lifecycle/accessibility pauses and stale-work cleanup",
+      "PASS customer autoplay: adjacent five-second forward loop, native indicator timing, synchronous permanent interaction stop, lifecycle/accessibility pauses and stale-work cleanup",
     );
   }
-  void automaticMovement();
+  async function infiniteMovement() {
+    const assertReachable = (f: ReturnType<typeof carousel>, currency: string) => {
+      const pages = f.find("scroll").props.children;
+      assert.equal(
+        pages.filter((page: any) => !page.props.accessibilityElementsHidden).length,
+        1,
+        "only one logical real card is exposed to assistive navigation",
+      );
+      for (const page of pages) {
+        const real = page.props.testID === `customer-balance-page-${currency}`;
+        assert.equal(page.props.accessibilityElementsHidden, !real);
+        assert.equal(page.props.importantForAccessibility, real ? "auto" : "no-hide-descendants");
+        assert.equal(
+          page.props.pointerEvents,
+          page.props.children.props.currency === currency ? "auto" : "none",
+          "a visible boundary copy keeps the same real-card actions reachable",
+        );
+      }
+    };
+    for (const rtl of [false, true]) {
+      const f = carousel(rtl);
+      await f.ready();
+      f.measure(358);
+      const native = () => f.find("scroll").props;
+      assert.deepEqual(native().snapToOffsets, [0, 370, 740, 1110, 1480]);
+      assert.deepEqual(native().contentOffset, { x: 370, y: 0 });
+      assert.equal(native().bounces, false);
+      assert.equal(native().overScrollMode, "never");
+      assert.deepEqual(
+        native().children.map((page: any) => page.props.testID),
+        [
+          "customer-balance-loop-leading-EUR",
+          "customer-balance-page-AFN",
+          "customer-balance-page-USD",
+          "customer-balance-page-EUR",
+          "customer-balance-loop-trailing-AFN",
+        ],
+        "one adjacent copy at either end makes both loop directions continuous",
+      );
+      assertReachable(f, "AFN");
+      for (const [clone, real] of [
+        ["loop-leading-EUR", "page-EUR"],
+        ["loop-trailing-AFN", "page-AFN"],
+      ])
+        assert.deepEqual(
+          f.find(clone).props.children.props,
+          f.find(real).props.children.props,
+          "boundary copies preserve the exact currency amounts and card actions",
+        );
+
+      // Swipe forward around a complete cycle, holding at the trailing edge.
+      for (const [from, to, code] of [
+        [370, 740, "USD"],
+        [740, 1110, "EUR"],
+        [1110, 1480, "AFN"],
+      ] as const) {
+        const before = f.calls.length;
+        f.find("carousel").props.onTouchStart();
+        native().onScrollBeginDrag(f.event(from));
+        native().onScroll(f.event(to));
+        f.render();
+        native().onMomentumScrollEnd(f.event(to));
+        f.render();
+        assert.ok(f.position().includes(`${code} unit`));
+        assert.equal(f.calls.length, before, "holding a boundary never recenters under the finger");
+        assert.equal(
+          f.timers.size,
+          0,
+          "active fingers never arm a boundary timer or restart autoplay",
+        );
+        assertReachable(f, code);
+        if (to === 1480) {
+          nodes(f.find("loop-trailing-AFN"))
+            .find((node) => node.type === "Pressable")!
+            .props.onPress();
+          assert.deepEqual(f.opened, ["AFN"], "a held trailing copy retains its currency action");
+        }
+        native().onScrollEndDrag(f.event(to, { velocity: { x: 0 } }));
+        f.find("carousel").props.onTouchEnd();
+        native().onMomentumScrollEnd(f.event(to));
+        f.render();
+        if (code === "AFN") assert.deepEqual(f.calls.at(-1), { x: 370, animated: false });
+        else assert.equal(f.calls.length, before);
+      }
+
+      // A slow reverse release without a native momentum-end still recycles.
+      f.find("carousel").props.onTouchStart();
+      native().onScrollBeginDrag(f.event(370));
+      native().onScroll(f.event(0));
+      f.render();
+      assert.ok(f.position().includes("EUR unit") && f.position().endsWith("3/3"));
+      nodes(f.find("loop-leading-EUR"))
+        .find((node) => node.type === "Pressable")!
+        .props.onPress();
+      assert.deepEqual(f.opened, ["AFN", "EUR"], "a held leading copy retains its currency action");
+      const beforeQuiet = f.calls.length;
+      native().onScrollEndDrag(f.event(0));
+      f.find("carousel").props.onTouchEnd();
+      assert.equal(
+        f.calls.length,
+        beforeQuiet,
+        "unknown native velocity waits for quiet before recycling",
+      );
+      const obsoleteQuiet = [...f.timers.values()].find((timer) => timer.ms === 140)!;
+      f.find("carousel").props.onTouchStart();
+      obsoleteQuiet.run();
+      f.render();
+      assert.equal(
+        f.calls.length,
+        beforeQuiet,
+        "a new touch retires queued boundary work immediately",
+      );
+      assert.equal(f.timers.size, 0);
+      f.find("carousel").props.onTouchEnd();
+      f.settle();
+      assert.deepEqual(f.calls.at(-1), { x: 1110, animated: false });
+      assertReachable(f, "EUR");
+
+      // Both late sentinel events and their saved timer stay inert after the
+      // real page acknowledges its own nonanimated recenter.
+      native().onScroll(f.event(1110));
+      native().onMomentumScrollEnd(f.event(1110));
+      const afterRecenter = f.calls.length;
+      native().onScroll(f.event(0));
+      native().onMomentumScrollEnd(f.event(0));
+      obsoleteQuiet.run();
+      f.render();
+      assert.equal(f.calls.length, afterRecenter);
+      assert.ok(f.position().includes("EUR unit") && f.position().endsWith("3/3"));
+      nodes(f.find("page-EUR"))
+        .find((node) => node.type === "Pressable")!
+        .props.onPress();
+      assert.deepEqual(
+        f.opened,
+        ["AFN", "EUR", "EUR"],
+        "looping keeps the visible real card's action intact",
+      );
+
+      const action = f.find("indicator").props.onAccessibilityAction;
+      action({ nativeEvent: { actionName: "increment" } });
+      f.render();
+      assert.ok(f.position().includes("AFN unit"));
+      assert.deepEqual(f.calls.at(-1), { x: 370, animated: false });
+      action({ nativeEvent: { actionName: "decrement" } });
+      f.render();
+      assert.ok(f.position().includes("EUR unit"));
+      assert.deepEqual(f.calls.at(-1), { x: 1110, animated: false });
+
+      // Retaining the same dimensions and currencies after A→B→A must not
+      // revive callbacks from the first native scroller.
+      const oldScroll = native();
+      const scrollKey = () => (f.find("scroll") as ReturnType<typeof f.find> & { key: number }).key;
+      const oldKey = scrollKey();
+      const oldLayout = f.find("carousel").props.onLayout;
+      const oldAction = f.find("indicator").props.onAccessibilityAction;
+      const oldEvent = f.event(370);
+      f.render(["EUR", "AFN", "USD"], f.cards(["EUR", "AFN", "USD"]));
+      assert.ok(f.position().includes("EUR unit") && f.position().endsWith("1/3"));
+      assert.deepEqual(f.calls.at(-1), { x: 370, animated: false });
+      f.render(["AFN", "USD", "EUR"], f.cards(["AFN", "USD", "EUR"]));
+      assert.notEqual(scrollKey(), oldKey, "native scroller epochs distinguish A→B→A");
+      const beforeStale = f.calls.length;
+      oldScroll.onScrollBeginDrag(oldEvent);
+      oldScroll.onScroll(oldEvent);
+      oldScroll.onScrollEndDrag(oldEvent);
+      oldScroll.onMomentumScrollBegin();
+      oldScroll.onMomentumScrollEnd(oldEvent);
+      oldScroll.onContentSizeChange(oldEvent.nativeEvent.contentSize.width);
+      oldLayout({ nativeEvent: { layout: { width: 123 } } });
+      oldAction({ nativeEvent: { actionName: "increment" } });
+      f.render();
+      assert.equal(
+        f.calls.length,
+        beforeStale,
+        "retired native handlers and layout cannot move new pages",
+      );
+      assert.ok(f.position().includes("EUR unit") && f.position().endsWith("3/3"));
+      assert.deepEqual(native().snapToOffsets, [0, 370, 740, 1110, 1480]);
+
+      f.measure(350.25);
+      assert.deepEqual(native().snapToOffsets, [0, 362.25, 724.5, 1086.75, 1449]);
+      assert.deepEqual(f.calls.at(-1), { x: 1086.75, animated: false });
+      f.rotate(320);
+      f.measure(288);
+      assert.deepEqual(native().snapToOffsets, [0, 300, 600, 900, 1200]);
+      assert.deepEqual(f.calls.at(-1), { x: 900, animated: false });
+      f.render(["AFN", "USD"], f.cards(["AFN", "USD"]));
+      assert.ok(f.position().includes("USD unit") && f.position().endsWith("2/2"));
+      assert.deepEqual(native().snapToOffsets, [0, 300, 600, 900]);
+      assert.deepEqual(f.calls.at(-1), { x: 600, animated: false });
+      f.render(["USD"], f.cards(["USD"]));
+      assert.equal(native().children.length, 1);
+      assert.deepEqual(native().snapToOffsets, [0]);
+      assert.deepEqual(native().contentOffset, { x: 0, y: 0 });
+      assert.equal(native().scrollEnabled, false);
+      assert.equal(f.find("indicator"), undefined);
+      assert.equal(f.timers.size, 0);
+      f.hooks.unmount();
+    }
+
+    // Two cards must wrap in both directions just like larger currency sets.
+    const pair = carousel(false);
+    pair.render(["AFN", "USD"], pair.cards(["AFN", "USD"]));
+    await pair.ready();
+    pair.measure(358);
+    for (const [from, to, target, code] of [
+      [370, 0, 740, "USD"],
+      [740, 1110, 370, "AFN"],
+    ] as const) {
+      const scroll = pair.find("scroll").props;
+      pair.find("carousel").props.onTouchStart();
+      scroll.onScrollBeginDrag(pair.event(from));
+      scroll.onScroll(pair.event(to));
+      scroll.onScrollEndDrag(pair.event(to));
+      scroll.onMomentumScrollBegin();
+      assert.equal(
+        [...pair.timers.values()].filter((timer) => timer.ms === 140).length,
+        0,
+        "native momentum cancels a quiet boundary timer",
+      );
+      scroll.onScroll(pair.event(to));
+      pair.find("carousel").props.onTouchEnd();
+      pair.settle();
+      assert.deepEqual(pair.calls.at(-1), { x: target, animated: false });
+      assert.ok(pair.position().includes(`${code} unit`));
+    }
+    pair.emitAccessibility("screenReaderChanged", true);
+    assert.equal(pair.find("scroll").props.children.length, 2);
+    assert.deepEqual(pair.find("scroll").props.snapToOffsets, [0, 370]);
+    const action = pair.find("indicator").props.onAccessibilityAction;
+    action({ nativeEvent: { actionName: "decrement" } });
+    pair.render();
+    assert.ok(pair.position().includes("USD unit"));
+    assert.deepEqual(pair.calls.at(-1), { x: 370, animated: false });
+    pair.hooks.unmount();
+
+    // An absent native end still lets the next automatic tick normalize the
+    // boundary before advancing another adjacent card, always forwards.
+    const missed = carousel(false);
+    missed.render(["AFN", "USD"], missed.cards(["AFN", "USD"]));
+    await missed.ready();
+    missed.measure(358);
+    assert.deepEqual(missed.tick(), { x: 740, animated: true });
+    assert.deepEqual(missed.tick(), { x: 1110, animated: true });
+    const beforeNormalize = missed.calls.length;
+    assert.deepEqual(missed.tick(), { x: 740, animated: true });
+    assert.deepEqual(missed.calls.slice(beforeNormalize), [
+      { x: 370, animated: false },
+      { x: 740, animated: true },
+    ]);
+    missed.hooks.unmount();
+    console.log(
+      "PASS customer infinite loop: forward/reverse boundaries, held and slow swipes, two currencies, real-card accessibility/actions, stale recenter/ABA callbacks and geometry preservation in LTR/RTL",
+    );
+  }
+  void automaticMovement().then(infiniteMovement);
 }
 console.log(
   "PASS customer balance carousel: independent cards/actions, manual code navigation, absolute fractional snaps, refresh/reorder/remove/rotation preservation and reachable-page accessibility in LTR/RTL",

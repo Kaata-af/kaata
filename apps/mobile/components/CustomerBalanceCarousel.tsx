@@ -43,14 +43,18 @@ export function CustomerBalanceCarousel({
       : windowWidth - 32,
   );
   const step = pageWidth + PAGE_GAP;
-  const geometry = JSON.stringify([currencies, pageWidth]);
   const scroll = useRef<ScrollViewInstance | null>(null);
   const mounted = useRef(true);
   const selected = useRef({ code: currencies[0] ?? null, index: 0 });
   const [, repaint] = useState(0);
-  const nativeDrag = useRef<string | null>(null);
-  const automaticScroll = useRef<string | null>(null);
-  const automaticDirection = useRef(1);
+  const nativeDrag = useRef<number | null>(null);
+  const automaticScroll = useRef<number | null>(null);
+  const dragging = useRef(false);
+  const touching = useRef(false);
+  const offset = useRef(0);
+  const nativeCommand = useRef<{ epoch: number; x: number; animated: boolean } | null>(null);
+  const settleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const settleVersion = useRef(0);
   const stopped = useRef(false);
   const timerVersion = useRef(0);
   const [manuallyStopped, setManuallyStopped] = useState(false);
@@ -59,9 +63,17 @@ export function CustomerBalanceCarousel({
   // Keep automatic motion off until both native preferences are known.
   const [screenReader, setScreenReader] = useState(true);
   const [reducedMotion, setReducedMotion] = useState(true);
-  const pendingAlignment = useRef<string | null>(geometry);
-  const expectedContentWidth =
-    currencies.length * pageWidth + Math.max(0, currencies.length - 1) * PAGE_GAP;
+  const multiple = currencies.length > 1;
+  // Assistive navigation uses only real pages; its controls still wrap.
+  const loop = multiple && !screenReader;
+  const geometryKey = JSON.stringify([currencies, pageWidth, loop]);
+  const geometry = useRef({ key: geometryKey, epoch: 0 });
+  if (geometry.current.key !== geometryKey)
+    geometry.current = { key: geometryKey, epoch: geometry.current.epoch + 1 };
+  const epoch = geometry.current.epoch;
+  const pendingAlignment = useRef<number | null>(epoch);
+  const pageCount = currencies.length + (loop ? 2 : 0);
+  const expectedContentWidth = pageCount * pageWidth + Math.max(0, pageCount - 1) * PAGE_GAP;
   const currentIndex = () => {
     const found = currencies.findIndex((code) => code === selected.current.code);
     return found >= 0
@@ -70,7 +82,11 @@ export function CustomerBalanceCarousel({
   };
   const index = currentIndex();
   const current = currencies[index];
-  const multiple = currencies.length > 1;
+  const initialOffset = useRef({ epoch: -1, x: 0 });
+  if (initialOffset.current.epoch !== epoch) {
+    initialOffset.current = { epoch, x: (index + (loop ? 1 : 0)) * step };
+    offset.current = initialOffset.current.x;
+  }
   const autoAllowed =
     active &&
     !interactionActive &&
@@ -83,9 +99,9 @@ export function CustomerBalanceCarousel({
     multiple &&
     measurement.windowWidth === windowWidth &&
     measurement.width > 0;
-  const latest = useRef({ geometry, windowWidth, autoAllowed });
-  latest.current = { geometry, windowWidth, autoAllowed };
-  const isCurrent = () => mounted.current && latest.current.geometry === geometry;
+  const latest = useRef({ epoch, windowWidth, autoAllowed });
+  latest.current = { epoch, windowWidth, autoAllowed };
+  const isCurrent = () => mounted.current && latest.current.epoch === epoch;
   const stopAutomaticScroll = () => {
     if (!mounted.current) return;
     // The ref and version close the gap before React commits the stop state.
@@ -102,6 +118,75 @@ export function CustomerBalanceCarousel({
       repaint((revision) => revision + 1);
     }
   };
+  const cancelSettle = () => {
+    settleVersion.current++;
+    if (settleTimer.current !== null) clearTimeout(settleTimer.current);
+    settleTimer.current = null;
+  };
+  const physicalIndex = (x: number) => Math.max(0, Math.min(pageCount - 1, Math.round(x / step)));
+  const logicalIndex = (physical: number) =>
+    loop ? (physical - 1 + currencies.length) % currencies.length : physical;
+  const observeOffset = (x: number) => {
+    if (!isCurrent() || !Number.isFinite(x)) return false;
+    offset.current = Math.max(0, Math.min((pageCount - 1) * step, x));
+    select(logicalIndex(physicalIndex(offset.current)));
+    return true;
+  };
+  const scrollToPhysical = (physical: number, animated: boolean) => {
+    if (!isCurrent()) return;
+    cancelSettle();
+    const next = physicalIndex(physical * step);
+    const x = next * step;
+    // Store the command before native code can synchronously acknowledge it.
+    nativeCommand.current = { epoch, x, animated };
+    offset.current = x;
+    if (!animated) select(logicalIndex(next));
+    scroll.current?.scrollTo({ x, animated });
+  };
+  const scrollToPosition = (position: number, animated: boolean) => {
+    if (!currencies.length) return;
+    const next = ((position % currencies.length) + currencies.length) % currencies.length;
+    scrollToPhysical(next + (loop ? 1 : 0), animated);
+  };
+  const boundaryPage = (x = offset.current) => {
+    if (!loop || !Number.isFinite(x)) return null;
+    const physical = physicalIndex(x);
+    if (Math.abs(x - physical * step) > 1) return null;
+    return physical === 0 ? currencies.length : physical === currencies.length + 1 ? 1 : null;
+  };
+  const settleBoundary = () => {
+    if (!isCurrent() || dragging.current || touching.current) return;
+    const target = boundaryPage();
+    if (target === null) return;
+    nativeDrag.current = null;
+    automaticScroll.current = null;
+    scrollToPhysical(target, false);
+  };
+  const queueBoundarySettle = (endX?: number) => {
+    cancelSettle();
+    if (
+      !isCurrent() ||
+      dragging.current ||
+      touching.current ||
+      (endX === undefined ? boundaryPage() === null : !Number.isFinite(endX))
+    )
+      return;
+    const version = settleVersion.current;
+    // Slow releases may have no momentum event. Recycle only after native
+    // movement has been quiet, never while a finger or glide owns the page.
+    settleTimer.current = setTimeout(() => {
+      if (!isCurrent() || settleVersion.current !== version) return;
+      settleTimer.current = null;
+      if (dragging.current || touching.current) return;
+      if (endX !== undefined) {
+        observeOffset(endX);
+        nativeCommand.current = { epoch, x: offset.current, animated: false };
+        nativeDrag.current = null;
+        automaticScroll.current = null;
+      }
+      settleBoundary();
+    }, 140);
+  };
   useEffect(() => {
     mounted.current = true;
     return () => {
@@ -109,6 +194,7 @@ export function CustomerBalanceCarousel({
       nativeDrag.current = null;
       automaticScroll.current = null;
       timerVersion.current++;
+      cancelSettle();
     };
   }, []);
   useEffect(() => {
@@ -163,16 +249,18 @@ export function CustomerBalanceCarousel({
     };
   }, []);
   useEffect(() => {
-    // A new geometry ends any old drag. Its queued native events cannot
-    // override the preserved currency after this nonanimated alignment.
+    // Epochs retire old native callbacks even when geometry changes A→B→A.
+    // The keyed scroller begins on the retained real card before first paint.
     nativeDrag.current = null;
     automaticScroll.current = null;
-    pendingAlignment.current = geometry;
-    select(index);
-    scroll.current?.scrollTo({ x: index * step, animated: false });
+    dragging.current = false;
+    touching.current = false;
+    pendingAlignment.current = epoch;
+    scrollToPosition(index, false);
+    return cancelSettle;
     // Amount-only refreshes must not interrupt the user's native scroll.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [geometry]);
+  }, [epoch]);
   useEffect(() => {
     const version = ++timerVersion.current;
     if (!autoAllowed) return;
@@ -187,14 +275,12 @@ export function CustomerBalanceCarousel({
           !scroll.current
         )
           return;
-        let next = currentIndex() + automaticDirection.current;
-        if (next >= currencies.length || next < 0) {
-          automaticDirection.current *= -1;
-          next = currentIndex() + automaticDirection.current;
-        }
-        // Native events track the visible page during the animation.
-        automaticScroll.current = geometry;
-        scroll.current.scrollTo({ x: next * step, animated: true });
+        // The trailing first-currency copy keeps the last-to-first step
+        // adjacent. A missed native end cannot strand autoplay on a clone.
+        settleBoundary();
+        automaticScroll.current = epoch;
+        pendingAlignment.current = null;
+        scrollToPhysical(physicalIndex(offset.current) + 1, true);
         queue();
       }, 5000);
     };
@@ -205,7 +291,7 @@ export function CustomerBalanceCarousel({
     };
     // Balance refreshes keep both the cadence and the permanent manual stop.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoAllowed, geometry]);
+  }, [autoAllowed, epoch]);
   const eventOffset = (event: ScrollEvent) => {
     if (!isCurrent()) return null;
     const { contentOffset, layoutMeasurement, contentSize } = event.nativeEvent;
@@ -214,53 +300,68 @@ export function CustomerBalanceCarousel({
       return null;
     if (contentSize?.width > 0 && Math.abs(contentSize.width - expectedContentWidth) > 2)
       return null;
-    return Math.max(0, Math.min((currencies.length - 1) * step, contentOffset.x));
+    return Math.max(0, Math.min((pageCount - 1) * step, contentOffset.x));
   };
-  const recordScroll = (event: ScrollEvent, settled = false) => {
+  const recordScroll = (event: ScrollEvent) => {
     const x = eventOffset(event);
     if (x == null) return;
-    const nearest = Math.round(x / step);
-    // Native accessibility and hardware-key scrolling can settle without a
-    // touch drag. Accept their settled page, while ignoring intermediate
-    // events from nonanimated layout alignment and old native momentum.
-    if (nativeDrag.current !== geometry && automaticScroll.current !== geometry && !settled) return;
-    if (
-      settled &&
-      nativeDrag.current !== geometry &&
-      automaticScroll.current !== geometry &&
-      nearest !== currentIndex()
-    )
-      stopAutomaticScroll();
-    select(nearest);
-    // An accessibility page command can move by viewport width without the
-    // gap. Align its final page to the same absolute targets as native drags.
-    if (settled && Math.abs(x - nearest * step) > 2)
-      scroll.current?.scrollTo({ x: nearest * step, animated: false });
+    if (nativeDrag.current !== epoch && automaticScroll.current !== epoch) {
+      const command = nativeCommand.current;
+      if (!command || command.epoch !== epoch || Math.abs(x - command.x) > 1) return;
+    }
+    if (observeOffset(x)) queueBoundarySettle();
   };
   const move = (direction: -1 | 1) => {
-    stopAutomaticScroll();
     if (!isCurrent()) return;
-    const previous = currentIndex();
-    const next = Math.max(0, Math.min(currencies.length - 1, previous + direction));
-    if (next === previous) return;
+    stopAutomaticScroll();
     nativeDrag.current = null;
     automaticScroll.current = null;
-    select(next);
-    scroll.current?.scrollTo({ x: next * step, animated: false });
+    scrollToPosition(currentIndex() + direction, false);
   };
   if (!current) return null;
+  const cards = Children.toArray(children);
+  const pages = [
+    ...(loop
+      ? [
+          {
+            child: cards[cards.length - 1],
+            code: currencies[currencies.length - 1],
+            kind: "leading",
+          },
+        ]
+      : []),
+    ...cards.map((child, position) => ({ child, code: currencies[position], kind: "real" })),
+    ...(loop ? [{ child: cards[0], code: currencies[0], kind: "trailing" }] : []),
+  ];
   const thumbWidth = Math.min(pageWidth, Math.max(24, pageWidth / currencies.length));
   return (
     <View
       testID="customer-balance-carousel"
       accessible={false}
       style={styles.carousel}
-      onTouchStart={stopAutomaticScroll}
-      onAccessibilityTap={stopAutomaticScroll}
+      onTouchStart={() => {
+        if (!isCurrent()) return;
+        touching.current = true;
+        cancelSettle();
+        stopAutomaticScroll();
+      }}
+      onTouchEnd={() => {
+        if (!isCurrent()) return;
+        touching.current = false;
+        queueBoundarySettle();
+      }}
+      onTouchCancel={() => {
+        if (!isCurrent()) return;
+        touching.current = false;
+        queueBoundarySettle();
+      }}
+      onAccessibilityTap={() => {
+        if (isCurrent()) stopAutomaticScroll();
+      }}
       onLayout={(event) => {
         const width = event.nativeEvent.layout.width;
         if (
-          mounted.current &&
+          isCurrent() &&
           latest.current.windowWidth === windowWidth &&
           Number.isFinite(width) &&
           width > 0
@@ -273,7 +374,9 @@ export function CustomerBalanceCarousel({
       }}
     >
       <ScrollView
+        key={epoch}
         ref={scroll}
+        contentOffset={{ x: initialOffset.current.x, y: 0 }}
         testID="customer-balance-scroll"
         accessible={false}
         horizontal
@@ -281,20 +384,21 @@ export function CustomerBalanceCarousel({
         contentContainerStyle={styles.pages}
         scrollEnabled={multiple}
         showsHorizontalScrollIndicator={false}
-        snapToOffsets={currencies.map((_, position) => position * step)}
+        snapToOffsets={pages.map((_, position) => position * step)}
         decelerationRate="fast"
         disableIntervalMomentum
         directionalLockEnabled
         nestedScrollEnabled
         scrollsToTop={false}
-        bounces={multiple}
-        overScrollMode={multiple ? "auto" : "never"}
+        bounces={multiple && !loop}
+        overScrollMode={multiple && !loop ? "auto" : "never"}
         keyboardShouldPersistTaps="always"
         onContentSizeChange={(width) => {
           if (
             !isCurrent() ||
-            pendingAlignment.current !== geometry ||
-            nativeDrag.current === geometry ||
+            pendingAlignment.current !== epoch ||
+            nativeDrag.current === epoch ||
+            touching.current ||
             !Number.isFinite(width) ||
             Math.abs(width - expectedContentWidth) > 2
           )
@@ -302,36 +406,83 @@ export function CustomerBalanceCarousel({
           // Native scrollTo can clamp against the previous content width.
           // Retry once the new pages exist, never on ordinary height refreshes.
           pendingAlignment.current = null;
-          scroll.current?.scrollTo({ x: currentIndex() * step, animated: false });
+          scrollToPosition(currentIndex(), false);
         }}
         onScrollBeginDrag={(event) => {
+          if (eventOffset(event) == null) return;
           stopAutomaticScroll();
-          if (eventOffset(event) != null) {
-            nativeDrag.current = geometry;
-            automaticScroll.current = null;
-            pendingAlignment.current = null;
-          }
+          dragging.current = true;
+          nativeDrag.current = epoch;
+          automaticScroll.current = null;
+          nativeCommand.current = null;
+          pendingAlignment.current = null;
+          cancelSettle();
         }}
         onScroll={recordScroll}
-        onScrollEndDrag={recordScroll}
-        onMomentumScrollEnd={(event) => {
-          recordScroll(event, true);
-          if (isCurrent()) {
-            nativeDrag.current = null;
-            automaticScroll.current = null;
+        onScrollEndDrag={(event) => {
+          const x = eventOffset(event);
+          if (x == null) return;
+          dragging.current = false;
+          touching.current = false;
+          if (observeOffset(x)) {
+            const velocity = event.nativeEvent.velocity?.x;
+            const target = event.nativeEvent.targetContentOffset?.x;
+            const stoppedAtEdge =
+              Number.isFinite(velocity) &&
+              Math.abs(velocity ?? 0) < 0.01 &&
+              (!Number.isFinite(target) || Math.abs((target ?? 0) - x) <= 1);
+            if (stoppedAtEdge) settleBoundary();
+            else queueBoundarySettle();
           }
+        }}
+        onMomentumScrollBegin={() => {
+          if (isCurrent()) cancelSettle();
+        }}
+        onMomentumScrollEnd={(event) => {
+          const x = eventOffset(event);
+          if (x == null || dragging.current || touching.current) return;
+          // Keep the last loop command as a guard: an older sentinel end can
+          // arrive even after the real page acknowledges its recenter.
+          const command = nativeCommand.current;
+          if (loop && command?.epoch === epoch) {
+            if (Math.abs(x - command.x) > 1) return;
+          } else if (loop && Math.abs(x - offset.current) > 1) {
+            queueBoundarySettle(x);
+            return;
+          }
+          if (
+            nativeDrag.current !== epoch &&
+            automaticScroll.current !== epoch &&
+            logicalIndex(physicalIndex(x)) !== currentIndex()
+          )
+            stopAutomaticScroll();
+          cancelSettle();
+          observeOffset(x);
+          nativeDrag.current = null;
+          automaticScroll.current = null;
+          nativeCommand.current = { epoch, x, animated: false };
+          // Native assistive scrolling can use viewport width without gaps.
+          if (!loop && Math.abs(x - physicalIndex(x) * step) > 2)
+            scrollToPhysical(physicalIndex(x), false);
+          settleBoundary();
         }}
         scrollEventThrottle={32}
       >
-        {Children.toArray(children).map((child, position) => (
+        {pages.map(({ child, code, kind }, position) => (
           <View
-            key={currencies[position] ?? position}
-            testID={`customer-balance-page-${currencies[position]}`}
+            key={`${code ?? position}:${kind}`}
+            testID={
+              kind === "real"
+                ? `customer-balance-page-${code}`
+                : `customer-balance-loop-${kind}-${code}`
+            }
             accessible={false}
             style={[styles.page, { width: pageWidth }]}
-            accessibilityElementsHidden={position !== index}
-            importantForAccessibility={position === index ? "auto" : "no-hide-descendants"}
-            pointerEvents={position === index ? "auto" : "none"}
+            accessibilityElementsHidden={kind !== "real" || code !== current}
+            importantForAccessibility={
+              kind === "real" && code === current ? "auto" : "no-hide-descendants"
+            }
+            pointerEvents={code === current ? "auto" : "none"}
           >
             {child}
           </View>
@@ -349,7 +500,9 @@ export function CustomerBalanceCarousel({
             { name: "increment", label: t("home.total.nextCurrency") },
             { name: "decrement", label: t("home.total.previousCurrency") },
           ]}
-          onAccessibilityTap={stopAutomaticScroll}
+          onAccessibilityTap={() => {
+            if (isCurrent()) stopAutomaticScroll();
+          }}
           onAccessibilityAction={(event) => {
             if (event.nativeEvent.actionName === "increment") move(1);
             else if (event.nativeEvent.actionName === "decrement") move(-1);
