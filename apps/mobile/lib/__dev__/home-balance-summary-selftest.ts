@@ -592,20 +592,15 @@ async function main() {
       "Equivalent normalized currency choices preserve autoplay",
     );
     current.render({ currencyFilter: "AFN" });
+    assert.equal(current.timers.size, 1, "An external currency filter preserves autoplay");
     assert.equal(
-      current.timers.size,
-      0,
-      "Changing only the selected currency also permanently stops autoplay",
+      [...current.timers.values()][0],
+      timer,
+      "External currency filters keep the existing autoplay cadence",
     );
-    const callCount = current.calls.length;
-    timer.run();
-    assert.equal(
-      current.calls.length,
-      callCount,
-      "A stale timer cannot override a currency filter",
-    );
+    current.advance();
     current.render({ currencyFilter: undefined });
-    assert.equal(current.timers.size, 0);
+    assert.equal(current.timers.size, 1);
     current.hooks.unmount();
   }
   for (const locale of ["en", "fa", "ps"] as const) {
@@ -1199,11 +1194,23 @@ async function main() {
     await current.ready();
     current.measure();
     assert.equal(current.timers.size, 1);
+    const timer = [...current.timers.values()][0];
+    for (const direction of ["collect", "pay", "all"] as const) {
+      current.render({ direction });
+      assert.equal(current.timers.size, 1, "A list swipe keeps currency autoplay running");
+      assert.equal(
+        [...current.timers.values()][0],
+        timer,
+        "List filtering does not restart the five-second cadence",
+      );
+    }
+    current.advance();
     const stale = [...current.timers.values()][0];
-    current.render({ direction: "collect" });
-    assert.equal(current.timers.size, 0, "A list swipe changing direction stops currency autoplay");
+    current.hooks.tree.props.onTouchStart();
+    current.render();
+    assert.equal(current.timers.size, 0, "Touching the carousel still stops autoplay");
     current.render({ direction: "all" });
-    assert.equal(current.timers.size, 0, "Clearing the filter does not resume automatic motion");
+    assert.equal(current.timers.size, 0, "External filter changes cannot undo a direct card touch");
     const calls = current.calls.length;
     stale.run();
     assert.equal(current.calls.length, calls);

@@ -108,22 +108,11 @@ export function HomeBalanceSummary({
     (small ? (fontScale > 1.3 ? 114 : 104) : fontScale > 1.3 ? 144 : 132) -
     (multiple ? 0 : small ? 28 : 32);
   const selectedCurrencies = selectedCustomerCurrencyCodes(currencyFilter);
-  const currencyFilterKey = JSON.stringify(selectedCurrencies);
   const [position, setPosition] = useState(0);
   const selectedCode = useRef(rows[0].currency);
   const offset = useRef(0);
   const stopped = useRef(false);
   const [manuallyStopped, setManuallyStopped] = useState(false);
-  const previousFilter = useRef({ direction: balanceDirection, currency: currencyFilterKey });
-  useEffect(() => {
-    const previous = previousFilter.current;
-    if (previous.direction === balanceDirection && previous.currency === currencyFilterKey) return;
-    previousFilter.current = { direction: balanceDirection, currency: currencyFilterKey };
-    // List swipes and the filters popup control this same pair. They count as
-    // manual interaction too, so automatic currency motion stays stopped.
-    stopped.current = true;
-    setManuallyStopped(true);
-  }, [balanceDirection, currencyFilterKey]);
   const [appState, setAppState] = useState(AppState.currentState);
   const [windowFocused, setWindowFocused] = useState(true);
   // Wait for both queries before starting motion. An initial async response

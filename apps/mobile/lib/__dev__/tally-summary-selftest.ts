@@ -443,9 +443,10 @@ console.log(
     const hooks = uiHooks();
     let width = 390;
     let active = true,
-      interactionActive = false,
       focused = true,
       nextTimer = 0;
+    let useCardControls = false;
+    let onCardInteraction: (() => void) | undefined;
     const readerQuery = deferred<boolean>(),
       motionQuery = deferred<boolean>();
     const timers = new Map<number, { run: () => void; ms: number }>();
@@ -527,9 +528,13 @@ console.log(
       return hooks.render(() =>
         CustomerBalanceCarousel({
           currencies: codes,
-          children: content,
+          children: useCardControls
+            ? (onInteract: () => void) => {
+                onCardInteraction = onInteract;
+                return content;
+              }
+            : content,
           active,
-          interactionActive,
         }),
       );
     };
@@ -584,10 +589,11 @@ console.log(
         active = value;
         render();
       },
-      setInteractionActive: (value: boolean) => {
-        interactionActive = value;
+      useCardControls: () => {
+        useCardControls = true;
         render();
       },
+      cardInteraction: () => onCardInteraction!,
       setFocused: (value: boolean) => {
         focused = value;
         render();
@@ -851,8 +857,44 @@ console.log(
     );
     f.hooks.unmount();
 
-    for (const interaction of ["touch", "swipe", "indicator", "assistive", "filter"] as const) {
+    const filtered = carousel(false, "android");
+    filtered.useCardControls();
+    await filtered.ready();
+    filtered.measure(358);
+    const filterCadence = [...filtered.timers.values()][0];
+    filtered.render(undefined, filtered.cards(["AFN", "USD", "EUR"], "received only"));
+    assert.equal(
+      [...filtered.timers.values()][0],
+      filterCadence,
+      "external list filtering only updates the cards and preserves autoplay's cadence",
+    );
+    assert.deepEqual(filtered.tick(), { x: 740, animated: true });
+    acknowledge(filtered, 740);
+    filtered.render(undefined, filtered.cards(["AFN", "USD", "EUR"], "all tallies"));
+    assert.equal(filtered.timers.size, 1, "clearing external filters also leaves autoplay running");
+    const oldCardInteraction = filtered.cardInteraction();
+    filtered.render(["EUR", "AFN", "USD"], filtered.cards(["EUR", "AFN", "USD"]));
+    filtered.render(["AFN", "USD", "EUR"], filtered.cards(["AFN", "USD", "EUR"]));
+    oldCardInteraction();
+    filtered.render();
+    assert.equal(
+      filtered.timers.size,
+      1,
+      "a retained card action cannot stop autoplay after currency geometry A→B→A",
+    );
+    filtered.hooks.unmount();
+    oldCardInteraction();
+    assert.equal(filtered.hooks.lateWrites, 0);
+
+    for (const interaction of [
+      "touch",
+      "swipe",
+      "indicator",
+      "assistive",
+      "card-filter",
+    ] as const) {
       const stopped = carousel(false, "android");
+      stopped.useCardControls();
       await stopped.ready();
       stopped.measure(358);
       const queued = [...stopped.timers.values()][0];
@@ -864,7 +906,7 @@ console.log(
           .find("indicator")
           .props.onAccessibilityAction({ nativeEvent: { actionName: "increment" } });
       else if (interaction === "assistive") stopped.find("indicator").props.onAccessibilityTap();
-      else stopped.setInteractionActive(true);
+      else stopped.cardInteraction()();
       const afterInteraction = stopped.calls.length;
       queued.run();
       stopped.render();
@@ -874,11 +916,11 @@ console.log(
         `${interaction} revokes a queued tick before React commits`,
       );
       assert.equal(stopped.timers.size, 0);
-      stopped.setInteractionActive(false);
+      stopped.render(undefined, stopped.cards(["AFN", "USD", "EUR"], "all tallies"));
       assert.equal(
         stopped.timers.size,
         0,
-        "clearing filters cannot resume autoplay after interaction",
+        "external filter updates cannot resume autoplay after direct card interaction",
       );
       stopped.rotate(320);
       stopped.measure(288);

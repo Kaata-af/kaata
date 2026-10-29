@@ -23,13 +23,11 @@ export function CustomerBalanceCarousel({
   currencies,
   children,
   active = true,
-  interactionActive = false,
 }: {
   currencies: readonly string[];
-  children: ReactNode;
+  /** Card controls use this callback for activations that don't emit a touch. */
+  children: ReactNode | ((onInteract: () => void) => ReactNode);
   active?: boolean;
-  /** A list swipe or filter change takes permanent manual control of the cards. */
-  interactionActive?: boolean;
 }) {
   // Subscribe to label-language changes while keeping the physical pages LTR.
   useIsRTL();
@@ -89,7 +87,6 @@ export function CustomerBalanceCarousel({
   }
   const autoAllowed =
     active &&
-    !interactionActive &&
     focused &&
     appState === "active" &&
     windowFocused &&
@@ -197,11 +194,6 @@ export function CustomerBalanceCarousel({
       cancelSettle();
     };
   }, []);
-  useEffect(() => {
-    if (interactionActive) stopAutomaticScroll();
-    // Like a card touch, filtering permanently ends autoplay for this contact.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [interactionActive]);
   useEffect(() => {
     let alive = true;
     let readerChanged = false;
@@ -319,7 +311,13 @@ export function CustomerBalanceCarousel({
     scrollToPosition(currentIndex() + direction, false);
   };
   if (!current) return null;
-  const cards = Children.toArray(children);
+  const cards = Children.toArray(
+    typeof children === "function"
+      ? children(() => {
+          if (isCurrent()) stopAutomaticScroll();
+        })
+      : children,
+  );
   const pages = [
     ...(loop
       ? [

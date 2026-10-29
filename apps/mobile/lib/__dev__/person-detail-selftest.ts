@@ -87,7 +87,14 @@ const react = {
     react.useEffect(fn, deps);
   },
 };
-const jsx = (type: string, props: any): Node => ({ type, props });
+let carouselInteractions = 0;
+const jsx = (type: string, props: any): Node => ({
+  type,
+  props:
+    type === "CustomerBalanceCarousel" && typeof props.children === "function"
+      ? { ...props, children: props.children(() => carouselInteractions++) }
+      : props,
+});
 const nodes = (n: any): Node[] =>
   Array.isArray(n)
     ? n.flatMap(nodes)
@@ -705,6 +712,7 @@ const tally = (
   tab,
 });
 function fixture(shared = false) {
+  carouselInteractions = 0;
   currencyPeriods.clear();
   personReads.length = 0;
   entryReads.length = 0;
@@ -3010,6 +3018,7 @@ async function customerTallyFilterTests() {
     await flush();
   };
   const changeFilter = async (next: Record<string, any>) => {
+    const interactions = carouselInteractions;
     find("TextInput")!.props.onFocus();
     await flush();
     byTestId("customer-tally-filter-trigger")!.props.onPress();
@@ -3023,6 +3032,7 @@ async function customerTallyFilterTests() {
     await flush();
     assert.equal(find("BlurTargetView")!.props.accessibilityElementsHidden, false);
     assert.equal(find("BlurTargetView")!.props.importantForAccessibility, "auto");
+    assert.equal(carouselInteractions, interactions, "Popup filters do not touch the carousel");
   };
   const prepareMultiple = () => {
     fixture();
@@ -3057,6 +3067,7 @@ async function customerTallyFilterTests() {
       );
       const totals = flow().props.summary;
       await tapCard("received");
+      assert.equal(carouselInteractions, 1, "Card filter buttons explicitly stop autoplay");
       assert.equal(filter().direction, "received");
       assert.deepEqual(
         filter().currencies,
@@ -3076,6 +3087,7 @@ async function customerTallyFilterTests() {
       assert.equal(filter().direction, "all", "Tapping the exact selected card clears its filter");
       assert.deepEqual(historyRowIds("current"), ["new-rice", "new-tea"]);
       await swipe("pay");
+      assert.equal(carouselInteractions, 2, "List swipes leave the carousel untouched");
       assert.equal(filter().direction, "gave");
       assert.deepEqual(new Set(rowIds()), new Set(["new-tea", "old-rice"]));
       await swipe("all");
