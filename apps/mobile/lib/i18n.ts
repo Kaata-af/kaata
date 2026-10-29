@@ -707,7 +707,6 @@ const en = {
     "Reminders couldn't be read on this phone. Try again; if it keeps failing, restart Kaata.",
   "reminders.notifyBody": "A customer reminder is due. Open Kaata to view it.",
   "reminders.notifyBodyNamed": "Time to notify {name} about their tally. Open Kaata to send it.",
-  "person.flows.allTime": "All time",
   "person.filters.title": "Sort and filter tallies",
   "person.filters.all": "All tallies",
   "person.filters.received": "I received only",
@@ -3022,7 +3021,6 @@ const fa: Partial<Record<Key, string>> = {
   "reminders.notifyBody": "وقت یادآوری یک مشتری رسیده است. برای دیدن آن کاتا را باز کنید.",
   "reminders.notifyBodyNamed":
     "وقت آن است که {name} را از حسابش باخبر کنید. برای فرستادن، کاتا را باز کنید.",
-  "person.flows.allTime": "همه زمان‌ها",
   "person.filters.title": "ترتیب و فیلتر ثبت‌ها",
   "person.filters.all": "همهٔ ثبت‌ها",
   "person.filters.received": "فقط گرفتم",
@@ -5090,7 +5088,6 @@ const ps: Record<Key, string> = {
   "person.date.weekday.4": "پ",
   "person.date.weekday.5": "ج",
   "person.date.weekday.6": "ش",
-  "person.flows.allTime": "ټول وخت",
   "person.filters.title": "د ثبتونو ترتیب او فلټر",
   "person.filters.all": "ټول ثبتونه",
   "person.filters.received": "یوازې مې واخیستل",

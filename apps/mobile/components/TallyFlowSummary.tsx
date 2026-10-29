@@ -25,7 +25,6 @@ export type TallyFlowDirection = "received" | "gave";
 export function TallyFlowSummary({
   summary,
   isRTL,
-  allTime = false,
   currency: currencyCode,
   variant = "inline",
   filter = "all",
@@ -34,8 +33,6 @@ export function TallyFlowSummary({
 }: {
   summary: FlowSummary;
   isRTL: boolean;
-  /** A search or date filter is on, but these totals cover all time (#31). */
-  allTime?: boolean;
   currency?: string;
   variant?: "inline" | "footer";
   filter?: "all" | TallyFlowDirection;
@@ -50,7 +47,6 @@ export function TallyFlowSummary({
       <TallyFlowFilterFooter
         summary={summary}
         isRTL={isRTL}
-        allTime={allTime}
         currency={currency}
         filter={filter}
         onDirectionChange={interactive}
@@ -60,11 +56,6 @@ export function TallyFlowSummary({
   if (variant === "footer") {
     return (
       <View style={styles.footer}>
-        {allTime ? (
-          <Text style={[styles.caption, { textAlign: isRTL ? "right" : "left" }]}>
-            {t("person.flows.allTime")}
-          </Text>
-        ) : null}
         <View style={styles.footerColumns}>
           {(["received", "gave"] as const).map((direction) => {
             const flow = summary[direction];
@@ -103,11 +94,6 @@ export function TallyFlowSummary({
   }
   return (
     <View style={styles.summary}>
-      {allTime ? (
-        <Text style={[styles.caption, { textAlign: isRTL ? "right" : "left" }]}>
-          {t("person.flows.allTime")}
-        </Text>
-      ) : null}
       {(["gave", "received"] as const).map((direction) => {
         const flow = summary[direction];
         // Keep the translated label and parentheses, with Latin digits matching
@@ -148,7 +134,6 @@ export function TallyFlowSummary({
 function TallyFlowFilterFooter({
   summary,
   isRTL,
-  allTime,
   currency,
   filter,
   onDirectionChange,
@@ -156,7 +141,6 @@ function TallyFlowFilterFooter({
 }: {
   summary: FlowSummary;
   isRTL: boolean;
-  allTime: boolean;
   currency: string;
   filter: "all" | TallyFlowDirection;
   onDirectionChange: (direction: TallyFlowDirection) => void;
@@ -219,17 +203,6 @@ function TallyFlowFilterFooter({
           );
       }}
     >
-      {allTime ? (
-        <Text
-          style={[
-            styles.caption,
-            styles.interactiveCaption,
-            { textAlign: isRTL ? "right" : "left" },
-          ]}
-        >
-          {t("person.flows.allTime")}
-        </Text>
-      ) : null}
       <View style={styles.footerColumns}>
         {(["received", "gave"] as const).map((direction) => {
           const flow = summary[direction];
@@ -315,12 +288,6 @@ const styles = StyleSheet.create({
   // Content-sized up to half the row, so a large balance keeps its room.
   summary: { flexShrink: 1, maxWidth: "50%", minWidth: 0, justifyContent: "center", gap: 6 },
   line: { alignItems: "baseline", justifyContent: "space-between", gap: 10 },
-  caption: {
-    fontFamily: fonts.sansMedium,
-    fontSize: 11,
-    lineHeight: sansLineHeight(11, 14),
-    color: colors.textSubtle,
-  },
   label: {
     flexShrink: 1,
     fontFamily: fonts.sansRegular,
@@ -347,7 +314,6 @@ const styles = StyleSheet.create({
   },
   footerColumns: { direction: "ltr", flexDirection: "row", alignItems: "stretch" },
   interactiveFooter: { paddingHorizontal: 0, paddingVertical: 0, gap: 0 },
-  interactiveCaption: { paddingHorizontal: 14, paddingTop: 8, paddingBottom: 6 },
   flowButton: {
     flexShrink: 0,
     minWidth: 0,

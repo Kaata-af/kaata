@@ -141,7 +141,7 @@ console.log(
 
   translate = language.t;
   assert.equal(
-    TallyFlowSummary({ summary: empty, isRTL: false, variant: "footer", allTime: true }),
+    TallyFlowSummary({ summary: empty, isRTL: false, variant: "footer" }),
     null,
     "an empty footer has no caption, separator or rows of zeros",
   );
@@ -158,7 +158,6 @@ console.log(
       isRTL: locale !== "en",
       currency: "USD",
       variant: "footer",
-      allTime: true,
     });
     assert.equal(
       footer.props.accessible,
@@ -167,8 +166,7 @@ console.log(
     );
     assert.equal(footer.props.style.width, "100%", "the footer uses the complete card width");
     assert.equal(footer.props.style.maxWidth, "100%");
-    const [caption, columns] = footer.props.children;
-    assert.equal(caption.props.children, language.t("person.flows.allTime"));
+    const columns = footer.props.children;
     assert.equal(flattenStyle(columns.props.style).direction, "ltr");
     assert.equal(flattenStyle(columns.props.style).flexDirection, "row");
     const flows = nodes(columns).filter((node) => node.props.accessible === true);
@@ -259,7 +257,6 @@ console.log(
       currency: "USD",
       variant: "footer" as const,
       filter: "all" as "all" | "received" | "gave",
-      allTime: true,
       interactionEnabled: true,
       onDirectionChange: (direction: string) => taps.push(direction),
     };

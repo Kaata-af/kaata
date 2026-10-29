@@ -3074,7 +3074,7 @@ async function customerTallyFilterTests() {
         totals,
         "Filtering does not recalculate known handovers",
       );
-      assert.equal(flow().props.allTime, true);
+      assert.equal(flow().props.allTime, undefined, "Filtering never adds an All time caption");
       assert.ok(byTestId("customer-tally-filter-chips"));
       await tapCard("received");
       assert.equal(filter().direction, "all", "Tapping the exact selected card clears its filter");

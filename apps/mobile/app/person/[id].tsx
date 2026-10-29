@@ -2875,7 +2875,6 @@ export default function PersonDetailScreen() {
                                 currency={code}
                                 isRTL={isRTL}
                                 variant="footer"
-                                allTime={searching}
                                 filter={
                                   tallyFilter.currencies.length &&
                                   !tallyFilter.currencies.includes(code)
