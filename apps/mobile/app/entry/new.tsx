@@ -1,11 +1,10 @@
-import type { ScrollViewInstance, TextInputInstance, ViewInstance } from "react-native";
+import type { ScrollViewInstance, TextInputInstance } from "react-native";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { Ionicons } from "@expo/vector-icons";
 import {
   Keyboard,
   BackHandler,
-  KeyboardAvoidingView,
   InputAccessoryView,
   Platform,
   Pressable,
@@ -13,7 +12,6 @@ import {
   StyleSheet,
   Text,
   TextInput,
-  TurboModuleRegistry,
   View,
   useWindowDimensions,
 } from "react-native";
@@ -22,6 +20,7 @@ import { Button } from "../../components/Button";
 import { EntryCalculator } from "../../components/EntryCalculator";
 import { EntryDateField } from "../../components/EntryDateField";
 import { CurrencySelector } from "../../components/CurrencySelector";
+import { AndroidKeyboardFrame } from "../../components/SearchKeyboardMotion";
 import { ScreenLoading } from "../../components/ScreenLoading";
 import { ScreenHeader } from "../../components/SettingsScreen";
 import { queuePendingToast, useToast } from "../../components/Toast";
@@ -110,14 +109,6 @@ export default function EntryFormScreen({
   const isRTL = useIsRTL();
   const safeArea = useSafeAreaInsets();
   const { height: windowHeight, fontScale } = useWindowDimensions();
-  // Non-edge-to-edge Android hosts already resize the window for the IME.
-  // A second height owner races that native resize. Edge-to-edge hosts still
-  // need explicit avoidance; retain it when the host capability is unknown.
-  const avoidAndroidKeyboard =
-    Platform.OS === "android" &&
-    TurboModuleRegistry.get<{
-      getConstants(): { isEdgeToEdge?: boolean };
-    }>("DeviceInfo")?.getConstants().isEdgeToEdge !== false;
   // iOS keeps one stable three-line viewport so UIKit can reveal the caret
   // without racing a growing field. Android grows to six lines, then scrolls.
   const noteLineHeight = sansLineHeight(15, 22) * Math.max(1, fontScale);
@@ -221,9 +212,8 @@ export default function EntryFormScreen({
   const noteScrollRequest = useRef<UIAttempt | null>(null);
   const noteScrollFrame = useRef<number | null>(null);
   const nativeKeyboardReady = useRef(false);
-  const keyboardFrameRef = useRef<ViewInstance>(null);
-  const keyboardMeasurement = useRef(0);
-  const [keyboardOffset, setKeyboardOffset] = useState(0);
+  const keyboardFrameHeight = useRef(0);
+  const androidKeyboardLayout = useRef<{ shown: boolean; overlap: number } | null>(null);
   const [availableHeight, setAvailableHeight] = useState<number | undefined>();
   const [saveBarHeight, setSaveBarHeight] = useState<number | undefined>();
   const [dockHeight, setDockHeight] = useState(0);
@@ -294,17 +284,21 @@ export default function EntryFormScreen({
     };
   }, []);
 
-  // Android keeps its form/footer inside the resized window or avoider. iOS
-  // uses a stable viewport, native scroll insets and a UIKit accessory for
-  // Save. Its dock measurement only reserves room for our custom calculator.
-  function measureKeyboardFrame() {
-    if (!avoidAndroidKeyboard) return;
-    const attempt = { ...scopeRef.current, focus: focusGeneration.current };
-    const measurement = ++keyboardMeasurement.current;
-    keyboardFrameRef.current?.measureInWindow((_x, y) => {
-      if (measurement !== keyboardMeasurement.current || !isCurrent(attempt)) return;
-      setKeyboardOffset(y);
-    });
+  // A native IME event alone does not prove that Samsung has committed the
+  // smaller form viewport. Wait for the shared frame's current measurement
+  // AND the matching child layout before the single Note scroll is consumed.
+  function updateAndroidKeyboardReadiness() {
+    if (Platform.OS !== "android" || !isCurrent(renderAttempt)) return;
+    const layout = androidKeyboardLayout.current;
+    nativeKeyboardReady.current =
+      !!layout?.shown &&
+      keyboardFrameHeight.current > 0 &&
+      formViewport.current > 0 &&
+      Math.abs(formViewport.current - (keyboardFrameHeight.current - layout.overlap)) <= 1;
+    if (nativeKeyboardReady.current) {
+      queueNoteReveal();
+      revealSaveError();
+    }
   }
 
   function revealField({ y, height }: { y: number; height: number }) {
@@ -374,10 +368,15 @@ export default function EntryFormScreen({
   useEffect(() => {
     const show = Keyboard.addListener("keyboardDidShow", () => {
       if (!mounted.current || !focused.current) return;
-      nativeKeyboardReady.current = true;
       setNativeKeyboardOpen(true);
-      queueNoteReveal();
-      revealSaveError();
+      // Fabric can deliver the shared frame's receipt synchronously before
+      // this listener. Only iOS owns readiness here; Android uses actual
+      // measured geometry, regardless of native event/listener ordering.
+      if (Platform.OS === "ios") {
+        nativeKeyboardReady.current = true;
+        queueNoteReveal();
+        revealSaveError();
+      }
     });
     const hide = Keyboard.addListener("keyboardDidHide", () => {
       nativeKeyboardReady.current = false;
@@ -430,6 +429,10 @@ export default function EntryFormScreen({
     useCallback(() => {
       focused.current = true;
       cancelNoteReveal();
+      if (Platform.OS === "android") {
+        androidKeyboardLayout.current = null;
+        nativeKeyboardReady.current = false;
+      }
       const focus = ++focusGeneration.current;
       const attempt = { ...scopeRef.current, focus };
       setFocusVersion(focus);
@@ -535,7 +538,6 @@ export default function EntryFormScreen({
     const attempt = { ...scopeRef.current, focus: focusGeneration.current };
     const focusTimer = setTimeout(() => {
       if (initialFocusTimer.current === focusTimer) initialFocusTimer.current = null;
-      if (isCurrent(attempt)) measureKeyboardFrame();
       if (isCurrent(attempt) && activeField.current === null && !datePickerRef.current)
         amountRef.current?.focus();
     }, 280);
@@ -852,7 +854,6 @@ export default function EntryFormScreen({
     amountSelectionIntent.current = false;
     calculatorRef.current = null;
     setCalculatorAttempt(null);
-    measureKeyboardFrame();
     noteRef.current?.focus();
     // A still-visible keyboard needs no new did-show event on genuine refocus.
     queueNoteReveal();
@@ -995,6 +996,7 @@ export default function EntryFormScreen({
 
   const noteKeyboardShown =
     Platform.OS === "ios" && nativeKeyboardOpen && activeField.current === "note";
+  const KeyboardFrame = Platform.OS === "android" ? AndroidKeyboardFrame : View;
   const saveBar = (
     <View
       style={styles.saveBar}
@@ -1027,21 +1029,35 @@ export default function EntryFormScreen({
         backLabel={t("common.cancel")}
       />
 
-      <View
-        ref={keyboardFrameRef}
+      <KeyboardFrame
+        testID="entry-keyboard-frame"
         collapsable={false}
         style={styles.keyboardAvoider}
         onLayout={(event) => {
-          measureKeyboardFrame();
+          if (!isCurrent(renderAttempt)) return;
+          keyboardFrameHeight.current = event.nativeEvent.layout.height;
           setAvailableHeight(event.nativeEvent.layout.height);
+          updateAndroidKeyboardReadiness();
         }}
+        {...(Platform.OS === "android"
+          ? {
+              onKeyboardLayout: (shown: boolean, overlap: number) => {
+                if (!isCurrent(renderAttempt)) return;
+                androidKeyboardLayout.current = { shown, overlap };
+                setNativeKeyboardOpen(shown);
+                if (!shown) {
+                  nativeKeyboardReady.current = false;
+                  // An initial layout can precede the native did-show event.
+                  // Invalidate queued frames, but preserve that new focus's
+                  // pending request; a confirmed did-hide owns cancellation.
+                  cancelNoteScrollFrame();
+                  formInsets.current.bottom = 0;
+                } else updateAndroidKeyboardReadiness();
+              },
+            }
+          : {})}
       >
-        <KeyboardAvoidingView
-          style={styles.keyboardAvoider}
-          behavior="height"
-          enabled={avoidAndroidKeyboard}
-          keyboardVerticalOffset={keyboardOffset}
-        >
+        <View testID="entry-keyboard-viewport" style={styles.keyboardAvoider}>
           <Pressable
             style={styles.form}
             accessible={false}
@@ -1076,7 +1092,14 @@ export default function EntryFormScreen({
               }}
               scrollEventThrottle={16}
               onLayout={(event) => {
+                if (!isCurrent(renderAttempt)) return;
+                const viewportChanged =
+                  Math.abs(formViewport.current - event.nativeEvent.layout.height) > 1;
                 formViewport.current = event.nativeEvent.layout.height;
+                if (Platform.OS === "android") {
+                  if (viewportChanged) cancelNoteScrollFrame();
+                  updateAndroidKeyboardReadiness();
+                }
                 if (activeField.current === "amount") revealAmount();
                 revealSaveError();
               }}
@@ -1420,8 +1443,8 @@ export default function EntryFormScreen({
               }}
             />
           </View>
-        </KeyboardAvoidingView>
-      </View>
+        </View>
+      </KeyboardFrame>
       {/* Mount before Note is focused so UIKit can attach it to that input.
           Only Save is in the accessory; the multiline Note stays in the form.
           UIKit keeps this toolbar above every native keyboard frame. */}

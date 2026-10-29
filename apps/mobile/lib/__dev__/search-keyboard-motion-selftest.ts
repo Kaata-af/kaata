@@ -14,10 +14,12 @@ function fixture(
   {
     avoidAndroidKeyboard = false,
     edgeToEdge = true,
+    statusBarHeight = 0,
     initialKeyboard,
   }: {
     avoidAndroidKeyboard?: boolean;
     edgeToEdge?: boolean | "unknown" | "missing";
+    statusBarHeight?: number;
     initialKeyboard?: Metrics;
   } = {},
 ) {
@@ -29,6 +31,8 @@ function fixture(
     layoutEvents = 0;
   const keyboardListeners = new Map<string, Set<(event: any) => void>>();
   const measurements: Measurement[] = [];
+  const keyboardLayouts: { version: number; shown: boolean; overlap: number }[] = [];
+  let receiptVersion = 0;
   let shown = false,
     renders = 0,
     registrations = 0,
@@ -74,6 +78,7 @@ function fixture(
       },
       "react-native": {
         Platform: { OS: platform },
+        StatusBar: { currentHeight: statusBarHeight },
         View: "View",
         StyleSheet: { flatten: flattenStyle },
         Keyboard: {
@@ -142,6 +147,7 @@ function fixture(
   const render = (nextShown = shown) => {
     shown = nextShown;
     renders++;
+    const version = receiptVersion;
     return hooks.render(() =>
       expand(
         jsx(module.SearchKeyboardProvider, {
@@ -153,6 +159,8 @@ function fixture(
               onLayout: () => {
                 layoutEvents++;
               },
+              onKeyboardLayout: (shown: boolean, overlap: number) =>
+                keyboardLayouts.push({ version, shown, overlap }),
               children: "Search results",
             }),
             jsx(module.SearchKeyboardFooter, {
@@ -240,6 +248,10 @@ function fixture(
     },
     get reactUpdates() {
       return reactUpdates;
+    },
+    keyboardLayouts,
+    nextReceipt: () => {
+      receiptVersion++;
     },
   };
 }
@@ -335,23 +347,82 @@ assert.equal(
 );
 android.hooks.unmount();
 
-const resized = fixture("android", { avoidAndroidKeyboard: true, edgeToEdge: false });
+const resized = fixture("android", {
+  avoidAndroidKeyboard: true,
+  edgeToEdge: false,
+  statusBarHeight: 24,
+});
 assert.equal(
   resized.listenerCount,
-  0,
-  "a known non-edge host retains native adjustResize as its only owner",
+  2,
+  "a non-edge flag cannot prove whether Samsung resized the current window",
 );
-assert.equal(resized.find("frame").props.collapsable, undefined);
+assert.equal(resized.find("frame").props.collapsable, false);
 resized.show(492);
-resized.layout();
-assert.equal(resized.pendingMeasurements, 0);
+resized.takeMeasurement()(0, 468);
+resized.render();
 assert.equal(
   resized.padding("frame"),
   3,
-  "a resized 492px native window gets no second keyboard-height lift",
+  "a genuinely resized non-edge window needs no extra lift",
 );
-assert.equal(resized.layoutEvents, 1, "plain frames preserve the caller's layout handler");
+resized.layout();
+resized.takeMeasurement()(60, 408);
+resized.render();
+assert.equal(
+  resized.padding("frame"),
+  3,
+  "modal/header origins plus the status bar still produce zero when already resized",
+);
+assert.equal(resized.layoutEvents, 1, "measured frames preserve the caller's layout handler");
+assert.deepEqual(resized.keyboardLayouts.at(-1), { version: 0, shown: true, overlap: 0 });
+resized.layout();
+resized.takeMeasurement()(0, 800);
+resized.render();
+assert.equal(
+  resized.padding("frame"),
+  335,
+  "the same non-edge host avoids an unresized keyboard-covered window",
+);
+resized.layout();
+resized.takeMeasurement()(60, 740);
+resized.render();
+assert.equal(
+  resized.padding("frame"),
+  335,
+  "a stacked modal/header origin keeps the same screen overlap",
+);
+resized.layout();
+resized.takeMeasurement()(-272, 740);
+resized.render();
+assert.equal(
+  resized.padding("frame"),
+  3,
+  "native panning already above the keyboard adds no second lift",
+);
 resized.hooks.unmount();
+
+for (const [edgeToEdge, statusBarHeight, y, height] of [
+  [false, 48, 60, 716], // A taller Samsung status bar/display cutout.
+  [false, 0, 60, 764], // Fullscreen/non-edge window with no top inset.
+  [true, 48, 60, 764], // Edge measurements already include the top inset.
+  ["unknown", 48, 60, 764],
+] as const) {
+  const offset = fixture("android", { avoidAndroidKeyboard: true, edgeToEdge, statusBarHeight });
+  offset.show(492);
+  offset.takeMeasurement()(y, height);
+  offset.render();
+  assert.equal(
+    offset.padding("frame"),
+    335,
+    "coordinate normalization uses only the inset RN removed",
+  );
+  assert.deepEqual(offset.keyboardLayouts.at(-1), { version: 0, shown: true, overlap: 332 });
+  offset.hide();
+  offset.render();
+  assert.deepEqual(offset.keyboardLayouts.at(-1), { version: 0, shown: false, overlap: 0 });
+  offset.hooks.unmount();
+}
 
 for (const edgeToEdge of [true, "unknown", "missing"] as const) {
   const measured = fixture("android", { avoidAndroidKeyboard: true, edgeToEdge });
@@ -462,11 +533,20 @@ for (const edgeToEdge of [true, "unknown", "missing"] as const) {
   );
   preopened.show(450);
   const oldShow = preopened.takeMeasurement();
+  preopened.nextReceipt();
+  preopened.render();
   preopened.show(400);
   const newShow = preopened.takeMeasurement();
   newShow(0, 824);
   preopened.render();
   assert.equal(preopened.padding("frame"), 427);
+  assert.deepEqual(
+    preopened.keyboardLayouts.at(-1),
+    { version: 1, shown: true, overlap: 424 },
+    "a callback change uses the current receipt without reinstalling focus listeners",
+  );
+  assert.equal(preopened.listenerCount, 2);
+  const receiptsAfterLatestShow = preopened.keyboardLayouts.length;
   oldShow(0, 824);
   preopened.render();
   assert.equal(
@@ -474,10 +554,17 @@ for (const edgeToEdge of [true, "unknown", "missing"] as const) {
     427,
     "a delayed earlier measurement cannot restore obsolete keyboard geometry",
   );
+  assert.equal(
+    preopened.keyboardLayouts.length,
+    receiptsAfterLatestShow,
+    "an obsolete measurement cannot release a parent waiting for its own keyboard layout",
+  );
   preopened.show(450);
   const afterHide = preopened.takeMeasurement();
   preopened.hide();
   preopened.render();
+  assert.deepEqual(preopened.keyboardLayouts.at(-1), { version: 1, shown: false, overlap: 0 });
+  const receiptsAfterHide = preopened.keyboardLayouts.length;
   afterHide(0, 824);
   preopened.render();
   assert.equal(
@@ -485,6 +572,7 @@ for (const edgeToEdge of [true, "unknown", "missing"] as const) {
     3,
     "a queued show measurement cannot lift the dock after hide",
   );
+  assert.equal(preopened.keyboardLayouts.length, receiptsAfterHide);
   preopened.show(492);
   const afterBlur = preopened.takeMeasurement();
   const oldFocusShow = preopened.nativeListeners("keyboardDidShow")[0];
@@ -492,12 +580,18 @@ for (const edgeToEdge of [true, "unknown", "missing"] as const) {
   preopened.blur();
   assert.equal(preopened.listenerCount, 0);
   const updatesAtBlur = preopened.reactUpdates;
+  const receiptsAtBlur = preopened.keyboardLayouts.length;
   afterBlur(0, 824);
   preopened.render();
   assert.equal(
     preopened.reactUpdates,
     updatesAtBlur,
     "late native measurement after route blur cannot mutate state",
+  );
+  assert.equal(
+    preopened.keyboardLayouts.length,
+    receiptsAtBlur,
+    "a blurred frame cannot issue a ready receipt to its parent",
   );
   assert.equal(preopened.padding("frame"), 3);
   preopened.refocus();
@@ -506,6 +600,7 @@ for (const edgeToEdge of [true, "unknown", "missing"] as const) {
   preopened.render();
   assert.equal(preopened.padding("frame"), 335, "refocus samples the actual still-shown IME");
   const updatesAtRefocus = preopened.reactUpdates;
+  const receiptsAtRefocus = preopened.keyboardLayouts.length;
   oldFocusHide({});
   oldFocusShow({ endCoordinates: { screenX: 0, screenY: 0, width: 390, height: 824 } });
   preopened.render();
@@ -515,6 +610,7 @@ for (const edgeToEdge of [true, "unknown", "missing"] as const) {
     "retained native listeners from an old focus cannot request layout work",
   );
   assert.equal(preopened.reactUpdates, updatesAtRefocus);
+  assert.equal(preopened.keyboardLayouts.length, receiptsAtRefocus);
   assert.equal(
     preopened.padding("frame"),
     335,
@@ -530,7 +626,9 @@ for (const edgeToEdge of [true, "unknown", "missing"] as const) {
   preopened.show(450);
   const afterUnmount = preopened.takeMeasurement();
   preopened.hooks.unmount();
+  const receiptsAtUnmount = preopened.keyboardLayouts.length;
   afterUnmount(0, 824);
+  assert.equal(preopened.keyboardLayouts.length, receiptsAtUnmount);
   assert.equal(preopened.hooks.lateWrites, 0);
   assert.equal(preopened.listenerCount, 0);
 }

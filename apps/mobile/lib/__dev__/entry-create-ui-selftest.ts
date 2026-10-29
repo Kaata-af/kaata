@@ -78,6 +78,7 @@ function fixture({
   rtl = false,
   nativeEdgeToEdge = true,
   statusBarHeight = 32,
+  automaticKeyboardLayout = true,
   width = 390,
   height = 844,
   fontScale = 1,
@@ -91,6 +92,7 @@ function fixture({
   rtl?: boolean;
   nativeEdgeToEdge?: boolean | "unknown";
   statusBarHeight?: number | null;
+  automaticKeyboardLayout?: boolean;
   width?: number;
   height?: number;
   fontScale?: number;
@@ -271,6 +273,7 @@ function fixture({
       "../../components/EntryCalculator": { EntryCalculator: "EntryCalculator" },
       "../../components/EntryDateField": { EntryDateField: "EntryDateField" },
       "../../components/CurrencySelector": { CurrencySelector: "CurrencySelector" },
+      "../../components/SearchKeyboardMotion": { AndroidKeyboardFrame: "AndroidKeyboardFrame" },
       "../../components/ScreenLoading": { ScreenLoading: "ScreenLoading" },
       "../../components/SettingsScreen": { ScreenHeader: "ScreenHeader" },
       "../../components/Toast": {
@@ -398,10 +401,28 @@ function fixture({
       cancelAnimationFrame: (id: number) => frames.delete(id),
     },
   ).default;
-  const render = () =>
-    hooks.render(() =>
+  let nativeViewportHeight = 500;
+  const render = () => {
+    const result = hooks.render(() =>
       Screen({ editingEntry, editPersonId: editingEntry ? params.personId : undefined }),
     );
+    // The shared component is isolated below this fixture boundary. Older
+    // screen-flow cases model a native-resized host; geometry/race cases opt
+    // out and deliver the actual frame receipt and child layout themselves.
+    if (os === "android" && automaticKeyboardLayout) {
+      const form = nodes(hooks.tree).find((node) => node.type === "ScrollView");
+      const frame = nodes(hooks.tree).find((node) => node.props.testID === "entry-keyboard-frame");
+      if (form && frame) {
+        const onLayout = form.props.onLayout;
+        form.props.onLayout = (event: any) => {
+          nativeViewportHeight = event.nativeEvent.layout.height;
+          frame.props.onLayout(event);
+          onLayout(event);
+        };
+      }
+    }
+    return result;
+  };
   const accessory = () => nodes(hooks.tree).find((n) => n.type === "InputAccessoryView");
   const accessoryButton = () =>
     nodes(accessory()).find(
@@ -410,7 +431,7 @@ function fixture({
         n.props.label === (editingEntry ? "entry.saveChanges" : "entry.save"),
     );
   const bodyButton = () =>
-    nodes(nodes(hooks.tree).find((n) => n.type === "KeyboardAvoidingView")).find(
+    nodes(nodes(hooks.tree).find((n) => n.props.testID === "entry-keyboard-viewport")).find(
       (n) =>
         n.type === "Button" &&
         n.props.label === (editingEntry ? "entry.saveChanges" : "entry.save"),
@@ -425,9 +446,7 @@ function fixture({
   const noteField = () =>
     nodes(hooks.tree).find((n) => n.type === "View" && [n.props.children].flat().includes(note()))!;
   const keyboardFrame = () =>
-    nodes(hooks.tree).find(
-      (n) => n.type === "View" && n.props.ref && n.props.collapsable === false,
-    )!;
+    nodes(hooks.tree).find((n) => n.props.testID === "entry-keyboard-frame")!;
   const openCalculator = () => {
     input().props.onPressIn();
     render();
@@ -475,7 +494,8 @@ function fixture({
     };
     nodes(hooks.tree)
       .find(
-        (n) => n.type === "View" && !n.props.ref && n.props.onLayout && nodes(n).includes(input()),
+        (n) =>
+          n.type === "View" && !n.props.testID && n.props.onLayout && nodes(n).includes(input()),
       )!
       .props.onLayout({ nativeEvent: { layout: { x: 0, y: 96, width: 358, height: 148 } } });
     nodes(hooks.tree)
@@ -613,7 +633,20 @@ function fixture({
     onEndScroll: (callback: () => void) => {
       onEndScroll = callback;
     },
-    emitKeyboard: (event: string) => keyboardEvents.get(event)?.forEach((handler) => handler()),
+    emitKeyboard: (event: string) => {
+      keyboardEvents.get(event)?.forEach((handler) => handler());
+      if (os !== "android" || !automaticKeyboardLayout) return;
+      const frame = keyboardFrame();
+      const form = nodes(hooks.tree).find((node) => node.type === "ScrollView");
+      if (event === "keyboardDidShow" && frame && form) {
+        const layout = {
+          nativeEvent: { layout: { x: 0, y: 0, width, height: nativeViewportHeight } },
+        };
+        frame.props.onLayout(layout);
+        form.props.onLayout(layout);
+        frame.props.onKeyboardLayout(true, 0);
+      } else if (event === "keyboardDidHide") frame?.props.onKeyboardLayout(false, 0);
+    },
     hardwareBack: () => [...backHandlers].reverse().some((handler) => handler()),
     nativeHandlers: () => [...keyboardEvents.values()].flatMap((handlers) => [...handlers]),
     get nativeSubscriptions() {
@@ -675,7 +708,10 @@ function editFixture(
 }
 
 function assertMultilineForm(
-  form: Pick<ReturnType<typeof fixture>, "hooks" | "input" | "note" | "button" | "writes">,
+  form: Pick<
+    ReturnType<typeof fixture>,
+    "hooks" | "input" | "note" | "button" | "writes" | "keyboardFrame"
+  >,
   os: PlatformOS,
   rtl: boolean,
   stickySave = false,
@@ -721,15 +757,20 @@ function assertMultilineForm(
   assert.equal(style.textAlign, rtl ? "right" : "left");
   assert.equal(style.writingDirection, rtl ? "rtl" : "ltr");
 
-  const avoider = nodes(form.hooks.tree).find((node) => node.type === "KeyboardAvoidingView")!;
+  const avoider = nodes(form.hooks.tree).find(
+    (node) => node.props.testID === "entry-keyboard-viewport",
+  )!;
   const scroll = nodes(avoider).find((node) => node.type === "ScrollView")!;
   assert.ok(scroll, "form scrolls within its keyboard-aware viewport");
-  assert.equal(avoider.props.behavior, "height");
+  assert.equal(
+    nodes(form.hooks.tree).some((node) => node.type === "KeyboardAvoidingView"),
+    false,
+  );
   if (stickySave) {
     assert.equal(
-      avoider.props.enabled,
-      os === "android",
-      "iOS Save uses its native keyboard accessory instead of measured avoidance",
+      form.keyboardFrame().type,
+      os === "android" ? "AndroidKeyboardFrame" : "View",
+      "iOS Save uses its native keyboard accessory while Android uses measured remaining overlap",
     );
     assert.equal(
       scroll.props.automaticallyAdjustKeyboardInsets,
@@ -737,7 +778,7 @@ function assertMultilineForm(
       "iOS keeps Note visible with native keyboard insets",
     );
   } else {
-    assert.equal(avoider.props.enabled, os === "android");
+    assert.equal(form.keyboardFrame().type, os === "android" ? "AndroidKeyboardFrame" : "View");
     assert.equal(scroll.props.automaticallyAdjustKeyboardInsets, os === "ios");
   }
   assert.equal(scroll.props.keyboardShouldPersistTaps, "handled");
@@ -2165,7 +2206,7 @@ async function main() {
       await f.ready();
       const form = () => nodes(f.hooks.tree).find((node) => node.type === "ScrollView")!;
       const avoider = () =>
-        nodes(f.hooks.tree).find((node) => node.type === "KeyboardAvoidingView")!;
+        nodes(f.hooks.tree).find((node) => node.props.testID === "entry-keyboard-viewport")!;
       const safeArea = () => nodes(f.hooks.tree).find((node) => node.type === "SafeAreaView")!;
       const dock = () =>
         nodes(f.hooks.tree).find(
@@ -2199,8 +2240,11 @@ async function main() {
         false,
         "the fixed controls are outside form content",
       );
-      assert.equal(avoider().props.enabled, os === "android");
-      assert.equal(avoider().props.behavior, "height");
+      assert.equal(f.keyboardFrame().type, os === "android" ? "AndroidKeyboardFrame" : "View");
+      assert.equal(
+        nodes(f.hooks.tree).some((node) => node.type === "KeyboardAvoidingView"),
+        false,
+      );
       if (os === "ios") {
         assert.deepEqual(safeArea().props.edges, ["top", "left", "right"]);
         const style = flattenStyle(dock().props.style);
@@ -2295,14 +2339,14 @@ async function main() {
     assert.equal(f.bodyButton()!.props.onPress, f.accessoryButton()!.props.onPress);
     assert.equal(f.bodyButton()!.props.loading, f.accessoryButton()!.props.loading);
     assert.equal(f.bodyButton()!.props.disabled, f.accessoryButton()!.props.disabled);
-    const measurements: unknown[] = [];
-    f.keyboardFrame().props.ref.current = {
-      measureInWindow: (callback: unknown) => measurements.push(callback),
-    };
     f.keyboardFrame().props.onLayout(layoutEvent(600));
     f.fireKeyboardTimers();
     f.render();
-    assert.equal(measurements.length, 0, "iOS Save never waits for a measured keyboard origin");
+    assert.equal(
+      f.keyboardFrame().props.onKeyboardLayout,
+      undefined,
+      "iOS never depends on Android IME receipts",
+    );
     assert.equal(f.calculator()!.props.visible, true);
     assert.ok(f.bodyButton(), "custom amount keys retain their body Save");
     assert.equal(f.accessory()!.props.nativeID, accessoryID);
@@ -3262,142 +3306,181 @@ async function main() {
     f.hooks.unmount();
     cases++;
   }
-  for (const { nativeEdgeToEdge, statusBarHeight } of [
-    { nativeEdgeToEdge: false, statusBarHeight: 32 },
-    { nativeEdgeToEdge: false, statusBarHeight: 0 },
-    { nativeEdgeToEdge: false, statusBarHeight: null },
-    { nativeEdgeToEdge: true, statusBarHeight: 32 },
-    { nativeEdgeToEdge: "unknown", statusBarHeight: 32 },
-  ] as const) {
-    const f = fixture({ os: "android", nativeEdgeToEdge, statusBarHeight });
+  {
+    const f = fixture({ os: "ios" });
     await f.ready();
-    const measurements: ((x: number, y: number) => void)[] = [];
-    const wrapper = f.keyboardFrame();
-    wrapper.props.ref.current = { measureInWindow: (callback: any) => measurements.push(callback) };
-    assert.equal(
-      wrapper.props.children.type,
-      "KeyboardAvoidingView",
-      "the measured wrapper has one avoider child at local y zero",
-    );
-    const avoider = () => nodes(f.hooks.tree).find((n) => n.type === "KeyboardAvoidingView")!;
-    const offset = () => avoider().props.keyboardVerticalOffset;
-    assert.equal(
-      avoider().props.enabled,
-      nativeEdgeToEdge !== false,
-      "only a confirmed non-edge-to-edge Android host delegates all avoidance to native resize",
-    );
-    wrapper.props.onLayout(layoutEvent(600));
-    if (nativeEdgeToEdge === false) {
-      f.render();
-      assert.equal(f.calculator()!.props.availableHeight, 600);
-      f.fireKeyboardTimers();
-      f.render();
-      assert.equal(measurements.length, 0, "native resize needs no origin/status-bar measurement");
-      assert.equal(offset(), 0);
-      f.note().props.onFocus();
-      f.emitKeyboard("keyboardDidShow");
-      wrapper.props.onLayout(layoutEvent(443));
-      nodes(f.hooks.tree)
-        .find((node) => node.type === "ScrollView")!
-        .props.onLayout(layoutEvent(443));
-      f.render();
-      assert.equal(
-        f.calculator()!.props.availableHeight,
-        443,
-        "native parent layout supplies IME bounds",
-      );
-      assert.equal(measurements.length, 0, "Note focus does not add a second resize measurement");
-      assert.equal(avoider().props.enabled, false);
-      assert.equal(offset(), 0, "status-bar variants cannot add a second keyboard offset");
-      f.fireNoteFrames();
-      f.fireNoteFrames();
-      assert.deepEqual(f.endScrolls, [{ animated: true }]);
-      f.emitKeyboard("keyboardDidHide");
-      wrapper.props.onLayout(layoutEvent(731));
-      f.render();
-      assert.equal(
-        f.calculator()!.props.availableHeight,
-        731,
-        "native parent restores its own height",
-      );
-      assert.equal(offset(), 0);
-      assert.equal(measurements.length, 0);
-      assert.equal(f.endScrolls.length, 1);
-      assert.equal(f.writes.length + f.routes.length, 0);
-      f.hooks.unmount();
-      cases++;
-      continue;
-    }
-    assert.equal(measurements.length, 1);
-    measurements[0](0, 120);
-    f.render();
-    assert.equal(
-      offset(),
-      120,
-      "edge-to-edge and unknown hosts retain their measured keyboard origin",
-    );
-    wrapper.props.onLayout(layoutEvent(600));
-    wrapper.props.onLayout(layoutEvent(600));
-    const previous = measurements.at(-2)!,
-      latest = measurements.at(-1)!;
-    latest(0, 136);
-    previous(0, 999);
-    f.render();
-    assert.equal(offset(), 136, "an older measurement cannot overwrite a newer frame");
-    f.fireKeyboardTimers();
-    measurements.at(-1)!(0, 140);
-    f.render();
-    assert.equal(offset(), 140, "the post-transition measurement replaces the initial frame");
     f.note().props.onFocus();
-    measurements.at(-1)!(0, 144);
+    f.emitKeyboard("keyboardDidShow");
+    f.fireNoteFrames();
+    f.fireNoteFrames();
+    assert.equal(f.endScrolls.length, 1);
+    f.blur();
+    f.refocus();
+    await f.flush();
+    f.note().props.onFocus();
     f.render();
-    assert.equal(offset(), 144, "focusing Note remeasures the Android origin");
+    assert.equal(
+      f.noteFrames().length,
+      1,
+      "iOS keeps its native already-open keyboard readiness across route refocus",
+    );
+    f.fireNoteFrames();
+    f.fireNoteFrames();
+    assert.equal(f.endScrolls.length, 2);
     f.hooks.unmount();
     cases++;
   }
-  for (const nativeEdgeToEdge of [true, "unknown"] as const)
-    for (const transition of [
-      "account",
-      "vault",
-      "person",
-      "type",
-      "install",
-      "blur",
-      "unmount",
-      "refocus",
-    ] as const) {
-      const f = fixture({ os: "android", nativeEdgeToEdge, statusBarHeight: 32 });
-      await f.ready();
-      const measurements: ((x: number, y: number) => void)[] = [];
-      const wrapper = f.keyboardFrame();
-      wrapper.props.ref.current = {
-        measureInWindow: (callback: any) => measurements.push(callback),
-      };
-      wrapper.props.onLayout(layoutEvent(600));
-      measurements.at(-1)!(0, 120);
-      f.render();
-      wrapper.props.onLayout(layoutEvent(600));
-      const delayed = measurements.at(-1)!;
-      f.transitions[transition]();
-      delayed(0, 999);
-      if (transition !== "unmount") {
-        await f.flush();
+  for (const nativeEdgeToEdge of [false, true, "unknown"] as const)
+    for (const nativeResized of [false, true])
+      for (const receiptFirst of [false, true]) {
+        const f = fixture({ os: "android", nativeEdgeToEdge, automaticKeyboardLayout: false });
+        await f.ready();
+        const frame = () => f.keyboardFrame();
+        const form = () => nodes(f.hooks.tree).find((node) => node.type === "ScrollView")!;
+        const viewport = nodes(f.hooks.tree).find(
+          (node) => node.props.testID === "entry-keyboard-viewport",
+        )!;
+        const dock = nodes(viewport).find(
+          (node) => node.type === "View" && [node.props.children].flat().includes(f.calculator()),
+        )!;
         assert.equal(
-          nodes(f.hooks.tree).find((n) => n.type === "KeyboardAvoidingView")!.props
-            .keyboardVerticalOffset,
-          120,
-          `stale keyboard measurement ignored after ${transition} with ${nativeEdgeToEdge} edge mode`,
+          frame().type,
+          "AndroidKeyboardFrame",
+          "every Android host uses measured residual overlap",
         );
+        assert.equal(
+          frame().props.children,
+          viewport,
+          "one inner flex viewport receives the shared frame's reduced space",
+        );
+        assert.equal(flattenStyle(viewport.props.style).flex, 1);
+        assert.equal(flattenStyle(dock.props.style).position, "absolute");
+        assert.ok(
+          [viewport.props.children].flat().includes(dock),
+          "Save is anchored inside the reduced viewport, not the outer padded frame",
+        );
+        assert.equal(
+          nodes(f.hooks.tree).some((node) => node.type === "KeyboardAvoidingView"),
+          false,
+          "no second height owner competes with native resizing",
+        );
+        frame().props.onLayout(layoutEvent(600));
+        form().props.onLayout(layoutEvent(600));
+        f.note().props.onFocus();
+        frame().props.onKeyboardLayout(false, 0);
+        f.fireNoteFrames();
+        assert.deepEqual(
+          f.endScrolls,
+          [],
+          "a pre-show layout receipt preserves focus intent but does not scroll yet",
+        );
+        const receipt = () => {
+          if (nativeResized) {
+            frame().props.onLayout(layoutEvent(300));
+            form().props.onLayout(layoutEvent(300));
+            frame().props.onKeyboardLayout(true, 0);
+          } else frame().props.onKeyboardLayout(true, 300);
+        };
+        if (!receiptFirst) f.emitKeyboard("keyboardDidShow");
+        receipt();
+        if (receiptFirst) f.emitKeyboard("keyboardDidShow");
+        f.render();
+        if (!nativeResized) {
+          f.fireNoteFrames();
+          f.fireNoteFrames();
+          assert.deepEqual(
+            f.endScrolls,
+            [],
+            "even slow Samsung measurement waits for the actual child viewport before consuming Note reveal",
+          );
+          form().props.onLayout(layoutEvent(300));
+        }
+        f.fireNoteFrames();
+        assert.deepEqual(
+          f.endScrolls,
+          [],
+          "the committed geometry still observes the existing two-frame Note handoff",
+        );
+        f.fireNoteFrames();
+        assert.deepEqual(
+          f.endScrolls,
+          [{ animated: true }],
+          `one reveal for ${nativeEdgeToEdge}/${nativeResized}/${receiptFirst}`,
+        );
+        assert.ok(
+          f.bodyButton(),
+          "Android Save remains present above the IME inside the avoided viewport",
+        );
+        frame().props.onKeyboardLayout(true, nativeResized ? 0 : 300);
+        form().props.onLayout(layoutEvent(300));
+        f.fireNoteFrames();
+        f.fireNoteFrames();
+        assert.equal(
+          f.endScrolls.length,
+          1,
+          "repeated measurements/layouts never bounce a consumed focus request",
+        );
+        f.emitKeyboard("keyboardDidHide");
+        frame().props.onKeyboardLayout(false, 0);
+        frame().props.onLayout(layoutEvent(600));
+        form().props.onLayout(layoutEvent(600));
+        f.note().props.onBlur();
+        f.note().props.onFocus();
+        f.emitKeyboard("keyboardDidShow");
+        frame().props.onKeyboardLayout(true, 300);
+        form().props.onLayout(layoutEvent(300));
+        f.fireNoteFrames();
+        f.fireNoteFrames();
+        assert.equal(
+          f.endScrolls.length,
+          2,
+          "a second genuine focus/keyboard cycle gets exactly one fresh reveal",
+        );
+        assert.equal(f.writes.length + f.routes.length, 0);
         f.hooks.unmount();
+        cases++;
       }
-      assert.equal(f.hooks.lateWrites, 0);
-      cases++;
-    }
+  for (const transition of [
+    "account",
+    "vault",
+    "person",
+    "type",
+    "install",
+    "blur",
+    "unmount",
+    "refocus",
+  ] as const) {
+    const f = fixture({ os: "android", automaticKeyboardLayout: false });
+    await f.ready();
+    const oldFrame = f.keyboardFrame();
+    const form = nodes(f.hooks.tree).find((node) => node.type === "ScrollView")!;
+    oldFrame.props.onLayout(layoutEvent(600));
+    form.props.onLayout(layoutEvent(600));
+    f.note().props.onFocus();
+    const oldReceipt = oldFrame.props.onKeyboardLayout;
+    f.transitions[transition]();
+    if (transition !== "unmount") await f.flush();
+    oldReceipt(true, 300);
+    oldReceipt(false, 0);
+    oldFrame.props.onLayout(layoutEvent(999));
+    form.props.onLayout(layoutEvent(699));
+    f.fireNoteFrames();
+    f.fireNoteFrames();
+    assert.deepEqual(
+      f.endScrolls,
+      [],
+      `stale keyboard receipts/layouts are ignored after ${transition}`,
+    );
+    assert.equal(f.hooks.lateWrites, 0);
+    if (transition !== "unmount") f.hooks.unmount();
+    cases++;
+  }
   {
     const f = fixture();
     await f.ready();
     const field = nodes(f.hooks.tree).find(
-      (n) => n.type === "View" && !n.props.ref && n.props.onLayout && nodes(n).includes(f.input()),
+      (n) =>
+        n.type === "View" && !n.props.testID && n.props.onLayout && nodes(n).includes(f.input()),
     )!;
     field.props.onLayout({ nativeEvent: { layout: { x: 0, y: 132, width: 358, height: 120 } } });
     const form = nodes(f.hooks.tree).find((n) => n.type === "ScrollView")!;
@@ -3488,7 +3571,7 @@ async function main() {
       await f.ready();
       const field = nodes(f.hooks.tree).find(
         (n) =>
-          n.type === "View" && !n.props.ref && n.props.onLayout && nodes(n).includes(f.input()),
+          n.type === "View" && !n.props.testID && n.props.onLayout && nodes(n).includes(f.input()),
       )!;
       field.props.onLayout({ nativeEvent: { layout: { x: 0, y: 132, width: 358, height: 120 } } });
       const form = () => nodes(f.hooks.tree).find((n) => n.type === "ScrollView")!;

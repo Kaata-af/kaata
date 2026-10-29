@@ -11,6 +11,7 @@ import {
 import {
   Keyboard,
   Platform,
+  StatusBar,
   StyleSheet,
   TurboModuleRegistry,
   View,
@@ -76,11 +77,23 @@ function NativeKeyboardFrame({ style, ...props }: ViewProps) {
   return <Reanimated.View {...props} style={[style, keyboardStyle]} />;
 }
 
-function AndroidKeyboardFrame({ style, onLayout, ...props }: ViewProps) {
+export type AndroidKeyboardFrameProps = ViewProps & {
+  /** Current-focus receipt after hidden state or a valid overlap measurement. */
+  onKeyboardLayout?: (shown: boolean, overlap: number) => void;
+};
+
+export function AndroidKeyboardFrame({
+  style,
+  onLayout,
+  onKeyboardLayout,
+  ...props
+}: AndroidKeyboardFrameProps) {
   const frame = useRef<ViewInstance>(null);
   const focused = useRef(false);
   const measurement = useRef(0);
   const keyboard = useRef<KeyboardMetrics | undefined>(undefined);
+  const receipt = useRef(onKeyboardLayout);
+  receipt.current = onKeyboardLayout;
   const [overlap, setOverlap] = useState(0);
   const basePadding = StyleSheet.flatten(style)?.paddingBottom;
 
@@ -88,21 +101,36 @@ function AndroidKeyboardFrame({ style, onLayout, ...props }: ViewProps) {
     if (!focused.current) return;
     const request = ++measurement.current;
     const metrics = keyboard.current;
-    if (
-      !metrics ||
-      !Number.isFinite(metrics.height) ||
-      metrics.height <= 0 ||
-      !Number.isFinite(metrics.screenY)
-    ) {
+    if (!metrics || (Number.isFinite(metrics.height) && metrics.height <= 0)) {
+      setOverlap(0);
+      receipt.current?.(false, 0);
+      return;
+    }
+    if (!Number.isFinite(metrics.height) || !Number.isFinite(metrics.screenY)) {
       setOverlap(0);
       return;
     }
     frame.current?.measureInWindow((_x, y, _width, height) => {
       if (!focused.current || request !== measurement.current) return;
       if (!Number.isFinite(y) || !Number.isFinite(height) || height <= 0) return;
-      // Native resize may already have made room. Avoid only the remaining
-      // intersection, using window coordinates rather than a whole IME height.
-      setOverlap(Math.max(0, Math.min(height, y + height - metrics.screenY)));
+      // RN removes status-bar/cutout insets from non-edge window measurements,
+      // but keyboard screenY still uses screen coordinates. Restore that top
+      // inset before comparing; it describes coordinates, not resize behavior.
+      const nonEdgeToEdge =
+        TurboModuleRegistry.get<{
+          getConstants(): { isEdgeToEdge?: boolean };
+        }>("DeviceInfo")?.getConstants().isEdgeToEdge === false;
+      const topInset =
+        nonEdgeToEdge &&
+        typeof StatusBar.currentHeight === "number" &&
+        Number.isFinite(StatusBar.currentHeight)
+          ? Math.max(0, StatusBar.currentHeight)
+          : 0;
+      // A native resize or pan may already have made room. Only the actual
+      // remaining intersection is ours to avoid, on every Android host.
+      const next = Math.max(0, Math.min(height, y + topInset + height - metrics.screenY));
+      setOverlap(next);
+      receipt.current?.(true, next);
     });
   }, []);
 
@@ -151,15 +179,10 @@ function AndroidKeyboardFrame({ style, onLayout, ...props }: ViewProps) {
 
 type FrameProps = ViewProps & { avoidAndroidKeyboard?: boolean };
 
-/** iOS follows native frames. Edge-to-edge Android screens avoid actual IME overlap. */
+/** iOS follows native frames. Opt-in Android screens avoid actual IME overlap. */
 export function SearchKeyboardFrame({ avoidAndroidKeyboard = false, ...props }: FrameProps) {
   if (Platform.OS === "ios") return <NativeKeyboardFrame {...props} />;
-  const edgeToEdge =
-    Platform.OS === "android" &&
-    TurboModuleRegistry.get<{
-      getConstants(): { isEdgeToEdge?: boolean };
-    }>("DeviceInfo")?.getConstants().isEdgeToEdge !== false;
-  return avoidAndroidKeyboard && edgeToEdge ? (
+  return avoidAndroidKeyboard && Platform.OS === "android" ? (
     <AndroidKeyboardFrame {...props} />
   ) : (
     <View {...props} />
