@@ -32,6 +32,7 @@ import { NotificationBell } from "../components/NotificationInbox";
 import { PersonRow } from "../components/PersonRow";
 import { HomeBalanceSummary } from "../components/HomeBalanceSummary";
 import { HomeBalanceFilterSwipe } from "../components/HomeBalanceFilterSwipe";
+import { SettledAccountsSection } from "../components/SettledAccountsSection";
 import {
   HomeFilterPopover,
   type FilterAnchor,
@@ -120,6 +121,7 @@ import {
 import type { PersonWithBalance, Self } from "../lib/types";
 import { personSharedAccountStatus } from "../lib/tabs/link-status";
 import { useStoreReviewPrompt } from "../lib/use-store-review-prompt";
+import { isSettledCustomer } from "../lib/settled-customers";
 
 // Header profile-slot diameter. One constant for ALL THREE variants (Google
 // photo, initial-letter chip, signed-out icon) so the top-right chrome never
@@ -845,15 +847,50 @@ export default function HomeScreen() {
   const selecting = selectionMode && canSelect;
   const canSelectRef = useRef(canSelect);
   canSelectRef.current = canSelect;
-  const selectablePeople = homePeople;
-  const selectableIds = useMemo(
-    () => new Set(selectablePeople.map((person) => person.id)),
-    [selectablePeople],
-  );
   const selectedIds = useMemo(() => {
     const available = new Set(visibleAllPeople.map((person) => person.id));
     return new Set(selectedPersonIds.filter((id) => available.has(id)));
   }, [selectedPersonIds, visibleAllPeople]);
+  const settledCustomerIds = useMemo(
+    () => new Set(visibleAllPeople.filter(isSettledCustomer).map((person) => person.id)),
+    [visibleAllPeople],
+  );
+  const activeHomePeople = useMemo(
+    () => homePeople.filter((person) => !settledCustomerIds.has(person.id)),
+    [homePeople, settledCustomerIds],
+  );
+  const settledHomePeople = useMemo(
+    () => homePeople.filter((person) => settledCustomerIds.has(person.id)),
+    [homePeople, settledCustomerIds],
+  );
+  const settledViewScope = JSON.stringify([
+    activeAccountId,
+    activeVaultId,
+    selectedCurrency,
+    customerQuery.trim(),
+  ]);
+  const settledViewOwner = useRef({ scope: settledViewScope, epoch: 0 });
+  if (settledViewOwner.current.scope !== settledViewScope)
+    settledViewOwner.current = {
+      scope: settledViewScope,
+      epoch: settledViewOwner.current.epoch + 1,
+    };
+  const settledViewEpoch = settledViewOwner.current.epoch;
+  const [settledDisclosure, setSettledDisclosure] = useState({ epoch: -1, expanded: false });
+  const settledExpanded =
+    (settledDisclosure.epoch === settledViewEpoch
+      ? settledDisclosure.expanded
+      : customerQuery.trim().length > 0) ||
+    (selecting && settledHomePeople.some((person) => selectedIds.has(person.id)));
+  const visibleHomePeople = useMemo(
+    () => (settledExpanded ? [...activeHomePeople, ...settledHomePeople] : activeHomePeople),
+    [activeHomePeople, settledHomePeople, settledExpanded],
+  );
+  const selectablePeople = visibleHomePeople;
+  const selectableIds = useMemo(
+    () => new Set(selectablePeople.map((person) => person.id)),
+    [selectablePeople],
+  );
   // The list already carries each account's totals from the same local read.
   // Selecting only adds those cached amounts; the count and figures change together.
   const financialSummary = useMemo(
@@ -985,8 +1022,8 @@ export default function HomeScreen() {
   };
   // Read the live scope when a retained row callback eventually runs.
   const homePeopleById = useMemo(
-    () => new Map(homePeople.map((person) => [person.id, person])),
-    [homePeople],
+    () => new Map(visibleHomePeople.map((person) => [person.id, person])),
+    [visibleHomePeople],
   );
   const effectiveGroup = useMemo(
     () => availableCustomerGroupFilter(listPreference.group, customerGroups),
@@ -1949,7 +1986,25 @@ export default function HomeScreen() {
                   ])}
                   directionCurrencyKey={JSON.stringify(selectedFilterCurrencies)}
                   onDirectionChange={changeSwipedDirection}
-                  people={homePeople}
+                  people={activeHomePeople}
+                  settledPeople={settledHomePeople}
+                  settledExpanded={settledExpanded}
+                  onToggleSettled={() => {
+                    if (
+                      !isCurrentHome() ||
+                      settledViewOwner.current.epoch !== settledViewEpoch ||
+                      homeInteraction.current.selecting ||
+                      homeInteraction.current.confirming ||
+                      selectionBusyRef.current
+                    )
+                      return;
+                    setSettledDisclosure((previous) => ({
+                      epoch: settledViewEpoch,
+                      expanded: !(previous.epoch === settledViewEpoch
+                        ? previous.expanded
+                        : customerQuery.trim().length > 0),
+                    }));
+                  }}
                   allPeople={visibleAllPeople}
                   summary={
                     <HomeBalanceSummary
@@ -2584,6 +2639,9 @@ function HomePage(
     CustomerScrollProps & {
       active: boolean;
       allPeople: PersonWithBalance[];
+      settledPeople: PersonWithBalance[];
+      settledExpanded: boolean;
+      onToggleSettled: () => void;
       filtered: boolean;
       controls: React.ReactNode;
       selectionControls: React.ReactNode;
@@ -2711,15 +2769,23 @@ function HomePage(
             ]}
           >
             {props.controls}
-            {props.people.length === 0 ? (
+            {props.people.length === 0 && props.settledPeople.length === 0 ? (
               <EmptyState
                 title={t(props.filtered ? "customers.noResults" : "home.empty.title")}
                 subtitle={props.filtered ? undefined : t("home.empty.subtitle")}
                 isRTL={isRTL}
               />
-            ) : (
+            ) : props.people.length > 0 ? (
               <CustomerRows {...props} showDirection />
-            )}
+            ) : null}
+            <SettledAccountsSection
+              count={props.settledPeople.length}
+              expanded={props.settledExpanded}
+              onToggle={props.onToggleSettled}
+              disabled={props.selecting || props.selectionBusy || !props.active}
+            >
+              <CustomerRows {...props} people={props.settledPeople} showDirection />
+            </SettledAccountsSection>
           </HomeBalanceFilterSwipe>
         </ScrollView>
       </GestureDetector>

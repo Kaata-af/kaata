@@ -6,9 +6,8 @@ import { rowDir, textDir, useIsRTL } from "../lib/direction";
 import { t } from "../lib/i18n";
 import { TOUCH_MIN, typography } from "../lib/tokens";
 
-/** Keep the history card beside the toggle in the native scroll container so
- * its measured position remains usable by notification navigation. */
-export function SettledTalliesSection({
+/** Settled customers stay below active accounts in the same scroll container. */
+export function SettledAccountsSection({
   expanded,
   onToggle,
   count,
@@ -23,14 +22,14 @@ export function SettledTalliesSection({
 }) {
   const isRTL = useIsRTL();
   if (count <= 0) return null;
-  const label = t(expanded ? "person.history.hideSettled" : "person.history.seeSettled");
+  const label = t(expanded ? "home.settled.hide" : "home.settled.show");
   return (
     <>
       <Pressable
-        testID="settled-tallies-toggle"
+        testID="settled-accounts-toggle"
         accessibilityRole="button"
         accessibilityLabel={label}
-        accessibilityValue={{ text: t("person.history.settledCount", { count }) }}
+        accessibilityValue={{ text: t("home.settled.count", { count }) }}
         accessibilityState={{ expanded, disabled }}
         disabled={disabled}
         onPress={() => {
@@ -66,7 +65,7 @@ const styles = StyleSheet.create({
   toggle: {
     minHeight: TOUCH_MIN,
     marginTop: 20,
-    paddingHorizontal: 4,
+    marginHorizontal: 16,
     paddingVertical: 12,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: colors.borderDefault,

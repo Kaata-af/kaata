@@ -43,7 +43,6 @@ import { SharedAccountBadge } from "../../components/SharedAccountBadge";
 import { SearchControlSlot } from "../../components/SearchControlSlot";
 import { SearchKeyboardFooter, SearchKeyboardFrame } from "../../components/SearchKeyboardMotion";
 import { SelectionToolbar } from "../../components/SelectionToolbar";
-import { SettledTalliesSection } from "../../components/SettledTalliesSection";
 import { personCurrencyRows, selectedEntriesByCurrency } from "../../lib/multi-currency-view";
 import { getPersonEnabledCurrencies } from "../../lib/person-currency";
 import { sharedAccountLinkStatus } from "../../lib/tabs/link-status";
@@ -436,12 +435,12 @@ export default function PersonDetailScreen() {
   const tallyContentY = useRef(0);
   const entriesCardY = useRef(new Map<string, number>());
   const entryPositions = useRef(new Map<string, { y: number; height: number; card: string }>());
-  const notificationCard = useRef(`${flowScope}:current`);
   const layoutScope = useRef(flowScope);
-  const settledLayoutOpen = useRef(false);
-  const settledLayoutGeneration = useRef(0);
-  if (layoutScope.current !== flowScope) {
+  const layoutKey = `${filterIntent}:${filterEpoch}`;
+  const layoutPresentation = useRef(layoutKey);
+  if (layoutScope.current !== flowScope || layoutPresentation.current !== layoutKey) {
     layoutScope.current = flowScope;
+    layoutPresentation.current = layoutKey;
     tallyContentY.current = 0;
     entriesCardY.current.clear();
     entryPositions.current.clear();
@@ -487,7 +486,7 @@ export default function PersonDetailScreen() {
   const [confirmDeleteFor, setConfirmDeleteFor] = useState<Entry | null>(null);
   // Settle-up ("rule off the account", 2026-07-27). No persistent buttons:
   // the affordance is a ruled-line row that only exists at balance zero with
-  // an open chapter, and settled history collapses behind one quiet row.
+  // an open chapter. Earlier tallies remain visible in the complete history.
   const [settlement, setSettlement] = useState<{ count: number; lastSettledAtMs: number | null }>({
     count: 0,
     lastSettledAtMs: null,
@@ -503,7 +502,6 @@ export default function PersonDetailScreen() {
   });
   const [settleCurrency, setSettleCurrency] = useState<string | null>(null);
   const settlementRequest = useRef<{ id: string; throughSeq: number; tabId: string } | null>(null);
-  const [showFullHistory, setShowFullHistory] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [dateRange, setDateRange] = useState<TallyDateRange | null>(null);
   const [dateSheetVisible, setDateSheetVisible] = useState(false);
@@ -532,23 +530,14 @@ export default function PersonDetailScreen() {
     setSheetFor(null);
     setLinkCurrencyVisible(false);
     setManagementCurrency(null);
-    setShowFullHistory(false);
     dismissSearchKeyboard();
   }, [flowScope, entryId, notificationKey, dismissSearchKeyboard]);
-  useEffect(() => {
-    if (entryId) setShowFullHistory(true);
-  }, [flowScope, entryId, notificationKey]);
   const revealNotificationTally = useCallback(() => {
     const key = [id, entryId, notificationKey].join(":");
-    if (
-      !entryId ||
-      !showFullHistory ||
-      !entries.some((e) => e.id === entryId) ||
-      highlightedRequest.current === key
-    )
+    if (!entryId || !entries.some((e) => e.id === entryId) || highlightedRequest.current === key)
       return;
     const row = entryPositions.current.get(entryId);
-    if (!row || row.card !== notificationCard.current || !viewport.current.height) return;
+    if (!row || row.card !== `${flowScope}:current` || !viewport.current.height) return;
     const cardY = entriesCardY.current.get(row.card);
     if (cardY == null) return;
     highlightedRequest.current = key;
@@ -561,18 +550,9 @@ export default function PersonDetailScreen() {
     });
     if (target != null) scrollRef.current?.scrollTo({ y: target, animated: true });
     setHighlight({ id: entryId, key });
-  }, [
-    id,
-    entryId,
-    notificationKey,
-    showFullHistory,
-    entries,
-    canCreate,
-    actionsHeight,
-    insets.bottom,
-  ]);
+  }, [id, entryId, notificationKey, flowScope, entries, canCreate, actionsHeight, insets.bottom]);
   useEffect(() => {
-    // Wait for the expanded history's layout; onLayout/content-size handle cold loads.
+    // Wait for history layout; onLayout/content-size handle cold loads.
     const frame = requestAnimationFrame(revealNotificationTally);
     return () => cancelAnimationFrame(frame);
   }, [revealNotificationTally, entries]);
@@ -836,67 +816,6 @@ export default function PersonDetailScreen() {
   const dateRangeLabel = formatDateRangeLabel(dateRange, locale, calendar);
   const searchResultCount =
     matchedEntries.length + matchedPreLink.length + matchedFailedTallies.length;
-  const settledCount = currencyPeriods.reduce(
-    (count, period) =>
-      count + (period.financialTab ? period.sharedSettlements.length : period.settlement.count),
-    0,
-  );
-  const chapterEntries = useMemo(
-    () =>
-      displayedEntries.filter((entry) => {
-        const period = currencyPeriods.find(
-          (period) => period.currency === (entry.currency ?? person?.currency ?? selectedCurrency),
-        );
-        if (!period) return true;
-        return period.financialTab
-          ? afterSharedSettlement(
-              entry,
-              period.sharedSettlements.at(-1)?.through_seq ?? 0,
-              period.financialTab.tab_id,
-            )
-          : period.settlement.lastSettledAtMs == null ||
-              entry.created_at > period.settlement.lastSettledAtMs;
-      }),
-    [displayedEntries, currencyPeriods, person?.currency, selectedCurrency],
-  );
-  // COHERENCE RULE (review fix — the load-bearing safety property): the
-  // collapse only engages while the current chapter's sum EXACTLY explains
-  // the balance. Any way the boundary can lie — an offline entry syncing in
-  // with a pre-boundary business date, a retro-edit/delete inside settled
-  // history from another device, clock skew — keeps that currency's earlier
-  // rows in the active area. Folded history must never explain a live balance.
-  // Rejected tallies remain visible but contribute nothing to the balance.
-  const coherentCurrencies = useMemo(
-    () =>
-      new Set(
-        currencyPeriods
-          .filter(
-            (period) =>
-              period.person.tab_unsynced !== 1 &&
-              period.person.tab_close_pending !== 1 &&
-              sumAmounts(currencyChapter(period).map(balanceContribution)) ===
-                period.person.balance,
-          )
-          .map((period) => period.currency),
-      ),
-    [currencyPeriods],
-  );
-  const settledEntryIds = useMemo(() => {
-    const currentIds = new Set(chapterEntries.map((entry) => entry.id));
-    return new Set(
-      displayedEntries
-        .filter(
-          (entry) =>
-            !currentIds.has(entry.id) &&
-            coherentCurrencies.has(entry.currency ?? person?.currency ?? selectedCurrency) &&
-            !entry.tab?.local_pending &&
-            entry.tab?.status !== "pending",
-        )
-        .map((entry) => entry.id),
-    );
-  }, [chapterEntries, displayedEntries, coherentCurrencies, person?.currency, selectedCurrency]);
-  notificationCard.current = `${flowScope}:${entryId && settledEntryIds.has(entryId) ? "settled" : "current"}`;
-
   // Full-history render list: entries interleaved with the ruled-off lines,
   // each marker at its chronological position with the settlement date —
   // like the visible lines in a paper khata. Adjacent markers (a concurrent
@@ -923,8 +842,8 @@ export default function PersonDetailScreen() {
     },
     [boundaries],
   );
-  // Keep current and settled rows in separate cards even when history opens.
-  // Search still spans the full ledger; its settled matches open the lower card.
+  // Keep the complete history in one timeline, with dated settlement lines.
+  // Search and view filters narrow rows without changing balances or history.
   const allHistoryItems = useMemo<HistoryItem[]>(() => {
     if (currencyPeriods.length > 1) {
       const list = searching ? matchedEntries : displayedEntries;
@@ -973,55 +892,16 @@ export default function PersonDetailScreen() {
     person?.currency,
     selectedCurrency,
   ]);
-  const historyItems: HistoryItem[] = [];
-  const settledHistoryItems: HistoryItem[] = [];
-  for (const item of allHistoryItems) {
-    const settled =
-      item.kind === "entry"
-        ? settledEntryIds.has(item.entry.id)
-        : coherentCurrencies.has(
-            item.currency ?? currencyPeriods[0]?.currency ?? person?.currency ?? selectedCurrency,
-          );
-    (settled ? settledHistoryItems : historyItems).push(item);
-  }
-  // Opening the lower section must not reorder active tallies. A normal
-  // single-currency chapter retains the order supplied by the ledger query.
-  if (
-    !searching &&
-    (currencyPeriods.length === 0 ||
-      (currencyPeriods.length === 1 && coherentCurrencies.has(currencyPeriods[0].currency)))
-  ) {
-    historyItems.length = 0;
-    for (const entry of displayedEntries)
-      if (!settledEntryIds.has(entry.id)) historyItems.push({ kind: "entry", entry });
-  }
-  const settledTallyCount = settledHistoryItems.filter((item) => item.kind === "entry").length;
   // Settlement lines describe chronological chapters. Alternate view ordering
   // must never place those lines beside an unrelated amount or reversed date.
-  if (tallyFilter.sort !== "recent") {
-    for (const section of [historyItems, settledHistoryItems]) {
-      const sorted = sortTallyEntries(
-        section.flatMap((item) => (item.kind === "entry" ? [item.entry] : [])),
-        tallyFilter.sort,
-        selectedCurrency,
-      );
-      section.splice(
-        0,
-        section.length,
-        ...sorted.map((entry) => ({ kind: "entry" as const, entry })),
-      );
-    }
-  }
-  const settledExpanded = showFullHistory || (searching && settledTallyCount > 0);
-  const settledVisible = settledExpanded && settledTallyCount > 0;
-  if (settledLayoutOpen.current !== settledVisible) {
-    settledLayoutOpen.current = settledVisible;
-    settledLayoutGeneration.current++;
-    const card = `${flowScope}:settled`;
-    entriesCardY.current.delete(card);
-    for (const [id, position] of entryPositions.current)
-      if (position.card === card) entryPositions.current.delete(id);
-  }
+  const historyItems: HistoryItem[] =
+    tallyFilter.sort === "recent"
+      ? allHistoryItems
+      : sortTallyEntries(
+          allHistoryItems.flatMap((item) => (item.kind === "entry" ? [item.entry] : [])),
+          tallyFilter.sort,
+          selectedCurrency,
+        ).map((entry) => ({ kind: "entry" as const, entry }));
   // Shared and ruled-off tallies retain their existing individual workflows.
   // Eligibility spans this contact's full history. Search filters only decide
   // which eligible rows Select all toggles; already selected rows stay selected.
@@ -1301,19 +1181,8 @@ export default function PersonDetailScreen() {
     }, [closeSelection]),
   );
   visibleReviewIds.current = new Set(
-    [...historyItems, ...(settledExpanded ? settledHistoryItems : [])].flatMap((item) =>
-      item.kind === "entry" ? [item.entry.id] : [],
-    ),
+    historyItems.flatMap((item) => (item.kind === "entry" ? [item.entry.id] : [])),
   );
-  const sharedReviewPending =
-    (person?.tab_pending_count ?? 0) > 0 ||
-    entries.some(
-      (e) =>
-        e.tab &&
-        (e.tab.local_pending ||
-          (!e.tab.voided && e.tab.kind !== "void" && e.tab.status === "pending")),
-    );
-  const unsettledOriginalCount = chapterEntries.length;
   const settleablePeriods = canAmend ? currencyPeriods.filter(canSettlePeriod) : [];
   const canSettle = settleablePeriods.length > 0;
   const settlementTarget = currencyPeriods.find(
@@ -1367,7 +1236,6 @@ export default function PersonDetailScreen() {
         });
       }
       if (!screenIsCurrent()) return;
-      setShowFullHistory(false);
       toast.push(
         currencyPeriods.length > 1
           ? `${t("person.settle.done")} · ${getCurrencyLabel(target.currency)}`
@@ -2121,22 +1989,13 @@ export default function PersonDetailScreen() {
     if (!searchIsCurrent()) return;
     await action(entry);
   };
-  const renderTallyHistory = (
-    items: HistoryItem[],
-    group: "current" | "settled" = "current",
-    layoutGeneration = settledLayoutGeneration.current,
-  ) => (
+  const renderTallyHistory = (items: HistoryItem[]) => (
     <View
-      testID={`customer-${group}-tallies`}
+      testID="customer-current-tallies"
       style={styles.entriesCard}
       onLayout={(event) => {
-        if (layoutScope.current !== flowScope) return;
-        if (
-          group === "settled" &&
-          (!settledLayoutOpen.current || layoutGeneration !== settledLayoutGeneration.current)
-        )
-          return;
-        entriesCardY.current.set(`${flowScope}:${group}`, event.nativeEvent.layout.y);
+        if (!filterIsCurrent() || layoutScope.current !== flowScope) return;
+        entriesCardY.current.set(`${flowScope}:current`, event.nativeEvent.layout.y);
         revealNotificationTally();
       }}
     >
@@ -2160,9 +2019,8 @@ export default function PersonDetailScreen() {
         const entry = item.entry;
         // Settled history is READ-ONLY (review fix): editing or
         // deleting a ruled-off entry would un-zero a closed chapter.
-        // Remote edits can still arrive — the coherence rule above
-        // handles those by falling open — but this device won't offer
-        // the footgun.
+        // Remote edits can still arrive, but this device won't offer
+        // changes that would un-zero a completed chapter.
         const period = currencyPeriods.find(
           (period) => period.currency === (entry.currency ?? person.currency ?? selectedCurrency),
         );
@@ -2196,14 +2054,9 @@ export default function PersonDetailScreen() {
           <View
             key={entry.id}
             onLayout={(event) => {
-              if (layoutScope.current !== flowScope) return;
-              if (
-                group === "settled" &&
-                (!settledLayoutOpen.current || layoutGeneration !== settledLayoutGeneration.current)
-              )
-                return;
+              if (!filterIsCurrent() || layoutScope.current !== flowScope) return;
               const { y, height } = event.nativeEvent.layout;
-              entryPositions.current.set(entry.id, { y, height, card: `${flowScope}:${group}` });
+              entryPositions.current.set(entry.id, { y, height, card: `${flowScope}:current` });
               revealNotificationTally();
             }}
           >
@@ -2929,6 +2782,7 @@ export default function PersonDetailScreen() {
                 </View>
 
                 <HomeBalanceFilterSwipe
+                  key={layoutKey}
                   testID="customer-tally-content"
                   enabled={tallyDirectionEnabled && !compactDock}
                   contextKey={JSON.stringify([
@@ -3142,12 +2996,6 @@ export default function PersonDetailScreen() {
                           isRTL={isRTL}
                         />
                       ) : null
-                    ) : settledCount > 0 ? (
-                      <EmptyState
-                        title={t("person.freshChapter.title")}
-                        subtitle={t("person.freshChapter.subtitle")}
-                        isRTL={isRTL}
-                      />
                     ) : (
                       <EmptyState
                         title={t("person.empty.title")}
@@ -3256,18 +3104,6 @@ export default function PersonDetailScreen() {
                       ) : null}
                     </>
                   ) : null}
-
-                  <SettledTalliesSection
-                    count={settledTallyCount}
-                    expanded={settledExpanded}
-                    disabled={searching}
-                    onToggle={() => {
-                      if (screenIsCurrent() && !searching && !selectionBusyRef.current)
-                        setShowFullHistory((value) => !value);
-                    }}
-                  >
-                    {settledVisible ? renderTallyHistory(settledHistoryItems, "settled") : null}
-                  </SettledTalliesSection>
                 </HomeBalanceFilterSwipe>
               </ScrollView>
             </GestureDetector>

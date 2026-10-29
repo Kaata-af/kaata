@@ -11,6 +11,7 @@ import * as customerList from "../customer-list";
 import * as search from "../search";
 import * as digits from "../digits";
 import * as money from "../money";
+import { isSettledCustomer } from "../settled-customers";
 import {
   compileUI,
   deferred,
@@ -371,6 +372,7 @@ const mocks: Record<string, any> = {
       return customerList.selectSearchCustomers(...args);
     },
   },
+  "../lib/settled-customers": { isSettledCustomer },
   "../lib/credit-limits": {
     creditStatusForBalance: (policy: { limit: number } | null, balance: number) =>
       policy && balance > policy.limit ? "over" : "none",
@@ -437,6 +439,7 @@ for (const [file, exported] of [
   ["NotificationInbox", "NotificationBell"],
   ["PersonRow", "PersonRow"],
   ["SelectionToolbar", "SelectionToolbar"],
+  ["SettledAccountsSection", "SettledAccountsSection"],
   ["ProfileSettingsSheet", "ProfileSettingsSheet"],
   ["UpdateBanner", "UpdateBanner"],
   ["VaultPickerSheet", "VaultPickerSheet"],
@@ -459,6 +462,16 @@ function expand(value: any): any {
   if (!value?.props) return value;
   if (value.type === "HomeFilterPopover" && (!value.props.visible || !value.props.anchor))
     return null;
+  if (value.type === "SettledAccountsSection") {
+    if (value.props.count <= 0) return null;
+    return {
+      ...value,
+      props: {
+        ...value.props,
+        children: value.props.expanded ? expand(value.props.children) : null,
+      },
+    };
+  }
   if (typeof value.type === "function") {
     if (value.type.name === "HomePage") {
       // Model this page's actual keyed lifetime independently of Home's hooks.
@@ -791,6 +804,210 @@ const pairSummary = {
   pay: 40,
   net: 60,
 };
+
+async function settledHomeAccounts() {
+  const cleared = {
+    ...people[0],
+    id: "settled",
+    name: "Settled account",
+    currency: "AFN",
+    balance: 0,
+    is_settled: 1,
+    selection_totals: { debtCount: 1, creditCount: 1, debtMinor: 50000, creditMinor: 50000 },
+  };
+  const ordinaryZero = { ...people[1], id: "zero", name: "Zero account", balance: 0 };
+  const pending = { ...cleared, id: "pending", name: "Pending account", tab_pending_count: 1 };
+  const mixed = {
+    ...cleared,
+    id: "mixed",
+    name: "Mixed account",
+    currency_balances: [
+      { ...cleared, currency: "AFN" },
+      { ...cleared, currency: "USD", balance: 12, is_settled: 0 },
+    ],
+  };
+  const fixturePeople = [...people, cleared, ordinaryZero, pending, mixed];
+  const disclosure = () => homeNodes().find((node) => node.type === "SettledAccountsSection")!;
+  const ids = () => searchIds().sort();
+  const activeIds = ["a", "b", "c", "mixed", "pending", "zero"];
+  peopleByCurrency.set("AFN", fixturePeople);
+  enabledCurrencies = ["AFN", "USD"];
+  await reload();
+  await flush();
+  assert.equal(disclosure().props.expanded, false, "Settled accounts start collapsed");
+  assert.equal(disclosure().props.count, 1);
+  assert.deepEqual(ids(), activeIds, "Zero, pending, and partially settled accounts stay visible");
+  const completeBalances = homeNodes().find((node) => node.type === "HomeBalanceSummary")!.props;
+  assert.equal(completeBalances.people.length, fixturePeople.length);
+  const initialToggle = disclosure().props.onToggle;
+  initialToggle();
+  render();
+  assert.deepEqual(ids(), [...activeIds, "settled"].sort());
+  assert.deepEqual(
+    homeNodes().find((node) => node.type === "HomeBalanceSummary")!.props.balances,
+    completeBalances.balances,
+    "Disclosure never changes the account totals",
+  );
+  const swipeRows = nodes(homeSwipe()).filter((node) => node.type === "PersonRow");
+  assert.equal(swipeRows.at(-1)!.props.person.id, "settled", "Settled accounts follow active rows");
+  disclosure().props.onToggle();
+  render();
+
+  // Currency projections must not hide an unsettled balance in another currency.
+  options().props.onChange({ ...customerList.DEFAULT_CUSTOMER_LIST, currency: "AFN" });
+  render();
+  assert.ok(ids().includes("mixed"), "An AFN filter cannot settle a contact who still owes USD");
+  assert.equal(disclosure().props.count, 1);
+  options().props.onChange(customerList.DEFAULT_CUSTOMER_LIST);
+  render();
+  homeNodes()
+    .find((node) => node.type === "HomeFilterPopover")!
+    .props.onDismiss();
+  render();
+
+  input().props.onChangeText("Settled account");
+  render();
+  assert.equal(
+    disclosure().props.expanded,
+    true,
+    "Direct search reveals matching settled accounts",
+  );
+  assert.deepEqual(ids(), ["settled"]);
+  const oldQueryToggle = disclosure().props.onToggle;
+  oldQueryToggle();
+  render();
+  assert.deepEqual(ids(), [], "A searched settled section can still be collapsed manually");
+  assert.equal(
+    homeNodes().some(
+      (node) => node.type === "EmptyState" && node.props.title === "customers.noResults",
+    ),
+    false,
+    "A collapsed match is not reported as an empty search",
+  );
+  input().props.onChangeText("");
+  render();
+  assert.equal(disclosure().props.expanded, false, "Leaving search returns to collapsed accounts");
+  oldQueryToggle();
+  render();
+  assert.equal(
+    disclosure().props.expanded,
+    false,
+    "A previous query's toggle cannot reopen accounts",
+  );
+  input().props.onChangeText("Settled account");
+  render();
+  oldQueryToggle();
+  render();
+  assert.equal(disclosure().props.expanded, true, "A reused query cannot revive its old toggle");
+  input().props.onChangeText("");
+  render();
+
+  const originalAccount = account;
+  const originalVault = vault;
+  for (const scope of ["account", "vault"] as const) {
+    disclosure().props.onToggle();
+    render();
+    const previousScopeToggle = disclosure().props.onToggle;
+    if (scope === "account") account = "settled-other-account";
+    else vault = "settled-other-vault";
+    render();
+    identityListeners.forEach((listener) => listener());
+    await reload();
+    await flush();
+    assert.equal(disclosure().props.expanded, false, `A new ${scope} starts collapsed`);
+    previousScopeToggle();
+    render();
+    assert.equal(
+      disclosure().props.expanded,
+      false,
+      `Old ${scope} toggles cannot affect the new scope`,
+    );
+    account = originalAccount;
+    vault = originalVault;
+    render();
+    identityListeners.forEach((listener) => listener());
+    await reload();
+    await flush();
+    previousScopeToggle();
+    render();
+    assert.equal(
+      disclosure().props.expanded,
+      false,
+      `Returning to a ${scope} cannot revive stale expansion`,
+    );
+  }
+
+  startFromContactMenu();
+  toolbar().props.onToggleAll();
+  render();
+  assert.equal(toolbar().props.total, activeIds.length);
+  assert.equal(toolbar().props.count, activeIds.length, "Select all excludes collapsed accounts");
+  assert.equal(disclosure().props.disabled, true);
+  initialToggle();
+  render();
+  assert.equal(
+    disclosure().props.expanded,
+    false,
+    "Retained toggles cannot change selection scope",
+  );
+  toolbar().props.onClose();
+  render();
+  disclosure().props.onToggle();
+  render();
+  const expandedToggle = disclosure().props.onToggle;
+  startFromContactMenu();
+  toolbar().props.onToggleAll();
+  render();
+  assert.equal(toolbar().props.total, fixturePeople.length);
+  assert.equal(
+    toolbar().props.count,
+    fixturePeople.length,
+    "Select all includes expanded accounts",
+  );
+  expandedToggle();
+  render();
+  assert.equal(disclosure().props.expanded, true, "Selection cannot hide its settled rows");
+  toolbar().props.onClose();
+  render();
+  disclosure().props.onToggle();
+  render();
+
+  startFromContactMenu();
+  peopleByCurrency.set(
+    "AFN",
+    fixturePeople.map((person) =>
+      person.id === "a" ? { ...person, balance: 0, is_settled: 1 } : person,
+    ),
+  );
+  await reload();
+  await flush();
+  assert.equal(toolbar().props.count, 1, "A remote settlement retains the selected contact");
+  assert.equal(disclosure().props.expanded, true, "A newly settled selection remains visible");
+  assert.ok(homeRows().some((row) => row.props.person.id === "a" && row.props.selected));
+  toolbar().props.onClose();
+  render();
+  assert.equal(disclosure().props.expanded, false);
+
+  peopleByCurrency.set(
+    "AFN",
+    fixturePeople.map((person) =>
+      person.id === "settled" ? { ...person, balance: 5, is_settled: 0 } : person,
+    ),
+  );
+  await reload();
+  await flush();
+  assert.equal(
+    disclosure(),
+    undefined,
+    "No stale disclosure remains after the last settled account reopens",
+  );
+  assert.ok(ids().includes("settled"), "A new balance returns its contact to the main list");
+  peopleByCurrency.delete("AFN");
+  enabledCurrencies = ["AFN"];
+  await reload();
+  await flush();
+  assert.deepEqual(ids(), ["a", "b", "c"]);
+}
 
 async function main() {
   render();
@@ -1773,6 +1990,7 @@ async function main() {
   peopleByCurrency.delete("AFN");
   await reload();
   await flush();
+  await settledHomeAccounts();
   extraCurrencyBalances = [{ currency: "USD", collect: 20, pay: 0, pending: false }];
   await reload();
   await flush();
@@ -2346,7 +2564,7 @@ async function main() {
     "Late row callbacks and reads cannot update unmounted Home",
   );
   console.log(
-    "PASS home selection: one mixed list and simultaneous totals, direction labels, stable customer keys, native overscroll without pull-refresh, scoped scroll restoration, instant financial totals without per-tap reads, coherent background snapshots, stale vault/account reads, settings-only mesh leases, fixed bottom search and compact filters, query-only counts, scoped select-all, search/group preservation, confirmation, duplicate/stale guards, cleanup",
+    "PASS home selection: one mixed list and simultaneous totals, settled accounts disclosure/search/scoped selection, full-source currency classification, direction labels, stable customer keys, native overscroll without pull-refresh, scoped scroll restoration, instant financial totals without per-tap reads, coherent background snapshots, stale vault/account reads, settings-only mesh leases, fixed bottom search and compact filters, query-only counts, scoped select-all, search/group preservation, confirmation, duplicate/stale guards, cleanup",
   );
 }
 void main();
