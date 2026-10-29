@@ -20,6 +20,7 @@ import {
   SETTINGS_ROW_ICON_GAP,
   SETTINGS_ROW_ICON_SIZE,
   SETTINGS_ROW_PADDING_X,
+  SETTINGS_SECTION_GAP_MARGIN_TOP,
 } from "../lib/design-tokens";
 import { getCurrencySymbol } from "../lib/currency";
 import { rowDir, textDir, useIsRTL } from "../lib/direction";
@@ -552,7 +553,8 @@ const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.bgDefault },
   scroll: { flex: 1, minHeight: 0 },
   content: { paddingBottom: 16 },
-  notificationRow: { marginTop: 4 },
+  // The following SectionGap supplies this same whitespace below the row.
+  notificationRow: { marginTop: SETTINGS_SECTION_GAP_MARGIN_TOP },
 
   // Identity (signed in) ----------------------------------------------------
   identityRow: {

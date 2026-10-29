@@ -1,10 +1,38 @@
 import assert from "node:assert/strict";
 import { compileUI, flattenStyle, jsx, nodes, uiHooks } from "./ui-fixture";
 
-function fixture({ rtl = false, signedIn = true } = {}) {
+// Render the actual row/gap atoms below: the previous fixture hard-coded a
+// notification margin and could pass while its surrounding section was uneven.
+const settingsTokens = require("../design-tokens");
+const settingsFonts = {
+  sansMedium: "Vazirmatn_500Medium",
+  sansSemi: "Vazirmatn_600SemiBold",
+  sansRegular: "Vazirmatn_400Regular",
+};
+const settingsAtoms = compileUI("../../components/SettingsScreen", {
+  "react/jsx-runtime": { jsx, jsxs: jsx },
+  "react-native": {
+    Pressable: "Pressable",
+    Text: "Text",
+    View: "View",
+    StyleSheet: { create: (styles: unknown) => styles, hairlineWidth: 0.5 },
+  },
+  "@expo/vector-icons": { Ionicons: "Icon" },
+  "../lib/colors": require("../colors"),
+  "../lib/design-tokens": settingsTokens,
+  "../lib/direction": {
+    rowDir: (rtl: boolean) => ({ flexDirection: rtl ? "row-reverse" : "row" }),
+    textDir: (rtl: boolean) => ({ textAlign: rtl ? "right" : "left" }),
+    trackingSafe: () => ({}),
+  },
+  "../lib/fonts": { fonts: settingsFonts },
+  "../lib/i18n": { t: (key: string) => key },
+});
+
+function fixture({ rtl = false, signedIn = true, solo = false, manageable = true } = {}) {
   const hooks = uiHooks();
   let account: string | null = signedIn ? "account-a" : null;
-  let vault: string | null = "vault-a";
+  let vault: string | null = manageable ? "vault-a" : null;
   let keyboardDismissed = 0;
   const actions: string[] = [];
   const props = {
@@ -14,7 +42,7 @@ function fixture({ rtl = false, signedIn = true } = {}) {
       : null,
     activeAccountId: account,
     activeVaultId: vault as string | null,
-    vaults: Array.from({ length: 20 }, (_, i) => ({
+    vaults: Array.from({ length: manageable ? 20 : 0 }, (_, i) => ({
       id: i === 0 ? "vault-a" : "vault-" + i,
       name: "Kaata " + i,
       archived: false,
@@ -59,7 +87,7 @@ function fixture({ rtl = false, signedIn = true } = {}) {
         textDir: () => ({ textAlign: rtl ? "right" : "left" }),
       },
       "../lib/fonts": { fonts: {} },
-      "../constants/env": { SOLO_STORE_MODE: false },
+      "../constants/env": { SOLO_STORE_MODE: solo },
       "../lib/i18n": { t: (key: string) => key },
       "../lib/use-vault-summary": { useMembersCount: () => 2 },
       "./InitialAvatar": { InitialAvatar: "Avatar" },
@@ -115,11 +143,15 @@ for (const rtl of [false, true]) {
   );
   assert.ok(nodes(scroll).filter((node) => node.type === "NavRow").length >= 20);
   const notifications = form.row("notificationSettings.title");
-  assert.equal(flattenStyle(notifications.props.style).marginTop, 4);
+  assert.equal(
+    flattenStyle(notifications.props.style).marginTop,
+    flattenStyle(settingsAtoms.SectionGap().props.style).marginTop,
+    "Notifications has the same top whitespace as the following section gap provides below it",
+  );
   assert.equal(
     nodes(scroll).filter((node) => node.type === "NavRow" && node.props.style).length,
     1,
-    "Only the standalone Notifications option gets the small spacing correction",
+    "Only the standalone Notifications option adds the matching section whitespace",
   );
   assert.equal(form.keyboardDismissed, 1);
   header.props.onBack();
@@ -128,6 +160,63 @@ for (const rtl of [false, true]) {
   assert.deepEqual(form.actions, ["close"], "native close actions coalesce without a timer");
   form.hooks.unmount();
 }
+
+for (const rtl of [false, true])
+  for (const signedIn of [false, true])
+    for (const solo of [false, true])
+      for (const manageable of [false, true]) {
+        const form = fixture({ rtl, signedIn, solo, manageable });
+        const scroll = nodes(form.hooks.tree).find((node) => node.type === "ScrollView")!;
+        const sections = nodes(scroll).filter((node) =>
+          ["NavRow", "Gap", "SectionHeader"].includes(node.type),
+        );
+        const notification = form.row("notificationSettings.title");
+        const index = sections.indexOf(notification);
+        assert.equal(sections[index - 1]?.type, "Gap");
+        assert.equal(
+          sections[index + 1]?.type,
+          "Gap",
+          "Notifications remains a standalone band even when conditional sections disappear",
+        );
+        const precedingGap = flattenStyle(settingsAtoms.SectionGap().props.style);
+        const followingGap = flattenStyle(settingsAtoms.SectionGap().props.style);
+        const row = settingsAtoms.NavRow(notification.props);
+        const rowStyle = flattenStyle(row.props.style({ pressed: false }));
+        assert.equal(rowStyle.alignItems, "center");
+        assert.equal(rowStyle.flexDirection, rtl ? "row-reverse" : "row");
+        assert.ok(rowStyle.minHeight >= 44, "Centering keeps the full native touch target");
+        assert.equal(rowStyle.paddingVertical, settingsTokens.SETTINGS_ROW_PADDING_Y);
+        assert.equal(
+          rowStyle.transform,
+          undefined,
+          "The row is not visually nudged off its hit area",
+        );
+        const label = nodes(row).find((node) => node.type === "Text")!;
+        const labelStyle = flattenStyle(label.props.style);
+        assert.equal(label.props.numberOfLines, 1);
+        assert.equal(labelStyle.fontSize, settingsTokens.SETTINGS_ROW_LABEL_FONT_SIZE);
+        assert.equal(labelStyle.fontFamily, settingsFonts.sansMedium);
+        assert.equal(labelStyle.transform, undefined, "Font glyphs need no centering offset");
+        assert.equal(labelStyle.lineHeight, undefined, "Natural font metrics remain unclipped");
+        // The row can grow with the user's text size. Its center must agree
+        // with the center of the band between the two actual separator bars.
+        for (const height of [
+          rowStyle.minHeight,
+          rowStyle.minHeight * 1.5,
+          rowStyle.minHeight * 2,
+        ]) {
+          const rowTop = precedingGap.height + rowStyle.marginTop;
+          const followingBarTop = rowTop + height + followingGap.marginTop;
+          const rowCenter = rowTop + height / 2;
+          const bandCenter = (precedingGap.height + followingBarTop) / 2;
+          assert.equal(
+            rowCenter,
+            bandCenter,
+            "Notifications stays centered at any text-driven height",
+          );
+        }
+        form.hooks.unmount();
+      }
 
 for (const [label, expected] of [
   ["menu.account.settings", "account"],
@@ -323,5 +412,5 @@ for (const invalidation of ["scope", "source", "unmount"] as const) {
   form.hooks.unmount();
 }
 console.log(
-  "PASS native profile: route presentation content, live scoped bridge, bounded bootstrap, immediate single-use navigation and stale-action protection",
+  "PASS native profile: centered notification band across auth/RTL/conditional sections and text-driven heights, route presentation content, live scoped bridge, bounded bootstrap, immediate single-use navigation and stale-action protection",
 );

@@ -17,6 +17,7 @@ import {
   SETTINGS_ROW_PADDING_X,
   SETTINGS_ROW_PADDING_Y,
   SETTINGS_SECTION_GAP,
+  SETTINGS_SECTION_GAP_MARGIN_TOP,
   SETTINGS_SECTION_HEADER_FONT_SIZE,
   SETTINGS_SECTION_HEADER_LETTER_SPACING,
   SETTINGS_SECTION_HEADER_PADDING_BOTTOM,
@@ -360,7 +361,7 @@ const styles = StyleSheet.create({
   sectionGap: {
     height: SETTINGS_SECTION_GAP,
     backgroundColor: colors.bgMuted,
-    marginTop: 12,
+    marginTop: SETTINGS_SECTION_GAP_MARGIN_TOP,
   },
 
   // NavRow ----------------------------------------------------------------

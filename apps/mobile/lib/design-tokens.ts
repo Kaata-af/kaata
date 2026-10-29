@@ -64,7 +64,7 @@
  * SectionGap (visual break between sections)
  * - height: SETTINGS_SECTION_GAP (4px)
  * - backgroundColor: colors.bgMuted
- * - marginTop: 12
+ * - marginTop: SETTINGS_SECTION_GAP_MARGIN_TOP (12px)
  *
  * ───────────────────────────────────────────────────────────────────────────
  * ROWS
@@ -171,6 +171,9 @@ export const SETTINGS_ROW_MIN_HEIGHT = 52;
 
 /** Visual section break: a 4px bgMuted bar with a 12px top margin. */
 export const SETTINGS_SECTION_GAP = 4;
+
+/** Whitespace before a section break, also used above standalone rows. */
+export const SETTINGS_SECTION_GAP_MARGIN_TOP = 12;
 
 /** Horizontal padding applied to header, rows, and section headers alike. */
 export const SETTINGS_ROW_PADDING_X = 20;
