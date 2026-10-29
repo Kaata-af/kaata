@@ -35,6 +35,7 @@ import {
   applyPersonArchived,
   applyPersonPhoneChanged,
   applyPersonDefaultCurrencySet,
+  applyPersonNoteSet,
   applyPersonRenamed,
   applyPersonUnarchived,
 } from "./persons";
@@ -127,6 +128,7 @@ export const APPLIERS: Partial<Record<EventType, Applier>> = {
   person_renamed: applyPersonRenamed as unknown as Applier,
   person_phone_changed: applyPersonPhoneChanged as unknown as Applier,
   person_default_currency_set: applyPersonDefaultCurrencySet as unknown as Applier,
+  person_note_set: applyPersonNoteSet as unknown as Applier,
   person_archived: applyPersonArchived as unknown as Applier,
   person_unarchived: applyPersonUnarchived as unknown as Applier,
   shop_profile_updated: applyShopProfileUpdated as unknown as Applier,

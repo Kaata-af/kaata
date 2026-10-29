@@ -447,6 +447,7 @@ const sharedMocks: Record<string, any> = {
   },
 };
 const libMocks: Record<string, any> = {
+  "customer-note": require("../customer-note"),
   "use-store-review-prompt": {
     useStoreReviewPrompt: (options: NonNullable<typeof reviewPromptOptions>) => {
       reviewPromptOptions = options;
@@ -3444,6 +3445,31 @@ async function main() {
   assert.equal(writes.length, 1, "authorized writable flow still creates");
   assert.deepEqual(routes.at(-1), { pathname: "/person/[id]", params: { id: "created" } });
 
+  fixture(addOrFind, "owner");
+  await flush();
+  byLabel("personEdit.firstName.label")!.props.onChangeText("Nadia");
+  nodes(tree)
+    .find((node) => node.props.testID === "person-note-toggle")!
+    .props.onPress();
+  await flush();
+  byLabel("customerNote.label")!.props.onChangeText("  Call after Friday\nAsk for her son  ");
+  await flush();
+  find("Button")!.props.onPress();
+  await flush();
+  assert.equal(writes[0][4].note, "Call after Friday\nAsk for her son");
+
+  fixture(addOrFind, "clerk");
+  await flush();
+  assert.equal(
+    nodes(tree).find((node) => node.props.testID === "person-note-toggle"),
+    undefined,
+  );
+  byLabel("personEdit.firstName.label")!.props.onChangeText("Clerk's customer");
+  await flush();
+  find("Button")!.props.onPress();
+  await flush();
+  assert.equal(writes[0].length, 4, "Clerks retain customer creation without authoring notes");
+
   // A malformed national number must keep its known native country even if
   // the form's current default would make those digits usable elsewhere.
   deviceContacts.push({
@@ -3456,6 +3482,21 @@ async function main() {
   } as (typeof deviceContacts)[number]);
   fixture(addOrFind, "owner");
   await flush();
+  nodes(tree)
+    .find((node) => node.props.testID === "person-note-toggle")!
+    .props.onPress();
+  await flush();
+  byLabel("customerNote.label")!.props.onChangeText("Unrelated manual customer's note");
+  await flush();
+  assert.equal(
+    nodes(tree).find((node) => node.type === "Pressable" && text(node).includes("Short AF")),
+    undefined,
+    "Writing a customer note dedicates the form space to that draft",
+  );
+  nodes(tree)
+    .find((node) => node.props.testID === "person-note-toggle")!
+    .props.onPress();
+  await flush();
   find("CountryPicker")!.props.onSelect("AC");
   await flush();
   const shortNativeRow = nodes(tree).find(
@@ -3466,6 +3507,7 @@ async function main() {
   await flush();
   assert.equal(writes[0][2], "1234", "native phone text reaches validation unchanged");
   assert.equal(writes[0][3], "AF", "a native AF number is not silently reinterpreted as AC");
+  assert.equal(writes[0].length, 4, "Phone-book shortcuts never inherit a different draft's note");
   deviceContacts.pop();
   unmount();
   console.log(

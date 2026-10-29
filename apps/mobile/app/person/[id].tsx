@@ -88,6 +88,7 @@ import {
   type ExportFormat,
 } from "../../lib/export";
 import { useLedgerRefresh } from "../../lib/ledger-events";
+import { getPersonNote } from "../../lib/person-note";
 import { balanceContribution } from "../../lib/export/shared-record";
 import {
   bidiIsolate,
@@ -488,6 +489,14 @@ export default function PersonDetailScreen() {
   const calendar = useCalendar();
 
   const [person, setPerson] = useState<PersonWithBalance | null>(null);
+  const [customerNote, setCustomerNote] = useState<{ scope: string; value: string | null }>({
+    scope: "",
+    value: null,
+  });
+  const visibleCustomerNote = customerNote.scope === flowScope ? customerNote.value : null;
+  const customerNoteKey = JSON.stringify([flowScope, visibleCustomerNote]);
+  const [expandedCustomerNote, setExpandedCustomerNote] = useState<string | null>(null);
+  const customerNoteExpanded = expandedCustomerNote === customerNoteKey;
   const [entries, setEntries] = useState<Entry[]>([]);
   const [self, setSelf] = useState<Self | null>(null);
   const [loaded, setLoaded] = useState(false);
@@ -1653,13 +1662,15 @@ export default function PersonDetailScreen() {
         priorPeriods,
         periods,
         writableCurrencies,
+        note,
       } = await applyEventMutex.runExclusive(async () => {
-        const [allPerson, list, s, enabledCurrencies, openLinks] = await Promise.all([
+        const [allPerson, list, s, enabledCurrencies, openLinks, note] = await Promise.all([
           getPerson(id, currency, { allCurrencies: true }),
           listEntries(id, currency, { allCurrencies: true }),
           getLocalSelf(),
           vault ? getPersonEnabledCurrencies(vault, id) : Promise.resolve([]),
           listOpenTabLinksForPerson(id),
+          vault ? getPersonNote(vault, id) : Promise.resolve(null),
         ]);
         const rows = allPerson ? personCurrencyRows(allPerson) : [];
         const details = await Promise.all(
@@ -1723,6 +1734,7 @@ export default function PersonDetailScreen() {
               openLinks.find((candidate) => candidate.group_id && candidate.closed_at == null);
             return canWriteSharedTallies(tab?.closed_at == null ? tab : null);
           }),
+          note,
         };
       });
       if (!current()) return null;
@@ -1733,6 +1745,7 @@ export default function PersonDetailScreen() {
         entries: [...list, ...before, ...priorPeriods.flatMap((period) => period.entries)],
       });
       setPerson(p);
+      setCustomerNote({ scope, value: note });
       setCurrencyPeriods(periods);
       setEntryCurrencies({ scope, codes: writableCurrencies });
       setEntries(list);
@@ -2685,6 +2698,65 @@ export default function PersonDetailScreen() {
               >
                 <View>
                   <View style={styles.info}>
+                    {visibleCustomerNote && !selecting ? (
+                      <View testID="customer-note" style={[styles.customerNote, rowDir(isRTL)]}>
+                        <Pressable
+                          testID="customer-note-disclosure"
+                          accessibilityRole="button"
+                          accessibilityLabel={`${t("customerNote.label")}: ${visibleCustomerNote}`}
+                          accessibilityHint={t(
+                            customerNoteExpanded ? "customerNote.collapse" : "customerNote.expand",
+                          )}
+                          accessibilityState={{ expanded: customerNoteExpanded }}
+                          onPress={() => {
+                            if (screenIsCurrent())
+                              setExpandedCustomerNote(
+                                customerNoteExpanded ? null : customerNoteKey,
+                              );
+                          }}
+                          style={[styles.customerNoteContent, rowDir(isRTL)]}
+                        >
+                          <Ionicons
+                            name="document-text-outline"
+                            size={16}
+                            color={colors.textSubtle}
+                            style={{ marginTop: 2 }}
+                          />
+                          <View style={styles.customerNoteText}>
+                            <Text style={[styles.customerNoteLabel, textDir(isRTL)]}>
+                              {t("customerNote.label")}
+                            </Text>
+                            <Text
+                              testID="customer-note-value"
+                              style={[styles.customerNoteValue, textDir(isRTL)]}
+                              numberOfLines={customerNoteExpanded ? undefined : 3}
+                            >
+                              {visibleCustomerNote}
+                            </Text>
+                          </View>
+                          <Ionicons
+                            name={customerNoteExpanded ? "chevron-up" : "chevron-down"}
+                            size={14}
+                            color={colors.textSubtle}
+                            style={{ marginTop: 2 }}
+                          />
+                        </Pressable>
+                        {canAmend ? (
+                          <Pressable
+                            testID="customer-note-edit"
+                            accessibilityRole="button"
+                            accessibilityLabel={t("person.sheet.edit")}
+                            onPress={() => {
+                              if (screenIsCurrent())
+                                router.push({ pathname: "/person/[id]/edit", params: { id } });
+                            }}
+                            style={styles.customerNoteEdit}
+                          >
+                            <Ionicons name="create-outline" size={18} color={colors.textSubtle} />
+                          </Pressable>
+                        ) : null}
+                      </View>
+                    ) : null}
                     {sharedAccountStatus === "waiting" || personGroupNames.length > 0 ? (
                       <View testID="customer-metadata" style={[styles.metadataRow, rowDir(isRTL)]}>
                         {sharedAccountStatus === "waiting" ? (
@@ -4079,6 +4151,33 @@ const styles = StyleSheet.create({
     color: colors.textSubtle,
   },
   info: { paddingHorizontal: 16, paddingTop: 4, paddingBottom: 20 },
+  customerNote: {
+    flexDirection: "row",
+    alignItems: "stretch",
+    borderWidth: 1,
+    borderColor: colors.borderDefault,
+    borderRadius: radius.sm,
+    backgroundColor: colors.bgMuted,
+    marginTop: 12,
+  },
+  customerNoteContent: {
+    flex: 1,
+    minWidth: 0,
+    minHeight: TOUCH_MIN,
+    flexDirection: "row",
+    alignItems: "flex-start",
+    padding: 12,
+    gap: 8,
+  },
+  customerNoteText: { flex: 1, minWidth: 0, gap: 4 },
+  customerNoteLabel: { fontSize: 12, color: colors.textSubtle, fontFamily: fonts.sansMedium },
+  customerNoteValue: { fontSize: 14, color: colors.textDefault, fontFamily: fonts.sansRegular },
+  customerNoteEdit: {
+    width: TOUCH_MIN,
+    minHeight: TOUCH_MIN,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   balanceOverview: {
     borderWidth: 1,
     borderColor: colors.borderBalanceGlass,

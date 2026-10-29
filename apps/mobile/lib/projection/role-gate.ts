@@ -79,6 +79,7 @@ const REQUIRED_ROLE: Record<EventType, RoleRequirement> = {
   person_renamed: "editor",
   person_phone_changed: "editor",
   person_default_currency_set: "editor",
+  person_note_set: "editor",
   person_archived: "editor",
   person_unarchived: "editor",
   group_created: "editor",

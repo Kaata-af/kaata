@@ -221,6 +221,12 @@ func (h *Handler) Push(w http.ResponseWriter, r *http.Request) {
 			httpx.Error(w, http.StatusBadRequest, "events["+strconv.Itoa(i)+"].schema_version must be >= 1")
 			return
 		}
+		if ev.EventType == EventPersonNoteSet {
+			if err := validatePersonNotePushEvent(ev); err != nil {
+				httpx.Error(w, http.StatusBadRequest, "events["+strconv.Itoa(i)+"]: "+err.Error())
+				return
+			}
+		}
 		if err := validateCurrencyPayload(ev); err != nil {
 			httpx.Error(w, http.StatusBadRequest, "events["+strconv.Itoa(i)+"]: "+err.Error())
 			return

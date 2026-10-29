@@ -356,6 +356,12 @@ func (s *Service) PushEvents(ctx context.Context, in PushInput) (*PushResponse, 
 
 	for i := range ordered {
 		ev := ordered[i]
+		if ev.EventType == EventPersonNoteSet {
+			if err := validatePersonNotePushEvent(ev); err != nil {
+				rejected = append(rejected, RejectedEvent{EventID: ev.EventID, Reason: "invalid_payload"})
+				continue
+			}
+		}
 		if err := validateCurrencyPayload(ev); err != nil {
 			rejected = append(rejected, RejectedEvent{EventID: ev.EventID, Reason: "invalid_currency"})
 			continue

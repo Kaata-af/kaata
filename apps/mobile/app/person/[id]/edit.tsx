@@ -26,6 +26,12 @@ import { colors } from "../../../lib/colors";
 import { SETTINGS_DISABLED_OPACITY } from "../../../lib/design-tokens";
 import { splitName } from "../../../lib/contacts-sync";
 import { archivePerson, getPerson, updatePerson } from "../../../lib/db";
+import {
+  CUSTOMER_NOTE_MAX_LENGTH,
+  CustomerNoteChangedError,
+  normalizeCustomerNote,
+} from "../../../lib/customer-note";
+import { getPersonNote } from "../../../lib/person-note";
 import { captureCurrentSession, SessionChangedError } from "../../../lib/auth";
 import {
   getCurrencyLabel,
@@ -86,6 +92,8 @@ export default function EditPersonScreen() {
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [phone, setPhone] = useState("");
+  const [note, setNote] = useState("");
+  const originalNote = useRef<string | null>(null);
   // Defaults to the user's preferred country. Overwritten on load via
   // inferCountryFromE164(person.phone) when the existing contact has a
   // phone — only matters as the visible default while the data loads,
@@ -174,11 +182,12 @@ export default function EditPersonScreen() {
             if (isCurrent(attempt)) setLoaded(true);
             return;
           }
-          const [p, rawDefault, enabled, bookDefault] = await Promise.all([
+          const [p, rawDefault, enabled, bookDefault, customerNote] = await Promise.all([
             alreadyLoaded ? null : getPerson(attempt.id),
             alreadyLoaded ? null : getPersonDefaultCurrency(attempt.vaultId, attempt.id),
             getEnabledCurrencies(attempt.vaultId),
             getDefaultEntryCurrency(attempt.vaultId),
+            alreadyLoaded ? null : getPersonNote(attempt.vaultId, attempt.id),
           ]);
           if (!isCurrent(attempt)) return;
           enabledCurrenciesRef.current = enabled;
@@ -189,6 +198,8 @@ export default function EditPersonScreen() {
             const name = splitName(p.name);
             setFirstName(name.firstName);
             setLastName(name.lastName ?? "");
+            originalNote.current = customerNote;
+            setNote(customerNote ?? "");
             const inferred = p.phone
               ? inferCountryFromE164(p.phone)
               : getCurrentDefaultCountryCode();
@@ -308,6 +319,7 @@ export default function EditPersonScreen() {
       if (!canEdit(attempt) || session.accountId !== attempt.accountId) return;
       const chosenDefault = defaultCurrencyRef.current;
       const originalDefault = originalDefaultCurrency.current;
+      const chosenNote = normalizeCustomerNote(note);
       const result = await updatePerson(
         attempt.id,
         fn,
@@ -320,6 +332,9 @@ export default function EditPersonScreen() {
           shouldContinue: () => canEdit(attempt),
           ...(chosenDefault !== originalDefault
             ? { defaultCurrency: chosenDefault, expectedDefaultCurrency: originalDefault }
+            : {}),
+          ...(chosenNote !== originalNote.current
+            ? { note: chosenNote, expectedNote: originalNote.current }
             : {}),
         },
       );
@@ -345,6 +360,8 @@ export default function EditPersonScreen() {
         setSaveError(t("entry.roleDenied"));
       } else if (err instanceof EventSigningUnavailableError) {
         setSaveError(t("entry.signingUnavailable"));
+      } else if (err instanceof CustomerNoteChangedError) {
+        setSaveError(t("customerNote.changed"));
       } else {
         setSaveError(t("entry.saveFailed"));
       }
@@ -506,6 +523,33 @@ label so TalkBack still announces "Cancel", not "Back". */}
               </Text>
             ) : null}
           </View>
+          <View style={styles.field}>
+            <Text style={[styles.label, textDir(isRTL)]}>{t("customerNote.label")}</Text>
+            <TextInput
+              testID="person-note-input"
+              value={note}
+              editable={editable}
+              accessibilityState={{ disabled: !editable }}
+              onChangeText={(value) => {
+                if (canEdit(renderAttempt) && !savingRef.current)
+                  setNote(Array.from(value).slice(0, CUSTOMER_NOTE_MAX_LENGTH).join(""));
+              }}
+              style={[
+                styles.input,
+                styles.noteInput,
+                textDir(isRTL),
+                !editable && styles.inputDisabled,
+              ]}
+              accessibilityLabel={t("customerNote.label")}
+              placeholder={t("customerNote.placeholder")}
+              placeholderTextColor={colors.textMuted}
+              multiline
+              maxLength={CUSTOMER_NOTE_MAX_LENGTH * 2}
+              scrollEnabled
+              textAlignVertical="top"
+            />
+            <Text style={[styles.noteHint, textDir(isRTL)]}>{t("customerNote.visibility")}</Text>
+          </View>
           <NavRow
             icon="cash-outline"
             label={t("personEdit.currency.label")}
@@ -654,6 +698,8 @@ const styles = StyleSheet.create({
   keyboardBody: { flex: 1 },
   body: { padding: 16, paddingTop: 24 },
   field: { marginBottom: 20 },
+  noteInput: { minHeight: 104, paddingVertical: 12 },
+  noteHint: { marginTop: 6, fontSize: 12, color: colors.textSubtle, fontFamily: fonts.sansRegular },
   label: {
     fontSize: 13,
     fontFamily: fonts.sansMedium,

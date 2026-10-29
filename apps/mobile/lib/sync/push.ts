@@ -23,6 +23,7 @@ import {
   currencyRequestHeaders,
   ensureCurrencySyncSupported,
   supportsPersonDefaultCurrencySync,
+  supportsPersonNotesSync,
   supportsEntryCurrencyEditSync,
 } from "../currency-sync";
 import { getSessionJWT } from "../auth";
@@ -137,7 +138,7 @@ export async function pushEvents(vaultId: string): Promise<PushResult> {
   // expo-sqlite shares this connection with local transactions. Read only
   // after an atomic ownership handover commits, never its promotion half.
   // Release the barrier before any HTTP request or acknowledgement write.
-  const readRows = (excludePersonCurrency = false) =>
+  const readRows = (excludePersonCurrency = false, excludePersonNotes = false) =>
     applyEventMutex.runExclusive(async () => {
       // One-shot seq re-announce (Sync v2 M1). Migration 018 numbered our own
       // pre-M1 history, but those rows are already server-acked and would
@@ -186,6 +187,7 @@ export async function pushEvents(vaultId: string): Promise<PushResult> {
         AND tombstone_reason IS NULL
         AND (next_push_at IS NULL OR next_push_at <= ?)
         ${excludePersonCurrency ? "AND event_type <> 'person_default_currency_set'" : ""}
+        ${excludePersonNotes ? "AND event_type <> 'person_note_set'" : ""}
       ORDER BY hlc_physical_ms ASC, hlc_logical ASC, hlc_device_id ASC
       LIMIT ?`,
         vaultId,
@@ -196,12 +198,33 @@ export async function pushEvents(vaultId: string): Promise<PushResult> {
 
   let rows = await readRows();
   let baseUrl: string | undefined;
+  let excludePersonCurrency = false;
+  let excludePersonNotes = false;
   if (rows.some((row) => row.event_type === "person_default_currency_set")) {
     baseUrl = await getBackendUrl();
     if (!(await supportsPersonDefaultCurrencySync(baseUrl, jwt))) {
       // Refill instead of just filtering the first 500: old preferences must
       // neither reach an unsupported server nor starve later tally uploads.
-      rows = await readRows(true);
+      excludePersonCurrency = true;
+      rows = await readRows(excludePersonCurrency, excludePersonNotes);
+    }
+  }
+  if (rows.some((row) => row.event_type === "person_note_set")) {
+    baseUrl ??= await getBackendUrl();
+    if (!(await supportsPersonNotesSync(baseUrl, jwt))) {
+      // Refill the bounded batch: hundreds of queued notes must not hide a
+      // later tally from a server that has not gained note support yet.
+      excludePersonNotes = true;
+      rows = await readRows(excludePersonCurrency, excludePersonNotes);
+      // Refilling may reveal currency preferences beyond the original batch.
+      if (
+        !excludePersonCurrency &&
+        rows.some((row) => row.event_type === "person_default_currency_set") &&
+        !(await supportsPersonDefaultCurrencySync(baseUrl, jwt))
+      ) {
+        excludePersonCurrency = true;
+        rows = await readRows(excludePersonCurrency, excludePersonNotes);
+      }
     }
   }
 

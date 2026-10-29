@@ -49,7 +49,7 @@ export async function fixture() {
     CREATE TABLE app_meta(key TEXT PRIMARY KEY,value TEXT);
     CREATE TABLE vaults(id TEXT PRIMARY KEY,name TEXT,currency TEXT,legacy_currency TEXT,default_entry_currency TEXT,created_at INTEGER,updated_at INTEGER,archived_at INTEGER,is_default INTEGER,account_id TEXT,registered_with_server_at INTEGER,vault_epoch INTEGER,hlc_logical INTEGER,hlc_wall_ms INTEGER,vault_trust_anchor_pubkey TEXT);
     CREATE TABLE vault_settings(vault_id TEXT,key TEXT,value TEXT,hlc_pms INTEGER,hlc_l INTEGER,hlc_did TEXT,updated_at INTEGER,PRIMARY KEY(vault_id,key));
-    CREATE TABLE relationships(id TEXT PRIMARY KEY,vault_id TEXT,user_a_id TEXT,user_b_id TEXT,context TEXT,created_at INTEGER,updated_at INTEGER,archived_at INTEGER,field_hlcs TEXT,default_entry_currency TEXT,group_id TEXT,group_ids TEXT);
+    CREATE TABLE relationships(id TEXT PRIMARY KEY,vault_id TEXT,user_a_id TEXT,user_b_id TEXT,context TEXT,created_at INTEGER,updated_at INTEGER,archived_at INTEGER,field_hlcs TEXT,default_entry_currency TEXT,group_id TEXT,group_ids TEXT,note TEXT);
     CREATE TABLE entries(id TEXT PRIMARY KEY,vault_id TEXT,relationship_id TEXT,type TEXT,amount_afn REAL,note TEXT,currency TEXT,created_at INTEGER,updated_at INTEGER,deleted_at INTEGER,proposed_by_user_id TEXT,current_event_id TEXT,is_deleted INTEGER,is_settled INTEGER,accepted_at INTEGER,disputed_at INTEGER,disputed_reason TEXT,settled_at INTEGER,field_hlcs TEXT,original_currency TEXT);
     CREATE TABLE tab_links(tab_id TEXT PRIMARY KEY,vault_id TEXT,relationship_id TEXT,currency TEXT,closed_at INTEGER,linked_at INTEGER,role TEXT DEFAULT 'a',other_joined_at INTEGER,unjoined_invitation INTEGER);
     CREATE TABLE tab_entries(id TEXT PRIMARY KEY,tab_id TEXT,kind TEXT,status TEXT,created_by TEXT,local_pending INTEGER,local_action_pending INTEGER,voided_by_entry_id TEXT);
@@ -120,6 +120,7 @@ export async function fixture() {
     ${declaration("../auth", "sameSessionToken")}
     export ${declaration("../auth", "SessionChangedError")}
     export ${declaration("../auth", "captureCurrentSession")}
+    export ${declaration("../auth", "applyForCurrentSession")}
     export ${declaration("../auth", "applyForUnchangedLocalSession")}
     const SESSION_KEY='fixture';
     export function switchSession(next:string|null,jwt:string|null){return mutateLocalSession(async()=>{
@@ -181,6 +182,7 @@ export async function fixture() {
     "./field-hlc": fieldHlc,
     "./errors": require("../projection/errors"),
     "../currency-scope": require("../currency-scope"),
+    "../customer-note": require("../customer-note"),
   });
   const entries = compileUI("../projection/entries", {
     "./field-hlc": fieldHlc,
@@ -255,6 +257,7 @@ export async function fixture() {
     "./currency-settings": require("../currency-settings"),
     "./projection": projection,
     "./currency": currency,
+    "./customer-note": require("../customer-note"),
   });
   const personCurrency = compileUI("../person-currency", {
     "./auth": auth,
@@ -286,12 +289,12 @@ export async function fixture() {
         )
         .run(pubkey);
       sql.exec(
-        "INSERT INTO relationships VALUES('r1','v1','self','person','peer',1,1,NULL,NULL,NULL,NULL,NULL)",
+        "INSERT INTO relationships VALUES('r1','v1','self','person','peer',1,1,NULL,NULL,NULL,NULL,NULL,NULL)",
       );
     },
   );
   sql.exec(`INSERT INTO vaults(id,name,currency,legacy_currency,default_entry_currency,created_at,updated_at) VALUES('v2','Other','EUR','EUR','EUR',1,1);
-    INSERT INTO relationships VALUES('r2','v2','self','person','peer',1,1,NULL,NULL,NULL,NULL,NULL);
+    INSERT INTO relationships VALUES('r2','v2','self','person','peer',1,1,NULL,NULL,NULL,NULL,NULL,NULL);
     INSERT INTO entries(id,vault_id,relationship_id,type,amount_afn,currency,created_at,updated_at,is_deleted,is_settled) VALUES('old-money','v1','r1','debt',12.34,'AFN',10,10,0,0);`);
   const rows = () => sql.prepare("SELECT * FROM event_log ORDER BY author_seq").all() as any[];
   const saved = () => sql.prepare("SELECT * FROM relationships WHERE id='r1'").get() as any;

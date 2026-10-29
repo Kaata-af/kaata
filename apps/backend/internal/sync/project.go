@@ -78,6 +78,7 @@ const (
 	EventPersonRenamed            = "person_renamed"
 	EventPersonPhoneChanged       = "person_phone_changed"
 	EventPersonDefaultCurrencySet = "person_default_currency_set"
+	EventPersonNoteSet            = "person_note_set"
 	EventPersonArchived           = "person_archived"
 	EventPersonUnarchived         = "person_unarchived"
 	EventGroupCreated             = "group_created"
@@ -220,6 +221,8 @@ type RelationshipProjection struct {
 	GroupFieldHLCs       map[string]HLC `json:"group_field_hlcs,omitempty"`
 	DefaultEntryCurrency *string        `json:"default_entry_currency,omitempty"`
 	CurrencyFieldHLC     *HLC           `json:"currency_field_hlc,omitempty"`
+	Note                 *string        `json:"note,omitempty"`
+	NoteFieldHLC         *HLC           `json:"note_field_hlc,omitempty"`
 }
 
 type EntryProjection struct {
@@ -368,6 +371,8 @@ func applyOne(p *Projection, e *LedgerEvent) error {
 		return applyPersonPhoneChanged(p, e)
 	case EventPersonDefaultCurrencySet:
 		return applyPersonDefaultCurrencySet(p, e)
+	case EventPersonNoteSet:
+		return applyPersonNoteSet(p, e)
 	case EventPersonArchived:
 		return applyPersonArchived(p, e)
 	case EventPersonUnarchived:

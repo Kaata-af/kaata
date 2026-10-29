@@ -542,6 +542,131 @@ async function run() {
     console.log(
       "PASS person currency push: unsupported outbox retained, ordinary sync unblocked, upgrade retry and rolling-server rejection safe",
     );
+    const noteVault = randomUUID();
+    const noteIDs: string[] = [];
+    const notePreferenceIDs: string[] = [];
+    const insertNoteRow = (type: string, payload: unknown, tick: number) => {
+      const id = randomUUID();
+      insert.run(
+        id,
+        type,
+        noteVault,
+        "relationship",
+        tick,
+        installId,
+        installId,
+        "self",
+        JSON.stringify(payload),
+        tick,
+        tick,
+        "note-signature",
+        "public-key",
+      );
+      return id;
+    };
+    for (let i = 0; i < 500; i++)
+      noteIDs.push(
+        insertNoteRow(
+          "person_note_set",
+          { note: i % 2 ? null : "Internal delivery instructions" },
+          3000 + i,
+        ),
+      );
+    for (let i = 0; i < 500; i++)
+      notePreferenceIDs.push(
+        insertNoteRow("person_default_currency_set", { currency: "USD" }, 4000 + i),
+      );
+    const laterTally = insertNoteRow("entry_created", { amount_afn: 42 }, 5000);
+    const originalNotes = fixture
+      .prepare(
+        "SELECT * FROM event_log WHERE vault_id=? AND event_type='person_note_set' ORDER BY event_id",
+      )
+      .all(noteVault);
+    let notesSupported = false;
+    let noteCurrencySupported = false;
+    let notePosts = 0;
+    let rejectNotes = false;
+    const noteBackedUpBefore = markedBackedUp;
+    globalThis.fetch = async (url, init) => {
+      if (String(url).endsWith("/capabilities"))
+        return Response.json({
+          multi_currency: true,
+          person_notes: notesSupported,
+          person_default_currency: noteCurrencySupported,
+        });
+      notePosts++;
+      const body = JSON.parse(String(init?.body));
+      assert.ok(
+        body.events.every((event: any) => event.event_type !== "person_note_set" || notesSupported),
+      );
+      assert.ok(
+        body.events.every(
+          (event: any) =>
+            event.event_type !== "person_default_currency_set" || noteCurrencySupported,
+        ),
+      );
+      if (!notesSupported && !noteCurrencySupported)
+        assert.deepEqual(
+          body.events.map((event: any) => event.event_id),
+          [laterTally],
+        );
+      return Response.json({
+        accepted: rejectNotes
+          ? []
+          : body.events.map((event: any, i: number) => ({
+              event_id: event.event_id,
+              server_seq: i + 1,
+            })),
+        duplicates: [],
+        rejected: rejectNotes
+          ? body.events.map((event: any) => ({ event_id: event.event_id, reason: "unhandled" }))
+          : [],
+      });
+    };
+    assert.deepEqual(await pushEvents(noteVault), { pushed: 1, duplicates: 0, rejected: 0 });
+    assert.equal(notePosts, 1, "two full deferred feature batches cannot starve a later tally");
+    assert.equal(markedBackedUp, noteBackedUpBefore);
+    assert.deepEqual(await pushEvents(noteVault), { pushed: 0, duplicates: 0, rejected: 0 });
+    assert.equal(notePosts, 1);
+    assert.equal(markedBackedUp, noteBackedUpBefore);
+    assert.deepEqual(
+      fixture
+        .prepare(
+          "SELECT * FROM event_log WHERE vault_id=? AND event_type='person_note_set' ORDER BY event_id",
+        )
+        .all(noteVault),
+      originalNotes,
+      "deferring notes rewrites no signed bytes, ack, retry or rejection state",
+    );
+    notesSupported = true;
+    assert.deepEqual(await pushEvents(noteVault), { pushed: 500, duplicates: 0, rejected: 0 });
+    assert.equal(markedBackedUp, noteBackedUpBefore);
+    noteCurrencySupported = true;
+    assert.deepEqual(await pushEvents(noteVault), { pushed: 500, duplicates: 0, rejected: 0 });
+    assert.equal(markedBackedUp, noteBackedUpBefore + 1);
+    const rollingNote = insertNoteRow("person_note_set", { note: null }, 5001);
+    rejectNotes = true;
+    assert.deepEqual(await pushEvents(noteVault), { pushed: 0, duplicates: 0, rejected: 1 });
+    const rollingNoteRow = fixture
+      .prepare("SELECT * FROM event_log WHERE event_id=?")
+      .get(rollingNote) as any;
+    assert.equal(rollingNoteRow.rejected_at, null, "rolling server cannot discard internal notes");
+    assert.equal(rollingNoteRow.server_acked_at, null);
+    assert.equal(rollingNoteRow.event_sig_b64, "note-signature");
+    assert.equal(
+      (
+        fixture
+          .prepare(
+            "SELECT COUNT(*) AS n FROM event_log WHERE vault_id=? AND server_acked_at IS NOT NULL",
+          )
+          .get(noteVault) as { n: number }
+      ).n,
+      1001,
+    );
+    console.log(
+      "PASS customer note push: independent feature gating, 1000 deferred rows cannot starve money, upgrade drains originals and rolling rejection retains notes",
+    );
+
     const editVault = randomUUID();
     const editIDs = [randomUUID(), randomUUID(), randomUUID()];
     for (let i = 0; i < editIDs.length; i++) {

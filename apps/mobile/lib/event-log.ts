@@ -41,6 +41,7 @@ import type {
   PersonArchivedEvent,
   PersonPhoneChangedEvent,
   PersonDefaultCurrencySetEvent,
+  PersonNoteSetEvent,
   PersonRenamedEvent,
   PersonUnarchivedEvent,
   ShopProfileUpdatedEvent,
@@ -64,6 +65,7 @@ import { signedEntryMinorSumSql } from "./money-sql";
 import { TabApiError, TabLinkedEntryError } from "./tabs/errors";
 import { unjoinedInvitationSql } from "./tabs/history";
 import { entryRecordedAtSql, isValidEntryDate } from "./entry-date";
+import { CustomerNoteChangedError, normalizeCustomerNote } from "./customer-note";
 import {
   getLedgerCurrencyCode,
   requireCurrencyCode,
@@ -660,7 +662,9 @@ export async function appendPersonAdded(args: {
   name: string;
   phoneE164: string | null;
   vaultId: string;
+  note?: string | null;
 }): Promise<{ event_id: string }> {
+  const note = args.note === undefined ? null : normalizeCustomerNote(args.note);
   const eventId = Crypto.randomUUID();
   const installId = getInstallIdSync();
   const authorUserId = requireLocalSelfUserId();
@@ -689,6 +693,38 @@ export async function appendPersonAdded(args: {
     },
   };
 
+  if (note !== null) {
+    const noteEvent: PersonNoteSetEvent = {
+      ...event,
+      event_id: Crypto.randomUUID(),
+      event_type: "person_note_set",
+      target_id: args.relationshipId,
+      payload: { note },
+    };
+    try {
+      // A new contact and its instructions either both exist or neither does.
+      await applyLocalEventsAtomically([event, noteEvent], {
+        guard: () => {
+          if (
+            getActiveVaultIdSync() !== args.vaultId ||
+            getAccountIdSync() !== accountId ||
+            getInstallIdSync() !== installId ||
+            getLocalSelfUserIdSync() !== authorUserId
+          )
+            throw new Error("Contact creation changed scope");
+        },
+      });
+    } catch (error) {
+      if (
+        error instanceof AtomicEventRejectionError &&
+        error.result.reason === "role_gate" &&
+        error.result.role_gate
+      )
+        throw new RoleGateRejectionError(error.result.role_gate);
+      throw error;
+    }
+    return { event_id: eventId };
+  }
   const result = await applyEvent(event, { origin: "local" });
   if (!result.applied) {
     if (result.reason === "role_gate" && result.role_gate) {
@@ -762,10 +798,13 @@ export async function appendPersonEdit(args: {
   phoneE164?: string | null;
   defaultCurrency?: string | null;
   expectedDefaultCurrency?: string | null;
+  note?: string | null;
+  expectedNote?: string | null;
   expectedAccountId: string | null;
   shouldContinue?: () => boolean;
   preflight?: (tx: SQLiteTx) => Promise<void>;
 }): Promise<void> {
+  const note = args.note === undefined ? undefined : normalizeCustomerNote(args.note);
   if (args.defaultCurrency !== undefined && args.defaultCurrency !== null)
     requireCurrencyCode(args.defaultCurrency);
   const installId = getInstallIdSync();
@@ -793,7 +832,10 @@ export async function appendPersonEdit(args: {
     origin: "local" as const,
   };
   const events: Array<
-    PersonRenamedEvent | PersonPhoneChangedEvent | PersonDefaultCurrencySetEvent
+    | PersonRenamedEvent
+    | PersonPhoneChangedEvent
+    | PersonDefaultCurrencySetEvent
+    | PersonNoteSetEvent
   > = [];
   if (args.name !== undefined)
     events.push({
@@ -822,6 +864,15 @@ export async function appendPersonEdit(args: {
       relationship_id: args.relationshipId,
       payload: { currency: args.defaultCurrency },
     });
+  if (note !== undefined)
+    events.push({
+      ...base,
+      event_id: Crypto.randomUUID(),
+      event_type: "person_note_set",
+      target_id: args.relationshipId,
+      relationship_id: args.relationshipId,
+      payload: { note },
+    });
   const preflight = async (tx: SQLiteTx) => {
     guard();
     const row = await tx.getFirstAsync<{ default_entry_currency: string | null }>(
@@ -831,6 +882,15 @@ export async function appendPersonEdit(args: {
       args.userId,
     );
     if (!row) throw new Error("The contact no longer exists in this Kaata");
+    if (args.expectedNote !== undefined) {
+      const currentNote = await tx.getFirstAsync<{ note: string | null }>(
+        "SELECT note FROM relationships WHERE vault_id=? AND id=?",
+        args.vaultId,
+        args.relationshipId,
+      );
+      if (!currentNote || currentNote.note !== args.expectedNote)
+        throw new CustomerNoteChangedError();
+    }
     if (
       args.expectedDefaultCurrency !== undefined &&
       row.default_entry_currency !== args.expectedDefaultCurrency

@@ -20,6 +20,7 @@
     "selftest:money": "tsx lib/__dev__/money-selftest.ts",
     "selftest:currency": "node scripts/gen-currencies.mjs --check && tsx lib/__dev__/currency-selftest.ts && tsx lib/__dev__/currency-picker-selftest.ts",
     "selftest:person-save": "tsx lib/__dev__/person-save-selftest.ts",
+    "selftest:customer-notes": "tsx lib/__dev__/person-note-storage-selftest.ts && tsx lib/__dev__/customer-note-selftest.ts && tsx lib/__dev__/person-note-sync-selftest.ts && tsx lib/__dev__/person-save-selftest.ts",
     "selftest:phone": "tsx lib/__dev__/phone-selftest.ts",
     "selftest:phone-contacts": "tsx lib/__dev__/phone-contacts-selftest.ts",
     "selftest:country-picker": "tsx lib/__dev__/country-picker-selftest.ts",

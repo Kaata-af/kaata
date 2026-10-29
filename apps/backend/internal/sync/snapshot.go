@@ -76,6 +76,9 @@ type SnapshotResponse struct {
 	// Contact defaults, including explicit resets to the Kaata default, retain
 	// their original signatures and field clocks across pre-cursor recovery.
 	PersonCurrencyEvents []PulledEvent `json:"person_currency_events,omitempty"`
+	// Private staff notes retain their signed authority and explicit clears.
+	// Do not synthesize this metadata from unsigned relationship snapshot rows.
+	PersonNoteEvents []PulledEvent `json:"person_note_events,omitempty"`
 	// SettlementEvents (2026-07-27): every entry_settled chapter marker for
 	// the vault, cursor-independent like MembershipEvents — the settlements
 	// projection is mobile-only, so a snapshot restore would otherwise lose
@@ -263,6 +266,11 @@ func (s *Service) LatestSnapshot(ctx context.Context, vaultID string) (*Snapshot
 		return nil, fmt.Errorf("read person currency events: %w", err)
 	}
 	s.resolveBindingsOnPulled(ctx, vaultID, personCurrencies)
+	personNotes, err := pullPersonNoteEvents(ctx, s.pool, vaultID)
+	if err != nil {
+		return nil, fmt.Errorf("read person note events: %w", err)
+	}
+	s.resolveBindingsOnPulled(ctx, vaultID, personNotes)
 
 	settlements, err := s.pullSettlementEvents(ctx, vaultID)
 	if err != nil {
@@ -276,6 +284,11 @@ func (s *Service) LatestSnapshot(ctx context.Context, vaultID string) (*Snapshot
 	// projection's updated_at fields already bound the live frontier, and
 	// any membership event also present in the tail is already counted.
 	hlcLast := snapshotMaxHLC(&projection, tail)
+	for _, event := range personNotes {
+		if CompareHLC(event.HLC, hlcLast) > 0 {
+			hlcLast = event.HLC
+		}
+	}
 
 	creditLimits := []credit.Policy{}
 	creditRows, err := s.pool.Query(ctx, `SELECT relationship_id::text,currency,max_collect_minor,max_pay_minor,mode,restrict_editors,updated_at_ms FROM customer_credit_limits WHERE vault_id=$1::uuid ORDER BY relationship_id`, vaultID)
@@ -323,6 +336,7 @@ func (s *Service) LatestSnapshot(ctx context.Context, vaultID string) (*Snapshot
 		EnabledCurrencyEvents: enabledCurrencies,
 		BillLinkEvents:        billLinks,
 		PersonCurrencyEvents:  personCurrencies,
+		PersonNoteEvents:      personNotes,
 		SettlementEvents:      settlements,
 	}
 	return resp, nil
@@ -486,6 +500,9 @@ func snapshotMaxHLC(p *Projection, tail []PulledEvent) HLC {
 		}
 		if r.CurrencyFieldHLC != nil && CompareHLC(*r.CurrencyFieldHLC, max) > 0 {
 			max = *r.CurrencyFieldHLC
+		}
+		if r.NoteFieldHLC != nil && CompareHLC(*r.NoteFieldHLC, max) > 0 {
+			max = *r.NoteFieldHLC
 		}
 		for _, h := range r.GroupFieldHLCs {
 			if CompareHLC(h, max) > 0 {
@@ -691,6 +708,23 @@ func pullPersonCurrencyEvents(ctx context.Context, query snapshotEventQuerier, v
 		WHERE vault_id = $1::uuid
 		  AND redacted_at IS NULL
 		  AND event_type = 'person_default_currency_set'
+		ORDER BY hlc_physical_ms ASC, hlc_logical ASC, hlc_device_id ASC, event_id ASC
+	`, vaultID)
+	if err != nil {
+		return nil, err
+	}
+	return scanPulledEvents(rows)
+}
+
+// Independent of the saved snapshot cursor: even old cached projections must
+// recover note edits/clears with their original signatures and field clocks.
+func pullPersonNoteEvents(ctx context.Context, query snapshotEventQuerier, vaultID string) ([]PulledEvent, error) {
+	rows, err := query.Query(ctx, `
+		SELECT`+pulledEventColumns+`
+		FROM events
+		WHERE vault_id = $1::uuid
+		  AND redacted_at IS NULL
+		  AND event_type = 'person_note_set'
 		ORDER BY hlc_physical_ms ASC, hlc_logical ASC, hlc_device_id ASC, event_id ASC
 	`, vaultID)
 	if err != nil {

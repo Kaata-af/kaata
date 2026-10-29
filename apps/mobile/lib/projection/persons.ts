@@ -9,11 +9,13 @@ import type {
   PersonArchivedEvent,
   PersonPhoneChangedEvent,
   PersonDefaultCurrencySetEvent,
+  PersonNoteSetEvent,
   PersonRenamedEvent,
   PersonUnarchivedEvent,
 } from "../events";
 import { MissingPrereqError } from "./errors";
 import { isValidCurrencyCode } from "../currency-scope";
+import { isValidCustomerNote } from "../customer-note";
 import { compareFieldHLC, parseFieldHLCs, serializeFieldHLCs, type FieldHLCMap } from "./field-hlc";
 
 export async function applyPersonAdded(tx: SQLiteTx, event: PersonAddedEvent): Promise<void> {
@@ -177,6 +179,29 @@ export async function applyPersonDefaultCurrencySet(
     "UPDATE relationships SET default_entry_currency=?,field_hlcs=? WHERE vault_id=? AND id=?",
     currency,
     serializeFieldHLCs({ ...hlcs, default_entry_currency: event.hlc }),
+    event.vault_id,
+    event.target_id,
+  );
+}
+
+export async function applyPersonNoteSet(tx: SQLiteTx, event: PersonNoteSetEvent): Promise<void> {
+  if (!event.vault_id || !event.target_id || event.relationship_id !== event.target_id)
+    throw new Error("person_note_set must target its own relationship");
+  if (!isValidCustomerNote(event.payload.note)) throw new Error("Invalid customer note");
+  const row = await tx.getFirstAsync<{ field_hlcs: string | null }>(
+    "SELECT field_hlcs FROM relationships WHERE vault_id=? AND id=?",
+    event.vault_id,
+    event.target_id,
+  );
+  if (!row) throw new MissingPrereqError(`relationship ${event.target_id} missing`);
+  const hlcs = parseFieldHLCs(row.field_hlcs);
+  if (compareFieldHLC(hlcs, "note", event.hlc) === "skip") return;
+  // Preserve the signed text exactly. A null clear advances its own register
+  // so an older offline note cannot return after recovery or mesh replay.
+  await tx.runAsync(
+    "UPDATE relationships SET note=?,field_hlcs=? WHERE vault_id=? AND id=?",
+    event.payload.note,
+    serializeFieldHLCs({ ...hlcs, note: event.hlc }),
     event.vault_id,
     event.target_id,
   );

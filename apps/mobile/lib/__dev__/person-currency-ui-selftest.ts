@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { compileUI, deferred, jsx, nodes, settleUI, uiHooks } from "./ui-fixture";
 import { getCurrencyNameForLocale } from "../currency-catalog";
 import { ltrIsolate } from "../bidi";
+import { CustomerNoteChangedError } from "../customer-note";
 
 class SessionChangedError extends Error {}
 class RoleGateRejectionError extends Error {}
@@ -23,11 +24,13 @@ function fixture({
   os = "ios",
   override = null,
   enabled = ["AFN", "USD", "EUR"],
+  note = null,
 }: {
   locale?: "en" | "fa" | "ps";
   os?: "ios" | "android";
   override?: string | null;
   enabled?: string[];
+  note?: string | null;
 } = {}) {
   const hooks = uiHooks();
   let params = { id: "customer" },
@@ -39,6 +42,8 @@ function fixture({
     bindingVersion = 1;
   let startFocus: (() => void | (() => void)) | undefined, cleanupFocus: (() => void) | undefined;
   let readGate: ReturnType<typeof deferred<string | null>> | undefined;
+  let noteReadGate: ReturnType<typeof deferred<void>> | undefined;
+  let storedNote = note;
   let saveGate: ReturnType<typeof deferred<void>> | undefined;
   let captureGate: ReturnType<typeof deferred<void>> | undefined;
   let saveError: Error | undefined;
@@ -146,8 +151,20 @@ function fixture({
               throw new Error("disabled currency");
             override = expected.defaultCurrency;
           }
+          if (expected.note !== undefined) {
+            if (expected.expectedNote !== storedNote) throw new CustomerNoteChangedError();
+            storedNote = expected.note;
+          }
           commits.push(args);
           return { ok: true };
+        },
+      },
+      "../../../lib/customer-note": require("../customer-note"),
+      "../../../lib/person-note": {
+        getPersonNote: async () => {
+          const snapshot = storedNote;
+          if (noteReadGate) await noteReadGate.promise;
+          return snapshot;
         },
       },
       "../../../lib/person-currency": {
@@ -260,6 +277,14 @@ function fixture({
     picker,
     save,
     input,
+    noteInput: () => nodes(hooks.tree).find((node) => node.props.testID === "person-note-input")!,
+    remoteNote: (value: string | null) => {
+      storedNote = value;
+    },
+    delayedNoteRead: () => (noteReadGate = deferred<void>()),
+    get storedNote() {
+      return storedNote;
+    },
     open,
     choose,
     change,
@@ -294,6 +319,96 @@ function fixture({
 }
 
 async function main() {
+  for (const locale of ["en", "fa", "ps"] as const)
+    for (const os of ["ios", "android"] as const) {
+      const f = fixture({ locale, os, note: "Collect after Friday" });
+      await f.ready();
+      assert.equal(f.noteInput().props.value, "Collect after Friday");
+      f.noteInput().props.onChangeText("  Call their son first\nAfter 4 PM  ");
+      f.render();
+      await f.save().props.onPress();
+      assert.equal(f.storedNote, "Call their son first\nAfter 4 PM");
+      assert.equal(f.commits[0][5].expectedNote, "Collect after Friday");
+      f.hooks.unmount();
+    }
+  {
+    const f = fixture({ note: "Existing staff note" });
+    await f.ready();
+    // A newer note arriving while an unrelated contact edit is open must survive.
+    f.remoteNote("Fresh instructions");
+    f.input().props.onChangeText("Ahmad updated");
+    f.render();
+    await f.save().props.onPress();
+    assert.equal(f.storedNote, "Fresh instructions");
+    assert.equal(f.commits[0][5].note, undefined);
+    assert.equal(f.commits[0][5].expectedNote, undefined);
+    f.hooks.unmount();
+  }
+  {
+    const f = fixture({ note: "Existing staff note" });
+    await f.ready();
+    f.noteInput().props.onChangeText(" \n ");
+    f.render();
+    await f.save().props.onPress();
+    assert.equal(f.storedNote, null, "An explicit empty edit clears a saved note");
+    assert.equal(f.commits[0][5].expectedNote, "Existing staff note");
+    f.hooks.unmount();
+  }
+  {
+    const f = fixture({ note: "Original" });
+    await f.ready();
+    f.noteInput().props.onChangeText("My draft");
+    f.render();
+    f.change("blur");
+    f.remoteNote("Fresh remote instructions");
+    f.refocus();
+    await f.flush();
+    assert.equal(f.noteInput().props.value, "My draft", "Child routes preserve the note draft");
+    await f.save().props.onPress();
+    assert.equal(f.commits.length, 0, "Conflicting instructions are not silently overwritten");
+    assert.equal(f.storedNote, "Fresh remote instructions");
+    f.render();
+    assert.ok(words(f.hooks.tree).includes(f.language.t("customerNote.changed")));
+    f.hooks.unmount();
+  }
+  {
+    const f = fixture({ note: "Original" });
+    await f.ready();
+    const staleInput = f.noteInput();
+    f.change("role");
+    assert.equal(f.noteInput().props.editable, false);
+    assert.equal(f.noteInput().props.accessibilityState.disabled, true);
+    staleInput.props.onChangeText("Must not write");
+    f.render();
+    assert.equal(f.noteInput().props.value, "Original");
+    await f.save().props.onPress();
+    assert.equal(f.commits.length, 0);
+    f.hooks.unmount();
+  }
+  {
+    const f = fixture();
+    await f.ready();
+    f.noteInput().props.onChangeText("😀".repeat(2001));
+    f.render();
+    assert.equal(Array.from(f.noteInput().props.value).length, 2000);
+    f.hooks.unmount();
+  }
+  {
+    const f = fixture({ note: "Old person's instructions" });
+    const gate = f.delayedNoteRead();
+    f.render();
+    await settleUI();
+    f.remoteNote("New person's instructions");
+    f.change("person");
+    await settleUI();
+    gate.resolve();
+    await f.flush();
+    assert.equal(f.noteInput().props.value, "New person's instructions");
+    f.hooks.unmount();
+  }
+  console.log(
+    "PASS customer note Edit UI: EN/FA/PS on iOS/Android, clear, normalized multiline, Unicode bound, untouched live notes, conflict explanation, role downgrade, preserved drafts and delayed scope isolation",
+  );
   let cases = 0;
   for (const locale of ["en", "fa", "ps"] as const)
     for (const os of ["ios", "android"] as const) {

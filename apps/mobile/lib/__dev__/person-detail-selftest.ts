@@ -165,6 +165,8 @@ let deleteEntryImpl: (id: string) => Promise<void> = async () => {};
 const backListeners = new Set<() => boolean>();
 let ledgerRefresh = async () => {};
 let person: any, entries: any[], preLink: any[], failed: any[], link: any;
+let staffNote: string | null = null;
+let noteReadGate: Promise<string | null> | null = null;
 const currencyPeriods = new Map<
   string,
   {
@@ -399,6 +401,10 @@ const mocks: Record<string, any> = {
   },
   "../../lib/attribution": { loadRelationshipAttribution: async () => new Map() },
   "../../lib/colors": require("../colors"),
+  "../../lib/person-note": {
+    getPersonNote: async (vault: string, customer: string) =>
+      vault === "vault" && customer === "person" ? (noteReadGate ?? staffNote) : null,
+  },
   "../../components/CurrencySelector": { CurrencySelector: "CurrencySelector" },
   "../../lib/currency": {
     getCurrentCurrencySymbol: () => "AFN",
@@ -726,6 +732,8 @@ const tally = (
   tab,
 });
 function fixture(shared = false) {
+  staffNote = null;
+  noteReadGate = null;
   carouselInteractions = 0;
   currencyPeriods.clear();
   personReads.length = 0;
@@ -3949,6 +3957,56 @@ async function privateRecordedSettlementTests() {
 }
 
 async function main() {
+  for (const notePlatform of ["ios", "android"])
+    for (const direction of [false, true]) {
+      fixture();
+      platform = notePlatform;
+      rtl = direction;
+      staffNote = "TEAM-ONLY-NOTE: Call their son before giving more credit.\nAfter 4 PM.";
+      await flush();
+      const byNoteId = (id: string) => nodes(tree).find((node) => node.props.testID === id);
+      assert.ok(words(byNoteId("customer-note-value")).includes(staffNote));
+      assert.equal(byNoteId("customer-note-value")!.props.numberOfLines, 3);
+      byNoteId("customer-note-disclosure")!.props.onPress();
+      await flush();
+      assert.equal(byNoteId("customer-note-value")!.props.numberOfLines, undefined);
+      canAmend = false;
+      dirty = true;
+      await flush();
+      assert.ok(byNoteId("customer-note-value"), "Clerks and viewers can read the Kaata note");
+      assert.equal(byNoteId("customer-note-edit"), undefined);
+      pingButton().props.onPress();
+      await flush();
+      assert.equal(shares.length, 1);
+      assert.ok(
+        !JSON.stringify(shares).includes("TEAM-ONLY-NOTE"),
+        "Staff notes stay out of bill/reminder sharing",
+      );
+      vaultId = "another-kaata";
+      render();
+      assert.equal(
+        byNoteId("customer-note"),
+        undefined,
+        "A new Kaata cannot briefly show old instructions",
+      );
+      await flush();
+    }
+  fixture();
+  const pendingNote = deferred<string | null>();
+  noteReadGate = pendingNote.promise;
+  await flush();
+  params = { id: "another-person" };
+  dirty = true;
+  render();
+  pendingNote.resolve("Old customer's delayed note");
+  await flush();
+  assert.ok(
+    !words(tree).includes("Old customer's delayed note"),
+    "Late customer note reads cannot repaint a new contact",
+  );
+  console.log(
+    "PASS customer note detail UI: compact/full note, read-only team access, bill/reminder privacy and stale customer/Kaata isolation on Android/iOS LTR/RTL",
+  );
   await androidTimelineReuseTests();
   await customerTallyFilterTests();
   await groupedSharingUITests();

@@ -21,6 +21,8 @@ let failEventType: string | null = null;
 let failRelationshipProjection = false;
 let failDiagnosticWrite = false;
 let contactWrites = 0;
+let beforeSelfRead: (() => void) | null = null;
+let beforeSigner: (() => void) | null = null;
 const usageFailure = new Error("synthetic usage-counter write failure");
 const appendFailure = new Error("synthetic event-log write failure");
 const projectionFailure = new Error("synthetic relationship projection failure");
@@ -51,8 +53,11 @@ const sqlite = {
     }
     return fixture.prepare(sql).run(...args);
   },
-  getFirstAsync: async (sql: string, ...args: unknown[]) =>
-    fixture.prepare(sql).get(...args) ?? null,
+  getFirstAsync: async (sql: string, ...args: unknown[]) => {
+    const row = fixture.prepare(sql).get(...args) ?? null;
+    if (sql === "SELECT id FROM users WHERE is_local_self = 1 LIMIT 1") beforeSelfRead?.();
+    return row;
+  },
   getAllAsync: async (sql: string, ...args: unknown[]) => fixture.prepare(sql).all(...args),
   withTransactionAsync: async (callback: () => Promise<void>) => {
     fixture.exec("BEGIN");
@@ -109,6 +114,7 @@ stub("../mesh/device-key", {
     // SQLite transaction (device-key.ts refuses to repair inside one).
     assert.equal(fixture.inTransaction, false, "signer snapshot must be taken outside the tx");
     if (signerUnavailable) throw new DeviceKeyUnavailableError(signerUnavailable);
+    beforeSigner?.();
     return { pubkey_b64: publicKey, sign: async (bytes: Uint8Array) => ed.sign(bytes, privateKey) };
   },
   signWithDeviceKey: async (bytes: Uint8Array) => {
@@ -135,6 +141,7 @@ stub("../projection-conflicts", { notifyProjectionConflictsChanged: () => {} });
 stub("../use-vault-role", {
   invalidateVaultRoleCache: () => {},
   readVaultRole: async () => "owner",
+  withDeferredVaultRoleNotifications: async <T>(work: () => Promise<T>) => work(),
 });
 stub("../auth", {
   captureCurrentSession: async () => ({ jwt: null, accountId: null, bindingVersion: 0 }),
@@ -155,6 +162,8 @@ stub("../ledger-events", { emitLedgerApplied: () => {} });
 const db = require("../db") as typeof import("../db");
 const dbTx = require("../db-tx") as typeof import("../db-tx");
 const { normalizePhone } = require("../phone") as typeof import("../phone");
+const { getPersonNote } = require("../person-note") as typeof import("../person-note");
+const { normalizeCustomerNote } = require("../customer-note") as typeof import("../customer-note");
 
 function count(table: "users" | "relationships" | "entries" | "event_log"): number {
   const where = table === "users" ? " WHERE is_local_self = 0" : "";
@@ -179,7 +188,8 @@ function openFixture(): void {
       id TEXT PRIMARY KEY, user_a_id TEXT NOT NULL REFERENCES users(id),
       user_b_id TEXT NOT NULL REFERENCES users(id), context TEXT NOT NULL,
       vault_id TEXT NOT NULL REFERENCES vaults(id), created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL, archived_at INTEGER, field_hlcs TEXT
+      updated_at INTEGER NOT NULL, archived_at INTEGER, field_hlcs TEXT,
+      default_entry_currency TEXT, note TEXT
     );
     CREATE TABLE entries (
       id TEXT PRIMARY KEY, vault_id TEXT NOT NULL REFERENCES vaults(id),
@@ -191,6 +201,7 @@ function openFixture(): void {
       accepted_at INTEGER, disputed_at INTEGER, disputed_reason TEXT,
       settled_at INTEGER, deleted_at INTEGER, field_hlcs TEXT
     );
+    CREATE TABLE settlements (vault_id TEXT, relationship_id TEXT, settled_at_ms INTEGER, currency TEXT);
     CREATE TABLE event_log (
       event_id TEXT PRIMARY KEY, event_type TEXT NOT NULL, vault_id TEXT,
       target_id TEXT NOT NULL, relationship_id TEXT,
@@ -232,7 +243,9 @@ function openFixture(): void {
   assert.ok(editorLimitDDL, "shipped migration040 editor credit restriction");
   for (const table of ["customer_credit_limits", "kaata_credit_defaults"])
     fixture.exec(editorLimitDDL.replace("${table}", table));
-  fixture.exec("ALTER TABLE customer_credit_limits ADD COLUMN currency TEXT DEFAULT 'AFN';ALTER TABLE kaata_credit_defaults ADD COLUMN currency TEXT DEFAULT 'AFN';");
+  fixture.exec(
+    "ALTER TABLE customer_credit_limits ADD COLUMN currency TEXT DEFAULT 'AFN';ALTER TABLE kaata_credit_defaults ADD COLUMN currency TEXT DEFAULT 'AFN';",
+  );
   failUsageKey = null;
   failedUsageWrites = 0;
   failEventType = null;
@@ -240,6 +253,8 @@ function openFixture(): void {
   failDiagnosticWrite = false;
   contactWrites = 0;
   signerUnavailable = null;
+  beforeSelfRead = null;
+  beforeSigner = null;
   dbTx._resetDbHandleForReset();
   dbTx.setInstallIdCache("fixture-device");
   dbTx.setLocalSelfUserIdCache("fixture-self");
@@ -290,6 +305,135 @@ async function test(name: string, run: () => Promise<void>): Promise<void> {
 }
 
 async function main(): Promise<void> {
+  for (const phase of ["self read", "signer"] as const) {
+    for (const scope of ["Kaata", "account", "installation"] as const) {
+      await test(`private notes cannot follow a ${scope} switch during ${phase}`, async () => {
+        const change = () => {
+          if (scope === "Kaata") dbTx.setActiveVaultIdCache("different-book");
+          if (scope === "account") dbTx.setAccountIdCache("different-account");
+          if (scope === "installation") dbTx.setInstallIdCache("different-install");
+        };
+        if (phase === "self read") beforeSelfRead = change;
+        else beforeSigner = change;
+        await assert.rejects(
+          db.createPerson("Synthetic", "Customer", null, "AF", { note: "Private instructions" }),
+          /scope/,
+        );
+        assert.equal(count("event_log"), 0);
+        assert.equal(count("users"), 0);
+        assert.equal(count("relationships"), 0);
+        assert.equal(contactWrites, 0);
+      });
+    }
+  }
+  await test("customer instructions are normalized, signed and kept outside person identity", async () => {
+    const result = await db.createPerson("Synthetic", "Customer", null, "AF", {
+      note: "  Call before delivery.\nتحویل به برادرش مجاز است.  ",
+    });
+    assert.ok(result.ok);
+    const note = "Call before delivery.\nتحویل به برادرش مجاز است.";
+    assert.equal(await getPersonNote("fixture-vault", result.id), note);
+    assert.deepEqual(eventPayload("person_note_set"), { note });
+    assert.equal(eventPayload("person_added").note, undefined);
+    assert.equal(count("event_log"), 2);
+  });
+  await test("a failed note save rolls back the new contact and its identity event", async () => {
+    failEventType = "person_note_set";
+    await assert.rejects(
+      db.createPerson("Synthetic", "Customer", null, "AF", { note: "Delivery instructions" }),
+      (error) => error === appendFailure,
+    );
+    assert.equal(count("users"), 0);
+    assert.equal(count("relationships"), 0);
+    assert.equal(count("event_log"), 0);
+    assert.equal(contactWrites, 0);
+  });
+  await test("blank notes use the existing create path; long notes never create a contact", async () => {
+    const result = await db.createPerson("Synthetic", "Customer", null, "AF", { note: " \n " });
+    assert.ok(result.ok);
+    assert.equal(await getPersonNote("fixture-vault", result.id), null);
+    assert.equal(count("event_log"), 1);
+    await assert.rejects(
+      db.createPerson("Too", "Long", null, "AF", { note: "ن".repeat(2001) }),
+      /too long/,
+    );
+    assert.equal(count("users"), 1);
+    assert.equal(count("event_log"), 1);
+    assert.equal(normalizeCustomerNote("🙂".repeat(2000)), "🙂".repeat(2000));
+  });
+  await test("notes are scoped to each Kaata and archived contacts are excluded", async () => {
+    const result = await db.createPerson("Synthetic", "Customer", null, "AF", {
+      note: "First book",
+    });
+    assert.ok(result.ok);
+    fixture.exec("INSERT INTO vaults(id) VALUES ('other-vault')");
+    fixture
+      .prepare(
+        `INSERT INTO relationships
+      (id,user_a_id,user_b_id,context,vault_id,created_at,updated_at,note)
+      VALUES('other-rel','fixture-self',?,'peer','other-vault',1,1,'Second book')`,
+      )
+      .run(result.id);
+    assert.equal(await getPersonNote("other-vault", result.id), "Second book");
+    assert.equal(await getPersonNote("fixture-vault", result.id), "First book");
+    assert.equal(await getPersonNote("unrelated-vault", result.id), null);
+    fixture.prepare("UPDATE relationships SET archived_at=99 WHERE vault_id='other-vault'").run();
+    assert.equal(await getPersonNote("other-vault", result.id), null);
+    assert.equal(await getPersonNote("fixture-vault", result.id), "First book");
+  });
+  await test("editing contact details preserves an untouched note; explicit blank clears it", async () => {
+    const result = await db.createPerson("Synthetic", "Customer", null, "AF", { note: "Original" });
+    assert.ok(result.ok);
+    await db.updatePerson(result.id, "New", "Name", null, "AF", { vaultId: "fixture-vault" });
+    assert.equal(await getPersonNote("fixture-vault", result.id), "Original");
+    assert.equal(count("event_log"), 3);
+    await db.updatePerson(result.id, "New", "Name", null, "AF", {
+      vaultId: "fixture-vault",
+      note: "\n ",
+      expectedNote: "Original",
+    });
+    assert.equal(await getPersonNote("fixture-vault", result.id), null);
+    assert.equal(count("event_log"), 4);
+  });
+  await test("stale instructions refuse the entire edit rather than overwriting another staff member", async () => {
+    const result = await db.createPerson("Synthetic", "Customer", null, "AF", { note: "Latest" });
+    assert.ok(result.ok);
+    await assert.rejects(
+      db.updatePerson(result.id, "Stale", "Rename", null, "AF", {
+        vaultId: "fixture-vault",
+        note: "Old draft",
+        expectedNote: "Older note",
+      }),
+      /note changed/,
+    );
+    assert.equal(await getPersonNote("fixture-vault", result.id), "Latest");
+    assert.equal(
+      (fixture.prepare("SELECT display_name FROM users WHERE id=?").get(result.id) as any)
+        .display_name,
+      "Synthetic Customer",
+    );
+    assert.equal(count("event_log"), 2);
+  });
+  await test("contact rename and changed note roll back together if the note event fails", async () => {
+    const result = await db.createPerson("Synthetic", "Customer", null, "AF", { note: "Keep" });
+    assert.ok(result.ok);
+    failEventType = "person_note_set";
+    await assert.rejects(
+      db.updatePerson(result.id, "Changed", "Name", null, "AF", {
+        vaultId: "fixture-vault",
+        note: "Replace",
+        expectedNote: "Keep",
+      }),
+      (error) => error === appendFailure,
+    );
+    assert.equal(await getPersonNote("fixture-vault", result.id), "Keep");
+    assert.equal(
+      (fixture.prepare("SELECT display_name FROM users WHERE id=?").get(result.id) as any)
+        .display_name,
+      "Synthetic Customer",
+    );
+    assert.equal(count("event_log"), 2);
+  });
   for (const input of [
     "0412345678",
     "412345678",

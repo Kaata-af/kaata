@@ -434,7 +434,7 @@ function AuditRow(props: {
           <Text style={[styles.rowMeta, textDir(isRTL)]} numberOfLines={1}>
             {display} · {formatRelative(entry.occurred_at)}
           </Text>
-          {!expanded ? (
+          {!expanded && entry.kind !== "person_note_set" ? (
             <Text style={[styles.previewText, textDir(isRTL)]} numberOfLines={1}>
               {previewPayload(entry.payload)}
             </Text>
@@ -536,6 +536,8 @@ function humanizeKind(kind: string, payload: Record<string, unknown> | null): st
       return t("auditLog.kind.local.personAdded");
     case "person_renamed":
       return t("auditLog.kind.local.personRenamed");
+    case "person_note_set":
+      return t("auditLog.kind.local.personNoteUpdated");
     case "person_default_currency_set":
       return payload && typeof payload.currency === "string"
         ? t("auditLog.kind.local.personDefaultCurrencySet", { code: payload.currency })

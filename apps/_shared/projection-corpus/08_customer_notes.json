@@ -1,0 +1,151 @@
+{
+  "name": "customer_notes",
+  "description": "Internal notes belong to each relationship, even for the same person in two Kaatas. Signed clears and independent HLC registers prevent stale offline notes from returning.",
+  "events": [
+    {
+      "event_id": "person-book-one",
+      "event_type": "person_added",
+      "vault_id": "v1",
+      "target_id": "u",
+      "relationship_id": "r1",
+      "hlc": { "pms": 1, "l": 0, "did": "test" },
+      "device_id": "test",
+      "author_user_id_local_only": "self",
+      "actor_account_id": null,
+      "payload_schema": 1,
+      "payload": {
+        "user_id": "u",
+        "name": "Synthetic customer",
+        "phone_e164": null,
+        "relationship_context": "peer"
+      }
+    },
+    {
+      "event_id": "person-book-two",
+      "event_type": "person_added",
+      "vault_id": "v2",
+      "target_id": "u",
+      "relationship_id": "r2",
+      "hlc": { "pms": 2, "l": 0, "did": "test" },
+      "device_id": "test",
+      "author_user_id_local_only": "self",
+      "actor_account_id": null,
+      "payload_schema": 1,
+      "payload": {
+        "user_id": "u",
+        "name": "Synthetic customer",
+        "phone_e164": null,
+        "relationship_context": "peer"
+      }
+    },
+    {
+      "event_id": "first-note",
+      "event_type": "person_note_set",
+      "vault_id": "v1",
+      "target_id": "r1",
+      "relationship_id": "r1",
+      "hlc": { "pms": 10, "l": 0, "did": "test" },
+      "device_id": "test",
+      "author_user_id_local_only": "self",
+      "actor_account_id": null,
+      "payload_schema": 1,
+      "payload": { "note": "Deliver after five." }
+    },
+    {
+      "event_id": "other-book-note",
+      "event_type": "person_note_set",
+      "vault_id": "v2",
+      "target_id": "r2",
+      "relationship_id": "r2",
+      "hlc": { "pms": 20, "l": 0, "did": "test" },
+      "device_id": "test",
+      "author_user_id_local_only": "self",
+      "actor_account_id": null,
+      "payload_schema": 1,
+      "payload": { "note": "Keep the receipt.\nبا دفتر تماس بگیرید" }
+    },
+    {
+      "event_id": "clear-note",
+      "event_type": "person_note_set",
+      "vault_id": "v1",
+      "target_id": "r1",
+      "relationship_id": "r1",
+      "hlc": { "pms": 40, "l": 0, "did": "test" },
+      "device_id": "test",
+      "author_user_id_local_only": "self",
+      "actor_account_id": null,
+      "payload_schema": 1,
+      "payload": { "note": null }
+    },
+    {
+      "event_id": "late-offline-note",
+      "event_type": "person_note_set",
+      "vault_id": "v1",
+      "target_id": "r1",
+      "relationship_id": "r1",
+      "hlc": { "pms": 30, "l": 0, "did": "test" },
+      "device_id": "test",
+      "author_user_id_local_only": "self",
+      "actor_account_id": null,
+      "payload_schema": 1,
+      "payload": { "note": "Older instructions must not return." }
+    },
+    {
+      "event_id": "stale-other-book-note",
+      "event_type": "person_note_set",
+      "vault_id": "v2",
+      "target_id": "r2",
+      "relationship_id": "r2",
+      "hlc": { "pms": 15, "l": 0, "did": "test" },
+      "device_id": "test",
+      "author_user_id_local_only": "self",
+      "actor_account_id": null,
+      "payload_schema": 1,
+      "payload": { "note": "Stale other-book instructions." }
+    }
+  ],
+  "expected_projection": {
+    "users": {
+      "u": {
+        "id": "u",
+        "phone_e164": null,
+        "display_name": "Synthetic customer",
+        "is_local_self": false,
+        "google_sub": null,
+        "account_id": null,
+        "created_at": 2,
+        "updated_at": 2,
+        "archived_at": null
+      }
+    },
+    "relationships": {
+      "r1": {
+        "id": "r1",
+        "user_a_id": "self",
+        "user_b_id": "u",
+        "context": "peer",
+        "vault_id": "v1",
+        "created_at": 1,
+        "updated_at": 1,
+        "archived_at": null,
+        "note_field_hlc": { "pms": 40, "l": 0, "did": "test" }
+      },
+      "r2": {
+        "id": "r2",
+        "user_a_id": "self",
+        "user_b_id": "u",
+        "context": "peer",
+        "vault_id": "v2",
+        "created_at": 2,
+        "updated_at": 2,
+        "archived_at": null,
+        "note": "Keep the receipt.\nبا دفتر تماس بگیرید",
+        "note_field_hlc": { "pms": 20, "l": 0, "did": "test" }
+      }
+    },
+    "entries": {},
+    "shop_profile": null,
+    "members": {},
+    "vault_settings": {}
+  }
+}

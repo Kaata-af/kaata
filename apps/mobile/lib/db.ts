@@ -51,6 +51,7 @@ import { serializeHLC } from "./hlc";
 import { groupIdsFromPayload, storedGroupIds } from "./group-memberships";
 import { signedEntryMinorSumSql } from "./money-sql";
 import { entryRecordedAtSql, isValidEntryDate } from "./entry-date";
+import { normalizeCustomerNote } from "./customer-note";
 import {
   createVaultWithCurrencies,
   validateInitialVaultCurrencies,
@@ -146,6 +147,7 @@ const MIGRATION_044 = "044_entry_original_currency";
 const MIGRATION_045 = "045_unjoined_invitation";
 const MIGRATION_046 = "046_tab_recording_mode";
 const MIGRATION_047 = "047_multi_currency_tab_groups";
+const MIGRATION_048 = "048_customer_notes";
 
 // Phase 5 mesh: app_meta keys used by the lib/mesh package. They are NOT
 // referenced from db.ts directly — the table itself is the generic key/value
@@ -587,6 +589,7 @@ export async function initDb(opts: { installId?: string } = {}): Promise<void> {
   if (!(await hasRunMigration(db, MIGRATION_045))) await runMigration045(db);
   if (!(await hasRunMigration(db, MIGRATION_046))) await runMigration046(db);
   if (!(await hasRunMigration(db, MIGRATION_047))) await runMigration047(db);
+  if (!(await hasRunMigration(db, MIGRATION_048))) await runMigration048(db);
 }
 
 async function hasRunMigration(db: SQLite.SQLiteDatabase, name: string): Promise<boolean> {
@@ -3804,6 +3807,18 @@ async function runMigration047(db: SQLite.SQLiteDatabase): Promise<void> {
   });
 }
 
+async function runMigration048(db: SQLite.SQLiteDatabase): Promise<void> {
+  await db.withTransactionAsync(async () => {
+    if (!(await columnExists(db, "relationships", "note")))
+      await db.execAsync("ALTER TABLE relationships ADD COLUMN note TEXT");
+    await db.runAsync(
+      "INSERT INTO schema_migrations(name,applied_at) VALUES (?,?)",
+      MIGRATION_048,
+      Date.now(),
+    );
+  });
+}
+
 async function getLocalSelfUserId(db: SQLite.SQLiteDatabase): Promise<string | null> {
   const row = await db.getFirstAsync<{ id: string }>(
     "SELECT id FROM users WHERE is_local_self = 1 LIMIT 1",
@@ -4384,9 +4399,33 @@ export async function createPerson(
   lastName: string | null,
   phone: string | null,
   countryCode?: string,
+  options?: { note?: string | null },
 ): Promise<CreatePersonResult> {
+  const note = options?.note === undefined ? undefined : normalizeCustomerNote(options.note);
+  // The optional private instructions belong to the form's original Kaata,
+  // even if opening the database or checking a phone yields to a book switch.
+  const noteScope = note
+    ? {
+        vaultId: getActiveVaultIdSync(),
+        accountId: getAccountIdSync(),
+        installId: getInstallIdSync(),
+        self: getLocalSelfUserIdSync(),
+      }
+    : null;
+  const assertNoteScope = () => {
+    if (
+      noteScope &&
+      (getActiveVaultIdSyncMaybe() !== noteScope.vaultId ||
+        getAccountIdSync() !== noteScope.accountId ||
+        getInstallIdSync() !== noteScope.installId ||
+        getLocalSelfUserIdSync() !== noteScope.self)
+    )
+      throw new Error("Contact creation changed scope");
+  };
   const db = await getDb();
+  assertNoteScope();
   const localSelf = await getLocalSelfUserId(db);
+  assertNoteScope();
   if (!localSelf) throw new Error("local user not yet created");
   const vaultId = getActiveVaultIdSync();
   const name = joinName(firstName, lastName);
@@ -4411,6 +4450,7 @@ export async function createPerson(
       return { ok: false, error: "phone_is_self" };
     }
     const conflict = await findPhoneConflictInVault(np, vaultId, null);
+    assertNoteScope();
     if (conflict) {
       return {
         ok: false,
@@ -4423,12 +4463,14 @@ export async function createPerson(
 
   const id = Crypto.randomUUID();
   const relId = Crypto.randomUUID();
+  assertNoteScope();
   await appendPersonAdded({
     userId: id,
     relationshipId: relId,
     name,
     phoneE164,
     vaultId,
+    note,
   });
 
   // Keep the phone book "one with" the app: best-effort, fire-and-forget, deduped.
@@ -5824,6 +5866,8 @@ export async function updatePerson(
   expected?: import("./person-currency").PersonCurrencyMutationOptions & {
     defaultCurrency?: string | null;
     vaultId?: string;
+    note?: string | null;
+    expectedNote?: string | null;
   },
 ): Promise<UpdatePersonResult> {
   const accountId = getAccountIdSync();
@@ -5928,6 +5972,8 @@ export async function updatePerson(
         phoneE164: phoneChanged ? nextPhone : undefined,
         defaultCurrency: expected.defaultCurrency,
         expectedDefaultCurrency: expected.expectedDefaultCurrency,
+        note: expected.note,
+        expectedNote: expected.expectedNote,
         expectedAccountId: accountId,
         shouldContinue: expected.shouldContinue,
         preflight: async (tx) => {

@@ -95,6 +95,7 @@ type WebLedgerPerson struct {
 	IsSettled            *bool            `json:"is_settled"`
 	PhoneE164            *string          `json:"phone_e164"`
 	DefaultEntryCurrency *string          `json:"default_entry_currency"`
+	Note                 *string          `json:"note,omitempty"`
 	ArchivedAt           *int64           `json:"archived_at"`
 	ReadOnly             bool             `json:"read_only"`
 	ReadOnlyReason       *string          `json:"read_only_reason"`
@@ -279,6 +280,7 @@ func populateWebLedger(view *WebLedger, p *Projection, events []LedgerEvent, lin
 		}
 		person := WebLedgerPerson{RelationshipID: rel.ID, UserID: user.ID, Name: user.DisplayName, CreatedAt: user.CreatedAt,
 			PhoneE164: user.PhoneE164, DefaultEntryCurrency: rel.DefaultEntryCurrency, ArchivedAt: rel.ArchivedAt,
+			Note:           rel.Note,
 			SettledThrough: map[string]int64{}}
 		for _, closed := range settlements[rel.ID] {
 			if closed.at > person.SettledThrough[closed.currency] {

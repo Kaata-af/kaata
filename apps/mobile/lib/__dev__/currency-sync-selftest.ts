@@ -3,6 +3,7 @@ import {
   ensureCurrencySyncSupported,
   currencyRequestHeaders,
   supportsPersonDefaultCurrencySync,
+  supportsPersonNotesSync,
   supportsEntryCurrencyEditSync,
 } from "../currency-sync";
 import { compileUI } from "./ui-fixture";
@@ -56,6 +57,16 @@ async function main() {
       await supportsPersonDefaultCurrencySync("https://currency-test.invalid", "jwt"),
       false,
     );
+    for (const flag of [undefined, false, "true", 1, true]) {
+      globalThis.fetch = async () => Response.json({ multi_currency: true, person_notes: flag });
+      assert.equal(await supportsPersonNotesSync("https://notes.invalid", "jwt"), flag === true);
+    }
+    globalThis.fetch = async () => new Response(null, { status: 404 });
+    assert.equal(await supportsPersonNotesSync("https://notes.invalid", "jwt"), false);
+    globalThis.fetch = async () => {
+      throw new Error("offline");
+    };
+    assert.equal(await supportsPersonNotesSync("https://notes.invalid", "jwt"), false);
     for (const flag of [undefined, false, "true", 1, true]) {
       globalThis.fetch = async (_url, init) => {
         assert.equal((init?.headers as Record<string, string>)["X-Kaata-Entry-Currency-Edit"], "1");

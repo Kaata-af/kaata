@@ -120,6 +120,7 @@ function fixture() {
     "../sync/pull",
     {
       "../api": { getBackendUrl: async () => "https://synthetic.invalid" },
+      "../person-note-sync": { syncPersonNotesHistory: async () => false },
       "../auth": {
         getSessionJWT: async () => "synthetic-jwt",
         applyForCurrentSession: async (

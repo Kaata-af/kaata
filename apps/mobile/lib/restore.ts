@@ -106,6 +106,8 @@ export type Snapshot = {
   // Signed per-contact defaults, including null resets. Read independently of
   // the snapshot cursor so a cached projection cannot lose newer preferences.
   person_currency_events?: LedgerEvent[];
+  // Internal relationship notes, including signed clears before the cursor.
+  person_note_events?: LedgerEvent[];
   // Settle-up (2026-07-27): every entry_settled chapter marker, cursor-
   // independent like the membership chain — the settlements projection is
   // mobile-only, so without these a snapshot restore keeps the entries but
@@ -667,6 +669,9 @@ export async function restoreFromSnapshot(
   const personCurrencyEvents = (snapshot.person_currency_events ?? [])
     .map((ev) => mapPulledWireToEvent(ev as unknown as PulledWireEvent, snapshot.vault.id))
     .filter((ev) => ev.event_type === "person_default_currency_set");
+  const personNoteEvents = (snapshot.person_note_events ?? [])
+    .map((ev) => mapPulledWireToEvent(ev as unknown as PulledWireEvent, snapshot.vault.id))
+    .filter((ev) => ev.event_type === "person_note_set");
   const tailEvents = snapshot.events.map((ev) =>
     mapPulledWireToEvent(ev as unknown as PulledWireEvent, snapshot.vault.id),
   );
@@ -674,6 +679,7 @@ export async function restoreFromSnapshot(
   await ingestPulledEvents(enabledCurrencyEvents, now);
   await ingestPulledEvents(billLinkEvents, now);
   await ingestPulledEvents(personCurrencyEvents, now);
+  await ingestPulledEvents(personNoteEvents, now);
   await ingestPulledEvents(settlementEvents, now);
   appliedEvents += await ingestPulledEvents(tailEvents, now);
 

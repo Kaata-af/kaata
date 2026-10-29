@@ -147,6 +147,12 @@ export type PersonDefaultCurrencySetEvent = EventEnvelope & {
   payload: { currency: string | null };
 };
 
+/** Internal instructions for this contact in one Kaata; never a shared tally. */
+export type PersonNoteSetEvent = EventEnvelope & {
+  event_type: "person_note_set";
+  payload: { note: string | null };
+};
+
 export type PersonArchivedEvent = EventEnvelope & {
   event_type: "person_archived";
   payload: Record<string, never>;
@@ -278,6 +284,7 @@ export type LedgerEvent =
   | PersonRenamedEvent
   | PersonPhoneChangedEvent
   | PersonDefaultCurrencySetEvent
+  | PersonNoteSetEvent
   | PersonArchivedEvent
   | PersonUnarchivedEvent
   | CustomerGroupEvent
@@ -306,6 +313,7 @@ export const KNOWN_EVENT_TYPES: ReadonlySet<EventType> = new Set([
   "person_renamed",
   "person_phone_changed",
   "person_default_currency_set",
+  "person_note_set",
   "person_archived",
   "person_unarchived",
   "group_created",
@@ -336,6 +344,7 @@ export function isKnownEventType(t: string): t is EventType {
 // resurface forever.
 const USER_LEDGER_EVENT_TYPES: ReadonlySet<string> = new Set<string>([
   "person_default_currency_set",
+  "person_note_set",
   "group_created",
   "group_renamed",
   "group_archived",

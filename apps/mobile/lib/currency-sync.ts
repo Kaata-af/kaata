@@ -71,6 +71,24 @@ export async function supportsPersonDefaultCurrencySync(
   }
 }
 
+/** Keep private contact notes queued until the server can retain and restore them. */
+export async function supportsPersonNotesSync(baseUrl: string, jwt: string): Promise<boolean> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 6000);
+  try {
+    const response = await fetch(`${baseUrl}/v1/sync/capabilities`, {
+      headers: { ...CURRENCY_SYNC_HEADERS, Authorization: `Bearer ${jwt}` },
+      signal: controller.signal,
+    });
+    const body = response.ok ? await response.json() : null;
+    return body?.person_notes === true;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /** Never submit a signed currency edit to a server that still treats the unit
  * as immutable. Leave it and all later dependent writes queued unchanged. */
 export async function supportsEntryCurrencyEditSync(
