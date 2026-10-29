@@ -2624,6 +2624,7 @@ export default function PersonDetailScreen() {
             ) : null}
             <GestureDetector gesture={nativeTallyScroll}>
               <ScrollView
+                directionalLockEnabled
                 ref={scrollRef}
                 onLayout={(event) => {
                   viewport.current.height = event.nativeEvent.layout.height;

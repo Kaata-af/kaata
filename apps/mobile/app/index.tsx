@@ -2665,6 +2665,7 @@ function HomePage(
           ref={props.scrollRef}
           style={styles.body}
           scrollEnabled={props.active}
+          directionalLockEnabled
           bounces
           alwaysBounceVertical
           overScrollMode="always"

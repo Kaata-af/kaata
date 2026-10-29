@@ -12,9 +12,14 @@ type Swipe = {
 };
 type Pan = {
   config: Record<string, unknown>;
+  recognizer: {
+    state: "possible" | "active" | "failed";
+    activations: number;
+    failures: number;
+  };
   begin: (event: Swipe) => void;
   start: (event: Swipe) => void;
-  move: (event: any, manager: { fail: () => void }) => void;
+  move: (event: any, manager: { fail: () => void; activate: () => void }) => void;
   update: (event: Swipe) => void;
   end: (event: Swipe, success?: boolean) => void;
   finalize: () => void;
@@ -56,6 +61,7 @@ function fixture() {
   const animations: Animation[] = [];
   const handoffs: (() => void)[] = [];
   let handoffCount = 0;
+  let activationSample: Swipe | null = null;
   const changes: CustomerBalanceFilter[] = [];
   const child = jsx("CustomerContent", { children: "one list or empty state" });
   const nativeGesture = { native: "vertical-scroll" };
@@ -152,13 +158,17 @@ function fixture() {
         GestureDetector: "GestureDetector",
         Gesture: {
           Pan: () => {
-            const pan: any = { config: {} };
+            const pan: any = {
+              config: {},
+              recognizer: { state: "possible", activations: 0, failures: 0 },
+            };
             for (const key of [
               "enabled",
               "maxPointers",
+              "manualActivation",
               "activeOffsetX",
               "failOffsetY",
-              "simultaneousWithExternalGesture",
+              "blocksExternalGesture",
             ])
               pan[key] = (value: unknown) => {
                 pan.config[key] = value;
@@ -172,8 +182,14 @@ function fixture() {
               ["onEnd", "end"],
               ["onFinalize", "finalize"],
             ])
-              pan[method] = (callback: unknown) => {
-                pan[handler] = callback;
+              pan[method] = (callback: (...args: any[]) => void) => {
+                pan[handler] =
+                  handler === "begin"
+                    ? (...args: any[]) => {
+                        pan.recognizer = { state: "possible", activations: 0, failures: 0 };
+                        callback(...args);
+                      }
+                    : callback;
                 return pan;
               };
             return pan;
@@ -200,9 +216,34 @@ function fixture() {
     velocityX: velocity,
     numberOfPointers: pointers,
   });
+  // Exercise the same touch-move -> native manager activation -> onStart
+  // sequence as a manual RNGH recognizer. A failed recognizer cannot resume
+  // on a later move; an active exclusive Pan keeps the native scroll blocked.
+  const move = (pan: Pan, x: number, y = 0, touches = 1) => {
+    if (pan.recognizer.state === "failed") return;
+    const sample = event(x, 0, y, touches);
+    pan.move(
+      { numberOfTouches: touches, allTouches: [sample] },
+      {
+        fail: () => {
+          pan.recognizer.failures++;
+          pan.recognizer.state = "failed";
+        },
+        activate: () => {
+          if (pan.recognizer.state !== "possible") return;
+          pan.recognizer.activations++;
+          pan.recognizer.state = "active";
+          const nativeSample = activationSample ?? sample;
+          activationSample = null;
+          pan.start(nativeSample);
+        },
+      },
+    );
+    if (pan.recognizer.state === "active") pan.update(sample);
+  };
   const begin = (pan = gesture()) => {
     pan.begin(event());
-    pan.start(event(25));
+    move(pan, 25);
     return pan;
   };
   const finishAnimations = () => {
@@ -246,7 +287,11 @@ function fixture() {
     frames,
     gesture,
     begin,
+    move,
     event,
+    activateWith(sample: Swipe) {
+      activationSample = sample;
+    },
     swipe,
     settle,
     finishAnimations,
@@ -299,9 +344,10 @@ for (const direction of ["all", "collect", "pay"] as const) {
   assert.deepEqual(f.gesture().config, {
     enabled: true,
     maxPointers: 1,
+    manualActivation: true,
     activeOffsetX: [-24, 24],
     failOffsetY: [-16, 16],
-    simultaneousWithExternalGesture: f.nativeGesture,
+    blocksExternalGesture: f.nativeGesture,
   });
   const wrapper = nodes(f.hooks.tree).find((node) => node.type === "Animated.View")!;
   assert.equal(wrapper.props.collapsable, false);
@@ -340,6 +386,45 @@ for (const sign of [-1, 1]) {
   assert.equal(f.frames.size, 0, "Every accepted toggle receives its own committed render");
   assert.equal(f.offset, 0);
   assert.equal(f.animations.at(-1)!.from, sign * 24, "Clearing a side keeps the incoming motion");
+}
+
+for (const sign of [-1, 1]) {
+  const f = fixture();
+  const pan = f.gesture();
+  pan.begin(f.event());
+  f.move(pan, sign * 8);
+  f.move(pan, sign * 22);
+  assert.equal(pan.recognizer.state, "possible");
+  // Android can emit onStart with the preceding MOVE, even though the current
+  // touches sample already crossed the manual horizontal activation threshold.
+  f.activateWith(f.event(sign * 22));
+  f.move(pan, sign * 29);
+  assert.equal(pan.recognizer.state, "active");
+  assert.equal(pan.recognizer.activations, 1);
+  assert.equal(
+    f.offset,
+    sign * 29 * 0.65,
+    "A lagging native activation sample cannot block the validated drag",
+  );
+  f.move(pan, sign * 60, 25);
+  assert.equal(f.offset, sign * 39, "Later updates use current absolute touch coordinates");
+  pan.end(f.event(sign * 60, 0, 25), true);
+  pan.finalize();
+  f.settle();
+  assert.deepEqual(f.changes, [sign < 0 ? "pay" : "collect"]);
+}
+
+{
+  const f = fixture();
+  const pan = f.gesture();
+  pan.begin(f.event());
+  pan.start(f.event(60));
+  pan.update(f.event(60));
+  pan.end(f.event(60), true);
+  pan.finalize();
+  f.settle();
+  assert.equal(f.offset, 0);
+  assert.deepEqual(f.changes, [], "An unsolicited onStart cannot bypass manual axis validation");
 }
 
 {
@@ -406,10 +491,11 @@ for (const sign of [-1, 1]) {
   pan.update(f.event(-60));
   assert.equal(f.offset, -39);
   f.time(1200);
-  let failures = 0;
-  pan.move({ numberOfTouches: 1, allTouches: [f.event(-60, 0, 25)] }, { fail: () => failures++ });
-  pan.update(f.event(-60, 0, 25));
+  f.move(pan, -60, 25);
   assert.equal(f.offset, -39, "Holding with vertical drift keeps the active horizontal offset");
+  assert.equal(pan.recognizer.state, "active", "Vertical drift cannot acquire native scrolling");
+  assert.equal(pan.recognizer.activations, 1, "The horizontal axis is chosen only once per touch");
+  assert.equal(pan.config.blocksExternalGesture, f.nativeGesture);
   pan.update(f.event(-20, 0, 21));
   assert.equal(f.offset, -13, "Vertical drift cannot snap a held drag to zero");
   pan.update(f.event(Number.NaN));
@@ -417,7 +503,7 @@ for (const sign of [-1, 1]) {
   f.update({ onDirectionChange: (side) => f.changes.push(side) });
   assert.equal(f.offset, -13, "An ordinary rerender does not move a held finger");
   assert.equal(f.animations.length, 0, "No return animation runs before release");
-  assert.equal(failures, 0);
+  assert.equal(pan.recognizer.failures, 0);
   assert.deepEqual(f.changes, []);
   pan.end(f.event(-20, 0, 21), true);
   pan.finalize();
@@ -436,16 +522,18 @@ for (const sign of [-1, 1]) {
   const pan = f.gesture();
   pan.begin(f.event());
   f.time(200);
-  pan.move({ numberOfTouches: 1, allTouches: [f.event(sign * 8)] }, { fail: () => assert.fail() });
+  f.move(pan, sign * 8);
+  assert.equal(pan.recognizer.state, "possible", "Early movement retains a slow horizontal stroke");
   f.time(700);
-  pan.start(f.event(sign * 25));
+  f.move(pan, sign * 25);
+  assert.equal(pan.recognizer.state, "active");
   for (const [time, x, y] of [
     [1000, 60, 12],
     [2000, 140, 30],
     [4000, 220, 55],
   ]) {
     f.time(time);
-    pan.update(f.event(sign * x, 0, y));
+    f.move(pan, sign * x, y);
   }
   assert.equal(f.offset, sign * 96);
   assert.equal(f.animations.length, 0, "Slow movement stays under the finger until release");
@@ -466,12 +554,22 @@ for (const [x, y] of [
   [25, 15],
   [25, 20],
   [0, 30],
+  [8, 17],
+  [Number.NaN, 0],
+  [25, Number.NaN],
 ]) {
   const f = fixture();
   const pan = f.gesture();
   pan.begin(f.event());
-  pan.start(f.event(x, 0, y));
-  pan.update(f.event(200));
+  f.move(pan, x, y);
+  assert.equal(pan.recognizer.state, "failed", "Non-horizontal intent yields before activation");
+  assert.equal(
+    pan.recognizer.activations,
+    0,
+    "Rejected diagonal intent cannot cancel native scroll",
+  );
+  assert.equal(f.offset, 0, "A diagonal/vertical first move never moves the list sideways");
+  f.move(pan, 200);
   pan.end(f.event(200), true);
   pan.finalize();
   f.settle();
@@ -480,6 +578,20 @@ for (const [x, y] of [
     [],
     "Initial diagonal or vertical intent cannot become a filter swipe",
   );
+  assert.equal(pan.recognizer.activations, 0, "Vertical scrolling cannot switch axes mid-touch");
+}
+
+{
+  const f = fixture();
+  const pan = f.gesture();
+  pan.begin(f.event());
+  f.move(pan, 30, 0, 2);
+  assert.equal(pan.recognizer.state, "failed");
+  assert.equal(pan.recognizer.activations, 0, "A two-finger first move never acquires the filter");
+  pan.end(f.event(90), true);
+  pan.finalize();
+  f.settle();
+  assert.deepEqual(f.changes, []);
 }
 
 {
@@ -638,24 +750,23 @@ for (const change of [
 
 {
   const f = fixture();
-  let failures = 0;
   const held = f.gesture();
   held.begin(f.event());
   f.time(400);
-  held.move({ numberOfTouches: 1, allTouches: [f.event(60)] }, { fail: () => failures++ });
-  held.start(f.event(60));
+  f.move(held, 60);
   held.end(f.event(60), true);
   held.finalize();
   f.settle();
-  assert.equal(failures, 1);
+  assert.equal(held.recognizer.failures, 1);
+  assert.equal(held.recognizer.activations, 0);
   assert.deepEqual(f.changes, [], "A stationary row hold does not become a filter swipe");
   const slow = f.gesture();
   slow.begin(f.event());
   f.time(500);
-  slow.move({ numberOfTouches: 1, allTouches: [f.event(7)] }, { fail: () => failures++ });
+  f.move(slow, 7);
   f.time(1100);
-  slow.start(f.event(25));
-  slow.update(f.event(-60));
+  f.move(slow, 25);
+  f.move(slow, -60);
   slow.end(f.event(-60), true);
   slow.finalize();
   f.settle();
@@ -712,5 +823,5 @@ for (const change of [
 }
 
 console.log(
-  "PASS animated list-only balance swipes: UI finger feedback, deferred single commit, native scroll relation, motion reduction, cancellation and scoped ABA guards",
+  "PASS animated list-only balance swipes: exclusive per-touch axis ownership, diagonal/vertical rejection before native activation, held horizontal drift, slow strokes, deferred single commit, motion reduction, cancellation and scoped ABA guards",
 );

@@ -18,8 +18,8 @@ import { scheduleOnRN } from "react-native-worklets";
 import type { CustomerBalanceFilter } from "../lib/customer-list";
 import { useSheetMotionPreference } from "./SheetBackdrop";
 
-/** Only the customer content moves. The summary keeps its independent currency
- * scroller, while the parent's native gesture continues to own vertical scroll. */
+/** The list chooses one axis per touch. A horizontal filter drag blocks native
+ * vertical scrolling until release; the summary keeps its own currency scroller. */
 export function HomeBalanceFilterSwipe(props: {
   enabled: boolean;
   contextKey: string;
@@ -58,6 +58,7 @@ export function HomeBalanceFilterSwipe(props: {
     y: 0,
     startedAt: 0,
     active: false,
+    activationRequested: false,
     moving: false,
     blocked: true,
     commitRequested: false,
@@ -203,6 +204,7 @@ export function HomeBalanceFilterSwipe(props: {
     const gesture = Gesture.Pan()
       .enabled(props.enabled)
       .maxPointers(1)
+      .manualActivation(true)
       .activeOffsetX([-24, 24])
       .failOffsetY([-16, 16])
       .onBegin((event) => {
@@ -218,6 +220,7 @@ export function HomeBalanceFilterSwipe(props: {
           y: event.absoluteY,
           startedAt: performance.now(),
           active: false,
+          activationRequested: false,
           moving: false,
           blocked: !Number.isFinite(event.absoluteX) || !Number.isFinite(event.absoluteY),
           commitRequested: false,
@@ -239,38 +242,42 @@ export function HomeBalanceFilterSwipe(props: {
           manager.fail();
           return;
         }
+        // Decide before activating: an active Pan would already cancel the
+        // native scroll, so rejecting a diagonal in onStart would strand both.
+        if (current.active) return;
         const touch = event.allTouches[0];
-        if (!current.moving && touch) {
-          const x = touch.absoluteX - current.x;
-          const y = touch.absoluteY - current.y;
-          if (
-            Number.isFinite(x) &&
-            Number.isFinite(y) &&
-            Math.abs(x) >= 6 &&
-            Math.abs(y) <= 16 &&
-            Math.abs(x) >= Math.abs(y) * 2
-          ) {
-            stroke.value = { ...current, moving: true };
-          }
+        const x = touch ? touch.absoluteX - current.x : NaN;
+        const y = touch ? touch.absoluteY - current.y : NaN;
+        const horizontal = Math.abs(x);
+        const vertical = Math.abs(y);
+        if (
+          !Number.isFinite(x) ||
+          !Number.isFinite(y) ||
+          vertical > 16 ||
+          (horizontal >= 24 && horizontal < vertical * 2)
+        ) {
+          stroke.value = { ...current, blocked: true };
+          settle();
+          manager.fail();
+          return;
+        }
+        if (!current.moving && horizontal >= 6 && horizontal >= vertical * 2)
+          stroke.value = { ...current, moving: true };
+        if (horizontal >= 24) {
+          stroke.value = { ...stroke.value, activationRequested: true };
+          manager.activate();
         }
       })
       .onStart((event) => {
         "worklet";
         const current = stroke.value;
         if (current.epoch !== epoch || lease.value.epoch !== epoch) return;
-        const x = event.absoluteX - current.x;
-        const y = event.absoluteY - current.y;
+        // On Android the activation event can contain the previous MOVE's
+        // coordinates. The current touch sample already validated the axis.
         stroke.value = {
           ...current,
           active: true,
-          blocked:
-            current.blocked ||
-            (!current.moving && performance.now() - current.startedAt >= 350) ||
-            !Number.isFinite(x) ||
-            !Number.isFinite(y) ||
-            Math.abs(x) < 24 ||
-            Math.abs(y) > 16 ||
-            (!current.moving && Math.abs(x) < Math.abs(y) * 2),
+          blocked: current.blocked || !current.activationRequested,
         };
       })
       .onUpdate((event) => {
@@ -353,9 +360,9 @@ export function HomeBalanceFilterSwipe(props: {
         if (current.active && !current.commitRequested) settle();
         stroke.value = { ...current, active: false, blocked: true };
       });
-    return props.nativeGesture
-      ? gesture.simultaneousWithExternalGesture(props.nativeGesture)
-      : gesture;
+    // The parent waits for our axis decision. Failure hands this touch to the
+    // ScrollView; horizontal activation excludes it for the entire stroke.
+    return props.nativeGesture ? gesture.blocksExternalGesture(props.nativeGesture) : gesture;
   }, [props.enabled, props.nativeGesture, epoch, lease, stroke, offset, complete]);
   const animatedStyle = useAnimatedStyle(() => ({ transform: [{ translateX: offset.value }] }));
   return (
