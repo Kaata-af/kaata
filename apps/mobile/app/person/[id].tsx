@@ -2428,9 +2428,22 @@ export default function PersonDetailScreen() {
   );
   const balanceRows = personCurrencyRows(person);
   const singleBalanceCurrency = balanceRows.length === 1;
+  const hasCustomerPhone = !!person.phone?.trim();
+  const showHeaderWhatsApp = entries.length > 0 && hasCustomerPhone;
+  const whatsAppLabel = t(
+    pingStage === "preparing"
+      ? "person.ping.preparing"
+      : pingStage === "opening"
+        ? "person.ping.opening"
+        : "person.ping.button",
+  );
+  const openWhatsAppReminder = () => {
+    if (selectionBusyRef.current || selectionContext.current.selecting) return;
+    void sendPing();
+  };
   // Equal side slots keep the name centered even when WhatsApp adds a second
   // action. Selection keeps only Back, with an equally sized empty end slot.
-  const headerSideWidth = selecting ? 40 : entries.length > 0 ? TOUCH_MIN * 2 + 10 : TOUCH_MIN;
+  const headerSideWidth = selecting ? 40 : showHeaderWhatsApp ? TOUCH_MIN * 2 + 10 : TOUCH_MIN;
   return (
     <SafeAreaView
       ref={filterSurfaceRef}
@@ -2500,19 +2513,13 @@ export default function PersonDetailScreen() {
               { width: headerSideWidth },
             ]}
           >
-            {!selecting && entries.length > 0 ? (
+            {!selecting && showHeaderWhatsApp ? (
               <Pressable
                 testID="whatsapp-reminder"
-                onPress={() => void sendPing()}
+                onPress={openWhatsAppReminder}
                 disabled={pinging}
                 accessibilityRole="button"
-                accessibilityLabel={t(
-                  pingStage === "preparing"
-                    ? "person.ping.preparing"
-                    : pingStage === "opening"
-                      ? "person.ping.opening"
-                      : "person.ping.button",
-                )}
+                accessibilityLabel={whatsAppLabel}
                 accessibilityHint={t("person.ping.hint", { name: person.name })}
                 accessibilityState={{ disabled: pinging, busy: pinging }}
                 style={({ pressed }) => [styles.headerShare, pressed && { opacity: 0.5 }]}
@@ -2623,6 +2630,16 @@ export default function PersonDetailScreen() {
                       });
                     },
                   },
+                  ...(!hasCustomerPhone && entries.length > 0
+                    ? [
+                        {
+                          label: whatsAppLabel,
+                          icon: "logo-whatsapp" as const,
+                          disabled: pinging || askLangVisible,
+                          onPress: openWhatsAppReminder,
+                        },
+                      ]
+                    : []),
                   {
                     label: t("personEdit.export"),
                     icon: "document-text-outline",
