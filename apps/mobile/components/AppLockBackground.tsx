@@ -6,14 +6,16 @@ import { useReducedMotion } from "../lib/reduced-motion";
 
 // Soft edges are painted once. Only their native view transforms move, without
 // recapturing a live blur or redrawing an SVG from JavaScript on every frame.
+// Keep the pools inside the surface and smaller than it: an oversized radial
+// painted mostly outside the card looks like a static tint even while moving.
 const BLOOMS = [
   {
     name: "mint",
     color: "#31C997",
-    cx: "8%",
-    cy: "12%",
-    rx: "95%",
-    ry: "68%",
+    cx: "24%",
+    cy: "28%",
+    rx: "36%",
+    ry: "32%",
     opacity: 0.72,
     x: [-96, 96],
     y: [76, -76],
@@ -22,10 +24,10 @@ const BLOOMS = [
   {
     name: "blue",
     color: "#7AA8F5",
-    cx: "104%",
-    cy: "32%",
-    rx: "76%",
-    ry: "60%",
+    cx: "78%",
+    cy: "44%",
+    rx: "34%",
+    ry: "30%",
     opacity: 0.5,
     x: [80, -80],
     y: [-104, 104],
@@ -34,10 +36,10 @@ const BLOOMS = [
   {
     name: "warm",
     color: "#FFA864",
-    cx: "94%",
-    cy: "104%",
-    rx: "105%",
-    ry: "67%",
+    cx: "74%",
+    cy: "78%",
+    rx: "42%",
+    ry: "34%",
     opacity: 0.78,
     x: [104, -104],
     y: [-88, 88],
