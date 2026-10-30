@@ -236,6 +236,16 @@ const byLabel = (label: string) =>
   homeRenderedNodes().find((node) => node.props.accessibilityLabel === label);
 const flattenStyle = (value: any): any =>
   Array.isArray(value) ? Object.assign({}, ...value.filter(Boolean).map(flattenStyle)) : value;
+const nodePath = (root: any, target: Node): string | undefined => {
+  if (root === target) return `${String(root.type)}:${root.key ?? ""}`;
+  if (!root || typeof root !== "object") return undefined;
+  const children = Array.isArray(root) ? root : root?.props?.children;
+  for (const [index, child] of [children].flat().entries()) {
+    const path = nodePath(child, target);
+    if (path !== undefined) return `${String(root?.type ?? "children")}[${index}]/${path}`;
+  }
+  return undefined;
+};
 const router = {
   push: (route: any) => routes.push(route),
   replace: (route: any) => routes.push(route),
@@ -3080,6 +3090,104 @@ async function main() {
   assert.equal(find("Button"), undefined);
   assert.equal(contactsReads, 0);
   assert.equal(personRows().length, 2);
+
+  // A single viewport lets a short keyboard-open screen scroll the entire
+  // form, note toggle and Add button instead of shrinking the form between
+  // a fixed action dock and a second contacts scroller. Native geometry is
+  // still subject to phone checks; these assertions catch competing scroll owners.
+  for (const nextPlatform of ["android", "ios"])
+    for (const nextRtl of [false, true])
+      for (const mode of [undefined, "add"] as const) {
+        fixture(addOrFind, "owner", nextRtl, nextPlatform);
+        routeParams = { mode };
+        screenWidth = 320;
+        screenFontScale = 1.8;
+        await flush();
+        const scroll = nodes(tree).find((node) => node.props.testID === "person-add-scroll")!;
+        assert.ok(scroll, "the add form has one bounded scrolling viewport");
+        assert.equal(scroll.type, "ScrollView");
+        assert.equal(flattenStyle(scroll.props.style).flex, 1);
+        assert.equal(nodes(tree).filter((node) => node.type === "ScrollView").length, 1);
+        assert.equal(scroll.props.keyboardShouldPersistTaps, "handled");
+        const form = nodes(scroll).find((node) => node.props.testID === "person-add-form")!;
+        const actions = nodes(scroll).find((node) => node.props.testID === "person-add-actions")!;
+        const contacts = nodes(scroll).find((node) => node.props.testID === "person-contact-list")!;
+        const noteToggle = nodes(form).find((node) => node.props.testID === "person-note-toggle")!;
+        assert.ok(form && actions && contacts && noteToggle);
+        assert.equal(form.type, "View");
+        for (const section of [form, actions]) {
+          const style = flattenStyle(section.props.style);
+          assert.equal(style.height, undefined);
+          assert.equal(style.maxHeight, undefined);
+          assert.notEqual(style.overflow, "hidden");
+        }
+        assert.ok(nodes(scroll).indexOf(form) < nodes(scroll).indexOf(actions));
+        assert.ok(nodes(scroll).indexOf(actions) < nodes(scroll).indexOf(contacts));
+        assert.ok(nodes(form).includes(noteToggle), "the note toggle scrolls with the name fields");
+        const noteLabel = nodes(noteToggle).find((node) => node.type === "Text")!;
+        assert.equal(flattenStyle(noteLabel.props.style).flex, 1);
+        assert.equal(noteLabel.props.numberOfLines, undefined, "long note labels can wrap");
+        const labels = [
+          "personEdit.firstName.label",
+          "personEdit.lastName.label",
+          "personEdit.phone.label",
+        ];
+        const inputs = labels.map((label) => ({
+          label,
+          ref: byLabel(label)!.props.ref,
+          path: nodePath(tree, byLabel(label)!),
+        }));
+        inputs[0].ref.current.focus();
+        keyboardEvent(nextPlatform === "ios" ? "keyboardWillShow" : "keyboardDidShow");
+        for (const [index, value] of ["Zarif", "Draft", "788111111"].entries())
+          byLabel(labels[index])!.props.onChangeText(value);
+        await flush();
+        nodes(tree)
+          .find((node) => node.props.testID === "person-note-toggle")!
+          .props.onPress();
+        await flush();
+        const noteInput = byLabel("customerNote.label")!;
+        const expandedScroll = nodes(tree).find(
+          (node) => node.props.testID === "person-add-scroll",
+        )!;
+        assert.ok(
+          nodes(expandedScroll).includes(noteInput),
+          "the note editor uses the same viewport",
+        );
+        assert.equal(nodes(tree).filter((node) => node.type === "ScrollView").length, 1);
+        assert.equal(
+          nodes(tree).find((node) => node.props.testID === "person-contact-list"),
+          undefined,
+          "editing a note keeps the contacts shortcuts out of that draft",
+        );
+        assert.ok(noteInput);
+        noteInput.props.onChangeText("Remember Friday\nKeep this draft");
+        await flush();
+        nodes(tree)
+          .find((node) => node.props.testID === "person-note-toggle")!
+          .props.onPress();
+        await flush();
+        nodes(tree)
+          .find((node) => node.props.testID === "person-note-toggle")!
+          .props.onPress();
+        await flush();
+        assert.equal(
+          byLabel("customerNote.label")!.props.value,
+          "Remember Friday\nKeep this draft",
+        );
+        for (const [index, input] of inputs.entries()) {
+          const current = byLabel(input.label)!;
+          assert.equal(current.props.ref, input.ref);
+          assert.equal(
+            nodePath(tree, current),
+            input.path,
+            "filtering and notes retain input hosts",
+          );
+          assert.equal(current.props.value, ["Zarif", "Draft", "788111111"][index]);
+        }
+        assert.equal(searchInputFocused, true, "expanding the note does not remount a name field");
+        assert.equal(writes.length, 0, "layout changes and draft edits do not create a customer");
+      }
   fixture(home, "viewer");
   vaultId = "archived-kaata";
   const replacementPerson = { ...people[0], id: "replacement", name: "Replacement" };
@@ -3126,6 +3234,10 @@ async function main() {
       assert.equal(find("Header")?.props.title, "personFind.title");
       const input = byLabel("personFind.placeholder")!;
       assert.ok(input);
+      assert.ok(
+        !nodes(find("ScrollView")).includes(input),
+        "read-only search stays available above the scrolling results",
+      );
       assert.equal(
         nodes(tree).filter((node) => node.type === "TextInput").length,
         1,

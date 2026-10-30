@@ -62,9 +62,8 @@ import { useActiveVaultWriteCaps } from "../../lib/use-vault-role";
 // selftest:tab-join pins it against this screen's original memo pair.
 type Row = MergedRow<PersonWithBalance, DeviceContact>;
 
-// Add-or-find screen. The form (first name + last name + number + Add button)
-// lives fixed at the top; below it is one virtualized list that merges the
-// people already in this kaata with the device's whole phone book — typing in
+// Add-or-find screen. One scrolling page holds the form, Add button and the
+// merged list of people in this kaata and the device's phone book. Typing in
 // EITHER the name fields or the number field filters both (Matee: "list all
 // contacts below the recents", "the phone field should act like the name field
 // too"). The app's contacts are kept "one with" the phone book: creating a
@@ -524,201 +523,206 @@ export default function PersonAddOrFindScreen() {
               onSubmitEditing={() => findRef.current?.blur()}
             />
           </View>
-        ) : (
-          <>
-            <ScrollView
-              testID="person-add-form"
-              style={[styles.formScroll, noteVisible && canWriteNote && styles.noteFormScroll]}
-              contentContainerStyle={styles.form}
-              keyboardShouldPersistTaps="handled"
-            >
-              {/* The form stays outside the list so its fields never remount
-              during search (Android focus loss). */}
-              {/* In Dari the two name fields mirror: first name sits at the start
+        ) : null}
+        <ScrollView
+          testID="person-add-scroll"
+          style={styles.scroll}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+        >
+          {canCreate ? (
+            <>
+              <View testID="person-add-form" style={styles.form}>
+                {/* Fields stay mounted above the filtered contact sections. */}
+                {/* In Dari the two name fields mirror: first name sits at the start
               (right) edge, last name to its left. rowDir flips the pair; each
               input's own textDir right-aligns what's typed. */}
-              <View style={[styles.nameRow, rowDir(isRTL)]}>
-                <TextInput
-                  ref={firstNameRef}
-                  style={[styles.nameInput, textDir(isRTL)]}
-                  value={firstName}
-                  onChangeText={setFirstName}
-                  placeholder={t("personAdd.firstName.placeholder")}
-                  placeholderTextColor={colors.textMuted}
-                  accessibilityLabel={t("personEdit.firstName.label")}
-                  autoCorrect={false}
-                  autoCapitalize="words"
-                  maxLength={40}
-                  returnKeyType="next"
-                  onSubmitEditing={() => lastNameRef.current?.focus()}
-                  submitBehavior="submit"
-                />
-                <TextInput
-                  ref={lastNameRef}
-                  style={[styles.nameInput, textDir(isRTL)]}
-                  value={lastName}
-                  onChangeText={setLastName}
-                  placeholder={t("personAdd.lastName.placeholder")}
-                  placeholderTextColor={colors.textMuted}
-                  accessibilityLabel={t("personEdit.lastName.label")}
-                  autoCorrect={false}
-                  autoCapitalize="words"
-                  maxLength={40}
-                  returnKeyType="next"
-                  onSubmitEditing={() => phoneRef.current?.focus()}
-                  submitBehavior="submit"
-                />
-              </View>
-
-              {/* Phone row stays physical-LTR even in Persian: Western digits render
-              LTR via Unicode bidi and are entered left-to-right. */}
-              <View style={styles.phoneRow}>
-                <Pressable
-                  onPress={() => setPickerVisible(true)}
-                  style={({ pressed }) => [
-                    styles.countryBtn,
-                    pressed && { backgroundColor: colors.bgMuted },
-                  ]}
-                >
-                  <Text style={styles.countryFlag}>{country.flag}</Text>
-                  <Text style={styles.countryDial}>{ltrIsolate(country.dialCode)}</Text>
-                  <Ionicons name="chevron-down" size={icon.trailing} color={colors.textMuted} />
-                </Pressable>
-                <TextInput
-                  ref={phoneRef}
-                  style={[styles.phoneInput, phoneError ? styles.inputError : null]}
-                  value={phone}
-                  onChangeText={(v) => {
-                    setPhoneError(null);
-                    setPhone(v);
-                  }}
-                  placeholder={
-                    country.code === "AF" ? "70 123 4567" : t("personAdd.phone.placeholderGeneric")
-                  }
-                  placeholderTextColor={colors.textMuted}
-                  accessibilityLabel={t("personEdit.phone.label")}
-                  keyboardType="phone-pad"
-                  returnKeyType="done"
-                  onSubmitEditing={onAddPressed}
-                />
-              </View>
-
-              {phoneError ? (
-                <Text style={[styles.fieldError, textDir(isRTL)]} accessibilityLiveRegion="polite">
-                  {phoneError}
-                </Text>
-              ) : null}
-              {canWriteNote ? (
-                <Pressable
-                  testID="person-note-toggle"
-                  accessibilityRole="button"
-                  accessibilityState={{ expanded: noteVisible, disabled: busy }}
-                  disabled={busy}
-                  onPress={() => setNoteVisible((visible) => !visible)}
-                  style={[styles.noteToggle, rowDir(isRTL)]}
-                >
-                  <Ionicons name="document-text-outline" size={16} color={colors.textSubtle} />
-                  <Text style={styles.noteToggleLabel}>
-                    {t(noteVisible || note.length > 0 ? "customerNote.label" : "customerNote.add")}
-                  </Text>
-                  <Ionicons
-                    name={noteVisible ? "chevron-up" : "chevron-down"}
-                    size={14}
-                    color={colors.textSubtle}
-                  />
-                </Pressable>
-              ) : null}
-              {noteVisible && canWriteNote ? (
-                <View>
+                <View style={[styles.nameRow, rowDir(isRTL)]}>
                   <TextInput
-                    testID="person-note-input"
-                    value={note}
-                    editable={!busy}
-                    accessibilityState={{ disabled: busy }}
-                    onChangeText={(value) => {
-                      if (
-                        !savingRef.current &&
-                        canWriteNoteRef.current &&
-                        getActiveVaultIdSyncMaybe() === activeVaultId
-                      )
-                        setNoteDraft({
-                          vaultId: activeVaultId,
-                          value: Array.from(value).slice(0, CUSTOMER_NOTE_MAX_LENGTH).join(""),
-                        });
-                    }}
-                    style={[styles.noteInput, textDir(isRTL)]}
-                    accessibilityLabel={t("customerNote.label")}
-                    placeholder={t("customerNote.placeholder")}
+                    ref={firstNameRef}
+                    style={[styles.nameInput, textDir(isRTL)]}
+                    value={firstName}
+                    onChangeText={setFirstName}
+                    placeholder={t("personAdd.firstName.placeholder")}
                     placeholderTextColor={colors.textMuted}
-                    multiline
-                    maxLength={CUSTOMER_NOTE_MAX_LENGTH * 2}
-                    scrollEnabled
-                    textAlignVertical="top"
+                    accessibilityLabel={t("personEdit.firstName.label")}
+                    autoCorrect={false}
+                    autoCapitalize="words"
+                    maxLength={40}
+                    returnKeyType="next"
+                    onSubmitEditing={() => lastNameRef.current?.focus()}
+                    submitBehavior="submit"
                   />
-                  <Text style={[styles.noteHint, textDir(isRTL)]}>
-                    {t("customerNote.visibility")}
-                  </Text>
+                  <TextInput
+                    ref={lastNameRef}
+                    style={[styles.nameInput, textDir(isRTL)]}
+                    value={lastName}
+                    onChangeText={setLastName}
+                    placeholder={t("personAdd.lastName.placeholder")}
+                    placeholderTextColor={colors.textMuted}
+                    accessibilityLabel={t("personEdit.lastName.label")}
+                    autoCorrect={false}
+                    autoCapitalize="words"
+                    maxLength={40}
+                    returnKeyType="next"
+                    onSubmitEditing={() => phoneRef.current?.focus()}
+                    submitBehavior="submit"
+                  />
                 </View>
-              ) : null}
-            </ScrollView>
-            <View testID="person-add-actions" style={styles.formActions}>
-              {saveError ? (
-                <Text
-                  style={[styles.fieldError, styles.actionError, textDir(isRTL)]}
-                  accessibilityLiveRegion="polite"
-                >
-                  {saveError}
-                </Text>
-              ) : null}
-              <Button label={addLabel} onPress={onAddPressed} loading={busy} disabled={!canAdd} />
-            </View>
-          </>
-        )}
 
-        {/* Each section is its OWN bordered card (Recent / All contacts), like
+                {/* Phone row stays physical-LTR even in Persian: Western digits render
+              LTR via Unicode bidi and are entered left-to-right. */}
+                <View style={styles.phoneRow}>
+                  <Pressable
+                    onPress={() => setPickerVisible(true)}
+                    style={({ pressed }) => [
+                      styles.countryBtn,
+                      pressed && { backgroundColor: colors.bgMuted },
+                    ]}
+                  >
+                    <Text style={styles.countryFlag}>{country.flag}</Text>
+                    <Text style={styles.countryDial}>{ltrIsolate(country.dialCode)}</Text>
+                    <Ionicons name="chevron-down" size={icon.trailing} color={colors.textMuted} />
+                  </Pressable>
+                  <TextInput
+                    ref={phoneRef}
+                    style={[styles.phoneInput, phoneError ? styles.inputError : null]}
+                    value={phone}
+                    onChangeText={(v) => {
+                      setPhoneError(null);
+                      setPhone(v);
+                    }}
+                    placeholder={
+                      country.code === "AF"
+                        ? "70 123 4567"
+                        : t("personAdd.phone.placeholderGeneric")
+                    }
+                    placeholderTextColor={colors.textMuted}
+                    accessibilityLabel={t("personEdit.phone.label")}
+                    keyboardType="phone-pad"
+                    returnKeyType="done"
+                    onSubmitEditing={onAddPressed}
+                  />
+                </View>
+
+                {phoneError ? (
+                  <Text
+                    style={[styles.fieldError, textDir(isRTL)]}
+                    accessibilityLiveRegion="polite"
+                  >
+                    {phoneError}
+                  </Text>
+                ) : null}
+                {canWriteNote ? (
+                  <Pressable
+                    testID="person-note-toggle"
+                    accessibilityRole="button"
+                    accessibilityState={{ expanded: noteVisible, disabled: busy }}
+                    disabled={busy}
+                    onPress={() => setNoteVisible((visible) => !visible)}
+                    style={[styles.noteToggle, rowDir(isRTL)]}
+                  >
+                    <Ionicons name="document-text-outline" size={16} color={colors.textSubtle} />
+                    <Text style={[styles.noteToggleLabel, textDir(isRTL)]}>
+                      {t(
+                        noteVisible || note.length > 0 ? "customerNote.label" : "customerNote.add",
+                      )}
+                    </Text>
+                    <Ionicons
+                      name={noteVisible ? "chevron-up" : "chevron-down"}
+                      size={14}
+                      color={colors.textSubtle}
+                    />
+                  </Pressable>
+                ) : null}
+                {noteVisible && canWriteNote ? (
+                  <View>
+                    <TextInput
+                      testID="person-note-input"
+                      value={note}
+                      editable={!busy}
+                      accessibilityState={{ disabled: busy }}
+                      onChangeText={(value) => {
+                        if (
+                          !savingRef.current &&
+                          canWriteNoteRef.current &&
+                          getActiveVaultIdSyncMaybe() === activeVaultId
+                        )
+                          setNoteDraft({
+                            vaultId: activeVaultId,
+                            value: Array.from(value).slice(0, CUSTOMER_NOTE_MAX_LENGTH).join(""),
+                          });
+                      }}
+                      style={[styles.noteInput, textDir(isRTL)]}
+                      accessibilityLabel={t("customerNote.label")}
+                      placeholder={t("customerNote.placeholder")}
+                      placeholderTextColor={colors.textMuted}
+                      multiline
+                      maxLength={CUSTOMER_NOTE_MAX_LENGTH * 2}
+                      scrollEnabled
+                      textAlignVertical="top"
+                    />
+                    <Text style={[styles.noteHint, textDir(isRTL)]}>
+                      {t("customerNote.visibility")}
+                    </Text>
+                  </View>
+                ) : null}
+              </View>
+              <View testID="person-add-actions" style={styles.formActions}>
+                {saveError ? (
+                  <Text
+                    style={[styles.fieldError, styles.actionError, textDir(isRTL)]}
+                    accessibilityLiveRegion="polite"
+                  >
+                    {saveError}
+                  </Text>
+                ) : null}
+                <Button label={addLabel} onPress={onAddPressed} loading={busy} disabled={!canAdd} />
+              </View>
+            </>
+          ) : null}
+
+          {/* Each section is its OWN bordered card (Recent / All contacts), like
             the home people list (Matee). A single card container per section
             avoids the Android per-row asymmetric-border bug. */}
-        {noteVisible && canWriteNote ? null : (
-          <ScrollView
-            keyboardShouldPersistTaps="handled"
-            keyboardDismissMode="on-drag"
-            contentContainerStyle={styles.listContent}
-          >
-            {renderContactsAccess()}
-            {people === null
-              ? renderEmpty()
-              : visibleSections.length === 0
-                ? addOnly
-                  ? null
-                  : renderEmpty()
-                : visibleSections.map((section) => (
-                    <View key={section.key} style={styles.section}>
-                      <Text style={[styles.sectionLabel, textDir(isRTL), trackingSafe(isRTL)]}>
-                        {t(section.titleKey)}
-                      </Text>
-                      <View style={styles.peopleCard}>
-                        {section.data.map((item, index) => (
-                          <View
-                            key={
-                              item.kind === "app"
-                                ? `app-${item.person.id}`
-                                : `dev-${item.contact.id}`
-                            }
-                          >
-                            {index > 0 ? <View style={styles.divider} /> : null}
-                            {renderItem({ item })}
-                          </View>
-                        ))}
-                      </View>
-                      {section.key === "device" && deviceTruncated ? (
-                        <Text style={[styles.moreHint, textDir(isRTL)]}>
-                          {t("personAdd.moreContacts")}
+          {noteVisible && canWriteNote ? null : (
+            <View testID="person-contact-list" style={styles.listContent}>
+              {renderContactsAccess()}
+              {people === null
+                ? renderEmpty()
+                : visibleSections.length === 0
+                  ? addOnly
+                    ? null
+                    : renderEmpty()
+                  : visibleSections.map((section) => (
+                      <View key={section.key} style={styles.section}>
+                        <Text style={[styles.sectionLabel, textDir(isRTL), trackingSafe(isRTL)]}>
+                          {t(section.titleKey)}
                         </Text>
-                      ) : null}
-                    </View>
-                  ))}
-          </ScrollView>
-        )}
+                        <View style={styles.peopleCard}>
+                          {section.data.map((item, index) => (
+                            <View
+                              key={
+                                item.kind === "app"
+                                  ? `app-${item.person.id}`
+                                  : `dev-${item.contact.id}`
+                              }
+                            >
+                              {index > 0 ? <View style={styles.divider} /> : null}
+                              {renderItem({ item })}
+                            </View>
+                          ))}
+                        </View>
+                        {section.key === "device" && deviceTruncated ? (
+                          <Text style={[styles.moreHint, textDir(isRTL)]}>
+                            {t("personAdd.moreContacts")}
+                          </Text>
+                        ) : null}
+                      </View>
+                    ))}
+            </View>
+          )}
+        </ScrollView>
       </KeyboardAvoidingView>
 
       {canCreate ? (
@@ -754,9 +758,7 @@ function RightAmount(props: { balance: number; hasEntries: boolean }) {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bgDefault },
 
-  // Fixed top form.
-  formScroll: { flexGrow: 0, flexShrink: 1 },
-  noteFormScroll: { flexGrow: 1 },
+  scroll: { flex: 1 },
   form: {
     paddingHorizontal: 16,
     paddingTop: 16,
@@ -778,7 +780,12 @@ const styles = StyleSheet.create({
   actionError: { marginTop: 0, marginBottom: 8 },
   nameRow: { flexDirection: "row", gap: 10, marginBottom: 10 },
   noteToggle: { minHeight: TOUCH_MIN, flexDirection: "row", alignItems: "center", gap: 6 },
-  noteToggleLabel: { color: colors.textSubtle, fontFamily: fonts.sansMedium, fontSize: 13 },
+  noteToggleLabel: {
+    flex: 1,
+    color: colors.textSubtle,
+    fontFamily: fonts.sansMedium,
+    fontSize: 13,
+  },
   noteInput: {
     height: 84,
     borderWidth: 1,
@@ -850,7 +857,7 @@ const styles = StyleSheet.create({
   },
 
   // Merged contacts list — each section is its own bordered card.
-  listContent: { paddingBottom: 32, flexGrow: 1 },
+  listContent: { paddingBottom: 32 },
   section: { marginBottom: 4 },
   sectionLabel: {
     fontSize: 11,
