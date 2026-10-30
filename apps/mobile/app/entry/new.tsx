@@ -54,8 +54,6 @@ import { EventSigningUnavailableError, RoleGateRejectionError } from "../../lib/
 import { EntryCurrencyBaselineRequiredError } from "../../lib/projection/errors";
 import { fonts, sansLineHeight } from "../../lib/fonts";
 import { t } from "../../lib/i18n";
-import { withEntryDay } from "../../lib/entry-date";
-import { localDayStart } from "../../lib/tally-date-filter";
 import { onLedgerApplied } from "../../lib/ledger-events";
 import { parseAmountInput } from "../../lib/money";
 import { getReducedMotion } from "../../lib/reduced-motion";
@@ -155,7 +153,9 @@ export default function EntryFormScreen({
     canWriteSharedTallies(editSourceLink);
   const currencyScope = useRef<string | null>(null);
   // Null keeps the usual save-time timestamp, even if this form stays open overnight.
-  const [entryDay, setEntryDay] = useState<number | null>(editingEntry?.created_at ?? null);
+  const [entryTimestamp, setEntryTimestamp] = useState<number | null>(
+    editingEntry?.created_at ?? null,
+  );
   const [moreOptionsOpen, setMoreOptionsOpen] = useState(false);
   const moreOptionsRef = useRef(false);
   const [datePickerOpen, setDatePickerOpen] = useState(false);
@@ -481,7 +481,7 @@ export default function EntryFormScreen({
             attempt.type,
           ]);
           if (attempt.vaultId && currencyScope.current !== currencyKey) {
-            setEntryDay(editingEntry?.created_at ?? null);
+            setEntryTimestamp(editingEntry?.created_at ?? null);
             const [defaultCurrency] = await Promise.all([
               editingEntry
                 ? Promise.resolve(editingEntry.currency ?? DEFAULT_CURRENCY)
@@ -561,10 +561,7 @@ export default function EntryFormScreen({
       return;
     }
     const savedNote = note.trim().slice(0, ENTRY_NOTE_MAX_LENGTH) || null;
-    const occurredAtMs =
-      entryDay === null
-        ? undefined
-        : withEntryDay(editingEntry?.created_at ?? Date.now(), entryDay);
+    const occurredAtMs = entryTimestamp ?? undefined;
     savingRef.current = true;
     setBusy(true);
     saveErrorField.current = null;
@@ -1352,11 +1349,11 @@ export default function EntryFormScreen({
               </Pressable>
               {moreOptionsOpen ? (
                 <EntryDateField
-                  value={entryDay ?? localDayStart(Date.now())}
+                  value={entryTimestamp ?? Date.now()}
                   expanded={datePickerOpen}
                   disabled={busy}
                   onToggle={toggleDatePicker}
-                  onChange={(day) => {
+                  onChange={(timestamp) => {
                     if (
                       savingRef.current ||
                       !isCurrent(renderAttempt) ||
@@ -1364,7 +1361,7 @@ export default function EntryFormScreen({
                       !datePickerRef.current
                     )
                       return;
-                    setEntryDay(day);
+                    setEntryTimestamp(timestamp);
                   }}
                 />
               ) : null}

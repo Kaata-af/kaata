@@ -103,6 +103,7 @@ function fixture({
   editingEntry?: Entry;
 } = {}) {
   const screenId = `entry-fixture-${++fixtureSequence}`;
+  let clockNow = new Date(2026, 9, 30, 16, 42, 10, 123).getTime();
   let selectedCurrency = initialLedgerCurrency;
   let reducedMotion = false;
   let defaultCurrencyGate: ReturnType<typeof deferred<string>> | null = null;
@@ -338,8 +339,6 @@ function fixture({
       "../../lib/projection/errors": { EntryCurrencyBaselineRequiredError },
       "../../lib/fonts": fontEdges[os],
       "../../lib/i18n": { t: (key: string) => key },
-      "../../lib/entry-date": require("../entry-date"),
-      "../../lib/tally-date-filter": require("../tally-date-filter"),
       "../../lib/money": { normalizeAmountInput, parseAmountInput },
       "../../lib/calculator": require("../calculator"),
       "../../lib/calculator-input": require("../calculator-input"),
@@ -383,6 +382,11 @@ function fixture({
       "../../lib/types": { ENTRY_NOTE_MAX_LENGTH },
     },
     {
+      Date: class extends Date {
+        static now() {
+          return clockNow;
+        }
+      },
       setTimeout: (fn: () => void, delay: number) => {
         const id = ++timerID;
         timers.set(id, fn);
@@ -657,6 +661,9 @@ function fixture({
     },
     setOverLimit: (value: boolean) => {
       overLimit = value;
+    },
+    setClock: (value: number) => {
+      clockNow = value;
     },
     resizeWindow: (nextWidth: number, nextHeight: number, nextFontScale = fontScale) => {
       width = nextWidth;
@@ -1537,7 +1544,7 @@ async function main() {
   };
   for (const os of ["android", "ios"] as const)
     for (const rtl of [false, true]) {
-      const chosen = new Date(2024, 1, 29).getTime();
+      const chosen = new Date(2024, 1, 29, 9, 26).getTime();
       const f = fixture({ os, rtl });
       await f.ready();
       assert.equal(dateField(f), undefined, "new tallies keep Date collapsed by default");
@@ -1585,11 +1592,10 @@ async function main() {
       moreOptions(f).props.onPress();
       f.render();
       await f.button().props.onPress();
-      const savedDate = new Date(f.writes[0][4].occurredAtMs);
-      assert.deepEqual(
-        [savedDate.getFullYear(), savedDate.getMonth(), savedDate.getDate()],
-        [2024, 1, 29],
-        "the selected business day reaches the create API even with options collapsed",
+      assert.equal(
+        f.writes[0][4].occurredAtMs,
+        chosen,
+        "the selected business date and clock reach the create API with options collapsed",
       );
       f.hooks.unmount();
       cases++;
@@ -1617,17 +1623,71 @@ async function main() {
       assert.equal(original, new Date(2025, 5, 20, 15, 7, 12, 345).getTime());
       dateField(edit).props.onToggle();
       edit.render();
-      dateField(edit).props.onChange(chosen);
+      const changedDay = new Date(2024, 1, 29, 15, 7, 12, 345).getTime();
+      dateField(edit).props.onChange(changedDay);
       dateField(edit).props.onToggle();
       edit.render();
       await edit.button().props.onPress();
       assert.equal(
         edit.writes[0][3],
-        new Date(2024, 1, 29, 15, 7, 12, 345).getTime(),
-        "editing a tally changes its day and preserves its clock time",
+        changedDay,
+        "editing forwards the date field's full timestamp without replacing its clock time",
       );
       assert.deepEqual(edit.writes[0].slice(0, 3), ["entry", 125.5, "Original note"]);
       edit.hooks.unmount();
+      cases++;
+    }
+  for (const os of ["android", "ios"] as const)
+    for (const mode of ["create", "edit"] as const) {
+      for (const hour of [0, 12]) {
+        const f = mode === "create" ? fixture({ os }) : editFixture(os, false, "Original note");
+        await f.ready();
+        showDate(f).props.onToggle();
+        f.render();
+        const chosen = new Date(2024, 1, 29, hour, 0).getTime();
+        dateField(f).props.onChange(chosen);
+        dateField(f).props.onToggle();
+        f.render();
+        assert.equal(dateField(f).props.value, chosen);
+        f.setClock(new Date(2026, 10, 1, 18, 25).getTime());
+        f.render();
+        await f.button().props.onPress();
+        assert.equal(
+          mode === "create" ? f.writes[0][4].occurredAtMs : f.writes[0][3],
+          chosen,
+          `${os}/${mode}: ${hour === 0 ? "midnight" : "noon"} survives saving later without an AM/PM shift`,
+        );
+        f.hooks.unmount();
+        cases++;
+      }
+      const f = mode === "create" ? fixture({ os }) : editFixture(os, false, "Original note");
+      await f.ready();
+      const original =
+        mode === "create"
+          ? new Date(2026, 9, 30, 16, 42, 10, 123).getTime()
+          : new Date(2025, 5, 20, 15, 7, 12, 345).getTime();
+      assert.equal(
+        showDate(f).props.value,
+        original,
+        `${mode}: the optional field receives the actual clock instead of midnight`,
+      );
+      dateField(f).props.onToggle();
+      f.render();
+      dateField(f).props.onToggle();
+      f.setClock(new Date(2026, 10, 1, 18, 25).getTime());
+      f.render();
+      assert.equal(
+        dateField(f).props.value,
+        mode === "create" ? new Date(2026, 10, 1, 18, 25).getTime() : original,
+        `${mode}: opening and closing the picker does not select a timestamp`,
+      );
+      await f.button().props.onPress();
+      assert.equal(
+        mode === "create" ? f.writes[0][4].occurredAtMs : f.writes[0][3],
+        mode === "create" ? undefined : original,
+        `${mode}: an untouched clock keeps ${mode === "create" ? "the save-time default" : "the original exact timestamp"}`,
+      );
+      f.hooks.unmount();
       cases++;
     }
   for (const os of ["android", "ios"] as const) {
@@ -1672,7 +1732,7 @@ async function main() {
     await f.ready();
     showDate(f).props.onToggle();
     f.render();
-    const chosen = new Date(2024, 1, 29).getTime();
+    const chosen = new Date(2024, 1, 29, 9, 26).getTime();
     dateField(f).props.onChange(chosen);
     f.render();
     const staleMore = moreOptions(f),
@@ -1710,11 +1770,9 @@ async function main() {
     await f.button().props.onPress();
     assert.equal(f.writes.length, 1);
     const savedAt = f.writes[0][4].occurredAtMs;
-    if (transition === "refocus") {
-      const day = new Date(savedAt);
-      assert.deepEqual([day.getFullYear(), day.getMonth(), day.getDate()], [2024, 1, 29]);
-    } else
-      assert.equal(savedAt, undefined, `${transition} saves the new draft at its default time`);
+    if (transition === "refocus")
+      assert.equal(savedAt, chosen, "same-draft refocus preserves the selected exact clock");
+    else assert.equal(savedAt, undefined, `${transition} saves the new draft at its default time`);
     f.hooks.unmount();
     cases++;
   }

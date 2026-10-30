@@ -1,43 +1,59 @@
 import { ProtectedModal as Modal } from "./ProtectedModal";
 import { Ionicons } from "@expo/vector-icons";
+import DateTimePicker, { DateTimePickerAndroid } from "@react-native-community/datetimepicker";
 import { useEffect, useRef } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { getAppLockPrivacy, useAppLockPrivacy } from "../lib/app-lock-privacy";
 import { useCalendar } from "../lib/calendar";
 import { colors } from "../lib/colors";
 import { rowDir, textDir, useIsRTL } from "../lib/direction";
+import { withEntryDay } from "../lib/entry-date";
 import { fonts } from "../lib/fonts";
-import { getLocale, t } from "../lib/i18n";
-import { formatCalendarDate } from "../lib/jalali";
-import { localDayStart } from "../lib/tally-date-filter";
+import { formatTime, formatTimestamp } from "../lib/format";
+import { t } from "../lib/i18n";
 import { radius, TOUCH_MIN, typography } from "../lib/tokens";
 import { CalendarDayPicker } from "./CalendarDayPicker";
 import { useSheetMotionPreference } from "./SheetBackdrop";
 
-/** The parent owns the open state; the calendar floats above the form. */
+/** The parent owns the timestamp and the popup's open state. */
 export function EntryDateField(props: {
   value: number;
   expanded: boolean;
   disabled?: boolean;
   onToggle: () => void;
-  /** A local day start; the parent preserves the tally's time of day. */
-  onChange: (day: number) => void;
+  onChange: (timestamp: number) => void;
 }) {
   const calendar = useCalendar();
   const isRTL = useIsRTL();
   const reducedMotion = useSheetMotionPreference();
+  const blocked = useAppLockPrivacy();
   const label = t("entry.date.label");
-  const valueLabel = formatCalendarDate(props.value, getLocale(), calendar);
+  const timeLabel = t("entry.time.label");
+  const valueLabel = formatTimestamp(props.value, calendar);
   const latest = useRef(props);
   latest.current = props;
   const mounted = useRef(true);
   const closing = useRef(false);
   const generation = useRef(0);
-  const previousExpanded = useRef(props.expanded);
-  if (previousExpanded.current !== props.expanded) {
-    previousExpanded.current = props.expanded;
-    if (props.expanded) generation.current++;
-    closing.current = false;
+  const timeRequest = useRef(0);
+  const androidOpen = useRef(false);
+  const dismissTime = () => {
+    timeRequest.current++;
+    if (androidOpen.current) {
+      androidOpen.current = false;
+      void DateTimePickerAndroid.dismiss("time").catch(() => undefined);
+    }
+  };
+  const previous = useRef({ expanded: props.expanded, disabled: props.disabled, blocked });
+  if (
+    previous.current.expanded !== props.expanded ||
+    previous.current.disabled !== props.disabled ||
+    previous.current.blocked !== blocked
+  ) {
+    if (previous.current.expanded !== props.expanded) closing.current = false;
+    previous.current = { expanded: props.expanded, disabled: props.disabled, blocked };
+    generation.current++;
   }
   const request = generation.current;
   useEffect(() => {
@@ -46,8 +62,12 @@ export function EntryDateField(props: {
     return () => {
       mounted.current = false;
       closing.current = true;
+      dismissTime();
     };
   }, []);
+  useEffect(() => {
+    if (!props.expanded || props.disabled || blocked) dismissTime();
+  }, [props.expanded, props.disabled, blocked]);
   const dismiss = () => {
     if (
       !mounted.current ||
@@ -57,25 +77,60 @@ export function EntryDateField(props: {
     )
       return;
     closing.current = true;
+    dismissTime();
     latest.current.onToggle();
   };
   const toggle = () => {
-    if (!mounted.current || request !== generation.current || latest.current.disabled) return;
-    if (latest.current.expanded) dismiss();
-    else latest.current.onToggle();
-  };
-  const choose = (day: number) => {
     if (
       !mounted.current ||
       request !== generation.current ||
-      closing.current ||
-      !latest.current.expanded ||
-      latest.current.disabled
+      latest.current.disabled ||
+      getAppLockPrivacy()
     )
       return;
-    closing.current = true;
-    latest.current.onChange(day);
-    latest.current.onToggle();
+    if (latest.current.expanded) dismiss();
+    else latest.current.onToggle();
+  };
+  const canChange = () =>
+    mounted.current &&
+    request === generation.current &&
+    !closing.current &&
+    latest.current.expanded &&
+    !latest.current.disabled &&
+    !getAppLockPrivacy();
+  const chooseDay = (day: number) => {
+    if (!canChange() || !Number.isFinite(day)) return;
+    latest.current.onChange(withEntryDay(latest.current.value, day));
+  };
+  const chooseTime = (selected: Date) => {
+    if (!canChange() || !Number.isFinite(selected.getTime())) return;
+    const next = new Date(latest.current.value);
+    next.setHours(selected.getHours(), selected.getMinutes(), 0, 0);
+    latest.current.onChange(next.getTime());
+  };
+  const pickTime = () => {
+    if (!canChange() || androidOpen.current) return;
+    const current = ++timeRequest.current;
+    androidOpen.current = true;
+    const finish = () => {
+      if (current !== timeRequest.current) return;
+      androidOpen.current = false;
+      timeRequest.current++;
+    };
+    DateTimePickerAndroid.open({
+      value: new Date(latest.current.value),
+      mode: "time",
+      is24Hour: false,
+      positiveButton: { label: t("common.done") },
+      negativeButton: { label: t("common.cancel") },
+      onValueChange: (_, selected) => {
+        if (current !== timeRequest.current || !androidOpen.current) return;
+        finish();
+        chooseTime(selected);
+      },
+      onDismiss: finish,
+      onError: finish,
+    });
   };
 
   return (
@@ -150,15 +205,53 @@ export function EntryDateField(props: {
                   calendar={calendar}
                   isRTL={isRTL}
                   disabled={props.disabled}
-                  onChange={choose}
+                  onChange={chooseDay}
                 />
+                <View style={styles.timeSection}>
+                  <Text style={[styles.label, textDir(isRTL)]}>{timeLabel}</Text>
+                  {Platform.OS === "android" ? (
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={timeLabel}
+                      accessibilityValue={{ text: formatTime(props.value) }}
+                      accessibilityState={{ disabled: !!props.disabled }}
+                      disabled={props.disabled}
+                      onPress={pickTime}
+                      style={({ pressed }) => [
+                        styles.input,
+                        rowDir(isRTL),
+                        props.disabled && styles.disabled,
+                        pressed && { backgroundColor: colors.bgMuted },
+                      ]}
+                    >
+                      <Ionicons name="time-outline" size={20} color={colors.textSubtle} />
+                      <Text style={[styles.value, textDir(isRTL)]}>{formatTime(props.value)}</Text>
+                      <Ionicons
+                        name={isRTL ? "chevron-back" : "chevron-forward"}
+                        size={16}
+                        color={colors.textSubtle}
+                      />
+                    </Pressable>
+                  ) : (
+                    <DateTimePicker
+                      value={new Date(props.value)}
+                      mode="time"
+                      display="spinner"
+                      themeVariant="light"
+                      disabled={props.disabled}
+                      accessibilityLabel={timeLabel}
+                      onValueChange={(_, selected) => chooseTime(selected)}
+                      style={styles.timePicker}
+                    />
+                  )}
+                </View>
                 <View style={[styles.actions, rowDir(isRTL)]}>
                   <Pressable
                     accessibilityRole="button"
                     accessibilityLabel={t("person.date.today")}
                     accessibilityState={{ disabled: !!props.disabled }}
                     disabled={props.disabled}
-                    onPress={() => choose(localDayStart(Date.now()))}
+                    onPress={() => chooseDay(Date.now())}
                     style={styles.action}
                   >
                     <Text style={styles.actionText}>{t("person.date.today")}</Text>
@@ -244,6 +337,8 @@ const styles = StyleSheet.create({
   },
   popupScroll: { flexShrink: 1 },
   picker: { padding: 8 },
+  timeSection: { padding: 8, borderTopWidth: 1, borderTopColor: colors.borderSubtle },
+  timePicker: { width: "100%", alignSelf: "center" },
   actions: { alignItems: "center", gap: 8, marginTop: 4 },
   action: {
     flex: 1,

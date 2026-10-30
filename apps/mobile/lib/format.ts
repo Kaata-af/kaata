@@ -1,4 +1,4 @@
-import { getEffectiveCalendar } from "./calendar";
+import { getEffectiveCalendar, type Calendar } from "./calendar";
 import { getCurrentCurrencySymbol } from "./currency";
 import { getLocale, t } from "./i18n";
 import { faDigits, formatCalendarDate } from "./jalali";
@@ -30,12 +30,8 @@ export function formatDate(ms: number): string {
   return formatCalendarDate(ms, getLocale(), getEffectiveCalendar());
 }
 
-// Display only: the ledger's own date/calendar plus a 12-hour clock with an
-// AM/PM marker (Matee: the way a shopkeeper reads a clock; seconds are noise).
-// Persian gets ق.ظ / ب.ظ and Persian digits. The date and the clock are each
-// wrapped in bidi isolates so their order survives mixed Dari/Latin text; the
-// stored epoch never changes.
-export function formatTimestamp(ms: number): string {
+// A local 12-hour clock with localized digits and an AM/PM marker.
+export function formatTime(ms: number): string {
   const date = new Date(ms);
   if (!Number.isFinite(date.getTime())) return "";
   const hours24 = date.getHours();
@@ -43,9 +39,20 @@ export function formatTimestamp(ms: number): string {
   const clock = `${hours12}:${String(date.getMinutes()).padStart(2, "0")}`;
   const marker = t(hours24 < 12 ? "format.am" : "format.pm");
   const localClock = getLocale() !== "en" ? faDigits(clock) : clock;
+  return `${localClock} ${marker}`;
+}
+
+// Display only: the ledger's own date/calendar plus a 12-hour clock with an
+// AM/PM marker (Matee: the way a shopkeeper reads a clock; seconds are noise).
+// Persian gets ق.ظ / ب.ظ and Persian digits. The date and the clock are each
+// wrapped in bidi isolates so their order survives mixed Dari/Latin text; the
+// stored epoch never changes.
+export function formatTimestamp(ms: number, calendar: Calendar = getEffectiveCalendar()): string {
+  const clock = formatTime(ms);
+  if (!clock) return "";
   // In Dari a middle dot beside Persian digits reads as a zero: a comma.
   const sep = getLocale() !== "en" ? "، " : " · ";
-  return `\u2068${formatDate(ms)}\u2069${sep}\u2068${localClock} ${marker}\u2069`;
+  return `\u2068${formatCalendarDate(ms, getLocale(), calendar)}\u2069${sep}\u2068${clock}\u2069`;
 }
 
 // Human-friendly "5 minutes ago" / "3 days ago". Used on list rows where
