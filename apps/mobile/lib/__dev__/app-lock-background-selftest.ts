@@ -504,12 +504,34 @@ async function main() {
         style: flattenStyle(node.props.style),
       }));
     const collect = hooks.render(() => material({ tone: "collect" }));
+    const homeGradient = nodes(tree).find((node) => node.type === "Svg");
+    const customerGradient = nodes(collect).find((node) => node.type === "Svg");
+    if (os === "android") {
+      assert.ok(homeGradient);
+      assert.ok(customerGradient);
+      assert.equal(homeGradient.props.opacity, 1, "The approved homepage tint stays unchanged");
+      assert.ok(
+        customerGradient.props.opacity >= 0.75 &&
+          customerGradient.props.opacity < homeGradient.props.opacity,
+        "Android customer tint is softened slightly over its opaque white base",
+      );
+    }
     assert.deepEqual(
       paintSignature(collect),
-      paintSignature(tree),
-      "Collect retains the approved homepage palette, geometry, highlights and material",
+      paintSignature(tree).map((paint) =>
+        os === "android" && paint.type === "Svg"
+          ? { ...paint, opacity: customerGradient!.props.opacity }
+          : paint,
+      ),
+      "Customer collect retains the palette, geometry and highlights; only Android gradient strength differs from home",
     );
     const pay = hooks.render(() => material({ tone: "pay" }));
+    if (os === "android")
+      assert.equal(
+        nodes(pay).find((node) => node.type === "Svg")?.props.opacity,
+        customerGradient!.props.opacity,
+        "Both customer directions use the same softer gradient strength",
+      );
     const paySource = nodes(pay).find((node) => node.type === "BlurTargetView");
     const payColors = (
       os === "ios"

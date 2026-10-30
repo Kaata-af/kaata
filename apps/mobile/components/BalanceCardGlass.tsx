@@ -35,6 +35,9 @@ export const BalanceCardGlass = memo(function BalanceCardGlass(
           height="100%"
           viewBox="0 0 440 180"
           preserveAspectRatio="none"
+          // Customer cards are taller than the homepage board. Soften their
+          // full-card tint to match iOS's fixed-size, more localized glows.
+          opacity={props.tone ? 0.85 : 1}
           style={StyleSheet.absoluteFill}
         >
           <Defs>
