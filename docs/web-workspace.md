@@ -4,8 +4,7 @@ The first browser workspace lives at `/app` in the existing Vite application. It
 
 ## First release
 
-- Email or username/password sign-in, email-code signup, and password recovery.
-- Google and Apple sign-in, using the existing backend provider configuration and the same accounts as mobile.
+- Google and Apple sign-in only, using the existing backend provider configuration and the same accounts as mobile. The same provider screen handles new and existing accounts.
 - List and switch kaatas; create a kaata.
 - Search people, add a person, and edit name/phone.
 - All currency balances shown together, with separate totals for each currency and collect/pay/settled filters across currencies. No page currency selector; a person's history includes every currency.
@@ -18,16 +17,16 @@ This release deliberately excludes reminders, contact import, shared-account act
 
 ## Routes
 
-| Route                  | Page                                       |
-| ---------------------- | ------------------------------------------ |
-| `/app`                 | Authenticated workspace                    |
-| `/app/sign-in`         | Password, Apple or Google sign-in          |
-| `/app/sign-up`         | Email-code signup, Apple or Google sign-in |
-| `/app/forgot-password` | Email-code password recovery               |
+| Route                  | Page                                    |
+| ---------------------- | --------------------------------------- |
+| `/app`                 | Authenticated workspace                 |
+| `/app/sign-in`         | Apple or Google sign-in                 |
+| `/app/sign-up`         | Redirect to the provider sign-in screen |
+| `/app/forgot-password` | Redirect to the provider sign-in screen |
 
-Auth pages share a compact layout and load separately from the ledger. Links create normal browser history entries; session guards replace the current entry when redirecting signed-out visitors to sign-in or signed-in visitors to the workspace. Unknown `/app/*` routes show a localized 404. Page titles follow the active route and language.
+The compact provider screen loads separately from the ledger. It has no email, password, verification-code or separate registration form. Provider discovery and SDK failures show retry options. Session guards replace the current entry when redirecting signed-out visitors to sign-in or signed-in visitors to the workspace; retired auth URLs also use replacement redirects. Unknown `/app/*` routes show a localized 404. Page titles follow the active route and language.
 
-Auth history changes clear form secrets and cancel pending sign-in, including browser Back, so a late response cannot open an account after the visitor leaves. The existing Apple `/app#...` return remains compatible: its fragment is removed before routing or provider scripts load, and completion is consumed once. Sign-out returns to `/app/sign-in` without replaying a completed Apple return.
+Auth history changes cancel pending sign-in, including browser Back, so a late response cannot open an account after the visitor leaves. The existing Apple `/app#...` return remains compatible: its fragment is removed before routing or provider scripts load, and completion is consumed once. Sign-out returns to `/app/sign-in` without replaying a completed Apple return.
 
 ## Data and security
 
@@ -35,7 +34,7 @@ Auth history changes clear form secrets and cancel pending sign-in, including br
 
 Writes use the existing device registration, server witness and signed `/v1/sync/push` endpoints. The browser signs Ed25519 events with the same canonical encoding as mobile. Credit checks and role enforcement still run on the server. New kaatas include signed membership/device genesis, shop profile and currency-setting events. Editing reloads the current ledger and checks the prior entry revision; amendments carry only changed fields. Concurrent changes between that check and push retain the existing mobile last-writer-wins behavior, rather than a new compare-and-swap guarantee.
 
-Every sign-in creates a fresh browser install ID so it cannot rebind a phone. JWTs, browser signing keys and a pending signed operation are confined to `sessionStorage`; sign-out revokes the server credential and clears them. Sessions are scoped to the browser tab and expire with the server credential; browsers may restore storage when reopening tabs, so sign out on shared computers. Passwords and provider ID tokens are never persisted. Keep CSP and HTTPS enabled; session storage is not protection against same-origin script compromise.
+Every sign-in creates a fresh browser install ID so it cannot rebind a phone. JWTs, browser signing keys and a pending signed operation are confined to `sessionStorage`; sign-out revokes the server credential and clears them. Sessions are scoped to the browser tab and expire with the server credential; browsers may restore storage when reopening tabs, so sign out on shared computers. Provider ID tokens are never persisted. Keep CSP and HTTPS enabled; session storage is not protection against same-origin script compromise.
 
 `GET /v1/auth/providers` exposes only public provider settings: `{google: {client_id} | null, apple: {start_url} | null}`. The backend is the single source of provider configuration. Google Identity Services returns a credential to the browser, which submits it to the existing `/v1/auth/google` token-verifying endpoint. Apple opens the existing backend authorization flow with a browser-specific signed state valid for ten minutes and a nonce. The browser sends its current origin as `return_origin`; the backend permits only `WEB_BASE_URL`, plus `https://www.kaata.af` when the configured site is `https://kaata.af`. The chosen origin is included in signed state and validated again on callback. Apple's registered callback stays `/v1/auth/apple/web/callback`; browser completion returns to `/app` on the initiating allowed origin with a fragment, while Android keeps its app deep link. Browser state and nonce checks bind completion to the sign-in attempt. The callback fragment is cleared before normal workspace navigation. Provider credentials do not belong in server URLs or analytics.
 
@@ -49,7 +48,7 @@ Live messages contain invalidation hints, not ledger data. Visible tabs reload t
 
 Deploy backend and web from the same commit, backend first. There is no database migration for this feature. Keep the existing mesh signer configured: witnessed admission of another device needs it.
 
-- Existing backend `SESSION_JWT_SECRET`, database and mail configuration continue to apply. Email signup/reset requires the existing mail service; existing password sign-in works without mail.
+- Existing backend `SESSION_JWT_SECRET` and database configuration continue to apply. Browser sign-in uses the configured Apple and Google providers.
 - Set web build argument `VITE_BACKEND_URL` to the API origin.
 - Google uses backend `GOOGLE_WEB_CLIENT_ID`, also used by mobile. No separate web client ID or web build argument is needed; remove obsolete `VITE_GOOGLE_WEB_CLIENT_ID` arguments. In Google Cloud, authorize both production origins (`https://kaata.af` and `https://www.kaata.af`) for that Web application client. Local testing requires `http://localhost` and the exact localhost port. The callback-based GIS flow does not need a separate Google redirect URI. Keep the existing consent branding and authorized domains current. See [Google's setup guide](https://developers.google.com/identity/gsi/web/guides/get-google-api-clientid).
 - Apple uses backend `APPLE_SERVICES_ID` (the existing production Services ID is `af.kaata.auth`), the existing JWT secret, and valid HTTPS API/site origins. `WEB_BASE_URL` defaults to `https://kaata.af`; only for that canonical site, an empty `PUBLIC_API_BASE_URL` uses the fixed `https://api.kaata.af` Apple endpoint. Custom site origins require an explicit HTTPS API origin. Invalid explicit origins disable browser Apple sign-in; request Host headers never select the callback. In Apple Developer, associate the Services ID with the existing primary App ID `af.kaata.app` so users retain their Apple identity across platforms, register the relevant domains, and retain the exact return URL `https://api.kaata.af/v1/auth/apple/web/callback`. The new browser flow reuses that return URL. No additional Apple frontend ID, private key, or client secret is needed for this ID-token flow. Apple does not allow localhost or IP return URLs; use a registered HTTPS environment for real sign-in tests. See [Apple's web configuration guide](https://developer.apple.com/help/account/capabilities/configure-sign-in-with-apple-for-the-web) and [authorization requirements](https://developer.apple.com/documentation/signinwithapplerestapi/request-an-authorization-to-the-sign-in-with-apple-server).
@@ -86,8 +85,8 @@ Provider release checks passed all 233 web tests across 23 files, all nine analy
 
 Production `/v1/auth/providers` returns both providers. The Apple button on `www.kaata.af` opens Kaata's branded Apple sign-in page, and browser Back restores an enabled login screen. Both `https://kaata.af` and `https://www.kaata.af` are now saved as authorized JavaScript origins on the existing Google OAuth client. In Chrome, Google's buttons on both origins open the real account chooser showing “to continue to kaata.af,” with no console errors. The popups were closed without selecting an account; no real OAuth consent or complete production provider sign-in was performed.
 
-Routing checks used a disposable local API with synthetic sessions and Apple credentials. Browser QA verified redirects, real signup/reset URLs, Back clearing entered secrets, and a delayed password response completing after Back without opening a session. Signup and reset code forms received focus correctly; reset retained its device sign-out warning. Two Apple starts produced exactly two exchanges, and both sign-outs returned to sign-in without replay. Signed-in auth links redirected to the workspace, unknown app paths showed 404, and the compact pages worked at 390px and in Dari RTL. No real provider account or email delivery was used in these routing checks.
+The OAuth-only release passed all 233 web tests and nine analytics/privacy and metadata checks. Auth, ledger and live-update test fixtures now sign in through Google; the web client has no email/password auth helpers. Browser QA verified that retired signup and recovery URLs redirect to `/app/sign-in`, with no credential fields or separate registration links. A disposable local API verified retry behavior for both an empty provider configuration and a 503 response, followed by recovery to the two provider buttons. The compact screen also passed a 390px Dari RTL check. Earlier synthetic Apple checks verified one exchange per start and sign-out without callback replay; no real provider account was used in these browser checks.
 
-Local browser checks covered existing-account sign-in, existing kaata balances, adding a person, Dari decimal input, entry correction, separate USD/AFN totals, new kaata creation, and Dari layout at desktop and 390px widths. A real isolated API smoke also covered person edits, entry deletion, new-vault signed genesis, sign-out/re-sign-in, and fresh-device witness admission. Mock transport tests cover lost-response retries. Real Google/Apple consent and completed production sign-in, existing Apple-account continuity, live email delivery and a physical-phone round trip still need release-environment verification.
+Local browser checks covered existing-account sign-in, existing kaata balances, adding a person, Dari decimal input, entry correction, separate USD/AFN totals, new kaata creation, and Dari layout at desktop and 390px widths. A real isolated API smoke also covered person edits, entry deletion, new-vault signed genesis, sign-out/re-sign-in, and fresh-device witness admission. Mock transport tests cover lost-response retries. Real Google/Apple consent and completed production sign-in, existing Apple-account continuity and a physical-phone round trip still need release-environment verification.
 
 Live-update verification uses real PostgreSQL tests for ticket authentication/revocation, committed event delivery, account isolation, and post-commit kaata lifecycle notifications. Browser transport and refresh-queue tests cover reconnects, heartbeat loss, stale sessions, burst coalescing and rate-limit cooldowns. A disposable local WebSocket fixture verified automatic balance/history/customer changes, preservation of an unsaved draft, and catch-up after disconnection without manually refreshing.

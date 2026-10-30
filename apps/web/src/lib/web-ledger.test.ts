@@ -55,7 +55,7 @@ test("browser signs device admission and safely retries a lost save response wit
   globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
     const path = new URL(String(url)).pathname;
     const body = init?.body ? JSON.parse(String(init.body)) : {};
-    if (path === "/v1/auth/email/signin") {
+    if (path === "/v1/auth/google") {
       installID = body.install_id;
       const jwt = `header.${btoa(JSON.stringify({ account_id: accountID, install_id: installID, exp: Math.floor(Date.now() / 1000) + 3600 }))}.signature`;
       return respond({
@@ -185,7 +185,7 @@ test("browser signs device admission and safely retries a lost save response wit
     throw new Error(`Unexpected request: ${path}`);
   }) as typeof fetch;
   try {
-    await auth.signInWithPassword("owner@example.com", "unused-fixture-password");
+    await auth.signInWithGoogle("fixture-google-token", auth.createWebAuthNonce());
     const initial = structuredClone(ledger);
     const personInput = { name: "Ahmad", phone_e164: "+93701234567" };
     await assert.rejects(client.createWebPerson(initial, personInput), /Cannot reach/);

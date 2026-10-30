@@ -8,7 +8,6 @@ import {
   parseWebSession,
   signInWithApple,
   signInWithGoogle,
-  signInWithPassword,
   signOut,
   webRequest,
   WEB_SESSION_EVENT,
@@ -89,27 +88,27 @@ test("cached auth rejects expiry, corruption, and a JWT bound to another account
   assert.equal(parseWebSession(JSON.stringify({ ...valid, install_id: "other-install" })), null);
 });
 
-test("each login gets a new web install; password never enters session storage", async () => {
+test("each login gets a new web install; provider credentials never enter session storage", async () => {
   const installs: string[] = [];
   loginFetch((body) => {
     assert.equal(body.platform, "web");
-    assert.equal(body.identifier, "fixture@example.com");
+    assert.equal(body.id_token, "never-persist-this-provider-token");
     installs.push(body.install_id);
   });
-  const first = await signInWithPassword(" fixture@example.com ", "never-persist-this");
-  const second = await signInWithPassword("fixture@example.com", "never-persist-this");
+  const first = await signInWithGoogle("never-persist-this-provider-token", createWebAuthNonce());
+  const second = await signInWithGoogle("never-persist-this-provider-token", createWebAuthNonce());
   assert.notEqual(first.install_id, second.install_id);
   assert.equal(installs.length, 2);
   assert.equal(changes, 2);
   assert.equal(
-    [...storage.values()].some((value) => value.includes("never-persist-this")),
+    [...storage.values()].some((value) => value.includes("never-persist-this-provider-token")),
     false,
   );
 });
 
 test("authenticated requests use bearer headers and cannot redirect or send cookies", async () => {
   loginFetch();
-  const current = await signInWithPassword("fixture@example.com", "password");
+  const current = await signInWithGoogle("fixture-google-token", createWebAuthNonce());
   globalThis.fetch = (async (_url: string | URL | Request, init?: RequestInit) => {
     assert.equal(new Headers(init?.headers).get("Authorization"), `Bearer ${current.session_jwt}`);
     assert.equal(init?.credentials, "omit");
@@ -124,7 +123,7 @@ test("authenticated requests use bearer headers and cannot redirect or send cook
 
 test("401 ends the session, while permission errors preserve it", async () => {
   loginFetch();
-  await signInWithPassword("fixture@example.com", "password");
+  await signInWithGoogle("fixture-google-token", createWebAuthNonce());
   globalThis.fetch = (async () =>
     Response.json({ error: "forbidden" }, { status: 403 })) as typeof fetch;
   await assert.rejects(
@@ -141,7 +140,7 @@ test("401 ends the session, while permission errors preserve it", async () => {
 
 test("late 401 from an older account cannot erase a newer sign-in", async () => {
   loginFetch();
-  await signInWithPassword("fixture@example.com", "password");
+  await signInWithGoogle("fixture-google-token", createWebAuthNonce());
   let resolveOld!: (response: Response) => void;
   globalThis.fetch = (() =>
     new Promise<Response>((resolve) => {
@@ -149,7 +148,7 @@ test("late 401 from an older account cannot erase a newer sign-in", async () => 
     })) as typeof fetch;
   const pending = webRequest("/v1/vaults").catch((error: unknown) => error);
   loginFetch();
-  const newSession = await signInWithPassword("fixture@example.com", "password");
+  const newSession = await signInWithGoogle("fixture-google-token", createWebAuthNonce());
   resolveOld(Response.json({ error: "revoked" }, { status: 401 }));
   await pending;
   assert.equal(getWebSession()?.install_id, newSession.install_id);
@@ -157,14 +156,14 @@ test("late 401 from an older account cannot erase a newer sign-in", async () => 
 
 test("public invalid credentials preserve session; backend error_code and cooldown are retained", async () => {
   loginFetch();
-  const current = await signInWithPassword("fixture@example.com", "password");
+  const current = await signInWithGoogle("fixture-google-token", createWebAuthNonce());
   globalThis.fetch = (async () =>
     Response.json(
       { error: "incorrect", error_code: "invalid_credentials" },
       { status: 401 },
     )) as typeof fetch;
   await assert.rejects(
-    () => signInWithPassword("wrong", "wrong"),
+    () => signInWithGoogle("invalid-google-token", createWebAuthNonce()),
     (error: unknown) => error instanceof WebApiError && error.code === "invalid_credentials",
   );
   assert.equal(getWebSession()?.install_id, current.install_id);
@@ -174,14 +173,14 @@ test("public invalid credentials preserve session; backend error_code and cooldo
       { status: 429 },
     )) as typeof fetch;
   await assert.rejects(
-    () => signInWithPassword("wrong", "wrong"),
+    () => signInWithGoogle("invalid-google-token", createWebAuthNonce()),
     (error: unknown) => error instanceof WebApiError && error.retryAfterSeconds === 63,
   );
 });
 
 test("sign-out preserves retry on network failure and clears only after server revocation", async () => {
   loginFetch();
-  await signInWithPassword("fixture@example.com", "password");
+  await signInWithGoogle("fixture-google-token", createWebAuthNonce());
   globalThis.fetch = (async () => {
     throw new TypeError("offline");
   }) as typeof fetch;
@@ -197,7 +196,7 @@ test("sign-out preserves retry on network failure and clears only after server r
 
 test("runtime provider discovery is public, abortable, and uses the safe request options", async () => {
   loginFetch();
-  const current = await signInWithPassword("fixture@example.com", "password");
+  const current = await signInWithGoogle("fixture-google-token", createWebAuthNonce());
   const providers = {
     google: { client_id: "fixture.apps.googleusercontent.com" },
     apple: { start_url: `${BACKEND_URL}/v1/auth/apple/browser/start` },

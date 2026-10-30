@@ -8,7 +8,12 @@ import {
   type WebAppleCallback,
 } from "../../lib/web-apple";
 import { getWebSession, WEB_SESSION_EVENT } from "../../lib/web-auth";
-import { WEB_AUTH_ROUTE_EVENT, WEB_ROUTES, webAuthMode } from "../../lib/web-routes";
+import {
+  WEB_AUTH_ROUTE_EVENT,
+  WEB_ROUTES,
+  isRetiredWebAuthPath,
+  isWebAuthPath,
+} from "../../lib/web-routes";
 
 const Auth = lazy(() => import("./Auth").then((module) => ({ default: module.WorkspaceAuth })));
 const Ledger = lazy(() => import("./Workspace"));
@@ -18,8 +23,6 @@ const titles = {
   en: {
     workspace: "Your workspace",
     signin: "Sign in",
-    signup: "Create an account",
-    reset: "Reset your password",
     missing: "Page not found",
     loading: "Opening Kaata…",
     missingBody: "This page could not be found.",
@@ -28,8 +31,6 @@ const titles = {
   fa: {
     workspace: "کاتای وب",
     signin: "ورود",
-    signup: "ساختن حساب",
-    reset: "بازنشانی رمز عبور",
     missing: "صفحه پیدا نشد",
     loading: "کاتا باز می‌شود…",
     missingBody: "این صفحه پیدا نشد.",
@@ -38,8 +39,6 @@ const titles = {
   ps: {
     workspace: "د وېب کاتا",
     signin: "ننوتل",
-    signup: "حساب جوړول",
-    reset: "پټنوم بیا ټاکل",
     missing: "پاڼه ونه موندل شوه",
     loading: "کاتا پرانیستل کېږي…",
     missingBody: "دا پاڼه ونه موندل شوه.",
@@ -77,23 +76,28 @@ export default function WorkspaceRoutes() {
   }, [signedIn, clearAppleReturn]);
 
   const pathname = location.pathname.replace(/\/$/, "");
-  const mode = webAuthMode(pathname);
+  const signin = isWebAuthPath(pathname);
+  const retiredAuth = isRetiredWebAuthPath(pathname);
   const workspace = pathname === WEB_ROUTES.workspace;
 
   useEffect(() => {
     const previous = document.title;
     const brand = { en: "Kaata", fa: "کاتا", ps: "کاتا" }[lang];
-    document.title = `${brand} · ${copy[mode ?? (workspace ? "workspace" : "missing")]}`;
+    document.title = `${brand} · ${copy[signin || retiredAuth ? "signin" : workspace ? "workspace" : "missing"]}`;
     return () => {
       document.title = previous;
     };
-  }, [copy, lang, mode, workspace]);
+  }, [copy, lang, signin, retiredAuth, workspace]);
 
-  if (location.pathname !== pathname && (workspace || mode))
+  // Retain old bookmarks without retaining separate registration or recovery.
+  if (retiredAuth)
+    return <Navigate replace to={session ? WEB_ROUTES.workspace : WEB_ROUTES.signin} />;
+
+  if (location.pathname !== pathname && (workspace || signin))
     return <Navigate replace to={pathname} />;
 
   // Only known routes are guarded. A typo must not silently open a ledger.
-  if (!workspace && !mode)
+  if (!workspace && !signin)
     return (
       <main className="flex min-h-dvh flex-col items-center justify-center bg-neutral-50 px-6 text-center text-neutral-900">
         <BrandLogo className="mb-8 h-10 w-10" />
@@ -110,7 +114,7 @@ export default function WorkspaceRoutes() {
     );
 
   if (!session && workspace) return <Navigate replace to={WEB_ROUTES.signin} />;
-  if (session && mode) return <Navigate replace to={WEB_ROUTES.workspace} />;
+  if (session && signin) return <Navigate replace to={WEB_ROUTES.workspace} />;
 
   return (
     <Suspense
@@ -128,7 +132,6 @@ export default function WorkspaceRoutes() {
       ) : (
         <Auth
           key={location.key}
-          mode={mode!}
           appleReturn={appleReturn}
           onAppleReturnHandled={clearAppleReturn}
           onSignedIn={signedIn}

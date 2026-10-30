@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { clearWebSession, signInWithPassword, WebApiError, type WebSession } from "./web-auth";
+import {
+  clearWebSession,
+  createWebAuthNonce,
+  signInWithGoogle,
+  WebApiError,
+  type WebSession,
+} from "./web-auth";
 import {
   createWebLive,
   type WebLiveDependencies,
@@ -472,7 +478,7 @@ test("the browser adapter exchanges a bearer by POST through webRequest without 
     clearWebSession();
     globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
       const pathname = new URL(String(url)).pathname;
-      if (pathname === "/v1/auth/email/signin") {
+      if (pathname === "/v1/auth/google") {
         const body = JSON.parse(String(init?.body));
         const claims = {
           account_id: "adapter-account",
@@ -497,7 +503,7 @@ test("the browser adapter exchanges a bearer by POST through webRequest without 
       ticketRequests++;
       return Response.json({ ticket: "opaque-browser-adapter-ticket", expires_in: 30 });
     }) as typeof fetch;
-    const signedIn = await signInWithPassword("visual@example.test", "test-only");
+    const signedIn = await signInWithGoogle("fixture-google-token", createWebAuthNonce());
     controller = createWebLive({
       session: signedIn,
       backendUrl: "https://api.example.test",

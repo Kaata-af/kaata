@@ -4,7 +4,7 @@ import { ToastProvider } from "./components/Toast";
 import { fireVisitOnce, getSource } from "./lib/analytics";
 import { dismissWebAppleCallback } from "./lib/web-apple";
 import { cancelPendingWebSignIn } from "./lib/web-auth";
-import { WEB_AUTH_ROUTE_EVENT, webAuthMode } from "./lib/web-routes";
+import { WEB_AUTH_ROUTE_EVENT, isWebAuthPath } from "./lib/web-routes";
 import { CustomerView } from "./pages/CustomerView";
 import { DeleteAccount } from "./pages/DeleteAccount";
 import { Download } from "./pages/Download";
@@ -100,7 +100,7 @@ function AuthNavigation() {
   useLayoutEffect(() => {
     const from = previous.current;
     previous.current = location;
-    if (from.key === location.key || webAuthMode(from.pathname) === null) return;
+    if (from.key === location.key || !isWebAuthPath(from.pathname)) return;
     cancelPendingWebSignIn();
     dismissWebAppleCallback();
     window.dispatchEvent(new Event(WEB_AUTH_ROUTE_EVENT));

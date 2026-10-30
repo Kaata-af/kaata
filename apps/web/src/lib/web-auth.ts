@@ -280,10 +280,6 @@ async function authenticate(path: string, body: Record<string, string>): Promise
   return session;
 }
 
-export function signInWithPassword(identifier: string, password: string) {
-  return authenticate("/v1/auth/email/signin", { identifier: identifier.trim(), password });
-}
-
 function validateProviderNonce(nonce: string) {
   if (!/^[A-Za-z0-9_-]{32,128}$/.test(nonce)) {
     throw new WebApiError("Restart sign-in and try again.", 400, "invalid_nonce");
@@ -301,32 +297,6 @@ export async function signInWithApple(identityToken: string, displayName: string
     identity_token: identityToken,
     display_name: displayName,
     nonce,
-  });
-}
-
-export function startEmailCode(mode: "signup" | "reset", email: string, lang: string) {
-  return request<{ status: string; resend_after_s: number }>(
-    `/v1/auth/email/${mode}/start`,
-    {
-      method: "POST",
-      body: JSON.stringify({ email: email.trim(), lang }),
-    },
-    false,
-  );
-}
-
-export function verifyEmailCode(
-  mode: "signup" | "reset",
-  email: string,
-  code: string,
-  password: string,
-  lang: string,
-) {
-  return authenticate(`/v1/auth/email/${mode}/verify`, {
-    email: email.trim(),
-    code,
-    [mode === "reset" ? "new_password" : "password"]: password,
-    lang,
   });
 }
 

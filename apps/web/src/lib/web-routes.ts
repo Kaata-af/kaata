@@ -1,22 +1,15 @@
 export const WEB_ROUTES = {
   workspace: "/app",
   signin: "/app/sign-in",
-  signup: "/app/sign-up",
-  reset: "/app/forgot-password",
 } as const;
 
-export type WebAuthMode = "signin" | "signup" | "reset";
-
-export function authRoute(mode: WebAuthMode): string {
-  return WEB_ROUTES[mode];
+export function isWebAuthPath(pathname: string): boolean {
+  return pathname.replace(/\/$/, "") === WEB_ROUTES.signin;
 }
 
-export function webAuthMode(pathname: string): WebAuthMode | null {
+export function isRetiredWebAuthPath(pathname: string): boolean {
   const path = pathname.replace(/\/$/, "");
-  for (const mode of ["signin", "signup", "reset"] as const) {
-    if (path === WEB_ROUTES[mode]) return mode;
-  }
-  return null;
+  return path === "/app/sign-up" || path === "/app/forgot-password";
 }
 
 export const WEB_AUTH_ROUTE_EVENT = "kaata:web-auth-route-left";
