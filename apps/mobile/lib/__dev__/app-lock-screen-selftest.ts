@@ -108,6 +108,7 @@ function fixture(os: "ios" | "android", locale: "en" | "fa" | "ps") {
     "../lib/i18n": language,
     "./Button": { Button: "Button" },
     "./BalanceCardGlass": { BalanceCardGlass: "BalanceCardGlass" },
+    "./AppLockBackground": { AppLockBackground: "AppLockBackground" },
   });
   const render = (patch: Partial<typeof state> = {}) => {
     state = { ...state, ...patch };
@@ -157,7 +158,9 @@ for (const os of ["ios", "android"] as const)
     const card = f.byId("app-lock-card");
     const title = f.byId("app-lock-title");
     assert.ok(card, "The lock card is present above private content");
-    assert.ok(nodes(card).some((node) => node.type === "BalanceCardGlass"));
+    const backdrop = nodes(card).find((node) => node.type === "AppLockBackground")!;
+    assert.ok(backdrop, "The lock card owns its decorative moving surface");
+    assert.equal(backdrop.props.active, true);
     assert.equal(words(title), language.t("appLock.title"));
     assert.equal(title.props.accessibilityRole, "header");
     const titleStyle = flattenStyle(title.props.style);
@@ -233,10 +236,22 @@ for (const os of ["ios", "android"] as const)
       ),
     );
     f.render({ appState: "inactive" });
+    assert.equal(
+      nodes(f.byId("app-lock-card")).find((node) => node.type === "AppLockBackground")!.props
+        .active,
+      false,
+      "Native authentication inactivity pauses ambient decoration",
+    );
     assert.equal(f.buttons()[0].props.disabled, true);
     if (os === "ios") assert.equal(explicitPasscode()!.props.disabled, true);
 
     f.render({ initialized: false, enabled: false, locked: true, error: null, appState: "active" });
+    assert.equal(
+      nodes(f.byId("app-lock-card")).find((node) => node.type === "AppLockBackground")!.props
+        .active,
+      false,
+      "Unknown preferences do not start lock-screen motion",
+    );
     assert.equal(words(f.byId("app-lock-title")), language.t("appLock.privacyTitle"));
     assert.ok(
       !words(f.byId("app-lock-screen")).includes(language.t("appLock.reassurance")),

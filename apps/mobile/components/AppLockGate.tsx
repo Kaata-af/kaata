@@ -35,7 +35,7 @@ import { fonts, sansLineHeight } from "../lib/fonts";
 import { radius } from "../lib/tokens";
 import { t } from "../lib/i18n";
 import { Button } from "./Button";
-import { BalanceCardGlass } from "./BalanceCardGlass";
+import { AppLockBackground } from "./AppLockBackground";
 
 /** Keep navigation and drafts alive while covering every app entry point. */
 export function AppLockGate({ children }: PropsWithChildren) {
@@ -212,7 +212,7 @@ function LockScreen({
           kaata.
         </Text>
         <View testID="app-lock-card" style={styles.card}>
-          <BalanceCardGlass />
+          <AppLockBackground active={active && locked} />
           <View style={styles.cardContent}>
             <View testID="app-lock-status" style={[styles.status, !locked && styles.statusNeutral]}>
               <View style={[styles.statusDot, !locked && styles.statusDotNeutral]} />

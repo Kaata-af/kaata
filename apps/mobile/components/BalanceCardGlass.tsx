@@ -6,10 +6,13 @@ import { useSheetTransparencyPreference } from "./SheetBackdrop";
 
 /** A static frosted backing, below the card's text and touch targets. Never
  * capture the app-wide sheet target here: it also contains this card. */
-export const BalanceCardGlass = memo(function BalanceCardGlass() {
+export const BalanceCardGlass = memo(function BalanceCardGlass(
+  props: { reducedTransparency?: boolean } = {},
+) {
   const target = useRef<ViewInstance | null>(null);
   const android = Platform.OS === "android";
-  const reducedTransparency = useSheetTransparencyPreference();
+  const contextReducedTransparency = useSheetTransparencyPreference();
+  const reducedTransparency = props.reducedTransparency ?? contextReducedTransparency;
   // Older Android uses an opaque pearl surface, without a RenderScript blur.
   const blur =
     !reducedTransparency &&

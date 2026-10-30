@@ -73,6 +73,14 @@ are unchanged.
 The lock-screen wordmark is always the literal LTR **kaata.** in all languages;
 the remaining lock and recovery text stays localized.
 
+The decorative glass drifts gently on a 20-second cycle, using native-driven
+transforms with stationary text, controls and card border. It pauses without
+resetting when inactive or backgrounded, and stops on unmount. OS Reduce Motion
+and Reduce Transparency use a static surface; older Android's opaque fallback
+also avoids an unnecessary loop. The lock reads these OS preferences directly
+because its privacy cover sits outside the normal sheet provider. Balance cards
+elsewhere retain their existing static appearance.
+
 ## Screen privacy and native configuration
 
 While enabled, Android's native secure-window flag blocks screenshots,

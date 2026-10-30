@@ -98,6 +98,7 @@ const { AppLockGate } = compileUI("../../components/AppLockGate", {
   },
   "../lib/i18n": { t: (key: string) => key },
   "./BalanceCardGlass": { BalanceCardGlass: "BalanceCardGlass" },
+  "./AppLockBackground": { AppLockBackground: "AppLockBackground" },
   "../lib/tokens": { radius: { lg: 20, pill: 999 } },
   "./Button": { Button: "Button" },
 });

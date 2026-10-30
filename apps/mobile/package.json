@@ -8,7 +8,7 @@
     "ios": "expo run:ios",
     "web": "expo start --web",
     "typecheck": "tsc --noEmit",
-    "selftest:app-lock": "tsx lib/__dev__/app-lock-selftest.ts && tsx lib/__dev__/device-passcode-selftest.ts && tsx lib/__dev__/device-passcode-native-contract-selftest.ts && tsx lib/__dev__/app-lock-settings-selftest.ts && tsx lib/__dev__/app-lock-gate-selftest.ts && tsx lib/__dev__/app-lock-screen-selftest.ts && tsx lib/__dev__/protected-modal-selftest.ts && tsx lib/__dev__/app-lock-screen-privacy-selftest.ts",
+    "selftest:app-lock": "tsx lib/__dev__/app-lock-selftest.ts && tsx lib/__dev__/device-passcode-selftest.ts && tsx lib/__dev__/device-passcode-native-contract-selftest.ts && tsx lib/__dev__/app-lock-settings-selftest.ts && tsx lib/__dev__/app-lock-gate-selftest.ts && tsx lib/__dev__/app-lock-screen-selftest.ts && tsx lib/__dev__/app-lock-background-selftest.ts && tsx lib/__dev__/protected-modal-selftest.ts && tsx lib/__dev__/app-lock-screen-privacy-selftest.ts",
     "selftest:motion": "tsx lib/__dev__/reduced-motion-selftest.ts && tsx lib/__dev__/motion-consumers-selftest.ts && tsx lib/__dev__/motion-integration-selftest.ts",
     "submit:ios": "node scripts/asc-submit.mjs",
     "promote:android": "node scripts/play-promote.mjs",
