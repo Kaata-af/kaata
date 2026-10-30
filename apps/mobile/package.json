@@ -117,7 +117,7 @@
     "selftest:reminder-notifications": "tsx lib/__dev__/reminder-notifications-selftest.ts",
     "selftest:reminders-ui": "tsx lib/__dev__/reminders-ui-selftest.ts",
     "selftest:reminder-permission": "tsx lib/__dev__/reminder-permission-selftest.ts",
-    "selftest:credit-limits": "tsx lib/__dev__/credit-limits-selftest.ts",
+    "selftest:credit-limits": "tsx lib/__dev__/credit-limits-selftest.ts && tsx lib/__dev__/credit-limit-notifications-selftest.ts",
     "selftest:credit-alerts": "tsx lib/__dev__/credit-alerts-selftest.ts && tsx lib/__dev__/credit-alert-settings-ui-selftest.ts && tsx lib/__dev__/credit-alert-notifications-selftest.ts && tsx lib/__dev__/credit-alert-push-selftest.ts",
     "selftest:credit-alert-notifications": "tsx lib/__dev__/credit-alert-notifications-selftest.ts",
     "selftest:credit-alert-push": "tsx lib/__dev__/credit-alert-push-selftest.ts",

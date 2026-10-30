@@ -53,21 +53,22 @@ const (
 // (Events is cursor-bound, MembershipEvents is not); mobile ingests by
 // event_id idempotently, so the overlap is harmless.
 type SnapshotResponse struct {
-	CreditLimits      []credit.Policy           `json:"credit_limits"`
-	CreditAlerts      []credit.AlertPolicy      `json:"credit_alerts"`
-	CustomerGroups    []CustomerGroupProjection `json:"customer_groups"`
-	VaultID           string                    `json:"vault_id"`
-	SnapshotServerSeq int64                     `json:"snapshot_server_seq"`
-	GeneratedAtMS     int64                     `json:"generated_at_ms"`
-	SchemaVersion     int                       `json:"schema_version"`
-	Vault             SnapshotVault             `json:"vault"`
-	ShopProfile       *SnapshotShopProfile      `json:"shop_profile"`
-	Users             []SnapshotUser            `json:"users"`
-	Relationships     []SnapshotRelationship    `json:"relationships"`
-	Entries           []SnapshotEntry           `json:"entries"`
-	HLCLast           HLC                       `json:"hlc_last"`
-	Events            []PulledEvent             `json:"events"`
-	MembershipEvents  []PulledEvent             `json:"membership_events"`
+	CreditLimits             []credit.Policy                  `json:"credit_limits"`
+	CreditAlerts             []credit.AlertPolicy             `json:"credit_alerts"`
+	CreditLimitNotifications []credit.LimitNotificationPolicy `json:"credit_limit_notifications"`
+	CustomerGroups           []CustomerGroupProjection        `json:"customer_groups"`
+	VaultID                  string                           `json:"vault_id"`
+	SnapshotServerSeq        int64                            `json:"snapshot_server_seq"`
+	GeneratedAtMS            int64                            `json:"generated_at_ms"`
+	SchemaVersion            int                              `json:"schema_version"`
+	Vault                    SnapshotVault                    `json:"vault"`
+	ShopProfile              *SnapshotShopProfile             `json:"shop_profile"`
+	Users                    []SnapshotUser                   `json:"users"`
+	Relationships            []SnapshotRelationship           `json:"relationships"`
+	Entries                  []SnapshotEntry                  `json:"entries"`
+	HLCLast                  HLC                              `json:"hlc_last"`
+	Events                   []PulledEvent                    `json:"events"`
+	MembershipEvents         []PulledEvent                    `json:"membership_events"`
 	// Recover the exact future-entry choices without publishing arbitrary
 	// vault/client settings or discarding their signed authority and HLCs.
 	EnabledCurrencyEvents []PulledEvent `json:"enabled_currency_events,omitempty"`
@@ -312,13 +313,18 @@ func (s *Service) LatestSnapshot(ctx context.Context, vaultID string) (*Snapshot
 	if err != nil {
 		return nil, err
 	}
+	creditLimitNotifications, err := credit.ListLimitNotifications(ctx, s.pool, vaultID)
+	if err != nil {
+		return nil, err
+	}
 	resp := &SnapshotResponse{
-		CreditLimits:      creditLimits,
-		CreditAlerts:      creditAlerts,
-		VaultID:           vaultID,
-		SnapshotServerSeq: upTo,
-		GeneratedAtMS:     createdAt.UnixMilli(),
-		SchemaVersion:     schemaVer,
+		CreditLimits:             creditLimits,
+		CreditAlerts:             creditAlerts,
+		CreditLimitNotifications: creditLimitNotifications,
+		VaultID:                  vaultID,
+		SnapshotServerSeq:        upTo,
+		GeneratedAtMS:            createdAt.UnixMilli(),
+		SchemaVersion:            schemaVer,
 		Vault: SnapshotVault{
 			ID:                     vaultID,
 			Name:                   vaultName,

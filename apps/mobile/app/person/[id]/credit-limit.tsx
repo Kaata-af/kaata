@@ -9,6 +9,7 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   View,
@@ -39,6 +40,11 @@ import {
   CreditOnlineSaveRequiredError,
 } from "../../../lib/credit-limits";
 import { KAATA_DEFAULT_ROUTE_ID } from "../../../lib/credit-policy";
+import {
+  CreditLimitNotificationsUnsupportedError,
+  loadCreditLimitNotificationSettings,
+  saveCreditLimitNotifications,
+} from "../../../lib/credit-limit-notifications";
 import { getActiveVaultIdSyncMaybe, getDb } from "../../../lib/db-tx";
 import {
   applyForUnchangedLocalSession,
@@ -67,6 +73,21 @@ type Context = {
   session: SessionSnapshot;
   lifetime: number;
 };
+type NotificationDraft = { enabled: boolean; saved: boolean };
+type NotificationSettings = Awaited<ReturnType<typeof loadCreditLimitNotificationSettings>>;
+function notificationDraftFor(
+  rows: CreditCurrencySettings[],
+  settings: NotificationSettings,
+): NotificationDraft {
+  const hasLimits = rows.some((row) => {
+    const policy = row.policy ?? row.defaultPolicy;
+    return policy?.max_collect_minor != null || policy?.max_pay_minor != null;
+  });
+  return {
+    enabled: settings.effective?.enabled ?? !hasLimits,
+    saved: settings.effective?.enabled ?? false,
+  };
+}
 function draftFor(row: CreditCurrencySettings): Draft {
   const policy = row.policy ?? row.defaultPolicy;
   return {
@@ -98,6 +119,9 @@ export default function CreditLimitScreen() {
   const settingsRef = useRef(settings);
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
   const draftsRef = useRef(drafts);
+  const [notificationDraft, setNotificationDraft] = useState<NotificationDraft | null>(null);
+  const notificationRef = useRef(notificationDraft);
+  const notificationTouched = useRef(false);
   // Protect both unsaved edits and successful saves from an older in-flight refresh.
   const touched = useRef(new Set<string>());
   const [currencyCode, setCurrencyCode] = useState<string | null>(null);
@@ -123,8 +147,14 @@ export default function CreditLimitScreen() {
   const selected = settings.find((row) => row.currency === currencyCode);
   const draft = currencyCode ? drafts[currencyCode] : undefined;
   const dirtyCount = Object.values(drafts).filter((value) => value.dirty).length;
+  const notificationDirty =
+    notificationTouched.current &&
+    !!notificationDraft &&
+    notificationDraft.enabled !== notificationDraft.saved;
   const disablePrevention = usePreventRemove(
-    !!context && getActiveVaultIdSyncMaybe() === context.vaultId && (busy || dirtyCount > 0),
+    !!context &&
+      getActiveVaultIdSyncMaybe() === context.vaultId &&
+      (busy || dirtyCount > 0 || notificationDirty),
     ({ repeat }) => {
       if (saving.current) return;
       leave.current = repeat;
@@ -144,8 +174,11 @@ export default function CreditLimitScreen() {
       touched.current = new Set();
       settingsRef.current = [];
       draftsRef.current = {};
+      notificationRef.current = null;
+      notificationTouched.current = false;
       setSettings([]);
       setDrafts({});
+      setNotificationDraft(null);
       setContext(null);
       setCustomerName(null);
       setCurrencyCode(null);
@@ -183,14 +216,24 @@ export default function CreditLimitScreen() {
           next.some((row) => row.currency === code) ? code : (next[0]?.currency ?? null),
         );
       };
+      const applyNotification = (
+        rows: CreditCurrencySettings[],
+        notification: NotificationSettings,
+      ) => {
+        if (notificationTouched.current) return;
+        const next = notificationDraftFor(rows, notification);
+        notificationRef.current = next;
+        setNotificationDraft(next);
+      };
       void (async () => {
         if (!id || !vaultId || (routeVaultId && routeVaultId !== vaultId)) return;
         const session = await captureCurrentSession();
         const relationshipId = isDefault
           ? KAATA_DEFAULT_CREDIT_ID
           : await relationshipForCredit(id, vaultId);
-        const [rows, role, customer] = await Promise.all([
+        const [rows, notification, role, customer] = await Promise.all([
           listCreditCurrencySettings(relationshipId, vaultId),
+          loadCreditLimitNotificationSettings(vaultId, relationshipId),
           readVaultRole(vaultId, session.accountId),
           isDefault ? null : getPerson(id),
         ]);
@@ -200,12 +243,19 @@ export default function CreditLimitScreen() {
           setContext({ vaultId, relationshipId, session, lifetime: focus });
           setCanSave(role === "owner" || role === "manager");
           applyRows(rows);
+          applyNotification(rows, notification);
         });
         if (!current()) return;
         await refreshCreditPolicies(vaultId, session).catch(() => undefined);
-        const fresh = await listCreditCurrencySettings(relationshipId, vaultId);
+        const [fresh, freshNotification] = await Promise.all([
+          listCreditCurrencySettings(relationshipId, vaultId),
+          loadCreditLimitNotificationSettings(vaultId, relationshipId),
+        ]);
         await applyForUnchangedLocalSession(session, async () => {
-          if (current()) applyRows(fresh);
+          if (current()) {
+            applyRows(fresh);
+            applyNotification(fresh, freshNotification);
+          }
         });
       })().catch((err) => {
         if (current() && !(err instanceof SessionChangedError)) setError(t("credit.loadFailed"));
@@ -269,6 +319,16 @@ export default function CreditLimitScreen() {
     setDrafts(next);
     setError(null);
   }
+  function changeNotification(enabled: boolean) {
+    if (!editable || saving.current || !context || !notificationRef.current) return;
+    if (lifetime.current !== context.lifetime || getActiveVaultIdSyncMaybe() !== context.vaultId)
+      return;
+    notificationTouched.current = true;
+    const next = { ...notificationRef.current, enabled };
+    notificationRef.current = next;
+    setNotificationDraft(next);
+    setError(null);
+  }
   async function save() {
     if (!context || !editable || saving.current || !currencyCode) return;
     if (lifetime.current !== context.lifetime || getActiveVaultIdSyncMaybe() !== context.vaultId)
@@ -283,43 +343,84 @@ export default function CreditLimitScreen() {
       return;
     }
     const saveAttempt = Symbol("credit-save");
+    const notification = notificationRef.current;
+    const notificationOnly =
+      notificationTouched.current &&
+      !!notification &&
+      notification.enabled !== notification.saved &&
+      !value.dirty;
+    let limitSaved = false;
     saving.current = saveAttempt;
     setBusy(true);
     setError(null);
     try {
-      const saved = await saveCreditPolicy(
-        context.vaultId,
-        {
-          relationship_id: context.relationshipId,
-          currency: code,
-          max_collect_minor: maxCollect,
-          max_pay_minor: maxPay,
-          mode: value.mode,
-          restrict_editors: value.restrictEditors,
-          updated_at_ms: 0,
-        },
-        context.session,
-      );
+      if (!notificationOnly) {
+        const saved = await saveCreditPolicy(
+          context.vaultId,
+          {
+            relationship_id: context.relationshipId,
+            currency: code,
+            max_collect_minor: maxCollect,
+            max_pay_minor: maxPay,
+            mode: value.mode,
+            restrict_editors: value.restrictEditors,
+            updated_at_ms: 0,
+          },
+          context.session,
+        );
+        limitSaved = true;
+        await applyForUnchangedLocalSession(context.session, async () => {
+          if (
+            lifetime.current !== context.lifetime ||
+            getActiveVaultIdSyncMaybe() !== context.vaultId
+          )
+            return;
+          touched.current.add(code);
+          const rows = settingsRef.current.map((row) =>
+            row.currency === code ? { ...row, policy: saved } : row,
+          );
+          settingsRef.current = rows;
+          setSettings(rows);
+          const next = {
+            ...draftsRef.current,
+            [code]: draftFor({ currency: code, policy: saved, defaultPolicy: null }),
+          };
+          draftsRef.current = next;
+          setDrafts(next);
+        });
+      }
+      if (lifetime.current !== context.lifetime || getActiveVaultIdSyncMaybe() !== context.vaultId)
+        return;
+      if (notification && notification.enabled !== notification.saved) {
+        const savedNotification = await saveCreditLimitNotifications(
+          context.vaultId,
+          {
+            relationship_id: context.relationshipId,
+            enabled: notification.enabled,
+            updated_at_ms: 0,
+          },
+          context.session,
+        );
+        await applyForUnchangedLocalSession(context.session, async () => {
+          if (
+            lifetime.current !== context.lifetime ||
+            getActiveVaultIdSyncMaybe() !== context.vaultId
+          )
+            return;
+          notificationTouched.current = true;
+          const next = { enabled: savedNotification.enabled, saved: savedNotification.enabled };
+          notificationRef.current = next;
+          setNotificationDraft(next);
+        });
+      }
       await applyForUnchangedLocalSession(context.session, async () => {
         if (
           lifetime.current !== context.lifetime ||
           getActiveVaultIdSyncMaybe() !== context.vaultId
         )
           return;
-        touched.current.add(code);
-        const rows = settingsRef.current.map((row) =>
-          row.currency === code ? { ...row, policy: saved } : row,
-        );
-        settingsRef.current = rows;
-        setSettings(rows);
-        const next = {
-          ...draftsRef.current,
-          [code]: draftFor({ currency: code, policy: saved, defaultPolicy: null }),
-        };
-        draftsRef.current = next;
-        setDrafts(next);
-        toast.push(t("credit.saved"), "success");
-        if (rows.length === 1) {
+        toast.push(t(notificationOnly ? "credit.notifySaved" : "credit.saved"), "success");
+        if (settingsRef.current.length === 1) {
           disablePrevention();
           router.back();
         }
@@ -329,16 +430,31 @@ export default function CreditLimitScreen() {
         lifetime.current === context.lifetime &&
         getActiveVaultIdSyncMaybe() === context.vaultId &&
         !(err instanceof SessionChangedError)
-      )
+      ) {
+        if (notification && notification.enabled !== notification.saved) {
+          notificationTouched.current = true;
+          setNotificationDraft({ ...notificationRef.current! });
+        }
         setError(
-          t(
-            err instanceof ClerkCloudEnrollmentRequiredError
-              ? "credit.clerksNeedSignIn"
-              : err instanceof CreditOnlineSaveRequiredError
-                ? "credit.onlineSave"
-                : "credit.saveFailed",
-          ),
+          limitSaved
+            ? t(
+                err instanceof CreditLimitNotificationsUnsupportedError
+                  ? "credit.notifyPartialUnavailable"
+                  : "credit.notifyPartial",
+              )
+            : t(
+                err instanceof ClerkCloudEnrollmentRequiredError
+                  ? "credit.clerksNeedSignIn"
+                  : err instanceof CreditOnlineSaveRequiredError
+                    ? "credit.onlineSave"
+                    : err instanceof CreditLimitNotificationsUnsupportedError
+                      ? "credit.notifyUnavailable"
+                      : notificationOnly
+                        ? "credit.notifySaveFailed"
+                        : "credit.saveFailed",
+              ),
         );
+      }
     } finally {
       if (saving.current === saveAttempt) {
         saving.current = null;
@@ -504,6 +620,43 @@ export default function CreditLimitScreen() {
                 <Text style={[styles.help, textDir(isRTL)]}>{t("currency.precisionHint")}</Text>
               ) : null}
               <Text style={[styles.help, textDir(isRTL)]}>{t("credit.zeroHelp")}</Text>
+              {notificationDraft ? (
+                <View
+                  style={[
+                    styles.notificationRow,
+                    rowDir(isRTL),
+                    controlsDisabled && styles.inputDisabled,
+                  ]}
+                >
+                  <View style={styles.notificationText}>
+                    <Text
+                      style={[
+                        styles.label,
+                        textDir(isRTL),
+                        controlsDisabled && { color: colors.textMuted },
+                      ]}
+                    >
+                      {t("credit.notifyOwners")}
+                    </Text>
+                    <Text style={[styles.help, textDir(isRTL)]}>{t("credit.notifyHelp")}</Text>
+                  </View>
+                  <Switch
+                    value={notificationDraft.enabled}
+                    onValueChange={changeNotification}
+                    disabled={controlsDisabled}
+                    accessibilityLabel={t("credit.notifyOwners")}
+                    accessibilityHint={t("credit.notifyHelp")}
+                    accessibilityState={{
+                      checked: notificationDraft.enabled,
+                      disabled: controlsDisabled,
+                    }}
+                    trackColor={{ false: colors.borderEmphasis, true: colors.actionPrimary }}
+                    thumbColor={Platform.OS === "android" ? "#FFFFFF" : undefined}
+                    ios_backgroundColor={colors.borderEmphasis}
+                    style={controlsDisabled ? { opacity: 0.55 } : undefined}
+                  />
+                </View>
+              ) : null}
               <Text style={[styles.help, textDir(isRTL)]}>{t("credit.modeHelp")}</Text>
               <View
                 style={[styles.modeCard, controlsDisabled && styles.modeCardDisabled]}
@@ -561,9 +714,11 @@ export default function CreditLimitScreen() {
               {error ? <Text style={[styles.error, textDir(isRTL)]}>{error}</Text> : null}
               <Button
                 label={
-                  settings.length > 1
-                    ? t("credit.saveCurrency", { currency: selected.currency })
-                    : t("credit.save")
+                  notificationDirty && !draft.dirty
+                    ? t("credit.saveNotifications")
+                    : settings.length > 1
+                      ? t("credit.saveCurrency", { currency: selected.currency })
+                      : t("credit.save")
                 }
                 onPress={() => void save()}
                 disabled={controlsDisabled}
@@ -641,6 +796,8 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   currencyText: { flex: 1, gap: 4 },
+  notificationRow: { alignItems: "center", gap: 16, paddingVertical: 12 },
+  notificationText: { flex: 1, gap: 4 },
   currencyCode: { fontFamily: fonts.sansMedium, fontSize: 18, color: colors.textEmphasis },
   usage: { gap: 2 },
   label: { fontFamily: fonts.sansMedium, fontSize: 15, color: colors.textDefault },

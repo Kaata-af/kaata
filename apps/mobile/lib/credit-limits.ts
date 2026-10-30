@@ -370,6 +370,10 @@ export async function refreshCreditPolicies(
   } finally {
     clearTimeout(timer);
   }
+  // Notification configuration is shared across currencies but is independent
+  // of the financial admission caps. Older servers remain compatible.
+  const { refreshCreditLimitNotifications } = await import("./credit-limit-notifications");
+  await refreshCreditLimitNotifications(vaultId, session);
 }
 
 /** A clerk tally a limit stopped, as the server recorded it. */

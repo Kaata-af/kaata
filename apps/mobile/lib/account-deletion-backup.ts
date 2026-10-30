@@ -98,6 +98,7 @@ export async function assertAccountDeletionCleanupSafe(
     "SELECT 1 AS pending FROM tab_outbox LIMIT 1",
     "SELECT 1 AS pending FROM customer_credit_limits WHERE sync_pending<>0 LIMIT 1",
     "SELECT 1 AS pending FROM credit_alert_policies WHERE sync_pending<>0 LIMIT 1",
+    "SELECT 1 AS pending FROM customer_credit_limit_notifications WHERE sync_pending<>0 LIMIT 1",
   ]) {
     if (!(await deletionRows(query))?.length) continue;
     // Unsent edits only in kaatas this phone can no longer reach cannot be
@@ -174,6 +175,10 @@ export async function prepareAccountDeletionBackup(): Promise<void> {
     "SELECT COUNT(*) AS n FROM credit_alert_policies WHERE sync_pending<>0",
   );
   if ((alerts?.[0]?.n ?? 0) > 0) throw new Error("account_delete_backup_incomplete");
+  const limitNotifications = await deletionRows<{ n: number }>(
+    "SELECT COUNT(*) AS n FROM customer_credit_limit_notifications WHERE sync_pending<>0",
+  );
+  if ((limitNotifications?.[0]?.n ?? 0) > 0) throw new Error("account_delete_backup_incomplete");
 }
 
 export async function drainDeletionBackup(deps: {

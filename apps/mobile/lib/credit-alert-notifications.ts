@@ -47,11 +47,29 @@ import {
   creditAlertRemoteDeliveryActive,
   syncCreditAlertPushSubscriptions,
 } from "./credit-alert-push";
+import {
+  listCreditLimitNotificationWatches,
+  readCreditLimitNotificationWatch,
+} from "./credit-limit-notification-watches";
 
 const PREFIX = "kaata-credit-alert:";
 const STATE_PREFIX = "credit_alert_latch:v1:";
 const CHANNEL = "credit-alerts";
 const UUID = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
+const MESSAGE_KEYS = {
+  collect: {
+    generic: "creditAlerts.notify.collect",
+    named: "creditAlerts.notify.collectNamed",
+    detailed: "creditAlerts.notify.limitCollect",
+    detailedNamed: "creditAlerts.notify.limitCollectNamed",
+  },
+  pay: {
+    generic: "creditAlerts.notify.pay",
+    named: "creditAlerts.notify.payNamed",
+    detailed: "creditAlerts.notify.limitPay",
+    detailedNamed: "creditAlerts.notify.limitPayNamed",
+  },
+} as const;
 type Latch = {
   fingerprint: string;
   state: "matched" | "clear" | null;
@@ -59,6 +77,8 @@ type Latch = {
   event_key?: string;
 };
 type Notice = CreditAlertCustomer & {
+  watch_key?: string;
+  limit_currency?: string;
   direction: CreditAlertDirection;
   fingerprint: string;
   event_key: string;
@@ -94,9 +114,22 @@ function fingerprint(policy: CreditAlertPolicy, direction: CreditAlertDirection)
 function latchScope(owner: string, device: string) {
   return STATE_PREFIX + hash(JSON.stringify([owner, device])) + ":";
 }
-function latchKey(owner: string, device: string, row: CreditAlertCustomer, direction: string) {
+function latchKey(
+  owner: string,
+  device: string,
+  row: Pick<CreditAlertCustomer, "vault_id" | "relationship_id"> & { watch_key?: string },
+  direction: string,
+) {
   return (
-    latchScope(owner, device) + hash(JSON.stringify([row.vault_id, row.relationship_id, direction]))
+    latchScope(owner, device) +
+    hash(
+      JSON.stringify([
+        row.vault_id,
+        row.relationship_id,
+        direction,
+        ...(row.watch_key ? [row.watch_key] : []),
+      ]),
+    )
   );
 }
 
@@ -170,6 +203,7 @@ type AlertData = {
   relationship_id: string;
   person_id: string;
   direction: CreditAlertDirection;
+  limit_currency?: string;
   rule_fingerprint?: string;
   event_key: string;
   device_scope?: string;
@@ -186,6 +220,8 @@ function parseData(value: unknown): AlertData | null {
     UUID.test(data.relationship_id ?? "") &&
     UUID.test(data.person_id ?? "") &&
     (data.direction === "collect" || data.direction === "pay") &&
+    (data.limit_currency === undefined ||
+      (typeof data.limit_currency === "string" && /^[A-Z]{3}$/.test(data.limit_currency))) &&
     typeof data.event_key === "string" &&
     data.event_key.length > 0 &&
     data.event_key.length <= 256 &&
@@ -279,7 +315,17 @@ export async function creditAlertNoticeAllowed(value: unknown): Promise<boolean>
     );
     if (!relation || relation.person_id !== data.person_id || owner !== notificationOwnerScope())
       return false;
-    const policy = await readEffectiveCreditAlertPolicy(data.relationship_id, data.vault_id);
+    const limitWatch = data.limit_currency
+      ? await readCreditLimitNotificationWatch(
+          db,
+          data.vault_id,
+          data.relationship_id,
+          data.limit_currency,
+        )
+      : null;
+    const policy = data.limit_currency
+      ? limitWatch?.policy
+      : await readEffectiveCreditAlertPolicy(data.relationship_id, data.vault_id);
     if (!policy?.groups.some((group) => group.direction === data.direction)) return false;
     if (data.policy_updated_at_ms !== undefined) {
       const announced = Number(data.policy_updated_at_ms);
@@ -299,7 +345,8 @@ export async function creditAlertNoticeAllowed(value: unknown): Promise<boolean>
       const row = {
         vault_id: data.vault_id,
         relationship_id: data.relationship_id,
-      } as CreditAlertCustomer;
+        ...(limitWatch ? { watch_key: limitWatch.watch_key } : {}),
+      };
       const latch = await readLatch(db, latchKey(owner, device, row, data.direction));
       if (
         latch?.state !== "matched" ||
@@ -322,7 +369,10 @@ async function observe(owner: string, device: string, current: () => boolean): P
     const db = await getDb();
     const notices: Notice[] = [];
     await db.withTransactionAsync(async () => {
-      const customers = await listEffectiveCreditAlertCustomers();
+      const customers: (CreditAlertCustomer & { watch_key?: string; limit_currency?: string })[] = [
+        ...(await listEffectiveCreditAlertCustomers()),
+        ...(await listCreditLimitNotificationWatches(db)),
+      ];
       const access = new Map<string, boolean>();
       const liveKeys = new Set<string>();
       for (const row of customers) {
@@ -353,6 +403,7 @@ async function observe(owner: string, device: string, current: () => boolean): P
                 row.vault_id,
                 row.relationship_id,
                 direction,
+                ...(row.watch_key ? [row.watch_key] : []),
                 semanticFingerprint,
                 result.latch.sequence,
               ]),
@@ -399,6 +450,7 @@ function noticeData(notice: Notice): AlertData {
     relationship_id: notice.relationship_id,
     person_id: notice.person_id,
     direction: notice.direction,
+    ...(notice.limit_currency ? { limit_currency: notice.limit_currency } : {}),
     rule_fingerprint: notice.fingerprint,
     event_key: notice.event_key,
   };
@@ -466,7 +518,13 @@ export function reconcileCreditAlertNotifications(): Promise<void> {
     for (const notice of notices) {
       // Synced policies have one authority for native delivery. The server
       // announces its own accepted state, even for writes from this phone.
-      if (!notice.sync_pending && (await creditAlertRemoteDeliveryActive(notice.vault_id)))
+      if (
+        !notice.sync_pending &&
+        (await creditAlertRemoteDeliveryActive(
+          notice.vault_id,
+          notice.limit_currency ? "limit" : "combined",
+        ))
+      )
         continue;
       const revision = notificationPreferencesRevision();
       const policy = await notificationPolicyForContact({
@@ -503,21 +561,28 @@ export function reconcileCreditAlertNotifications(): Promise<void> {
       }
       if (!current() || revision !== notificationPreferencesRevision()) continue;
       const name = customer?.name.trim();
+      const currency =
+        notice.limit_currency && policy.previews === "full"
+          ? (await import("./currency")).getCurrencyLabel(notice.limit_currency)
+          : null;
+      if (!current() || revision !== notificationPreferencesRevision()) continue;
+      const copy = MESSAGE_KEYS[notice.direction];
       const body =
         policy.previews === "private"
           ? t("notificationSettings.alert.private")
-          : name
-            ? t(
-                notice.direction === "collect"
-                  ? "creditAlerts.notify.collectNamed"
-                  : "creditAlerts.notify.payNamed",
-                { name },
-              )
-            : t(
-                notice.direction === "collect"
-                  ? "creditAlerts.notify.collect"
-                  : "creditAlerts.notify.pay",
-              );
+          : t(
+              name
+                ? currency
+                  ? copy.detailedNamed
+                  : copy.named
+                : currency
+                  ? copy.detailed
+                  : copy.generic,
+              {
+                name: name ?? "",
+                currency: currency ?? "",
+              },
+            );
       const identifier = PREFIX + notice.event_key;
       await n.scheduleNotificationAsync({
         identifier,
@@ -564,7 +629,13 @@ export function startCreditAlertNotifications(): () => void {
   };
   const stopLedger = onLedgerApplied(schedule);
   const stopTabs = onTabApplied(schedule);
-  const stopPolicies = onCreditPoliciesChanged(schedule);
+  const stopPolicies = onCreditPoliciesChanged(() => {
+    schedule();
+    // A newly enabled switch may be the first successful request after a
+    // server upgrade. Refresh transport capability before the phone closes,
+    // instead of retaining the legacy registration's hourly retry delay.
+    void syncCreditAlertPushSubscriptions(true).catch(() => undefined);
+  });
   const stopIdentity = onAccountIdentityChanged(() => {
     purgeRemoteTray = true;
     invalidate();
@@ -636,8 +707,13 @@ export async function openCreditAlertNotification(
       const { pullEvents } = await import("./sync/pull");
       await pullEvents(data.vault_id, session);
       if (!current()) return;
-      const { refreshCreditAlerts } = await import("./credit-alerts");
-      await refreshCreditAlerts(data.vault_id, session);
+      if (data.limit_currency) {
+        const { refreshCreditPolicies } = await import("./credit-limits");
+        await refreshCreditPolicies(data.vault_id, session);
+      } else {
+        const { refreshCreditAlerts } = await import("./credit-alerts");
+        await refreshCreditAlerts(data.vault_id, session);
+      }
       if (!current()) return;
     }
     if (!(await creditAlertNoticeAllowed(data)) || !current()) return;

@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"regexp"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -98,6 +99,7 @@ func (h *Handler) CreditAlertNotifications(w http.ResponseWriter, r *http.Reques
 		Locale      string                      `json:"locale"`
 		Preferences json.RawMessage             `json:"preferences"`
 		Customers   []creditCustomerPreferences `json:"customer_preferences"`
+		LimitAlerts bool                        `json:"limit_alerts"`
 	}
 	d := json.NewDecoder(http.MaxBytesReader(w, r.Body, 2<<20))
 	d.DisallowUnknownFields()
@@ -177,7 +179,8 @@ func (h *Handler) CreditAlertNotifications(w http.ResponseWriter, r *http.Reques
 		}
 		if err == nil {
 			var oldPrefs, oldCustomers []byte
-			oldErr := tx.QueryRow(r.Context(), `SELECT preferences,customer_preferences FROM credit_push_subscriptions WHERE vault_id=$1::uuid AND install_id=$2::uuid FOR UPDATE`, vaultID, claims.InstallID).Scan(&oldPrefs, &oldCustomers)
+			var oldLimits bool
+			oldErr := tx.QueryRow(r.Context(), `SELECT preferences,customer_preferences,limit_alerts FROM credit_push_subscriptions WHERE vault_id=$1::uuid AND install_id=$2::uuid FOR UPDATE`, vaultID, claims.InstallID).Scan(&oldPrefs, &oldCustomers, &oldLimits)
 			if oldErr != nil && !errors.Is(oldErr, pgx.ErrNoRows) {
 				httpx.Error(w, 500, "storage unavailable")
 				return
@@ -185,13 +188,13 @@ func (h *Handler) CreditAlertNotifications(w http.ResponseWriter, r *http.Reques
 			defaults, _ := json.Marshal(defaultCreditNotificationPreferences())
 			var subID string
 			var savedPrefs, savedCustomers []byte
-			err = tx.QueryRow(r.Context(), `INSERT INTO credit_push_subscriptions(vault_id,install_id,account_id,session_epoch,token,locale,preferences,customer_preferences,vault_member_id)
- VALUES($1::uuid,$2::uuid,$3::uuid,$4,$5,$6,COALESCE($7::jsonb,$9::jsonb),COALESCE($8::jsonb,'[]'::jsonb),$10)
- ON CONFLICT(vault_id,install_id) DO UPDATE SET token=EXCLUDED.token,locale=EXCLUDED.locale,preferences=COALESCE($7::jsonb,credit_push_subscriptions.preferences),customer_preferences=COALESCE($8::jsonb,credit_push_subscriptions.customer_preferences),renewed_at=NOW() RETURNING id::text,preferences,customer_preferences,GREATEST(0,FLOOR(EXTRACT(EPOCH FROM (renewed_at+INTERVAL '30 days'-clock_timestamp()))*1000))::bigint`, vaultID, claims.InstallID, claims.AccountID, claims.Epoch, input.Token, applocale.Normalize(input.Locale), nullableCreditJSON(prefs), nullableCreditJSON(customers), defaults, memberID).Scan(&subID, &savedPrefs, &savedCustomers, &leaseMS)
+			err = tx.QueryRow(r.Context(), `INSERT INTO credit_push_subscriptions(vault_id,install_id,account_id,session_epoch,token,locale,preferences,customer_preferences,vault_member_id,limit_alerts)
+ VALUES($1::uuid,$2::uuid,$3::uuid,$4,$5,$6,COALESCE($7::jsonb,$9::jsonb),COALESCE($8::jsonb,'[]'::jsonb),$10,$11)
+ ON CONFLICT(vault_id,install_id) DO UPDATE SET token=EXCLUDED.token,locale=EXCLUDED.locale,preferences=COALESCE($7::jsonb,credit_push_subscriptions.preferences),customer_preferences=COALESCE($8::jsonb,credit_push_subscriptions.customer_preferences),renewed_at=NOW(),limit_alerts=EXCLUDED.limit_alerts RETURNING id::text,preferences,customer_preferences,GREATEST(0,FLOOR(EXTRACT(EPOCH FROM (renewed_at+INTERVAL '30 days'-clock_timestamp()))*1000))::bigint`, vaultID, claims.InstallID, claims.AccountID, claims.Epoch, input.Token, applocale.Normalize(input.Locale), nullableCreditJSON(prefs), nullableCreditJSON(customers), defaults, memberID, input.LimitAlerts).Scan(&subID, &savedPrefs, &savedCustomers, &leaseMS)
 			leaseObserved = time.Now()
 			if err == nil {
 				quietID := ""
-				if oldErr != nil || !sameCreditJSON(oldPrefs, savedPrefs) || !sameCreditJSON(oldCustomers, savedCustomers) {
+				if oldErr != nil || !sameCreditJSON(oldPrefs, savedPrefs) || !sameCreditJSON(oldCustomers, savedCustomers) || oldLimits != input.LimitAlerts {
 					quietID = subID
 				}
 				err = h.svc.scanCreditAlertVaultTx(r.Context(), tx, vaultID, quietID)
@@ -208,7 +211,8 @@ func (h *Handler) CreditAlertNotifications(w http.ResponseWriter, r *http.Reques
 	} else {
 		leaseMS = 0
 	}
-	httpx.JSON(w, 200, map[string]any{"remote_delivery_enabled": enabled, "remote_delivery_lease_ms": leaseMS})
+	w.Header().Set("X-Kaata-Credit-Limit-Notifications", "1")
+	httpx.JSON(w, 200, map[string]any{"remote_delivery_enabled": enabled, "remote_delivery_lease_ms": leaseMS, "limit_notifications_enabled": enabled && input.LimitAlerts})
 }
 
 func nullableCreditJSON(raw []byte) any {
@@ -287,7 +291,7 @@ func creditAlertFingerprint(p *credit.AlertPolicy, direction string) string {
 }
 
 func (s *Service) scanCreditAlerts(ctx context.Context) error {
-	rows, err := s.pool.Query(ctx, `SELECT vault_id::text FROM credit_push_subscriptions s WHERE renewed_at>NOW()-INTERVAL '30 days' AND EXISTS(SELECT 1 FROM customer_credit_alerts p WHERE p.vault_id=s.vault_id AND jsonb_array_length(p.groups)>0) GROUP BY vault_id ORDER BY MIN(scanned_at) NULLS FIRST,vault_id LIMIT 25`)
+	rows, err := s.pool.Query(ctx, `SELECT vault_id::text FROM credit_push_subscriptions s WHERE renewed_at>NOW()-INTERVAL '30 days' AND (EXISTS(SELECT 1 FROM customer_credit_alerts p WHERE p.vault_id=s.vault_id AND jsonb_array_length(p.groups)>0) OR EXISTS(SELECT 1 FROM customer_credit_limit_notifications p WHERE p.vault_id=s.vault_id AND p.enabled)) GROUP BY vault_id ORDER BY MIN(scanned_at) NULLS FIRST,vault_id LIMIT 25`)
 	if err != nil {
 		return err
 	}
@@ -332,143 +336,7 @@ func (s *Service) scanCreditAlertVault(ctx context.Context, vaultID string) erro
 // commits the baseline before a following tally can change exposure, avoiding
 // a lost first crossing between registration/save and the 15-second scan.
 func (s *Service) scanCreditAlertVaultTx(ctx context.Context, tx pgx.Tx, vaultID, quietSubscriptionID string) error {
-	policies, err := credit.ListAlerts(ctx, tx, vaultID)
-	if err != nil {
-		return err
-	}
-	activePolicy := false
-	for _, policy := range policies {
-		if len(policy.Groups) > 0 {
-			activePolicy = true
-			break
-		}
-	}
-	if !activePolicy {
-		// Most registered books have no alert rules. Avoid replaying their
-		// financial history, and remove any latches/jobs left by the last rule.
-		for _, table := range []string{"credit_alert_states", "credit_push_outbox"} {
-			if _, err := tx.Exec(ctx, `DELETE FROM `+table+` WHERE subscription_id IN (SELECT id FROM credit_push_subscriptions WHERE vault_id=$1::uuid)`, vaultID); err != nil {
-				return err
-			}
-		}
-		_, err := tx.Exec(ctx, `UPDATE credit_push_subscriptions SET scanned_at=NOW() WHERE vault_id=$1::uuid`, vaultID)
-		return err
-	}
-	byRel := map[string]*credit.AlertPolicy{}
-	for i := range policies {
-		byRel[policies[i].RelationshipID] = &policies[i]
-	}
-	projection, err := LoadVaultProjection(ctx, tx, vaultID)
-	if err != nil {
-		return err
-	}
-	type evaluation struct {
-		policy   *credit.AlertPolicy
-		balances map[string]int64
-	}
-	evaluated := map[string]evaluation{}
-	for id, rel := range projection.Relationships {
-		if rel.VaultID != vaultID || rel.ArchivedAt != nil {
-			continue
-		}
-		p := byRel[id]
-		if p == nil {
-			p = byRel[credit.DefaultRelationshipID]
-		}
-		if p == nil || len(p.Groups) == 0 {
-			continue
-		}
-		balances := map[string]int64{}
-		for _, g := range p.Groups {
-			for _, c := range g.Conditions {
-				if _, ok := balances[c.Currency]; ok {
-					continue
-				}
-				n, err := creditBalanceWithProjection(ctx, tx, vaultID, id, projection, c.Currency)
-				if err != nil {
-					return err
-				}
-				balances[c.Currency] = n
-			}
-		}
-		evaluated[id] = evaluation{p, balances}
-	}
-	rows, err := tx.Query(ctx, `SELECT s.id::text,s.preferences,s.customer_preferences FROM credit_push_subscriptions s JOIN accounts a ON a.id=s.account_id JOIN vaults v ON v.vault_id=s.vault_id JOIN vault_members m ON m.id=s.vault_member_id AND m.vault_id=s.vault_id AND m.account_id=s.account_id WHERE s.vault_id=$1::uuid AND s.renewed_at>NOW()-INTERVAL '30 days' AND a.pending_delete_at IS NULL AND a.disabled_at IS NULL AND v.archived_at IS NULL AND m.role IN ('owner','manager') AND m.accepted_at IS NOT NULL AND m.revoked_at IS NULL AND EXISTS(SELECT 1 FROM auth_credentials ac JOIN installs i ON i.install_id=ac.install_id WHERE ac.install_id=s.install_id AND ac.account_id=s.account_id AND i.account_id=s.account_id AND ac.revoked_at IS NULL AND ac.session_epoch=s.session_epoch) ORDER BY s.id FOR UPDATE OF s`, vaultID)
-	if err != nil {
-		return err
-	}
-	type subscription struct {
-		id               string
-		prefs, customers []byte
-	}
-	subs := []subscription{}
-	for rows.Next() {
-		var sub subscription
-		if err := rows.Scan(&sub.id, &sub.prefs, &sub.customers); err != nil {
-			rows.Close()
-			return err
-		}
-		subs = append(subs, sub)
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		return err
-	}
-	for _, sub := range subs {
-		quiet := sub.id == quietSubscriptionID
-		active := []string{}
-		for relID, e := range evaluated {
-			active = append(active, relID)
-			prefs, prefErr := creditPreferencesFor(sub.prefs, sub.customers, relID)
-			for _, direction := range []string{"collect", "pay"} {
-				fingerprint := creditAlertFingerprint(e.policy, direction)
-				matched := e.policy.Matches(direction, e.balances)
-				var oldFingerprint string
-				var oldMatched bool
-				var generation int64
-				err := tx.QueryRow(ctx, `SELECT fingerprint,matched,generation FROM credit_alert_states WHERE subscription_id=$1::uuid AND relationship_id=$2::uuid AND direction=$3 FOR UPDATE`, sub.id, relID, direction).Scan(&oldFingerprint, &oldMatched, &generation)
-				first := errors.Is(err, pgx.ErrNoRows)
-				if err != nil && !first {
-					return err
-				}
-				crossed := !quiet && !first && oldFingerprint == fingerprint && !oldMatched && matched
-				if crossed {
-					generation++
-				}
-				if _, err := tx.Exec(ctx, `INSERT INTO credit_alert_states(subscription_id,relationship_id,direction,fingerprint,matched,generation) VALUES($1::uuid,$2::uuid,$3,$4,$5,$6) ON CONFLICT(subscription_id,relationship_id,direction) DO UPDATE SET fingerprint=EXCLUDED.fingerprint,matched=EXCLUDED.matched,generation=EXCLUDED.generation`, sub.id, relID, direction, fingerprint, matched, generation); err != nil {
-					return err
-				}
-				if quiet || !matched || first || oldFingerprint != fingerprint {
-					if _, err := tx.Exec(ctx, `DELETE FROM credit_push_outbox WHERE subscription_id=$1::uuid AND relationship_id=$2::uuid AND direction=$3`, sub.id, relID, direction); err != nil {
-						return err
-					}
-				}
-				// Consume muted/quiet crossings; unmuting cannot replay them.
-				if crossed && prefErr == nil && prefs.permits(time.Now()) {
-					var eventKey string
-					err := tx.QueryRow(ctx, `INSERT INTO credit_push_outbox(subscription_id,relationship_id,direction,fingerprint,generation) VALUES($1::uuid,$2::uuid,$3,$4,$5) ON CONFLICT DO NOTHING RETURNING event_key::text`, sub.id, relID, direction, fingerprint, generation).Scan(&eventKey)
-					if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-						return err
-					}
-					if err == nil {
-						if _, err := tx.Exec(ctx, `INSERT INTO credit_alert_events(event_key,subscription_id,relationship_id,direction,fingerprint,generation) VALUES($1::uuid,$2::uuid,$3::uuid,$4,$5,$6)`, eventKey, sub.id, relID, direction, fingerprint, generation); err != nil {
-							return err
-						}
-					}
-				}
-			}
-		}
-		if _, err := tx.Exec(ctx, `DELETE FROM credit_alert_states WHERE subscription_id=$1::uuid AND NOT(relationship_id=ANY($2::uuid[]))`, sub.id, active); err != nil {
-			return err
-		}
-		if _, err := tx.Exec(ctx, `DELETE FROM credit_push_outbox WHERE subscription_id=$1::uuid AND NOT(relationship_id=ANY($2::uuid[]))`, sub.id, active); err != nil {
-			return err
-		}
-	}
-	if _, err := tx.Exec(ctx, `UPDATE credit_push_subscriptions SET scanned_at=NOW() WHERE vault_id=$1::uuid`, vaultID); err != nil {
-		return err
-	}
-	return nil
+	return s.scanCreditAlertWatches(ctx, tx, vaultID, quietSubscriptionID)
 }
 
 type creditPushTicket struct {
@@ -535,13 +403,13 @@ func (s *Service) deliverCreditPush(ctx context.Context) (bool, error) {
 		return false, err
 	}
 	valid = valid && member
-	var subID, relID, direction, fingerprint, eventKey, token, locale string
+	var subID, relID, direction, watchKey, fingerprint, eventKey, token, locale string
 	var generation int64
 	var attempts int
 	var receipt *string
 	var prefsRaw, customers []byte
 	var fresh bool
-	err = tx.QueryRow(ctx, `SELECT s.id::text,o.relationship_id::text,o.direction,o.fingerprint,o.generation,o.event_key::text,o.attempts,o.receipt_id,s.token,s.locale,s.preferences,s.customer_preferences,s.renewed_at>NOW()-INTERVAL '30 days' AND o.created_at>NOW()-INTERVAL '24 hours' AND EXISTS(SELECT 1 FROM vault_members m WHERE m.id=s.vault_member_id AND m.vault_id=s.vault_id AND m.account_id=s.account_id AND m.accepted_at IS NOT NULL AND m.revoked_at IS NULL AND m.role IN ('owner','manager')) FROM credit_push_outbox o JOIN credit_push_subscriptions s ON s.id=o.subscription_id WHERE o.id=$1 AND (o.claimed_until IS NULL OR o.claimed_until<NOW()) FOR UPDATE OF o,s SKIP LOCKED`, id).Scan(&subID, &relID, &direction, &fingerprint, &generation, &eventKey, &attempts, &receipt, &token, &locale, &prefsRaw, &customers, &fresh)
+	err = tx.QueryRow(ctx, `SELECT s.id::text,o.relationship_id::text,o.direction,o.watch_key,o.fingerprint,o.generation,o.event_key::text,o.attempts,o.receipt_id,s.token,s.locale,s.preferences,s.customer_preferences,(o.watch_key='' OR s.limit_alerts) AND s.renewed_at>NOW()-INTERVAL '30 days' AND o.created_at>NOW()-INTERVAL '24 hours' AND EXISTS(SELECT 1 FROM vault_members m WHERE m.id=s.vault_member_id AND m.vault_id=s.vault_id AND m.account_id=s.account_id AND m.accepted_at IS NOT NULL AND m.revoked_at IS NULL AND m.role IN ('owner','manager')) FROM credit_push_outbox o JOIN credit_push_subscriptions s ON s.id=o.subscription_id WHERE o.id=$1 AND (o.claimed_until IS NULL OR o.claimed_until<NOW()) FOR UPDATE OF o,s SKIP LOCKED`, id).Scan(&subID, &relID, &direction, &watchKey, &fingerprint, &generation, &eventKey, &attempts, &receipt, &token, &locale, &prefsRaw, &customers, &fresh)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return true, nil
 	}
@@ -551,13 +419,13 @@ func (s *Service) deliverCreditPush(ctx context.Context) (bool, error) {
 	valid = valid && fresh
 	prefs, prefErr := creditPreferencesFor(prefsRaw, customers, relID)
 	valid = valid && prefErr == nil && prefs.permits(time.Now())
-	policy, err := credit.EffectiveAlerts(ctx, tx, vaultID, relID)
+	policy, err := creditWatchPolicy(ctx, tx, vaultID, relID, watchKey)
 	if err != nil {
 		return false, err
 	}
 	valid = valid && policy != nil && creditAlertFingerprint(policy, direction) == fingerprint
 	var stateMatches bool
-	err = tx.QueryRow(ctx, `SELECT matched AND fingerprint=$4 AND generation=$5 FROM credit_alert_states WHERE subscription_id=$1::uuid AND relationship_id=$2::uuid AND direction=$3`, subID, relID, direction, fingerprint, generation).Scan(&stateMatches)
+	err = tx.QueryRow(ctx, `SELECT matched AND fingerprint=$4 AND generation=$5 FROM credit_alert_states WHERE subscription_id=$1::uuid AND relationship_id=$2::uuid AND direction=$3 AND watch_key=$6`, subID, relID, direction, fingerprint, generation, watchKey).Scan(&stateMatches)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return false, err
 	}
@@ -569,24 +437,13 @@ func (s *Service) deliverCreditPush(ctx context.Context) (bool, error) {
 	rel := projection.Relationships[relID]
 	valid = valid && rel != nil && rel.ArchivedAt == nil
 	if valid {
-		balances := map[string]int64{}
-		for _, g := range policy.Groups {
-			if g.Direction != direction {
-				continue
-			}
-			for _, c := range g.Conditions {
-				if _, ok := balances[c.Currency]; ok {
-					continue
-				}
-				n, err := creditBalanceWithProjection(ctx, tx, vaultID, relID, projection, c.Currency)
-				if err != nil {
-					return false, err
-				}
-				balances[c.Currency] = n
-			}
+		balances, err := creditWatchBalances(ctx, tx, vaultID, relID, policy, projection, direction)
+		if err != nil {
+			return false, err
 		}
 		valid = policy.Matches(direction, balances)
 	}
+
 	if !valid {
 		if _, err := tx.Exec(ctx, `DELETE FROM credit_push_outbox WHERE id=$1`, id); err != nil {
 			return false, err
@@ -678,9 +535,9 @@ func (h *Handler) CreditAlertEvent(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, 404, "notification unavailable")
 		return
 	}
-	var vaultID, relID, direction, fingerprint string
+	var vaultID, relID, direction, watchKey, fingerprint string
 	var generation int64
-	err := h.svc.pool.QueryRow(r.Context(), `SELECT s.vault_id::text,e.relationship_id::text,e.direction,e.fingerprint,e.generation FROM credit_alert_events e JOIN credit_push_subscriptions s ON s.id=e.subscription_id JOIN credit_alert_states st ON st.subscription_id=e.subscription_id AND st.relationship_id=e.relationship_id AND st.direction=e.direction WHERE e.event_key=$1::uuid AND s.account_id=$2::uuid AND s.install_id=$3::uuid AND s.session_epoch=$4 AND e.created_at>NOW()-INTERVAL '30 days' AND st.fingerprint=e.fingerprint AND st.generation=e.generation AND st.matched`, eventKey, claims.AccountID, claims.InstallID, claims.Epoch).Scan(&vaultID, &relID, &direction, &fingerprint, &generation)
+	err := h.svc.pool.QueryRow(r.Context(), `SELECT s.vault_id::text,e.relationship_id::text,e.direction,e.watch_key,e.fingerprint,e.generation FROM credit_alert_events e JOIN credit_push_subscriptions s ON s.id=e.subscription_id JOIN credit_alert_states st ON st.subscription_id=e.subscription_id AND st.relationship_id=e.relationship_id AND st.direction=e.direction AND st.watch_key=e.watch_key WHERE e.event_key=$1::uuid AND s.account_id=$2::uuid AND s.install_id=$3::uuid AND s.session_epoch=$4 AND e.created_at>NOW()-INTERVAL '30 days' AND st.fingerprint=e.fingerprint AND st.generation=e.generation AND st.matched`, eventKey, claims.AccountID, claims.InstallID, claims.Epoch).Scan(&vaultID, &relID, &direction, &watchKey, &fingerprint, &generation)
 	if errors.Is(err, pgx.ErrNoRows) {
 		httpx.Error(w, 404, "notification unavailable")
 		return
@@ -719,7 +576,7 @@ func (h *Handler) CreditAlertEvent(w http.ResponseWriter, r *http.Request) {
 	}
 	// Recheck the event after taking the vault lock. Registration, rearming or
 	// a replaced membership seat may have changed since the initial lookup.
-	err = tx.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM credit_alert_events e JOIN credit_push_subscriptions s ON s.id=e.subscription_id JOIN vault_members m ON m.id=s.vault_member_id AND m.vault_id=s.vault_id AND m.account_id=s.account_id JOIN credit_alert_states st ON st.subscription_id=e.subscription_id AND st.relationship_id=e.relationship_id AND st.direction=e.direction WHERE e.event_key=$1::uuid AND s.account_id=$2::uuid AND s.install_id=$3::uuid AND s.session_epoch=$4 AND e.created_at>NOW()-INTERVAL '30 days' AND s.renewed_at>NOW()-INTERVAL '30 days' AND m.accepted_at IS NOT NULL AND m.revoked_at IS NULL AND m.role IN ('owner','manager') AND st.fingerprint=e.fingerprint AND st.generation=e.generation AND st.matched)`, eventKey, claims.AccountID, claims.InstallID, claims.Epoch).Scan(&valid)
+	err = tx.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM credit_alert_events e JOIN credit_push_subscriptions s ON s.id=e.subscription_id JOIN vault_members m ON m.id=s.vault_member_id AND m.vault_id=s.vault_id AND m.account_id=s.account_id JOIN credit_alert_states st ON st.subscription_id=e.subscription_id AND st.relationship_id=e.relationship_id AND st.direction=e.direction AND st.watch_key=e.watch_key WHERE e.event_key=$1::uuid AND s.account_id=$2::uuid AND s.install_id=$3::uuid AND s.session_epoch=$4 AND e.created_at>NOW()-INTERVAL '30 days' AND s.renewed_at>NOW()-INTERVAL '30 days' AND (e.watch_key='' OR s.limit_alerts) AND m.accepted_at IS NOT NULL AND m.revoked_at IS NULL AND m.role IN ('owner','manager') AND st.fingerprint=e.fingerprint AND st.generation=e.generation AND st.matched)`, eventKey, claims.AccountID, claims.InstallID, claims.Epoch).Scan(&valid)
 	if err != nil {
 		httpx.Error(w, 500, "storage unavailable")
 		return
@@ -728,7 +585,7 @@ func (h *Handler) CreditAlertEvent(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, 404, "notification unavailable")
 		return
 	}
-	policy, err := credit.EffectiveAlerts(r.Context(), tx, vaultID, relID)
+	policy, err := creditWatchPolicy(r.Context(), tx, vaultID, relID, watchKey)
 	if err != nil {
 		httpx.Error(w, 500, "storage unavailable")
 		return
@@ -747,26 +604,19 @@ func (h *Handler) CreditAlertEvent(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, 404, "notification unavailable")
 		return
 	}
-	balances := map[string]int64{}
-	for _, group := range policy.Groups {
-		if group.Direction != direction {
-			continue
-		}
-		for _, condition := range group.Conditions {
-			if _, seen := balances[condition.Currency]; seen {
-				continue
-			}
-			balance, err := creditBalanceWithProjection(r.Context(), tx, vaultID, relID, projection, condition.Currency)
-			if err != nil {
-				httpx.Error(w, 500, "storage unavailable")
-				return
-			}
-			balances[condition.Currency] = balance
-		}
+	balances, err := creditWatchBalances(r.Context(), tx, vaultID, relID, policy, projection, direction)
+	if err != nil {
+		httpx.Error(w, 500, "storage unavailable")
+		return
 	}
+
 	if !policy.Matches(direction, balances) {
 		httpx.Error(w, 404, "notification unavailable")
 		return
 	}
-	httpx.JSON(w, 200, map[string]any{"kind": "credit_alert", "owner_scope": "account:" + claims.AccountID, "vault_id": vaultID, "relationship_id": relID, "person_id": rel.UserBID, "direction": direction, "event_key": eventKey, "rule_fingerprint": fingerprint, "policy_updated_at_ms": policy.UpdatedAtMS})
+	payload := map[string]any{"kind": "credit_alert", "owner_scope": "account:" + claims.AccountID, "vault_id": vaultID, "relationship_id": relID, "person_id": rel.UserBID, "direction": direction, "event_key": eventKey, "rule_fingerprint": fingerprint, "policy_updated_at_ms": policy.UpdatedAtMS}
+	if watchKey != "" {
+		payload["limit_currency"] = strings.TrimPrefix(watchKey, "limit:")
+	}
+	httpx.JSON(w, 200, payload)
 }

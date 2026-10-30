@@ -202,6 +202,8 @@ const credit = compile<typeof import("../credit-limits")>("../credit-limits", (n
   if (name === "./credit-policy-cache") return cacheModule;
   if (name === "./credit-alert-cache") return require("../credit-alert-cache");
   if (name === "./credit-alert-policy") return require("../credit-alert-policy");
+  if (name === "./credit-limit-notifications")
+    return { refreshCreditLimitNotifications: async () => {} };
   if (name === "./db-tx") return { getDb: async () => db, getActiveVaultIdSyncMaybe: () => active };
   if (name === "./auth")
     return {

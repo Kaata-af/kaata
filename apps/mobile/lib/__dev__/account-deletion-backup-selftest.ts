@@ -44,6 +44,7 @@ async function finalCleanupTests() {
     "tab_outbox",
     "customer_credit_limits",
     "credit_alert_policies",
+    "customer_credit_limit_notifications",
   ]) {
     pending = table;
     await assert.rejects(
@@ -179,6 +180,7 @@ function backupFixture() {
     pendingTabs = 0,
     pendingPolicies = 0,
     pendingAlerts = 0,
+    pendingLimitNotifications = 0,
     syncError: Error | null = null,
     tabsError: Error | null = null,
     registrationError: Error | null = null;
@@ -195,6 +197,8 @@ function backupFixture() {
       if (sql.includes("FROM tab_outbox")) return beforeTabIds.map((id) => ({ id }));
       if (sql.includes("FROM tab_failed_ops")) return refusedTabIds.map((id) => ({ id }));
       if (sql.includes("FROM credit_alert_policies")) return [{ n: pendingAlerts }];
+      if (sql.includes("FROM customer_credit_limit_notifications"))
+        return [{ n: pendingLimitNotifications }];
       throw new Error("unexpected backup list: " + sql);
     },
     getFirstAsync: async (sql: string, vaultId?: string) => {
@@ -243,6 +247,9 @@ function backupFixture() {
     },
     pendingAlerts: (n: number) => {
       pendingAlerts = n;
+    },
+    pendingLimitNotifications: (n: number) => {
+      pendingLimitNotifications = n;
     },
     syncError: (e: Error) => {
       syncError = e;
@@ -295,6 +302,13 @@ async function serviceTests() {
     "pending combined alert settings cannot be erased before upload",
   );
   newlyRefusedTab.tabIds(["new-shared-tally"], ["old-draft", "new-shared-tally"]);
+  const limitNotifications = backupFixture();
+  limitNotifications.pendingLimitNotifications(1);
+  await assert.rejects(
+    limitNotifications.module.prepareAccountDeletionBackup(),
+    /backup_incomplete/,
+    "pending credit-limit notification settings cannot be erased before upload",
+  );
   await assert.rejects(
     newlyRefusedTab.module.prepareAccountDeletionBackup(),
     /backup_incomplete/,

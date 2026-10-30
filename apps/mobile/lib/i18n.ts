@@ -647,11 +647,31 @@ const en = {
   "creditAlerts.linkHelp": "Combine thresholds in different currencies.",
   "notificationSettings.creditAlerts": "Credit limit alerts",
   "creditAlerts.notify.channel": "Credit limit alerts",
-  "creditAlerts.notify.collect": "A customer's amount owed to you reached a combined credit limit.",
-  "creditAlerts.notify.pay": "Your amount owed to a customer reached a combined credit limit.",
-  "creditAlerts.notify.collectNamed":
-    "{name}'s amount owed to you reached a combined credit limit.",
-  "creditAlerts.notify.payNamed": "Your amount owed to {name} reached a combined credit limit.",
+  "creditAlerts.notify.collect": "A customer's amount owed to you reached a credit limit.",
+  "creditAlerts.notify.pay": "Your amount owed to a customer reached a credit limit.",
+  "creditAlerts.notify.collectNamed": "{name}'s amount owed to you reached a credit limit.",
+  "creditAlerts.notify.payNamed": "Your amount owed to {name} reached a credit limit.",
+  "creditAlerts.notify.limitCollect":
+    "A customer's amount owed to you reached the {currency} credit limit.",
+  "creditAlerts.notify.limitPay":
+    "Your amount owed to a customer reached the {currency} credit limit.",
+  "creditAlerts.notify.limitCollectNamed":
+    "{name}'s amount owed to you reached the {currency} credit limit.",
+  "creditAlerts.notify.limitPayNamed":
+    "Your amount owed to {name} reached the {currency} credit limit.",
+  "credit.notifyOwners": "Notify owner and admins when a limit is reached",
+  "credit.notifyHelp":
+    "Covers both limits in every currency. Alerts reset after the balance drops below the limit.",
+  "credit.saveNotifications": "Save notification setting",
+  "credit.notifySaved": "Credit-limit notifications saved",
+  "credit.notifySaveFailed":
+    "Could not save the notification setting. Check your connection and try again.",
+  "credit.notifyPartial":
+    "The credit limit was saved, but its notification setting was not. Try saving the notification setting again.",
+  "credit.notifyPartialUnavailable":
+    "The credit limit was saved. Its notification setting needs a server update and has not been changed.",
+  "credit.notifyUnavailable":
+    "Credit-limit notifications need a server update. Your notification setting has not been changed.",
   "credit.defaultTitle": "Default credit limit",
   "credit.defaultHelp":
     "Applies to every customer without their own limit, including customers added later. A customer's own limit always wins.",
@@ -3092,10 +3112,26 @@ const fa: Partial<Record<Key, string>> = {
   "creditAlerts.linkHelp": "حدهای اسعار مختلف را با هم ترکیب کنید.",
   "notificationSettings.creditAlerts": "هشدارهای حد قرض",
   "creditAlerts.notify.channel": "هشدارهای حد قرض",
-  "creditAlerts.notify.collect": "قرض یک مشتری به شما به حد ترکیبی قرض رسید.",
-  "creditAlerts.notify.pay": "قرض شما به یک مشتری به حد ترکیبی قرض رسید.",
-  "creditAlerts.notify.collectNamed": "قرض {name} به شما به حد ترکیبی قرض رسید.",
-  "creditAlerts.notify.payNamed": "قرض شما به {name} به حد ترکیبی قرض رسید.",
+  "creditAlerts.notify.collect": "قرض یک مشتری به شما به حد قرض رسید.",
+  "creditAlerts.notify.pay": "قرض شما به یک مشتری به حد قرض رسید.",
+  "creditAlerts.notify.collectNamed": "قرض {name} به شما به حد قرض رسید.",
+  "creditAlerts.notify.payNamed": "قرض شما به {name} به حد قرض رسید.",
+  "creditAlerts.notify.limitCollect": "قرض یک مشتری به شما به حد قرض {currency} رسید.",
+  "creditAlerts.notify.limitPay": "قرض شما به یک مشتری به حد قرض {currency} رسید.",
+  "creditAlerts.notify.limitCollectNamed": "قرض {name} به شما به حد قرض {currency} رسید.",
+  "creditAlerts.notify.limitPayNamed": "قرض شما به {name} به حد قرض {currency} رسید.",
+  "credit.notifyOwners": "وقتی به حد قرض رسید، مالک و مدیران را خبر کنید",
+  "credit.notifyHelp":
+    "هر دو حد را در تمام ارزها شامل می‌شود. پس از پایین آمدن بیلانس از حد، هشدار دوباره آماده می‌شود.",
+  "credit.saveNotifications": "ذخیرهٔ تنظیم اطلاع‌رسانی",
+  "credit.notifySaved": "اطلاع‌رسانی حد قرض ذخیره شد",
+  "credit.notifySaveFailed": "تنظیم اطلاع‌رسانی ذخیره نشد. اتصال را بررسی کنید و دوباره کوشش کنید.",
+  "credit.notifyPartial":
+    "حد قرض ذخیره شد، اما تنظیم اطلاع‌رسانی آن ذخیره نشد. تنظیم اطلاع‌رسانی را دوباره ذخیره کنید.",
+  "credit.notifyPartialUnavailable":
+    "حد قرض ذخیره شد. تنظیم اطلاع‌رسانی آن به به‌روزرسانی سرور نیاز دارد و تغییر نکرده است.",
+  "credit.notifyUnavailable":
+    "اطلاع‌رسانی حد قرض به به‌روزرسانی سرور نیاز دارد. تنظیم اطلاع‌رسانی شما تغییر نکرده است.",
   "credit.defaultTitle": "حد قرض پیش‌فرض",
   "credit.defaultHelp":
     "برای هر مشتری که حد قرض جداگانه ندارد اعمال می‌شود، از جمله مشتریانی که بعداً اضافه می‌شوند. حد قرض خودِ مشتری همیشه مقدم است.",
@@ -5596,10 +5632,26 @@ const ps: Record<Key, string> = {
   "creditAlerts.linkHelp": "د بېلابېلو اسعارو حدونه یوځای کړئ.",
   "notificationSettings.creditAlerts": "د پور د حد خبرتیاوې",
   "creditAlerts.notify.channel": "د پور د حد خبرتیاوې",
-  "creditAlerts.notify.collect": "د یوه پېرودونکي پور تاسې ته ګډ حد ته ورسېد.",
-  "creditAlerts.notify.pay": "یوه پېرودونکي ته ستاسې پور ګډ حد ته ورسېد.",
-  "creditAlerts.notify.collectNamed": "تاسې ته د {name} پور ګډ حد ته ورسېد.",
-  "creditAlerts.notify.payNamed": "{name} ته ستاسې پور ګډ حد ته ورسېد.",
+  "creditAlerts.notify.collect": "د یوه پېرودونکي پور تاسې ته د پور حد ته ورسېد.",
+  "creditAlerts.notify.pay": "یوه پېرودونکي ته ستاسې پور د پور حد ته ورسېد.",
+  "creditAlerts.notify.collectNamed": "تاسې ته د {name} پور د پور حد ته ورسېد.",
+  "creditAlerts.notify.payNamed": "{name} ته ستاسې پور د پور حد ته ورسېد.",
+  "creditAlerts.notify.limitCollect": "تاسې ته د یوه پېرودونکي پور د {currency} د پور حد ته ورسېد.",
+  "creditAlerts.notify.limitPay": "یوه پېرودونکي ته ستاسې پور د {currency} د پور حد ته ورسېد.",
+  "creditAlerts.notify.limitCollectNamed": "تاسې ته د {name} پور د {currency} د پور حد ته ورسېد.",
+  "creditAlerts.notify.limitPayNamed": "{name} ته ستاسې پور د {currency} د پور حد ته ورسېد.",
+  "credit.notifyOwners": "د پور حد ته په رسېدو مالک او مدیران خبر کړئ",
+  "credit.notifyHelp":
+    "په ټولو اسعارو کې دواړه حدونه رانغاړي. کله چې بیلانس له حد څخه ښکته شي، خبرتیا بیا چمتو کېږي.",
+  "credit.saveNotifications": "د خبرتیا تنظیم خوندي کړئ",
+  "credit.notifySaved": "د پور د حد خبرتیاوې خوندي شوې",
+  "credit.notifySaveFailed": "د خبرتیا تنظیم خوندي نه شو. خپل انټرنېټ وګورئ او بیا هڅه وکړئ.",
+  "credit.notifyPartial":
+    "د پور حد خوندي شو، خو د خبرتیا تنظیم خوندي نه شو. د خبرتیا تنظیم بیا خوندي کړئ.",
+  "credit.notifyPartialUnavailable":
+    "د پور حد خوندي شو. د خبرتیا تنظیم یې د سرور تازه کولو ته اړتیا لري او نه دی بدل شوی.",
+  "credit.notifyUnavailable":
+    "د پور د حد خبرتیاوې د سرور تازه کولو ته اړتیا لري. ستاسې د خبرتیا تنظیم نه دی بدل شوی.",
   "credit.defaultTitle": "د پور عمومي حد",
   "credit.defaultHelp":
     "پر هر هغه پېرودونکي پلي کېږي چې خپل ځانګړی حد نه لري، په راتلونکي کې ورزیاتېدونکي پېرودونکي هم پکې شامل دي. د پېرودونکي خپل حد تل لومړیتوب لري.",

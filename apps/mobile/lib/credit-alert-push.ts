@@ -111,29 +111,48 @@ export function syncCreditAlertPushSubscriptions(force = false): Promise<void> {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 10_000);
         try {
-          const response = await fetch(
-            `${base}/v1/sync/credit-alerts/notifications?vault_id=${encodeURIComponent(vaultId)}`,
-            {
-              method: "POST",
-              signal: controller.signal,
-              headers: {
-                Authorization: `Bearer ${session.jwt}`,
-                "Content-Type": "application/json",
-                "X-Kaata-Currencies": "1",
+          const registration = {
+            install_id: install,
+            token,
+            locale,
+            preferences,
+            customer_preferences: customerPreferences,
+          };
+          const register = (limits: boolean) =>
+            fetch(
+              `${base}/v1/sync/credit-alerts/notifications?vault_id=${encodeURIComponent(vaultId)}`,
+              {
+                method: "POST",
+                signal: controller.signal,
+                headers: {
+                  Authorization: `Bearer ${session.jwt}`,
+                  "Content-Type": "application/json",
+                  "X-Kaata-Currencies": "1",
+                },
+                body: JSON.stringify({
+                  ...registration,
+                  ...(limits ? { limit_alerts: true } : {}),
+                }),
               },
-              body: JSON.stringify({
-                install_id: install,
-                token,
-                locale,
-                preferences,
-                customer_preferences: customerPreferences,
-              }),
-            },
-          );
+            );
+          let requestedLimits = true;
+          let response = await register(true);
+          // Previous servers reject unknown JSON fields. One bounded legacy
+          // retry preserves their combined-alert transport without granting
+          // them ownership of the new currency-limit notifications.
+          if (
+            response.status === 400 &&
+            response.headers.get("X-Kaata-Credit-Limit-Notifications") == null &&
+            current()
+          ) {
+            requestedLimits = false;
+            response = await register(false);
+          }
           if (!response.ok) continue;
           const result = (await response.json()) as {
             remote_delivery_enabled?: unknown;
             remote_delivery_lease_ms?: unknown;
+            limit_notifications_enabled?: unknown;
           };
           if (typeof result.remote_delivery_enabled !== "boolean" || !current()) continue;
           if (
@@ -153,6 +172,11 @@ export function syncCreditAlertPushSubscriptions(force = false): Promise<void> {
                 JSON.stringify({
                   at: Date.now(),
                   enabled: !!token && result.remote_delivery_enabled === true,
+                  limits_enabled:
+                    requestedLimits &&
+                    !!token &&
+                    result.remote_delivery_enabled === true &&
+                    result.limit_notifications_enabled === true,
                   lease_ms: result.remote_delivery_lease_ms ?? 0,
                 }),
               );
@@ -181,7 +205,10 @@ export function syncCreditAlertPushSubscriptions(force = false): Promise<void> {
  * phone and create a second alert after upload. The server's explicit lease or
  * a confirmed disable determines when local fallback can take over.
  * Another phone's restored cache cannot inherit that delivery ownership. */
-export async function creditAlertRemoteDeliveryActive(vaultId: string): Promise<boolean> {
+export async function creditAlertRemoteDeliveryActive(
+  vaultId: string,
+  source: "combined" | "limit" = "combined",
+): Promise<boolean> {
   const owner = notificationOwnerScope();
   const install = getInstallIdSync();
   const device = await getReminderDeviceId();
@@ -198,10 +225,12 @@ export async function creditAlertRemoteDeliveryActive(vaultId: string): Promise<
       const value = JSON.parse(row?.value ?? "null") as {
         at?: number;
         enabled?: boolean;
+        limits_enabled?: boolean;
         lease_ms?: number;
       } | null;
+      if (!value) return false;
       return (
-        value?.enabled === true &&
+        (source === "limit" ? value.limits_enabled === true : value.enabled === true) &&
         typeof value.at === "number" &&
         Number.isSafeInteger(value.at) &&
         value.at >= 0 &&

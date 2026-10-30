@@ -614,6 +614,11 @@ func (h *Handler) CreditLimits(w http.ResponseWriter, r *http.Request) {
 		}
 		p.UpdatedAtMS = time.Now().UnixMilli()
 		_, err = tx.Exec(r.Context(), `INSERT INTO customer_credit_limits(vault_id,relationship_id,max_collect_minor,max_pay_minor,mode,restrict_editors,updated_at_ms,currency) VALUES($1::uuid,$2::uuid,$3,$4,$5,$6,$7,$8) ON CONFLICT(vault_id,relationship_id,currency) DO UPDATE SET max_collect_minor=EXCLUDED.max_collect_minor,max_pay_minor=EXCLUDED.max_pay_minor,mode=EXCLUDED.mode,restrict_editors=EXCLUDED.restrict_editors,updated_at_ms=EXCLUDED.updated_at_ms`, vaultID, p.RelationshipID, p.MaxCollectMinor, p.MaxPayMinor, p.Mode, p.RestrictEditors, p.UpdatedAtMS, p.Currency)
+		// A cap edit changes the watch fingerprint. Commit its new baseline
+		// under the same lock before another tally can cross the new cap.
+		if err == nil {
+			err = h.svc.scanCreditAlertVaultTx(r.Context(), tx, vaultID, "")
+		}
 		if err != nil || tx.Commit(r.Context()) != nil {
 			httpx.Error(w, 500, "storage unavailable")
 			return

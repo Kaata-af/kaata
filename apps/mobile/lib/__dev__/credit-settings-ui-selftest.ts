@@ -5,6 +5,7 @@ import { compileUI, deferred, flattenStyle, jsx, nodes, settleUI, uiHooks } from
 import { fromMinorUnits, normalizeAmountInput, toMinorUnits } from "../money";
 import type { CreditPolicy } from "../credit-policy";
 import type { VaultRole } from "../events";
+import type { CreditLimitNotificationPolicy } from "../credit-limit-notification-policy";
 
 const i18n = compileUI("../i18n", {
   "expo-localization": { getLocales: () => [{ languageCode: "en" }] },
@@ -13,6 +14,7 @@ const i18n = compileUI("../i18n", {
 class SessionChangedError extends Error {}
 class ClerkCloudEnrollmentRequiredError extends Error {}
 class CreditOnlineSaveRequiredError extends Error {}
+class CreditLimitNotificationsUnsupportedError extends Error {}
 const words = (node: any): string =>
   Array.isArray(node)
     ? node.map(words).join("")
@@ -55,10 +57,16 @@ function fixture(
     routeId?: string;
     balances?: Record<string, number>;
     loadError?: Error;
+    notification?: boolean;
+    defaultNotification?: boolean;
+    freshNotification?: boolean;
   } = {},
 ) {
   const hooks = uiHooks();
   const saves: { vault: string; value: CreditPolicy; session: any }[] = [];
+  const notificationSaves: { vault: string; value: CreditLimitNotificationPolicy; session: any }[] =
+    [];
+  const notificationAttempts: typeof notificationSaves = [];
   const notices: string[] = [];
   const routes: string[] = [];
   const currencyCode = options.currencyCode ?? "AFN";
@@ -81,6 +89,24 @@ function fixture(
   const balanceReads: [string, string, string][] = [];
   let saveError: Error | null = null;
   let saveGate: ReturnType<typeof deferred<void>> | null = null;
+  let notificationError: Error | null = null;
+  let notificationGate: ReturnType<typeof deferred<void>> | null = null;
+  let notificationPolicy =
+    options.notification === undefined
+      ? null
+      : {
+          relationship_id: relationshipId,
+          enabled: options.notification,
+          updated_at_ms: 1,
+        };
+  const defaultNotificationPolicy =
+    options.defaultNotification === undefined
+      ? null
+      : {
+          relationship_id: DEFAULT_RELATIONSHIP_ID,
+          enabled: options.defaultNotification,
+          updated_at_ms: 1,
+        };
   const balanceGates = new Map<string, ReturnType<typeof deferred<number>>>();
   let preventRemoval = false;
   let removalDisabled = false;
@@ -138,6 +164,7 @@ function fixture(
       Platform: { OS: "android" },
       Pressable: "Pressable",
       ScrollView: "ScrollView",
+      Switch: "Switch",
       StyleSheet: { create: (style: any) => style, hairlineWidth: 1 },
       Text: "Text",
       TextInput: "TextInput",
@@ -181,6 +208,12 @@ function fixture(
       },
       refreshCreditPolicies: async () => {
         if (refreshGate) await refreshGate.promise;
+        if (options.freshNotification !== undefined)
+          notificationPolicy = {
+            relationship_id: relationshipId,
+            enabled: options.freshNotification,
+            updated_at_ms: 2,
+          };
         if (options.freshCurrencies) currencySettings = copySettings(options.freshCurrencies);
         else if (options.fresh)
           currencySettings[0] = {
@@ -200,6 +233,35 @@ function fixture(
         }),
       ClerkCloudEnrollmentRequiredError,
       CreditOnlineSaveRequiredError,
+    },
+    "../../../lib/credit-limit-notifications": {
+      CreditLimitNotificationsUnsupportedError,
+      loadCreditLimitNotificationSettings: async (vault: string, rel: string) => {
+        assert.equal(vault, "vault");
+        assert.equal(rel, relationshipId);
+        return {
+          policy: notificationPolicy ? { ...notificationPolicy } : null,
+          defaultPolicy: defaultNotificationPolicy ? { ...defaultNotificationPolicy } : null,
+          effective: notificationPolicy
+            ? { ...notificationPolicy }
+            : defaultNotificationPolicy
+              ? { ...defaultNotificationPolicy }
+              : null,
+        };
+      },
+      saveCreditLimitNotifications: async (
+        vault: string,
+        value: CreditLimitNotificationPolicy,
+        session: any,
+      ) =>
+        guard(session, async () => {
+          notificationAttempts.push({ vault, value, session });
+          if (notificationError) throw notificationError;
+          if (notificationGate) await notificationGate.promise;
+          notificationPolicy = { ...value, updated_at_ms: 3 };
+          notificationSaves.push({ vault, value, session });
+          return notificationPolicy;
+        }),
     },
     "../../../lib/db-tx": {
       getActiveVaultIdSyncMaybe: () => activeVault,
@@ -246,6 +308,8 @@ function fixture(
   return {
     hooks,
     saves,
+    notificationSaves,
+    notificationAttempts,
     notices,
     routes,
     currencyReads,
@@ -270,6 +334,15 @@ function fixture(
     radios: () => nodes(hooks.tree).filter((node) => node.props.accessibilityRole === "radio"),
     inputs: () => nodes(hooks.tree).filter((node) => node.type === "TextInput"),
     save: () => nodes(hooks.tree).find((node) => node.type === "Button")!,
+    notificationSwitch: () => nodes(hooks.tree).find((node) => node.type === "Switch")!,
+    notificationRow: () =>
+      nodes(hooks.tree).find(
+        (node) =>
+          node.type === "View" &&
+          (Array.isArray(node.props.children) ? node.props.children : [node.props.children]).some(
+            (child: any) => child?.type === "Switch",
+          ),
+      )!,
     picker: () => nodes(hooks.tree).find((node) => node.type === "CurrencyPickerSheet")!,
     currencyButton: () =>
       nodes(hooks.tree).find(
@@ -292,6 +365,10 @@ function fixture(
       saveError = error;
     },
     delayedSave: () => (saveGate = deferred<void>()),
+    setNotificationError: (error: Error | null) => {
+      notificationError = error;
+    },
+    delayedNotificationSave: () => (notificationGate = deferred<void>()),
     delayedBalance: (code: string) => {
       const gate = deferred<number>();
       balanceGates.set(code, gate);
@@ -1011,6 +1088,249 @@ async function run() {
   savingScope.hooks.unmount();
   console.log(
     "PASS credit settings: selected-currency retry/errors, failed load, saving currency guard and stale-session feedback",
+  );
+  await notificationChecks();
+}
+
+async function notificationChecks() {
+  const uncapped: CurrencySettings[] = [
+    { currency: "AFN", policy: null, defaultPolicy: null },
+    { currency: "USD", policy: null, defaultPolicy: null },
+  ];
+  const capped: CurrencySettings[] = [
+    { currency: "AFN", policy: { ...policy("warn"), currency: "AFN" }, defaultPolicy: null },
+    { currency: "USD", policy: { ...policy("warn"), currency: "USD" }, defaultPolicy: null },
+  ];
+  const defaults: { options: Parameters<typeof fixture>[0]; expected: boolean }[] = [
+    { options: {}, expected: false },
+    { options: { currencies: uncapped }, expected: true },
+    { options: { defaultNotification: true }, expected: true },
+    { options: { currencies: uncapped, defaultNotification: false }, expected: false },
+    { options: { notification: false, defaultNotification: true }, expected: false },
+    { options: { notification: true, defaultNotification: false }, expected: true },
+  ];
+  for (const locale of ["en", "fa"] as const) {
+    for (const item of defaults) {
+      const f = fixture({ ...item.options, locale });
+      await f.render();
+      const control = f.notificationSwitch();
+      assert.equal(control.props.value, item.expected);
+      assert.deepEqual(control.props.accessibilityState, {
+        checked: item.expected,
+        disabled: false,
+      });
+      assert.equal(control.props.accessibilityLabel, i18n.t("credit.notifyOwners"));
+      assert.equal(control.props.accessibilityHint, i18n.t("credit.notifyHelp"));
+      assert.equal(
+        flattenStyle(f.notificationRow().props.style).flexDirection,
+        locale === "fa" ? "row-reverse" : "row",
+      );
+      f.requestLeave();
+      await f.render();
+      assert.equal(
+        f.confirm().props.visible,
+        false,
+        "Initial/default-on display alone is not an unsaved edit",
+      );
+      assert.deepEqual(f.routes, ["leave"]);
+      assert.equal(f.notificationAttempts.length, 0);
+      f.hooks.unmount();
+    }
+  }
+  for (const role of ["owner", "manager", "clerk", "editor", "viewer"] as const) {
+    const f = fixture({ role });
+    await f.render();
+    const canConfigure = role === "owner" || role === "manager";
+    assert.equal(f.notificationSwitch().props.disabled, !canConfigure);
+    assert.equal(f.notificationSwitch().props.accessibilityState.disabled, !canConfigure);
+    if (!canConfigure) assert.equal(flattenStyle(f.notificationSwitch().props.style).opacity, 0.55);
+    f.notificationSwitch().props.onValueChange(true);
+    f.save().props.onPress();
+    f.save().props.onPress();
+    await f.render();
+    assert.equal(f.saves.length, 0, "A notification-only update never rewrites credit caps");
+    assert.equal(
+      f.notificationAttempts.length,
+      Number(canConfigure),
+      "Same-frame switch/save and double press submit only once for permitted roles",
+    );
+    assert.equal(f.notificationSaves.length, Number(canConfigure));
+    if (canConfigure) {
+      assert.deepEqual(f.notificationSaves[0], {
+        vault: "vault",
+        value: { relationship_id: "relationship", enabled: true, updated_at_ms: 0 },
+        session: { jwt: "token", accountId: "account", bindingVersion: 1 },
+      });
+      assert.deepEqual(f.notices, [i18n.t("credit.notifySaved")]);
+      assert.deepEqual(f.routes, ["back"]);
+    }
+    f.hooks.unmount();
+  }
+  console.log(
+    "PASS credit notification settings: new-limit ON/legacy OFF, inherited preferences, accessible English/Dari layout, role gates and exact notification-only same-frame saves",
+  );
+
+  const shared = fixture({ currencies: capped });
+  await shared.render();
+  shared.notificationSwitch().props.onValueChange(true);
+  await shared.render();
+  await shared.selectCurrency("USD");
+  assert.equal(
+    shared.notificationSwitch().props.value,
+    true,
+    "One customer-wide switch follows the user across currencies",
+  );
+  shared.save().props.onPress();
+  await shared.render();
+  assert.equal(shared.saves.length, 0);
+  assert.deepEqual(shared.notificationSaves[0].value, {
+    relationship_id: "relationship",
+    enabled: true,
+    updated_at_ms: 0,
+  });
+  await shared.selectCurrency("AFN");
+  assert.equal(shared.notificationSwitch().props.value, true);
+  shared.notificationSwitch().props.onValueChange(false);
+  await shared.render();
+  shared.requestLeave();
+  await shared.render();
+  assert.equal(
+    shared.confirm().props.visible,
+    true,
+    "An unsaved switch edit requires explicit discard",
+  );
+  shared.confirm().props.onCancel();
+  await shared.render();
+  assert.equal(
+    shared.notificationSwitch().props.value,
+    false,
+    "Cancelling departure keeps the notification draft",
+  );
+  shared.requestLeave();
+  await shared.render();
+  shared.confirm().props.onConfirm();
+  await shared.render();
+  assert.deepEqual(shared.routes, ["leave"]);
+  assert.equal(
+    shared.notificationAttempts.length,
+    1,
+    "Discard does not send the unsaved switch value",
+  );
+  shared.hooks.unmount();
+
+  const refresh = fixture({ delayRefresh: true, freshNotification: false });
+  await refresh.render();
+  refresh.notificationSwitch().props.onValueChange(true);
+  await refresh.render();
+  refresh.releaseRefresh();
+  await refresh.render();
+  assert.equal(
+    refresh.notificationSwitch().props.value,
+    true,
+    "An older cap/settings refresh cannot clobber a touched switch",
+  );
+  refresh.save().props.onPress();
+  await refresh.render();
+  assert.equal(refresh.saves.length, 0);
+  assert.equal(refresh.notificationSaves[0].value.enabled, true);
+  refresh.hooks.unmount();
+
+  for (const brandNew of [false, true]) {
+    const partial = fixture({ currencies: brandNew ? uncapped : capped });
+    await partial.render();
+    if (!brandNew) partial.notificationSwitch().props.onValueChange(true);
+    partial.inputs()[0].props.onChangeText("150");
+    await partial.render();
+    partial.setNotificationError(new Error("notification server unavailable"));
+    partial.save().props.onPress();
+    await partial.render();
+    assert.equal(partial.saves.length, 1);
+    assert.equal(partial.notificationAttempts.length, 1);
+    assert.equal(partial.notificationSaves.length, 0);
+    assert.ok(words(partial.hooks.tree).includes(i18n.t("credit.notifyPartial")));
+    assert.equal(partial.notificationSwitch().props.value, true);
+    assert.deepEqual(partial.notices, [], "A partial save cannot show complete success");
+    assert.deepEqual(partial.routes, [], "A partial save keeps its retry available");
+    partial.requestLeave();
+    await partial.render();
+    assert.equal(
+      partial.confirm().props.visible,
+      true,
+      "The unsaved flag stays dirty after a successful cap save",
+    );
+    partial.confirm().props.onCancel();
+    await partial.render();
+    partial.setNotificationError(null);
+    partial.save().props.onPress();
+    await partial.render();
+    assert.equal(
+      partial.saves.length,
+      1,
+      "Retry saves only the unsaved flag, without repeating a successful cap update",
+    );
+    assert.equal(partial.notificationAttempts.length, 2);
+    assert.equal(partial.notificationSaves.length, 1);
+    assert.deepEqual(partial.notices, [i18n.t("credit.notifySaved")]);
+    partial.hooks.unmount();
+  }
+  const unsupported = fixture();
+  await unsupported.render();
+  unsupported.notificationSwitch().props.onValueChange(true);
+  await unsupported.render();
+  unsupported.setNotificationError(new CreditLimitNotificationsUnsupportedError());
+  unsupported.save().props.onPress();
+  await unsupported.render();
+  assert.equal(unsupported.saves.length, 0);
+  assert.ok(words(unsupported.hooks.tree).includes(i18n.t("credit.notifyUnavailable")));
+  assert.deepEqual(unsupported.notices, []);
+  assert.deepEqual(unsupported.routes, []);
+  unsupported.hooks.unmount();
+  const partialUnsupported = fixture({ currencies: uncapped });
+  await partialUnsupported.render();
+  partialUnsupported.inputs()[0].props.onChangeText("150");
+  partialUnsupported.setNotificationError(new CreditLimitNotificationsUnsupportedError());
+  partialUnsupported.save().props.onPress();
+  await partialUnsupported.render();
+  assert.equal(partialUnsupported.saves.length, 1);
+  assert.equal(partialUnsupported.notificationSaves.length, 0);
+  assert.ok(
+    words(partialUnsupported.hooks.tree).includes(i18n.t("credit.notifyPartialUnavailable")),
+    "An older server is distinguished from a temporary notification-save failure",
+  );
+  assert.deepEqual(partialUnsupported.notices, []);
+  assert.deepEqual(partialUnsupported.routes, []);
+  partialUnsupported.hooks.unmount();
+  console.log(
+    "PASS credit notification settings: shared currency scope, discard/refresh guards, honest partial and unsupported saves, and flag-only retry after successful caps",
+  );
+
+  for (const transition of ["vault", "session", "unmount"] as const) {
+    const f = fixture();
+    await f.render();
+    f.notificationSwitch().props.onValueChange(true);
+    await f.render();
+    const pending = f.delayedNotificationSave();
+    f.save().props.onPress();
+    await f.render();
+    assert.equal(f.notificationAttempts.length, 1);
+    assert.equal(f.save().props.loading, true);
+    if (transition === "vault") f.switchVault();
+    else if (transition === "session") f.switchSession();
+    else f.hooks.unmount();
+    pending.resolve();
+    if (transition === "unmount") {
+      await settleUI();
+      await settleUI();
+    } else {
+      await f.render();
+      f.hooks.unmount();
+    }
+    assert.deepEqual(f.notices, [], `${transition}: stale notification saves cannot show success`);
+    assert.deepEqual(f.routes, [], `${transition}: stale notification saves cannot navigate`);
+    assert.equal(f.hooks.lateWrites, 0, `${transition}: no write targets an unmounted screen`);
+  }
+  console.log(
+    "PASS credit notification settings: late saves cannot leak feedback/navigation across Kaata/session changes or unmount",
   );
 }
 

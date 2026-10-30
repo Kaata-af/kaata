@@ -30,8 +30,11 @@ function fixture() {
     now = 100000,
     status = 200,
     enabled: unknown = true,
+    limitsEnabled: unknown = true,
     granted = true;
   let responseGate: ReturnType<typeof deferred<void>> | null = null;
+  let strictLegacy = false;
+  let capabilityHeader: string | null = "1";
   let policy = defaultNotificationPolicy();
   const contactOverrides = new Map<string, Partial<typeof policy>>();
   const roles = new Map([
@@ -92,13 +95,17 @@ function fixture() {
     {
       Date: { now: () => now },
       fetch: async (url: string, options: any) => {
-        requests.push({ url, body: JSON.parse(options.body), headers: options.headers });
+        const body = JSON.parse(options.body);
+        requests.push({ url, body, headers: options.headers });
         if (responseGate) await responseGate.promise;
+        const responseStatus = strictLegacy && "limit_alerts" in body ? 400 : status;
         return {
-          ok: status === 200,
-          status,
+          ok: responseStatus === 200,
+          status: responseStatus,
+          headers: { get: () => capabilityHeader },
           json: async () => ({
             remote_delivery_enabled: enabled,
+            limit_notifications_enabled: limitsEnabled,
             remote_delivery_lease_ms: 30 * 24 * 3600_000,
           }),
         };
@@ -119,6 +126,16 @@ function fixture() {
     },
     setEnabled: (value: unknown) => {
       enabled = value;
+    },
+    setLimitsEnabled: (value: unknown) => {
+      limitsEnabled = value;
+    },
+    setStrictLegacy: (value: boolean) => {
+      strictLegacy = value;
+      capabilityHeader = value ? null : "1";
+    },
+    setCapabilityHeader: (value: string | null) => {
+      capabilityHeader = value;
     },
     setGranted: (value: boolean) => {
       granted = value;
@@ -161,12 +178,18 @@ async function main() {
   assert.equal(f.requests[0].body.install_id, "install-a");
   assert.equal(f.requests[0].body.token, "synthetic-token");
   assert.equal(f.requests[0].body.preferences.credit_alerts, true);
+  assert.equal(
+    f.requests[0].body.limit_alerts,
+    true,
+    "New clients explicitly register cap-alert support",
+  );
   assert.deepEqual(
     f.requests[0].body.customer_preferences,
     [],
     "inherited defaults use a sparse registration payload",
   );
   assert.equal(await f.module.creditAlertRemoteDeliveryActive("v1"), true);
+  assert.equal(await f.module.creditAlertRemoteDeliveryActive("v1", "limit"), true);
   assert.equal(await f.module.creditAlertRemoteDeliveryActive("v2"), false);
   await f.module.syncCreditAlertPushSubscriptions();
   assert.equal(f.requests.length, 1, "successful registration is throttled");
@@ -198,6 +221,11 @@ async function main() {
     await f.module.creditAlertRemoteDeliveryActive("v1"),
     true,
     "unsupported endpoint preserves prior confirmed transport cache",
+  );
+  assert.equal(
+    await f.module.creditAlertRemoteDeliveryActive("v1", "limit"),
+    true,
+    "A network or endpoint failure preserves confirmed cap delivery ownership",
   );
   f.advance(2 * 3600_000);
   assert.equal(
@@ -239,6 +267,68 @@ async function main() {
   const count = f.requests.length;
   await f.module.syncCreditAlertPushSubscriptions(true);
   assert.equal(f.requests.length, count, "signed-out local use never registers remote authority");
+
+  const strictLegacy = fixture();
+  strictLegacy.setStrictLegacy(true);
+  await strictLegacy.module.syncCreditAlertPushSubscriptions();
+  assert.equal(
+    strictLegacy.requests.length,
+    2,
+    "An old strict server gets one bounded registration retry",
+  );
+  assert.equal(strictLegacy.requests[0].body.limit_alerts, true);
+  assert.equal("limit_alerts" in strictLegacy.requests[1].body, false);
+  assert.equal(
+    await strictLegacy.module.creditAlertRemoteDeliveryActive("v1"),
+    true,
+    "A new installation can retain combined remote delivery with an old server",
+  );
+  assert.equal(
+    await strictLegacy.module.creditAlertRemoteDeliveryActive("v1", "limit"),
+    false,
+    "The legacy retry never claims ordinary limit delivery, even with a misleading response flag",
+  );
+  const capableBadRequest = fixture();
+  capableBadRequest.setStatus(400);
+  await capableBadRequest.module.syncCreditAlertPushSubscriptions();
+  assert.equal(capableBadRequest.requests.length, 1, "A capable server's 400 is not downgraded");
+  const unknownBadRequest = fixture();
+  unknownBadRequest.setStatus(400);
+  unknownBadRequest.setCapabilityHeader(null);
+  await unknownBadRequest.module.syncCreditAlertPushSubscriptions();
+  assert.equal(
+    unknownBadRequest.requests.length,
+    2,
+    "A failed legacy retry is never repeated in a loop",
+  );
+
+  const legacy = fixture();
+  legacy.setLimitsEnabled(undefined);
+  await legacy.module.syncCreditAlertPushSubscriptions();
+  assert.equal(await legacy.module.creditAlertRemoteDeliveryActive("v1"), true);
+  assert.equal(
+    await legacy.module.creditAlertRemoteDeliveryActive("v1", "limit"),
+    false,
+    "A legacy registration response owns combined delivery only",
+  );
+  legacy.setLimitsEnabled(true);
+  await legacy.module.syncCreditAlertPushSubscriptions(true);
+  assert.equal(await legacy.module.creditAlertRemoteDeliveryActive("v1", "limit"), true);
+  legacy.setEnabled(false);
+  await legacy.module.syncCreditAlertPushSubscriptions(true);
+  assert.equal(
+    await legacy.module.creditAlertRemoteDeliveryActive("v1", "limit"),
+    false,
+    "Cap capability alone cannot claim delivery when remote delivery is disabled",
+  );
+  legacy.setEnabled(true);
+  legacy.setLimitsEnabled("true");
+  await legacy.module.syncCreditAlertPushSubscriptions(true);
+  assert.equal(
+    await legacy.module.creditAlertRemoteDeliveryActive("v1", "limit"),
+    false,
+    "An invalid capability is not permission to suppress local cap alerts",
+  );
 
   const race = fixture();
   const gate = deferred<void>();

@@ -63,6 +63,7 @@ const PAYLOAD_SCHEMA = 1;
 export type Snapshot = {
   credit_limits?: import("./credit-policy").CreditPolicy[];
   credit_alerts?: import("./credit-alert-policy").CreditAlertPolicy[];
+  credit_limit_notifications?: import("./credit-limit-notification-policy").CreditLimitNotificationPolicy[];
   vault_id: string;
   // Per-vault server_seq of the LAST event included in the snapshot. The
   // client primes sync_state.last_pulled_server_seq to this value after
@@ -621,6 +622,15 @@ async function restoreFromSnapshotInner(
         db,
         snapshot.vault.id,
         snapshot.credit_alerts,
+        snapshot.generated_at_ms,
+      );
+    }
+    if (snapshot.credit_limit_notifications != null) {
+      const { cacheCreditLimitNotifications } = await import("./credit-limit-notification-cache");
+      await cacheCreditLimitNotifications(
+        db,
+        snapshot.vault.id,
+        snapshot.credit_limit_notifications,
         snapshot.generated_at_ms,
       );
     }

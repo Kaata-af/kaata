@@ -8,6 +8,8 @@ import { sha256 } from "@noble/hashes/sha256";
 import { Mutex } from "../util/mutex";
 import { compileUI, deferred } from "./ui-fixture";
 import * as observation from "../credit-alert-observation";
+import * as limitWatches from "../credit-limit-notification-watches";
+import { KAATA_DEFAULT_CREDIT_ID } from "../credit-policy";
 
 const VAULT = "00000000-0000-4000-8000-000000000001";
 const REL = "00000000-0000-4000-8000-000000000002";
@@ -20,6 +22,9 @@ function fixture() {
     CREATE TABLE vaults(id TEXT PRIMARY KEY,archived_at INTEGER);
     CREATE TABLE users(id TEXT PRIMARY KEY,display_name TEXT,archived_at INTEGER);
     CREATE TABLE relationships(id TEXT PRIMARY KEY,vault_id TEXT,user_b_id TEXT,archived_at INTEGER);
+    CREATE TABLE customer_credit_limits(vault_id TEXT,relationship_id TEXT,currency TEXT,max_collect_minor INTEGER,max_pay_minor INTEGER,updated_at_ms INTEGER,sync_pending INTEGER DEFAULT 0,PRIMARY KEY(vault_id,relationship_id,currency));
+    CREATE TABLE kaata_credit_defaults(vault_id TEXT,currency TEXT,max_collect_minor INTEGER,max_pay_minor INTEGER,updated_at_ms INTEGER,PRIMARY KEY(vault_id,currency));
+    CREATE TABLE customer_credit_limit_notifications(vault_id TEXT,relationship_id TEXT,enabled INTEGER,updated_at_ms INTEGER,sync_pending INTEGER DEFAULT 0,deleted INTEGER DEFAULT 0,PRIMARY KEY(vault_id,relationship_id));
     INSERT INTO users VALUES('${PERSON}','Sensitive customer',NULL);
     INSERT INTO vaults VALUES('${VAULT}',NULL);
     INSERT INTO relationships VALUES('${REL}','${VAULT}','${PERSON}',NULL);`);
@@ -46,6 +51,7 @@ function fixture() {
   let revision = 0,
     foreground = "background",
     remote = false,
+    remoteLimits = false,
     permission = true;
   let binding = 1,
     lookupStatus = 200;
@@ -62,6 +68,7 @@ function fixture() {
   };
   const lookups: any[] = [];
   const syncCalls: string[] = [];
+  const registrationForces: boolean[] = [];
   let onPull: (() => void) | null = null;
   let onRefresh: (() => void) | null = null;
   let notificationPolicy = notifications.defaultNotificationPolicy();
@@ -183,6 +190,13 @@ function fixture() {
         },
       },
       "./credit-alert-policy": engine,
+      "./credit-limit-notification-watches": limitWatches,
+      "./credit-limits": {
+        refreshCreditPolicies: async () => {
+          syncCalls.push("refreshLimits");
+          onRefresh?.();
+        },
+      },
       "./credit-alert-observation": observation,
       "./credit-policy-events": { onCreditPoliciesChanged: listen(policies) },
       "./ledger-events": { onLedgerApplied: listen(ledger) },
@@ -197,7 +211,10 @@ function fixture() {
       "./i18n": {
         getLocale: () => "en",
         subscribeLocale: listen(locale),
-        t: (key: string, values?: { name: string }) => (values ? `${key}:${values.name}` : key),
+        t: (key: string, values?: { name?: string; currency?: string }) =>
+          values
+            ? `${key}:${values.name ?? ""}${values.currency ? `:${values.currency}` : ""}`
+            : key,
       },
       "./use-vault-role": { readVaultRole: async () => role },
       "./api": { getBackendUrl: async () => "https://synthetic.invalid" },
@@ -209,14 +226,19 @@ function fixture() {
         }),
       },
       "./credit-alert-push": {
-        syncCreditAlertPushSubscriptions: async () => {
+        syncCreditAlertPushSubscriptions: async (force = false) => {
+          registrationForces.push(force);
           if (registrationGate) await registrationGate.promise;
         },
-        creditAlertRemoteDeliveryActive: async () => remote,
+        creditAlertRemoteDeliveryActive: async (_vault: string, source?: string) =>
+          source === "limit" ? remoteLimits : remote,
       },
       "./projection": { applyEventMutex: new Mutex() },
       "expo-notifications": n,
-      "./currency": { applyVaultCurrency: async () => {} },
+      "./currency": {
+        applyVaultCurrency: async () => {},
+        getCurrencyLabel: (code: string) => code,
+      },
       "./sync/pull": {
         pullEvents: async () => {
           syncCalls.push("pull");
@@ -247,6 +269,7 @@ function fixture() {
   ) as typeof import("../credit-alert-notifications");
   return {
     sql,
+    tx,
     service,
     scheduled,
     dismissed,
@@ -256,6 +279,7 @@ function fixture() {
     tray,
     lookups,
     syncCalls,
+    registrationForces,
     setPullHook: (value: typeof onPull) => {
       onPull = value;
     },
@@ -298,6 +322,55 @@ function fixture() {
     setRemote: (value: boolean) => {
       remote = value;
     },
+    setRemoteLimits: (value: boolean) => {
+      remoteLimits = value;
+    },
+    setLimitNotifications: (
+      enabled: boolean,
+      options: { default?: boolean; pending?: boolean; revision?: number } = {},
+    ) => {
+      sql
+        .prepare(
+          `INSERT INTO customer_credit_limit_notifications VALUES(?,?,?,?,?,0)
+        ON CONFLICT(vault_id,relationship_id) DO UPDATE SET enabled=excluded.enabled,updated_at_ms=excluded.updated_at_ms,sync_pending=excluded.sync_pending,deleted=0`,
+        )
+        .run(
+          VAULT,
+          options.default ? KAATA_DEFAULT_CREDIT_ID : REL,
+          Number(enabled),
+          options.revision ?? 1,
+          Number(!!options.pending),
+        );
+    },
+    setCap: (
+      currency: string,
+      collect: number | null,
+      pay: number | null,
+      options: { default?: boolean; pending?: boolean; revision?: number } = {},
+    ) => {
+      if (options.default)
+        sql
+          .prepare(
+            `INSERT INTO kaata_credit_defaults VALUES(?,?,?,?,?)
+        ON CONFLICT(vault_id,currency) DO UPDATE SET max_collect_minor=excluded.max_collect_minor,max_pay_minor=excluded.max_pay_minor,updated_at_ms=excluded.updated_at_ms`,
+          )
+          .run(VAULT, currency, collect, pay, options.revision ?? 1);
+      else
+        sql
+          .prepare(
+            `INSERT INTO customer_credit_limits VALUES(?,?,?,?,?,?,?)
+        ON CONFLICT(vault_id,relationship_id,currency) DO UPDATE SET max_collect_minor=excluded.max_collect_minor,max_pay_minor=excluded.max_pay_minor,updated_at_ms=excluded.updated_at_ms,sync_pending=excluded.sync_pending`,
+          )
+          .run(
+            VAULT,
+            REL,
+            currency,
+            collect,
+            pay,
+            options.revision ?? 1,
+            Number(!!options.pending),
+          );
+    },
     setPending: (value: boolean) => {
       syncPending = value;
     },
@@ -328,6 +401,9 @@ function fixture() {
     emitTabs: () => {
       for (const fn of tabs) fn();
     },
+    emitPolicies: () => {
+      for (const fn of policies) fn();
+    },
     timerCount: () => timers.size,
     flushTimers: async () => {
       for (const fn of [...timers.values()]) fn();
@@ -337,7 +413,217 @@ function fixture() {
   };
 }
 
+async function independentLimitChecks() {
+  const f = fixture();
+  f.setGroups([]);
+  f.setLimitNotifications(true);
+  f.setCap("USD", 1000, 2000);
+  f.setCap("AFN", 5000, 10000);
+  await f.service.reconcileCreditAlertNotifications();
+  f.setBalance({ USD: 1000, AFN: 0 });
+  await f.service.reconcileCreditAlertNotifications();
+  assert.equal(f.scheduled.length, 1, "An exact ordinary collect cap triggers once");
+  assert.equal(f.scheduled[0].content.data.limit_currency, "USD");
+  assert.equal(f.scheduled[0].content.data.direction, "collect");
+  assert.doesNotMatch(f.scheduled[0].content.body, /USD/, "Names-only previews omit currency");
+  await f.service.openCreditAlertNotification(f.scheduled[0].content.data);
+  assert.equal(f.routes[0].params.id, PERSON);
+  f.setPolicy({ previews: "full" });
+  f.setBalance({ USD: 1500, AFN: 5000 });
+  await f.service.reconcileCreditAlertNotifications();
+  assert.equal(f.scheduled.length, 2, "AFN can cross while USD remains above its cap");
+  assert.equal(f.scheduled[1].content.data.limit_currency, "AFN");
+  assert.match(f.scheduled[1].content.body, /limitCollectNamed.*AFN/);
+  f.setBalance({ USD: 2000, AFN: 6000 });
+  await f.service.reconcileCreditAlertNotifications();
+  assert.equal(f.scheduled.length, 2, "Additional money above either cap does not repeat alerts");
+  f.setBalance({ USD: -2000, AFN: -10000 });
+  await f.service.reconcileCreditAlertNotifications();
+  assert.equal(
+    f.scheduled.length,
+    4,
+    "Both pay episodes are independent of collect and each other",
+  );
+  assert.deepEqual(
+    f.scheduled.slice(2).map((n) => n.content.data.direction),
+    ["pay", "pay"],
+  );
+  f.setLimitNotifications(false);
+  await f.service.reconcileCreditAlertNotifications();
+  assert.equal(await f.service.creditAlertNoticeAllowed(f.scheduled[3].content.data), false);
+  f.setLimitNotifications(true, { revision: 2 });
+  await f.service.reconcileCreditAlertNotifications();
+  assert.equal(
+    f.scheduled.length,
+    4,
+    "Turning on notifications quietly baselines existing exposure",
+  );
+  f.setBalance({ USD: 0, AFN: 0 });
+  await f.service.reconcileCreditAlertNotifications();
+  f.setBalance({ USD: 0, AFN: -10000 });
+  await f.service.reconcileCreditAlertNotifications();
+  assert.equal(f.scheduled.length, 5, "A cleared currency limit can notify again");
+  f.setCap("AFN", 5000, 9000, { revision: 3 });
+  await f.service.reconcileCreditAlertNotifications();
+  assert.equal(f.scheduled.length, 5, "Editing a cap does not replay its current exposure");
+  assert.equal(await f.service.creditAlertNoticeAllowed(f.scheduled[4].content.data), false);
+
+  const inherited = fixture();
+  inherited.setGroups([]);
+  inherited.setLimitNotifications(true, { default: true });
+  inherited.setCap("USD", 0, null, { default: true });
+  inherited.setCap("AUD", 700, null, { default: true });
+  let watches = await limitWatches.listCreditLimitNotificationWatches(inherited.tx as any);
+  assert.deepEqual(
+    watches.map((watch) => watch.limit_currency),
+    ["AUD", "USD"],
+  );
+  assert.equal(watches[1].policy.groups[0].conditions[0].threshold_minor, 1);
+  inherited.setCap("AUD", null, null);
+  watches = await limitWatches.listCreditLimitNotificationWatches(inherited.tx as any);
+  assert.deepEqual(
+    watches.map((watch) => watch.limit_currency),
+    ["USD"],
+    "Explicit unlimited caps override defaults",
+  );
+  await inherited.service.reconcileCreditAlertNotifications();
+  assert.equal(inherited.scheduled.length, 0, "A zero cap does not alert a settled account");
+  inherited.setBalance({ USD: 1, AFN: 0 });
+  await inherited.service.reconcileCreditAlertNotifications();
+  assert.equal(inherited.scheduled.length, 1, "A zero cap alerts on the first positive minor unit");
+  inherited.setLimitNotifications(false);
+  assert.deepEqual(
+    await limitWatches.listCreditLimitNotificationWatches(inherited.tx as any),
+    [],
+    "An explicit off switch overrides default notifications",
+  );
+
+  const transport = fixture();
+  transport.setGroups([]);
+  transport.setRemote(true);
+  transport.setLimitNotifications(true);
+  transport.setCap("USD", 1000, null);
+  await transport.service.reconcileCreditAlertNotifications();
+  transport.setBalance({ USD: 1000, AFN: 0 });
+  await transport.service.reconcileCreditAlertNotifications();
+  assert.equal(
+    transport.scheduled.length,
+    1,
+    "An older server's combined lease does not suppress cap alerts",
+  );
+  transport.setRemoteLimits(true);
+  transport.setBalance({ USD: 0, AFN: 0 });
+  await transport.service.reconcileCreditAlertNotifications();
+  transport.setBalance({ USD: 1000, AFN: 0 });
+  await transport.service.reconcileCreditAlertNotifications();
+  assert.equal(
+    transport.scheduled.length,
+    1,
+    "A capable server owns synced cap notification delivery",
+  );
+  transport.setCap("USD", 1000, null, { pending: true });
+  transport.setBalance({ USD: 0, AFN: 0 });
+  await transport.service.reconcileCreditAlertNotifications();
+  transport.setBalance({ USD: 1000, AFN: 0 });
+  await transport.service.reconcileCreditAlertNotifications();
+  assert.equal(transport.scheduled.length, 2, "An unpublished cap retains local delivery fallback");
+  transport.setCap("USD", 1000, null);
+  transport.setLimitNotifications(true, { pending: true });
+  transport.setBalance({ USD: 0, AFN: 0 });
+  await transport.service.reconcileCreditAlertNotifications();
+  transport.setBalance({ USD: 1000, AFN: 0 });
+  await transport.service.reconcileCreditAlertNotifications();
+  assert.equal(
+    transport.scheduled.length,
+    3,
+    "An unpublished notification switch retains local fallback",
+  );
+
+  const reset = fixture();
+  reset.setGroups([]);
+  reset.setRemoteLimits(true);
+  reset.setLimitNotifications(true, { default: true });
+  reset.setLimitNotifications(false);
+  reset.setCap("USD", 1000, null);
+  await reset.service.reconcileCreditAlertNotifications();
+  reset.sql
+    .prepare(
+      "UPDATE customer_credit_limit_notifications SET deleted=1,sync_pending=1 WHERE vault_id=? AND relationship_id=?",
+    )
+    .run(VAULT, REL);
+  const resetWatches = await limitWatches.listCreditLimitNotificationWatches(reset.tx as any);
+  assert.equal(resetWatches.length, 1, "An offline reset inherits the enabled Kaata default");
+  assert.equal(
+    resetWatches[0].sync_pending,
+    true,
+    "The pending reset remains unpublished even though its default is synced",
+  );
+  await reset.service.reconcileCreditAlertNotifications();
+  reset.setBalance({ USD: 1000, AFN: 0 });
+  await reset.service.reconcileCreditAlertNotifications();
+  assert.equal(
+    reset.scheduled.length,
+    1,
+    "A pending reset retains local crossing delivery until the server knows it",
+  );
+
+  const remote = fixture();
+  remote.setGroups([]);
+  remote.setLimitNotifications(true);
+  remote.setCap("USD", 1000, null);
+  remote.setLookupDetails({
+    kind: "credit_alert",
+    owner_scope: "account:a",
+    vault_id: VAULT,
+    relationship_id: REL,
+    person_id: PERSON,
+    direction: "collect",
+    limit_currency: "USD",
+    event_key: REMOTE_EVENT,
+    policy_updated_at_ms: 1,
+  });
+  await remote.service.openCreditAlertNotification({
+    kind: "credit_alert",
+    event_key: REMOTE_EVENT,
+  });
+  assert.deepEqual(
+    remote.syncCalls,
+    ["pull", "refreshLimits"],
+    "Cap notification taps refresh caps and their switch",
+  );
+  assert.equal(remote.routes[0].params.id, PERSON);
+  remote.setLimitNotifications(false);
+  await remote.service.openCreditAlertNotification({
+    kind: "credit_alert",
+    event_key: REMOTE_EVENT,
+  });
+  assert.equal(remote.routes.length, 1, "Turning off cap alerts invalidates old remote notices");
+
+  const legacy = fixture();
+  legacy.sql.exec("DROP TABLE customer_credit_limit_notifications");
+  await legacy.service.reconcileCreditAlertNotifications();
+  legacy.setBalance({ USD: 1000000, AFN: 0 });
+  await legacy.service.reconcileCreditAlertNotifications();
+  assert.equal(
+    legacy.scheduled.length,
+    1,
+    "An older open schema still delivers existing combined alerts",
+  );
+  await assert.rejects(
+    limitWatches.listCreditLimitNotificationWatches({
+      getAllAsync: async () => {
+        throw Error("disk error");
+      },
+    } as any),
+    /disk error/,
+  );
+  console.log(
+    "PASS ordinary credit notifications: independent currency/direction episodes, inclusive/zero caps, inherited/off/unlimited rules, edit baselines, privacy, transport fallback and guarded taps",
+  );
+}
+
 async function main() {
+  await independentLimitChecks();
   const f = fixture();
   await f.service.reconcileCreditAlertNotifications();
   f.setBalance({ USD: 500000, AFN: 10000000 });
@@ -460,6 +746,22 @@ async function main() {
   race.emitLedger();
   race.emitTabs();
   assert.equal(race.timerCount(), 1, "ledger/tab bursts coalesce");
+  await race.flushTimers();
+  assert.ok(
+    race.registrationForces.every((force) => !force),
+    "Ordinary ledger observations keep transport registration throttled",
+  );
+  race.emitPolicies();
+  assert.equal(
+    race.registrationForces.at(-1),
+    true,
+    "Changing a limit or its notification switch immediately refreshes remote capability",
+  );
+  assert.equal(
+    race.timerCount(),
+    1,
+    "The forced registration also schedules a single local observation",
+  );
   await race.flushTimers();
   race.setBalance({ USD: 1000000, AFN: 0 });
   const gate = deferred<void>();
