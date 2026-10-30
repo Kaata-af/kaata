@@ -21,6 +21,8 @@ function fixture(os: "ios" | "android", version: number | string = os === "ios" 
   let transparencyReads = 0;
   const animations: Animation[] = [];
   const values: FakeValue[] = [];
+  let deferStopCallbacks = false;
+  const stopCallbacks: (() => void)[] = [];
   let renderCount = 0;
   class FakeValue {
     value: number;
@@ -37,7 +39,9 @@ function fixture(os: "ios" | "android", version: number | string = os === "ios" 
     }
     stopAnimation(callback?: (value: number) => void) {
       this.stops++;
-      callback?.(this.value);
+      if (!callback) return;
+      if (deferStopCallbacks) stopCallbacks.push(() => callback(this.value));
+      else callback(this.value);
     }
     interpolate(config: Record<string, any>) {
       this.interpolations.push(config);
@@ -144,6 +148,15 @@ function fixture(os: "ios" | "android", version: number | string = os === "ios" 
     get transparencyListenerCount() {
       return accessibilityListeners.size;
     },
+    get pendingStopCallbacks() {
+      return stopCallbacks.length;
+    },
+    setDeferredStopCallbacks(value: boolean) {
+      deferStopCallbacks = value;
+    },
+    flushStopCallbacks() {
+      stopCallbacks.splice(0).forEach((callback) => callback());
+    },
     setReducedMotion(value: boolean) {
       reducedMotion = value;
       render();
@@ -240,8 +253,8 @@ async function main() {
         "Decorative motion must not block interaction work",
       );
       assert.ok(
-        animation.options?.duration >= 8000,
-        "The ambient cycle is slow, not a distracting pulse",
+        animation.options?.duration >= 4000 && animation.options?.duration <= 8000,
+        "Each drift leg is calm but becomes noticeable within a few seconds",
       );
     }
     assert.equal(
@@ -271,6 +284,10 @@ async function main() {
         scale = range("scale");
       assert.ok(Math.max(...x.map(Math.abs)) <= Math.min(-style.left, -style.right));
       assert.ok(Math.max(...y.map(Math.abs)) <= Math.min(-style.top, -style.bottom));
+      assert.ok(
+        Math.max(Math.max(...x) - Math.min(...x), Math.max(...y) - Math.min(...y)) >= 140,
+        "Broad color blooms must travel far enough to look alive rather than static",
+      );
       assert.ok(Math.min(...scale) >= 1, "Movement must never shrink below edge-covering size");
       assert.ok(Math.max(...scale) <= 1.08, "Ambient scaling stays subtle");
       paths.add(JSON.stringify([x, y, scale]));
@@ -317,6 +334,59 @@ async function main() {
     );
     assert.equal(f.transparencyReads, 0, "Android does not call iOS-only transparency APIs");
     f.hooks.unmount();
+  }
+
+  for (const os of ["ios", "android"] as const) {
+    for (const [phase, firstTarget] of [
+      [0.98, 0],
+      [0.02, 1],
+    ] as const) {
+      const resumed = fixture(os);
+      resumed.render();
+      resumed.values[0].value = phase;
+      resumed.render({ active: false });
+      resumed.render({ active: true });
+      assert.equal(
+        resumed.values[0].value,
+        phase,
+        "Resuming preserves the visible native position",
+      );
+      const legs = loops(resumed).at(-1)!.children![0].children!;
+      assert.equal(legs.length, 2);
+      assert.equal(
+        legs[0].options?.toValue,
+        firstTarget,
+        "A resumed leg heads toward the farther endpoint so it cannot look static",
+      );
+      assert.equal(legs[1].options?.toValue, 1 - firstTarget);
+      resumed.hooks.unmount();
+    }
+  }
+
+  for (const interruption of [
+    "inactive",
+    "reduced-motion",
+    "reduced-transparency",
+    "unmount",
+  ] as const) {
+    const deferred = fixture("ios");
+    deferred.setDeferredStopCallbacks(true);
+    deferred.render();
+    assert.equal(deferred.pendingStopCallbacks, 1, "Starting reads the current native phase once");
+    assert.equal(startedLoops(deferred).length, 0, "Motion waits for the native phase response");
+    if (interruption === "inactive") deferred.render({ active: false });
+    else if (interruption === "reduced-motion") deferred.setReducedMotion(true);
+    else if (interruption === "reduced-transparency") deferred.setReducedTransparency(true);
+    else deferred.hooks.unmount();
+    deferred.flushStopCallbacks();
+    assert.equal(
+      startedLoops(deferred).length,
+      0,
+      `A late native phase response cannot start motion after ${interruption}`,
+    );
+    if (interruption !== "unmount") deferred.hooks.unmount();
+    await settleUI();
+    assert.equal(deferred.hooks.lateWrites, 0);
   }
 
   const transparency = fixture("ios");

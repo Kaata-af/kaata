@@ -15,8 +15,8 @@ const BLOOMS = [
     rx: "95%",
     ry: "68%",
     opacity: 0.72,
-    x: [-18, 20],
-    y: [16, -20],
+    x: [-96, 96],
+    y: [76, -76],
     scale: [1.02, 1.06],
   },
   {
@@ -27,8 +27,8 @@ const BLOOMS = [
     rx: "76%",
     ry: "60%",
     opacity: 0.5,
-    x: [20, -16],
-    y: [-24, 24],
+    x: [80, -80],
+    y: [-104, 104],
     scale: [1.05, 1],
   },
   {
@@ -39,8 +39,8 @@ const BLOOMS = [
     rx: "105%",
     ry: "67%",
     opacity: 0.78,
-    x: [18, -24],
-    y: [-20, 18],
+    x: [104, -104],
+    y: [-88, 88],
     scale: [1, 1.06],
   },
 ] as const;
@@ -86,23 +86,35 @@ export function AppLockBackground({ active }: { active: boolean }) {
     }
     if (!active) return;
     const settings = {
-      duration: 12_000,
+      duration: 6_000,
       easing: Easing.inOut(Easing.sin),
       useNativeDriver: true,
       // An ambient loop must not hold up list rendering or navigation work.
       isInteraction: false,
     };
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(phase, { ...settings, toValue: 1 }),
-        Animated.timing(phase, { ...settings, toValue: 0 }),
-      ]),
-      { iterations: -1, resetBeforeIteration: false },
-    );
-    loop.start();
+    let alive = true;
+    let loop: Animated.CompositeAnimation | undefined;
+    phase.stopAnimation((value) => {
+      if (!alive) return;
+      // An authentication prompt can pause close to an endpoint. Read the
+      // native position and head toward the farther end, rather than spending
+      // an entire new leg barely moving through its last fraction.
+      const firstTarget = value >= 0.5 ? 0 : 1;
+      loop = Animated.loop(
+        Animated.sequence([
+          Animated.timing(phase, { ...settings, toValue: firstTarget }),
+          Animated.timing(phase, { ...settings, toValue: 1 - firstTarget }),
+        ]),
+        { iterations: -1, resetBeforeIteration: false },
+      );
+      loop.start();
+    });
     // Preserve the native phase when authentication makes the app inactive.
     // A new sequence resumes from there, without snapping to the first frame.
-    return () => loop.stop();
+    return () => {
+      alive = false;
+      loop?.stop();
+    };
   }, [active, reducedMotion, reducedTransparency, supportsMotion, phase]);
 
   return (
@@ -179,10 +191,10 @@ const styles = StyleSheet.create({
   // endpoints. The stationary card clips this layer, so no edges can show.
   surface: {
     position: "absolute",
-    top: -40,
-    right: -40,
-    bottom: -40,
-    left: -40,
+    top: -112,
+    right: -112,
+    bottom: -112,
+    left: -112,
     backgroundColor: colors.bgBalanceGlass,
   },
   highlight: {
