@@ -106,13 +106,20 @@ function fixture(os: "ios" | "android", version: number | string = os === "ios" 
     react: hooks.react,
     "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
     "react-native": native,
+    "react-native-svg": {
+      __esModule: true,
+      default: "Svg",
+      Defs: "Defs",
+      RadialGradient: "RadialGradient",
+      Rect: "Rect",
+      Stop: "Stop",
+    },
     "../lib/reduced-motion": { useReducedMotion: () => reducedMotion },
     "./SheetBackdrop": {
       useSheetMotionPreference: () => false,
       useSheetTransparencyPreference: () => false,
     },
     "../lib/colors": { colors },
-    "./BalanceCardGlass": { BalanceCardGlass: "BalanceCardGlass" },
   }).AppLockBackground;
   let props: any = { active: true };
   const render = (patch: Record<string, any> = {}) => {
@@ -153,6 +160,13 @@ const loops = (f: ReturnType<typeof fixture>) =>
   f.animations.filter((animation) => animation.kind === "loop");
 const startedLoops = (f: ReturnType<typeof fixture>) =>
   loops(f).filter((animation) => animation.started > 0);
+const glowLayers = (tree: any) =>
+  nodes(tree).filter((node) => node.props.testID?.startsWith("app-lock-glow-"));
+const colorChroma = (hex: string) => {
+  assert.match(hex, /^#[0-9a-f]{6}$/i);
+  const channels = [1, 3, 5].map((offset) => parseInt(hex.slice(offset, offset + 2), 16));
+  return Math.max(...channels) - Math.min(...channels);
+};
 
 async function main() {
   for (const os of ["ios", "android"] as const) {
@@ -165,8 +179,52 @@ async function main() {
     assert.equal(background.props.pointerEvents, "none");
     assert.equal(background.props.accessibilityElementsHidden, true);
     assert.equal(background.props.importantForAccessibility, "no-hide-descendants");
-    assert.ok(nodes(background).some((node) => node.type === "BalanceCardGlass"));
-    assert.ok(!nodes(background).some((node) => node.type === "Text"));
+    assert.ok(
+      !nodes(background).some((node) =>
+        [
+          "Text",
+          "Pressable",
+          "TextInput",
+          "BlurView",
+          "BlurTargetView",
+          "BalanceCardGlass",
+        ].includes(node.type),
+      ),
+      "The private decoration contains no content, controls or live blur capture",
+    );
+    const glows = glowLayers(background);
+    assert.equal(glows.length, 3, "Distinct color blooms keep the lock material visible");
+    assert.deepEqual(glows.map((node) => node.props.testID).sort(), [
+      "app-lock-glow-blue",
+      "app-lock-glow-mint",
+      "app-lock-glow-warm",
+    ]);
+    const oldMaterialChroma = Math.max(
+      colorChroma(colors.entryActionReceived),
+      colorChroma(colors.entryActionGave),
+    );
+    for (const glow of glows) {
+      assert.equal(glow.type, "AnimatedView");
+      assert.ok(nodes(glow).some((node) => node.type === "Svg"));
+      const gradient = nodes(glow).find((node) => node.type === "RadialGradient")!;
+      assert.ok(gradient, "Soft radial edges are static vector paint");
+      const stops = nodes(gradient).filter((node) => node.type === "Stop");
+      assert.ok(stops.length >= 2);
+      assert.ok(
+        colorChroma(stops[0].props.stopColor) > oldMaterialChroma,
+        "Lock colors are richer than the muted shared card palette",
+      );
+      assert.ok(Number(stops[0].props.stopOpacity) >= 0.4, "The bloom remains visibly colored");
+      assert.equal(
+        Number(stops.at(-1)!.props.stopOpacity),
+        0,
+        "Bloom edges dissolve without a seam",
+      );
+    }
+    const pearl = nodes(background).find(
+      (node) => node.type === "RadialGradient" && node.props.id === "lock-pearl",
+    )!;
+    assert.ok(pearl, "A stationary bright center protects text readability");
     assert.equal(startedLoops(f).length, 1, "An active lock screen owns one native loop");
     const timing = f.animations.filter((animation) => animation.kind === "timing");
     assert.equal(
@@ -199,20 +257,25 @@ async function main() {
       "The decoration never reveals underlying private content",
     );
     assert.ok(style.top < 0 && style.bottom < 0 && style.left < 0 && style.right < 0);
-    const transforms = style.transform as Record<string, any>[];
-    const range = (kind: string): number[] =>
-      transforms.find((transform) => kind in transform)![kind].outputRange;
-    assert.ok(
-      Math.max(...range("translateX").map(Math.abs)) <= Math.min(-style.left, -style.right),
-    );
-    assert.ok(
-      Math.max(...range("translateY").map(Math.abs)) <= Math.min(-style.top, -style.bottom),
-    );
-    assert.ok(
-      Math.min(...range("scale")) >= 1,
-      "Movement must never shrink below edge-covering size",
-    );
-    assert.ok(Math.max(...range("scale")) <= 1.08, "Ambient scaling stays subtle");
+    assert.equal(style.transform, undefined, "The opaque backing and pearl center stay still");
+    const paths = new Set<string>();
+    for (const glow of glows) {
+      const transforms = flattenStyle(glow.props.style).transform as Record<string, any>[];
+      const range = (kind: string): number[] => {
+        const interpolation = transforms.find((transform) => kind in transform)![kind];
+        assert.equal(interpolation.owner, f.values[0], "Every layer shares one native clock");
+        return interpolation.outputRange;
+      };
+      const x = range("translateX"),
+        y = range("translateY"),
+        scale = range("scale");
+      assert.ok(Math.max(...x.map(Math.abs)) <= Math.min(-style.left, -style.right));
+      assert.ok(Math.max(...y.map(Math.abs)) <= Math.min(-style.top, -style.bottom));
+      assert.ok(Math.min(...scale) >= 1, "Movement must never shrink below edge-covering size");
+      assert.ok(Math.max(...scale) <= 1.08, "Ambient scaling stays subtle");
+      paths.add(JSON.stringify([x, y, scale]));
+    }
+    assert.equal(paths.size, 3, "The colors drift differently rather than moving as one flat wash");
     assert.equal(f.renderCount, 1, "Starting native motion does not schedule a React frame loop");
 
     f.values[0].value = 0.63;
@@ -225,6 +288,7 @@ async function main() {
     f.setReducedMotion(true);
     assert.equal(loops(f)[1].stopped, 1);
     assert.equal(f.values[0].value, 0.5);
+    assert.equal(glowLayers(f.hooks.tree).length, 3, "Reduce Motion preserves the static color");
     const startedBeforeReduced = startedLoops(f).length;
     f.render({ active: false });
     f.render({ active: true });
@@ -266,15 +330,16 @@ async function main() {
   assert.equal(startedLoops(transparency).length, 1);
   assert.equal(loops(transparency)[0].stopped, 1);
   assert.equal(transparency.values[0].value, 0.5);
-  const glass = nodes(transparency.hooks.tree).find((node) => node.type === "BalanceCardGlass")!;
+  assert.equal(glowLayers(transparency.hooks.tree).length, 0);
   assert.equal(
-    glass.props.reducedTransparency,
-    true,
-    "The direct native preference reaches the shared glass outside its provider",
+    nodes(transparency.hooks.tree).filter((node) => node.type === "RadialGradient").length,
+    1,
+    "Reduce Transparency keeps opaque material and its quiet pearl center",
   );
   assert.equal(transparency.transparencyListenerCount, 1);
   transparency.setReducedTransparency(false);
   assert.equal(startedLoops(transparency).length, 2);
+  assert.equal(glowLayers(transparency.hooks.tree).length, 3);
   transparency.hooks.unmount();
   assert.equal(transparency.transparencyListenerCount, 0);
 
@@ -330,7 +395,7 @@ async function main() {
     hooks.unmount();
   }
   console.log(
-    "PASS lock background motion: native-only gentle drift, overscan, inactive/Reduce Motion/Reduce Transparency and legacy Android stops, no frame callbacks, cleanup, private decoration and unchanged static balance cards",
+    "PASS lock background: richer static radial color, independent native-only gentle drift, quiet readable center, overscan, inactive/accessibility/legacy Android stops, no live blur or frame callbacks, cleanup/privacy and unchanged balance cards",
   );
 }
 

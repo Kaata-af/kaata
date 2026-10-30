@@ -1,17 +1,58 @@
 import { useEffect, useRef, useState } from "react";
-import { AccessibilityInfo, Animated, Easing, Platform, StyleSheet } from "react-native";
-import { BalanceCardGlass } from "./BalanceCardGlass";
+import { AccessibilityInfo, Animated, Easing, Platform, StyleSheet, View } from "react-native";
+import Svg, { Defs, RadialGradient, Rect, Stop } from "react-native-svg";
 import { colors } from "../lib/colors";
 import { useReducedMotion } from "../lib/reduced-motion";
 
-/** Move the decorative surface as one layer; text, borders and controls stay put. */
+// Soft edges are painted once. Only their native view transforms move, without
+// recapturing a live blur or redrawing an SVG from JavaScript on every frame.
+const BLOOMS = [
+  {
+    name: "mint",
+    color: "#31C997",
+    cx: "8%",
+    cy: "12%",
+    rx: "95%",
+    ry: "68%",
+    opacity: 0.72,
+    x: [-18, 20],
+    y: [16, -20],
+    scale: [1.02, 1.06],
+  },
+  {
+    name: "blue",
+    color: "#7AA8F5",
+    cx: "104%",
+    cy: "32%",
+    rx: "76%",
+    ry: "60%",
+    opacity: 0.5,
+    x: [20, -16],
+    y: [-24, 24],
+    scale: [1.05, 1],
+  },
+  {
+    name: "warm",
+    color: "#FFA864",
+    cx: "94%",
+    cy: "104%",
+    rx: "105%",
+    ry: "67%",
+    opacity: 0.78,
+    x: [18, -24],
+    y: [-20, 18],
+    scale: [1, 1.06],
+  },
+] as const;
+
+/** A lock-only, slowly shifting pearl surface; text and controls stay put. */
 export function AppLockBackground({ active }: { active: boolean }) {
   // The privacy gate sits outside SheetBlurProvider, so its OS preferences
   // cannot come from that provider's default context values.
   const reducedMotion = useReducedMotion();
   const [reducedTransparency, setReducedTransparency] = useState(false);
   const phase = useRef(new Animated.Value(0.5)).current;
-  const supportsGlass =
+  const supportsMotion =
     Platform.OS === "ios" || (Platform.OS === "android" && Number(Platform.Version) >= 31);
 
   useEffect(() => {
@@ -39,13 +80,13 @@ export function AppLockBackground({ active }: { active: boolean }) {
   }, []);
 
   useEffect(() => {
-    if (reducedMotion || reducedTransparency || !supportsGlass) {
+    if (reducedMotion || reducedTransparency || !supportsMotion) {
       phase.setValue(0.5);
       return;
     }
     if (!active) return;
     const settings = {
-      duration: 10_000,
+      duration: 12_000,
       easing: Easing.inOut(Easing.sin),
       useNativeDriver: true,
       // An ambient loop must not hold up list rendering or navigation work.
@@ -62,7 +103,7 @@ export function AppLockBackground({ active }: { active: boolean }) {
     // Preserve the native phase when authentication makes the app inactive.
     // A new sequence resumes from there, without snapping to the first frame.
     return () => loop.stop();
-  }, [active, reducedMotion, reducedTransparency, supportsGlass, phase]);
+  }, [active, reducedMotion, reducedTransparency, supportsMotion, phase]);
 
   return (
     <Animated.View
@@ -70,18 +111,65 @@ export function AppLockBackground({ active }: { active: boolean }) {
       pointerEvents="none"
       accessibilityElementsHidden
       importantForAccessibility="no-hide-descendants"
-      style={[
-        styles.surface,
-        {
-          transform: [
-            { translateX: phase.interpolate({ inputRange: [0, 1], outputRange: [-10, 10] }) },
-            { translateY: phase.interpolate({ inputRange: [0, 1], outputRange: [12, -12] }) },
-            { scale: phase.interpolate({ inputRange: [0, 1], outputRange: [1, 1.035] }) },
-          ],
-        },
-      ]}
+      style={styles.surface}
     >
-      <BalanceCardGlass reducedTransparency={reducedTransparency} />
+      {!reducedTransparency
+        ? BLOOMS.map((bloom) => (
+            <Animated.View
+              key={bloom.name}
+              testID={`app-lock-glow-${bloom.name}`}
+              style={[
+                StyleSheet.absoluteFill,
+                {
+                  transform: [
+                    { translateX: phase.interpolate({ inputRange: [0, 1], outputRange: bloom.x }) },
+                    { translateY: phase.interpolate({ inputRange: [0, 1], outputRange: bloom.y }) },
+                    { scale: phase.interpolate({ inputRange: [0, 1], outputRange: bloom.scale }) },
+                  ],
+                },
+              ]}
+            >
+              <Svg width="100%" height="100%" viewBox="0 0 440 620" preserveAspectRatio="none">
+                <Defs>
+                  <RadialGradient
+                    id={`lock-${bloom.name}`}
+                    cx={bloom.cx}
+                    cy={bloom.cy}
+                    rx={bloom.rx}
+                    ry={bloom.ry}
+                  >
+                    <Stop offset="0" stopColor={bloom.color} stopOpacity={bloom.opacity} />
+                    <Stop
+                      offset="0.46"
+                      stopColor={bloom.color}
+                      stopOpacity={bloom.opacity * 0.48}
+                    />
+                    <Stop offset="1" stopColor={bloom.color} stopOpacity="0" />
+                  </RadialGradient>
+                </Defs>
+                <Rect width="440" height="620" fill={`url(#lock-${bloom.name})`} />
+              </Svg>
+            </Animated.View>
+          ))
+        : null}
+      {/* Keep a luminous, readable center as the richer edge colors move. */}
+      <Svg
+        width="100%"
+        height="100%"
+        viewBox="0 0 440 620"
+        preserveAspectRatio="none"
+        style={StyleSheet.absoluteFill}
+      >
+        <Defs>
+          <RadialGradient id="lock-pearl" cx="48%" cy="48%" rx="65%" ry="60%">
+            <Stop offset="0" stopColor="#FFFFFF" stopOpacity="0.86" />
+            <Stop offset="0.4" stopColor="#FFFFFF" stopOpacity="0.58" />
+            <Stop offset="1" stopColor="#FFFFFF" stopOpacity="0" />
+          </RadialGradient>
+        </Defs>
+        <Rect width="440" height="620" fill="url(#lock-pearl)" />
+      </Svg>
+      <View style={styles.highlight} />
     </Animated.View>
   );
 }
@@ -91,10 +179,15 @@ const styles = StyleSheet.create({
   // endpoints. The stationary card clips this layer, so no edges can show.
   surface: {
     position: "absolute",
-    top: -24,
-    right: -24,
-    bottom: -24,
-    left: -24,
+    top: -40,
+    right: -40,
+    bottom: -40,
+    left: -40,
     backgroundColor: colors.bgBalanceGlass,
+  },
+  highlight: {
+    ...StyleSheet.absoluteFill,
+    borderTopWidth: 1,
+    borderTopColor: "#FFFFFFCC",
   },
 });
