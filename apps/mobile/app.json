@@ -14,7 +14,7 @@
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       },
-      "buildNumber": "47"
+      "buildNumber": "48"
     },
     "android": {
       "package": "af.kaata.app",
@@ -39,7 +39,7 @@
         "android.permission.READ_EXTERNAL_STORAGE",
         "android.permission.READ_MEDIA_IMAGES"
       ],
-      "versionCode": 81
+      "versionCode": 82
     },
     "web": {
       "favicon": "./assets/favicon.png"
