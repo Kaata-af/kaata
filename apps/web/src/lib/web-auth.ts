@@ -20,6 +20,7 @@ export type WebSession = {
 
 type SignInResult = Omit<WebSession, "install_id">;
 let memorySession: WebSession | null | undefined;
+let authenticationGeneration = 0;
 
 // This only checks the local cache's shape/expiry. Every request is authorized
 // by the server, which verifies the signature and the current credential epoch.
@@ -95,7 +96,12 @@ function saveSession(session: WebSession | null) {
 }
 
 export function clearWebSession() {
+  cancelPendingWebSignIn();
   saveSession(null);
+}
+
+export function cancelPendingWebSignIn() {
+  authenticationGeneration++;
 }
 
 export class WebApiError extends Error {
@@ -182,7 +188,73 @@ export function webRequest<T>(path: string, init: RequestInit = {}): Promise<T> 
   return request<T>(path, init, true);
 }
 
+export type WebAuthProviders = {
+  google: { client_id: string } | null;
+  apple: { start_url: string } | null;
+};
+
+export function createWebAuthNonce(): string {
+  return Array.from(crypto.getRandomValues(new Uint8Array(32)), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
+}
+
+export function validateWebAppleStartURL(value: string): string {
+  try {
+    const url = new URL(value);
+    const backend = new URL(BACKEND_URL);
+    if (
+      url.origin !== backend.origin ||
+      url.pathname !== "/v1/auth/apple/browser/start" ||
+      url.username ||
+      url.password ||
+      url.search ||
+      url.hash ||
+      (url.protocol !== "https:" &&
+        !(url.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)))
+    )
+      throw new Error("Invalid Apple endpoint");
+    return url.href;
+  } catch {
+    throw new WebApiError(
+      "Apple sign-in is unavailable. Try again later.",
+      502,
+      "invalid_response",
+    );
+  }
+}
+
+export async function loadWebAuthProviders(signal?: AbortSignal): Promise<WebAuthProviders> {
+  const result = await request<unknown>("/v1/auth/providers", { signal }, false);
+  if (!result || typeof result !== "object") {
+    throw new WebApiError("Sign-in options could not be loaded.", 502, "invalid_response");
+  }
+  const { google, apple } = result as Record<string, unknown>;
+  const clientID =
+    google && typeof google === "object"
+      ? (google as Record<string, unknown>).client_id
+      : undefined;
+  const startURL =
+    apple && typeof apple === "object" ? (apple as Record<string, unknown>).start_url : undefined;
+  if (
+    !(
+      google === null ||
+      (typeof clientID === "string" &&
+        clientID.length <= 255 &&
+        /^[\w.-]+\.apps\.googleusercontent\.com$/.test(clientID))
+    ) ||
+    !(apple === null || typeof startURL === "string")
+  ) {
+    throw new WebApiError("Sign-in options could not be loaded.", 502, "invalid_response");
+  }
+  return {
+    google: google === null ? null : { client_id: clientID as string },
+    apple: apple === null ? null : { start_url: validateWebAppleStartURL(startURL as string) },
+  };
+}
+
 async function authenticate(path: string, body: Record<string, string>): Promise<WebSession> {
+  const generation = ++authenticationGeneration;
   // A fresh identity per login protects the phone and other browser tabs from
   // rebinding. In particular, duplicated tabs may have copied sessionStorage.
   const installID = crypto.randomUUID();
@@ -194,6 +266,9 @@ async function authenticate(path: string, body: Record<string, string>): Promise
     },
     false,
   );
+  if (generation !== authenticationGeneration) {
+    throw new WebApiError("This sign-in attempt has ended.", 409, "signin_cancelled");
+  }
   const session = parseWebSession(JSON.stringify({ ...result, install_id: installID }));
   if (!session)
     throw new WebApiError(
@@ -209,8 +284,24 @@ export function signInWithPassword(identifier: string, password: string) {
   return authenticate("/v1/auth/email/signin", { identifier: identifier.trim(), password });
 }
 
-export function signInWithGoogle(idToken: string) {
-  return authenticate("/v1/auth/google", { id_token: idToken });
+function validateProviderNonce(nonce: string) {
+  if (!/^[A-Za-z0-9_-]{32,128}$/.test(nonce)) {
+    throw new WebApiError("Restart sign-in and try again.", 400, "invalid_nonce");
+  }
+}
+
+export async function signInWithGoogle(idToken: string, nonce: string) {
+  validateProviderNonce(nonce);
+  return authenticate("/v1/auth/google", { id_token: idToken, nonce });
+}
+
+export async function signInWithApple(identityToken: string, displayName: string, nonce: string) {
+  validateProviderNonce(nonce);
+  return authenticate("/v1/auth/apple", {
+    identity_token: identityToken,
+    display_name: displayName,
+    nonce,
+  });
 }
 
 export function startEmailCode(mode: "signup" | "reset", email: string, lang: string) {

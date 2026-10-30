@@ -19,6 +19,7 @@ type Handler struct {
 	// used by the Apple web-flow trampoline to build the absolute redirect_uri
 	// Apple posts back to. Empty → derived from the request host.
 	publicAPIBaseURL string
+	webBaseURL       string
 }
 
 func NewHandler(svc *Service) *Handler {
@@ -28,6 +29,9 @@ func NewHandler(svc *Service) *Handler {
 // SetPublicAPIBaseURL wires the backend's public origin for the Apple
 // web-flow callback URL (apple_web.go).
 func (h *Handler) SetPublicAPIBaseURL(u string) { h.publicAPIBaseURL = u }
+
+// SetWebBaseURL fixes the browser Apple return origin; requests cannot choose it.
+func (h *Handler) SetWebBaseURL(u string) { h.webBaseURL = u }
 
 // SetAuthenticator wires the session authenticator so SignOut can invalidate
 // the LRU revocation cache. Optional — without it SignOut still deletes the
@@ -41,6 +45,7 @@ type googleSignInRequest struct {
 	InstallID                string                    `json:"install_id"`
 	Platform                 string                    `json:"platform,omitempty"`
 	IDToken                  string                    `json:"id_token"`
+	Nonce                    string                    `json:"nonce,omitempty"`
 	PendingVaultRegistration *PendingVaultRegistration `json:"pending_vault_registration,omitempty"`
 	// The account this phone holds data for, and whether the user already
 	// chose to switch away from it (409 different_account otherwise).
@@ -79,7 +84,7 @@ func (h *Handler) GoogleSignIn(w http.ResponseWriter, r *http.Request) {
 	}
 
 	result, err := h.svc.SignInWithGoogle(r.Context(), req.InstallID, req.IDToken, req.PendingVaultRegistration,
-		SwitchOptions{CurrentAccountID: req.CurrentAccountID, AllowSwitch: req.AllowSwitch, Platform: req.Platform})
+		SwitchOptions{CurrentAccountID: req.CurrentAccountID, AllowSwitch: req.AllowSwitch, Platform: req.Platform, Nonce: req.Nonce})
 	if err != nil {
 		if writeSignInRefusal(w, err) {
 			return
@@ -140,6 +145,8 @@ func (h *Handler) GoogleSignIn(w http.ResponseWriter, r *http.Request) {
 type appleSignInRequest struct {
 	InstallID        string `json:"install_id"`
 	IDToken          string `json:"identity_token"`
+	Platform         string `json:"platform,omitempty"`
+	Nonce            string `json:"nonce,omitempty"`
 	DisplayName      string `json:"display_name,omitempty"`
 	CurrentAccountID string `json:"current_account_id,omitempty"`
 	AllowSwitch      bool   `json:"allow_switch,omitempty"`
@@ -166,7 +173,7 @@ func (h *Handler) AppleSignIn(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	result, err := h.svc.SignInWithApple(r.Context(), req.InstallID, req.IDToken, req.DisplayName,
-		SwitchOptions{CurrentAccountID: req.CurrentAccountID, AllowSwitch: req.AllowSwitch})
+		SwitchOptions{CurrentAccountID: req.CurrentAccountID, AllowSwitch: req.AllowSwitch, Platform: req.Platform, Nonce: req.Nonce})
 	if err != nil {
 		if writeSignInRefusal(w, err) {
 			return

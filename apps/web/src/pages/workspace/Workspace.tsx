@@ -13,6 +13,7 @@ import { useToast } from "../../components/Toast";
 import { useI18n, type Lang } from "../../lib/i18n";
 import { createWebLive, type WebLiveState } from "../../lib/web-live";
 import { createWebRefresh } from "../../lib/web-refresh";
+import { consumeWebAppleCallback, dismissWebAppleCallback } from "../../lib/web-apple";
 import {
   getWebSession,
   signOut,
@@ -64,7 +65,12 @@ type Modal =
 
 export default function Workspace() {
   const { lang } = useI18n();
-  const [session, setSession] = useState(getWebSession);
+  const [session, setSession] = useState(() => {
+    const current = getWebSession();
+    // Never switch an open account because of an unsolicited provider return.
+    if (current && consumeWebAppleCallback().status !== "none") dismissWebAppleCallback();
+    return current;
+  });
   useEffect(() => {
     const changed = () => setSession(getWebSession());
     window.addEventListener(WEB_SESSION_EVENT, changed);

@@ -26,6 +26,9 @@ type SwitchOptions struct {
 	// Platform is an analytics hint. Only web is recognized here; a sign-in
 	// must never relabel an existing phone or rely on this for authorization.
 	Platform string
+	// Nonce binds a browser provider token to the locally pending sign-in.
+	// Checked against verified provider claims before entering the shared tail.
+	Nonce string
 }
 
 // DifferentAccountError: the sign-in resolved another account than the one

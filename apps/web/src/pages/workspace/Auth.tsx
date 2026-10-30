@@ -1,13 +1,14 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent, type MouseEvent } from "react";
 import { Link } from "react-router-dom";
 import { BrandLogo } from "../../components/BrandLogo";
 import { useToast } from "../../components/Toast";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
-import { GOOGLE_WEB_CLIENT_ID } from "../../env";
 import { useI18n, type Lang } from "../../lib/i18n";
 import {
   signInWithGoogle,
+  loadWebAuthProviders,
+  cancelPendingWebSignIn,
   signInWithPassword,
   startEmailCode,
   verifyEmailCode,
@@ -15,6 +16,11 @@ import {
   type WebSession,
 } from "../../lib/web-auth";
 import { mountGoogleButton } from "../../lib/web-google";
+import {
+  consumeWebAppleCallback,
+  dismissWebAppleCallback,
+  startWebAppleSignIn,
+} from "../../lib/web-apple";
 
 const en = {
   web: "Kaata for web",
@@ -31,7 +37,7 @@ const en = {
   signup: "Create your account",
   reset: "Reset your password",
   signinSub: "Sign in to open your kaatas on this computer.",
-  signupSub: "Start with your email. We’ll send you a verification code.",
+  signupSub: "Choose how you’d like to create your account.",
   resetSub: "Enter the email you use to sign in with a password.",
   identifier: "Email or username",
   email: "Email address",
@@ -56,8 +62,15 @@ const en = {
   back: "Back to sign in",
   wait: "Please wait…",
   or: "or use your password",
+  orEmail: "or continue with email",
+  apple: "Continue with Apple",
+  providersLoading: "Loading sign-in options…",
+  providersError: "Apple and Google sign-in could not load. Try again or use your password.",
+  retry: "Try again",
+  appleError: "Apple sign-in could not finish. Please try again.",
+  appleStorage: "Allow this site to use browser storage, then try Apple sign-in again.",
   providerHelp:
-    "Use Google if that is how you sign in on your phone. For Apple, or if Google is unavailable, add a password in the mobile app’s Account settings, then use it here.",
+    "Choose the same sign-in method and account you use on your phone to open your existing kaatas.",
   privacy: "Privacy",
   terms: "Terms",
   session:
@@ -93,7 +106,7 @@ const fa: Copy = {
   signup: "حساب بسازید",
   reset: "رمز عبور را بازنشانی کنید",
   signinSub: "برای باز کردن کاتاهای خود در این کمپیوتر وارد شوید.",
-  signupSub: "ایمیل خود را وارد کنید تا کد تأیید بفرستیم.",
+  signupSub: "روش ساختن حساب خود را انتخاب کنید.",
   resetSub: "ایمیلی را وارد کنید که با آن و رمز عبور وارد می‌شوید.",
   identifier: "ایمیل یا نام کاربری",
   email: "آدرس ایمیل",
@@ -118,8 +131,15 @@ const fa: Copy = {
   back: "بازگشت به ورود",
   wait: "لطفاً صبر کنید…",
   or: "یا با رمز عبور وارد شوید",
+  orEmail: "یا با ایمیل ادامه دهید",
+  apple: "ادامه با اپل",
+  providersLoading: "گزینه‌های ورود بارگذاری می‌شوند…",
+  providersError: "ورود با اپل و گوگل بارگذاری نشد. دوباره کوشش کنید یا از رمز عبور استفاده کنید.",
+  retry: "کوشش دوباره",
+  appleError: "ورود با اپل تکمیل نشد. دوباره کوشش کنید.",
+  appleStorage: "به این سایت اجازۀ ذخیره‌سازی در مرورگر بدهید، سپس دوباره با اپل وارد شوید.",
   providerHelp:
-    "اگر در تلفون با گوگل وارد می‌شوید، اینجا هم از گوگل استفاده کنید. برای اپل یا وقتی گوگل در دسترس نیست، در تنظیمات حساب اپ یک رمز بسازید و اینجا با آن وارد شوید.",
+    "برای باز کردن کاتاهای موجود، همان روش ورود و حسابی را انتخاب کنید که در تلفون استفاده می‌کنید.",
   privacy: "حریم خصوصی",
   terms: "شرایط استفاده",
   session:
@@ -153,7 +173,7 @@ const ps: Copy = {
   signup: "حساب جوړ کړئ",
   reset: "پټنوم بیا وټاکئ",
   signinSub: "پر دې کمپیوټر د خپلو کاتاګانو د پرانیستلو لپاره ننوځئ.",
-  signupSub: "خپل برېښنالیک ولیکئ. د تایید کوډ به درولېږو.",
+  signupSub: "د خپل حساب جوړولو لاره وټاکئ.",
   resetSub: "هغه برېښنالیک ولیکئ چې په پټنوم ورسره ننوځئ.",
   identifier: "برېښنالیک یا کارن نوم",
   email: "برېښنالیک پته",
@@ -178,8 +198,15 @@ const ps: Copy = {
   back: "بېرته ننوتلو ته",
   wait: "لطفاً انتظار وکړئ…",
   or: "یا په پټنوم ننوځئ",
+  orEmail: "یا په برېښنالیک دوام ورکړئ",
+  apple: "له اپل سره دوام ورکړئ",
+  providersLoading: "د ننوتلو لارې بارېږي…",
+  providersError: "د اپل او ګوګل ننوتل بار نه شول. بیا هڅه وکړئ یا خپل پټنوم وکاروئ.",
+  retry: "بیا هڅه وکړئ",
+  appleError: "له اپل سره ننوتل بشپړ نه شول. بیا هڅه وکړئ.",
+  appleStorage: "دې سایټ ته په براوزر کې د ساتلو اجازه ورکړئ، بیا له اپل سره د ننوتلو هڅه وکړئ.",
   providerHelp:
-    "که پر ټیلیفون له ګوګل سره ننوځئ، دلته هم ګوګل وکاروئ. د اپل لپاره یا که ګوګل نه وي، د موبایل اپ د حساب په امستنو کې پټنوم جوړ کړئ او دلته یې وکاروئ.",
+    "د خپلو شته کاتاګانو د پرانیستلو لپاره د ټیلیفون هماغه د ننوتلو لاره او حساب وټاکئ.",
   privacy: "محرمیت",
   terms: "شرطونه",
   session: "پر ګډ کمپیوټر د کار له پای وروسته ووځئ. ستاسو ناسته د براوزر په همدې ټب کې ساتل کېږي.",
@@ -229,6 +256,9 @@ function errorText(error: unknown, copy: Copy): string {
 }
 
 export function WorkspaceAuth({ onSignedIn }: { onSignedIn: (session: WebSession) => void }) {
+  // Consume the return before any provider script loads; tokens never stay in
+  // the address bar. The helper caches one completion across StrictMode effects.
+  const [appleReturn] = useState(consumeWebAppleCallback);
   const { lang, setLang, t } = useI18n();
   const toast = useToast();
   const copy = copies[lang];
@@ -238,11 +268,18 @@ export function WorkspaceAuth({ onSignedIn }: { onSignedIn: (session: WebSession
   const [confirm, setConfirm] = useState("");
   const [code, setCode] = useState("");
   const [sent, setSent] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const busyRef = useRef(false);
+  const [busy, setBusy] = useState(appleReturn.status === "ready");
+  const busyRef = useRef(appleReturn.status === "ready");
+  const appleLeaving = useRef(false);
   const [error, setError] = useState("");
   const [cooldown, setCooldown] = useState(0);
   const [googleError, setGoogleError] = useState(false);
+  const [providers, setProviders] = useState<Awaited<
+    ReturnType<typeof loadWebAuthProviders>
+  > | null>(null);
+  const [providersError, setProvidersError] = useState(false);
+  const [providerAttempt, setProviderAttempt] = useState(0);
+  const [googleAttempt, setGoogleAttempt] = useState(0);
   const googleContainer = useRef<HTMLDivElement>(null);
   const completeSignIn = (session: WebSession) => {
     if (session.deletion_cancelled) toast.push(copy.deletionCancelled, "info");
@@ -252,27 +289,85 @@ export function WorkspaceAuth({ onSignedIn }: { onSignedIn: (session: WebSession
   latest.current = { completeSignIn, copy };
 
   useEffect(() => {
+    const resumed = (event: PageTransitionEvent) => {
+      if (event.persisted && appleLeaving.current) {
+        appleLeaving.current = false;
+        busyRef.current = false;
+        setBusy(false);
+      }
+    };
+    window.addEventListener("pageshow", resumed);
+    return () => window.removeEventListener("pageshow", resumed);
+  }, []);
+
+  useEffect(() => {
+    if (appleReturn.status === "error") {
+      setError(latest.current.copy.appleError);
+      dismissWebAppleCallback();
+      return;
+    }
+    if (appleReturn.status === "cancelled") dismissWebAppleCallback();
+    if (appleReturn.status !== "ready") return;
+    let active = true;
+    void appleReturn
+      .complete()
+      .then((session) => {
+        if (active) latest.current.completeSignIn(session);
+      })
+      .catch((reason) => {
+        if (active) setError(errorText(reason, latest.current.copy));
+      })
+      .finally(() => {
+        if (active) {
+          busyRef.current = false;
+          setBusy(false);
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [appleReturn]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setProvidersError(false);
+    void loadWebAuthProviders(controller.signal)
+      .then((value) => {
+        if (!controller.signal.aborted) setProviders(value);
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setProvidersError(true);
+      });
+    return () => controller.abort();
+  }, [providerAttempt]);
+
+  useEffect(() => {
     if (cooldown <= 0) return;
     const timer = setTimeout(() => setCooldown((value) => Math.max(0, value - 1)), 1000);
     return () => clearTimeout(timer);
   }, [cooldown]);
 
   useEffect(() => {
-    if (!GOOGLE_WEB_CLIENT_ID || mode !== "signin" || !googleContainer.current) return;
+    if (!providers?.google || mode === "reset" || sent || !googleContainer.current) return;
     const controller = new AbortController();
     setGoogleError(false);
     void mountGoogleButton(
       googleContainer.current,
       lang,
-      (credential) => {
-        if (busyRef.current) return;
+      providers.google.client_id,
+      (credential, nonce) => {
+        if (busyRef.current) {
+          setGoogleAttempt((value) => value + 1);
+          return;
+        }
         busyRef.current = true;
         setBusy(true);
         setError("");
-        void signInWithGoogle(credential)
+        void signInWithGoogle(credential, nonce)
           .then((session) => latest.current.completeSignIn(session))
           .catch((reason) => {
             setError(errorText(reason, latest.current.copy));
+            setGoogleAttempt((value) => value + 1);
           })
           .finally(() => {
             busyRef.current = false;
@@ -284,7 +379,34 @@ export function WorkspaceAuth({ onSignedIn }: { onSignedIn: (session: WebSession
       if (!controller.signal.aborted) setGoogleError(true);
     });
     return () => controller.abort();
-  }, [lang, mode]);
+  }, [lang, mode, sent, providers?.google?.client_id, googleAttempt]);
+
+  function appleSignIn() {
+    if (busyRef.current || !providers?.apple) return;
+    busyRef.current = true;
+    setBusy(true);
+    setError("");
+    try {
+      appleLeaving.current = true;
+      startWebAppleSignIn(providers.apple.start_url);
+    } catch (reason) {
+      appleLeaving.current = false;
+      setError(
+        reason instanceof WebApiError && reason.code === "apple_storage_unavailable"
+          ? copy.appleStorage
+          : copy.appleError,
+      );
+      busyRef.current = false;
+      setBusy(false);
+    }
+  }
+
+  function leaveSignIn(event: MouseEvent<HTMLAnchorElement>) {
+    if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey)
+      return;
+    cancelPendingWebSignIn();
+    dismissWebAppleCallback();
+  }
 
   const switchMode = (next: typeof mode) => {
     setMode(next);
@@ -351,7 +473,7 @@ export function WorkspaceAuth({ onSignedIn }: { onSignedIn: (session: WebSession
   return (
     <main className="min-h-screen bg-white text-neutral-900">
       <header className="mx-auto flex max-w-[1440px] items-center justify-between px-6 py-6 sm:px-10">
-        <Link to="/" className="flex items-center gap-2.5" aria-label="Kaata">
+        <Link to="/" onClick={leaveSignIn} className="flex items-center gap-2.5" aria-label="Kaata">
           <BrandLogo className="h-9 w-9" />
           <span className="text-xl font-bold">{t("brand.wordmark")}</span>
           <span className="ms-2 rounded-full border border-neutral-200 px-2.5 py-1 text-[11px] font-medium text-neutral-500">
@@ -402,19 +524,73 @@ export function WorkspaceAuth({ onSignedIn }: { onSignedIn: (session: WebSession
             {copy[mode]}
           </h2>
           <p className="mb-8 mt-3 text-sm leading-relaxed text-neutral-500">{copy[`${mode}Sub`]}</p>
-          {mode === "signin" && GOOGLE_WEB_CLIENT_ID && (
-            <div className="mb-6">
-              <div ref={googleContainer} className={busy ? "pointer-events-none opacity-60" : ""} />
-              {googleError && (
-                <p role="status" className="mt-2 text-xs leading-relaxed text-neutral-500">
-                  {copy.googleError}
+          {mode !== "reset" && !sent && (
+            <div className="mx-auto mb-6 max-w-[360px] space-y-3">
+              {!providers && !providersError && (
+                <p role="status" className="text-sm text-neutral-500">
+                  {copy.providersLoading}
                 </p>
               )}
-              <div className="mt-6 flex items-center gap-3 text-xs text-neutral-400">
-                <span className="h-px flex-1 bg-neutral-200" />
-                {copy.or}
-                <span className="h-px flex-1 bg-neutral-200" />
-              </div>
+              {providersError && (
+                <div role="status" className="text-sm leading-relaxed text-neutral-500">
+                  <p>{copy.providersError}</p>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    className="mt-2 underline underline-offset-4"
+                    onClick={() => setProviderAttempt((value) => value + 1)}
+                  >
+                    {copy.retry}
+                  </button>
+                </div>
+              )}
+              {providers?.apple && (
+                <button
+                  type="button"
+                  onClick={appleSignIn}
+                  disabled={busy}
+                  className="flex h-11 w-full items-center justify-center gap-3 rounded border border-black bg-black px-4 text-sm font-medium text-white transition-colors hover:bg-neutral-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black disabled:opacity-60"
+                >
+                  <svg
+                    viewBox="0 0 24 24"
+                    className="h-5 w-5 shrink-0"
+                    fill="currentColor"
+                    aria-hidden="true"
+                  >
+                    <path d="M17.05 20.28c-.98.95-2.05.8-3.08.35-1.09-.46-2.09-.48-3.24 0-1.44.62-2.2.44-3.06-.35C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.75 3.08.81 1.18-.24 2.3-.94 3.56-.85 1.51.12 2.64.72 3.39 1.8-3.11 1.87-2.37 5.98.48 7.13-.57 1.5-1.31 2.99-2.52 4.09l.01-.01ZM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25Z" />
+                  </svg>
+                  {copy.apple}
+                </button>
+              )}
+              {providers?.google && (
+                <div>
+                  <div
+                    ref={googleContainer}
+                    className={`flex min-h-11 justify-center ${busy ? "pointer-events-none opacity-60" : ""}`}
+                    inert={busy}
+                  />
+                  {googleError && (
+                    <div role="status" className="mt-2 text-xs leading-relaxed text-neutral-500">
+                      <p>{copy.googleError}</p>
+                      <button
+                        type="button"
+                        disabled={busy}
+                        className="mt-2 underline underline-offset-4"
+                        onClick={() => setGoogleAttempt((value) => value + 1)}
+                      >
+                        {copy.retry}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+              {(providers?.apple || providers?.google) && (
+                <div className="!mt-6 flex items-center gap-3 text-xs text-neutral-400">
+                  <span className="h-px flex-1 bg-neutral-200" />
+                  {mode === "signin" ? copy.or : copy.orEmail}
+                  <span className="h-px flex-1 bg-neutral-200" />
+                </div>
+              )}
             </div>
           )}
           <form onSubmit={submit} className="space-y-5">
@@ -611,10 +787,10 @@ export function WorkspaceAuth({ onSignedIn }: { onSignedIn: (session: WebSession
           <p className="mt-5 text-xs leading-relaxed text-neutral-400">{copy.session}</p>
           <p className="mt-3 text-xs leading-relaxed text-neutral-500">{copy.deletionHint}</p>
           <div className="mt-6 flex gap-5 text-xs text-neutral-500">
-            <Link to="/privacy" className="hover:underline">
+            <Link to="/privacy" onClick={leaveSignIn} className="hover:underline">
               {copy.privacy}
             </Link>
-            <Link to="/terms" className="hover:underline">
+            <Link to="/terms" onClick={leaveSignIn} className="hover:underline">
               {copy.terms}
             </Link>
           </div>

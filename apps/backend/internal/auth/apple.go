@@ -36,6 +36,7 @@ type ApplePayload struct {
 	Sub           string
 	Email         string
 	EmailVerified bool
+	Nonce         string
 }
 
 type appleJWK struct {
@@ -211,5 +212,6 @@ func VerifyAppleIDToken(ctx context.Context, idToken string, audiences ...string
 	case string:
 		verified = v == "true"
 	}
-	return &ApplePayload{Sub: sub, Email: email, EmailVerified: verified}, nil
+	nonce, _ := claims["nonce"].(string)
+	return &ApplePayload{Sub: sub, Email: email, EmailVerified: verified, Nonce: nonce}, nil
 }

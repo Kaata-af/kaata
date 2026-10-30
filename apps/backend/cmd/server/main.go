@@ -197,6 +197,7 @@ func main() {
 	authSvc.SetMailOutbox(mailOutbox)
 	authH := auth.NewHandler(authSvc)
 	authH.SetPublicAPIBaseURL(cfg.PublicAPIBaseURL)
+	authH.SetWebBaseURL(cfg.WebBaseURL)
 
 	adminH := admin.NewHandler(admin.NewService(pool, cfg.OperatorAccountIDs, cfg.OperatorIPs))
 	adminLive := admin.NewLive(ctx, cfg.AdminAPIKey != "")
@@ -351,6 +352,7 @@ func main() {
 	// was a free token-validation DoS / account-minting surface.
 	r.With(httpx.RateLimitPerIP(googleSignInLimit, googleSignInWindow)).
 		Post("/v1/auth/google", authH.GoogleSignIn)
+	r.Get("/v1/auth/providers", authH.Providers)
 	// Sign in with Apple (App Store guideline 4.8). Same per-IP cap as Google —
 	// it is likewise an account-creation + token-validation surface.
 	r.With(httpx.RateLimitPerIP(googleSignInLimit, googleSignInWindow)).
@@ -374,6 +376,8 @@ func main() {
 	// Both 404 until APPLE_SERVICES_ID is configured. Same per-IP cap.
 	r.With(httpx.RateLimitPerIP(googleSignInLimit, googleSignInWindow)).
 		Get("/v1/auth/apple/web/start", authH.AppleWebStart)
+	r.With(httpx.RateLimitPerIP(googleSignInLimit, googleSignInWindow)).
+		Get("/v1/auth/apple/browser/start", authH.AppleBrowserStart)
 	r.With(httpx.RateLimitPerIP(googleSignInLimit, googleSignInWindow)).
 		Post("/v1/auth/apple/web/callback", authH.AppleWebCallback)
 	// Shared ledger ("see the full ledger on kaata.af"). All PUBLIC: the share

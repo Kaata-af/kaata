@@ -1,6 +1,6 @@
 package auth
 
-// Sign in with Apple — the ANDROID/WEB flow.
+// Sign in with Apple — the native app's browser flow.
 //
 // Android has no Apple SDK, so Apple sign-in there is Apple's web OAuth:
 // the app opens a browser auth session at our /v1/auth/apple/web/start,
@@ -17,7 +17,7 @@ package auth
 //     in the form_post, so we never exchange the code and need NO Apple
 //     client-secret key (.p8) — the whole client-secret JWT machinery is
 //     avoided. The code is ignored.
-//   - The trampoline is a DUMB RELAY. It verifies nothing and mints
+//   - The native trampoline is a relay. It verifies nothing and mints
 //     nothing: verification + session issuance live solely in
 //     POST /v1/auth/apple. state is generated AND checked by the app
 //     (round-tripped opaquely), standard RFC 8252 native-app practice.
@@ -28,6 +28,11 @@ package auth
 //     URL <PublicAPIBaseURL>/v1/auth/apple/web/callback registered. The
 //     Services ID lands in the APPLE_SERVICES_ID env; unset = both
 //     endpoints answer 404 (feature off).
+//
+// Desktop browsers use /v1/auth/apple/browser/start (browser_providers.go).
+// Their signed, purpose-specific state selects a separate callback branch
+// that verifies the token and nonce before returning to an approved HTTPS app
+// origin bound into that signed state.
 
 import (
 	"net/http"
@@ -94,6 +99,8 @@ func (h *Handler) AppleWebStart(w http.ResponseWriter, r *http.Request) {
 // fragment. A tiny HTML fallback link covers browsers that refuse the
 // custom-scheme redirect.
 func (h *Handler) AppleWebCallback(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Referrer-Policy", "no-referrer")
 	if h.svc.AppleServicesID() == "" {
 		httpx.Error(w, http.StatusNotFound, "apple web sign-in is not configured")
 		return
@@ -102,6 +109,12 @@ func (h *Handler) AppleWebCallback(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
 		httpx.Error(w, http.StatusBadRequest, "invalid form body")
 		return
+	}
+	for _, state := range r.PostForm["state"] {
+		if strings.HasPrefix(state, appleBrowserStatePrefix) {
+			h.appleBrowserCallback(w, r)
+			return
+		}
 	}
 
 	frag := url.Values{}

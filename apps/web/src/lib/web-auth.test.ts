@@ -2,8 +2,12 @@ import assert from "node:assert/strict";
 import { after, beforeEach, test } from "node:test";
 import {
   clearWebSession,
+  createWebAuthNonce,
   getWebSession,
+  loadWebAuthProviders,
   parseWebSession,
+  signInWithApple,
+  signInWithGoogle,
   signInWithPassword,
   signOut,
   webRequest,
@@ -11,6 +15,7 @@ import {
   WebApiError,
   type WebSession,
 } from "./web-auth";
+import { BACKEND_URL } from "../env";
 
 const originalFetch = globalThis.fetch;
 const originalWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
@@ -187,5 +192,126 @@ test("sign-out preserves retry on network failure and clears only after server r
   assert.ok(getWebSession());
   globalThis.fetch = (async () => Response.json({ status: "ok" })) as typeof fetch;
   await signOut();
+  assert.equal(getWebSession(), null);
+});
+
+test("runtime provider discovery is public, abortable, and uses the safe request options", async () => {
+  loginFetch();
+  const current = await signInWithPassword("fixture@example.com", "password");
+  const providers = {
+    google: { client_id: "fixture.apps.googleusercontent.com" },
+    apple: { start_url: `${BACKEND_URL}/v1/auth/apple/browser/start` },
+  };
+  const controller = new AbortController();
+  globalThis.fetch = (async (url, init) => {
+    assert.equal(url, `${BACKEND_URL}/v1/auth/providers`);
+    assert.equal(new Headers(init?.headers).get("Authorization"), null);
+    assert.equal(init?.credentials, "omit");
+    assert.equal(init?.redirect, "error");
+    assert.equal(init?.cache, "no-store");
+    assert.ok(init?.signal);
+    return Response.json(providers);
+  }) as typeof fetch;
+  assert.deepEqual(await loadWebAuthProviders(controller.signal), providers);
+  assert.equal(getWebSession()?.install_id, current.install_id);
+  globalThis.fetch = ((_url, init) =>
+    new Promise((_resolve, reject) => {
+      init?.signal?.addEventListener(
+        "abort",
+        () => reject(new DOMException("Aborted", "AbortError")),
+        { once: true },
+      );
+    })) as typeof fetch;
+  const pending = loadWebAuthProviders(controller.signal);
+  controller.abort();
+  await assert.rejects(pending, { name: "AbortError" });
+});
+
+test("provider discovery rejects malformed public IDs and untrusted Apple redirects", async () => {
+  for (const body of [
+    null,
+    {},
+    { google: false, apple: null },
+    { google: { client_id: "bad client id" }, apple: null },
+    { google: null, apple: { start_url: "https://attacker.invalid/v1/auth/apple/browser/start" } },
+    {
+      google: null,
+      apple: { start_url: `${BACKEND_URL}/v1/auth/apple/browser/start?redirect=elsewhere` },
+    },
+    { google: null, apple: { start_url: `${BACKEND_URL}/v1/auth/apple/browser/start#token` } },
+    { google: null, apple: { start_url: `${BACKEND_URL}/v1/auth/apple/web/start` } },
+  ]) {
+    globalThis.fetch = (async () => Response.json(body)) as typeof fetch;
+    await assert.rejects(
+      loadWebAuthProviders,
+      (error: unknown) => error instanceof WebApiError && error.code === "invalid_response",
+    );
+  }
+  globalThis.fetch = (async () => Response.json({ google: null, apple: null })) as typeof fetch;
+  assert.deepEqual(await loadWebAuthProviders(), { google: null, apple: null });
+});
+
+test("provider sign-in sends the attempt nonce and a fresh browser identity without persisting provider tokens", async () => {
+  const nonce = createWebAuthNonce();
+  const bodies: Record<string, string>[] = [];
+  loginFetch((body) => bodies.push(body));
+  await signInWithGoogle("secret-google-credential", nonce);
+  await signInWithApple("secret-apple-credential", "Fixture Person", nonce);
+  assert.equal(bodies[0].id_token, "secret-google-credential");
+  assert.equal(bodies[1].identity_token, "secret-apple-credential");
+  assert.equal(bodies[1].display_name, "Fixture Person");
+  assert.notEqual(bodies[0].install_id, bodies[1].install_id);
+  for (const body of bodies) {
+    assert.equal(body.nonce, nonce);
+    assert.equal(body.platform, "web");
+  }
+  assert.ok(
+    [...storage.values()].every(
+      (value) =>
+        !value.includes("secret-google-credential") && !value.includes("secret-apple-credential"),
+    ),
+  );
+  await assert.rejects(
+    () => signInWithGoogle("token", ""),
+    (error: unknown) => error instanceof WebApiError && error.code === "invalid_nonce",
+  );
+  await assert.rejects(
+    () => signInWithApple("token", "Name", "invalid nonce"),
+    (error: unknown) => error instanceof WebApiError && error.code === "invalid_nonce",
+  );
+  assert.equal(bodies.length, 2);
+});
+
+test("OAuth nonces contain 256 random bits represented by URL-safe characters", () => {
+  const first = createWebAuthNonce();
+  const second = createWebAuthNonce();
+  assert.match(first, /^[a-f0-9]{64}$/);
+  assert.match(second, /^[a-f0-9]{64}$/);
+  assert.notEqual(first, second);
+});
+
+test("a late provider response cannot overwrite a newer sign-in or restore a cleared session", async () => {
+  const pending: { install: string; resolve: (response: Response) => void }[] = [];
+  globalThis.fetch = ((_url, init) =>
+    new Promise<Response>((resolve) => {
+      pending.push({ install: JSON.parse(init?.body as string).install_id, resolve });
+    })) as typeof fetch;
+  const older = signInWithGoogle("older-token", createWebAuthNonce());
+  const newer = signInWithApple("newer-token", "Name", createWebAuthNonce());
+  pending[1].resolve(Response.json(session(pending[1].install, "newer-account")));
+  await newer;
+  pending[0].resolve(Response.json(session(pending[0].install, "older-account")));
+  await assert.rejects(
+    older,
+    (error: unknown) => error instanceof WebApiError && error.code === "signin_cancelled",
+  );
+  assert.equal(getWebSession()?.account_id, "newer-account");
+  const cleared = signInWithGoogle("another-token", createWebAuthNonce());
+  clearWebSession();
+  pending[2].resolve(Response.json(session(pending[2].install, "cleared-account")));
+  await assert.rejects(
+    cleared,
+    (error: unknown) => error instanceof WebApiError && error.code === "signin_cancelled",
+  );
   assert.equal(getWebSession(), null);
 });

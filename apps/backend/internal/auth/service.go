@@ -216,11 +216,18 @@ func (s *Service) SignInWithGoogle(
 	if s.googleWebClientID == "" {
 		return GoogleSignInResult{}, errors.New("google web client id not configured")
 	}
+	if sw.Platform == "web" && !validBrowserChallenge(sw.Nonce) {
+		return GoogleSignInResult{}, errors.New("browser sign-in nonce is required")
+	}
 
 	// (1) Verify the Google ID token.
 	payload, err := idtoken.Validate(ctx, idTokenStr, s.googleWebClientID)
 	if err != nil {
 		return GoogleSignInResult{}, fmt.Errorf("verify google id token: %w", err)
+	}
+	nonce, _ := payload.Claims["nonce"].(string)
+	if err := verifyProviderNonce(sw.Nonce, nonce); err != nil {
+		return GoogleSignInResult{}, err
 	}
 
 	// Pin the issuer. idtoken.Validate checks signature/exp/aud but NOT iss, and
@@ -328,11 +335,23 @@ func (s *Service) SignInWithApple(
 	if s.appleClientID == "" {
 		return GoogleSignInResult{}, errors.New("apple client id not configured")
 	}
+	audiences := []string{s.appleClientID, s.appleServicesID}
+	if sw.Platform == "web" {
+		if !validBrowserChallenge(sw.Nonce) {
+			return GoogleSignInResult{}, errors.New("browser sign-in nonce is required")
+		}
+		// A browser sign-in uses the registered Services ID, never an unrelated
+		// native token. Native clients keep the pre-existing audience set.
+		audiences = []string{s.appleServicesID}
+	}
 	// Two legitimate audiences: the bundle id (native iOS flow) and the
 	// Services ID (Android/web flow) — see VerifyAppleIDToken.
-	payload, err := VerifyAppleIDToken(ctx, idTokenStr, s.appleClientID, s.appleServicesID)
+	payload, err := VerifyAppleIDToken(ctx, idTokenStr, audiences...)
 	if err != nil {
 		return GoogleSignInResult{}, fmt.Errorf("verify apple id token: %w", err)
+	}
+	if err := verifyProviderNonce(sw.Nonce, payload.Nonce); err != nil {
+		return GoogleSignInResult{}, err
 	}
 	providerSub := payload.Sub
 
