@@ -111,7 +111,7 @@ function fixture(
     react: hooks.react,
     "react/jsx-runtime": { jsx, jsxs: jsx },
     "expo-router": {
-      useRouter: () => ({ back: () => routes.push("back") }),
+      useRouter: () => ({ back: () => routes.push("back"), push: () => {} }),
       useLocalSearchParams: () => ({ id: options.routeId ?? "customer", vaultId: "vault" }),
       useFocusEffect: (callback: () => void | (() => void)) =>
         hooks.react.useEffect(() => {

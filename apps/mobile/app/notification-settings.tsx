@@ -52,6 +52,7 @@ type BoolKey =
   | "cancellations"
   | "connections"
   | "reminders"
+  | "credit_alerts"
   | "sound"
   | "vibration"
   | "foreground"
@@ -305,6 +306,7 @@ export default function NotificationSettingsScreen() {
         {toggle("cancellations", "notificationSettings.cancellations")}
         {toggle("connections", "notificationSettings.connections")}
         {toggle("reminders", "notificationSettings.reminders")}
+        {toggle("credit_alerts", "notificationSettings.creditAlerts")}
         <SectionGap />
         <SectionHeader label={t("notificationSettings.delivery")} isRTL={rtl} />
         {toggle("sound", "notificationSettings.sound")}

@@ -223,6 +223,11 @@ async function routeFromNotificationData(
     }
     return;
   }
+  if (reminder?.kind === "credit_alert") {
+    const { openCreditAlertNotification } = await import("../lib/credit-alert-notifications");
+    if (canOpen()) await openCreditAlertNotification(data, canOpen);
+    return;
+  }
   const tabId = (data as { tab_id?: unknown } | null)?.tab_id;
   if (typeof tabId === "string" && /^[0-9a-f-]{36}$/i.test(tabId)) {
     const { openTabNotification } = await import("../lib/tabs/open-notification");
@@ -648,6 +653,21 @@ function RootLayoutContent() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bootNonce]);
+
+  useEffect(() => {
+    if (dbReady !== true) return;
+    let cancelled = false;
+    let stop: (() => void) | undefined;
+    void import("../lib/credit-alert-notifications")
+      .then((service) => {
+        if (!cancelled) stop = service.startCreditAlertNotifications();
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+      stop?.();
+    };
+  }, [dbReady]);
 
   // HEAL-TRIGGER: re-sweep quarantined rows on launch and on every
   // background->foreground transition. Quarantine healing is otherwise purely

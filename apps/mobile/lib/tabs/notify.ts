@@ -195,13 +195,26 @@ async function bootstrap() {
   if (!n) return;
   n.setNotificationHandler({
     handleNotification: async (notification) => {
-      const data = notification.request.content.data;
+      let data = notification.request.content.data;
+      if (data?.kind === "credit_alert") {
+        const resolved = await import("../credit-alert-notifications")
+          .then((service) => service.resolveCreditAlertNotificationData(data))
+          .catch(() => null);
+        if (!resolved)
+          return {
+            shouldShowBanner: false,
+            shouldShowList: false,
+            shouldPlaySound: false,
+            shouldSetBadge: false,
+          };
+        data = resolved;
+      }
       const owner = notificationOwnerScope(),
         revision = notificationPreferencesRevision();
       const link =
         typeof data?.tab_id === "string" ? await getTabLink(data.tab_id).catch(() => null) : null;
       const policy =
-        data?.kind === "customer_reminder"
+        data?.kind === "customer_reminder" || data?.kind === "credit_alert"
           ? await notificationPolicyForContact(
               typeof data.vault_id === "string" && typeof data.person_id === "string"
                 ? { vaultId: data.vault_id, personId: data.person_id }
@@ -216,10 +229,16 @@ async function bootstrap() {
       // author, or a closed relationship. Server delivery applies the same
       // close gate; this also catches an already-sent, late arrival.
       const closed = await isClosedTabNotice(data).catch(() => false);
+      const creditAllowed =
+        data?.kind !== "credit_alert" ||
+        (await import("../credit-alert-notifications")
+          .then((service) => service.creditAlertNoticeAllowed(data))
+          .catch(() => false));
       const show =
+        creditAllowed &&
         owner === notificationOwnerScope() &&
         revision === notificationPreferencesRevision() &&
-        (data?.kind === "customer_reminder"
+        (data?.kind === "customer_reminder" || data?.kind === "credit_alert"
           ? data.owner_scope === owner
           : getSessionAccountIdSync() != null) &&
         notificationAllowed(policy, String(data?.kind ?? "updated")) &&

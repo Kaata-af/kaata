@@ -565,7 +565,14 @@ export async function registerTabNotifications(
     preferences?: import("../notification-policy").NotificationPolicy;
   },
 ): Promise<{ enabled: boolean }> {
-  return request("POST", `/v1/tabs/${encodeURIComponent(tabId)}/notifications`, auth, body);
+  // Credit alerts have their own delivery subscription. Older tab endpoints
+  // reject unknown preference keys, so keep their existing wire contract.
+  const preferences = body.preferences ? { ...body.preferences } : undefined;
+  if (preferences) delete (preferences as Partial<typeof preferences>).credit_alerts;
+  return request("POST", `/v1/tabs/${encodeURIComponent(tabId)}/notifications`, auth, {
+    ...body,
+    ...(preferences ? { preferences } : {}),
+  });
 }
 
 export type InboxItem = {

@@ -825,6 +825,10 @@ async function snapshotChecks(f: Awaited<ReturnType<typeof fixture>>, preference
   const pending = new Map<string, LedgerEvent>();
   let cursor = 0;
   const restore = compileUI("../restore", {
+    "./credit-alert-observation": require("../credit-alert-observation"),
+    "./projection": {
+      applyEventMutex: { runExclusive: async (work: () => Promise<unknown>) => work() },
+    },
     "./credit-policy-cache": {},
     "./api": {},
     "./currency-sync": {},

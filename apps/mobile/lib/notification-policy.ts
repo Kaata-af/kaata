@@ -6,6 +6,7 @@ export type NotificationPolicy = {
   cancellations: boolean;
   connections: boolean;
   reminders: boolean;
+  credit_alerts: boolean;
   sound: boolean;
   vibration: boolean;
   previews: "name" | "full" | "private";
@@ -42,6 +43,7 @@ export function defaultNotificationPolicy(): NotificationPolicy {
     cancellations: true,
     connections: true,
     reminders: true,
+    credit_alerts: true,
     sound: true,
     vibration: true,
     previews: "name",
@@ -64,6 +66,7 @@ const BOOLS = [
   "cancellations",
   "connections",
   "reminders",
+  "credit_alerts",
   "sound",
   "vibration",
   "foreground",
@@ -148,13 +151,15 @@ export function notificationAllowed(
   const category =
     kind === "customer_reminder"
       ? "reminders"
-      : kind === "entry_created"
-        ? "tallies"
-        : kind === "entry_accepted" || kind === "entry_rejected"
-          ? "reviews"
-          : kind === "entry_voided"
-            ? "cancellations"
-            : "connections";
+      : kind === "credit_alert"
+        ? "credit_alerts"
+        : kind === "entry_created"
+          ? "tallies"
+          : kind === "entry_accepted" || kind === "entry_rejected"
+            ? "reviews"
+            : kind === "entry_voided"
+              ? "cancellations"
+              : "connections";
   if (!policy[category]) return false;
   return (
     (category === "reminders" && policy.quiet_hours.allow_reminders) ||

@@ -122,6 +122,10 @@ function fixture() {
     hlc_last: { pms: 1, l: 0, did: "d" },
   };
   const restore = compileUI("../restore", {
+    "./credit-alert-observation": require("../credit-alert-observation"),
+    "./projection": {
+      applyEventMutex: { runExclusive: async (work: () => Promise<unknown>) => work() },
+    },
     "./credit-policy-cache": { cacheCreditPolicies: async () => write("credit") },
     "./api": { getBackendUrl: async () => "https://test.invalid" },
     "./auth": auth,

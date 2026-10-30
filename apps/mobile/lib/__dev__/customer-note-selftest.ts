@@ -68,7 +68,12 @@ async function snapshotCheck(f: Fixture, set: any, clear: any) {
     "../hlc": require("../hlc"),
   });
   const restore = compileUI("../restore", {
+    "./credit-alert-observation": require("../credit-alert-observation"),
+    "./projection": {
+      applyEventMutex: { runExclusive: async (work: () => Promise<unknown>) => work() },
+    },
     "./credit-policy-cache": {},
+    "./credit-alert-cache": require("../credit-alert-cache"),
     "./api": {},
     "./currency-sync": {},
     "./auth": {},
@@ -85,6 +90,11 @@ async function snapshotCheck(f: Fixture, set: any, clear: any) {
     "./projection/ingest-row": {
       mapPulledWireToEvent: mapping.mapPulledWireToEvent,
       ingestPulledEvents: async (events: LedgerEvent[]) => {
+        assert.equal(
+          require("../credit-alert-observation").creditAlertObservationPaused(),
+          true,
+          "notification observations stay paused throughout restored tail ingestion",
+        );
         for (const event of events) {
           received.push(event);
           pending.set(event.event_id, event);
@@ -94,6 +104,11 @@ async function snapshotCheck(f: Fixture, set: any, clear: any) {
     },
     "./projection/sweep": {
       sweepVaultNow: async () => {
+        assert.equal(
+          require("../credit-alert-observation").creditAlertObservationPaused(),
+          true,
+          "notification observations stay paused throughout restored tail replay",
+        );
         const ordered = [...pending.values()].sort((a, b) =>
           require("../hlc").compareHLC(a.hlc, b.hlc),
         );
@@ -112,6 +127,9 @@ async function snapshotCheck(f: Fixture, set: any, clear: any) {
   });
   f.sql.exec(
     "DELETE FROM event_log; DELETE FROM vault_device_registry; DELETE FROM vault_members_mirror; DELETE FROM vault_settings; DELETE FROM app_meta WHERE key='hlc_last'; UPDATE relationships SET note=NULL,field_hlcs=NULL;",
+  );
+  f.sql.exec(
+    "INSERT INTO app_meta(key,value) VALUES('credit_alert_latch:v1:old-restore','old armed episode'),('restore-preserve-meta','keep')",
   );
   await restore.restoreFromSnapshot(
     {
@@ -132,6 +150,54 @@ async function snapshotCheck(f: Fixture, set: any, clear: any) {
     { localSelfId: "self", setActiveDefault: false },
   );
   assert.equal(cursor, 500);
+  assert.equal(
+    f.sql.prepare("SELECT value FROM app_meta WHERE key='credit_alert_latch:v1:old-restore'").get(),
+    undefined,
+    "deliberate restore discards durable old financial alert episodes",
+  );
+  assert.equal(
+    (f.sql.prepare("SELECT value FROM app_meta WHERE key='restore-preserve-meta'").get() as any)
+      .value,
+    "keep",
+  );
+  assert.equal(
+    require("../credit-alert-observation").creditAlertObservationPaused(),
+    false,
+    "observer resumes after complete seed and tail replay",
+  );
+  await assert.rejects(
+    restore.restoreFromSnapshot(
+      {
+        vault_id: "v1",
+        vault,
+        shop_profile: null,
+        users: [],
+        relationships: [],
+        entries: [],
+        membership_events: [],
+        events: [],
+        snapshot_server_seq: 500,
+        generated_at_ms: Date.now(),
+        hlc_last: f.wire(clear).hlc,
+        credit_alerts: [
+          {
+            relationship_id: "r1",
+            updated_at_ms: 1,
+            groups: [
+              { direction: "collect", conditions: [{ currency: "USD", threshold_minor: 0 }] },
+            ],
+          },
+        ],
+      },
+      { localSelfId: "self", setActiveDefault: false },
+    ),
+    /Invalid credit alert response/,
+  );
+  assert.equal(
+    require("../credit-alert-observation").creditAlertObservationPaused(),
+    false,
+    "a failed restore also resumes observations after clearing its old baseline",
+  );
   assert.equal(f.saved().note, null, "signed clear survives snapshot cursor advancement");
   assert.deepEqual(JSON.parse(f.saved().field_hlcs).note, f.wire(clear).hlc);
   assert.equal(received.filter((event) => event.event_type === "vault_member_added").length, 1);

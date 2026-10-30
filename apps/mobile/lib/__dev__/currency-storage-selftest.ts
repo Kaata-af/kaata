@@ -84,6 +84,7 @@ const entries = compile("../projection/entries", (name) =>
 );
 const policyCache = require("../credit-policy-cache");
 const credit = compile("../credit-limits", (name) => {
+  if (name === "./projection") return { applyEventMutex: new (require("../util/mutex").Mutex)() };
   if (name === "./db-tx") return dbTx;
   if (name === "./auth")
     return {
@@ -174,6 +175,12 @@ const make = (id: string, currency: string | undefined, type = "debt", amount = 
 });
 async function run() {
   await applyCurrencyMigration(store);
+  const alertDDL =
+    /execAsync\(`([^`]*CREATE TABLE IF NOT EXISTS credit_alert_policies[^`]*)`\)/.exec(
+      readFileSync(require.resolve("../db"), "utf8"),
+    )?.[1];
+  assert.ok(alertDDL, "shipped credit-alert cache migration");
+  store.exec(alertDDL);
   assert.equal(
     (store.prepare("SELECT currency FROM entries WHERE id='legacy'").get() as any).currency,
     "AFN",
@@ -322,6 +329,9 @@ async function run() {
     "new signed creation captures currency explicitly",
   );
   const restore = compile("../restore", (name) => {
+    if (name === "./credit-alert-observation") return require("../credit-alert-observation");
+    if (name === "./projection")
+      return { applyEventMutex: { runExclusive: async (work: () => Promise<unknown>) => work() } };
     if (name === "./db-tx") return dbTx;
     if (name === "./hlc") return require("../hlc");
     if (name === "./entry-date") return require("../entry-date");

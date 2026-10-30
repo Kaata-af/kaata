@@ -11,6 +11,12 @@ export {
   validCreditPolicy,
 } from "./credit-policy";
 import { cacheCreditPolicies } from "./credit-policy-cache";
+import { readCreditAlertPolicyInTx } from "./credit-alert-cache";
+import {
+  creditAlertExceeded,
+  type CreditAlertBalances,
+  type CreditAlertGroup,
+} from "./credit-alert-policy";
 import type { SQLiteTx } from "./db-tx";
 import { getActiveVaultIdSyncMaybe, getDb } from "./db-tx";
 import {
@@ -207,6 +213,35 @@ export async function creditBalanceInTx(
   }
   if (!Number.isSafeInteger(balance)) throw new RangeError("Unsafe credit balance");
   return balance;
+}
+
+/** Hold applyEventMutex across the full vector so a remote apply cannot mix
+ * currencies from different financial projections. Unknown history is not 0. */
+export async function creditAlertBalancesInTx(
+  tx: SQLiteTx,
+  vaultId: string,
+  relationshipId: string,
+  groups: readonly CreditAlertGroup[],
+): Promise<CreditAlertBalances> {
+  const balances: Record<string, number | null> = {};
+  const currencies = new Set(groups.flatMap((group) => group.conditions.map((c) => c.currency)));
+  for (const currency of currencies) {
+    try {
+      balances[currency] = await creditBalanceInTx(tx, vaultId, relationshipId, currency);
+    } catch (error) {
+      if (!(error instanceof Error) || error.message !== "shared_history_refresh_required")
+        throw error;
+      balances[currency] = null;
+    }
+  }
+  return balances;
+}
+
+async function effectiveCreditAlertInTx(tx: SQLiteTx, vaultId: string, relationshipId: string) {
+  return (
+    (await readCreditAlertPolicyInTx(tx, vaultId, relationshipId)) ??
+    (await readCreditAlertPolicyInTx(tx, vaultId, KAATA_DEFAULT_CREDIT_ID))
+  );
 }
 
 // A local-only policy follows its kaata into cloud sync. Upload before replacing
@@ -584,12 +619,28 @@ export async function creditWarning(
   currencyCode = getLedgerCurrencyCode(),
 ): Promise<boolean> {
   if (!vaultId) return false;
-  const relationshipId = await relationshipForCredit(personId, vaultId);
-  const policy = await readEffectiveCreditPolicy(relationshipId, vaultId, currencyCode);
-  if (!policy) return false;
+  const { applyEventMutex } = await import("./projection");
   const db = await getDb();
-  const before = await creditBalanceInTx(db, vaultId, relationshipId, currencyCode);
-  return creditExceeded(policy, before, before + (type === "debt" ? 1 : -1) * toMinorUnits(amount));
+  return applyEventMutex.runExclusive(async () => {
+    const relationshipId = await relationshipForCredit(personId, vaultId);
+    const policy = await readEffectiveCreditPolicy(relationshipId, vaultId, currencyCode);
+    const alerts = await effectiveCreditAlertInTx(db, vaultId, relationshipId);
+    if (!policy && !alerts?.groups.length) return false;
+    const before = await creditAlertBalancesInTx(db, vaultId, relationshipId, [
+      ...(alerts?.groups ?? []),
+      { direction: "collect", conditions: [{ currency: currencyCode, threshold_minor: 1 }] },
+    ]);
+    const balance = before[currencyCode];
+    if (balance == null) return false;
+    const afterBalance = balance + (type === "debt" ? 1 : -1) * toMinorUnits(amount);
+    const after = {
+      ...before,
+      [currencyCode]: afterBalance,
+    };
+    return (
+      creditExceeded(policy, balance, afterBalance) || creditAlertExceeded(alerts, before, after)
+    );
+  });
 }
 
 /** The same check for an edit (audit #24): the stored amount is already in
@@ -602,31 +653,45 @@ export async function creditWarningForEdit(
   targetCurrency?: string,
 ): Promise<boolean> {
   if (!vaultId) return false;
+  const { applyEventMutex } = await import("./projection");
   const db = await getDb();
-  const row = await db.getFirstAsync<{
-    relationship_id: string;
-    type: "debt" | "payment";
-    amount_afn: number;
-    disputed_at: number | null;
-    currency: string;
-  }>(
-    `SELECT relationship_id,type,amount_afn,disputed_at,${effectiveEntryCurrencySql("entries")} AS currency FROM entries WHERE id=? AND vault_id=?`,
-    entryId,
-    vaultId,
-  );
-  if (!row || row.disputed_at != null) return false;
-  const destination = targetCurrency ?? row.currency;
-  const sign = row.type === "debt" ? 1 : -1;
-  for (const code of new Set([row.currency, destination])) {
-    const policy = await readEffectiveCreditPolicy(row.relationship_id, vaultId, code);
-    if (!policy) continue;
-    const before = await creditBalanceInTx(db, vaultId, row.relationship_id, code);
-    const change =
-      (code === destination ? sign * toMinorUnits(amount) : 0) -
-      (code === row.currency ? sign * toMinorUnits(row.amount_afn) : 0);
-    if (creditExceeded(policy, before, before + change)) return true;
-  }
-  return false;
+  return applyEventMutex.runExclusive(async () => {
+    const row = await db.getFirstAsync<{
+      relationship_id: string;
+      type: "debt" | "payment";
+      amount_afn: number;
+      disputed_at: number | null;
+      currency: string;
+    }>(
+      `SELECT relationship_id,type,amount_afn,disputed_at,${effectiveEntryCurrencySql("entries")} AS currency FROM entries WHERE id=? AND vault_id=?`,
+      entryId,
+      vaultId,
+    );
+    if (!row || row.disputed_at != null) return false;
+    const destination = targetCurrency ?? row.currency;
+    const sign = row.type === "debt" ? 1 : -1;
+    const alerts = await effectiveCreditAlertInTx(db, vaultId, row.relationship_id);
+    const changedCurrencies = [...new Set([row.currency, destination])];
+    const before = await creditAlertBalancesInTx(db, vaultId, row.relationship_id, [
+      ...(alerts?.groups ?? []),
+      {
+        direction: "collect",
+        conditions: changedCurrencies.map((currency) => ({ currency, threshold_minor: 1 })),
+      },
+    ]);
+    const after = { ...before };
+    for (const code of changedCurrencies) {
+      const balance = before[code];
+      if (balance == null) continue;
+      const change =
+        (code === destination ? sign * toMinorUnits(amount) : 0) -
+        (code === row.currency ? sign * toMinorUnits(row.amount_afn) : 0);
+      after[code] = balance + change;
+      const policy = await readEffectiveCreditPolicy(row.relationship_id, vaultId, code);
+      if (creditExceeded(policy, balance, after[code]!)) return true;
+    }
+    return creditAlertExceeded(alerts, before, after);
+  });
 }
 
 export type CreditIntent = {

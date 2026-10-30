@@ -125,6 +125,8 @@ export async function syncOnce(
     creditRefreshedAt.set(vaultId, Date.now());
     const { refreshCreditPolicies } = await import("../credit-limits");
     await refreshCreditPolicies(vaultId).catch(() => undefined);
+    const { refreshCreditAlerts } = await import("../credit-alerts");
+    await refreshCreditAlerts(vaultId).catch(() => undefined);
     const { refreshMemberCreditPermissions } = await import("../member-credit-permissions");
     await refreshMemberCreditPermissions(vaultId).catch(() => undefined);
   }

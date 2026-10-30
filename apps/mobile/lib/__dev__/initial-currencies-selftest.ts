@@ -193,6 +193,7 @@ function fixture() {
     "./trust/account-id": { buildLocalAccountId },
   }) as typeof import("../vault-initial-currencies");
   const eventLog = compileUI("../event-log", {
+    "./customer-note": require("../customer-note"),
     "expo-crypto": crypto,
     "./db-tx": dbTx,
     "./mesh/device-key": device,
@@ -1019,6 +1020,10 @@ async function snapshotCurrencyRecovery() {
     const received: LedgerEvent[] = [];
     let cursor = 0;
     const restore = compileUI("../restore", {
+      "./credit-alert-observation": require("../credit-alert-observation"),
+      "./projection": {
+        applyEventMutex: { runExclusive: async (work: () => Promise<unknown>) => work() },
+      },
       "./credit-policy-cache": {},
       "./api": {},
       "./currency-sync": {},

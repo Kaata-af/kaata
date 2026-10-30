@@ -11,6 +11,7 @@ import {
   type CreditPolicy,
 } from "../credit-policy";
 import { cacheCreditPolicies } from "../credit-policy-cache";
+import { cacheCreditAlerts } from "../credit-alert-cache";
 import { Mutex } from "../util/mutex";
 import { toMinorUnits } from "../money";
 import { signedEntryMinorSumSql } from "../money-sql";
@@ -45,6 +46,7 @@ fixture.exec(
 const dbSource = readFileSync(require.resolve("../db"), "utf8");
 for (const marker of [
   "customer_credit_limits",
+  "credit_alert_policies",
   "kaata_credit_defaults",
   "vault_member_credit_permissions",
   "credit_mutation_baselines",
@@ -197,6 +199,8 @@ const credit = compile<typeof import("../credit-limits")>("../credit-limits", (n
     return { ...require("../currency-sync"), ensureCurrencySyncSupported: async () => {} };
   if (name === "./credit-policy") return policyModule;
   if (name === "./credit-policy-cache") return cacheModule;
+  if (name === "./credit-alert-cache") return require("../credit-alert-cache");
+  if (name === "./credit-alert-policy") return require("../credit-alert-policy");
   if (name === "./db-tx") return { getDb: async () => db, getActiveVaultIdSyncMaybe: () => active };
   if (name === "./auth")
     return {
@@ -1588,6 +1592,7 @@ async function run() {
   await currencyMoveWarningChecks();
   await directionalWarningChecks();
   await currencySettingsChecks();
+  await combinedAlertWarningChecks();
 
   // Owners and managers hear what a limit stopped (audit #24); nobody else
   // asks, and an older server's 404 is an empty list.
@@ -2004,6 +2009,162 @@ async function currencyMoveWarningChecks() {
   );
   console.log(
     "PASS currency-move debt destination/payment source warnings, exact caps and target-labeled pending/refused intents",
+  );
+}
+
+async function combinedAlertWarningChecks() {
+  fixture.exec(`INSERT INTO vaults(id,currency,legacy_currency) VALUES('v-alert','AFN','AFN');
+    INSERT INTO relationships VALUES('r-alert','v-alert','p-alert',1,NULL);
+    INSERT INTO entries(id,vault_id,relationship_id,type,amount_afn,currency,created_at)
+      VALUES('alert-usd','v-alert','r-alert','debt',4900,'USD',20),
+            ('alert-afn','v-alert','r-alert','debt',99900,'AFN',20),
+            ('alert-move','v-alert','r-alert','debt',100,'AFN',20);`);
+  const combined: import("../credit-alert-policy").CreditAlertPolicy = {
+    relationship_id: "r-alert",
+    updated_at_ms: 1,
+    groups: [
+      {
+        direction: "collect",
+        conditions: [
+          { currency: "USD", threshold_minor: 500000 },
+          { currency: "AFN", threshold_minor: 10000000 },
+        ],
+      },
+      {
+        direction: "collect",
+        conditions: [
+          { currency: "USD", threshold_minor: 800000 },
+          { currency: "AFN", threshold_minor: 8000000 },
+        ],
+      },
+    ],
+  };
+  await cacheCreditAlerts(db, "v-alert", [combined], 2);
+  assert.equal(
+    await credit.creditWarning("p-alert", "debt", 100, "v-alert", "USD"),
+    true,
+    "both conditions meet inclusively",
+  );
+  assert.equal(
+    await credit.creditWarning("p-alert", "debt", 1, "v-alert", "AFN"),
+    false,
+    "AFN alone cannot satisfy USD AND AFN",
+  );
+  assert.equal(await credit.creditWarningForEdit("alert-usd", 5000, "v-alert", "USD"), true);
+  assert.equal(
+    await credit.creditWarningForEdit("alert-usd", 4800, "v-alert", "USD"),
+    false,
+    "repayment never warns",
+  );
+  assert.equal(
+    await credit.creditWarningForEdit("alert-move", 100, "v-alert", "USD"),
+    false,
+    "moving denominations subtracts source before checking entire vector",
+  );
+  await cacheCreditPolicies(
+    db,
+    "v-alert",
+    [
+      {
+        relationship_id: "r-alert",
+        currency: "USD",
+        max_collect_minor: 100000,
+        max_pay_minor: null,
+        mode: "warn",
+        updated_at_ms: 1,
+      },
+    ],
+    2,
+  );
+  assert.equal(
+    await credit.creditWarning("p-alert", "debt", 1, "v-alert", "USD"),
+    true,
+    "independent caps remain an OR alternative",
+  );
+  await cacheCreditPolicies(db, "v-alert", [], 3);
+  fixture.exec(
+    "UPDATE entries SET amount_afn=7900 WHERE id='alert-usd'; UPDATE entries SET amount_afn=79900 WHERE id='alert-afn'",
+  );
+  assert.equal(
+    await credit.creditWarning("p-alert", "debt", 100, "v-alert", "USD"),
+    true,
+    "second AND group is an OR alternative",
+  );
+  fixture.exec(
+    "UPDATE entries SET type='payment' WHERE vault_id='v-alert'; UPDATE entries SET amount_afn=4900 WHERE id='alert-usd'; UPDATE entries SET amount_afn=99900 WHERE id='alert-afn'",
+  );
+  await cacheCreditAlerts(
+    db,
+    "v-alert",
+    [
+      {
+        ...combined,
+        updated_at_ms: 3,
+        groups: combined.groups.map((g) => ({ ...g, direction: "pay" })),
+      },
+    ],
+    4,
+  );
+  assert.equal(
+    await credit.creditWarning("p-alert", "payment", 100, "v-alert", "USD"),
+    true,
+    "pay group uses negative exposure for each denomination",
+  );
+  assert.equal(await credit.creditWarning("p-alert", "debt", 100, "v-alert", "USD"), false);
+  assert.equal(
+    await credit.creditWarningForEdit("alert-move", 100, "v-alert", "USD"),
+    false,
+    "pay currency move also reduces the source before AND evaluation",
+  );
+  fixture.exec(`UPDATE entries SET type='debt' WHERE vault_id='v-alert';
+    DELETE FROM entries WHERE id='alert-usd';
+    INSERT INTO tab_links(tab_id,vault_id,relationship_id,role,linked_at,currency,history_order)
+      VALUES('alert-tab','v-alert','r-alert','a',0,'USD','1');
+    INSERT INTO tab_entries(id,tab_id,seq,rev,created_by,direction,amount_minor,kind,occurred_at,created_at,status)
+      VALUES('alert-pending','alert-tab',1,1,'a','a_to_b',500000,'opening',1,1,'pending');`);
+  await cacheCreditAlerts(db, "v-alert", [{ ...combined, updated_at_ms: 5 }], 6);
+  const vector = await credit.creditAlertBalancesInTx(db, "v-alert", "r-alert", combined.groups);
+  assert.deepEqual(
+    vector,
+    { USD: 500000, AFN: 10000000 },
+    "pending shared exposure counts exactly once",
+  );
+  assert.equal(await credit.creditWarning("p-alert", "debt", 1, "v-alert", "AFN"), true);
+  fixture.exec(`UPDATE tab_links SET closed_at=1 WHERE tab_id='alert-tab';
+    INSERT INTO tab_links(tab_id,vault_id,relationship_id,role,linked_at,currency)
+    VALUES('alert-unknown','v-alert','r-alert','a',1,'USD');`);
+  assert.equal(
+    (await credit.creditAlertBalancesInTx(db, "v-alert", "r-alert", combined.groups)).USD,
+    null,
+    "unverified shared history remains unknown",
+  );
+  assert.equal(
+    await credit.creditWarning("p-alert", "debt", 1, "v-alert", "AFN"),
+    false,
+    "unknown USD cannot satisfy an AND group",
+  );
+  await cacheCreditPolicies(
+    db,
+    "v-alert",
+    [
+      {
+        relationship_id: "r-alert",
+        currency: "AFN",
+        max_collect_minor: 9999999,
+        max_pay_minor: null,
+        mode: "warn",
+        updated_at_ms: 5,
+      },
+    ],
+    6,
+  );
+  assert.equal(
+    await credit.creditWarning("p-alert", "debt", 1, "v-alert", "AFN"),
+    true,
+    "known independent warning still works beside unknown combined history",
+  );
+  console.log(
+    "PASS combined inline warnings: inclusive alternatives, full-vector currency moves, repayments, collect/pay, pending shared exposure and unknown history",
   );
 }
 

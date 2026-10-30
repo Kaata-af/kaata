@@ -39,7 +39,12 @@ async function finalCleanupTests() {
     "keychain stores fingerprints, not duplicated financial text",
   );
   await helper.assertAccountDeletionCleanupSafe(before);
-  for (const table of ["event_log", "tab_outbox", "customer_credit_limits"]) {
+  for (const table of [
+    "event_log",
+    "tab_outbox",
+    "customer_credit_limits",
+    "credit_alert_policies",
+  ]) {
     pending = table;
     await assert.rejects(
       helper.assertAccountDeletionCleanupSafe(before),
@@ -173,6 +178,7 @@ function backupFixture() {
   let rejected = 0,
     pendingTabs = 0,
     pendingPolicies = 0,
+    pendingAlerts = 0,
     syncError: Error | null = null,
     tabsError: Error | null = null,
     registrationError: Error | null = null;
@@ -188,6 +194,7 @@ function backupFixture() {
       }
       if (sql.includes("FROM tab_outbox")) return beforeTabIds.map((id) => ({ id }));
       if (sql.includes("FROM tab_failed_ops")) return refusedTabIds.map((id) => ({ id }));
+      if (sql.includes("FROM credit_alert_policies")) return [{ n: pendingAlerts }];
       throw new Error("unexpected backup list: " + sql);
     },
     getFirstAsync: async (sql: string, vaultId?: string) => {
@@ -234,6 +241,9 @@ function backupFixture() {
     pendingPolicies: (n: number) => {
       pendingPolicies = n;
     },
+    pendingAlerts: (n: number) => {
+      pendingAlerts = n;
+    },
     syncError: (e: Error) => {
       syncError = e;
     },
@@ -277,6 +287,13 @@ async function serviceTests() {
     "queued private policy changes must be saved too",
   );
   const newlyRefusedTab = backupFixture();
+  const alerts = backupFixture();
+  alerts.pendingAlerts(1);
+  await assert.rejects(
+    alerts.module.prepareAccountDeletionBackup(),
+    /backup_incomplete/,
+    "pending combined alert settings cannot be erased before upload",
+  );
   newlyRefusedTab.tabIds(["new-shared-tally"], ["old-draft", "new-shared-tally"]);
   await assert.rejects(
     newlyRefusedTab.module.prepareAccountDeletionBackup(),

@@ -395,6 +395,39 @@ export default function CreditLimitScreen() {
           {isDefault ? (
             <Text style={[styles.help, textDir(isRTL)]}>{t("credit.defaultHelp")}</Text>
           ) : null}
+          {context ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={t("creditAlerts.title")}
+              disabled={busy}
+              accessibilityState={{ disabled: busy }}
+              style={[styles.currencySelect, rowDir(isRTL), busy && styles.inputDisabled]}
+              onPress={() => {
+                if (
+                  !saving.current &&
+                  lifetime.current === context.lifetime &&
+                  getActiveVaultIdSyncMaybe() === context.vaultId
+                ) {
+                  Keyboard.dismiss();
+                  router.push({
+                    pathname: "/person/[id]/credit-alerts",
+                    params: { id, vaultId: context.vaultId },
+                  });
+                }
+              }}
+            >
+              <Ionicons name="git-branch-outline" size={20} color={colors.textSubtle} />
+              <View style={styles.currencyText}>
+                <Text style={[styles.label, textDir(isRTL)]}>{t("creditAlerts.title")}</Text>
+                <Text style={[styles.help, textDir(isRTL)]}>{t("creditAlerts.linkHelp")}</Text>
+              </View>
+              <Ionicons
+                name={isRTL ? "chevron-back" : "chevron-forward"}
+                size={18}
+                color={colors.textMuted}
+              />
+            </Pressable>
+          ) : null}
           {selected && draft ? (
             <>
               <View style={styles.currencySection}>

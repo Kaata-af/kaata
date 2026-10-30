@@ -259,6 +259,7 @@ func main() {
 	// the snapshot cron uses its own dedicated 4-conn Postgres pool so a
 	// slow snapshot replay can't starve user-facing request connections.
 	syncSvc := syncapi.NewService(pool)
+	syncSvc.StartCreditPush(ctx, cfg.TabPushEnabled, cfg.ExpoAccessToken)
 	syncH := syncapi.NewHandler(syncSvc)
 	tabsSvc.SetCreditBalanceReader(syncapi.CreditBalance)
 	tabsSvc.SetGroupCurrencyHistoryReader(syncapi.HasCurrencyHistory)
@@ -584,6 +585,11 @@ func main() {
 		pr.With(httpx.RateLimitPerAccount(120, time.Hour)).Post("/v1/sync/live-ticket", syncH.LiveTicket)
 		pr.Get("/v1/sync/credit-limits", syncH.CreditLimits)
 		pr.Put("/v1/sync/credit-limits", syncH.CreditLimits)
+		pr.Get("/v1/sync/credit-alerts", syncH.CreditAlerts)
+		pr.Put("/v1/sync/credit-alerts", syncH.CreditAlerts)
+		pr.Delete("/v1/sync/credit-alerts", syncH.CreditAlerts)
+		pr.Post("/v1/sync/credit-alerts/notifications", syncH.CreditAlertNotifications)
+		pr.With(httpx.RateLimitPerAccount(600, time.Hour)).Get("/v1/sync/credit-alerts/events/{event_key}", syncH.CreditAlertEvent)
 		pr.Get("/v1/sync/credit-refusals", syncH.CreditRefusals)
 		// M1 (sync v2 §5): advisory per-device author_seq summary so a
 		// relay can ask "what is the server missing?" in one round trip.

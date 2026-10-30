@@ -1,4 +1,5 @@
 import { cacheCreditPolicies } from "./credit-policy-cache";
+import { beginCreditAlertRestore } from "./credit-alert-observation";
 // Snapshot restore (download + tail-of-events + M5 membership chain).
 //
 // fetchSnapshot() + restoreFromSnapshot() — the device had a previous install
@@ -29,6 +30,7 @@ import {
   getDb,
   setActiveVaultIdCache,
   setAppMetaInTx,
+  type SQLiteTx,
 } from "./db-tx";
 import type { LedgerEvent } from "./events";
 import { compareHLC, deserializeHLC, serializeHLC, type HLC } from "./hlc";
@@ -60,6 +62,7 @@ const PAYLOAD_SCHEMA = 1;
 // without a follow-up pull round-trip.
 export type Snapshot = {
   credit_limits?: import("./credit-policy").CreditPolicy[];
+  credit_alerts?: import("./credit-alert-policy").CreditAlertPolicy[];
   vault_id: string;
   // Per-vault server_seq of the LAST event included in the snapshot. The
   // client primes sync_state.last_pulled_server_seq to this value after
@@ -289,6 +292,17 @@ export async function fetchSnapshot(args: { defaultVaultId: string }): Promise<S
 // snapshot rows, hlc_last seed, app_meta writes, all gone. Caller can retry
 // from scratch. This is intentional: a partial restore is worse than no
 // restore (the user would see a half-empty ledger and assume data loss).
+type RestoreOptions = {
+  setActiveDefault?: boolean;
+  localSelfId?: string | null;
+  session?: SessionSnapshot;
+};
+type RestoreResult = { ok: true; applied_events: number; snapshot_server_seq: number };
+
+async function clearCreditAlertRestoreLatches(db: SQLiteTx): Promise<void> {
+  await db.runAsync("DELETE FROM app_meta WHERE key LIKE 'credit_alert_latch:v1:%'");
+}
+
 export async function restoreFromSnapshot(
   snapshot: Snapshot,
   // M5: multi-vault recovery restores N vaults in a loop. `setActiveDefault`
@@ -297,12 +311,8 @@ export async function restoreFromSnapshot(
   // false per vault and picks ONE active/default after the loop (the snapshot's
   // is_default is server-hard-coded to 1 for every vault, so a naive loop would
   // make the last-restored vault active + mark them all default).
-  opts: { setActiveDefault?: boolean; localSelfId?: string | null; session?: SessionSnapshot } = {},
-): Promise<{
-  ok: true;
-  applied_events: number;
-  snapshot_server_seq: number;
-}> {
+  opts: RestoreOptions = {},
+): Promise<RestoreResult> {
   // Fetch happens outside this function. Serialize the local seed, tail/cursor
   // ingestion and sweep with account changes so a late A snapshot cannot land
   // in B's freshly installed local state. There is no network/session helper
@@ -311,6 +321,26 @@ export async function restoreFromSnapshot(
     const { session, ...localOpts } = opts;
     return applyForCurrentSession(session, () => restoreFromSnapshot(snapshot, localOpts));
   }
+  const { applyEventMutex } = await import("./projection");
+  const endObservationPause = beginCreditAlertRestore();
+  try {
+    // Drain an observation that started before the pause. Never hold this
+    // mutex across the restore's own ingestion/sweep locks.
+    await applyEventMutex.runExclusive(async () => {});
+    return await restoreFromSnapshotInner(snapshot, opts);
+  } finally {
+    try {
+      await applyEventMutex.runExclusive(async () => clearCreditAlertRestoreLatches(await getDb()));
+    } finally {
+      endObservationPause();
+    }
+  }
+}
+
+async function restoreFromSnapshotInner(
+  snapshot: Snapshot,
+  opts: RestoreOptions,
+): Promise<RestoreResult> {
   const setActiveDefault = opts.setActiveDefault ?? true;
   const db = await getDb();
   await assertLegacyCurrencyMatches(db, snapshot.vault.id, snapshot.vault.legacy_currency);
@@ -405,6 +435,9 @@ export async function restoreFromSnapshot(
   const alreadyPopulated = populatedRow != null;
 
   await db.withTransactionAsync(async () => {
+    // A restored projection establishes a quiet notification baseline. Durable
+    // latches from this installation's earlier ledger cannot replay crossings.
+    await clearCreditAlertRestoreLatches(db);
     const v = snapshot.vault;
 
     if (alreadyPopulated) {
@@ -582,6 +615,15 @@ export async function restoreFromSnapshot(
         snapshot.credit_limits,
         snapshot.generated_at_ms,
       );
+    if (snapshot.credit_alerts != null) {
+      const { cacheCreditAlerts } = await import("./credit-alert-cache");
+      await cacheCreditAlerts(
+        db,
+        snapshot.vault.id,
+        snapshot.credit_alerts,
+        snapshot.generated_at_ms,
+      );
+    }
 
     // 6. Re-arm this vault's locally-authored, not-yet-server-acked events.
     //    Local events are stamped applied_at at append time, and the snapshot

@@ -114,7 +114,8 @@ type Service struct {
 
 	// live is the in-memory poke fanout for GET /v1/sync/live (live.go).
 	// In-process like the caches above — single-replica deploy assumption.
-	live *liveBroker
+	live       *liveBroker
+	creditPush *creditPushClient
 }
 
 func NewService(pool *pgxpool.Pool) *Service {

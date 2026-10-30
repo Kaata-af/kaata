@@ -14,6 +14,7 @@ function fixture(status = 200) {
     "../restore",
     {
       "./credit-policy-cache": {},
+      "./credit-alert-observation": require("../credit-alert-observation"),
       "./api": { getBackendUrl: async () => "https://snapshot.invalid" },
       "./auth": { getSessionJWT: async () => "synthetic-session" },
       "./db-tx": { getDb: async () => ({ getFirstAsync: async () => null }) },
@@ -22,6 +23,7 @@ function fixture(status = 200) {
       "./projection/field-hlc": {},
       "./entry-date": require("../entry-date"),
       "./currency-metadata": require("../currency-metadata"),
+      "./currency-scope": require("../currency-scope"),
       "./customer-group-restore": {},
       "./projection/ingest-row": {},
       "./projection/sweep": {},

@@ -148,6 +148,7 @@ const MIGRATION_045 = "045_unjoined_invitation";
 const MIGRATION_046 = "046_tab_recording_mode";
 const MIGRATION_047 = "047_multi_currency_tab_groups";
 const MIGRATION_048 = "048_customer_notes";
+const MIGRATION_049 = "049_credit_alert_rules";
 
 // Phase 5 mesh: app_meta keys used by the lib/mesh package. They are NOT
 // referenced from db.ts directly — the table itself is the generic key/value
@@ -590,6 +591,7 @@ export async function initDb(opts: { installId?: string } = {}): Promise<void> {
   if (!(await hasRunMigration(db, MIGRATION_046))) await runMigration046(db);
   if (!(await hasRunMigration(db, MIGRATION_047))) await runMigration047(db);
   if (!(await hasRunMigration(db, MIGRATION_048))) await runMigration048(db);
+  if (!(await hasRunMigration(db, MIGRATION_049))) await runMigration049(db);
 }
 
 async function hasRunMigration(db: SQLite.SQLiteDatabase, name: string): Promise<boolean> {
@@ -3819,6 +3821,25 @@ async function runMigration048(db: SQLite.SQLiteDatabase): Promise<void> {
   });
 }
 
+async function runMigration049(db: SQLite.SQLiteDatabase): Promise<void> {
+  await db.withTransactionAsync(async () => {
+    await db.execAsync(`CREATE TABLE IF NOT EXISTS credit_alert_policies (
+      vault_id TEXT NOT NULL REFERENCES vaults(id) ON DELETE CASCADE,
+      relationship_id TEXT NOT NULL,
+      groups_json TEXT NOT NULL,
+      updated_at_ms INTEGER NOT NULL,
+      sync_pending INTEGER NOT NULL DEFAULT 0,
+      deleted INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY(vault_id,relationship_id)
+    );`);
+    await db.runAsync(
+      "INSERT INTO schema_migrations(name,applied_at) VALUES (?,?)",
+      MIGRATION_049,
+      Date.now(),
+    );
+  });
+}
+
 async function getLocalSelfUserId(db: SQLite.SQLiteDatabase): Promise<string | null> {
   const row = await db.getFirstAsync<{ id: string }>(
     "SELECT id FROM users WHERE is_local_self = 1 LIMIT 1",
@@ -3882,6 +3903,7 @@ export async function resetAllLocalData(opts: { keepLocalBackups?: boolean } = {
     DROP TABLE IF EXISTS vault_members_mirror;
     DROP TABLE IF EXISTS vault_member_profiles;
     DROP TABLE IF EXISTS customer_credit_limits;
+    DROP TABLE IF EXISTS credit_alert_policies;
     DROP TABLE IF EXISTS vault_member_credit_permissions;
     DROP TABLE IF EXISTS credit_mutation_baselines;
     DROP TABLE IF EXISTS kaata_credit_defaults;

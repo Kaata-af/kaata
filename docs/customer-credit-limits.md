@@ -1,8 +1,10 @@
 # Customer credit limits and staff permissions
 
-Local development contract. These changes have not been deployed. Backend
-migrations 062 and 063 must ship before the updated mobile app; mobile migration
-040 is additive. Existing signed role values and money history stay compatible.
+Backend migrations must ship before a mobile build that uses their endpoints.
+The original independent limits use backend migrations 062/063 and additive
+mobile migration 040. Combined advisory alerts add backend migrations 073/074
+and additive mobile migration 049. Existing signed role values and money
+history stay compatible.
 
 ## Roles and authority
 
@@ -52,7 +54,85 @@ the current exposure and remaining credit separately for each direction, using
 the same pending-inclusive balance reader as enforcement. An inherited rule is
 shown with its real values; saving it creates a customer-specific override for
 that currency. Blank caps create an explicit unlimited override, not a reset to
-inheritance. There is no policy-delete/reset API in this change.
+inheritance. Independent limits do not have a policy-delete/reset API.
+
+## Combined advisory alerts
+
+The **Combined credit alerts** option within credit settings opens a separate
+rule editor for a customer or Kaata defaults. An alert policy is an OR of up to
+20 groups. A group contains 1–20 AND conditions, each using a distinct currency,
+a positive exact threshold in integer hundredths, and one direction (`collect`
+or `pay`). Alert comparisons are inclusive (`>=`), unlike the existing hard
+admission check (`>`). These advisory rules never block recording, alter hard
+caps, or convert/net money between currencies.
+
+For example, four alternative collect rules can be:
+
+- USD >= 10,000
+- AFN >= 200,000
+- USD >= 5,000 **AND** AFN >= 100,000
+- USD >= 8,000 **AND** AFN >= 80,000
+
+Each customer inherits the Kaata default independently, rather than pooling
+customers' exposure. An own policy wins, including explicit `groups: []` (off).
+**Use Kaata defaults** removes the customer override. Historical rule currencies
+remain editable even if no longer enabled for new tallies. Amount edits keep
+coherent drafts, and leaving unsaved changes requires confirmation. Owners and
+admins can configure alerts; other roles see disabled controls. Live tally
+warnings also apply to staff and use full before/after currency vectors,
+including denomination-moving edits and pending shared exposure.
+
+GET/PUT `/v1/sync/credit-alerts?vault_id=...` reads/saves policies; DELETE with
+`relationship_id=...` restores inheritance. The zero relationship sentinel
+addresses Kaata defaults. Snapshot `credit_alerts` is additive: an older server
+omitting it cannot clear the new cache. Pending local rules upload before
+refresh; reset/removal tombstones prevent stale snapshots from resurrecting
+overrides. Configuration has its own authority lock and does not change signed
+financial history or the older credit-limit endpoint.
+Policy saves and resets use a monotonic per-vault server revision, including a
+deletion watermark. Client wall-clock skew cannot pin a deleted override or
+allow an older snapshot to restore it. Deliberate snapshot restore suspends
+alert observation across the seed and replay tail, then starts a quiet baseline.
+
+### Alert episodes and delivery
+
+Owner/admin installations receive alerts according to global/customer
+notification preferences, quiet hours, foreground preference, sound/vibration,
+and OS permission. **Credit limit alerts** is its own notification category.
+Only an intentional nonempty rule save may request OS permission; startup does
+not prompt. A first observation or changed rule establishes a quiet baseline.
+Each direction notifies on a clear-to-matched crossing, then stays latched
+until the entire OR in that direction clears. Group order and save timestamps
+do not reset a semantically unchanged rule. Unknown shared history is never
+treated as zero and never rearms an alert. Muted/denied crossings are consumed,
+so enabling notifications does not replay old debt.
+
+Local-only/pending rules use a durable device/account-scoped observation latch.
+Synced rules use server delivery once that installation confirms remote
+registration; this avoids issuing two native alerts for one crossing. Account,
+installation, current accepted owner/admin seat, archived customer/vault, and
+current policy are checked before delivery or navigation. An old account's
+notification cannot open its data under a new session.
+
+The server uses the existing opt-in Expo push transport and scans subscribed
+vaults about every 15 seconds under the same credit lock used by admission.
+Remote delivery requires the existing `TAB_PUSH_ENABLED=true` setting and the
+app's native push credentials. Registrations renew on foreground/settings
+changes; confirmed server ownership lasts for its 30-day subscription lease.
+Background registration never holds up local ledger observation. Ordinary
+customers inherit global notification preferences without a repeated payload;
+only personal exceptions are registered individually.
+Delivery jobs are durable and retried; the external provider call runs after
+the database locks are released, so a slow push service cannot block tallies.
+This observes committed balances at scan
+time; a threshold crossed and fully reversed between scans can go unobserved.
+No every-mutation notification guarantee is made. The provider receives generic
+localized text and only `kind: credit_alert` plus a random opaque `event_key`.
+Customer names, amounts, currencies, ledger IDs, account IDs, and policy details
+stay on the server. An authenticated installation-bound event endpoint resolves
+the customer privately when the notification is opened, refreshing the phone's
+target customer/rules when needed. Tests use a local fake
+push provider and isolated databases, never real customer notifications.
 
 The screen offers three choices:
 

@@ -54,6 +54,7 @@ const (
 // event_id idempotently, so the overlap is harmless.
 type SnapshotResponse struct {
 	CreditLimits      []credit.Policy           `json:"credit_limits"`
+	CreditAlerts      []credit.AlertPolicy      `json:"credit_alerts"`
 	CustomerGroups    []CustomerGroupProjection `json:"customer_groups"`
 	VaultID           string                    `json:"vault_id"`
 	SnapshotServerSeq int64                     `json:"snapshot_server_seq"`
@@ -307,8 +308,13 @@ func (s *Service) LatestSnapshot(ctx context.Context, vaultID string) (*Snapshot
 	if err := creditRows.Err(); err != nil {
 		return nil, err
 	}
+	creditAlerts, err := credit.ListAlerts(ctx, s.pool, vaultID)
+	if err != nil {
+		return nil, err
+	}
 	resp := &SnapshotResponse{
 		CreditLimits:      creditLimits,
+		CreditAlerts:      creditAlerts,
 		VaultID:           vaultID,
 		SnapshotServerSeq: upTo,
 		GeneratedAtMS:     createdAt.UnixMilli(),
