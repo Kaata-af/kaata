@@ -334,7 +334,6 @@ const components = Object.fromEntries(
     "CustomerNoteCard",
     "BalanceCardGlass",
     "HomeBalanceFilterSwipe",
-    "CustomerTallyFilterPopover",
     "CreditIntentList",
     "CreditStatusBadge",
     "EntryRow",
@@ -362,7 +361,6 @@ const mocks: Record<string, any> = {
   "react-native": native,
   "@expo/vector-icons": { Ionicons: "Icon" },
   "expo-crypto": { randomUUID: () => "uuid" },
-  "expo-blur": { BlurTargetView: "BlurTargetView" },
   "expo-haptics": { impactAsync: async () => {}, ImpactFeedbackStyle: { Soft: "soft" } },
   "react-native-gesture-handler": {
     GestureDetector: "GestureDetector",
@@ -1058,7 +1056,7 @@ async function tallySelectionTests() {
       (node) => node.props.testID === "customer-selection-controls",
     )!;
     assert.ok(selectionTop, "selection controls remain fixed over the scrolling list");
-    const screenChildren = kids(find("BlurTargetView"));
+    const screenChildren = kids(kids(find("Safe"))[0]);
     assert.ok(
       nodes(screenChildren[0]).some((node) => node.props.accessibilityLabel === "common.back"),
     );
@@ -3047,11 +3045,18 @@ async function groupedSharingUITests() {
 async function customerTallyFilterTests() {
   const originalPlatform = platform,
     originalRTL = rtl;
-  const filterPopup = () => find("CustomerTallyFilterPopover")!;
-  const filter = () => filterPopup().props.filter;
   const clearFiltersButton = () =>
     nodes(tree).find((node) => node.type === "Pressable" && words(node) === "search.clearAll");
   const listSwipe = () => byTestId("customer-tally-content")!;
+  const filter = () => ({
+    direction:
+      listSwipe()?.props.direction === "collect"
+        ? "received"
+        : listSwipe()?.props.direction === "pay"
+          ? "gave"
+          : "all",
+    currencies: JSON.parse(listSwipe()?.props.currencyKey ?? "[]"),
+  });
   const flow = (code = "AFN") =>
     nodes(tree).find((node) => node.type === "TallyFlowSummary" && node.props.currency === code)!;
   const tapCard = async (side: "received" | "gave", code = "AFN") => {
@@ -3063,49 +3068,15 @@ async function customerTallyFilterTests() {
     listSwipe().props.onDirectionChange(side);
     await flush();
   };
-  const changeFilter = async (next: Record<string, any>) => {
-    const interactions = carouselInteractions;
-    find("TextInput")!.props.onFocus();
-    await flush();
-    byTestId("customer-tally-filter-trigger")!.props.onPress();
-    await flush();
-    assert.equal(filterPopup().props.visible, true);
-    assert.equal(find("BlurTargetView")!.props.accessibilityElementsHidden, true);
-    assert.equal(find("BlurTargetView")!.props.importantForAccessibility, "no-hide-descendants");
-    const sharpToggle = () =>
-      filterPopup().props.renderToggle({
-        onPress: filterPopup().props.onDismiss,
-        disabled: false,
-      });
-    const closeToggle = sharpToggle();
-    assert.equal(closeToggle.props.testID, "customer-tally-filter-close-toggle");
-    assert.equal(closeToggle.props.accessibilityRole, "button");
-    assert.equal(closeToggle.props.accessibilityLabel, "person.filters.title");
-    assert.equal(closeToggle.props.accessibilityState.expanded, true);
-    assert.equal(closeToggle.props.disabled, false);
+  const assertNoFilterPopup = () => {
+    assert.equal(find("CustomerTallyFilterPopover"), undefined);
+    assert.equal(byTestId("customer-tally-filter-trigger"), undefined);
+    assert.equal(byTestId("customer-tally-filter-close-toggle"), undefined);
     assert.equal(
-      closeToggle.props.ref,
-      undefined,
-      "The sharp copy cannot replace the measured trigger",
+      nodes(tree).some((node) => node.type === "Icon" && node.props.name === "options-outline"),
+      false,
+      "The tally search has no filter button, including with its keyboard open",
     );
-    assert.equal(closeToggle.props.onLayout, undefined);
-    const closeStyle = flattenStyle(closeToggle.props.style);
-    assert.equal(closeStyle.width, "100%");
-    assert.equal(closeStyle.height, "100%");
-    assert.ok(
-      [
-        mocks["../../lib/colors"].colors.bgDefault,
-        mocks["../../lib/colors"].colors.bgMuted,
-      ].includes(closeStyle.backgroundColor),
-      "The customer toggle is opaque rather than showing blurred content through its fill",
-    );
-    filterPopup().props.onChange({ ...filter(), ...next });
-    await flush();
-    sharpToggle().props.onPress();
-    await flush();
-    assert.equal(find("BlurTargetView")!.props.accessibilityElementsHidden, false);
-    assert.equal(find("BlurTargetView")!.props.importantForAccessibility, "auto");
-    assert.equal(carouselInteractions, interactions, "Popup filters do not touch the carousel");
   };
   const prepareMultiple = () => {
     fixture();
@@ -3136,8 +3107,23 @@ async function customerTallyFilterTests() {
       assert.equal(
         byTestId("customer-tally-filter-trigger"),
         undefined,
-        "Filters are tucked away until search opens",
+        "The removed popup has no filter trigger",
       );
+      assertNoFilterPopup();
+      find("TextInput")!.props.onFocus();
+      keyboardEvent("keyboardWillShow");
+      keyboardEvent("keyboardDidShow");
+      await flush();
+      assertNoFilterPopup();
+      assert.ok(
+        nodes(tree).some((node) => node.props.accessibilityLabel === "common.hideKeyboard"),
+      );
+      nodes(tree)
+        .find((node) => node.props.accessibilityLabel === "common.hideKeyboard")!
+        .props.onPress();
+      keyboardEvent("keyboardWillHide");
+      keyboardEvent("keyboardDidHide");
+      await flush();
       const totals = flow().props.summary;
       await tapCard("received");
       assert.equal(carouselInteractions, 1, "Card filter buttons explicitly stop autoplay");
@@ -3218,19 +3204,17 @@ async function customerTallyFilterTests() {
         "Direction, currency, note and date filters compose",
       );
       assert.deepEqual([flow("AFN").props.summary, flow("USD").props.summary], summaries);
-      await changeFilter({ sort: "date_asc" });
       await swipe("all");
       assert.equal(filter().direction, "all");
       assert.deepEqual(filter().currencies, []);
-      assert.equal(filter().sort, "date_asc", "Swipe reset preserves compatible date ordering");
       assert.equal(find("TextInput")!.props.value, "rice", "Swipe reset retains the note query");
       assert.deepEqual(
         dateControl().props.range,
         { start: 300, end: 401 },
         "Swipe reset retains the date filter",
       );
-      assert.deepEqual(rowIds(), ["afn-received", "afn-gave"]);
-      filterPopup().props.onClear();
+      assert.deepEqual(rowIds(), ["afn-gave", "afn-received"]);
+      clearFiltersButton()!.props.onPress();
       await flush();
       assert.equal(
         find("TextInput")!.props.value,
@@ -3242,50 +3226,51 @@ async function customerTallyFilterTests() {
       assert.equal(filter().direction, "all");
       query("");
       await flush();
-      await changeFilter({ currencies: ["AFN", "USD"], direction: "gave" });
+      await tapCard("gave", "USD");
+      const directionChip = nodes(byTestId("customer-tally-filter-chips")).find(
+        (node) => node.type === "Pressable" && words(node) === "person.filters.gave",
+      )!;
+      directionChip.props.onPress();
+      await flush();
       assert.deepEqual(
         rowIds(),
-        ["afn-gave", "usd-gave"],
-        "Currency selection supports several buttons at once",
+        ["usd-gave", "usd-received"],
+        "Clearing the direction chip retains the card's currency constraint",
       );
-      await changeFilter({ currencies: ["USD"], direction: "all", sort: "amount_asc" });
-      assert.deepEqual(rowIds(), ["usd-received", "usd-gave"]);
+      assert.equal(filter().direction, "all");
+      assert.deepEqual(filter().currencies, ["USD"]);
+      const currencyChip = nodes(byTestId("customer-tally-filter-chips")).find(
+        (node) => node.props.accessibilityLabel === "USD, customers.currencyFilter.clear",
+      )!;
+      currencyChip.props.onPress();
+      await flush();
+      assert.deepEqual(filter().currencies, []);
+      assert.equal(rowIds().length, 4, "Removing the currency chip restores every currency");
       await swipe("pay");
       assert.deepEqual(filter().currencies, []);
-      assert.equal(
-        filter().sort,
-        "recent",
-        "Widening a swipe cannot compare amounts across currencies",
-      );
       assert.deepEqual(rowIds(), ["afn-gave", "usd-gave"]);
       unmount();
 
       fixture();
       await flush();
-      await changeFilter({ sort: "date_asc" });
       assert.equal(
         clearFiltersButton(),
         undefined,
-        "Sorting alone has no Clear all filters button",
+        "The unfiltered list has no Clear all filters button",
       );
       assert.equal(
         byTestId("customer-tally-filter-heading"),
         undefined,
-        "Sort-only chips have no empty heading gap",
+        "The unfiltered list has no empty filter heading gap",
       );
-      assert.ok(
-        byTestId("customer-tally-filter-chips"),
-        "The removable sort chip remains available",
-      );
-      assert.equal(filter().sort, "date_asc");
-      assert.equal(filterPopup().props.hasDateFilter, false);
+      assert.equal(byTestId("customer-tally-filter-chips"), undefined);
       query("rice");
       await flush();
       assert.ok(byTestId("customer-tally-filter-heading"), "Search still has its results heading");
       assert.equal(
         clearFiltersButton(),
         undefined,
-        "Search with sorting does not add an inert filter clear",
+        "Search alone does not add an inert filter clear",
       );
       query("");
       await tapCard("received");
@@ -3295,17 +3280,16 @@ async function customerTallyFilterTests() {
       heldClear();
       await flush();
       assert.equal(
-        filter().sort,
-        "date_asc",
-        "A retired Clear button cannot reset sort-only preferences",
+        filter().direction,
+        "all",
+        "A retired Clear button leaves the default view intact",
       );
       dateControl().props.onChange({ start: 300, end: 401 });
       await flush();
       assert.ok(clearFiltersButton(), "A date-only filter still has Clear all filters");
-      assert.equal(
-        filterPopup().props.hasDateFilter,
-        true,
-        "The popup receives the active date filter",
+      assert.ok(
+        byTestId("customer-tally-date-chip"),
+        "The active date uses the existing filter chip row",
       );
       const heldDateClear = clearFiltersButton()!.props.onPress;
       dateControl().props.onChange(null);
@@ -3313,7 +3297,8 @@ async function customerTallyFilterTests() {
       assert.equal(clearFiltersButton(), undefined);
       heldDateClear();
       await flush();
-      assert.equal(filter().sort, "date_asc");
+      assert.equal(dateControl().props.range, null);
+      assert.equal(filter().direction, "all");
       unmount();
     }
 
@@ -3452,10 +3437,10 @@ async function customerTallyFilterTests() {
   for (const departure of ["person", "vault", "account", "currency", "blur"] as const) {
     prepareMultiple();
     await flush();
+    await tapCard("received", "USD");
     const staleCard = flow("USD").props.onDirectionChange;
     const staleSwipe = listSwipe().props.onDirectionChange;
-    const staleChange = filterPopup().props.onChange;
-    const staleClear = filterPopup().props.onClear;
+    const staleClear = clearFiltersButton()!.props.onPress;
     if (departure === "person") params = { id: "different-person" };
     else if (departure === "vault") vaultId = "different-vault";
     else if (departure === "account") accountId = "different-account";
@@ -3463,23 +3448,18 @@ async function customerTallyFilterTests() {
     else blur();
     dirty = true;
     await flush();
-    const before = filterPopup()?.props.filter;
+    const before = filter();
     staleCard("received");
     staleSwipe("pay");
-    staleChange({ direction: "gave", currencies: ["USD"], sort: "date_asc" });
     staleClear();
     await flush();
-    assert.deepEqual(
-      filterPopup()?.props.filter,
-      before,
-      `${departure} rejects retained filter callbacks`,
-    );
+    assert.deepEqual(filter(), before, `${departure} rejects retained filter callbacks`);
     unmount();
   }
   platform = originalPlatform;
   rtl = originalRTL;
   console.log(
-    "PASS customer tally filters: scoped card taps, global slow-swipe callbacks, multi-currency picks and safe amount order, search/date/settled composition, full totals/export/selection, reveals and stale-scope guards in Android/iOS LTR/RTL",
+    "PASS customer tally filters: scoped card taps, global swipes, removable chips, search/date/settled composition, totals/export/selection, reveals and stale-scope guards in Android/iOS LTR/RTL; no filter popup or search trigger",
   );
 }
 
@@ -4977,10 +4957,10 @@ async function main() {
   const viewerSource = JSON.stringify(entries);
   byTestId("customer-tally-content")!.props.onDirectionChange("pay");
   await flush();
-  assert.equal(find("CustomerTallyFilterPopover")!.props.filter.direction, "gave");
+  assert.equal(byTestId("customer-tally-content")!.props.direction, "pay");
   byTestId("customer-tally-content")!.props.onDirectionChange("all");
   await flush();
-  assert.equal(find("CustomerTallyFilterPopover")!.props.filter.direction, "all");
+  assert.equal(byTestId("customer-tally-content")!.props.direction, "all");
   assert.equal(
     JSON.stringify(entries),
     viewerSource,

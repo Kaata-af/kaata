@@ -1,5 +1,4 @@
-import type { ScrollViewInstance, TextInputInstance, ViewInstance } from "react-native";
-import { BlurTargetView } from "expo-blur";
+import type { ScrollViewInstance, TextInputInstance } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { Ionicons } from "@expo/vector-icons";
 import * as Crypto from "expo-crypto";
@@ -35,8 +34,6 @@ import { TallyFlowSummary } from "../../components/TallyFlowSummary";
 import { CustomerBalanceCarousel } from "../../components/CustomerBalanceCarousel";
 import { BalanceCardGlass } from "../../components/BalanceCardGlass";
 import { HomeBalanceFilterSwipe } from "../../components/HomeBalanceFilterSwipe";
-import { CustomerTallyFilterPopover } from "../../components/CustomerTallyFilterPopover";
-import type { FilterAnchor } from "../../components/HomeFilterPopover";
 import { CreditIntentList } from "../../components/CreditIntentList";
 import { CreditStatusBadge } from "../../components/CreditStatusBadge";
 import { EntryRow } from "../../components/EntryRow";
@@ -429,15 +426,6 @@ export default function PersonDetailScreen() {
     () => Gesture.Native().shouldActivateOnStart(false).disallowInterruption(false),
     [],
   );
-  const filterSurfaceRef = useRef<ViewInstance | null>(null);
-  const filterBlurTarget = useRef<ViewInstance | null>(null);
-  const tallyFilterTrigger = useRef<ViewInstance | null>(null);
-  const [filterSurface, setFilterSurface] = useState({ width: 0, height: 0 });
-  const [tallyFilterAnchor, setTallyFilterAnchor] = useState<FilterAnchor | null>(null);
-  const [tallyFiltersVisible, setTallyFiltersVisible] = useState(false);
-  const tallyFiltersVisibleRef = useRef(false);
-  tallyFiltersVisibleRef.current = tallyFiltersVisible;
-  const filterMeasureVersion = useRef(0);
   const filterIntent = JSON.stringify([flowScope, entryId, notificationKey]);
   const filterOwnership = useRef({ scope: filterIntent, epoch: 0 });
   if (filterOwnership.current.scope !== filterIntent)
@@ -554,9 +542,6 @@ export default function PersonDetailScreen() {
     setSearchQuery("");
     setDateRange(null);
     setTallyView({ scope: flowScope, filter: DEFAULT_TALLY_LIST_FILTER });
-    setTallyFiltersVisible(false);
-    setTallyFilterAnchor(null);
-    filterMeasureVersion.current++;
     setDateSheetVisible(false);
     setSheetFor(null);
     setLinkCurrencyVisible(false);
@@ -1227,7 +1212,7 @@ export default function PersonDetailScreen() {
     },
     [id, screenIsCurrent],
   );
-  const tallyPopupEnabled =
+  const tallyInteractionEnabled =
     loaded &&
     person?.id === id &&
     flowHistory?.scope === flowScope &&
@@ -1244,19 +1229,19 @@ export default function PersonDetailScreen() {
     !confirmUnlink &&
     !confirmSettle &&
     !confirmSelectionDelete;
-  const tallyDirectionEnabled = tallyPopupEnabled && !selecting && !tallyFiltersVisible;
+  const tallyDirectionEnabled = tallyInteractionEnabled && !selecting;
   const tallyInteraction = useRef({
     filter: tallyFilter,
     hasFilters: tallyFiltersApplied,
     codes: tallyCurrencyCodes,
-    enabled: tallyPopupEnabled,
+    enabled: tallyInteractionEnabled,
     directionEnabled: tallyDirectionEnabled,
   });
   tallyInteraction.current = {
     filter: tallyFilter,
     hasFilters: tallyFiltersApplied,
     codes: tallyCurrencyCodes,
-    enabled: tallyPopupEnabled,
+    enabled: tallyInteractionEnabled,
     directionEnabled: tallyDirectionEnabled,
   };
   const filterIsCurrent = () => screenIsCurrent() && filterOwnership.current.epoch === filterEpoch;
@@ -1297,67 +1282,10 @@ export default function PersonDetailScreen() {
           ),
     );
   };
-  const updateTallyFilterAnchor = useCallback(() => {
-    const surface = filterSurfaceRef.current;
-    const trigger = tallyFilterTrigger.current;
-    if (
-      !tallyFiltersVisibleRef.current ||
-      !screenIsCurrent() ||
-      !surface?.measureInWindow ||
-      !trigger?.measureInWindow
-    )
-      return;
-    const request = ++filterMeasureVersion.current;
-    surface.measureInWindow((sx, sy, width, height) => {
-      trigger.measureInWindow((x, y, triggerWidth, triggerHeight) => {
-        if (
-          request !== filterMeasureVersion.current ||
-          !tallyFiltersVisibleRef.current ||
-          !screenIsCurrent() ||
-          filterOwnership.current.epoch !== filterEpoch
-        )
-          return;
-        if (
-          ![sx, sy, width, height, x, y, triggerWidth, triggerHeight].every(Number.isFinite) ||
-          width <= 0 ||
-          height <= 0 ||
-          triggerWidth <= 0 ||
-          triggerHeight <= 0
-        )
-          return;
-        setFilterSurface({ width, height });
-        setTallyFilterAnchor({ x: x - sx, y: y - sy, width: triggerWidth, height: triggerHeight });
-      });
-    });
-  }, [flowScope, filterEpoch, screenIsCurrent]);
-  useEffect(() => {
-    if (!tallyFiltersVisible) return;
-    const frame = requestAnimationFrame(updateTallyFilterAnchor);
-    return () => cancelAnimationFrame(frame);
-  }, [
-    tallyFiltersVisible,
-    updateTallyFilterAnchor,
-    compactDock,
-    filterSurface.width,
-    filterSurface.height,
-    insets.top,
-  ]);
-  useEffect(() => {
-    if (!tallyPopupEnabled) {
-      tallyFiltersVisibleRef.current = false;
-      setTallyFiltersVisible(false);
-      setTallyFilterAnchor(null);
-      filterMeasureVersion.current++;
-    }
-  }, [tallyPopupEnabled]);
   useRouteFocusEffect(
     useCallback(
       () => () => {
         filterOwnership.current.epoch++;
-        tallyFiltersVisibleRef.current = false;
-        filterMeasureVersion.current++;
-        setTallyFiltersVisible(false);
-        setTallyFilterAnchor(null);
       },
       [],
     ),
@@ -1376,7 +1304,6 @@ export default function PersonDetailScreen() {
       dismissSearchKeyboard();
       setSheetFor(null);
       setDateSheetVisible(false);
-      setTallyFiltersVisible(false);
       setSelectionScope(flowScope);
       setSelectedEntryIds(new Set(entry && selectableIds.has(entry.id) ? [entry.id] : []));
     },
@@ -2473,26 +2400,8 @@ export default function PersonDetailScreen() {
   // action. Selection keeps only Back, with an equally sized empty end slot.
   const headerSideWidth = selecting ? 40 : showHeaderWhatsApp ? TOUCH_MIN * 2 + 10 : TOUCH_MIN;
   return (
-    <SafeAreaView
-      ref={filterSurfaceRef}
-      style={styles.container}
-      edges={["top"]}
-      onLayout={(event) => {
-        if (!filterIsCurrent()) return;
-        const { width, height } = event.nativeEvent.layout;
-        if (![width, height].every(Number.isFinite) || width <= 0 || height <= 0) return;
-        setFilterSurface((before) =>
-          before.width === width && before.height === height ? before : { width, height },
-        );
-        updateTallyFilterAnchor();
-      }}
-    >
-      <BlurTargetView
-        ref={filterBlurTarget}
-        style={{ flex: 1 }}
-        accessibilityElementsHidden={tallyFiltersVisible}
-        importantForAccessibility={tallyFiltersVisible ? "no-hide-descendants" : "auto"}
-      >
+    <SafeAreaView style={styles.container} edges={["top"]}>
+      <View style={{ flex: 1 }}>
         <View testID="customer-header" style={[styles.headerNav, rowDir(isRTL)]}>
           <View
             testID="customer-header-back"
@@ -2824,7 +2733,6 @@ export default function PersonDetailScreen() {
                         active={
                           !compactDock &&
                           !selecting &&
-                          !tallyFiltersVisible &&
                           !dateSheetVisible &&
                           !sheetFor &&
                           !askLangVisible &&
@@ -3497,7 +3405,6 @@ export default function PersonDetailScreen() {
                 ]}
               >
                 <SearchKeyboardFooter
-                  onLayout={updateTallyFilterAnchor}
                   closedPadding={20 + insets.bottom + DOCK_SKIRT}
                   openPadding={8 + DOCK_SKIRT}
                   keyboardShown={compactDock}
@@ -3636,41 +3543,6 @@ export default function PersonDetailScreen() {
                             </Pressable>
                           </SearchControlSlot>
                         </View>
-                        {searchFocused || compactDock || tallyFiltersVisible ? (
-                          <Pressable
-                            ref={tallyFilterTrigger}
-                            testID="customer-tally-filter-trigger"
-                            accessibilityRole="button"
-                            accessibilityLabel={t("person.filters.title")}
-                            accessibilityState={{
-                              expanded: tallyFiltersVisible,
-                              selected: directionalFiltering || tallyFilter.sort !== "recent",
-                            }}
-                            disabled={!tallyPopupEnabled}
-                            onPress={() => {
-                              if (!filterIsCurrent() || !tallyInteraction.current.enabled) return;
-                              const next = !tallyFiltersVisibleRef.current;
-                              tallyFiltersVisibleRef.current = next;
-                              setTallyFiltersVisible(next);
-                              if (next) {
-                                dismissSearchKeyboard();
-                                requestAnimationFrame(updateTallyFilterAnchor);
-                              }
-                            }}
-                            onLayout={updateTallyFilterAnchor}
-                            style={[
-                              styles.dateButton,
-                              (directionalFiltering || tallyFilter.sort !== "recent") &&
-                                styles.dateButtonActive,
-                            ]}
-                          >
-                            <Ionicons
-                              name="options-outline"
-                              size={icon.row}
-                              color={colors.textEmphasis}
-                            />
-                          </Pressable>
-                        ) : null}
                         <Pressable
                           onPress={() => {
                             if (!searchIsCurrent()) return;
@@ -3724,46 +3596,7 @@ export default function PersonDetailScreen() {
             ) : null}
           </View>
         </SearchKeyboardFrame>
-      </BlurTargetView>
-      <CustomerTallyFilterPopover
-        visible={tallyFiltersVisible && tallyPopupEnabled}
-        contextKey={`${filterIntent}:${filterEpoch}`}
-        anchor={tallyFilterAnchor}
-        viewport={{ ...filterSurface, topInset: insets.top }}
-        blurTarget={filterBlurTarget}
-        filter={tallyFilter}
-        hasDateFilter={dateRange != null}
-        availableCodes={tallyCurrencyCodes}
-        onChange={changeTallyFilter}
-        onClear={clearTallyFilters}
-        isRTL={isRTL}
-        keyboardVisible={compactDock}
-        onDismissKeyboard={dismissSearchKeyboard}
-        onDismiss={() => {
-          if (filterIsCurrent()) setTallyFiltersVisible(false);
-        }}
-        renderToggle={({ onPress, disabled }) => (
-          <Pressable
-            testID="customer-tally-filter-close-toggle"
-            accessibilityRole="button"
-            accessibilityLabel={t("person.filters.title")}
-            accessibilityState={{
-              expanded: true,
-              selected: directionalFiltering || tallyFilter.sort !== "recent",
-              disabled,
-            }}
-            disabled={disabled}
-            onPress={onPress}
-            style={[
-              styles.dateButton,
-              styles.filterCloseToggle,
-              (directionalFiltering || tallyFilter.sort !== "recent") && styles.dateButtonActive,
-            ]}
-          >
-            <Ionicons name="options-outline" size={icon.row} color={colors.textEmphasis} />
-          </Pressable>
-        )}
-      />
+      </View>
       <TallyDateFilterSheet
         visible={dateSheetVisible}
         contextKey={flowScope}
@@ -4278,7 +4111,6 @@ const styles = StyleSheet.create({
     borderRadius: radius.sm,
   },
   dateButtonActive: { backgroundColor: colors.bgMuted, borderColor: colors.borderEmphasis },
-  filterCloseToggle: { width: "100%", height: "100%", backgroundColor: colors.bgDefault },
   searchBox: {
     flex: 1,
     flexDirection: "row",
