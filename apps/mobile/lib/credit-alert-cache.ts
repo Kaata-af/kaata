@@ -7,15 +7,30 @@ export async function readCreditAlertPolicyInTx(
   vaultId: string,
   relationshipId: string,
 ): Promise<CreditAlertPolicy | null> {
-  const row = await tx.getFirstAsync<{
+  let row: {
     relationship_id: string;
     groups_json: string;
     updated_at_ms: number;
-  }>(
-    "SELECT relationship_id,groups_json,updated_at_ms FROM credit_alert_policies WHERE vault_id=? AND relationship_id=? AND deleted=0",
-    vaultId,
-    relationshipId,
-  );
+  } | null;
+  try {
+    row = await tx.getFirstAsync<typeof row>(
+      "SELECT relationship_id,groups_json,updated_at_ms FROM credit_alert_policies WHERE vault_id=? AND relationship_id=? AND deleted=0",
+      vaultId,
+      relationshipId,
+    );
+  } catch (error) {
+    // Expo Go can refresh the advisory code while the already-open database
+    // still has the pre-049 schema. An absent optional cache must not prevent
+    // recording money or evaluating the existing independent credit limits.
+    // Startup still owns migration; configuration writes and all other storage
+    // failures remain errors rather than pretending a rule was saved/read.
+    if (
+      error instanceof Error &&
+      /\bno such table:\s*(?:main\.)?credit_alert_policies(?:\s|$)/i.test(error.message)
+    )
+      return null;
+    throw error;
+  }
   if (!row) return null;
   const policy = {
     relationship_id: row.relationship_id,

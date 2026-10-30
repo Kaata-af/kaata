@@ -107,6 +107,90 @@ function pureChecks() {
   );
 }
 
+async function preMigrationCacheChecks() {
+  const before049 = new Database(":memory:");
+  const tx = {
+    getFirstAsync: async (sql: string, ...args: unknown[]) =>
+      before049.prepare(sql).get(...args) ?? null,
+    getAllAsync: async (sql: string, ...args: unknown[]) => before049.prepare(sql).all(...args),
+    runAsync: async (sql: string, ...args: unknown[]) => before049.prepare(sql).run(...args),
+  } as unknown as SQLiteTx;
+  try {
+    assert.equal(await cache.readCreditAlertPolicyInTx(tx, "v1", "r1"), null);
+    assert.equal(
+      before049.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().length,
+      0,
+      "an advisory read does not create or migrate financial schema",
+    );
+    await assert.rejects(
+      cache.cacheCreditAlerts(tx, "v1", [policy()], 2),
+      /no such table: credit_alert_policies/,
+      "an absent cache never makes rule writes appear successful",
+    );
+    const errorTx = (error: Error) =>
+      ({
+        getFirstAsync: async () => {
+          throw error;
+        },
+      }) as unknown as SQLiteTx;
+    assert.equal(
+      await cache.readCreditAlertPolicyInTx(
+        errorTx(
+          new Error(
+            "Call to function 'NativeDatabase.prepareAsync' has been rejected.\n→ Caused by: Error code 1: no such table: credit_alert_policies",
+          ),
+        ),
+        "v1",
+        "r1",
+      ),
+      null,
+      "Expo's wrapped native missing-table error uses the same narrow fallback",
+    );
+    for (const message of [
+      "database is locked",
+      "database disk image is malformed",
+      "no such column: deleted",
+      "no such table: customer_credit_limits",
+      "no such table: credit_alert_policies_backup",
+    ]) {
+      const error = new Error(message);
+      await assert.rejects(
+        cache.readCreditAlertPolicyInTx(errorTx(error), "v1", "r1"),
+        (candidate) => candidate === error,
+        "unrelated schema/storage failures must not be hidden",
+      );
+    }
+    before049.exec(`CREATE TABLE vaults(id TEXT PRIMARY KEY); INSERT INTO vaults VALUES('v1');`);
+    before049.exec(ddl!);
+    before049
+      .prepare("INSERT INTO credit_alert_policies VALUES('v1','r1',?,1,0,0)")
+      .run(JSON.stringify(groups));
+    assert.deepEqual(
+      (await cache.readCreditAlertPolicyInTx(tx, "v1", "r1"))?.groups,
+      groups,
+      "the cache is read normally as soon as the real migration is present",
+    );
+    before049.prepare("UPDATE credit_alert_policies SET groups_json='invalid JSON'").run();
+    await assert.rejects(cache.readCreditAlertPolicyInTx(tx, "v1", "r1"), SyntaxError);
+    before049
+      .prepare("UPDATE credit_alert_policies SET groups_json=?")
+      .run(
+        JSON.stringify([
+          { direction: "collect", conditions: [{ currency: "USD", threshold_minor: 0 }] },
+        ]),
+      );
+    await assert.rejects(
+      cache.readCreditAlertPolicyInTx(tx, "v1", "r1"),
+      /Invalid cached credit alert policy/,
+    );
+  } finally {
+    before049.close();
+  }
+  console.log(
+    "PASS pre-049 advisory cache: missing table is optional for reads only; no lazy migration, stale absence, masked storage errors or false rule saves",
+  );
+}
+
 const fixture = new Database(":memory:");
 fixture.pragma("foreign_keys=ON");
 fixture.exec(`CREATE TABLE vaults(id TEXT PRIMARY KEY,account_id TEXT,archived_at INTEGER);
@@ -550,6 +634,7 @@ async function revisionRaceChecks() {
 
 void (async () => {
   pureChecks();
+  await preMigrationCacheChecks();
   await storageChecks();
   await skewChecks();
   await revisionRaceChecks();

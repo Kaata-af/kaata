@@ -972,6 +972,7 @@ async function unchangedPolicyRefreshes() {
 
 async function run() {
   await applyCurrencyMigration(fixture);
+  await preAlertSchemaWarningChecks();
   await unchangedPolicyRefreshes();
   assert.equal(creditExceeded(policy(), 0, 10000), false);
   assert.equal(creditExceeded(policy(), 10000, 10001), true);
@@ -2009,6 +2010,179 @@ async function currencyMoveWarningChecks() {
   );
   console.log(
     "PASS currency-move debt destination/payment source warnings, exact caps and target-labeled pending/refused intents",
+  );
+}
+
+async function preAlertSchemaWarningChecks() {
+  fixture.exec(`INSERT INTO vaults(id,currency,legacy_currency) VALUES('v-pre049','AFN','AFN');
+    INSERT INTO relationships VALUES('r-pre049','v-pre049','p-pre049',1,NULL);
+    INSERT INTO entries(id,vault_id,relationship_id,type,amount_afn,currency,created_at)
+      VALUES('entry-pre049','v-pre049','r-pre049','debt',10,'AFN',20);
+    ALTER TABLE credit_alert_policies RENAME TO credit_alert_policies_saved;`);
+  try {
+    const before = fixture.prepare("SELECT * FROM entries WHERE vault_id='v-pre049'").all();
+    assert.equal(
+      await credit.creditWarning("p-pre049", "debt", 100, "v-pre049", "AFN"),
+      false,
+      "a new tally's advisory check works on an already-open pre-049 database",
+    );
+    assert.equal(await credit.creditWarningForEdit("entry-pre049", 100, "v-pre049", "AFN"), false);
+    await cacheCreditPolicies(
+      db,
+      "v-pre049",
+      [
+        {
+          relationship_id: "r-pre049",
+          currency: "AFN",
+          max_collect_minor: 10000,
+          max_pay_minor: 20000,
+          mode: "clerk_block",
+          updated_at_ms: 1,
+        },
+      ],
+      2,
+    );
+    assert.equal(await credit.creditWarning("p-pre049", "debt", 90, "v-pre049", "AFN"), false);
+    assert.equal(
+      await credit.creditWarning("p-pre049", "debt", 91, "v-pre049", "AFN"),
+      true,
+      "the old collect cap still warns when the optional new cache is absent",
+    );
+    assert.equal(
+      await credit.creditWarning("p-pre049", "payment", 211, "v-pre049", "AFN"),
+      true,
+      "the old pay cap still warns independently",
+    );
+    assert.equal(await credit.creditWarningForEdit("entry-pre049", 101, "v-pre049", "AFN"), true);
+    const proposed = {
+      event_id: "pre049-proposed",
+      event_type: "entry_created",
+      vault_id: "v-pre049",
+      relationship_id: "r-pre049",
+      target_id: "pre049-new",
+      origin: "local",
+      server_acked_at: null,
+      payload: {
+        entry_id: "pre049-new",
+        relationship_id: "r-pre049",
+        type: "debt",
+        amount_afn: 91,
+        currency: "AFN",
+        note: null,
+        occurred_at_ms: 30,
+      },
+    } as EntryCreatedEvent;
+    assert.equal(
+      await requiresCreditAdmission(db, proposed, "clerk"),
+      true,
+      "missing advisory cache never bypasses hard financial admission",
+    );
+    assert.equal(await requiresCreditAdmission(db, proposed, "owner"), false);
+    assert.deepEqual(
+      fixture.prepare("SELECT * FROM entries WHERE vault_id='v-pre049'").all(),
+      before,
+      "warning/admission reads do not modify any recorded balance",
+    );
+
+    // Execute the actual createEntryDetailed orchestration, including its
+    // pre-save warning. Only the signed append boundary is substituted; it
+    // dispatches the shipped entry projection into this isolated database.
+    const createDeclaration = dbAST.statements.find(
+      (node) => ts.isFunctionDeclaration(node) && node.name?.text === "createEntryDetailed",
+    );
+    assert.ok(createDeclaration);
+    const createAPI = {} as Pick<typeof import("../db"), "createEntryDetailed">;
+    let appends = 0;
+    let usage = 0;
+    new Function(
+      "require",
+      "exports",
+      "requireCurrencyCode",
+      "getLedgerCurrencyCode",
+      "getActiveVaultIdSync",
+      "getTabLinkForPerson",
+      "getTabGroupLinkForPerson",
+      "getDb",
+      "getAppMeta",
+      "appendEntryCreated",
+      "bumpUsageCounter",
+      ts.transpileModule(createDeclaration.getText(dbAST), {
+        compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+      }).outputText,
+    )(
+      (name: string) => {
+        if (name === "./auth")
+          return {
+            captureCurrentSession: async () => ({ ...session }),
+            applyForUnchangedLocalSession: guard,
+            SessionChangedError,
+          };
+        if (name === "./credit-limits") return credit;
+        throw new Error(`Unexpected create dependency ${name}`);
+      },
+      createAPI,
+      require("../currency-scope").requireCurrencyCode,
+      () => "AFN",
+      () => "v-pre049",
+      async () => null,
+      async () => null,
+      async () => db,
+      async () => null,
+      async (input: {
+        relationshipId: string;
+        type: "debt" | "payment";
+        amountAfn: number;
+        note: string | null;
+        currency: string;
+      }) => {
+        appends++;
+        const event: EntryCreatedEvent = {
+          ...proposed,
+          event_id: "pre049-saved-event",
+          target_id: "pre049-saved",
+          device_id: "fixture",
+          hlc: { pms: 40, l: 0, did: "fixture" },
+          author_user_id_local_only: "self",
+          payload_schema: 1,
+          payload: {
+            entry_id: "pre049-saved",
+            relationship_id: input.relationshipId,
+            type: input.type,
+            amount_afn: input.amountAfn,
+            note: input.note,
+            occurred_at_ms: 40,
+            currency: input.currency,
+          },
+        };
+        await entryAppliers.applyEntryCreated(db, event);
+        return { entry_id: event.target_id, event_id: event.event_id };
+      },
+      async () => {
+        usage++;
+      },
+    );
+    const saved = await createAPI.createEntryDetailed("p-pre049", "debt", 25, "pre-049 save", {
+      session: { ...session },
+      vaultId: "v-pre049",
+      currency: "AFN",
+    });
+    assert.deepEqual(saved, {
+      entry_id: "pre049-saved",
+      duplicate_hint: null,
+      admission_status: undefined,
+      credit_warning: false,
+    });
+    assert.equal(appends, 1, "the pre-049 warning does not abort the actual create orchestration");
+    assert.equal(usage, 1);
+    assert.deepEqual(
+      fixture.prepare("SELECT amount_afn,note,currency FROM entries WHERE id='pre049-saved'").get(),
+      { amount_afn: 25, note: "pre-049 save", currency: "AFN" },
+    );
+  } finally {
+    fixture.exec("ALTER TABLE credit_alert_policies_saved RENAME TO credit_alert_policies");
+  }
+  console.log(
+    "PASS pre-049 live tally checks: new/edit warnings tolerate only the absent optional cache; collect/pay caps and clerk admission remain enforced",
   );
 }
 
