@@ -63,6 +63,10 @@ export function Button(props: {
   size?: Size;
   disabled?: boolean;
   loading?: boolean;
+  /** Let long or enlarged labels wrap instead of truncating. */
+  wrapLabel?: boolean;
+  /** Keep the action's current label beside its busy indicator. */
+  showLabelWhileLoading?: boolean;
   /** Optional leading icon. Sized to the label, never to icon.row. */
   icon?: ComponentProps<typeof Ionicons>["name"];
   /** Stretch to the container's width. Hero CTAs usually want this. */
@@ -118,14 +122,23 @@ export function Button(props: {
         (disabled || loading) && { opacity: 0.5 },
       ]}
     >
-      {loading ? (
+      {loading && !props.showLabelWhileLoading ? (
         <ActivityIndicator color={fg} size={size === "pill" ? "small" : undefined} />
       ) : (
-        <View style={styles.content}>
-          {props.icon ? <Ionicons name={props.icon} size={iconSize.trailing} color={fg} /> : null}
+        <View style={[styles.content, props.wrapLabel && styles.wrappingContent]}>
+          {loading ? (
+            <ActivityIndicator color={fg} size="small" />
+          ) : props.icon ? (
+            <Ionicons name={props.icon} size={iconSize.trailing} color={fg} />
+          ) : null}
           <Text
-            style={[styles.text, size === "pill" && styles.textPill, { color: fg }]}
-            numberOfLines={1}
+            style={[
+              styles.text,
+              size === "pill" && styles.textPill,
+              props.wrapLabel && styles.wrappingText,
+              { color: fg },
+            ]}
+            numberOfLines={props.wrapLabel ? undefined : 1}
           >
             {label}
           </Text>
@@ -161,6 +174,8 @@ const styles = StyleSheet.create({
   // to the label, not a layout that should flip with script. The whole
   // icon+label group is centred, so it reads correctly in both directions.
   content: { flexDirection: "row", alignItems: "center", gap: 8 },
+  wrappingContent: { maxWidth: "100%", minWidth: 0, paddingVertical: 12 },
+  wrappingText: { flexShrink: 1, minWidth: 0, textAlign: "center" },
   text: { ...typography.labelBold },
   // 13px sansSemi — the size list-row CTAs used before this component existed.
   // 15px is right for a standalone button and too loud inside a row.

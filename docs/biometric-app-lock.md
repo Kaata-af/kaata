@@ -43,6 +43,19 @@ change financial calculations, membership, sync or notification-preview policy.
 Names and amounts on OS notifications remain controlled separately in
 notification settings.
 
+## Lock screen presentation
+
+The light frosted card uses the balance cards' decorative glass and soft colors,
+inside the existing opaque privacy cover. It never blurs or previews ledger
+content. A locked-device status and hidden-until-unlock message appear only
+after the enabled lock is confirmed. Initialization uses neutral wording.
+
+Headings and body text occupy the available width, remain centered in every
+language and use the font's natural line height. Text and action labels wrap for
+narrow screens and larger system text; the page remains scrollable. Unlocking
+keeps its label beside the spinner. Native authentication and recovery behavior
+are unchanged.
+
 ## Screen privacy and native configuration
 
 While enabled, Android's native secure-window flag blocks screenshots,

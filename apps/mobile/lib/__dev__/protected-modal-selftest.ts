@@ -241,7 +241,7 @@ function iosFixture(initialBlocked = false) {
 // New sensitive native modals must use the same privacy wrapper.
 const mobile = join(__dirname, "../..");
 const nativeHostExceptions = new Set(["components/ProtectedModal.tsx"]);
-let guardedConsumers = 0;
+const guardedConsumers = new Set<string>();
 function audit(directory: string) {
   for (const entry of readdirSync(directory, { withFileTypes: true })) {
     const path = join(directory, entry.name);
@@ -268,14 +268,19 @@ function audit(directory: string) {
         const imported = binding.propertyName?.text ?? binding.name.text;
         if (source === "react-native" && imported === "Modal")
           assert.ok(nativeHostExceptions.has(filename), `${filename} bypasses app-lock privacy`);
-        if (source.endsWith("/ProtectedModal") && imported === "ProtectedModal") guardedConsumers++;
+        if (source.endsWith("/ProtectedModal") && imported === "ProtectedModal")
+          guardedConsumers.add(filename);
       }
     }
   }
 }
 audit(join(mobile, "components"));
 audit(join(mobile, "app"));
-assert.equal(guardedConsumers, 13, "every existing sensitive modal host uses the common gate");
+assert.equal(guardedConsumers.size, 14, "every existing sensitive modal host uses the common gate");
+assert.ok(
+  guardedConsumers.has("components/CustomerNoteCard.tsx"),
+  "private note history uses the same lock protection",
+);
 console.log(
   "PASS protected modals: Android windows hidden, iOS presentations retained without private children, deferred native readiness replayed once after unlock, stale/unmount callbacks blocked, controlled drafts preserved and all sensitive modal imports audited",
 );

@@ -29,9 +29,11 @@ import { useAppLockPrivacy } from "../lib/app-lock-privacy";
 import { useAppLockScreenPrivacy } from "../lib/app-lock-screen-privacy";
 import { colors } from "../lib/colors";
 import { textDir, useIsRTL } from "../lib/direction";
-import { fonts } from "../lib/fonts";
+import { fonts, sansLineHeight } from "../lib/fonts";
+import { radius } from "../lib/tokens";
 import { t } from "../lib/i18n";
 import { Button } from "./Button";
+import { BalanceCardGlass } from "./BalanceCardGlass";
 
 /** Keep navigation and drafts alive while covering every app entry point. */
 export function AppLockGate({ children }: PropsWithChildren) {
@@ -171,6 +173,7 @@ function LockScreen({
   const insets = useSafeAreaInsets();
   const active = state.appState === "active";
   const checking = !state.initialized && !state.error;
+  const locked = state.initialized && state.enabled && state.locked;
   const legacyAndroid = Platform.OS === "android" && !supportsAppLockDeviceFallback();
   return (
     <ScrollView
@@ -184,70 +187,123 @@ function LockScreen({
       accessibilityViewIsModal
     >
       <View style={styles.panel}>
-        <View style={styles.icon}>
-          <Ionicons name="lock-closed-outline" size={32} color={colors.textEmphasis} />
-        </View>
-        <Text style={[styles.title, textDir(isRTL)]} accessibilityRole="header">
-          {t(checking ? "appLock.privacyTitle" : "appLock.title")}
-        </Text>
-        <Text style={[styles.subtitle, textDir(isRTL)]}>
-          {t(
-            checking
-              ? "appLock.loading"
-              : legacyAndroid
-                ? "appLock.biometricOnlySubtitle"
-                : "appLock.subtitle",
-          )}
-        </Text>
-        {state.error ? (
-          <Text style={[styles.error, textDir(isRTL)]} accessibilityLiveRegion="polite">
-            {t(
-              state.error === "lockout" && legacyAndroid
-                ? "settings.appLock.error.legacyLockout"
-                : `settings.appLock.error.${state.error}`,
-            )}
-          </Text>
-        ) : null}
-        {setupFailed ? (
-          <Text style={[styles.error, textDir(isRTL)]} accessibilityLiveRegion="polite">
-            {t("settings.appLock.openSettingsFailed")}
-          </Text>
-        ) : null}
-        {checking ? (
-          <ActivityIndicator style={styles.progress} color={colors.textEmphasis} />
-        ) : (
-          <View style={styles.action}>
-            <Button
-              label={t(
-                !state.initialized
-                  ? "appLock.retry"
-                  : state.busy
-                    ? "appLock.unlocking"
-                    : "appLock.unlock",
-              )}
-              icon="finger-print-outline"
-              size="hero"
-              fullWidth
-              loading={state.busy}
-              disabled={!active}
-              onPress={onUnlock}
-            />
-          </View>
-        )}
-        {legacyAndroid && state.initialized && state.enabled && state.locked ? (
-          <View style={styles.recovery}>
-            <Text style={[styles.subtitle, textDir(isRTL)]}>{t("appLock.legacyRecovery")}</Text>
-            <View style={styles.recoveryAction}>
-              <Button
-                label={t("appLock.openSecuritySettings")}
-                onPress={onOpenSettings}
-                variant="secondary"
-                fullWidth
-                disabled={!active || state.busy}
+        <Text style={[styles.brand, textDir(isRTL), styles.centered]}>{t("brand.wordmark")}</Text>
+        <View testID="app-lock-card" style={styles.card}>
+          <BalanceCardGlass />
+          <View style={styles.cardContent}>
+            <View testID="app-lock-status" style={[styles.status, !locked && styles.statusNeutral]}>
+              <View style={[styles.statusDot, !locked && styles.statusDotNeutral]} />
+              <Text
+                style={[
+                  styles.statusText,
+                  textDir(isRTL),
+                  styles.centered,
+                  !locked && styles.statusTextNeutral,
+                ]}
+              >
+                {t(locked ? "appLock.protected" : "settings.appLock.label")}
+              </Text>
+            </View>
+            <View
+              style={styles.icon}
+              accessibilityElementsHidden
+              importantForAccessibility="no-hide-descendants"
+            >
+              <Ionicons
+                name={locked ? "shield-checkmark-outline" : "shield-outline"}
+                size={40}
+                color={colors.entryActionReceivedText}
               />
             </View>
+            <Text
+              testID="app-lock-title"
+              style={[styles.title, textDir(isRTL), styles.centered]}
+              accessibilityRole="header"
+            >
+              {t(checking ? "appLock.privacyTitle" : "appLock.title")}
+            </Text>
+            <Text
+              testID="app-lock-subtitle"
+              style={[styles.subtitle, textDir(isRTL), styles.centered]}
+            >
+              {t(
+                checking
+                  ? "appLock.loading"
+                  : legacyAndroid
+                    ? "appLock.biometricOnlySubtitle"
+                    : "appLock.subtitle",
+              )}
+            </Text>
+            {state.error ? (
+              <Text
+                style={[styles.error, textDir(isRTL), styles.centered]}
+                accessibilityLiveRegion="polite"
+              >
+                {t(
+                  state.error === "lockout" && legacyAndroid
+                    ? "settings.appLock.error.legacyLockout"
+                    : `settings.appLock.error.${state.error}`,
+                )}
+              </Text>
+            ) : null}
+            {setupFailed ? (
+              <Text
+                style={[styles.error, textDir(isRTL), styles.centered]}
+                accessibilityLiveRegion="polite"
+              >
+                {t("settings.appLock.openSettingsFailed")}
+              </Text>
+            ) : null}
+            {checking ? (
+              <ActivityIndicator style={styles.progress} color={colors.textEmphasis} />
+            ) : (
+              <View style={styles.action}>
+                <Button
+                  label={t(
+                    !state.initialized
+                      ? "appLock.retry"
+                      : state.busy
+                        ? "appLock.unlocking"
+                        : "appLock.unlock",
+                  )}
+                  icon="finger-print-outline"
+                  size="hero"
+                  fullWidth
+                  loading={state.busy}
+                  showLabelWhileLoading
+                  wrapLabel
+                  disabled={!active}
+                  onPress={onUnlock}
+                />
+              </View>
+            )}
+            {legacyAndroid && state.initialized && state.enabled && state.locked ? (
+              <View style={styles.recovery}>
+                <Text style={[styles.recoveryText, textDir(isRTL), styles.centered]}>
+                  {t("appLock.legacyRecovery")}
+                </Text>
+                <View style={styles.recoveryAction}>
+                  <Button
+                    label={t("appLock.openSecuritySettings")}
+                    onPress={onOpenSettings}
+                    variant="secondary"
+                    fullWidth
+                    wrapLabel
+                    disabled={!active || state.busy}
+                  />
+                </View>
+              </View>
+            ) : null}
+            {locked ? (
+              <Text
+                testID="app-lock-reassurance"
+                style={[styles.reassurance, textDir(isRTL), styles.centered]}
+              >
+                {t("appLock.reassurance")}
+              </Text>
+            ) : null}
           </View>
-        ) : null}
+        </View>
       </View>
     </ScrollView>
   );
@@ -269,37 +325,97 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     justifyContent: "center",
     alignItems: "center",
-    paddingHorizontal: 24,
+    paddingHorizontal: 20,
     backgroundColor: colors.bgDefault,
   },
-  panel: { width: "100%", maxWidth: 420, alignItems: "center" },
-  icon: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
+  panel: { width: "100%", maxWidth: 420, minWidth: 0 },
+  brand: {
+    width: "100%",
+    fontFamily: fonts.sansSemi,
+    fontSize: 16,
+    lineHeight: sansLineHeight(16, 25),
+    color: colors.textEmphasis,
+    marginBottom: 20,
+    paddingHorizontal: 4,
+  },
+  card: {
+    borderWidth: 1,
+    borderColor: colors.borderBalanceGlass,
+    borderRadius: radius.lg,
+    backgroundColor: colors.bgBalanceGlass,
+    overflow: "hidden",
+  },
+  cardContent: { paddingHorizontal: 24, paddingTop: 24, paddingBottom: 28, alignItems: "center" },
+  status: {
+    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: colors.bgMuted,
-    marginBottom: 24,
+    gap: 7,
+    maxWidth: "100%",
+    backgroundColor: colors.entryActionReceived,
+    borderRadius: radius.pill,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    marginBottom: 28,
+  },
+  statusNeutral: { backgroundColor: colors.bgMuted },
+  statusDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: colors.entryActionReceivedText,
+  },
+  statusDotNeutral: { backgroundColor: colors.textSubtle },
+  statusText: {
+    flexShrink: 1,
+    minWidth: 0,
+    fontFamily: fonts.sansMedium,
+    fontSize: 12,
+    lineHeight: sansLineHeight(12, 18),
+    color: colors.entryActionReceivedText,
+  },
+  statusTextNeutral: { color: colors.textSubtle },
+  icon: {
+    width: 88,
+    height: 88,
+    borderRadius: 30,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#FFFFFFB3",
+    borderWidth: 1,
+    borderColor: "#FFFFFF",
+    marginBottom: 20,
   },
   title: {
     fontFamily: fonts.sansSemi,
-    fontSize: 22,
+    width: "100%",
+    minWidth: 0,
+    paddingHorizontal: 4,
+    fontSize: 26,
+    lineHeight: sansLineHeight(26, 36),
     color: colors.textEmphasis,
     textAlign: "center",
   },
   subtitle: {
+    width: "100%",
+    minWidth: 0,
+    paddingHorizontal: 4,
     fontFamily: fonts.sansRegular,
     fontSize: 15,
-    lineHeight: 24,
+    lineHeight: sansLineHeight(15, 24),
     color: colors.textSubtle,
     textAlign: "center",
-    marginTop: 12,
+    marginTop: 10,
   },
   error: {
+    width: "100%",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: radius.sm,
+    backgroundColor: "#FFFFFFB3",
     fontFamily: fonts.sansRegular,
     fontSize: 14,
-    lineHeight: 22,
+    lineHeight: sansLineHeight(14, 22),
     color: colors.danger,
     textAlign: "center",
     marginTop: 20,
@@ -307,5 +423,22 @@ const styles = StyleSheet.create({
   progress: { marginTop: 28 },
   action: { width: "100%", marginTop: 28 },
   recovery: { width: "100%", marginTop: 20 },
+  recoveryText: {
+    width: "100%",
+    fontFamily: fonts.sansRegular,
+    fontSize: 13,
+    lineHeight: sansLineHeight(13, 21),
+    color: colors.textSubtle,
+  },
   recoveryAction: { marginTop: 12 },
+  reassurance: {
+    width: "100%",
+    paddingHorizontal: 4,
+    marginTop: 20,
+    fontFamily: fonts.sansRegular,
+    fontSize: 12,
+    lineHeight: sansLineHeight(12, 20),
+    color: colors.entryActionReceivedText,
+  },
+  centered: { textAlign: "center" },
 });

@@ -84,8 +84,14 @@ const { AppLockGate } = compileUI("../../components/AppLockGate", {
     },
   },
   "../lib/direction": { useIsRTL: () => false, textDir: () => ({ writingDirection: "ltr" }) },
-  "../lib/fonts": { fonts: { sansSemi: "semi", sansRegular: "regular" } },
+  "../lib/fonts": {
+    fonts: { sansSemi: "semi", sansRegular: "regular", sansMedium: "medium" },
+    sansLineHeight: (size: number, tight: number) =>
+      platform.OS === "ios" ? Math.max(tight, Math.ceil(size * 1.5625)) : tight,
+  },
   "../lib/i18n": { t: (key: string) => key },
+  "./BalanceCardGlass": { BalanceCardGlass: "BalanceCardGlass" },
+  "../lib/tokens": { radius: { lg: 20, pill: 999 } },
   "./Button": { Button: "Button" },
 });
 const draft = jsx("Draft", { value: "unsaved note" });

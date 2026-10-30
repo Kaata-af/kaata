@@ -981,6 +981,8 @@ const en = {
   "appLock.auth.unlock": "Unlock Kaata",
   "appLock.auth.passcode": "Use phone passcode",
   "appLock.title": "Kaata is locked",
+  "appLock.protected": "Locked on this phone",
+  "appLock.reassurance": "Your Kaata stays hidden until you unlock.",
   "appLock.subtitle": "Use your fingerprint, Face ID, or phone passcode to continue.",
   "appLock.biometricOnlySubtitle": "Use your fingerprint to continue.",
   "appLock.legacyRecovery":
@@ -3388,6 +3390,8 @@ const fa: Partial<Record<Key, string>> = {
   "appLock.auth.unlock": "باز کردن قفل کاتا",
   "appLock.auth.passcode": "استفاده از رمز تلفن",
   "appLock.title": "کاتا قفل است",
+  "appLock.protected": "در این تلفن قفل است",
+  "appLock.reassurance": "تا قفل را باز نکنید، کاتای‌تان پنهان می‌ماند.",
   "appLock.subtitle": "برای ادامه از اثر انگشت، شناسایی چهره یا رمز تلفن استفاده کنید.",
   "appLock.biometricOnlySubtitle": "برای ادامه از اثر انگشت استفاده کنید.",
   "appLock.legacyRecovery":
@@ -5016,6 +5020,8 @@ const ps: Record<Key, string> = {
   "appLock.auth.unlock": "د کاتا قلف خلاص کړئ",
   "appLock.auth.passcode": "د ټیلیفون پټ کوډ وکاروئ",
   "appLock.title": "کاتا قلف ده",
+  "appLock.protected": "په دې ټیلیفون کې قلف ده",
+  "appLock.reassurance": "تر څو یې قلف خلاص نه کړئ، ستاسو کاتا پټه پاتې کېږي.",
   "appLock.subtitle": "د دوام لپاره د ګوتې نښه، د مخ پېژندنه یا د ټیلیفون پټ کوډ وکاروئ.",
   "appLock.biometricOnlySubtitle": "د دوام لپاره د ګوتې نښه وکاروئ.",
   "appLock.legacyRecovery":
