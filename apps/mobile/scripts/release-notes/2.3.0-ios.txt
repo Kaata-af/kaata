@@ -1,0 +1,11 @@
+Kaata 2.3.0
+
+- Use multiple currencies in one kaata, with separate balances, customer currency defaults and simpler currency choices.
+- Share an account using Notify, Both can write, or Require approval. Choose how the other person can participate and receive updates.
+- Keep internal customer notes for your team, with author attribution and revision history.
+- Set credit limits for individual currencies or combine conditions across currencies, with optional notifications for owners and admins.
+- Enable app lock in Settings and unlock using Face ID, your fingerprint or your phone passcode.
+- Enjoy refreshed balance cards, easier search and filters, clearer settled accounts, and improved tally editing, dates and keyboard behavior.
+- Reminder links open the correct customer, and bills and exports support your multi-currency records. You can also send a balance-only message instead of a bill link.
+
+Thank you for using Kaata.

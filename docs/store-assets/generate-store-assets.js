@@ -20,7 +20,8 @@ function page(panel, format) {
   const scale = format.width / 1080;
   const artHeight = format.height / scale;
   const compact = artHeight < 1700;
-  const top = compact ? 370 : format.id === "iphone" ? 600 : 490;
+  const iphone = format.platform === "ios" && format.kind === "phone";
+  const top = compact ? 370 : iphone ? 600 : 490;
   const deviceHeight = artHeight - top - 82;
   const bezel = format.kind === "tablet" ? 12 : 11;
   const k = (deviceHeight - bezel * 2) / format.dpHeight;
@@ -34,7 +35,7 @@ html,body{width:${format.width}px;height:${format.height}px;overflow:hidden;back
 .brand-lockup{display:flex;align-items:center;gap:14px;font-size:42px;font-weight:800;white-space:nowrap;}
 .brand-lockup img{width:54px;height:54px;border-radius:14px;}
 .campaign-label{font-size:24px;font-weight:500;color:${P.muted};}
-.campaign-copy{position:absolute;top:${compact ? 135 : format.id === "iphone" ? 205 : 155}px;left:60px;right:60px;text-align:center;direction:rtl;}
+.campaign-copy{position:absolute;top:${compact ? 135 : iphone ? 205 : 155}px;left:60px;right:60px;text-align:center;direction:rtl;}
 .campaign-copy h1{font-size:${compact ? 58 : 72}px;line-height:1.5;font-weight:700;letter-spacing:0;}
 .campaign-copy em{color:${P.blue};font-style:normal;}
 .campaign-copy p{font-size:${compact ? 24 : 27}px;line-height:1.75;margin-top:${compact ? 12 : 20}px;color:${P.muted};}

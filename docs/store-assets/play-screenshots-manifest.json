@@ -1,0 +1,137 @@
+{
+  "locale": "en-US",
+  "sets": {
+    "phoneScreenshots": [
+      {
+        "fileName": "01-home.png",
+        "path": "docs/store-assets/screenshots/01-home.png",
+        "sha256": "03fc80405ec90ebd0c8ba7bdc8adbdee0acc31b22c971461cb6aa2d9e3a3d831",
+        "width": 1080,
+        "height": 1920
+      },
+      {
+        "fileName": "02-person-detail.png",
+        "path": "docs/store-assets/screenshots/02-person-detail.png",
+        "sha256": "130fe74876a17554d8471ac5e8f3add69060d87cb77703a80d90ebebfcab7658",
+        "width": 1080,
+        "height": 1920
+      },
+      {
+        "fileName": "03-add-entry.png",
+        "path": "docs/store-assets/screenshots/03-add-entry.png",
+        "sha256": "9e61a645508744663cecb9e3a35cf7b3cf159c27289fc6ab18e1e2a3d3b92720",
+        "width": 1080,
+        "height": 1920
+      },
+      {
+        "fileName": "04-search.png",
+        "path": "docs/store-assets/screenshots/04-search.png",
+        "sha256": "3067341f5d99154f968c7a28f690590c2329c282903da524b3e4daa7ae7220b7",
+        "width": 1080,
+        "height": 1920
+      },
+      {
+        "fileName": "05-app-lock.png",
+        "path": "docs/store-assets/screenshots/05-app-lock.png",
+        "sha256": "e90f437a50b9ac387df8fd1ac0a81d29b54faef7ac555d330d1fe1732e0bb785",
+        "width": 1080,
+        "height": 1920
+      },
+      {
+        "fileName": "06-reminder.png",
+        "path": "docs/store-assets/screenshots/06-reminder.png",
+        "sha256": "e8518f5b131baa44482c026d666a2474c7e2cb2ee1ccec17ee336ac758a58574",
+        "width": 1080,
+        "height": 1920
+      }
+    ],
+    "sevenInchScreenshots": [
+      {
+        "fileName": "01-home.png",
+        "path": "docs/store-assets/tablet-screenshots/7-inch/01-home.png",
+        "sha256": "ef97669d1a7597381733c101166248299c8fa7d45a270ce402f06f8b0a5f9fcf",
+        "width": 1260,
+        "height": 2240
+      },
+      {
+        "fileName": "02-person-detail.png",
+        "path": "docs/store-assets/tablet-screenshots/7-inch/02-person-detail.png",
+        "sha256": "3334bf83cafcef62c9a2e41a2acf2215ae813a4c5f30259508a2ea373a4030ea",
+        "width": 1260,
+        "height": 2240
+      },
+      {
+        "fileName": "03-add-entry.png",
+        "path": "docs/store-assets/tablet-screenshots/7-inch/03-add-entry.png",
+        "sha256": "bcfb2826a5374cfd5fa07aaa6c025b56d00a97e66c32310b20ce0fdfdd68295c",
+        "width": 1260,
+        "height": 2240
+      },
+      {
+        "fileName": "04-search.png",
+        "path": "docs/store-assets/tablet-screenshots/7-inch/04-search.png",
+        "sha256": "e8aa347a41b923bb3b6a4e2e9781ba0a690f933481c3682701a9ebdf8d44f63b",
+        "width": 1260,
+        "height": 2240
+      },
+      {
+        "fileName": "05-app-lock.png",
+        "path": "docs/store-assets/tablet-screenshots/7-inch/05-app-lock.png",
+        "sha256": "75c4fcad0f6a4beaf38f82d8a48110a0b218a0010117f645dc576dfe69929ae3",
+        "width": 1260,
+        "height": 2240
+      },
+      {
+        "fileName": "06-reminder.png",
+        "path": "docs/store-assets/tablet-screenshots/7-inch/06-reminder.png",
+        "sha256": "9e3444cab89f97c6533b9477466e1ed9faaf40f4105a98af9b38b9ff6ca212e3",
+        "width": 1260,
+        "height": 2240
+      }
+    ],
+    "tenInchScreenshots": [
+      {
+        "fileName": "01-home.png",
+        "path": "docs/store-assets/tablet-screenshots/10-inch/01-home.png",
+        "sha256": "782f717c6a51d5cfea7f6237ebbcaefcbc08becb58aa316fe2a3e225c33223fa",
+        "width": 1620,
+        "height": 2880
+      },
+      {
+        "fileName": "02-person-detail.png",
+        "path": "docs/store-assets/tablet-screenshots/10-inch/02-person-detail.png",
+        "sha256": "a69c4ac98ec155c51d831fe4844cc4a5d91229fb1b7ab685ac73b82e1aaa07bf",
+        "width": 1620,
+        "height": 2880
+      },
+      {
+        "fileName": "03-add-entry.png",
+        "path": "docs/store-assets/tablet-screenshots/10-inch/03-add-entry.png",
+        "sha256": "a95f242cd0988bf15a29310f8881f0cb1b02850b77e19d79fc90552a711b3899",
+        "width": 1620,
+        "height": 2880
+      },
+      {
+        "fileName": "04-search.png",
+        "path": "docs/store-assets/tablet-screenshots/10-inch/04-search.png",
+        "sha256": "6bca055591c93d693eec28e7917c476a87732b8294da476d47ca0f7b7fafa96a",
+        "width": 1620,
+        "height": 2880
+      },
+      {
+        "fileName": "05-app-lock.png",
+        "path": "docs/store-assets/tablet-screenshots/10-inch/05-app-lock.png",
+        "sha256": "5201472032b2dadd9acfe3f5e81d2302d401f5a1c17ff9fcdcb0b0f025f27430",
+        "width": 1620,
+        "height": 2880
+      },
+      {
+        "fileName": "06-reminder.png",
+        "path": "docs/store-assets/tablet-screenshots/10-inch/06-reminder.png",
+        "sha256": "906071ea87bcdad9fa4b41dd2e44defd5619813cf578660723ce9c1aa90e7484",
+        "width": 1620,
+        "height": 2880
+      }
+    ]
+  }
+}

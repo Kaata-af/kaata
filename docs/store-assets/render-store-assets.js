@@ -144,7 +144,10 @@ async function inspect(page) {
     };
     const checkLanguage = (value) => {
       const words = value.match(/[A-Za-z]+/g) || [];
-      if (words.some((word) => word !== "K")) latin.push(value.trim().slice(0, 160));
+      // Real app currency codes, calculator memory keys and its fixed English
+      // lock wordmark remain Latin even when the app language is Dari.
+      const appLatin = new Set(["K", "AFN", "USD", "AUD", "kaata", "AC", "MC", "MR", "M"]);
+      if (words.some((word) => !appLatin.has(word))) latin.push(value.trim().slice(0, 160));
     };
     const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
     while (walker.nextNode()) {
@@ -252,8 +255,8 @@ function previewHtml(items) {
     home: "حساب مشتری‌ها",
     "person-detail": "جزئیات حساب",
     "add-entry": "ثبت قرض و پرداخت",
-    search: "جستجو و انتخاب",
-    onboarding: "شروع ساده",
+    search: "جستجوی سریع",
+    "app-lock": "قفل اختیاری برنامه",
     reminder: "یادآوری حساب",
   };
   return `<!doctype html><html lang="fa" dir="rtl"><meta charset="utf-8">
@@ -320,7 +323,9 @@ async function makeReviews(browser, items) {
 
 async function render(filters = {}) {
   const { generate } = require("./generate-store-assets.js");
-  const manifest = await generate();
+  // The release refresh covers screenshots only. Preserve the existing store
+  // feature graphic and icon; their upload guards treat them independently.
+  const manifest = await generate({ only: require("./store-design.js").formats.map((f) => f.id) });
   validateManifest(manifest);
   const items = manifest.filter(
     (item) =>

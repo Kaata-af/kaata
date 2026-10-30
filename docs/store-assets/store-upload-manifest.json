@@ -1,0 +1,329 @@
+{
+  "schema": 1,
+  "version": "2.3.0",
+  "androidCode": 82,
+  "iosBuild": "48",
+  "testedSource": "4057d982b98b8a67c75d847a7be4998866433a94",
+  "contentLanguage": "fa-AF",
+  "storeLocale": "en-US",
+  "provenance": "Source-faithful promotional compositions using fictional data; not native device captures.",
+  "screenshotCount": 36,
+  "allPassed": true,
+  "pngBitDepth": 8,
+  "pngColorType": 2,
+  "validationSha256": "59006603202195924e3f21409d9eea2eb225974788a6a9149d6f3d2573b6e92c",
+  "formats": [
+    {
+      "id": "play-phone",
+      "platform": "android",
+      "width": 1080,
+      "height": 1920,
+      "screenshotDisplayType": null,
+      "imageType": "phoneScreenshots",
+      "images": [
+        {
+          "fileName": "01-home.png",
+          "path": "docs/store-assets/screenshots/01-home.png",
+          "sha256": "03fc80405ec90ebd0c8ba7bdc8adbdee0acc31b22c971461cb6aa2d9e3a3d831",
+          "width": 1080,
+          "height": 1920
+        },
+        {
+          "fileName": "02-person-detail.png",
+          "path": "docs/store-assets/screenshots/02-person-detail.png",
+          "sha256": "130fe74876a17554d8471ac5e8f3add69060d87cb77703a80d90ebebfcab7658",
+          "width": 1080,
+          "height": 1920
+        },
+        {
+          "fileName": "03-add-entry.png",
+          "path": "docs/store-assets/screenshots/03-add-entry.png",
+          "sha256": "9e61a645508744663cecb9e3a35cf7b3cf159c27289fc6ab18e1e2a3d3b92720",
+          "width": 1080,
+          "height": 1920
+        },
+        {
+          "fileName": "04-search.png",
+          "path": "docs/store-assets/screenshots/04-search.png",
+          "sha256": "3067341f5d99154f968c7a28f690590c2329c282903da524b3e4daa7ae7220b7",
+          "width": 1080,
+          "height": 1920
+        },
+        {
+          "fileName": "05-app-lock.png",
+          "path": "docs/store-assets/screenshots/05-app-lock.png",
+          "sha256": "e90f437a50b9ac387df8fd1ac0a81d29b54faef7ac555d330d1fe1732e0bb785",
+          "width": 1080,
+          "height": 1920
+        },
+        {
+          "fileName": "06-reminder.png",
+          "path": "docs/store-assets/screenshots/06-reminder.png",
+          "sha256": "e8518f5b131baa44482c026d666a2474c7e2cb2ee1ccec17ee336ac758a58574",
+          "width": 1080,
+          "height": 1920
+        }
+      ]
+    },
+    {
+      "id": "iphone",
+      "platform": "ios",
+      "width": 1206,
+      "height": 2622,
+      "screenshotDisplayType": "APP_IPHONE_61",
+      "imageType": null,
+      "images": [
+        {
+          "fileName": "01-home.png",
+          "path": "docs/store-assets/iphone-6.1/01-home.png",
+          "sha256": "5d52669594a0f9740779edd9a98b4108cf46f7f0198ffdb6de6a57691045b6de",
+          "width": 1206,
+          "height": 2622
+        },
+        {
+          "fileName": "02-person-detail.png",
+          "path": "docs/store-assets/iphone-6.1/02-person-detail.png",
+          "sha256": "f48c9bfc8d8289817029e1ac635f3d26226dc7127f2f0ca38ca2e27b67af465b",
+          "width": 1206,
+          "height": 2622
+        },
+        {
+          "fileName": "03-add-entry.png",
+          "path": "docs/store-assets/iphone-6.1/03-add-entry.png",
+          "sha256": "2e4775c1800f47f02ffffac8964780971149b1345287f1b2cd3681b6a0b85df2",
+          "width": 1206,
+          "height": 2622
+        },
+        {
+          "fileName": "04-search.png",
+          "path": "docs/store-assets/iphone-6.1/04-search.png",
+          "sha256": "b2532b9e29a06b90eb4063199e83dda8b286207c04ab8c2dc3914687b206bea8",
+          "width": 1206,
+          "height": 2622
+        },
+        {
+          "fileName": "05-app-lock.png",
+          "path": "docs/store-assets/iphone-6.1/05-app-lock.png",
+          "sha256": "522ed8b89d64a2e846e30363627dcb9917ba696e3a74a460d2c3074b8a245f0e",
+          "width": 1206,
+          "height": 2622
+        },
+        {
+          "fileName": "06-reminder.png",
+          "path": "docs/store-assets/iphone-6.1/06-reminder.png",
+          "sha256": "86a2470462d94af17e706019d86a0d8666074eda644394d67d3990d63c920843",
+          "width": 1206,
+          "height": 2622
+        }
+      ]
+    },
+    {
+      "id": "iphone-legacy",
+      "platform": "ios",
+      "width": 1284,
+      "height": 2778,
+      "screenshotDisplayType": "APP_IPHONE_65",
+      "imageType": null,
+      "images": [
+        {
+          "fileName": "01-home.png",
+          "path": "docs/store-assets/iphone-6.5/01-home.png",
+          "sha256": "3311ebf6d85f082d14e25ad7a84dbcd6c406b723a1f449e075be79d8a2e33b1d",
+          "width": 1284,
+          "height": 2778
+        },
+        {
+          "fileName": "02-person-detail.png",
+          "path": "docs/store-assets/iphone-6.5/02-person-detail.png",
+          "sha256": "944359d4f506432464473b4a491ec1104e22e9d42c4656a8008466d112d8a84b",
+          "width": 1284,
+          "height": 2778
+        },
+        {
+          "fileName": "03-add-entry.png",
+          "path": "docs/store-assets/iphone-6.5/03-add-entry.png",
+          "sha256": "f5fe44c60fe8317cd2d55ed7ae0f2b34733c8fa22285bf7b5415f90e2d4ab147",
+          "width": 1284,
+          "height": 2778
+        },
+        {
+          "fileName": "04-search.png",
+          "path": "docs/store-assets/iphone-6.5/04-search.png",
+          "sha256": "fe698a0442af1378cc30c5cb5b03767c7d4e92a6bdac0af19dc822e445e22f70",
+          "width": 1284,
+          "height": 2778
+        },
+        {
+          "fileName": "05-app-lock.png",
+          "path": "docs/store-assets/iphone-6.5/05-app-lock.png",
+          "sha256": "c0f20aba32cf418049473b6d940b26c3c23cde4aeb625f73e5d6c5b76b977b8f",
+          "width": 1284,
+          "height": 2778
+        },
+        {
+          "fileName": "06-reminder.png",
+          "path": "docs/store-assets/iphone-6.5/06-reminder.png",
+          "sha256": "6e66467421444b6608dfdd475e17eec5fb204f0396bd7ee14747f5bc97a0d57e",
+          "width": 1284,
+          "height": 2778
+        }
+      ]
+    },
+    {
+      "id": "tablet-7",
+      "platform": "android",
+      "width": 1260,
+      "height": 2240,
+      "screenshotDisplayType": null,
+      "imageType": "sevenInchScreenshots",
+      "images": [
+        {
+          "fileName": "01-home.png",
+          "path": "docs/store-assets/tablet-screenshots/7-inch/01-home.png",
+          "sha256": "ef97669d1a7597381733c101166248299c8fa7d45a270ce402f06f8b0a5f9fcf",
+          "width": 1260,
+          "height": 2240
+        },
+        {
+          "fileName": "02-person-detail.png",
+          "path": "docs/store-assets/tablet-screenshots/7-inch/02-person-detail.png",
+          "sha256": "3334bf83cafcef62c9a2e41a2acf2215ae813a4c5f30259508a2ea373a4030ea",
+          "width": 1260,
+          "height": 2240
+        },
+        {
+          "fileName": "03-add-entry.png",
+          "path": "docs/store-assets/tablet-screenshots/7-inch/03-add-entry.png",
+          "sha256": "bcfb2826a5374cfd5fa07aaa6c025b56d00a97e66c32310b20ce0fdfdd68295c",
+          "width": 1260,
+          "height": 2240
+        },
+        {
+          "fileName": "04-search.png",
+          "path": "docs/store-assets/tablet-screenshots/7-inch/04-search.png",
+          "sha256": "e8aa347a41b923bb3b6a4e2e9781ba0a690f933481c3682701a9ebdf8d44f63b",
+          "width": 1260,
+          "height": 2240
+        },
+        {
+          "fileName": "05-app-lock.png",
+          "path": "docs/store-assets/tablet-screenshots/7-inch/05-app-lock.png",
+          "sha256": "75c4fcad0f6a4beaf38f82d8a48110a0b218a0010117f645dc576dfe69929ae3",
+          "width": 1260,
+          "height": 2240
+        },
+        {
+          "fileName": "06-reminder.png",
+          "path": "docs/store-assets/tablet-screenshots/7-inch/06-reminder.png",
+          "sha256": "9e3444cab89f97c6533b9477466e1ed9faaf40f4105a98af9b38b9ff6ca212e3",
+          "width": 1260,
+          "height": 2240
+        }
+      ]
+    },
+    {
+      "id": "tablet-10",
+      "platform": "android",
+      "width": 1620,
+      "height": 2880,
+      "screenshotDisplayType": null,
+      "imageType": "tenInchScreenshots",
+      "images": [
+        {
+          "fileName": "01-home.png",
+          "path": "docs/store-assets/tablet-screenshots/10-inch/01-home.png",
+          "sha256": "782f717c6a51d5cfea7f6237ebbcaefcbc08becb58aa316fe2a3e225c33223fa",
+          "width": 1620,
+          "height": 2880
+        },
+        {
+          "fileName": "02-person-detail.png",
+          "path": "docs/store-assets/tablet-screenshots/10-inch/02-person-detail.png",
+          "sha256": "a69c4ac98ec155c51d831fe4844cc4a5d91229fb1b7ab685ac73b82e1aaa07bf",
+          "width": 1620,
+          "height": 2880
+        },
+        {
+          "fileName": "03-add-entry.png",
+          "path": "docs/store-assets/tablet-screenshots/10-inch/03-add-entry.png",
+          "sha256": "a95f242cd0988bf15a29310f8881f0cb1b02850b77e19d79fc90552a711b3899",
+          "width": 1620,
+          "height": 2880
+        },
+        {
+          "fileName": "04-search.png",
+          "path": "docs/store-assets/tablet-screenshots/10-inch/04-search.png",
+          "sha256": "6bca055591c93d693eec28e7917c476a87732b8294da476d47ca0f7b7fafa96a",
+          "width": 1620,
+          "height": 2880
+        },
+        {
+          "fileName": "05-app-lock.png",
+          "path": "docs/store-assets/tablet-screenshots/10-inch/05-app-lock.png",
+          "sha256": "5201472032b2dadd9acfe3f5e81d2302d401f5a1c17ff9fcdcb0b0f025f27430",
+          "width": 1620,
+          "height": 2880
+        },
+        {
+          "fileName": "06-reminder.png",
+          "path": "docs/store-assets/tablet-screenshots/10-inch/06-reminder.png",
+          "sha256": "906071ea87bcdad9fa4b41dd2e44defd5619813cf578660723ce9c1aa90e7484",
+          "width": 1620,
+          "height": 2880
+        }
+      ]
+    },
+    {
+      "id": "ipad",
+      "platform": "ios",
+      "width": 2048,
+      "height": 2732,
+      "screenshotDisplayType": "APP_IPAD_PRO_3GEN_129",
+      "imageType": null,
+      "images": [
+        {
+          "fileName": "01-home.png",
+          "path": "docs/store-assets/ipad-13/01-home.png",
+          "sha256": "4ae5e18abda673e6ae127f18cca921a35df04789c64ebcbccc9ab19feedcb831",
+          "width": 2048,
+          "height": 2732
+        },
+        {
+          "fileName": "02-person-detail.png",
+          "path": "docs/store-assets/ipad-13/02-person-detail.png",
+          "sha256": "b29dcc0b406aa35e662b0494eac27eea3adb57acf9b4548da32fd21557434d05",
+          "width": 2048,
+          "height": 2732
+        },
+        {
+          "fileName": "03-add-entry.png",
+          "path": "docs/store-assets/ipad-13/03-add-entry.png",
+          "sha256": "a1cae8328fb8137535ae2b6633edff77275f4216b1c92651694c95cfc0a03b6e",
+          "width": 2048,
+          "height": 2732
+        },
+        {
+          "fileName": "04-search.png",
+          "path": "docs/store-assets/ipad-13/04-search.png",
+          "sha256": "c0093039c76c6501af8bcf6a12e608ef62fff4070714ec8797bd8569c71d8a15",
+          "width": 2048,
+          "height": 2732
+        },
+        {
+          "fileName": "05-app-lock.png",
+          "path": "docs/store-assets/ipad-13/05-app-lock.png",
+          "sha256": "c225ef1a470bf057248cbf99fbb00e1ae6941193dd64482796fdf17b03e17303",
+          "width": 2048,
+          "height": 2732
+        },
+        {
+          "fileName": "06-reminder.png",
+          "path": "docs/store-assets/ipad-13/06-reminder.png",
+          "sha256": "2971290672592309a8a7353755706d08e39868af1ce93ce505b6dde98735fb53",
+          "width": 2048,
+          "height": 2732
+        }
+      ]
+    }
+  ]
+}

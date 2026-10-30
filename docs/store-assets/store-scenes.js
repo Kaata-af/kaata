@@ -1,231 +1,109 @@
-// Persian store artwork scenes, maintained against the mobile source.
-// Names, balances and notes below are fictional demonstration data. No customer
-// records, telephone numbers, live invite links or backend calls are used.
-// Product chrome stays neutral; entry actions use the app's apricot/sage tints.
-// Marketing panels own the blue accents. Displayed numerals stay Latin.
-
+// Kaata 2.3.0 / Android 82 / iOS 48 promotional compositions. These are
+// source-faithful HTML previews, NOT native captures. All displayed data is
+// fictional; no account, database, customer record or backend is accessed.
 const d = (n) => `calc(var(--k)*${n}px)`;
-const di = (n) => `calc(var(--k)*(${n}px + var(--ib)))`;
 
-function createScenes(S) {
-  const { app, ion, material, money, statusBar } = S;
-  const bar = (opts) => opts.bar ?? statusBar();
-  const header = (title) =>
-    `<div class="shdr scene-header"><div class="shdr-btn">${ion("chevron-forward", 26, app.textEmphasis)}</div><div class="shdr-title" dir="rtl">${title}</div><div class="shdr-btn"></div></div>`;
-  const divider = '<div class="div"></div>';
-  // The source uses native Stack presentation:"modal" for search/add-entry,
-  // exactly as for Add Customer. iOS supplies the card/backdrop; Android's
-  // modal occupies the viewport. No custom grabber exists in the app.
-  const modalBar = (opts) => (opts.platform === "ios" ? "" : bar(opts));
-  const nativeModal = (content, opts, underlying) =>
-    opts.platform === "ios"
-      ? `<div class="scene-native-modal"><div class="scene-modal-underlay">${underlying}</div><div class="scene-modal-dim"></div><div class="scene-modal-status">${statusBar(true)}</div><div class="scene-modal-card">${content}</div></div>`
-      : content;
-
+function createScenes({ app, ion, statusBar }) {
+  const I = (name, size = 22, color = app.textEmphasis) => ion(name, size, color);
+  const money = (value, currency = "AFN", tone = "") =>
+    `<span class="v-money ${tone}"><b>${value}</b><small>${currency}</small></span>`;
+  const wrap = (body, opts = {}, cls = "") =>
+    `<div class="v23 ${cls}">${opts.bar ?? statusBar()}${body}</div>`;
+  const header = (title, actions = true) =>
+    `<div class="v-nav"><span>${actions ? I("ellipsis-horizontal", 23) + I("logo-whatsapp", 24) : ""}</span><strong dir="rtl">${title}</strong>${I("chevron-forward", 25)}</div>`;
+  const homeNav = () =>
+    `<div class="v-home-nav"><span class="v-avatar">م</span>${I("notifications-outline", 23)}<div class="v-kaata" dir="rtl">کاتای من ${I("chevron-down", 16, app.textSubtle)}</div></div>`;
+  const indicator = () => '<div class="v-indicator"><i></i></div>';
+  function homeBalance(selected = false) {
+    return `<div class="v-home-balance"><div class="v-balance-cap"><b>AFN</b><span dir="rtl">مجموع حساب‌ها</span></div><div class="v-quotes"><div class="v-quote${selected ? " v-selected" : ""}"><div>${I("arrow-down-outline", 12, app.collectStrong)}<span>قابل وصول</span></div><b class="v-number v-green">25,850</b></div><div class="v-quote v-pay${selected ? " v-compact" : ""}"><div>${I("arrow-up-outline", selected ? 18 : 12, app.payStrong)}<span>قابل پرداخت</span></div>${selected ? "" : '<b class="v-number v-red">3,000</b>'}</div></div></div>${indicator()}`;
+  }
+  const people = [
+    ["احمد ولی", "2 ساعت پیش", "12,500", "green"],
+    ["گل رحمان", "دیروز", "8,750", "green"],
+    ["فاطمه نوری", "3 روز پیش", "3,200", "green"],
+    ["نصیر احمدزی", "1 هفته پیش", "1,400", "green"],
+    ["احمد رحیمی", "دیروز", "3,000", "red"],
+  ];
+  const row = ([name, when, value, tone], includeOther = true) =>
+    `<div class="v-person-row"><div class="v-row-balances">${money(value, "AFN", `v-${tone}`)}${includeOther && name === "احمد ولی" ? money("100", "USD", "v-green") : ""}</div><div dir="rtl"><strong>${name}</strong><small>${when}</small></div></div>`;
+  const homeDock = (query = "", filtered = false) =>
+    `<div class="v-home-dock"><div class="v-search">${I("search-outline", 20, app.textSubtle)}<span dir="rtl" class="${query ? "" : "v-muted"}">${query || "جستجوی مشتری‌ها"}</span>${query ? I("close", 17, app.textSubtle) : ""}</div>${filtered ? `<div class="v-filter-toggle">${I("options-outline", 22)}</div>` : `<div class="v-add">${I("add", 28, "#fff")}</div>`}</div>`;
   function screenHome(opts = {}) {
-    const rows = [
-      ["احمد ولی", "2 ساعت پیش", "12,500"],
-      ["گل رحمان", "دیروز", "8,750"],
-      ["فاطمه نوری", "3 روز پیش", "3,200"],
-      ["نصیر احمدزی", "1 هفته پیش", "1,400"],
-      ["نور محمد", "دیروز", null],
-      ["ذبیح‌الله", "3 روز پیش", null],
-    ];
-    const visibleRows = opts.compact ? rows.slice(0, 4) : rows;
-    return `<div class="home rtl store-ui">${bar(opts)}
-      <div class="hdr"><div class="hdr-title"><span class="shop" dir="rtl">مارکیت برادران</span>${ion("chevron-down", 16, app.textSubtle)}</div><div class="hdr-sp"></div><div class="bell">${ion("notifications-outline", 22, app.textEmphasis)}</div><div class="pchip">م</div></div>
-      <div class="tabs"><div class="tab tab-on">وصول</div><div class="tab">پرداخت</div></div>
-      <div class="total"><div class="total-lbl" dir="rtl">قابل وصول</div><div class="total-row">${money("25,850", "collect")}</div><div class="total-sub" dir="rtl">از 4 نفر</div></div>
-      <div class="card">${visibleRows.map(([name, when, amount]) => `<div class="prow"><div class="pleft"><div class="pname" dir="rtl">${name}</div><div class="psub" dir="rtl">${when}</div></div><div class="pamt">${amount ? money(amount) : ion("checkmark", 22, app.textSubtle)}</div></div>`).join(divider)}</div>
-      <div class="dock"><div class="dock-search">${ion("search-outline", 22, app.textSubtle)}<span class="ph" dir="rtl">جستجوی مشتری‌ها</span></div><div class="dock-add">${ion("add", 28, app.bg)}</div></div>
-    </div>`;
+    return wrap(
+      `${homeNav()}<section class="v-home-top">${homeBalance()}</section><div class="v-home-list"><div class="v-list">${people.map((person) => row(person)).join("")}</div><div class="v-settled" dir="rtl">${I("checkmark-done-outline", 17, app.textSubtle)}<span>حساب‌های تصفیه‌شده</span><small>2</small>${I("chevron-down", 16, app.textSubtle)}</div></div>${homeDock()}`,
+      opts,
+      "v-home",
+    );
   }
-
+  const action = (gave = false) =>
+    `<div class="v-action ${gave ? "v-gave" : "v-received"}"><span>${I(gave ? "arrow-up-outline" : "arrow-down-outline", 16, gave ? app.payStrong : app.entryActionReceivedText)}</span>${gave ? "دادم" : "گرفتم"}</div>`;
+  const customerDock = () =>
+    `<div class="v-customer-dock"><div class="v-actions">${action()}${action(true)}</div><div class="v-customer-search"><div class="v-search">${I("search-outline", 19, app.textSubtle)}<span dir="rtl" class="v-muted">جستجو: یادداشت یا مقدار</span></div><div class="v-filter-toggle">${I("calendar-outline", 23, app.textSubtle)}</div></div></div>`;
+  const tally = (gave, value, currency, note, when) =>
+    `<div class="v-tally"><span class="v-tally-icon ${gave ? "v-red-tile" : "v-green-tile"}">${I(gave ? "arrow-up-outline" : "arrow-down-outline", 19, gave ? app.payStrong : app.collectStrong)}</span><div class="v-tally-detail"><div class="v-tally-top">${money(value, currency)}<small dir="rtl">${when}</small></div>${note ? `<p dir="rtl">${note}</p>` : ""}</div></div>`;
   function screenPerson(opts = {}) {
-    const action = (kind, label, arrow) => {
-      const token = kind === "received" ? "entryActionReceived" : "entryActionGave";
-      return `<div class="abtn" data-entry-action="${kind}" style="background:${app[token]};color:${app[`${token}Text`]}"><span class="coin" style="background:${app[`${token}Coin`]}">${ion(arrow, 16, app[`${token}Text`])}</span><span>${label}</span></div>`;
-    };
-    const entry = (gave, amount, note, when) =>
-      `<div class="erow"><div class="etile" style="background:${gave ? app.payBg : app.collectBg}">${ion(gave ? "arrow-up-outline" : "arrow-down-outline", 16, gave ? app.payStrong : app.collectStrong)}</div><div class="emid"><div class="etop"><div class="eamt">${money(amount)}</div><div class="emeta"><span class="ewhen" dir="rtl">${when}</span></div></div>${note ? `<div class="enote" dir="rtl">${note}</div>` : ""}</div></div>`;
-    const flow = (label, amount) =>
-      `<div class="flow"><div class="flow-lbl" dir="rtl">${label}</div><div class="flow-amt">${amount}</div></div>`;
-    return `<div class="person rtl store-ui">${bar(opts)}
-      <div class="pnav"><div class="navbtn">${ion("chevron-forward", 26, app.textEmphasis)}</div><div class="pnav-actions"><div class="navwa">${ion("logo-whatsapp", 26, app.action)}</div><div class="navmore">${ion("ellipsis-horizontal", 22, app.textEmphasis)}</div></div></div>
-      <div class="pinfo"><div class="scene-identity"><div class="pd-namerow"><span class="pd-name" dir="rtl">احمد ولی</span>${material("verified", 20, app.sharedAccount)}</div><span class="scene-group" dir="rtl">مشتریان</span></div>
-        <div class="pd-overview"><div class="pd-balance"><div class="pd-chip" dir="rtl">از شما قرضدار</div><div class="pd-bal">${money("12,500", "collect")}</div></div><div class="pd-flows">${flow("دادم (2)", "15,000")}${flow("گرفتم (1)", "2,500")}</div></div>
-      </div>
-      <div class="ecard">${entry(true, "5,000", "روغن و برنج", "2 ساعت پیش")}${divider}${entry(false, "2,500", "", "دیروز")}${divider}${entry(true, "10,000", "آرد", "4 روز پیش")}</div>
-      <div class="pdock"><div class="pdock-row">${action("received", "گرفتم", "arrow-down-outline")}${action("gave", "دادم", "arrow-up-outline")}</div>
-        <div class="psearch"><div class="psearch-box">${ion("search-outline", 16, app.textSubtle)}<span dir="rtl">جستجو: یادداشت یا مقدار</span></div><div class="pdate">${ion("calendar-outline", 22, app.textSubtle)}</div></div>
-      </div>
-    </div>`;
+    return wrap(
+      `${header("احمد ولی")}<div class="v-customer-content"><div class="v-note"><div class="v-note-head">${I("create-outline", 18, app.textSubtle)}<span dir="rtl">${I("document-text-outline", 15, app.textSubtle)} یادداشت مشتری</span></div><p dir="rtl">پرداخت‌ها را هر شنبه بررسی کنید.</p><small dir="rtl">آخرین تغییر توسط مریم · امروز، 9:30</small></div><div class="v-person-balance"><div class="v-person-head">${money("12,500", "AFN", "v-green")}<span class="v-chip" dir="rtl">از شما قرضدار</span></div><div class="v-flow"><div><span dir="rtl">${I("arrow-down-outline", 12, app.entryActionReceivedText)} گرفتم (1)</span><b>2,500</b></div><div><span dir="rtl">${I("arrow-up-outline", 12, app.payStrong)} دادم (2)</span><b>15,000</b></div></div></div>${indicator()}<div class="v-list v-tallies">${tally(true, "5,000", "AFN", "روغن و برنج", "2 ساعت پیش")}${tally(false, "2,500", "AFN", "", "دیروز")}${tally(true, "10,000", "AFN", "آرد", "4 روز پیش")}${tally(true, "100", "USD", "خرید جنس", "1 هفته پیش")}</div></div>${customerDock()}`,
+      opts,
+      "v-person",
+    );
   }
-
-  // A valid add-entry state after the keyboard has been dismissed. Native
-  // keyboards differ by platform and user settings, so none is fabricated.
-  function screenEntry(opts = {}) {
-    const content = `<div class="entry rtl store-ui">${modalBar(opts)}${header("دادم")}
-      <div class="ebody"><div class="ectx"><div class="ectx-lbl" dir="rtl">به</div><div class="ectx-name" dir="rtl">احمد ولی</div></div>
-        <div class="fld"><div class="flbl" dir="rtl">مقدار (؋) <span class="req">*</span></div><div class="amtbox"><span class="amtnum">5000</span></div></div>
-        <div class="fld"><div class="flbl" dir="rtl">یادداشت</div><div class="notebox" dir="rtl">روغن و برنج</div></div>
-        <div class="scene-save-space"></div><div class="savebtn">ذخیره</div>
-      </div>
-    </div>`;
-    return nativeModal(content, opts, screenPerson({ bar: "" }));
-  }
-
-  function screenOnboarding(opts = {}) {
-    return `<div class="ob-screen rtl store-ui">${bar(opts)}
-      <div class="scene-ob-header" dir="rtl">کاتا.</div>
-      <div class="ob"><div class="ob-check">${ion("checkmark-circle-outline", 56, app.textEmphasis)}</div>
-        <div class="ob-title" dir="rtl">کاتای شما آماده است</div>
-        <div class="ob-body" dir="rtl">یک نفر را اضافه کنید و داد و گرفت‌تان را ثبت کنید. کاتا بیلانس را برای‌تان حساب می‌کند.</div>
-        <div class="ob-card">${ion("book-outline", 22, app.textSubtle)}<div class="scene-ob-name"><div class="scene-ob-label" dir="rtl">کاتای شما</div><div class="ob-shop" dir="rtl">مارکیت برادران</div></div></div>
-      </div><div class="ob-foot"><div class="herobtn">باز کردن کاتای من</div></div>
-    </div>`;
-  }
-
-  // SearchSheet with the keyboard dismissed and two matching contacts selected.
-  // Selected data: Ahmad Wali 15000−2500=12500 (2 gave / 1 received);
-  // Ahmad Rahimi 5000−6500=−1500 (2 gave / 2 received). Totals 20000−9000=11000.
   function screenSearch(opts = {}) {
-    const rows = [
-      ["احمد رحیمی", "دیروز", "−1,500", true, false],
-      ["احمد ولی", "2 ساعت پیش", "+12,500", true, true],
-      ["محمد احمد", "3 روز پیش", "+3,200", false, false],
-      ["نور احمد", "دیروز", null, false, false],
+    const matches = [
+      ["احمد ولی", "2 ساعت پیش", "12,500", "green"],
+      ["نصیر احمدزی", "1 هفته پیش", "1,400", "green"],
     ];
-    const metric = (label, amount, count, color) =>
-      `<div class="scene-metric"><div class="scene-metric-row"><span>${label}</span><span>معاملات</span></div><div class="scene-metric-row"><span class="scene-metric-money" style="color:${color}">${money(amount)}</span><span class="num">${count}</span></div></div>`;
-    const content = `<div class="scene-search rtl store-ui">${modalBar(opts)}${header("انتخاب مخاطبین")}
-      <div class="scene-search-controls"><div class="scene-query">${ion("search-outline", 22, app.textSubtle)}<span dir="rtl">احمد</span>${ion("close-circle", 16, app.textMuted)}</div><div class="scene-filter">${ion("options-outline", 22, app.textDefault)}</div></div>
-      <div class="scene-result-summary"><span dir="rtl">4 مشتری مطابق جستجو</span><span dir="rtl">پاک‌کردن همه</span></div>
-      <div class="card scene-results-card">${rows.map(([name, when, amount, selected, shared]) => `<div class="prow${selected ? " scene-selected" : ""}"><div class="scene-selection-mark${selected ? " on" : ""}">${selected ? ion("checkmark", 14, app.bg) : ""}</div><div class="pleft"><div class="scene-result-name"><span class="pname" dir="rtl">${name}</span>${shared ? material("verified", 16, app.sharedAccount) : ""}</div><div class="psub" dir="rtl">${when}</div></div><div class="pamt" style="color:${amount?.startsWith("−") ? app.payStrong : app.collectStrong}">${amount ? money(amount) : ion("checkmark", 22, app.textSubtle)}</div></div>`).join(divider)}</div>
-      <div class="scene-selection-footer"><div class="scene-selection-panel"><div class="scene-selection-header"><div class="scene-selection-close">${ion("close", 20, app.textEmphasis)}</div><span class="scene-selection-count" dir="rtl">2 انتخاب شده</span><div class="scene-select-all" dir="rtl">انتخاب همه نتایج</div></div>
-        <div class="scene-metrics">${metric("مجموع طلب", "20,000", 4, app.collectStrong)}${metric("مجموع قرض", "9,000", 3, app.payStrong)}</div>
-        <div class="scene-remaining"><span dir="rtl">طلب باقی‌مانده</span><span class="scene-remaining-amount">${money("11,000")}</span></div>
-        <div class="scene-selection-actions"><div class="scene-remove">${ion("trash-outline", 18, app.danger)}<span>برداشتن</span></div></div>
-      </div></div>
-    </div>`;
-    return nativeModal(content, opts, screenHome({ bar: "" }));
+    return wrap(
+      `${homeNav()}<section class="v-home-top">${homeBalance(true)}</section><div class="v-home-list"><div class="v-filter-summary"><span dir="rtl">پاک کردن همه فیلترها</span><small dir="rtl">2 مشتری مطابق</small></div><div class="v-filter-chips" dir="rtl"><span>فقط قابل وصول ${I("close", 13, app.textSubtle)}</span><span>AFN ${I("close", 13, app.textSubtle)}</span></div><div class="v-list">${matches.map((person) => row(person, false)).join("")}</div></div>${homeDock("احمد", true)}`,
+      opts,
+      "v-home",
+    );
   }
-
-  // Genuine personal ReminderEditor state, not a simulated WhatsApp chat.
-  // Scheduling alerts the kaata user; it does not send messages to a customer.
+  function calculator() {
+    const key = (label, cls = "") => `<span class="v-key ${cls}">${label}</span>`;
+    return `<div class="v-calculator"><div class="v-calc-tools"><span>( )</span><span>+/−</span><span>MC</span><span>MR</span>${I("time-outline", 18, app.textSubtle)}</div><div class="v-key-row">${key("AC", "v-utility")}${key("M+", "v-utility")}${key("M−", "v-utility")}${key(I("backspace-outline", 21), "v-utility")}</div><div class="v-key-row">${["%", "÷", "×", "−"].map((v) => key(v, "v-utility")).join("")}</div><div class="v-key-row">${["7", "8", "9", "+"].map((v) => key(v)).join("")}</div><div class="v-key-row">${["4", "5", "6"].map((v) => key(v)).join("")}${key("=", "v-equals")}</div><div class="v-key-bottom"><div><div class="v-key-row">${["1", "2", "3"].map((v) => key(v)).join("")}</div><div class="v-key-row">${key("0", "v-zero")}${key(".")}</div></div>${key(I("arrow-forward", 25), "v-next")}</div></div>`;
+  }
+  function screenEntry(opts = {}) {
+    const content = `<div class="v-entry-modal"><div class="v-entry-customer" dir="rtl"><small>به</small><strong>احمد ولی</strong></div><div class="v-entry-fields"><label dir="rtl">مقدار (AFN) <em>*</em></label><div class="v-amount-box"><div class="v-expression">3000+2000<span class="v-caret"></span>${I("backspace-outline", 18, app.textSubtle)}</div><div class="v-result"><span>؋ ${I("chevron-down", 13, app.textSubtle)}</span><b>= 5,000</b></div></div><label dir="rtl">یادداشت</label><div class="v-note-field" dir="rtl">روغن و برنج</div><div class="v-show-more" dir="rtl">نمایش بیشتر ${I("chevron-down", 14, app.textSubtle)}</div></div><div class="v-entry-bottom"><div class="v-save">ذخیره</div>${calculator()}</div></div>`;
+    return wrap(content, opts, `v-entry ${opts.platform === "ios" ? "v-ios-modal" : ""}`);
+  }
+  function screenLock(opts = {}) {
+    return wrap(
+      `<div class="v-lock-panel"><div class="v-lock-brand">kaata.</div><div class="v-lock-card"><div class="v-lock-status"><i></i>در این تلفن قفل است</div><div class="v-lock-icon">${I("shield-checkmark-outline", 40, app.entryActionReceivedText)}</div><h2 dir="rtl">کاتا قفل است</h2><p dir="rtl">برای ادامه از اثر انگشت، شناسایی چهره یا رمز تلفن استفاده کنید.</p><div class="v-save">${I("finger-print-outline", 19, "#fff")} باز کردن قفل</div>${opts.platform === "ios" ? `<div class="v-lock-passcode">${I("key-outline", 18)} استفاده از رمز تلفن</div>` : ""}<small dir="rtl">تا قفل را باز نکنید، کاتای‌تان پنهان می‌ماند.</small></div></div>`,
+      opts,
+      "v-lock",
+    );
+  }
   function screenReminder(opts = {}) {
-    const choices = (labels, selected) =>
+    const choices = (labels, chosen) =>
       labels
         .map(
           (label, i) =>
-            `<div class="scene-reminder-choice${i === selected ? " chosen" : ""}">${label}</div>`,
+            `<span class="v-choice${i === chosen ? " v-choice-on" : ""}">${label}</span>`,
         )
         .join("");
-    return `<div class="scene-reminder rtl store-ui">${bar(opts)}${header("یادآوری‌ها")}
-      <div class="scene-reminder-body"><p class="scene-reminder-hint" dir="rtl">فقط برای شما در این تلفن است. چیزی به مشتری فرستاده نمی‌شود.</p><div class="scene-reminder-name" dir="rtl">احمد ولی</div>
-        <div class="scene-reminder-editor"><div class="scene-reminder-choices">${choices(["یک‌بار", "هر روز", "هر هفته", "ماهانه"], 2)}</div>
-          <div class="scene-weekday"><div class="scene-reminder-caption" dir="rtl">روز هفته</div><div class="scene-reminder-caption" dir="rtl">هر روزی را که می‌خواهید انتخاب کنید.</div><div class="scene-reminder-choices">${choices(["شنبه", "یکشنبه", "دوشنبه", "سه‌شنبه", "چهارشنبه", "پنجشنبه", "جمعه"], 0)}</div></div>
-          <div class="scene-reminder-time" dir="rtl"><div class="scene-reminder-caption">وقت</div><div class="scene-reminder-clock"><bdi>4:00</bdi> ب.ظ</div></div>
-          <div class="scene-reminder-footer"><div class="savebtn">ذخیره</div><div class="scene-secondary">لغو</div></div>
-        </div><div class="scene-secondary">همه</div>
-      </div>
-    </div>`;
+    return wrap(
+      `${header("یادآوری‌ها", false)}<div class="v-reminder-body"><p class="v-reminder-hint" dir="rtl">فقط برای شما در این تلفن است. چیزی به مشتری فرستاده نمی‌شود.</p><h3 dir="rtl">احمد ولی</h3><div class="v-choices" dir="rtl">${choices(["یک‌بار", "هر روز", "هر هفته", "ماهانه"], 2)}</div><div class="v-reminder-caption" dir="rtl">روز هفته</div><p class="v-reminder-hint" dir="rtl">هر روزی را که می‌خواهید انتخاب کنید.</p><div class="v-choices v-weekdays" dir="rtl">${choices(["شنبه", "یکشنبه", "دوشنبه", "سه‌شنبه", "چهارشنبه", "پنجشنبه", "جمعه"], 0)}</div><div class="v-reminder-time"><small dir="rtl">وقت</small><strong dir="rtl"><bdi>4:00</bdi> ب.ظ</strong></div><div class="v-save">ذخیره</div><div class="v-secondary">لغو</div></div>`,
+      opts,
+      "v-reminder",
+    );
   }
-
-  return { screenHome, screenPerson, screenEntry, screenOnboarding, screenSearch, screenReminder };
+  return { screenHome, screenPerson, screenEntry, screenSearch, screenLock, screenReminder };
 }
 
-// App-only overrides. Append after the shared legacy app CSS so old marketing
-// palettes cannot leak into these current neutral screens.
 const SCENE_CSS = `
-.store-ui{background:#fff;}
-.store-ui .num{direction:ltr;unicode-bidi:isolate;}
-.store-ui .total-lbl,.store-ui .pd-chip,.store-ui .ectx-lbl,.store-ui .abtn{letter-spacing:0;}
-.store-ui .pname,.store-ui .psub,.store-ui .enote{line-height:1.65;}
-.store-ui .shop{line-height:1.6;overflow:hidden;text-overflow:ellipsis;}
-.store-ui .hdr-title{min-width:0;max-width:75%;}
-.store-ui .hdr-title .glyph{flex:none;}
-.store-ui .scene-header{flex-direction:row-reverse;}
-.store-ui .pnav,.store-ui .pnav-actions,.store-ui .pd-namerow,.store-ui .pd-overview,.store-ui .pd-bal,.store-ui .erow,.store-ui .etop,.store-ui .eamt,.store-ui .emeta,.store-ui .psearch,.store-ui .psearch-box{flex-direction:row-reverse;}
-.store-ui .navwa{margin-right:0;margin-left:${d(8)};}
-.store-ui .scene-identity{display:flex;flex-direction:row-reverse;align-items:center;justify-content:space-between;gap:${d(10)};}
-.store-ui .scene-group{padding:${d(3)} ${d(8)};font-size:${d(11)};line-height:1.6;border:1px solid #E2E2E2;border-radius:${d(8)};background:#F7F7F7;color:#616161;}
-.store-ui .pd-balance{text-align:right;}
-.store-ui .pd-chip{line-height:1.7;}
-.store-ui .pd-flows{flex:0 1 auto;max-width:50%;gap:${d(6)};}
-.store-ui .flow{display:flex;flex-direction:row-reverse;align-items:baseline;justify-content:space-between;gap:${d(10)};}
-.store-ui .flow-lbl{font-size:${d(12)};line-height:1.7;white-space:nowrap;}
-.store-ui .flow-amt{font-size:${d(15)};line-height:1.4;}
-.store-ui .etile{margin-right:0;margin-left:${d(12)};}
-.store-ui .pdock-row{direction:ltr;}
-.store-ui .pdock .abtn{line-height:${d(20)};box-shadow:0 ${d(3)} ${d(8)} rgba(0,0,0,.10);}
-.store-device.ios .store-ui .pdock .abtn{line-height:${d(24)};}
-.store-ui .enote{text-align:right;}
-.store-ui .ectx,.store-ui .flbl{text-align:right;}
-.store-ui .notebox{justify-content:flex-start;}
-.store-ui .scene-save-space{height:${d(24)};}
-.store-ui .scene-ob-header{width:100%;max-width:${d(480)};min-height:${d(60)};margin:0 auto;padding:${d(16)} ${d(24)};font-size:${d(16)};font-weight:600;text-align:right;}
-.store-ui .ob{top:calc(var(--sbar) + ${d(60)});left:50%;right:auto;transform:translateX(-50%);width:100%;max-width:${d(480)};bottom:${di(92)};padding:${d(24)};text-align:center;}
-.store-ui .ob-check{align-self:center;background:none;border:0;width:${d(56)};height:${d(56)};margin-bottom:${d(28)};}
-.store-ui .ob-title{font-size:${d(28)};line-height:1.6;color:#171717;font-weight:600;}
-.store-ui .ob-body{font-size:${d(14)};line-height:1.8;color:#616161;margin-top:${d(8)};}
-.store-ui .ob-card{flex-direction:row-reverse;text-align:right;margin-top:${d(28)};background:#F7F7F7;}
-.store-ui .scene-ob-name{flex:1;min-width:0;}
-.store-ui .scene-ob-label{font-size:${d(12)};color:#6B6B6B;margin-bottom:${d(2)};}
-.store-ui .ob-foot{left:50%;right:auto;transform:translateX(-50%);width:100%;max-width:${d(480)};padding:${d(16)} ${d(24)} ${di(24)};}
-.store-ui .herobtn{box-shadow:none;}
-.scene-search,.scene-reminder{position:absolute;inset:0;}
-.scene-native-modal{position:absolute;inset:0;background:#000;overflow:hidden;}
-.scene-modal-underlay{position:absolute;inset:${d(48)} 0 0;transform:scale(.94);transform-origin:top center;border-radius:${d(12)};overflow:hidden;}
-.scene-modal-dim{position:absolute;inset:0;background:rgba(0,0,0,.3);}
-.scene-modal-status{position:absolute;top:0;left:0;right:0;color:#fff;}
-.scene-modal-status .sbar{color:#fff!important;}
-.scene-modal-card{position:absolute;top:${d(68)};left:0;right:0;bottom:0;background:#fff;border-radius:${d(12)} ${d(12)} 0 0;overflow:hidden;}
-.scene-search-controls{display:flex;flex-direction:row-reverse;align-items:center;gap:${d(8)};padding:${d(12)} ${d(16)} ${d(8)};}
-.scene-query{display:flex;flex:1;min-width:0;align-items:center;flex-direction:row-reverse;gap:${d(8)};padding:0 ${d(12)};min-height:${d(48)};border:1px solid #E2E2E2;border-radius:${d(12)};font-size:${d(14)};}
-.scene-query>span:not(.glyph){flex:1;min-width:0;text-align:right;}
-.scene-filter{width:${d(44)};height:${d(44)};display:flex;align-items:center;justify-content:center;border:1px solid #E2E2E2;border-radius:${d(12)};flex:none;}
-.scene-result-summary{display:flex;flex-direction:row-reverse;align-items:center;justify-content:space-between;gap:${d(12)};min-height:${d(44)};padding:0 ${d(16)} ${d(8)};font-size:${d(13)};color:#616161;}
-.scene-result-summary>span:last-child{color:#292929;}
-.scene-results-card{margin-top:0;}
-.scene-search .scene-selected{background:#EFEFEF;}
-.scene-selection-mark{width:${d(22)};height:${d(22)};border:1.5px solid #6B6B6B;border-radius:50%;margin-left:${d(12)};display:flex;align-items:center;justify-content:center;flex:none;background:#fff;}
-.scene-selection-mark.on{border-color:#000;background:#000;}
-.scene-result-name{display:flex;flex-direction:row-reverse;gap:${d(5)};align-items:center;}
-.scene-search .pamt .num{color:inherit;}
-.scene-selection-footer{position:absolute;bottom:${di(8)};left:${d(16)};right:${d(16)};background:transparent;}
-.scene-selection-panel{background:#fff;border:1px solid #E2E2E2;border-radius:${d(16)};padding:${d(8)};box-shadow:0 ${d(6)} ${d(20)} rgba(0,0,0,.10);}
-.scene-selection-header{display:flex;flex-direction:row-reverse;align-items:center;gap:${d(8)};margin-bottom:${d(8)};}
-.scene-selection-close{width:${d(44)};height:${d(44)};border-radius:50%;background:#F7F7F7;display:flex;align-items:center;justify-content:center;flex:none;}
-.scene-selection-count{flex:1;font-size:${d(15)};font-weight:600;text-align:right;}
-.scene-select-all{min-height:${d(44)};display:flex;align-items:center;justify-content:center;border:1px solid #E2E2E2;border-radius:${d(12)};padding:0 ${d(12)};font-size:${d(13)};}
-.scene-metrics{display:flex;flex-direction:row-reverse;gap:${d(8)};}
-.scene-metric{flex:1;min-width:0;background:#F7F7F7;padding:${d(8)};border-radius:${d(12)};}
-.scene-metric-row{display:flex;flex-direction:row-reverse;align-items:baseline;justify-content:space-between;gap:${d(8)};font-size:${d(13)};color:#616161;line-height:1.7;}
-.scene-metric-row+ .scene-metric-row{margin-top:${d(4)};}
-.scene-metric-row>.num{font-size:${d(15)};}
-.scene-metric-money{display:flex;flex-direction:row-reverse;align-items:baseline;gap:${d(4)};}
-.scene-metric-money .num{font-size:${d(15)};font-weight:600;}
-.scene-metric-money .afn{font-size:${d(11)};}
-.scene-remaining{display:flex;flex-direction:row-reverse;align-items:baseline;justify-content:space-between;gap:${d(8)};padding:${d(12)} ${d(8)};font-size:${d(15)};font-weight:600;}
-.scene-remaining-amount{display:flex;flex-direction:row-reverse;align-items:baseline;gap:${d(4)};}
-.scene-remaining-amount .num{font-size:${d(17)};font-weight:700;}
-.scene-remaining-amount .afn{font-size:${d(11)};}
-.scene-selection-actions{border-top:1px solid #E2E2E2;padding-top:${d(8)};}
-.scene-remove{display:flex;flex-direction:row-reverse;justify-content:center;align-items:center;gap:${d(8)};min-height:${d(44)};border:1px solid #E2E2E2;border-radius:${d(12)};font-size:${d(13)};color:#DC2626;}
-.scene-reminder-body{padding:${d(20)};}
-.scene-reminder-hint{font-size:${d(13)};line-height:1.7;color:#616161;text-align:right;}
-.scene-reminder-name{font-size:${d(20)};font-weight:600;margin-top:${d(16)};text-align:right;}
-.scene-reminder-editor{padding:${d(12)} 0;margin-top:${d(16)};margin-bottom:${d(16)};}
-.scene-reminder-choices{display:flex;flex-direction:row-reverse;flex-wrap:wrap;gap:${d(10)};}
-.scene-reminder-choice{min-height:${d(44)};display:flex;justify-content:center;align-items:center;padding:${d(10)} ${d(12)};border:1px solid #E2E2E2;border-radius:${d(12)};font-size:${d(13)};}
-.scene-reminder-choice.chosen{border-color:#000;background:#F7F7F7;}
-.scene-weekday{margin-top:${d(20)};display:flex;flex-direction:column;gap:${d(10)};}
-.scene-reminder-caption{font-size:${d(12)};line-height:1.6;color:#616161;text-align:right;}
-.scene-reminder-time{padding:${d(16)} 0;border-bottom:1px solid #EFEFEF;}
-.scene-reminder-clock{font-size:${d(13)};margin-top:${d(6)};text-align:right;}
-.scene-reminder-footer{display:flex;flex-direction:column;gap:${d(12)};margin-top:${d(24)};}
-.scene-secondary{min-height:${d(44)};display:flex;justify-content:center;align-items:center;border:1px solid #E2E2E2;border-radius:${d(8)};font-size:${d(15)};font-weight:600;}
+.v23{position:absolute;inset:0;background:#fff;color:#171717;font-family:Vaz,sans-serif;}
+.v23 .glyph{vertical-align:middle;}.v23 strong{font-weight:600;}.v23 small{font-size:${d(12)};color:#616161;line-height:1.6;}.v23 p{line-height:1.65;}.v-muted{color:#6B6B6B;}
+.v-number,.v-money b{font-family:Mono,monospace;font-weight:600;direction:ltr;unicode-bidi:isolate;}.v-green{color:#0C745A;}.v-red{color:#A3203A;}.v-money{display:inline-flex;align-items:baseline;gap:${d(5)};direction:ltr;white-space:nowrap;}.v-money b{font-size:${d(15)};}.v-money small{font-size:${d(11)};font-weight:600;}
+.v-nav{height:${d(56)};padding:0 ${d(16)};display:flex;align-items:center;justify-content:space-between;gap:${d(10)};direction:ltr;}.v-nav>span{display:flex;align-items:center;gap:${d(18)};width:${d(68)};}.v-nav>strong{font-size:${d(18)};text-align:center;flex:1;}.v-nav>.glyph{margin-left:${d(42)};}
+.v-home-nav{height:${d(60)};padding:0 ${d(16)};display:flex;align-items:center;gap:${d(13)};direction:ltr;}.v-avatar{width:${d(34)};height:${d(34)};border-radius:50%;background:#E8EAF7;display:flex;align-items:center;justify-content:center;font-size:${d(16)};color:#39409B;}.v-kaata{margin-left:auto;display:flex;align-items:center;gap:${d(10)};border:1px solid #E2E2E2;border-radius:${d(12)};min-height:${d(40)};padding:0 ${d(12)};font-size:${d(17)};font-weight:600;}
+.v-home-top{padding:${d(4)} ${d(16)} ${d(12)};border-bottom:1px solid #EFEFEF;}.v-home-balance,.v-person-balance{border:1px solid #DBE4DF;border-radius:${d(12)};overflow:hidden;background:radial-gradient(ellipse at 0 0,#D0EBDD 0,transparent 70%),radial-gradient(ellipse at 100% 100%,#F8DCE2 0,transparent 65%),#fff;}.v-balance-cap{display:flex;align-items:center;justify-content:space-between;padding:${d(8)} ${d(14)};font-size:${d(12)};color:#616161;background:#ffffff35;}.v-balance-cap b{font-weight:600;}.v-quotes{display:flex;direction:ltr;}.v-quote{flex:1;min-width:0;padding:${d(12)} ${d(14)} ${d(15)};}.v-quote>div{display:flex;align-items:center;justify-content:space-between;gap:${d(6)};font-size:${d(11)};color:#616161;}.v-quote .v-number{display:block;font-size:${d(30)};line-height:1.4;margin-top:${d(13)};}.v-pay{border-left:1px solid #E2E2E2;}.v-indicator{height:${d(2)};margin-top:${d(8)};background:#E2E2E2;border-radius:10px;}.v-indicator i{display:block;height:100%;width:50%;background:#616161;}.v-selected{background:#E8F4EF;flex:3;}.v-compact{width:${d(80)};flex:none;padding:${d(18)} ${d(6)};}.v-compact>div{flex-direction:column;justify-content:center;gap:${d(9)};}.v-compact span{text-align:center;line-height:1.5;}
+.v-home-list{padding:${d(16)} ${d(16)} ${d(100)};}.v-list{border:1px solid #E2E2E2;border-radius:${d(12)};overflow:hidden;background:white;}.v-person-row{display:flex;align-items:center;justify-content:space-between;gap:${d(10)};padding:${d(14)};min-height:${d(70)};}.v-person-row+.v-person-row{border-top:1px solid #E2E2E2;}.v-person-row>div{text-align:right;}.v-row-balances{display:flex;flex-direction:column;align-items:flex-start;gap:calc(var(--k)*4px);}.v-person-row strong{display:block;font-size:${d(16)};line-height:1.65;}.v-person-row small{display:block;}.v-settled{display:flex;align-items:center;gap:${d(7)};margin-top:${d(18)};font-size:${d(12)};color:#616161;}.v-settled small{margin-right:auto;}
+.v-home-dock{position:absolute;bottom:0;left:0;right:0;padding:${d(12)} ${d(16)} calc(var(--k)*(20px + var(--ib)));display:flex;align-items:center;gap:${d(10)};background:#fff;border-top:1px solid #EFEFEF;}.v-search{display:flex;align-items:center;gap:${d(10)};min-width:0;flex:1;border:1px solid #E2E2E2;border-radius:${d(12)};height:${d(48)};padding:0 ${d(12)};}.v-search>span:not(.glyph){flex:1;font-size:${d(14)};text-align:right;}.v-add{width:${d(52)};height:${d(52)};border-radius:50%;background:#000;display:flex;align-items:center;justify-content:center;}.v-filter-toggle{width:${d(46)};height:${d(48)};border:1px solid #E2E2E2;border-radius:${d(12)};display:flex;align-items:center;justify-content:center;}
+.v-customer-content{padding:${d(4)} ${d(16)} ${d(160)};}.v-note{margin:${d(8)} 0 ${d(16)};padding:${d(12)};background:#F7F7F7;border:1px solid #E2E2E2;border-radius:${d(8)};}.v-note-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:${d(7)};}.v-note-head>span{font-size:${d(12)};color:#616161;}.v-note p{font-size:${d(14)};text-align:right;}.v-note>small{display:block;margin-top:${d(8)};font-size:${d(10)};text-align:right;}.v-person-head{padding:${d(15)} ${d(14)};display:flex;align-items:center;justify-content:space-between;gap:${d(8)};}.v-person-head .v-money{gap:${d(7)};}.v-person-head .v-money b{font-size:${d(34)};}.v-person-head .v-money small{font-size:${d(12)};}.v-chip{padding:${d(4)} ${d(8)};background:#E8F4EF;color:#0A5A46;border-radius:${d(8)};font-size:${d(11)};font-weight:600;white-space:nowrap;}.v-flow{display:flex;border-top:1px solid #E2E2E2;direction:ltr;}.v-flow>div{flex:1;padding:${d(10)} ${d(12)};}.v-flow>div+div{border-left:1px solid #E2E2E2;}.v-flow span{display:block;font-size:${d(12)};color:#616161;text-align:left;}.v-flow b{display:block;font:500 ${d(16)}/1.4 Mono;margin-top:${d(4)};direction:ltr;}.v-tallies{margin-top:${d(20)};}.v-tally{display:flex;align-items:flex-start;gap:${d(12)};padding:${d(13)};}.v-tally+.v-tally{border-top:1px solid #E2E2E2;}.v-tally-icon{width:${d(34)};height:${d(34)};border-radius:${d(8)};display:flex;align-items:center;justify-content:center;}.v-green-tile{background:#E8F4EF;}.v-red-tile{background:#F8EAEC;}.v-tally-detail{flex:1;min-width:0;}.v-tally-top{display:flex;align-items:center;justify-content:space-between;gap:${d(8)};}.v-tally-top>small{font-size:${d(11)};}.v-tally p{font-size:${d(13)};text-align:right;margin-top:${d(4)};}.v-customer-dock{position:absolute;left:0;right:0;bottom:0;padding:${d(12)} ${d(16)} calc(var(--k)*(20px + var(--ib)));background:#fff;border-top:1px solid #EFEFEF;}.v-actions{display:flex;gap:${d(10)};direction:ltr;}.v-action{flex:1;border-radius:${d(12)};min-height:${d(54)};display:flex;align-items:center;justify-content:center;gap:${d(8)};font-size:${d(15)};font-weight:600;box-shadow:0 ${d(3)} ${d(8)} #00000012;}.v-action>span{width:${d(26)};height:${d(26)};border-radius:50%;display:flex;align-items:center;justify-content:center;}.v-received{background:#E4EEE6;color:#3E6149;}.v-received>span{background:#CDDFD1;}.v-gave{background:#F8EAEC;color:#A3203A;}.v-gave>span{background:#F1DADE;}.v-customer-search{display:flex;gap:${d(8)};margin-top:${d(10)};}
+.v-filter-summary{display:flex;align-items:center;justify-content:space-between;gap:${d(10)};margin-bottom:${d(10)};font-size:${d(12)};}.v-filter-summary small{font-size:${d(11)};}.v-filter-chips{display:flex;gap:${d(8)};margin-bottom:${d(20)};}.v-filter-chips>span{display:flex;align-items:center;gap:${d(7)};padding:${d(6)} ${d(10)};border:1px solid #E2E2E2;border-radius:${d(30)};font-size:${d(12)};color:#616161;}
+.v-entry-modal{position:absolute;inset:var(--sbar) 0 0;background:#fff;}.v-ios-modal .v-entry-modal{top:${d(68)};border-radius:${d(24)} ${d(24)} 0 0;}.v-ios-modal{background:#D0D0D0;}.v-entry-customer{padding:${d(22)} ${d(20)} ${d(12)};text-align:right;}.v-entry-customer>*{display:block;}.v-entry-customer strong{font-size:${d(20)};line-height:1.6;}.v-entry-fields{padding:0 ${d(16)};}.v-entry-fields>label{display:block;text-align:right;font-size:${d(14)};font-weight:500;margin-top:${d(12)};margin-bottom:${d(8)};}.v-entry-fields em{color:#DC2626;font-style:normal;}.v-amount-box{border:1px solid #E2E2E2;border-radius:${d(12)};padding:${d(13)};}.v-expression{font:600 ${d(25)}/1.5 Mono;direction:ltr;display:flex;align-items:center;white-space:nowrap;}.v-expression>.glyph{margin-left:auto;}.v-caret{height:${d(30)};width:${d(2)};background:#6681D2;}.v-result{border-top:1px solid #EFEFEF;margin-top:${d(10)};padding-top:${d(9)};display:flex;align-items:center;justify-content:space-between;direction:ltr;}.v-result>span{font-size:${d(13)};color:#616161;}.v-result b{font:500 ${d(17)}/1.5 Mono;}.v-note-field{padding:${d(12)};border:1px solid #E2E2E2;border-radius:${d(12)};font-size:${d(14)};text-align:right;min-height:${d(55)};}.v-show-more{display:flex;align-items:center;justify-content:center;gap:${d(6)};margin-top:${d(12)};font-size:${d(12)};color:#616161;}.v-entry-bottom{position:absolute;bottom:0;left:0;right:0;}.v-save{min-height:${d(48)};padding:${d(10)} ${d(12)};border-radius:${d(10)};background:#000;color:#fff;display:flex;align-items:center;justify-content:center;font-size:${d(15)};font-weight:600;gap:${d(8)};}.v-entry-bottom>.v-save{margin:0 ${d(16)} ${d(10)};}.v-calculator{background:#F7F7F7;border-top:1px solid #EFEFEF;padding:${d(4)} ${d(8)} calc(var(--k)*(8px + var(--ib)));direction:ltr;}.v-calculator>*{max-width:calc(var(--k)*640px);margin-left:auto;margin-right:auto;}.v-calc-tools{display:flex;align-items:center;justify-content:space-around;height:${d(34)};font:500 ${d(12)}/1.4 Mono;color:#616161;}.v-key-row{display:flex;gap:${d(5)};margin-top:${d(5)};}.v-key{flex:1;min-width:0;display:flex;align-items:center;justify-content:center;min-height:${d(40)};border-radius:${d(7)};border:1px solid #EFEFEF;background:#fff;font:500 ${d(22)}/1.4 Mono;}.v-utility{background:#EFEFEF;border-color:#EFEFEF;font-size:${d(16)};}.v-equals{background:#000;color:#fff;border-color:#000;}.v-key-bottom{display:flex;gap:${d(5)};}.v-key-bottom>div{flex:3;min-width:0;}.v-next{background:#E8F4EF;margin-top:${d(5)};flex:1;}.v-zero{flex:2;}
+.v-lock-panel{position:absolute;left:50%;top:50%;transform:translate(-50%,-46%);width:calc(100% - ${d(40)});max-width:${d(420)};}.v-lock-brand{text-align:center;font-size:${d(16)};font-weight:600;margin-bottom:${d(20)};direction:ltr;}.v-lock-card{padding:${d(24)} ${d(24)} ${d(28)};text-align:center;border:1px solid #DBE4DF;border-radius:${d(16)};background:radial-gradient(ellipse at 0 0,#C9EEDB 0,transparent 55%),radial-gradient(ellipse at 100% 48%,#D7E7FF 0,transparent 60%),radial-gradient(ellipse at 100% 100%,#FFD6B8 0,transparent 45%),#F9FBFA;}.v-lock-status{display:inline-flex;align-items:center;justify-content:center;gap:${d(7)};padding:${d(5)} ${d(12)};border-radius:${d(30)};background:#E4EEE6;color:#3E6149;font-size:${d(12)};font-weight:500;}.v-lock-status i{width:${d(5)};height:${d(5)};background:#3E6149;border-radius:50%;}.v-lock-icon{margin:${d(28)} auto ${d(20)};width:${d(88)};height:${d(88)};border-radius:${d(30)};background:#FFFFFFB3;border:1px solid #fff;display:flex;align-items:center;justify-content:center;}.v-lock-card h2{font-size:${d(26)};line-height:1.6;font-weight:600;}.v-lock-card p{font-size:${d(15)};line-height:1.65;margin-top:${d(10)};color:#616161;}.v-lock-card .v-save{margin-top:${d(28)};min-height:${d(52)};box-shadow:0 ${d(10)} ${d(20)} #00000014;}.v-lock-card>small{display:block;font-size:${d(12)};line-height:1.7;margin-top:${d(20)};color:#3E6149;}.v-lock-passcode{margin-top:${d(12)};min-height:${d(44)};padding:${d(8)};border:1px solid #E2E2E2;background:#fff;border-radius:${d(10)};font-size:${d(14)};display:flex;align-items:center;justify-content:center;gap:${d(8)};}
+.v-reminder-body{padding:${d(20)};max-width:${d(620)};margin:auto;}.v-reminder-hint{font-size:${d(13)};color:#616161;text-align:right;line-height:1.7;}.v-reminder-body h3{font-size:${d(20)};font-weight:600;margin-top:${d(20)};margin-bottom:${d(20)};text-align:right;}.v-choices{display:flex;flex-wrap:wrap;gap:${d(10)};}.v-choice{padding:${d(9)} ${d(11)};min-height:${d(44)};display:flex;align-items:center;justify-content:center;border:1px solid #E2E2E2;border-radius:${d(12)};font-size:${d(13)};}.v-choice-on{border-color:#000;background:#F7F7F7;}.v-reminder-caption{font-size:${d(12)};color:#616161;margin-top:${d(24)};margin-bottom:${d(5)};text-align:right;}.v-weekdays{margin-top:${d(10)};}.v-reminder-time{border-bottom:1px solid #EFEFEF;padding:${d(20)} 0;text-align:right;}.v-reminder-time>*{display:block;}.v-reminder-time strong{font-size:${d(14)};font-weight:500;margin-top:${d(5)};}.v-reminder-body>.v-save{margin-top:${d(24)};}.v-secondary{min-height:${d(44)};margin-top:${d(12)};display:flex;align-items:center;justify-content:center;border:1px solid #E2E2E2;border-radius:${d(10)};font-size:${d(15)};}
 `;
-
 module.exports = { createScenes, SCENE_CSS };

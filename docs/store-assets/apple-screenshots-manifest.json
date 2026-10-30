@@ -1,0 +1,152 @@
+{
+  "locale": "en-US",
+  "sets": [
+    {
+      "screenshotDisplayType": "APP_IPHONE_61",
+      "width": 1206,
+      "height": 2622,
+      "images": [
+        {
+          "fileName": "01-home.png",
+          "path": "docs/store-assets/iphone-6.1/01-home.png",
+          "sha256": "5d52669594a0f9740779edd9a98b4108cf46f7f0198ffdb6de6a57691045b6de",
+          "width": 1206,
+          "height": 2622
+        },
+        {
+          "fileName": "02-person-detail.png",
+          "path": "docs/store-assets/iphone-6.1/02-person-detail.png",
+          "sha256": "f48c9bfc8d8289817029e1ac635f3d26226dc7127f2f0ca38ca2e27b67af465b",
+          "width": 1206,
+          "height": 2622
+        },
+        {
+          "fileName": "03-add-entry.png",
+          "path": "docs/store-assets/iphone-6.1/03-add-entry.png",
+          "sha256": "2e4775c1800f47f02ffffac8964780971149b1345287f1b2cd3681b6a0b85df2",
+          "width": 1206,
+          "height": 2622
+        },
+        {
+          "fileName": "04-search.png",
+          "path": "docs/store-assets/iphone-6.1/04-search.png",
+          "sha256": "b2532b9e29a06b90eb4063199e83dda8b286207c04ab8c2dc3914687b206bea8",
+          "width": 1206,
+          "height": 2622
+        },
+        {
+          "fileName": "05-app-lock.png",
+          "path": "docs/store-assets/iphone-6.1/05-app-lock.png",
+          "sha256": "522ed8b89d64a2e846e30363627dcb9917ba696e3a74a460d2c3074b8a245f0e",
+          "width": 1206,
+          "height": 2622
+        },
+        {
+          "fileName": "06-reminder.png",
+          "path": "docs/store-assets/iphone-6.1/06-reminder.png",
+          "sha256": "86a2470462d94af17e706019d86a0d8666074eda644394d67d3990d63c920843",
+          "width": 1206,
+          "height": 2622
+        }
+      ]
+    },
+    {
+      "screenshotDisplayType": "APP_IPHONE_65",
+      "width": 1284,
+      "height": 2778,
+      "images": [
+        {
+          "fileName": "01-home.png",
+          "path": "docs/store-assets/iphone-6.5/01-home.png",
+          "sha256": "3311ebf6d85f082d14e25ad7a84dbcd6c406b723a1f449e075be79d8a2e33b1d",
+          "width": 1284,
+          "height": 2778
+        },
+        {
+          "fileName": "02-person-detail.png",
+          "path": "docs/store-assets/iphone-6.5/02-person-detail.png",
+          "sha256": "944359d4f506432464473b4a491ec1104e22e9d42c4656a8008466d112d8a84b",
+          "width": 1284,
+          "height": 2778
+        },
+        {
+          "fileName": "03-add-entry.png",
+          "path": "docs/store-assets/iphone-6.5/03-add-entry.png",
+          "sha256": "f5fe44c60fe8317cd2d55ed7ae0f2b34733c8fa22285bf7b5415f90e2d4ab147",
+          "width": 1284,
+          "height": 2778
+        },
+        {
+          "fileName": "04-search.png",
+          "path": "docs/store-assets/iphone-6.5/04-search.png",
+          "sha256": "fe698a0442af1378cc30c5cb5b03767c7d4e92a6bdac0af19dc822e445e22f70",
+          "width": 1284,
+          "height": 2778
+        },
+        {
+          "fileName": "05-app-lock.png",
+          "path": "docs/store-assets/iphone-6.5/05-app-lock.png",
+          "sha256": "c0f20aba32cf418049473b6d940b26c3c23cde4aeb625f73e5d6c5b76b977b8f",
+          "width": 1284,
+          "height": 2778
+        },
+        {
+          "fileName": "06-reminder.png",
+          "path": "docs/store-assets/iphone-6.5/06-reminder.png",
+          "sha256": "6e66467421444b6608dfdd475e17eec5fb204f0396bd7ee14747f5bc97a0d57e",
+          "width": 1284,
+          "height": 2778
+        }
+      ]
+    },
+    {
+      "screenshotDisplayType": "APP_IPAD_PRO_3GEN_129",
+      "width": 2048,
+      "height": 2732,
+      "images": [
+        {
+          "fileName": "01-home.png",
+          "path": "docs/store-assets/ipad-13/01-home.png",
+          "sha256": "4ae5e18abda673e6ae127f18cca921a35df04789c64ebcbccc9ab19feedcb831",
+          "width": 2048,
+          "height": 2732
+        },
+        {
+          "fileName": "02-person-detail.png",
+          "path": "docs/store-assets/ipad-13/02-person-detail.png",
+          "sha256": "b29dcc0b406aa35e662b0494eac27eea3adb57acf9b4548da32fd21557434d05",
+          "width": 2048,
+          "height": 2732
+        },
+        {
+          "fileName": "03-add-entry.png",
+          "path": "docs/store-assets/ipad-13/03-add-entry.png",
+          "sha256": "a1cae8328fb8137535ae2b6633edff77275f4216b1c92651694c95cfc0a03b6e",
+          "width": 2048,
+          "height": 2732
+        },
+        {
+          "fileName": "04-search.png",
+          "path": "docs/store-assets/ipad-13/04-search.png",
+          "sha256": "c0093039c76c6501af8bcf6a12e608ef62fff4070714ec8797bd8569c71d8a15",
+          "width": 2048,
+          "height": 2732
+        },
+        {
+          "fileName": "05-app-lock.png",
+          "path": "docs/store-assets/ipad-13/05-app-lock.png",
+          "sha256": "c225ef1a470bf057248cbf99fbb00e1ae6941193dd64482796fdf17b03e17303",
+          "width": 2048,
+          "height": 2732
+        },
+        {
+          "fileName": "06-reminder.png",
+          "path": "docs/store-assets/ipad-13/06-reminder.png",
+          "sha256": "2971290672592309a8a7353755706d08e39868af1ce93ce505b6dde98735fb53",
+          "width": 2048,
+          "height": 2732
+        }
+      ]
+    }
+  ]
+}

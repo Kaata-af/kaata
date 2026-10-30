@@ -1,5 +1,23 @@
 # Play Store listing copy
 
+## Current 2.3.0 screenshots — October 30, 2026
+
+The refreshed six-panel campaign covers Home, the customer ledger and staff
+notes, tally calculations, inline search, optional app lock and reminders.
+It follows the tested Android 82 / iOS 48 UI, including separate currency
+balances, cherry pay controls and soft rose card glows. These are promotional
+compositions with fictional data, not native device captures.
+
+The 36 opaque RGB exports cover Play phone, 7-inch and 10-inch tablets;
+App Store medium iPhone, legacy large iPhone and iPad. Use the ordered
+`play-screenshots-manifest.json` and `apple-screenshots-manifest.json` under
+`docs/store-assets`; the original onboarding panel is no longer in active
+upload folders. See [the current asset guide](store-assets/README.md) for sizes,
+source references and validation. The campaign remains Persian with the
+existing white/blue design and yellow–blue–red footer. Existing feature graphic,
+icon and listing text are preserved. Historical campaign and upload records
+below describe earlier releases.
+
 Paste these into Play Console → Store presence → Main store listing. Keep the
 app positioned as a **record-keeping / ledger tool**, not a lender or payment
 app, to avoid the Personal Loans policy false-positive.

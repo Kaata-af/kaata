@@ -1,0 +1,7 @@
+Kaata 2.3.0
+
+- Keep separate balances for multiple currencies in one kaata.
+- Share accounts with Notify, Both can write, or Require approval.
+- Add customer notes with author history and configure per-currency or combined credit alerts.
+- Enable app lock with Face ID, fingerprint or phone passcode.
+- Improved tally editing, search, filters, settlements, reminders, bill sharing and exports, with refreshed cards and keyboard behavior.
