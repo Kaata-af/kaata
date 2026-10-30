@@ -1,3 +1,15 @@
+.workspace,
+.workspace-dialog {
+  /* Mirrored from src/theme.ts and the mobile app's surface/action roles. */
+  --workspace-balance-surface: #f6f9f7;
+  --workspace-balance-border: #dbe4df;
+  --workspace-gave-surface: #f8eaec;
+  --workspace-gave-ink: #a3203a;
+  --workspace-gave-border: #f1dade;
+  --workspace-received-surface: #e4eee6;
+  --workspace-received-ink: #3e6149;
+  --workspace-received-border: #cddfd1;
+}
 .workspace {
   min-height: 100dvh;
   display: grid;
@@ -268,15 +280,21 @@
 }
 .workspace-button.gave,
 .workspace-direction-toggle .gave {
-  color: #7e1b30;
-  background: #f8eaec;
-  border-color: #ebd1d6;
+  color: var(--workspace-gave-ink);
+  background: var(--workspace-gave-surface);
+  border-color: var(--workspace-gave-border);
 }
 .workspace-button.received,
 .workspace-direction-toggle .received {
-  color: #0a5a46;
-  background: #e8f4ef;
-  border-color: #c9e3d9;
+  color: var(--workspace-received-ink);
+  background: var(--workspace-received-surface);
+  border-color: var(--workspace-received-border);
+}
+.workspace-button.gave:hover:not(:disabled) {
+  background: var(--workspace-gave-border);
+}
+.workspace-button.received:hover:not(:disabled) {
+  background: var(--workspace-received-border);
 }
 .workspace-button.danger {
   color: white;
@@ -341,8 +359,8 @@
   align-items: center;
   gap: 14px;
   padding: 20px;
-  background: white;
-  border: 1px solid #e5e5e5;
+  background: var(--workspace-balance-surface);
+  border: 1px solid var(--workspace-balance-border);
   border-radius: 11px;
   min-width: 0;
 }
@@ -365,6 +383,12 @@
   font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
   max-width: 100%;
+}
+.workspace-summary-card:has(.workspace-direction.collect) strong {
+  color: #0c745a;
+}
+.workspace-summary-card:has(.workspace-direction.pay) strong {
+  color: #a3203a;
 }
 .workspace-summary-card small {
   font-size: 12px;

@@ -1,25 +1,10 @@
 import type { CSSProperties, ReactNode } from "react";
 import { useI18n } from "../lib/i18n";
 
-// Visual mockups of the mobile app shown on the landing page. They mirror the
-// current home screen (apps/mobile/app/index.tsx) as closely as a static render
-// can: the kaata-name switcher with the bell and profile chip, the black
-// segmented tabs, the hero total, one bordered people card and the bottom dock
-// (Sort & filter, customer search, the black add button). All copy flows
-// through useI18n() so the screens flip to Dari with the page.
-//
-// Fidelity rules that make these read like the real app:
-//   1. The app's own chrome is neutral black/white/gray, so the screens use the
-//      app palette below, matching the site's neutral chrome. Only money
-//      direction (collect green) is colored inside the phone.
-//   2. UI text renders in Vazirmatn, the app's face in English too; amounts use
-//      JetBrains Mono and stay Western digits in BOTH languages (formatAmount()
-//      uses toLocaleString("en-US")).
-//   3. The currency label is the AFN symbol "؋" (getCurrentCurrencySymbol()),
-//      not the letters "AFN", in every language.
-//   4. Dari mirrors each ROW the way the app's rowDir()/textDir() do (titles and
-//      names on the right, amounts on the left), while the screen stays
-//      LTR-locked: To collect stays the left tab and the add button stays right.
+// Localized app previews with fictional demo data. Follow the current mobile
+// balance cards, mixed-currency rows and entry actions. These are responsive
+// illustrations rather than native screen captures. Amounts retain Western
+// digits, while text and row direction follow the reader's language.
 const CURRENCY = "؋";
 
 // Mirror of apps/mobile/lib/colors.ts (actionPrimary, bgDefault, bgMuted,
@@ -33,7 +18,21 @@ const APP = {
   text: "#292929",
   subtle: "#616161",
   faint: "#6B6B6B",
+  balance: "#F6F9F7",
+  balanceBorder: "#DBE4DF",
+  collect: "#0C745A",
+  collectBg: "#E8F4EF",
+  pay: "#A3203A",
+  payBg: "#F8EAEC",
+  receivedBg: "#E4EEE6",
+  receivedText: "#3E6149",
 } as const;
+
+const BALANCE_SURFACE: CSSProperties = {
+  background:
+    "radial-gradient(ellipse at 0% 0%, #D0EBDD 0%, transparent 72%), radial-gradient(ellipse at 100% 100%, #F8DCE2 0%, transparent 68%), #F6F9F7",
+  borderColor: APP.balanceBorder,
+};
 
 const APP_FONT: CSSProperties = { fontFamily: '"Vazirmatn", system-ui, sans-serif' };
 
@@ -43,6 +42,7 @@ const APP_FONT: CSSProperties = { fontFamily: '"Vazirmatn", system-ui, sans-seri
 const textDir = (isRTL: boolean) => (isRTL ? "rtl" : undefined);
 
 function PhoneFrame({ children }: { children: ReactNode }) {
+  const { t } = useI18n();
   return (
     // dir="ltr": the mockups depict the mobile app, which is deliberately
     // locked LTR (see the app's I18nManager architecture) — they must not
@@ -50,6 +50,8 @@ function PhoneFrame({ children }: { children: ReactNode }) {
     // app mirrors for Dari are mirrored explicitly below.
     <div
       dir="ltr"
+      role="img"
+      aria-label={t("mock.preview.label")}
       className="relative w-[284px] max-w-full aspect-[284/580] bg-white rounded-[2.25rem] border-[7px] border-[#111111] shadow-[0_20px_50px_-15px_rgba(0,0,0,0.18)] overflow-hidden flex flex-col"
     >
       {/* Pill notch — purely decorative */}
@@ -86,17 +88,6 @@ function BellIcon(props: IconProps) {
         {...STROKE}
         d="M427.68 351.43C402 320 383.87 304 383.87 217.35 383.87 138 343.35 109.73 310 96c-4.43-1.82-8.6-6-9.95-10.55C294.2 65.54 277.8 48 256 48s-38.21 17.55-44 37.47c-1.35 4.6-5.52 8.71-9.95 10.53-33.39 13.75-73.87 41.92-73.87 121.35C128.13 304 110 320 84.32 351.43 73.68 364.45 83 384 101.61 384h308.88c18.51 0 27.77-19.61 17.19-32.57zM320 384v16a64 64 0 01-128 0v-16"
       />
-    </svg>
-  );
-}
-
-function OptionsIcon(props: IconProps) {
-  return (
-    <svg viewBox="0 0 512 512" aria-hidden="true" {...props}>
-      <path {...STROKE} d="M368 128h80M64 128h240M368 384h80M64 384h240M208 256h240M64 256h80" />
-      <circle {...STROKE} cx="336" cy="128" r="32" />
-      <circle {...STROKE} cx="176" cy="256" r="32" />
-      <circle {...STROKE} cx="336" cy="384" r="32" />
     </svg>
   );
 }
@@ -155,10 +146,13 @@ function AppHeader({ badge }: { badge?: ReactNode }) {
   const initial = Array.from(t("mock.self.name"))[0] ?? "";
   return (
     <div className={`flex items-center px-3 pt-3 pb-2.5 ${isRTL ? "flex-row-reverse" : ""}`}>
-      <div className={`flex min-w-0 items-center gap-[3px] ${isRTL ? "flex-row-reverse" : ""}`}>
+      <div
+        className={`flex min-w-0 items-center gap-2 rounded-[9px] border px-2 py-1.5 ${isRTL ? "flex-row-reverse" : ""}`}
+        style={{ borderColor: APP.border }}
+      >
         <span
           dir={textDir(isRTL)}
-          className="truncate text-[19px] font-bold leading-snug"
+          className="truncate text-[13px] font-semibold leading-snug"
           style={{ color: APP.emphasis }}
         >
           {t("mock.self.shop")}
@@ -170,7 +164,7 @@ function AppHeader({ badge }: { badge?: ReactNode }) {
       <BellIcon className="h-[15px] w-[15px] shrink-0" style={{ color: APP.emphasis }} />
       <span
         className={`flex h-[25px] w-[25px] shrink-0 items-center justify-center rounded-full text-[11px] font-bold ${isRTL ? "mr-2.5" : "ml-2.5"}`}
-        style={{ background: APP.muted, color: APP.emphasis }}
+        style={{ background: "#E8EAF7", color: "#39409B" }}
       >
         {initial}
       </span>
@@ -194,75 +188,87 @@ function OfflineBadge() {
   );
 }
 
-function Tabs({ active }: { active: "collect" | "pay" }) {
-  const { t } = useI18n();
-  // Not mirrored in Dari: the tabs track the LTR-locked swipe rail.
+function DirectionArrow({ up, className }: { up?: boolean; className?: string }) {
   return (
-    <div
-      className="flex rounded-[6px] border p-[3px]"
-      style={{ background: APP.muted, borderColor: APP.border }}
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      className={className}
     >
-      {(["collect", "pay"] as const).map((key) => (
-        <div
-          key={key}
-          className={`flex h-[30px] flex-1 items-center justify-center rounded-[5px] text-[10.5px] ${
-            key === active ? "font-semibold" : "font-medium"
-          }`}
-          style={
-            key === active ? { background: APP.action, color: APP.surface } : { color: APP.text }
-          }
-        >
-          {t(key === "collect" ? "home.tab.collect" : "home.tab.pay")}
-        </div>
-      ))}
-    </div>
+      <path d={up ? "M12 20V4m-6 6 6-6 6 6" : "M12 4v16m-6-6 6 6 6-6"} />
+    </svg>
   );
 }
 
-function Total({ amount, count }: { amount: string; count: number }) {
+function BalanceCard() {
   const { t, isRTL } = useI18n();
   return (
-    <div className={`mt-3 px-3 ${isRTL ? "text-right" : ""}`}>
-      <p
-        dir={textDir(isRTL)}
-        className={`text-[9px] font-semibold ${isRTL ? "" : "uppercase tracking-[0.06em]"}`}
-        style={{ color: APP.subtle }}
+    <div className="mx-3 mt-1 overflow-hidden rounded-[11px] border" style={BALANCE_SURFACE}>
+      <div
+        className="flex items-center justify-between border-b px-2.5 py-1.5 text-[9px]"
+        style={{ borderColor: APP.balanceBorder, color: APP.subtle }}
       >
-        {t("home.total.label.collect")}
-      </p>
-      <div className={`mt-1 flex items-baseline gap-1.5 ${isRTL ? "flex-row-reverse" : ""}`}>
-        <span className="font-mono text-[28px] font-bold leading-none -tracking-[0.02em] text-collect-strong">
-          {amount}
+        <span className="font-semibold" dir="ltr">
+          AFN
         </span>
-        <span className="text-[11px] font-medium" style={{ color: APP.faint }}>
-          {CURRENCY}
-        </span>
+        <span dir={textDir(isRTL)}>{t("mock.balance.title")}</span>
       </div>
-      <p dir={textDir(isRTL)} className="mt-1 text-[10px]" style={{ color: APP.subtle }}>
-        {t("home.from.many", { count })}
-      </p>
+      <div className="grid grid-cols-2">
+        {(
+          [
+            { key: "collect", amount: "5,800", color: APP.collect, up: false },
+            { key: "pay", amount: "420", color: APP.pay, up: true },
+          ] as const
+        ).map((side) => (
+          <div
+            key={side.key}
+            className={`min-w-0 px-2.5 pb-3 pt-2 ${side.up ? "border-l" : ""}`}
+            style={{ borderColor: APP.balanceBorder }}
+          >
+            <div
+              className={`flex items-center justify-between gap-1 text-[9px] ${isRTL ? "flex-row-reverse" : ""}`}
+              style={{ color: APP.subtle }}
+            >
+              <span dir={textDir(isRTL)}>
+                {t(side.up ? "mock.balance.pay" : "home.total.label.collect")}
+              </span>
+              <DirectionArrow up={side.up} className="h-3 w-3 shrink-0" />
+            </div>
+            <p
+              className="mt-3 font-mono text-[25px] font-semibold leading-none tracking-tight"
+              style={{ color: side.color }}
+              dir="ltr"
+            >
+              {side.amount}
+            </p>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
 
-type Row = { name: string; amount: number; sub: string };
+type Row = { name: string; balances: { amount: number; currency: string }[]; sub: string };
 
 function PeopleCard({ rows }: { rows: Row[] }) {
   const { isRTL } = useI18n();
   return (
     <div
-      className="mx-3 mt-3.5 overflow-hidden rounded-[9px] border bg-white"
+      className="mx-3 mt-3 overflow-hidden rounded-[10px] border bg-white"
       style={{ borderColor: APP.border }}
     >
       {rows.map((row, index) => (
         <div
           key={row.name}
-          className={`flex items-center px-2.5 py-[9px] ${isRTL ? "flex-row-reverse" : ""} ${
-            index > 0 ? "border-t" : ""
-          }`}
+          className={`flex items-center gap-2 px-2.5 py-2 ${isRTL ? "flex-row-reverse" : ""} ${index > 0 ? "border-t" : ""}`}
           style={{ borderColor: APP.border }}
         >
-          <div className={`min-w-0 flex-1 ${isRTL ? "ml-2 text-right" : "mr-2"}`}>
+          <div className={`min-w-0 flex-1 ${isRTL ? "text-right" : ""}`}>
             <p
               dir={textDir(isRTL)}
               className="truncate text-[12px] font-semibold"
@@ -270,17 +276,25 @@ function PeopleCard({ rows }: { rows: Row[] }) {
             >
               {row.name}
             </p>
-            <p dir={textDir(isRTL)} className="mt-px text-[9.5px]" style={{ color: APP.subtle }}>
+            <p dir={textDir(isRTL)} className="mt-0.5 text-[9px]" style={{ color: APP.subtle }}>
               {row.sub}
             </p>
           </div>
-          <div className={`flex shrink-0 items-baseline gap-1 ${isRTL ? "flex-row-reverse" : ""}`}>
-            <span className="font-mono text-[12px] font-semibold" style={{ color: APP.emphasis }}>
-              {row.amount.toLocaleString("en-US")}
-            </span>
-            <span className="text-[9px] font-medium" style={{ color: APP.faint }}>
-              {CURRENCY}
-            </span>
+          <div className={`flex shrink-0 flex-col gap-1 ${isRTL ? "items-start" : "items-end"}`}>
+            {row.balances.map((balance) => (
+              <div key={balance.currency} dir="ltr" className="flex items-baseline gap-1">
+                <span
+                  className="font-mono text-[11px] font-semibold"
+                  style={{ color: balance.amount < 0 ? APP.pay : APP.collect }}
+                >
+                  {balance.amount < 0 ? "−" : "+"}
+                  {Math.abs(balance.amount).toLocaleString("en-US")}
+                </span>
+                <span className="text-[8px] font-medium" style={{ color: APP.faint }}>
+                  {balance.currency}
+                </span>
+              </div>
+            ))}
           </div>
         </div>
       ))}
@@ -319,22 +333,16 @@ function AppToast({ title, sub }: { title: string; sub: string }) {
   );
 }
 
-// Bottom dock: Sort & filter stays left and add stays right in both languages;
-// only the search field's contents mirror in Dari.
+// The default home dock keeps search and the black add action in a fixed row.
 function Dock() {
   const { t, isRTL } = useI18n();
   return (
-    <div className="flex items-center gap-1.5 px-3 pb-3.5">
+    <div
+      className="flex items-center gap-2 border-t px-3 pb-3.5 pt-2.5"
+      style={{ borderColor: "#EFEFEF" }}
+    >
       <div
-        className="flex h-9 w-[30px] shrink-0 items-center justify-center rounded-[8px] border bg-white"
-        style={{ borderColor: APP.border, color: APP.text }}
-      >
-        <OptionsIcon className="h-[15px] w-[15px]" />
-      </div>
-      <div
-        className={`flex h-9 min-w-0 flex-1 items-center gap-1.5 rounded-[8px] border bg-white px-1.5 ${
-          isRTL ? "flex-row-reverse" : ""
-        }`}
+        className={`flex h-9 min-w-0 flex-1 items-center gap-2 rounded-[9px] border bg-white px-2 ${isRTL ? "flex-row-reverse" : ""}`}
         style={{ borderColor: APP.border }}
       >
         <SearchIcon className="h-[15px] w-[15px] shrink-0" style={{ color: APP.subtle }} />
@@ -356,21 +364,26 @@ function Dock() {
   );
 }
 
-function HomeScreen(props: {
-  total: string;
-  count: number;
-  rows: Row[];
-  badge?: ReactNode;
-  toast?: { title: string; sub: string };
-}) {
+function HomeScreen(props: { rows: Row[]; toast?: { title: string; sub: string } }) {
+  const { t, isRTL } = useI18n();
   return (
-    <div className="flex flex-1 flex-col" style={APP_FONT}>
-      <AppHeader badge={props.badge} />
-      <div className="px-3">
-        <Tabs active="collect" />
+    <div className="flex min-h-0 flex-1 flex-col" style={APP_FONT}>
+      <AppHeader />
+      <BalanceCard />
+      <div className="mx-3 mt-1.5 h-px bg-neutral-200">
+        <div className="h-px w-1/2 bg-neutral-500" />
       </div>
-      <Total amount={props.total} count={props.count} />
       <PeopleCard rows={props.rows} />
+      <div
+        className={`mx-3 mt-3 flex items-center gap-1.5 text-[9px] ${isRTL ? "flex-row-reverse" : ""}`}
+        style={{ color: APP.subtle }}
+      >
+        <span aria-hidden="true">✓✓</span>
+        <span dir={textDir(isRTL)}>{t("mock.settled")}</span>
+        <span className="flex-1" />
+        <span>2</span>
+        <ChevronDownIcon className="h-2.5 w-2.5" />
+      </div>
       <div className="mt-auto pt-3">
         {props.toast ? <AppToast title={props.toast.title} sub={props.toast.sub} /> : null}
         <Dock />
@@ -382,10 +395,29 @@ function HomeScreen(props: {
 function useSampleRows(): Row[] {
   const { t } = useI18n();
   return [
-    { name: t("mock.name.mahmood"), amount: 3800, sub: t("format.daysAgo", { n: 2 }) },
-    { name: t("mock.name.ahmad"), amount: 1250, sub: t("format.yesterday") },
-    { name: t("mock.name.sultan"), amount: 750, sub: t("format.daysAgo", { n: 3 }) },
-    { name: t("mock.name.wahid"), amount: 420, sub: t("format.weeksAgo", { n: 1 }) },
+    {
+      name: t("mock.name.mahmood"),
+      balances: [
+        { amount: 3800, currency: "AFN" },
+        { amount: 100, currency: "USD" },
+      ],
+      sub: t("format.daysAgo", { n: 2 }),
+    },
+    {
+      name: t("mock.name.ahmad"),
+      balances: [{ amount: 1250, currency: "AFN" }],
+      sub: t("format.yesterday"),
+    },
+    {
+      name: t("mock.name.sultan"),
+      balances: [{ amount: 750, currency: "AFN" }],
+      sub: t("format.daysAgo", { n: 3 }),
+    },
+    {
+      name: t("mock.name.wahid"),
+      balances: [{ amount: -420, currency: "AFN" }],
+      sub: t("format.weeksAgo", { n: 1 }),
+    },
   ];
 }
 
@@ -393,7 +425,7 @@ export function PhoneMockupHome() {
   const rows = useSampleRows();
   return (
     <PhoneFrame>
-      <HomeScreen total="6,220" count={4} rows={rows} />
+      <HomeScreen rows={rows} />
     </PhoneFrame>
   );
 }
@@ -486,8 +518,6 @@ export function PhoneMockupRestore() {
   return (
     <PhoneFrame>
       <HomeScreen
-        total="6,220"
-        count={4}
         rows={rows}
         toast={{ title: t("mock.restored.title"), sub: t("mock.restored.sub") }}
       />
@@ -496,17 +526,160 @@ export function PhoneMockupRestore() {
 }
 
 export function PhoneMockupOffline() {
-  const { t } = useI18n();
-  const rows = useSampleRows().slice(0, 3);
+  const { t, isRTL } = useI18n();
+  const tallies = [
+    { amount: "500", gave: false, when: t("mock.today"), note: t("mock.payment") },
+    { amount: "750", gave: true, when: t("format.yesterday"), note: t("mock.supplies") },
+    { amount: "1,000", gave: true, when: t("format.daysAgo", { n: 3 }), note: t("mock.goods") },
+  ];
   return (
     <PhoneFrame>
-      <HomeScreen
-        total="5,800"
-        count={3}
-        rows={rows}
-        badge={<OfflineBadge />}
-        toast={{ title: t("mock.entrySaved.title"), sub: t("mock.entrySaved.sub") }}
-      />
+      <div className="flex min-h-0 flex-1 flex-col" style={APP_FONT}>
+        <div className={`flex items-center gap-2 px-3 py-3 ${isRTL ? "flex-row-reverse" : ""}`}>
+          <span
+            className="text-[22px] leading-none"
+            style={{ color: APP.emphasis }}
+            aria-hidden="true"
+          >
+            {isRTL ? "›" : "‹"}
+          </span>
+          <p
+            dir={textDir(isRTL)}
+            className="min-w-0 flex-1 text-center text-[14px] font-semibold"
+            style={{ color: APP.emphasis }}
+          >
+            {t("mock.name.ahmad")}
+          </p>
+          <OfflineBadge />
+        </div>
+        <div
+          className="mx-3 mb-2 rounded-[8px] border px-2.5 py-2"
+          style={{ background: APP.muted, borderColor: APP.border }}
+          dir={textDir(isRTL)}
+        >
+          <p className="text-[8px] font-medium" style={{ color: APP.subtle }}>
+            {t("mock.customerNote")}
+          </p>
+          <p className="mt-1 text-[10px] leading-relaxed" style={{ color: APP.text }}>
+            {t("mock.customerNote.body")}
+          </p>
+        </div>
+        <div className="mx-3 overflow-hidden rounded-[11px] border" style={BALANCE_SURFACE}>
+          <div
+            className={`flex items-center justify-between gap-2 px-2.5 py-3 ${isRTL ? "flex-row-reverse" : ""}`}
+          >
+            <div dir="ltr" className="flex items-baseline gap-1.5">
+              <span
+                className="font-mono text-[25px] font-semibold leading-none"
+                style={{ color: APP.collect }}
+              >
+                1,250
+              </span>
+              <span className="text-[9px]" style={{ color: APP.subtle }}>
+                AFN
+              </span>
+            </div>
+            <span
+              className="rounded-md px-1.5 py-1 text-[8px] font-medium"
+              dir={textDir(isRTL)}
+              style={{ background: APP.collectBg, color: APP.collect }}
+            >
+              {t("mock.owesYou")}
+            </span>
+          </div>
+          <div
+            className="grid grid-cols-2 border-t text-[9px]"
+            style={{ borderColor: APP.balanceBorder }}
+          >
+            {(
+              [
+                { gave: false, amount: "500" },
+                { gave: true, amount: "1,750" },
+              ] as const
+            ).map((item) => (
+              <div
+                key={item.amount}
+                className={`px-2.5 py-2 ${item.gave ? "border-l" : ""}`}
+                style={{ borderColor: APP.balanceBorder }}
+              >
+                <p dir={textDir(isRTL)} style={{ color: APP.subtle }}>
+                  {t(item.gave ? "mock.gave" : "mock.received")}
+                </p>
+                <p
+                  className="mt-1 font-mono text-[12px] font-medium"
+                  style={{ color: APP.emphasis }}
+                  dir="ltr"
+                >
+                  {item.amount}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div
+          className="mx-3 mt-2.5 overflow-hidden rounded-[10px] border"
+          style={{ borderColor: APP.border }}
+        >
+          {tallies.map((tally, index) => (
+            <div
+              key={tally.amount}
+              className={`flex gap-2 px-2.5 py-2 ${isRTL ? "flex-row-reverse" : ""} ${index ? "border-t" : ""}`}
+              style={{ borderColor: APP.border }}
+            >
+              <div
+                className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md"
+                style={{
+                  background: tally.gave ? APP.payBg : APP.collectBg,
+                  color: tally.gave ? APP.pay : APP.collect,
+                }}
+              >
+                <DirectionArrow up={tally.gave} className="h-3.5 w-3.5" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div
+                  className={`flex items-baseline justify-between gap-1 ${isRTL ? "flex-row-reverse" : ""}`}
+                >
+                  <span
+                    dir="ltr"
+                    className="font-mono text-[11px] font-semibold"
+                    style={{ color: APP.emphasis }}
+                  >
+                    {tally.amount}{" "}
+                    <span className="font-sans text-[8px]" style={{ color: APP.faint }}>
+                      AFN
+                    </span>
+                  </span>
+                  <span className="text-[8px]" dir={textDir(isRTL)} style={{ color: APP.subtle }}>
+                    {tally.when}
+                  </span>
+                </div>
+                <p dir={textDir(isRTL)} className="mt-1 text-[9px]" style={{ color: APP.subtle }}>
+                  {tally.note}
+                </p>
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="mt-auto pt-2">
+          <AppToast title={t("mock.entrySaved.title")} sub={t("mock.entrySaved.sub")} />
+          <div className="flex gap-2 px-3 pb-2.5">
+            {([false, true] as const).map((gave) => (
+              <div
+                key={String(gave)}
+                className={`flex min-h-9 flex-1 items-center justify-center gap-1 rounded-[9px] px-1 text-[10px] font-semibold ${isRTL ? "flex-row-reverse" : ""}`}
+                style={{
+                  background: gave ? APP.payBg : APP.receivedBg,
+                  color: gave ? APP.pay : APP.receivedText,
+                }}
+              >
+                <DirectionArrow up={gave} className="h-3.5 w-3.5 shrink-0" />
+                <span dir={textDir(isRTL)}>{t(gave ? "mock.gave" : "mock.received")}</span>
+              </div>
+            ))}
+          </div>
+          <div className="mx-auto mb-2.5 h-1 w-20 rounded-full bg-neutral-900" />
+        </div>
+      </div>
     </PhoneFrame>
   );
 }

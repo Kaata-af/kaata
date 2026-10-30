@@ -16,6 +16,21 @@ export const brand = {
   muted: "#737373",
 } as const;
 
+// Reading surfaces and entry actions mirror the current mobile palette.
+// These roles stay separate from balance direction and marketing colors.
+export const surface = {
+  base: "#FFFFFF",
+  muted: "#F7F7F7",
+  subtle: "#EFEFEF",
+  balance: "#F6F9F7",
+  balanceBorder: "#DBE4DF",
+} as const;
+
+export const entryAction = {
+  gave: { bg: "#F8EAEC", text: "#A3203A", coin: "#F1DADE" },
+  received: { bg: "#E4EEE6", text: "#3E6149", coin: "#CDDFD1" },
+} as const;
+
 // Shared ledger semantic palette for the web app — imported by BOTH
 // tailwind.config.ts (the collect/pay utility tokens) and CustomerView.tsx
 // (the runtime statement colors). Mirror of apps/mobile/lib/colors.ts and the

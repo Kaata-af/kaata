@@ -1,5 +1,5 @@
 import type { Config } from "tailwindcss";
-import { brand, ledger } from "./src/theme";
+import { brand, entryAction, ledger, surface } from "./src/theme";
 
 // shadcn CSS-variable tokens and Tailwind's genuine neutral scale power the
 // web. Existing brand utilities are compatibility aliases to neutral colors.
@@ -20,6 +20,14 @@ const config: Config = {
     extend: {
       colors: {
         brand,
+        surface: {
+          DEFAULT: surface.base,
+          muted: surface.muted,
+          subtle: surface.subtle,
+          balance: surface.balance,
+          "balance-border": surface.balanceBorder,
+        },
+        entry: entryAction,
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
         ring: "hsl(var(--ring))",

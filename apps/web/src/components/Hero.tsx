@@ -30,7 +30,7 @@ export function Hero() {
         <p className="mt-7 text-xs text-neutral-500 font-medium">{t("hero.points")}</p>
       </div>
 
-      <div className="mt-16 md:mt-20 flex justify-center">
+      <div className="mt-12 md:mt-16 mx-auto max-w-5xl flex justify-center rounded-[2rem] border border-surface-balance-border bg-surface-balance bg-[radial-gradient(ellipse_at_top_left,#E4EEE6,transparent_60%),radial-gradient(ellipse_at_bottom_right,#F8EAEC,transparent_60%)] py-10 md:py-14">
         <PhoneMockupHome />
       </div>
     </section>

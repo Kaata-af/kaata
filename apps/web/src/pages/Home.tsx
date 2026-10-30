@@ -14,7 +14,7 @@ import { Card } from "../components/ui/card";
 export function Home() {
   const { t } = useI18n();
   return (
-    <main className="bg-brand-ivory">
+    <main className="bg-surface">
       <SiteHeader />
 
       <Hero />
@@ -25,6 +25,7 @@ export function Home() {
           title={t("feature.offline.title")}
           body={t("feature.offline.body")}
           mockup={<PhoneMockupOffline />}
+          tone="sage"
         />
       </div>
 
@@ -37,6 +38,7 @@ export function Home() {
           title={t("feature.ping.title")}
           body={t("feature.ping.body")}
           mockup={<PhoneMockupWhatsApp />}
+          tone="rose"
         />
       </div>
 
@@ -62,7 +64,7 @@ function FinalCTA() {
   const { t } = useI18n();
   return (
     <section className="border-t border-neutral-200 px-6 py-20 md:py-28">
-      <Card className="max-w-4xl mx-auto rounded-2xl bg-neutral-50 px-8 py-16 md:py-20 text-center shadow-none">
+      <Card className="max-w-4xl mx-auto rounded-2xl border-surface-balance-border bg-surface-balance px-8 py-16 md:py-20 text-center shadow-none">
         <h2 className="text-3xl md:text-5xl font-bold -tracking-[0.02em] text-brand-primary leading-[1.1]">
           {t("cta.title.line1")}
           <br />
