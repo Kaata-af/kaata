@@ -541,18 +541,30 @@ async function main() {
             .map((node) => node.props.stopColor)
     ).filter((value): value is string => typeof value === "string");
     assert.ok(payColors.length >= 2, "Pay keeps both soft color pools");
+    const homeWarmPaint =
+      os === "ios"
+        ? nodes(tree)
+            .map((node) => flattenStyle(node.props.style)?.backgroundColor)
+            .find((color) => color === colors.entryActionGave)
+        : nodes(
+            nodes(tree).find(
+              (node) => node.type === "RadialGradient" && node.props.id === "balance-pay",
+            ),
+          ).find((node) => node.type === "Stop")?.props.stopColor;
+    assert.ok(homeWarmPaint, "The homepage retains its warm background light");
     for (const color of payColors) {
+      assert.equal(color, homeWarmPaint, "Customer pay light uses the homepage's amber palette");
       assert.match(color, /^#[0-9a-f]{6}$/i);
       const [red, green, blue] = [1, 3, 5].map((offset) =>
         parseInt(color.slice(offset, offset + 2), 16),
       );
       assert.ok(
-        red > green && blue > green,
-        "Owed balances have rose light, without green or warm collect paint",
+        red > green && green > blue,
+        "Owed balances have amber light without a green ray or rose paint",
       );
       assert.ok(
-        Math.min(red, green, blue) >= 180,
-        "Rose light remains pale behind the dark amount",
+        Math.min(red, green, blue) >= 175,
+        "Amber light remains pale behind the dark amount",
       );
     }
     const neutral = hooks.render(() => material({ tone: "neutral" }));

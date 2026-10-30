@@ -3474,11 +3474,7 @@ export default function PersonDetailScreen() {
                         >
                           {/* 16, composed into the coin — same reason as "I received". */}
                           <View style={[styles.actionIconCoin, styles.actionGaveCoin]}>
-                            <Ionicons
-                              name="arrow-up-outline"
-                              size={16}
-                              color={colors.entryActionGaveText}
-                            />
+                            <Ionicons name="arrow-up-outline" size={16} color={colors.payStrong} />
                           </View>
                           <Text
                             style={[styles.actionText, styles.actionGaveText, trackingSafe(isRTL)]}
@@ -4187,11 +4183,11 @@ const styles = StyleSheet.create({
     }),
   },
   actionReceived: { backgroundColor: colors.entryActionReceived },
-  actionGave: { backgroundColor: colors.entryActionGave },
+  actionGave: { backgroundColor: colors.payBg },
   actionReceivedText: { color: colors.entryActionReceivedText },
-  actionGaveText: { color: colors.entryActionGaveText },
+  actionGaveText: { color: colors.payStrong },
   actionReceivedCoin: { backgroundColor: colors.entryActionReceivedCoin },
-  actionGaveCoin: { backgroundColor: colors.entryActionGaveCoin },
+  actionGaveCoin: { backgroundColor: colors.payCoin },
   // Subtle scale + dim on press — a tactile, considered feel for a button
   // tapped all day, instead of a flat opacity blink.
   actionBtnPressed: { opacity: 0.9, transform: [{ scale: 0.985 }] },

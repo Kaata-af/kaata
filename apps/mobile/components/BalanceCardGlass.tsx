@@ -14,10 +14,10 @@ export const BalanceCardGlass = memo(function BalanceCardGlass(
   const android = Platform.OS === "android";
   const pay = props.tone === "pay";
   const neutral = props.tone === "neutral";
-  // Keep the approved collect/home palette; a customer's negative balance
-  // uses rose light behind its garnet amount instead of the green ray.
-  const primary = pay ? "#F2C2CD" : "#BFE5CF";
-  const secondary = pay ? "#F8DCE2" : "#FFD3B2";
+  // Keep cherry for pay controls and amounts; the glass uses the homepage's
+  // warm amber light behind an owed balance, without a green ray.
+  const primary = pay ? "#FFD3B2" : "#BFE5CF";
+  const secondary = "#FFD3B2";
   const contextReducedTransparency = useSheetTransparencyPreference();
   const reducedTransparency = props.reducedTransparency ?? contextReducedTransparency;
   const blur = !reducedTransparency && !neutral && Platform.OS === "ios";
@@ -87,7 +87,7 @@ const styles = StyleSheet.create({
   glow: { position: "absolute", width: 240, height: 200, borderRadius: 120 },
   collectGlow: { top: -90, left: -55, backgroundColor: colors.entryActionReceived },
   payGlow: { bottom: -140, right: -75, backgroundColor: colors.entryActionGave },
-  owedGlow: { backgroundColor: colors.payBg },
+  owedGlow: { backgroundColor: colors.entryActionGave },
   androidHighlight: { backgroundColor: "#FFFFFF1F" },
   highlight: {
     ...StyleSheet.absoluteFill,

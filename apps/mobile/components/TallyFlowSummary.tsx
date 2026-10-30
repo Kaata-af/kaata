@@ -217,7 +217,7 @@ function TallyFlowFilterFooter({
           // Text fits its final lane once. Measuring it against every animated
           // button width makes native auto-fit repeatedly shrink/grow glyphs.
           const contentWidth = Math.max(0, targetWidth - (compact ? 12 : 24) - (received ? 0 : 1));
-          const tone = received ? colors.entryActionReceivedText : colors.entryActionGaveText;
+          const tone = received ? colors.entryActionReceivedText : colors.payStrong;
           const label = t(received ? "person.flows.received" : "person.flows.gave", {
             count: flow.count,
           });
@@ -242,7 +242,7 @@ function TallyFlowFilterFooter({
                 !received && styles.flowButtonGave,
                 compact && styles.compactFlowButton,
                 selected && {
-                  backgroundColor: received ? colors.entryActionReceived : colors.entryActionGave,
+                  backgroundColor: received ? colors.entryActionReceived : colors.payBg,
                 },
                 !interactionEnabled && styles.disabledFlowButton,
                 received ? receivedStyle : gaveStyle,

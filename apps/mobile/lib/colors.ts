@@ -1,6 +1,6 @@
 // Everyday app chrome is neutral: white reading surfaces, gray separators and
 // black actions, including onboarding, the logo and exports. The two entry
-// actions use soft apricot/sage tints to distinguish their verbs. The marketing
+// actions use soft tints to distinguish their verbs. The marketing
 // palette lives separately in apps/_shared/brand-palette.json for flyers and
 // social posts; changing it must not recolor the app. Emerald/garnet direction,
 // pending amber, provider artwork and danger keep their semantic meanings.
@@ -59,6 +59,7 @@ export const colors = {
   collectText: "#0A5A46",
   collectStrong: "#0C745A",
   payBg: "#F8EAEC",
+  payCoin: "#F1DADE",
   payText: "#7E1B30",
   payStrong: "#A3203A",
 
