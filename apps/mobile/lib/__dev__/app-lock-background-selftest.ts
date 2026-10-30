@@ -493,17 +493,77 @@ async function main() {
       for (const edge of ["top", "right", "bottom", "left"]) assert.equal(baseStyle[edge], 0);
     }
     assert.ok(!nodes(tree).some((node) => node.type === "AnimatedView"));
-    const explicitOpaque = hooks.render(() => material({ reducedTransparency: true }));
-    assert.ok(
-      !nodes(explicitOpaque).some((node) => ["BlurView", "Svg"].includes(node.type)),
-      "An explicit opaque preference removes native materials and translucent gradients",
+    const paintSignature = (surface: any) =>
+      nodes(surface).map((node) => ({
+        type: node.type,
+        ...Object.fromEntries(
+          Object.entries(node.props).filter(
+            ([key]) => !["children", "ref", "blurTarget", "style"].includes(key),
+          ),
+        ),
+        style: flattenStyle(node.props.style),
+      }));
+    const collect = hooks.render(() => material({ tone: "collect" }));
+    assert.deepEqual(
+      paintSignature(collect),
+      paintSignature(tree),
+      "Collect retains the approved homepage palette, geometry, highlights and material",
     );
+    const pay = hooks.render(() => material({ tone: "pay" }));
+    const paySource = nodes(pay).find((node) => node.type === "BlurTargetView");
+    const payColors = (
+      os === "ios"
+        ? nodes(paySource).map((node) => flattenStyle(node.props.style)?.backgroundColor)
+        : nodes(pay)
+            .filter((node) => node.type === "Stop")
+            .map((node) => node.props.stopColor)
+    ).filter((value): value is string => typeof value === "string");
+    assert.ok(payColors.length >= 2, "Pay keeps both soft color pools");
+    for (const color of payColors) {
+      assert.match(color, /^#[0-9a-f]{6}$/i);
+      const [red, green, blue] = [1, 3, 5].map((offset) =>
+        parseInt(color.slice(offset, offset + 2), 16),
+      );
+      assert.ok(
+        red > green && blue > green,
+        "Owed balances have rose light, without green or warm collect paint",
+      );
+      assert.ok(
+        Math.min(red, green, blue) >= 180,
+        "Rose light remains pale behind the dark amount",
+      );
+    }
+    const neutral = hooks.render(() => material({ tone: "neutral" }));
+    assert.ok(
+      !nodes(neutral).some((node) => ["BlurView", "BlurTargetView", "Svg"].includes(node.type)),
+      "Zero and unknown balances have no directional decoration",
+    );
+    const neutralBase = nodes(neutral).find(
+      (node) =>
+        node.type === "View" && flattenStyle(node.props.style)?.backgroundColor === "#FFFFFF",
+    );
+    assert.ok(neutralBase, "Neutral balances have an opaque white backing on both platforms");
+    for (const edge of ["top", "right", "bottom", "left"])
+      assert.equal(flattenStyle(neutralBase.props.style)[edge], 0);
+    for (const tone of [undefined, "collect", "pay", "neutral"] as const) {
+      const explicitOpaque = hooks.render(() => material({ tone, reducedTransparency: true }));
+      assert.ok(
+        !nodes(explicitOpaque).some((node) =>
+          ["BlurView", "BlurTargetView", "Svg"].includes(node.type),
+        ),
+        "An explicit opaque preference removes decoration for every tone",
+      );
+    }
     contextReducedTransparency = true;
-    const contextualOpaque = hooks.render(() => material({}));
-    assert.ok(
-      !nodes(contextualOpaque).some((node) => ["BlurView", "Svg"].includes(node.type)),
-      "Ordinary cards still honor their provider preference by default",
-    );
+    for (const tone of [undefined, "collect", "pay", "neutral"] as const) {
+      const contextualOpaque = hooks.render(() => material({ tone }));
+      assert.ok(
+        !nodes(contextualOpaque).some((node) =>
+          ["BlurView", "BlurTargetView", "Svg"].includes(node.type),
+        ),
+        "Every tone honors the provider's reduced-transparency preference",
+      );
+    }
     hooks.unmount();
   }
   console.log(

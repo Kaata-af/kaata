@@ -1974,7 +1974,31 @@ async function billLinkPreferenceTests() {
 
 async function singleCurrencyBalanceTests() {
   const byId = (id: string) => nodes(tree).find((node) => node.props.testID === id);
+  const materialTone = (code: string) => {
+    const card = nodes(tree).find(
+      (node) =>
+        node.type === "View" &&
+        node.key === code &&
+        kids(node).some((child) => child.type === "BalanceCardGlass"),
+    );
+    assert.ok(card, `The ${code} balance owns its own material`);
+    return kids(card).find((child) => child.type === "BalanceCardGlass")!.props.tone;
+  };
   for (const direction of [false, true]) {
+    fixture();
+    rtl = direction;
+    await flush();
+    assert.equal(materialTone("AFN"), "collect", "Positive balances retain the collect material");
+    person = { ...person, balance: -3 };
+    await ledgerRefresh();
+    await flush();
+    assert.equal(materialTone("AFN"), "pay", "A balance crossing direction updates its material");
+    person = { ...person, balance: 0 };
+    await ledgerRefresh();
+    await flush();
+    assert.equal(materialTone("AFN"), "neutral", "Clearing the balance removes directional light");
+    unmount();
+
     fixture();
     rtl = direction;
     person = { ...person, currency: "USD", balance: -9_999_999_999.99 };
@@ -2001,6 +2025,7 @@ async function singleCurrencyBalanceTests() {
     assert.equal(amount.props.accessibilityLabel, "USD amount:9999999999.99");
     assert.equal(amount.props.accessible, true);
     const value = byId("customer-balance-value-USD")!;
+    assert.equal(materialTone("USD"), "pay");
     assert.equal(value.props.numberOfLines, 1);
     assert.equal(value.props.adjustsFontSizeToFit, true);
     assert.equal(flattenStyle(value.props.style).flexShrink, 1);
@@ -2015,6 +2040,7 @@ async function singleCurrencyBalanceTests() {
   settlement = { count: 0, lastSettledAtMs: null };
   await flush();
   assert.equal(byId("customer-balance-header-ZZZ"), undefined);
+  assert.equal(materialTone("ZZZ"), "neutral");
   assert.equal(
     byId("customer-balance-status-ZZZ"),
     undefined,
@@ -2037,6 +2063,7 @@ async function singleCurrencyBalanceTests() {
     "A real clearance keeps its settled status on the white card",
   );
   assert.equal(words(byId("customer-balance-symbol-AFN")), "؋");
+  assert.equal(materialTone("AFN"), "neutral");
   unmount();
 
   fixture(true);
@@ -2089,6 +2116,11 @@ async function singleCurrencyBalanceTests() {
   person = { ...person, balance: 999, tab_unsynced: 1 };
   await flush();
   assert.equal(words(byId("customer-balance-value-AFN")), "…");
+  assert.equal(
+    materialTone("AFN"),
+    "neutral",
+    "An unsynced balance cannot inherit the directional light of its stale 999 amount",
+  );
   assert.equal(words(byId("customer-balance-symbol-AFN")), "؋");
   assert.equal(byId("customer-balance-status-AFN"), undefined);
   assert.equal(
@@ -2096,8 +2128,36 @@ async function singleCurrencyBalanceTests() {
     "AFN tab.notDownloaded",
   );
   unmount();
+  for (const direction of [false, true]) {
+    fixture();
+    rtl = direction;
+    const base = { ...person };
+    person = {
+      ...base,
+      currency: "AFN",
+      currency_balances: [
+        { ...base, currency: "AFN", balance: 3 },
+        { ...base, currency: "USD", balance: -7.25 },
+        { ...base, currency: "EUR", balance: 0 },
+        { ...base, currency: "GBP", balance: 999, tab_unsynced: 1 },
+      ],
+    };
+    await flush();
+    assert.deepEqual(
+      ["AFN", "USD", "EUR", "GBP"].map((code) => [code, materialTone(code)]),
+      [
+        ["AFN", "collect"],
+        ["USD", "pay"],
+        ["EUR", "neutral"],
+        ["GBP", "neutral"],
+      ],
+      "Every currency uses its own current balance and known/unknown state in LTR and RTL",
+    );
+    unmount();
+  }
+  rtl = false;
   console.log(
-    "PASS single-currency customer: symbol beside amount, no gray/empty currency header, retained direction/settled/waiting, unknown balance and LTR/RTL accessibility",
+    "PASS customer balances: per-currency collect/pay/neutral light and live sign changes, unknown-state safety, retained symbol/status layout and LTR/RTL accessibility",
   );
 }
 

@@ -2808,7 +2808,13 @@ export default function PersonDetailScreen() {
                               sharedAccountLinkStatus(link) === "waiting";
                             return (
                               <View key={code} style={styles.balanceOverview}>
-                                <BalanceCardGlass />
+                                <BalanceCardGlass
+                                  tone={
+                                    person.tab_unsynced === 1
+                                      ? "neutral"
+                                      : (chipVariant ?? "neutral")
+                                  }
+                                />
                                 <View style={styles.balanceSide}>
                                   <View style={styles.balanceHeadline}>
                                     <View
