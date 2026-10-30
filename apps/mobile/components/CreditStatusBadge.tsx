@@ -22,8 +22,14 @@ import { t } from "../lib/i18n";
 import { onLedgerApplied } from "../lib/ledger-events";
 import { onTabApplied } from "../lib/tabs/events";
 import { onCreditPoliciesChanged } from "../lib/credit-policy-events";
+import { creditStatusForExposure, type CreditStatus } from "../lib/credit-policy";
 
-export type CreditStatus = "none" | "near" | "over";
+export type { CreditStatus } from "../lib/credit-policy";
+const STATUS_LABEL = {
+  near: "credit.statusNear",
+  reached: "credit.statusReached",
+  over: "credit.statusOver",
+} as const;
 type CreditDetail = { status: CreditStatus; cap: number | null; exposure: number };
 const NO_DETAIL: CreditDetail = { status: "none", cap: null, exposure: 0 };
 
@@ -66,12 +72,7 @@ function useCreditDetail(personId: string, vaultId: string | null, currency: str
               ? p?.max_pay_minor
               : (p?.max_collect_minor ?? p?.max_pay_minor);
         const exposure = Math.abs(balance);
-        const next: CreditStatus =
-          cap != null && exposure > cap
-            ? "over"
-            : cap != null && exposure > 0 && exposure * 5 >= cap * 4
-              ? "near"
-              : "none";
+        const next = creditStatusForExposure(cap, exposure);
         await applyForUnchangedLocalSession(session, async () => {
           if (alive && request === generation && getActiveVaultIdSyncMaybe() === vaultId)
             setDetail({ scope, value: { status: next, cap: cap ?? null, exposure } });
@@ -116,7 +117,7 @@ function CreditStatusText({ status }: { status: CreditStatus }) {
         color: status === "over" ? colors.danger : colors.reviewPending,
       }}
     >
-      {t(status === "over" ? "credit.statusOver" : "credit.statusNear")}
+      {t(STATUS_LABEL[status])}
     </Text>
   );
 }

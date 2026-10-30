@@ -19,6 +19,11 @@ function fixture() {
     intents: [],
   };
   let hold: ReturnType<typeof deferred<any>> | null = null;
+  const balances: Record<string, number> = { USD: 9000 };
+  const policies: Record<
+    string,
+    { max_collect_minor: number | null; max_pay_minor: number | null }
+  > = {};
   const native = {
     AppState: { addEventListener: () => ({ remove() {} }) },
     Text: "Text",
@@ -44,6 +49,7 @@ function fixture() {
     "../lib/format": { formatAmount: String, formatRelative: () => "now" },
     "../lib/jalali": { faDigits: String },
     "../lib/money": require("../money"),
+    "../lib/credit-policy": require("../credit-policy"),
     "../lib/auth": {
       captureCurrentSession: async () => session,
       applyForUnchangedLocalSession: async (_s: any, work: any) => work(),
@@ -70,11 +76,13 @@ function fixture() {
       readEffectiveCreditPolicy: async (_r: string, _v: string, code: string) => {
         calls.policy.push(code);
         if (hold && code === "USD") return hold.promise;
-        return { max_collect_minor: code === "USD" ? 10000 : 20000, max_pay_minor: 0 };
+        return (
+          policies[code] ?? { max_collect_minor: code === "USD" ? 10000 : 20000, max_pay_minor: 0 }
+        );
       },
       creditBalanceInTx: async (_db: any, _v: string, _r: string, code: string) => {
         calls.balance.push(code);
-        return code === "USD" ? 9000 : 0;
+        return balances[code] ?? 0;
       },
       listCreditIntents: async (...args: any[]) => {
         calls.intents.push(args);
@@ -114,6 +122,12 @@ function fixture() {
     calls,
     ledger,
     common,
+    setBalance: (currency: string, minor: number) => {
+      balances[currency] = minor;
+    },
+    setPolicy: (currency: string, collect: number | null, pay: number | null) => {
+      policies[currency] = { max_collect_minor: collect, max_pay_minor: pay };
+    },
     hold: (value: ReturnType<typeof deferred<any>> | null) => {
       hold = value;
     },
@@ -131,6 +145,18 @@ function fixture() {
 async function main() {
   const badge = fixture();
   const Badge = compileUI("../../components/CreditStatusBadge", badge.common).CreditStatusBadge;
+  for (const [status, key] of [
+    ["near", "credit.statusNear"],
+    ["reached", "credit.statusReached"],
+    ["over", "credit.statusOver"],
+  ] as const) {
+    const statusNode = Badge({ status });
+    assert.equal(
+      text(statusNode.type(statusNode.props)),
+      key,
+      `Direct ${status} badges use their own label`,
+    );
+  }
   let code = "USD";
   const renderBadge = () => {
     const child = Badge({ personId: "p", vaultId: "v", currency: code });
@@ -165,6 +191,70 @@ async function main() {
   );
   badge.hooks.unmount();
 
+  const reached = fixture();
+  const ReachedBadge = compileUI(
+    "../../components/CreditStatusBadge",
+    reached.common,
+  ).CreditStatusBadge;
+  let reachedCurrency = "USD";
+  const loadedStatus = () => {
+    const node = nodes(reached.hooks.tree).find(
+      (candidate) =>
+        typeof candidate.type === "function" && candidate.type.name === "CreditStatusText",
+    );
+    return node ? text(node.type(node.props)) : "";
+  };
+  reached.setBalance("USD", 10000);
+  reached.hooks.render(() => {
+    const node = ReachedBadge({ personId: "p", vaultId: "v", currency: reachedCurrency });
+    return node.type(node.props);
+  });
+  await reached.settle();
+  assert.equal(
+    loadedStatus(),
+    "credit.statusReached",
+    "Loaded exact-cap customers say reached, not near",
+  );
+  assert.match(text(reached.hooks.tree), /credit\.limitLeft.*"left":"0 USD"/);
+  const delayedReached = deferred<any>();
+  reached.hold(delayedReached);
+  for (const emit of reached.ledger) emit("v");
+  await settleUI();
+  reachedCurrency = "AFN";
+  reached.setBalance("AFN", 10000);
+  reached.hooks.render();
+  assert.equal(
+    loadedStatus(),
+    "",
+    "Changing currency immediately removes another currency's reached status",
+  );
+  await reached.settle();
+  delayedReached.resolve({ max_collect_minor: 10000, max_pay_minor: 0 });
+  await reached.settle();
+  assert.equal(
+    loadedStatus(),
+    "",
+    "A delayed USD limit cannot turn a below-limit AFN account into reached",
+  );
+  assert.match(text(reached.hooks.tree), /200 AFN/);
+  assert.doesNotMatch(text(reached.hooks.tree), /USD/);
+  reached.setBalance("AFN", 20000);
+  for (const emit of reached.ledger) emit("v");
+  await reached.settle();
+  assert.equal(loadedStatus(), "credit.statusReached", "AFN uses its own exact collect cap");
+  reached.setPolicy("AFN", 20000, 30000);
+  reached.setBalance("AFN", -30000);
+  for (const emit of reached.ledger) emit("v");
+  await reached.settle();
+  assert.equal(loadedStatus(), "credit.statusReached", "Exact pay exposure also says reached");
+  reached.setPolicy("AFN", 0, 0);
+  reached.setBalance("AFN", 0);
+  for (const emit of reached.ledger) emit("v");
+  await reached.settle();
+  assert.equal(loadedStatus(), "", "A settled account with a zero cap has no limit warning");
+  reached.hooks.unmount();
+  assert.equal(reached.hooks.lateWrites, 0);
+
   const intent = fixture();
   const List = compileUI("../../components/CreditIntentList", intent.common).CreditIntentList;
   let all = true;
@@ -198,7 +288,7 @@ async function main() {
   assert.equal(intent.hooks.lateWrites, 0);
   assert.equal(badge.hooks.lateWrites, 0);
   console.log(
-    "PASS currency credit adapters: explicit policy/exposure/refusal scope, immutable labels, delayed response guards and all-currency deferred/refused intents",
+    "PASS currency credit adapters: near/reached/over labels, exact directional caps, explicit policy/exposure/refusal scope, immutable labels, delayed response guards and all-currency deferred/refused intents",
   );
 }
 void main();

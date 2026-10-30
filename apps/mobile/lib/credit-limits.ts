@@ -1,11 +1,14 @@
 import {
   type CreditPolicy,
+  type CreditStatus,
+  creditStatusForExposure,
   creditExceeded,
   KAATA_DEFAULT_CREDIT_ID,
   validCreditPolicy,
 } from "./credit-policy";
 export {
   type CreditPolicy,
+  type CreditStatus,
   creditExceeded,
   KAATA_DEFAULT_CREDIT_ID,
   validCreditPolicy,
@@ -572,15 +575,11 @@ async function saveCreditPolicyInner(
 export function creditStatusForBalance(
   p: CreditPolicy | null | undefined,
   balance: number,
-): "none" | "near" | "over" {
+): CreditStatus {
   const minor = toMinorUnits(balance);
   const cap = minor > 0 ? p?.max_collect_minor : p?.max_pay_minor;
   const exposure = Math.abs(minor);
-  return cap != null && exposure > cap
-    ? "over"
-    : cap != null && exposure > 0 && exposure * 5 >= cap * 4
-      ? "near"
-      : "none";
+  return creditStatusForExposure(cap, exposure);
 }
 
 export async function readCreditPoliciesForPeople(

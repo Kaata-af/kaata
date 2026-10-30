@@ -16,6 +16,20 @@ export type CreditPolicy = {
   updated_at_ms: number;
 };
 
+export type CreditStatus = "none" | "near" | "reached" | "over";
+
+/** Display status in minor units. A fully used limit is distinct from an
+ * exceeded limit; settled accounts do not show warnings, even for a zero cap. */
+export function creditStatusForExposure(
+  cap: number | null | undefined,
+  exposure: number,
+): CreditStatus {
+  if (cap == null || exposure <= 0) return "none";
+  if (exposure > cap) return "over";
+  if (exposure === cap) return "reached";
+  return exposure * 5 >= cap * 4 ? "near" : "none";
+}
+
 export function creditExceeded(p: CreditPolicy | null, before: number, after: number): boolean {
   if (!Number.isSafeInteger(before) || !Number.isSafeInteger(after))
     throw new RangeError("Unsafe credit balance");

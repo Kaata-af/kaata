@@ -6,6 +6,7 @@ import ts from "typescript";
 import Database from "better-sqlite3";
 import {
   creditExceeded,
+  creditStatusForExposure,
   KAATA_DEFAULT_CREDIT_ID,
   validCreditPolicy,
   type CreditPolicy,
@@ -13,7 +14,7 @@ import {
 import { cacheCreditPolicies } from "../credit-policy-cache";
 import { cacheCreditAlerts } from "../credit-alert-cache";
 import { Mutex } from "../util/mutex";
-import { toMinorUnits } from "../money";
+import { fromMinorUnits, toMinorUnits } from "../money";
 import { signedEntryMinorSumSql } from "../money-sql";
 import { effectiveEntryCurrencySql, isValidCurrencyCode } from "../currency-scope";
 import type { SQLiteTx } from "../db-tx";
@@ -991,6 +992,53 @@ async function run() {
   assert.equal(validCreditPolicy(policy(1.5)), false);
   assert.throws(() => creditExceeded(policy(), Number.MAX_SAFE_INTEGER + 1, 0), RangeError);
   console.log("PASS directional exposure, zero/unlimited caps, repayment and exact integer limits");
+
+  for (const [currency, collect, pay] of [
+    ["USD", 10029, 25029],
+    ["AFN", 20031, 50031],
+  ] as const) {
+    const p: CreditPolicy = {
+      ...policy(),
+      currency,
+      max_collect_minor: collect,
+      max_pay_minor: pay,
+    };
+    for (const [sign, cap] of [
+      [1, collect],
+      [-1, pay],
+    ] as const) {
+      const near = Math.ceil((cap * 4) / 5);
+      for (const [exposure, status] of [
+        [near - 1, "none"],
+        [near, "near"],
+        [cap - 1, "near"],
+        [cap, "reached"],
+        [cap + 1, "over"],
+      ] as const) {
+        assert.equal(
+          credit.creditStatusForBalance(p, fromMinorUnits(sign * exposure)),
+          status,
+          `${currency} ${sign > 0 ? "collect" : "pay"} status respects the exact minor-unit boundary at ${exposure}`,
+        );
+      }
+      assert.equal(creditExceeded(p, 0, sign * cap), false, "Reaching the cap remains allowed");
+      assert.equal(
+        creditExceeded(p, sign * cap, sign * (cap + 1)),
+        true,
+        "Only increasing beyond the cap exceeds it",
+      );
+    }
+  }
+  assert.equal(creditStatusForExposure(0, 0), "none", "No debt is not a reached zero cap");
+  assert.equal(creditStatusForExposure(0, 1), "over", "A zero cap still forbids positive exposure");
+  assert.equal(creditStatusForExposure(100, 0), "none");
+  assert.equal(creditStatusForExposure(null, 100), "none");
+  assert.equal(creditStatusForExposure(undefined, 100), "none");
+  assert.equal(credit.creditStatusForBalance(policy(0), 0), "none");
+  assert.equal(credit.creditStatusForBalance(null, 100), "none");
+  console.log(
+    "PASS exact near/reached/over status for both directions and currencies without changing admission boundaries",
+  );
 
   fixture.prepare("INSERT INTO vault_members_mirror VALUES('v1',?,'owner',NULL)").run(localOwner);
   await assert.rejects(
