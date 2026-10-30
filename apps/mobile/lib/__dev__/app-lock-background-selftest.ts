@@ -432,40 +432,82 @@ async function main() {
 
   // Existing Home/customer card material has no animation API; lock-only
   // motion must not make every balance card own an infinite native loop.
-  for (const os of ["ios", "android"] as const) {
+  for (const { os, version } of [
+    { os: "ios", version: 17 },
+    { os: "android", version: 31 },
+    { os: "android", version: 24 },
+  ] as const) {
     const hooks = uiHooks();
     let contextReducedTransparency = false;
     const material = compileUI("../../components/BalanceCardGlass", {
       react: { ...hooks.react, memo: (component: any) => component },
       "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
       "react-native": {
-        Platform: { OS: os, Version: 31 },
+        Platform: { OS: os, Version: version },
         View: "View",
-        StyleSheet: { create: (value: any) => value, absoluteFill: { position: "absolute" } },
+        StyleSheet: {
+          create: (value: any) => value,
+          absoluteFill: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0 },
+        },
         Animated: {
           loop: () => assert.fail("Ordinary balance cards remain static"),
           timing: () => assert.fail("Ordinary balance cards remain static"),
         },
       },
       "expo-blur": { BlurTargetView: "BlurTargetView", BlurView: "BlurView" },
+      "react-native-svg": {
+        __esModule: true,
+        default: "Svg",
+        Defs: "Defs",
+        RadialGradient: "RadialGradient",
+        Rect: "Rect",
+        Stop: "Stop",
+      },
       "../lib/colors": { colors },
       "./SheetBackdrop": { useSheetTransparencyPreference: () => contextReducedTransparency },
     }).BalanceCardGlass;
     const tree = hooks.render(() => material({}));
-    assert.ok(nodes(tree).some((node) => node.type === "BlurView"));
+    if (os === "ios") {
+      const blur = nodes(tree).find((node) => node.type === "BlurView")!;
+      assert.ok(blur, "iOS retains its native frosted material");
+      assert.equal(blur.props.tint, "light");
+      assert.equal(blur.props.intensity, 55);
+      assert.equal(blur.props.blurReductionFactor, 1);
+      assert.ok(!nodes(tree).some((node) => node.type === "Svg"));
+    } else {
+      assert.ok(
+        !nodes(tree).some((node) => ["BlurView", "BlurTargetView"].includes(node.type)),
+        `Android ${version} paints decoration directly, without capturing or blurring the card`,
+      );
+      assert.ok(
+        nodes(tree).some((node) => node.type === "RadialGradient"),
+        `Android ${version} retains soft color without requiring native blur support`,
+      );
+      const opaqueBase = nodes(tree).find(
+        (node) =>
+          node.type === "View" && flattenStyle(node.props.style)?.backgroundColor === "#FFFFFF",
+      );
+      assert.ok(opaqueBase, "Android colors are composed on an opaque white backing");
+      const baseStyle = flattenStyle(opaqueBase.props.style);
+      assert.equal(baseStyle.position, "absolute");
+      for (const edge of ["top", "right", "bottom", "left"]) assert.equal(baseStyle[edge], 0);
+    }
     assert.ok(!nodes(tree).some((node) => node.type === "AnimatedView"));
     const explicitOpaque = hooks.render(() => material({ reducedTransparency: true }));
-    assert.ok(!nodes(explicitOpaque).some((node) => node.type === "BlurView"));
+    assert.ok(
+      !nodes(explicitOpaque).some((node) => ["BlurView", "Svg"].includes(node.type)),
+      "An explicit opaque preference removes native materials and translucent gradients",
+    );
     contextReducedTransparency = true;
     const contextualOpaque = hooks.render(() => material({}));
     assert.ok(
-      !nodes(contextualOpaque).some((node) => node.type === "BlurView"),
+      !nodes(contextualOpaque).some((node) => ["BlurView", "Svg"].includes(node.type)),
       "Ordinary cards still honor their provider preference by default",
     );
     hooks.unmount();
   }
   console.log(
-    "PASS lock background: richer static radial color, independent native-only gentle drift, quiet readable center, overscan, inactive/accessibility/legacy Android stops, no live blur or frame callbacks, cleanup/privacy and unchanged balance cards",
+    "PASS lock background: richer static radial color, independent native-only gentle drift, quiet readable center, overscan, inactive/accessibility/legacy Android stops, no live blur or frame callbacks, cleanup/privacy and static balance cards",
   );
 }
 
