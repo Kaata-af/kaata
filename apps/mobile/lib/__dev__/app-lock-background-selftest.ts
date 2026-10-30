@@ -541,30 +541,31 @@ async function main() {
             .map((node) => node.props.stopColor)
     ).filter((value): value is string => typeof value === "string");
     assert.ok(payColors.length >= 2, "Pay keeps both soft color pools");
-    const homeWarmPaint =
+    const homePayPaint =
       os === "ios"
-        ? nodes(tree)
+        ? nodes(nodes(tree).find((node) => node.type === "BlurTargetView"))
             .map((node) => flattenStyle(node.props.style)?.backgroundColor)
-            .find((color) => color === colors.entryActionGave)
+            .filter((color): color is string => typeof color === "string")
+            .at(-1)
         : nodes(
             nodes(tree).find(
               (node) => node.type === "RadialGradient" && node.props.id === "balance-pay",
             ),
           ).find((node) => node.type === "Stop")?.props.stopColor;
-    assert.ok(homeWarmPaint, "The homepage retains its warm background light");
+    assert.equal(homePayPaint, "#F8DCE2", "The homepage uses the selected soft rose light");
     for (const color of payColors) {
-      assert.equal(color, homeWarmPaint, "Customer pay light uses the homepage's amber palette");
+      assert.equal(color, homePayPaint, "Customer pay light uses the homepage's rose palette");
       assert.match(color, /^#[0-9a-f]{6}$/i);
       const [red, green, blue] = [1, 3, 5].map((offset) =>
         parseInt(color.slice(offset, offset + 2), 16),
       );
       assert.ok(
-        red > green && green > blue,
-        "Owed balances have amber light without a green ray or rose paint",
+        red > blue && blue > green,
+        "Owed balances have rose light without a green ray or amber paint",
       );
       assert.ok(
-        Math.min(red, green, blue) >= 175,
-        "Amber light remains pale behind the dark amount",
+        Math.min(red, green, blue) >= 200,
+        "Rose light remains pale behind the dark amount",
       );
     }
     const neutral = hooks.render(() => material({ tone: "neutral" }));

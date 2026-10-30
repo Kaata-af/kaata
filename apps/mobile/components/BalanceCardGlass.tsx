@@ -5,6 +5,8 @@ import Svg, { Defs, RadialGradient, Rect, Stop } from "react-native-svg";
 import { colors } from "../lib/colors";
 import { useSheetTransparencyPreference } from "./SheetBackdrop";
 
+const PAY_GLOW = "#F8DCE2";
+
 /** A static frosted backing, below the card's text and touch targets. iOS
  * keeps its native material; Android paints already-soft, opaque decoration. */
 export const BalanceCardGlass = memo(function BalanceCardGlass(
@@ -14,10 +16,10 @@ export const BalanceCardGlass = memo(function BalanceCardGlass(
   const android = Platform.OS === "android";
   const pay = props.tone === "pay";
   const neutral = props.tone === "neutral";
-  // Keep cherry for pay controls and amounts; the glass uses the homepage's
-  // warm amber light behind an owed balance, without a green ray.
-  const primary = pay ? "#FFD3B2" : "#BFE5CF";
-  const secondary = "#FFD3B2";
+  // Soft rose light complements cherry pay controls and amounts. Customer
+  // owed balances use it in both corners, without a green ray.
+  const primary = pay ? PAY_GLOW : "#BFE5CF";
+  const secondary = PAY_GLOW;
   const contextReducedTransparency = useSheetTransparencyPreference();
   const reducedTransparency = props.reducedTransparency ?? contextReducedTransparency;
   const blur = !reducedTransparency && !neutral && Platform.OS === "ios";
@@ -86,8 +88,8 @@ const styles = StyleSheet.create({
   whiteBase: { ...StyleSheet.absoluteFill, backgroundColor: "#FFFFFF" },
   glow: { position: "absolute", width: 240, height: 200, borderRadius: 120 },
   collectGlow: { top: -90, left: -55, backgroundColor: colors.entryActionReceived },
-  payGlow: { bottom: -140, right: -75, backgroundColor: colors.entryActionGave },
-  owedGlow: { backgroundColor: colors.entryActionGave },
+  payGlow: { bottom: -140, right: -75, backgroundColor: PAY_GLOW },
+  owedGlow: { backgroundColor: PAY_GLOW },
   androidHighlight: { backgroundColor: "#FFFFFF1F" },
   highlight: {
     ...StyleSheet.absoluteFill,
