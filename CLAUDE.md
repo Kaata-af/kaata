@@ -423,7 +423,13 @@ new relinking history receipts. The later October 27 request authorized pushing
 valid in the existing internal TestFlight group. Matching bill-v3/web/snapshot
 support is live. See [the testing delivery record](docs/2.3.0-testing-distribution.md)
 for artifact provenance, the Android constructor fix and verification limits.
-Neither public mobile production release was promoted or submitted for review.
+At that testing checkpoint, neither public mobile production release had been
+promoted or submitted for review. On October 30, Matee authorized production
+with new screenshots: Android **2.3.0/code 82** is published; iOS **2.3.0/build 48**
+is waiting for App Store review with automatic release after approval. All 36
+refreshed store images were uploaded and verified. The same tested binaries
+were reused. See [the production record](docs/2.3.0-production-release.md) for
+readiness checks, store receipts and retained limitations.
 
 **Store reviewers need a way to sign in. Play reviews closed-testing releases too.**
 

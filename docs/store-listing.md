@@ -18,6 +18,12 @@ existing white/blue design and yellow–blue–red footer. Existing feature grap
 icon and listing text are preserved. Historical campaign and upload records
 below describe earlier releases.
 
+The new 18 Play images were verified with production build 82, which was
+published on October 30 at 11:14:51 UTC. All 18 Apple images were processed and
+verified before build 48 was submitted for App Store review at 11:25:40 UTC;
+it will release automatically after approval. See the
+[production record](2.3.0-production-release.md) for receipts and limitations.
+
 Paste these into Play Console → Store presence → Main store listing. Keep the
 app positioned as a **record-keeping / ledger tool**, not a lender or payment
 app, to avoid the Personal Loans policy false-positive.
