@@ -10,6 +10,7 @@ function fixture({
   platformVersion = 31 as number | string,
   stored = null as string | null,
   initialState = "active" as string | null,
+  passcodeAvailable = false,
 } = {}) {
   const os = { currentState: initialState };
   const listeners = new Set<(value: any) => void>();
@@ -27,6 +28,14 @@ function fixture({
     hardwareReads = 0,
     cancels = 0;
   const prompts: { options: any; response: ReturnType<typeof deferred<AuthResult>> }[] = [];
+  const passcodes: {
+    requestId: string;
+    reason: string;
+    cancelLabel: string;
+    response: ReturnType<typeof deferred<any>>;
+  }[] = [];
+  const passcodeCancels: string[] = [];
+  let passcodeThrows = false;
   const writes: { value: string; options: any }[] = [];
   const mocks: Record<string, any> = {
     react: { useSyncExternalStore: (_sub: any, get: () => any) => get() },
@@ -64,6 +73,18 @@ function fixture({
       },
     },
     "./i18n": { t: (key: string) => key },
+    "./device-passcode": {
+      supportsDevicePasscode: () => passcodeAvailable,
+      authenticateWithDevicePasscode: (requestId: string, reason: string, cancelLabel: string) => {
+        if (passcodeThrows) throw Error("Synthetic native passcode failure");
+        const response = deferred<any>();
+        passcodes.push({ requestId, reason, cancelLabel, response });
+        return response.promise;
+      },
+      cancelDevicePasscode: async (requestId: string) => {
+        passcodeCancels.push(requestId);
+      },
+    },
   };
   Object.defineProperty(mocks, "expo-local-authentication", {
     get: () => {
@@ -103,6 +124,8 @@ function fixture({
   return {
     api,
     prompts,
+    passcodes,
+    passcodeCancels,
     writes,
     retired,
     listeners,
@@ -156,6 +179,12 @@ function fixture({
     setLevelRead: (value: () => Promise<number>) => {
       levelRead = value;
     },
+    setPasscodeAvailable: (value: boolean) => {
+      passcodeAvailable = value;
+    },
+    setPasscodeThrows: (value: boolean) => {
+      passcodeThrows = value;
+    },
     get counts() {
       return { reads, imports, hardwareReads, cancels };
     },
@@ -167,6 +196,196 @@ function fixture({
 async function waitFor(check: () => boolean) {
   for (let i = 0; i < 12 && !check(); i++) await settleUI();
   assert.ok(check(), "Expected asynchronous boundary reached");
+}
+
+async function passcodeTests() {
+  for (const [platform, available] of [
+    ["ios", false],
+    ["android", true],
+    ["web", true],
+  ] as const) {
+    const f = fixture({ platform, stored: "1", passcodeAvailable: available });
+    const stop = f.start();
+    await f.api.initializeAppLock();
+    assert.equal(f.api.canUseAppLockPasscode(), false);
+    assert.equal(await f.api.unlockAppWithPasscode(), false);
+    assert.equal(
+      f.passcodes.length + f.prompts.length,
+      0,
+      "Unsupported passcode must not silently retry Face ID",
+    );
+    if (platform !== "web") assert.equal(f.snapshot().locked, true);
+    stop();
+  }
+
+  const f = fixture({ platform: "ios", stored: "1", passcodeAvailable: true });
+  const stop = f.start();
+  await f.api.initializeAppLock();
+  assert.equal(f.api.canUseAppLockPasscode(), true);
+  const unlocking = f.api.unlockAppWithPasscode();
+  assert.equal(
+    f.api.unlockAppWithPasscode(),
+    unlocking,
+    "Repeated passcode taps share one operation",
+  );
+  assert.equal(f.api.unlockApp(), unlocking, "Biometric and passcode operations cannot overlap");
+  assert.equal(
+    await f.api.setAppLockEnabled(false),
+    false,
+    "Unlock success cannot disable the lock",
+  );
+  await waitFor(() => f.passcodes.length === 1);
+  assert.equal(f.prompts.length, 0, "Explicit passcode bypasses Expo's Face ID-first prompt");
+  assert.equal(f.counts.imports, 0);
+  assert.equal(f.passcodes[0].reason, "appLock.auth.unlock");
+  assert.equal(f.passcodes[0].cancelLabel, "common.cancel");
+  assert.ok(f.passcodes[0].requestId);
+  f.state("inactive");
+  f.passcodes[0].response.resolve({ success: true });
+  await settleUI();
+  assert.equal(
+    f.snapshot().locked,
+    true,
+    "Passcode success waits until its system prompt returns foreground",
+  );
+  assert.equal(f.snapshot().busy, true);
+  f.state("active");
+  assert.equal(await unlocking, true);
+  assert.equal(f.snapshot().locked, false);
+  assert.equal(f.snapshot().enabled, true);
+  assert.equal(f.writes.length, 0, "Unlock does not change the durable opt-in preference");
+  stop();
+
+  for (const response of [
+    { success: false, error: "user_cancel" },
+    { success: false, error: "app_cancel" },
+    { success: false, error: "system_cancel" },
+    { success: false, error: "authentication_failed" },
+    { success: false, error: "passcode_not_set" },
+    { success: false, error: "not_available" },
+    null,
+    {},
+    { success: 1 },
+    { success: "true" },
+    "throw",
+  ]) {
+    const cancelled = fixture({ platform: "ios", stored: "1", passcodeAvailable: true });
+    const stopCancelled = cancelled.start();
+    await cancelled.api.initializeAppLock();
+    if (response === "throw") cancelled.setPasscodeThrows(true);
+    const action = cancelled.api.unlockAppWithPasscode();
+    if (response !== "throw") {
+      await waitFor(() => cancelled.passcodes.length === 1);
+      cancelled.passcodes[0].response.resolve(response);
+    }
+    assert.equal(await action, false, `Passcode result ${JSON.stringify(response)} cannot unlock`);
+    assert.equal(cancelled.snapshot().locked, true);
+    assert.equal(cancelled.snapshot().enabled, true);
+    assert.equal(cancelled.snapshot().busy, false);
+    assert.equal(cancelled.prompts.length + cancelled.writes.length, 0);
+    if (
+      response &&
+      typeof response === "object" &&
+      "error" in response &&
+      typeof response.error === "string" &&
+      ["user_cancel", "app_cancel", "system_cancel"].includes(response.error)
+    )
+      assert.equal(cancelled.snapshot().error, null, "Native cancellation stays quiet");
+    stopCancelled();
+  }
+
+  const stale = fixture({ platform: "ios", stored: "1", passcodeAvailable: true });
+  const stopStale = stale.start();
+  await stale.api.initializeAppLock();
+  const old = stale.api.unlockAppWithPasscode();
+  await waitFor(() => stale.passcodes.length === 1);
+  const oldId = stale.passcodes[0].requestId;
+  stale.state("background");
+  assert.equal(await old, false);
+  await settleUI();
+  assert.deepEqual(
+    stale.passcodeCancels,
+    [oldId],
+    "Cancellation is scoped to the retired native request",
+  );
+  assert.equal(stale.snapshot().locked, true);
+  stale.state("active");
+  const fresh = stale.api.unlockAppWithPasscode();
+  await settleUI();
+  assert.equal(
+    stale.passcodes.length,
+    1,
+    "A replacement waits for the old native passcode sheet to drain",
+  );
+  stale.passcodes[0].response.resolve({ success: true });
+  await waitFor(() => stale.passcodes.length === 2);
+  assert.equal(stale.snapshot().locked, true, "A success from before background cannot unlock");
+  assert.notEqual(
+    stale.passcodes[1].requestId,
+    oldId,
+    "New prompt has a fresh cancellation identity",
+  );
+  stale.passcodes[1].response.resolve({ success: true });
+  assert.equal(await fresh, true);
+  stopStale();
+
+  const disposed = fixture({ platform: "ios", stored: "1", passcodeAvailable: true });
+  const stopDisposed = disposed.start();
+  await disposed.api.initializeAppLock();
+  const pending = disposed.api.unlockAppWithPasscode();
+  await waitFor(() => disposed.passcodes.length === 1);
+  stopDisposed();
+  assert.equal(await pending, false);
+  await settleUI();
+  assert.deepEqual(disposed.passcodeCancels, [disposed.passcodes[0].requestId]);
+  disposed.passcodes[0].response.resolve({ success: true });
+  await settleUI();
+  assert.equal(disposed.snapshot().locked, true, "Disposed gate cannot accept late native success");
+
+  const biometric = fixture({ platform: "ios", stored: "1", passcodeAvailable: true });
+  const stopBiometric = biometric.start();
+  await biometric.api.initializeAppLock();
+  const ordinary = biometric.api.unlockApp();
+  await waitFor(() => biometric.prompts.length === 1);
+  assert.equal(biometric.api.unlockAppWithPasscode(), ordinary);
+  assert.equal(biometric.passcodes.length, 0);
+  biometric.prompts[0].response.resolve({ success: false, error: "user_cancel" });
+  assert.equal(await ordinary, false);
+  const explicit = biometric.api.unlockAppWithPasscode();
+  await waitFor(() => biometric.passcodes.length === 1);
+  biometric.passcodes[0].response.resolve({ success: true });
+  assert.equal(await explicit, true);
+  assert.equal(
+    biometric.prompts.length,
+    1,
+    "Choosing passcode does not open another Face ID prompt",
+  );
+  stopBiometric();
+
+  for (const initialState of ["inactive", "background", null]) {
+    const background = fixture({
+      platform: "ios",
+      stored: "1",
+      passcodeAvailable: true,
+      initialState,
+    });
+    const stopBackground = background.start();
+    await background.api.initializeAppLock();
+    assert.equal(await background.api.unlockAppWithPasscode(), false);
+    assert.equal(background.passcodes.length, 0);
+    assert.equal(background.snapshot().locked, true);
+    stopBackground();
+  }
+  const unreadable = fixture({ platform: "ios", passcodeAvailable: true });
+  unreadable.setRead(() => Promise.reject(Error("synthetic storage error")));
+  const stopUnreadable = unreadable.start();
+  assert.equal(await unreadable.api.unlockAppWithPasscode(), false);
+  assert.equal(unreadable.passcodes.length, 0);
+  assert.equal(unreadable.snapshot().locked, true);
+  stopUnreadable();
+  console.log(
+    "PASS explicit iOS passcode: native-only availability, no Face ID retry, single-flight, strict success, cancellation/errors, foreground waiting and stale/background/disposed request containment",
+  );
 }
 
 async function main() {
@@ -654,6 +873,7 @@ async function main() {
     assert.equal(f.prompts.length, 1);
     stop();
   }
+  await passcodeTests();
   console.log(
     "PASS app lock: default Off and device-only durability, fail-closed startup/retry, strong enrollment, authenticated enable/disable, single-flight prompts, cancellation/error recovery, inactive privacy, foreground/background/unmount races, stale native results and credential fallback",
   );

@@ -1,0 +1,8 @@
+{
+  "name": "kaata-device-auth",
+  "version": "0.0.1",
+  "description": "Kaata iOS device-passcode authentication through a protected system Keychain read.",
+  "main": "index.ts",
+  "types": "index.ts",
+  "private": true
+}

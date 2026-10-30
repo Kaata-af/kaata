@@ -64,6 +64,7 @@ function fixture(os: "ios" | "android", locale: "en" | "fa" | "ps") {
     foregroundVersion: 0,
   };
   let fallback = true;
+  let passcodeAvailable = true;
   const rtl = locale !== "en";
   const { AppLockGate } = compileUI("../../components/AppLockGate", {
     "react/jsx-runtime": {
@@ -86,6 +87,8 @@ function fixture(os: "ios" | "android", locale: "en" | "fa" | "ps") {
       getAppLockSnapshot: () => state,
       initializeAppLock: async () => {},
       unlockApp: async () => false,
+      canUseAppLockPasscode: () => os === "ios" && passcodeAvailable,
+      unlockAppWithPasscode: async () => false,
       supportsAppLockDeviceFallback: () => fallback,
     },
     "../lib/app-lock-privacy": {
@@ -127,6 +130,9 @@ function fixture(os: "ios" | "android", locale: "en" | "fa" | "ps") {
     setFallback: (value: boolean) => {
       fallback = value;
     },
+    setPasscodeAvailable: (value: boolean) => {
+      passcodeAvailable = value;
+    },
   };
 }
 
@@ -135,6 +141,19 @@ for (const os of ["ios", "android"] as const)
     const f = fixture(os, locale);
     f.render();
     const screen = f.byId("app-lock-screen");
+    const wordmark = f.byId("app-lock-wordmark");
+    assert.equal(
+      words(wordmark),
+      "kaata.",
+      "The lock-screen wordmark stays English in every language",
+    );
+    const wordmarkStyle = flattenStyle(wordmark.props.style);
+    assert.equal(
+      wordmarkStyle.writingDirection,
+      "ltr",
+      "The final dot stays after the Latin wordmark",
+    );
+    assert.equal(wordmarkStyle.textAlign, "center");
     const card = f.byId("app-lock-card");
     const title = f.byId("app-lock-title");
     assert.ok(card, "The lock card is present above private content");
@@ -181,11 +200,32 @@ for (const os of ["ios", "android"] as const)
     assert.equal(words(f.byId("app-lock-reassurance")), language.t("appLock.reassurance"));
     assert.equal(words(f.byId("app-lock-status")), language.t("appLock.protected"));
     assert.equal(f.buttons()[0].props.wrapLabel, true);
+    const explicitPasscode = () =>
+      f.buttons().find((button) => button.props.label === language.t("appLock.auth.passcode"));
+    if (os === "ios") {
+      assert.ok(f.byId("app-lock-passcode"));
+      assert.ok(
+        explicitPasscode(),
+        "Native iOS offers a readable passcode alternative in every locale",
+      );
+      assert.equal(explicitPasscode()!.props.wrapLabel, true);
+      assert.equal(explicitPasscode()!.props.disabled, false);
+      f.setPasscodeAvailable(false);
+      f.render();
+      assert.equal(
+        explicitPasscode(),
+        undefined,
+        "Expo Go does not advertise the native-only passcode route",
+      );
+      f.setPasscodeAvailable(true);
+      f.render();
+    } else assert.equal(explicitPasscode(), undefined);
 
     f.render({ busy: true });
     assert.equal(f.buttons()[0].props.loading, true);
     assert.equal(f.buttons()[0].props.showLabelWhileLoading, true);
     assert.equal(f.buttons()[0].props.label, language.t("appLock.unlocking"));
+    if (os === "ios") assert.equal(explicitPasscode()!.props.disabled, true);
     f.render({ busy: false, error: "authentication" });
     assert.ok(
       words(f.byId("app-lock-screen")).includes(
@@ -194,6 +234,7 @@ for (const os of ["ios", "android"] as const)
     );
     f.render({ appState: "inactive" });
     assert.equal(f.buttons()[0].props.disabled, true);
+    if (os === "ios") assert.equal(explicitPasscode()!.props.disabled, true);
 
     f.render({ initialized: false, enabled: false, locked: true, error: null, appState: "active" });
     assert.equal(words(f.byId("app-lock-title")), language.t("appLock.privacyTitle"));
@@ -202,9 +243,15 @@ for (const os of ["ios", "android"] as const)
       "Initialization cannot claim an enabled biometric lock",
     );
     assert.equal(f.buttons().length, 0);
+    assert.equal(
+      explicitPasscode(),
+      undefined,
+      "Unknown lock settings never expose an authentication bypass",
+    );
     f.render({ error: "storage" });
     assert.equal(f.buttons()[0].props.label, language.t("appLock.retry"));
     assert.equal(f.buttons()[0].props.wrapLabel, true);
+    assert.equal(explicitPasscode(), undefined);
     if (os === "android") {
       f.setFallback(false);
       f.render({ initialized: true, enabled: true, locked: true, error: "lockout" });

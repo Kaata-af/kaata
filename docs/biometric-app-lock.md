@@ -38,6 +38,20 @@ and controlled drafts remain mounted.
   add a fingerprint with the phone PIN; the app offers a settings shortcut and
   does not claim direct in-app PIN fallback.
 
+On an updated installed iOS app, **Use phone passcode** is also available as a
+separate action below Unlock. Expo's normal device-owner policy allows a passcode
+but still starts with enrolled Face ID; repeating that call is not a
+passcode-only action. The local `KaataDeviceAuth` module instead reads a fresh,
+random, device-only Keychain sentinel constrained by `.devicePasscode`. Only a
+successful protected read matching that random value authenticates. Creation
+alone never authenticates, and the sentinel is removed after the request.
+Kaata never receives or stores the phone passcode or introduces an app PIN.
+
+The explicit route shares the original single-flight, foreground and stale-result
+guards. Backgrounding cancels the exact native request; stale cancellations cannot
+cancel a newer request. The button is absent from Expo Go and older native builds
+that lack the module; they retain the existing native authentication route.
+
 The gate protects the app interface. It does not add database encryption or
 change financial calculations, membership, sync or notification-preview policy.
 Names and amounts on OS notifications remain controlled separately in
@@ -56,6 +70,9 @@ narrow screens and larger system text; the page remains scrollable. Unlocking
 keeps its label beside the spinner. Native authentication and recovery behavior
 are unchanged.
 
+The lock-screen wordmark is always the literal LTR **kaata.** in all languages;
+the remaining lock and recovery text stays localized.
+
 ## Screen privacy and native configuration
 
 While enabled, Android's native secure-window flag blocks screenshots,
@@ -69,6 +86,10 @@ includes the authentication plugin and localized `NSFaceIDUsageDescription`.
 A fresh native build is required for the installed app to contain these changes.
 [Face ID cannot be tested in Expo Go](https://docs.expo.dev/versions/v58.0.0/sdk/local-authentication/);
 Android fingerprint authentication is available there.
+The explicit iOS passcode route requires the new local `kaata-device-auth` module
+and therefore a fresh native iOS build. The lightweight Mac compiler workflow
+checks its security helper against the real iOS SDK without signing or submitting
+an app; the Expo adapter and actual system prompt still need the installed build.
 
 ## Verification
 
@@ -79,6 +100,9 @@ single-flight prompts, storage failures/timeouts, native lifecycle races,
 foreground retries, stale settings callbacks, capability changes and legacy
 Android recovery copy. Startup, email-auth, notification-routing and profile
 settings suites check surrounding behavior.
+Passcode tests additionally cover unavailable modules, strict native results,
+scoped cancellation, foreground waiting, preserved preferences and independence
+from Android's working biometric/credential path.
 
 On the USB-connected Xiaomi/API 31 in Expo Go, capability checks, the native
 fingerprint prompt, phone-PIN prompt, cancellation and the unchanged Off setting

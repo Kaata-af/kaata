@@ -21,7 +21,9 @@ import {
   getAppLockSnapshot,
   initializeAppLock,
   supportsAppLockDeviceFallback,
+  canUseAppLockPasscode,
   unlockApp,
+  unlockAppWithPasscode,
   useAppLock,
   type AppLockSnapshot,
 } from "../lib/app-lock";
@@ -117,6 +119,22 @@ export function AppLockGate({ children }: PropsWithChildren) {
         if (mounted.current && getAppLockSnapshot().appState === "active") setSetupFailed(true);
       });
   };
+  const requestPasscode = () => {
+    const current = getAppLockSnapshot();
+    if (
+      !mounted.current ||
+      !laidOut ||
+      current.busy ||
+      current.appState !== "active" ||
+      !current.initialized ||
+      !current.enabled ||
+      !current.locked ||
+      !canUseAppLockPasscode()
+    )
+      return;
+    automaticAttempt.current = current.foregroundVersion;
+    void unlockAppWithPasscode();
+  };
 
   const cover = blocked ? (
     <View
@@ -134,6 +152,7 @@ export function AppLockGate({ children }: PropsWithChildren) {
           state={state}
           onUnlock={requestUnlock}
           onOpenSettings={openSecuritySettings}
+          onUnlockPasscode={requestPasscode}
           setupFailed={setupFailed}
         />
       </SafeAreaProvider>
@@ -162,11 +181,13 @@ function LockScreen({
   state,
   onUnlock,
   onOpenSettings,
+  onUnlockPasscode,
   setupFailed,
 }: {
   state: AppLockSnapshot;
   onUnlock: () => void;
   onOpenSettings: () => void;
+  onUnlockPasscode: () => void;
   setupFailed: boolean;
 }) {
   const isRTL = useIsRTL();
@@ -187,7 +208,9 @@ function LockScreen({
       accessibilityViewIsModal
     >
       <View style={styles.panel}>
-        <Text style={[styles.brand, textDir(isRTL), styles.centered]}>{t("brand.wordmark")}</Text>
+        <Text testID="app-lock-wordmark" style={[styles.brand, styles.centered]}>
+          kaata.
+        </Text>
         <View testID="app-lock-card" style={styles.card}>
           <BalanceCardGlass />
           <View style={styles.cardContent}>
@@ -277,6 +300,19 @@ function LockScreen({
                 />
               </View>
             )}
+            {locked && canUseAppLockPasscode() ? (
+              <View testID="app-lock-passcode" style={styles.passcodeAction}>
+                <Button
+                  label={t("appLock.auth.passcode")}
+                  icon="key-outline"
+                  variant="secondary"
+                  fullWidth
+                  wrapLabel
+                  disabled={!active || state.busy}
+                  onPress={onUnlockPasscode}
+                />
+              </View>
+            ) : null}
             {legacyAndroid && state.initialized && state.enabled && state.locked ? (
               <View style={styles.recovery}>
                 <Text style={[styles.recoveryText, textDir(isRTL), styles.centered]}>
@@ -331,6 +367,7 @@ const styles = StyleSheet.create({
   panel: { width: "100%", maxWidth: 420, minWidth: 0 },
   brand: {
     width: "100%",
+    writingDirection: "ltr",
     fontFamily: fonts.sansSemi,
     fontSize: 16,
     lineHeight: sansLineHeight(16, 25),
@@ -422,6 +459,7 @@ const styles = StyleSheet.create({
   },
   progress: { marginTop: 28 },
   action: { width: "100%", marginTop: 28 },
+  passcodeAction: { width: "100%", marginTop: 12 },
   recovery: { width: "100%", marginTop: 20 },
   recoveryText: {
     width: "100%",

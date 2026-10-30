@@ -2,6 +2,11 @@ import { useSyncExternalStore } from "react";
 import { AppState, Platform, type AppStateStatus } from "react-native";
 import * as SecureStore from "expo-secure-store";
 import { t } from "./i18n";
+import {
+  supportsDevicePasscode,
+  authenticateWithDevicePasscode,
+  cancelDevicePasscode,
+} from "./device-passcode";
 
 export const APP_LOCK_KEY = "kaata.app_lock.enabled.v1";
 export type AppLockCapability =
@@ -38,6 +43,10 @@ export function supportsAppLockDeviceFallback() {
   const sdk = Number(Platform.Version);
   return Platform.OS === "ios" || (Platform.OS === "android" && Number.isInteger(sdk) && sdk >= 30);
 }
+/** A dedicated iPhone passcode prompt needs the installed native adapter. */
+export function canUseAppLockPasscode() {
+  return Platform.OS === "ios" && supportsDevicePasscode();
+}
 const normalizeAppState = (value: unknown): AppStateStatus | null =>
   value === "active" || value === "inactive" || value === "background" ? value : null;
 let snapshot: AppLockSnapshot = {
@@ -63,6 +72,7 @@ let capabilityTask: Promise<void> | null = null;
 type AuthResult = { success: true } | { success: false; error: string };
 type OperationKind = "enable" | "disable" | "unlock";
 type Operation = {
+  id: string;
   kind: OperationKind;
   version: number;
   phase: "preflight" | "authenticate" | "foreground" | "persist";
@@ -72,7 +82,12 @@ type Operation = {
   resume: ((active: boolean) => void) | null;
 };
 let operation: Operation | null = null;
-let nativeFlight: { owner: Operation; promise: Promise<AuthResult> } | null = null;
+let operationSequence = 0;
+let nativeFlight: {
+  owner: Operation;
+  method: "biometric" | "passcode";
+  promise: Promise<AuthResult>;
+} | null = null;
 
 function update(patch: Partial<AppLockSnapshot>) {
   const next = { ...snapshot, ...patch };
@@ -191,8 +206,10 @@ function retireAuthentication() {
   const job = operation;
   if (!job || job.phase === "persist") return;
   const ownsNativePrompt = nativeFlight?.owner === job;
+  const method = ownsNativePrompt ? nativeFlight?.method : null;
   settle(job, false);
-  if (ownsNativePrompt && Platform.OS === "android")
+  if (method === "passcode") void cancelDevicePasscode(job.id).catch(() => {});
+  else if (ownsNativePrompt && Platform.OS === "android")
     void authenticationModule()
       .then((auth) => auth.cancelAuthenticate())
       .catch(() => {});
@@ -274,16 +291,29 @@ function authError(error: string): AppLockError | null {
   return "authentication";
 }
 
-async function authenticate(job: Operation): Promise<boolean> {
+async function authenticate(
+  job: Operation,
+  method: "biometric" | "passcode" = "biometric",
+): Promise<boolean> {
   // A retired native prompt must finish cancelling before its replacement starts.
   if (nativeFlight) await nativeFlight.promise.catch(() => {});
   if (!current(job) || !isForeground()) return false;
-  const auth = await authenticationModule();
+  if (method === "passcode" && !canUseAppLockPasscode()) {
+    update({ error: "unavailable" });
+    return false;
+  }
+  const auth = method === "biometric" ? await authenticationModule() : null;
   if (!current(job) || !isForeground()) return false;
   job.phase = "authenticate";
   const promise = Promise.resolve().then<AuthResult>(() => {
     if (!current(job) || !isForeground()) return { success: false, error: "app_cancel" };
-    return auth.authenticateAsync({
+    if (method === "passcode")
+      return authenticateWithDevicePasscode(
+        job.id,
+        t(`appLock.auth.${job.kind}`),
+        t("common.cancel"),
+      );
+    return auth!.authenticateAsync({
       promptMessage: t(`appLock.auth.${job.kind}`),
       cancelLabel: t("common.cancel"),
       fallbackLabel: t("appLock.auth.passcode"),
@@ -292,7 +322,7 @@ async function authenticate(job: Operation): Promise<boolean> {
       requireConfirmation: true,
     });
   });
-  nativeFlight = { owner: job, promise };
+  nativeFlight = { owner: job, method, promise };
   let result: AuthResult;
   try {
     result = await promise;
@@ -300,8 +330,8 @@ async function authenticate(job: Operation): Promise<boolean> {
     if (nativeFlight?.promise === promise) nativeFlight = null;
   }
   if (!current(job)) return false;
-  if (!result.success) {
-    update({ error: authError(result.error) });
+  if (result?.success !== true) {
+    update({ error: authError(typeof result?.error === "string" ? result.error : "unknown") });
     return false;
   }
   // iOS may resolve Face ID just before its own inactive→active event.
@@ -326,6 +356,7 @@ function run(kind: OperationKind, work: (job: Operation) => Promise<boolean>): P
     resolve = done;
   });
   const job: Operation = {
+    id: `app-lock-${++operationSequence}`,
     kind,
     version: lifecycleVersion,
     phase: "preflight",
@@ -391,6 +422,18 @@ export function unlockApp(): Promise<boolean> {
     if (!current(job) || !snapshot.initialized) return false;
     if (!snapshot.enabled) return true;
     if (!(await authenticate(job))) return false;
+    update({ locked: false, error: null });
+    return true;
+  });
+}
+
+/** Explicit device passcode, without restarting Face ID or accepting an app PIN. */
+export function unlockAppWithPasscode(): Promise<boolean> {
+  if (!canUseAppLockPasscode()) return Promise.resolve(false);
+  return run("unlock", async (job) => {
+    await initializeAppLock();
+    if (!current(job) || !snapshot.initialized || !snapshot.enabled) return false;
+    if (!(await authenticate(job, "passcode"))) return false;
     update({ locked: false, error: null });
     return true;
   });

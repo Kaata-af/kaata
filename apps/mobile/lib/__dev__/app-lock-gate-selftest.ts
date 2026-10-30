@@ -13,6 +13,8 @@ let state = {
   foregroundVersion: 0,
 };
 let unlocks = 0;
+let passcodeUnlocks = 0;
+let explicitPasscode = true;
 let retries = 0;
 let keyboardDismissals = 0;
 let deviceFallback = true;
@@ -63,6 +65,11 @@ const { AppLockGate } = compileUI("../../components/AppLockGate", {
     getAppLockSnapshot: () => state,
     unlockApp: async () => {
       unlocks++;
+      return false;
+    },
+    canUseAppLockPasscode: () => platform.OS === "ios" && explicitPasscode,
+    unlockAppWithPasscode: async () => {
+      passcodeUnlocks++;
       return false;
     },
     initializeAppLock: async () => {
@@ -199,9 +206,36 @@ cover()!.props.onLayout();
 render();
 assert.ok(nodes(hooks.tree).some((node) => node.type === "FullWindowOverlay"));
 assert.ok(!nodes(hooks.tree).some((node) => node.type === "NativeModal"));
+const passcodeButton = () =>
+  nodes(hooks.tree).find((node) => node.props.label === "appLock.auth.passcode");
+assert.ok(passcodeButton(), "A native iPhone exposes an explicit passcode alternative");
+assert.equal(passcodeButton()!.props.wrapLabel, true);
+const passcodePress = passcodeButton()!.props.onPress;
+passcodePress();
+assert.equal(passcodeUnlocks, 1);
+state = { ...state, busy: true };
+render();
+assert.equal(passcodeButton()!.props.disabled, true);
+passcodePress();
+assert.equal(passcodeUnlocks, 1, "A retained passcode action cannot overlap authentication");
+state = { ...state, busy: false };
+explicitPasscode = false;
+render();
+assert.equal(
+  passcodeButton(),
+  undefined,
+  "Expo Go and older binaries do not advertise unavailable native passcode",
+);
+passcodePress();
+assert.equal(passcodeUnlocks, 1, "An unavailable bridge is not replaced by another Face ID prompt");
+explicitPasscode = true;
+render();
 state = { ...state, appState: "inactive" };
 render();
 assert.ok(cover());
+assert.equal(passcodeButton()!.props.disabled, true);
+passcodePress();
+assert.equal(passcodeUnlocks, 1, "System prompt inactivity cannot start another passcode sheet");
 state = { ...state, appState: "background" };
 render();
 assertHidden();
@@ -211,6 +245,8 @@ render();
 assert.equal(cover(), undefined);
 assert.equal(content().props.pointerEvents, "auto");
 assert.equal(content().props.children, draft);
+passcodePress();
+assert.equal(passcodeUnlocks, 1, "A queued passcode action cannot unlock an already unlocked app");
 
 platform.OS = "android";
 deviceFallback = false;
@@ -218,6 +254,7 @@ state = { ...state, locked: true, error: "lockout", foregroundVersion: 3 };
 render();
 cover()!.props.onLayout();
 render();
+assert.equal(passcodeButton(), undefined, "Android keeps its existing native credential fallback");
 assert.ok(
   nodes(hooks.tree).some((node) => node.props.children === "settings.appLock.error.legacyLockout"),
 );
@@ -239,7 +276,9 @@ const latePress = button().props.onPress;
 hooks.unmount();
 lateShow();
 latePress();
+passcodePress();
 assert.equal(retries, 1);
+assert.equal(passcodeUnlocks, 1, "Unmounted passcode actions cannot authenticate");
 assert.equal(hooks.lateWrites, 0);
 assert.ok(keyboardDismissals > 0);
 

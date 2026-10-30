@@ -1,0 +1,112 @@
+name: iOS app lock native checks
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - apps/mobile/modules/kaata-device-auth/**
+      - .github/workflows/ios-app-lock-check.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-app-lock-check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    # Keep native source checks on the same free public Mac image as testing builds.
+    if: github.repository == 'Kaata-af/kaata' && github.ref == 'refs/heads/main' && toJSON(github.event.repository.private) == 'false'
+    runs-on: macos-26
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: bash
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+      AUTH_HELPER: apps/mobile/modules/kaata-device-auth/ios/DevicePasscodeAuthenticator.swift
+      AUTH_ADAPTER: apps/mobile/modules/kaata-device-auth/ios/KaataDeviceAuthModule.swift
+      CHECK_TARGET: arm64-apple-ios16.4-simulator
+
+    steps:
+      - name: Check out the exact source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Verify the source and pinned Apple compiler
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test -f "$AUTH_HELPER"
+          test -f "$AUTH_ADAPTER"
+          xcodebuild -version
+          test "$(xcodebuild -version | head -n 1)" = 'Xcode 26.6'
+          xcrun --sdk iphonesimulator swiftc --version
+          mkdir -p "$RUNNER_TEMP/kaata-app-lock-check"
+
+      - name: Typecheck passcode authentication against the real iOS SDK
+        run: |
+          set -euo pipefail
+          sdk="$(xcrun --sdk iphonesimulator --show-sdk-path)"
+          xcrun --sdk iphonesimulator swiftc \
+            -swift-version 5 -typecheck \
+            -target "$CHECK_TARGET" -sdk "$sdk" \
+            -module-cache-path "$RUNNER_TEMP/kaata-app-lock-check/module-cache" \
+            "$AUTH_HELPER" \
+            2>&1 | tee "$RUNNER_TEMP/kaata-app-lock-check/helper-typecheck.log"
+
+      - name: Check Expo adapter Swift syntax
+        run: |
+          set -euo pipefail
+          xcrun --sdk iphonesimulator swiftc -frontend -parse "$AUTH_ADAPTER" \
+            2>&1 | tee "$RUNNER_TEMP/kaata-app-lock-check/adapter-parse.log"
+
+      - name: Record checked source and verification scope
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import hashlib, json, os, pathlib, subprocess
+          out = pathlib.Path(os.environ['RUNNER_TEMP']) / 'kaata-app-lock-check'
+          files = [os.environ['AUTH_HELPER'], os.environ['AUTH_ADAPTER']]
+          receipt = {
+              'sourceCommit': os.environ['GITHUB_SHA'],
+              'repository': os.environ['GITHUB_REPOSITORY'],
+              'runId': os.environ['GITHUB_RUN_ID'],
+              'runAttempt': os.environ['GITHUB_RUN_ATTEMPT'],
+              'runner': 'standard macos-26',
+              'xcode': '26.6',
+              'target': os.environ['CHECK_TARGET'],
+              'swiftLanguageMode': '5',
+              'swiftCompiler': subprocess.check_output(['xcrun', '--sdk', 'iphonesimulator', 'swiftc', '--version'], text=True).strip(),
+              'sdk': subprocess.check_output(['xcrun', '--sdk', 'iphonesimulator', '--show-sdk-version'], text=True).strip(),
+              'sourceSha256': {name: hashlib.sha256(pathlib.Path(name).read_bytes()).hexdigest() for name in files},
+              'checks': {'realIosSdkHelperTypecheck': True, 'expoAdapterSyntax': True},
+              'allPassed': True,
+              'appBuildPerformed': False,
+              'signingCredentialsUsed': False,
+              'storeSubmissionPerformed': False,
+              'limitations': [
+                  'The Expo adapter is syntax-checked; complete Expo/React Native integration is checked by the next app build.',
+                  'No system authentication prompt or real-device passcode was exercised.'
+              ],
+          }
+          (out / 'native-check-receipt.json').write_text(json.dumps(receipt, indent=2) + '\n')
+          print(json.dumps(receipt, indent=2))
+          PY
+
+      - name: Retain non-secret compiler logs and source receipt
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ios-app-lock-check-${{ github.sha }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/kaata-app-lock-check/helper-typecheck.log
+            ${{ runner.temp }}/kaata-app-lock-check/adapter-parse.log
+            ${{ runner.temp }}/kaata-app-lock-check/native-check-receipt.json
+          if-no-files-found: warn
+          retention-days: 7
