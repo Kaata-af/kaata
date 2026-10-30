@@ -102,6 +102,7 @@ test("UI language changes update document language/search copy while Persian soc
   };
   const storage = new Map([["kaata_lang", "en"]]);
   const window = {
+    location: { pathname: "/" },
     localStorage: {
       getItem: (key) => storage.get(key) ?? null,
       setItem: (key, value) => storage.set(key, value),
@@ -159,6 +160,16 @@ test("UI language changes update document language/search copy while Persian soc
       "social copy, locale and image must not follow the UI locale",
     );
   }
+
+  window.location.pathname = "/app/sign-in";
+  document.title = "کاتا · ورود";
+  context.setLang("fa");
+  context = render();
+  assert.equal(document.title, "کاتا · ورود", "auth routes retain their page-specific title");
+  assert.equal(document.documentElement.lang, "fa");
+  assert.equal(document.documentElement.dir, "rtl");
+  assert.equal(context.lang, "fa");
+  assert.deepEqual(social(), initialSocial);
 });
 
 test("public social-image route keeps PNG MIME/cache headers and avoids SPA fallback", () => {

@@ -490,9 +490,10 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     document.documentElement.lang = lang;
     document.documentElement.dir = isRtlLanguage(lang) ? "rtl" : "ltr";
-    document.title = /^\/app(?:\/|$)/.test(window.location?.pathname ?? "")
-      ? { en: "Kaata · Your workspace", fa: "کاتا · کاتای وب", ps: "کاتا · د وېب کاتا" }[lang]
-      : PAGE_TITLES[lang];
+    // Workspace routes own their page-specific titles, including on language
+    // changes. A parent language effect must not overwrite the auth page title.
+    if (!/^\/app(?:\/|$)/.test(window.location?.pathname ?? ""))
+      document.title = PAGE_TITLES[lang];
     // Social previews intentionally keep the Persian copy/image in index.html.
     // Page title and search description still follow the visitor's UI language.
     document

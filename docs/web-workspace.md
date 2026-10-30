@@ -16,6 +16,19 @@ The first browser workspace lives at `/app` in the existing Vite application. It
 
 This release deliberately excludes reminders, contact import, shared-account actions/history, member administration, credit-limit configuration, settlement actions and offline browser editing. People ever linked to a mutual tab are clearly labeled and their incomplete local balances are excluded from totals. Use the phone app for these features. Archived kaatas are view-only for their owner; archived people are hidden. Settled chapters remain visible and immutable.
 
+## Routes
+
+| Route                  | Page                                       |
+| ---------------------- | ------------------------------------------ |
+| `/app`                 | Authenticated workspace                    |
+| `/app/sign-in`         | Password, Apple or Google sign-in          |
+| `/app/sign-up`         | Email-code signup, Apple or Google sign-in |
+| `/app/forgot-password` | Email-code password recovery               |
+
+Auth pages share a compact layout and load separately from the ledger. Links create normal browser history entries; session guards replace the current entry when redirecting signed-out visitors to sign-in or signed-in visitors to the workspace. Unknown `/app/*` routes show a localized 404. Page titles follow the active route and language.
+
+Auth history changes clear form secrets and cancel pending sign-in, including browser Back, so a late response cannot open an account after the visitor leaves. The existing Apple `/app#...` return remains compatible: its fragment is removed before routing or provider scripts load, and completion is consumed once. Sign-out returns to `/app/sign-in` without replaying a completed Apple return.
+
 ## Data and security
 
 `GET /v1/sync/ledger?vault_id=...` reads current authorization, vault metadata, all events and tab bindings in one repeatable-read transaction. It folds the current event log, including events newer than any persisted snapshot. It does not expose a second source of ledger truth. Reads are authenticated, rate-limited and `no-store`. Exact decimal amounts are returned as strings; UI arithmetic uses integer hundredths, and totals never mix currencies.
@@ -43,6 +56,7 @@ Deploy backend and web from the same commit, backend first. There is no database
 - Caddy serves `/app` with its dedicated GIS CSP, no-store, no-referrer and noindex headers. The marketing-to-workspace link must perform a full document navigation so the browser receives that CSP. Marketing and admin pages retain their previous stricter CSP.
 - Production supports both `https://kaata.af/app` and `https://www.kaata.af/app`. Apple begins and finishes on the same allowed origin so existing sessions, pending saves and the sign-in challenge remain in their original browser storage. There is no forced origin redirect or cross-origin session transfer.
 - Direct `/app` reloads must fall back to the SPA shell. HTTPS is required for browser signing outside localhost. No new hosting service is needed.
+- Auth routes also use the `/app/*` SPA fallback and private headers, so their direct links and reloads work without additional server endpoints.
 - Preserve WebSocket upgrades for `/v1/sync/web-live`. The existing live broker and new ticket store are in-process and assume one backend instance. Multiple replicas need shared notification/ticket infrastructure (or appropriate routing); ordinary polling still works during live-channel outages.
 
 ## Verification
@@ -71,6 +85,8 @@ The database test harness resets its test schema. Never point it at a real appli
 Provider release checks passed all 233 web tests across 23 files, all nine analytics/privacy and social-metadata tests, and the full backend auth suite against disposable PostgreSQL. A local browser fixture using synthetic Apple credentials verified same-tab completion, immediate removal of the callback fragment, one exchange despite React StrictMode, sign-out without automatic re-entry, and cancellation. A failed Apple exchange displayed an unavailable error; a fresh sign-in attempt then succeeded, with the callback fragment removed in both cases. The real Google Identity Services library rendered its button in that fixture; Google rejected the unregistered `localhost:3004` origin as expected. These checks do not represent completed consent with a real Apple or Google account.
 
 Production `/v1/auth/providers` returns both providers. The Apple button on `www.kaata.af` opens Kaata's branded Apple sign-in page, and browser Back restores an enabled login screen. Both `https://kaata.af` and `https://www.kaata.af` are now saved as authorized JavaScript origins on the existing Google OAuth client. In Chrome, Google's buttons on both origins open the real account chooser showing “to continue to kaata.af,” with no console errors. The popups were closed without selecting an account; no real OAuth consent or complete production provider sign-in was performed.
+
+Routing checks used a disposable local API with synthetic sessions and Apple credentials. Browser QA verified redirects, real signup/reset URLs, Back clearing entered secrets, and a delayed password response completing after Back without opening a session. Signup and reset code forms received focus correctly; reset retained its device sign-out warning. Two Apple starts produced exactly two exchanges, and both sign-outs returned to sign-in without replay. Signed-in auth links redirected to the workspace, unknown app paths showed 404, and the compact pages worked at 390px and in Dari RTL. No real provider account or email delivery was used in these routing checks.
 
 Local browser checks covered existing-account sign-in, existing kaata balances, adding a person, Dari decimal input, entry correction, separate USD/AFN totals, new kaata creation, and Dari layout at desktop and 390px widths. A real isolated API smoke also covered person edits, entry deletion, new-vault signed genesis, sign-out/re-sign-in, and fresh-device witness admission. Mock transport tests cover lost-response retries. Real Google/Apple consent and completed production sign-in, existing Apple-account continuity, live email delivery and a physical-phone round trip still need release-environment verification.
 

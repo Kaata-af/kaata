@@ -16,28 +16,20 @@ import {
   type WebSession,
 } from "../../lib/web-auth";
 import { mountGoogleButton } from "../../lib/web-google";
+import { authRoute, type WebAuthMode } from "../../lib/web-routes";
 import {
-  consumeWebAppleCallback,
   dismissWebAppleCallback,
   startWebAppleSignIn,
+  type WebAppleCallback,
 } from "../../lib/web-apple";
 
 const en = {
-  web: "Kaata for web",
-  beta: "Early access",
   language: "Language",
-  heading: "Your kaata.\nA little more room.",
-  intro: "The same people, the same balances. Now at your desk.",
-  one: "Keep your people and balances together",
-  two: "Record what you gave and received",
-  three: "Continue with the account you use on your phone",
-  online:
-    "This first web version needs an internet connection. Your phone’s unsynced records appear after they reach Kaata.",
   signin: "Welcome back",
   signup: "Create your account",
   reset: "Reset your password",
-  signinSub: "Sign in to open your kaatas on this computer.",
-  signupSub: "Choose how you’d like to create your account.",
+  signinSub: "Your people and balances, right where you left them.",
+  signupSub: "Keep your people and balances together.",
   resetSub: "Enter the email you use to sign in with a password.",
   identifier: "Email or username",
   email: "Email address",
@@ -69,12 +61,11 @@ const en = {
   retry: "Try again",
   appleError: "Apple sign-in could not finish. Please try again.",
   appleStorage: "Allow this site to use browser storage, then try Apple sign-in again.",
-  providerHelp:
-    "Choose the same sign-in method and account you use on your phone to open your existing kaatas.",
+  providerHelp: "Already use Kaata on your phone? Use the same sign-in method and account.",
   privacy: "Privacy",
   terms: "Terms",
-  session:
-    "Sign out when you finish on a shared computer. Your session is kept in this browser tab.",
+  session: "On a shared computer? Sign out when you’re done.",
+  accountHelp: "About your account",
   network: "Cannot reach Kaata. Check your connection and try again.",
   credentials: "The email, username or password is incorrect.",
   invalidCode: "That code is incorrect or has expired. Try again or request a new code.",
@@ -92,21 +83,12 @@ const en = {
 };
 type Copy = { [K in keyof typeof en]: string };
 const fa: Copy = {
-  web: "کاتا در وب",
-  beta: "نسخۀ ابتدایی",
   language: "زبان",
-  heading: "همان کاتای شما.\nبا جای بیشتر.",
-  intro: "همان اشخاص و همان حساب‌ها، حالا روی کمپیوتر شما.",
-  one: "اشخاص و حساب‌های خود را یکجا نگه دارید",
-  two: "داده‌ها و گرفته‌های خود را ثبت کنید",
-  three: "با همان حساب تلفون خود وارد شوید",
-  online:
-    "این نسخۀ وب به انترنت نیاز دارد. ثبت‌های همگام‌نشدۀ تلفون پس از رسیدن به کاتا اینجا دیده می‌شوند.",
   signin: "خوش آمدید",
   signup: "حساب بسازید",
   reset: "رمز عبور را بازنشانی کنید",
-  signinSub: "برای باز کردن کاتاهای خود در این کمپیوتر وارد شوید.",
-  signupSub: "روش ساختن حساب خود را انتخاب کنید.",
+  signinSub: "اشخاص و حساب‌های شما، همان‌جا که گذاشتید.",
+  signupSub: "اشخاص و حساب‌های خود را یکجا نگه دارید.",
   resetSub: "ایمیلی را وارد کنید که با آن و رمز عبور وارد می‌شوید.",
   identifier: "ایمیل یا نام کاربری",
   email: "آدرس ایمیل",
@@ -138,12 +120,11 @@ const fa: Copy = {
   retry: "کوشش دوباره",
   appleError: "ورود با اپل تکمیل نشد. دوباره کوشش کنید.",
   appleStorage: "به این سایت اجازۀ ذخیره‌سازی در مرورگر بدهید، سپس دوباره با اپل وارد شوید.",
-  providerHelp:
-    "برای باز کردن کاتاهای موجود، همان روش ورود و حسابی را انتخاب کنید که در تلفون استفاده می‌کنید.",
+  providerHelp: "در تلفون کاتا دارید؟ از همان روش ورود و حساب استفاده کنید.",
   privacy: "حریم خصوصی",
   terms: "شرایط استفاده",
-  session:
-    "در کمپیوتر مشترک، پس از کار از حساب خارج شوید. نشست شما در همین تب مرورگر نگه داشته می‌شود.",
+  session: "در کمپیوتر مشترک، پس از کار از حساب خارج شوید.",
+  accountHelp: "دربارۀ حساب شما",
   network: "اتصال به کاتا ممکن نشد. انترنت را بررسی کنید و دوباره کوشش کنید.",
   credentials: "ایمیل، نام کاربری یا رمز عبور درست نیست.",
   invalidCode: "کد درست نیست یا منقضی شده است. دوباره کوشش کنید یا کد جدید بخواهید.",
@@ -159,21 +140,12 @@ const fa: Copy = {
   deletionCancelled: "حساب شما بازیابی شد و درخواست حذف آن لغو گردید.",
 };
 const ps: Copy = {
-  web: "کاتا په وېب کې",
-  beta: "لومړنۍ نسخه",
   language: "ژبه",
-  heading: "ستاسو هماغه کاتا.\nپه پراخه پرده.",
-  intro: "هماغه خلک او هماغه حسابونه، اوس ستاسو پر کمپیوټر.",
-  one: "خپل خلک او حسابونه یو ځای وساتئ",
-  two: "خپلې ورکړې او اخیستنې ثبت کړئ",
-  three: "د خپل ټیلیفون په هماغه حساب ننوځئ",
-  online:
-    "دا لومړنۍ وېب نسخه انټرنېټ ته اړتیا لري. د ټیلیفون نالېږل شوي ثبتونه کاتا ته تر رسېدو وروسته دلته ښکاري.",
   signin: "ښه راغلاست",
   signup: "حساب جوړ کړئ",
   reset: "پټنوم بیا وټاکئ",
-  signinSub: "پر دې کمپیوټر د خپلو کاتاګانو د پرانیستلو لپاره ننوځئ.",
-  signupSub: "د خپل حساب جوړولو لاره وټاکئ.",
+  signinSub: "ستاسو خلک او حسابونه، هماغه ځای چې پرېښي مو وو.",
+  signupSub: "خپل خلک او حسابونه یو ځای وساتئ.",
   resetSub: "هغه برېښنالیک ولیکئ چې په پټنوم ورسره ننوځئ.",
   identifier: "برېښنالیک یا کارن نوم",
   email: "برېښنالیک پته",
@@ -205,11 +177,11 @@ const ps: Copy = {
   retry: "بیا هڅه وکړئ",
   appleError: "له اپل سره ننوتل بشپړ نه شول. بیا هڅه وکړئ.",
   appleStorage: "دې سایټ ته په براوزر کې د ساتلو اجازه ورکړئ، بیا له اپل سره د ننوتلو هڅه وکړئ.",
-  providerHelp:
-    "د خپلو شته کاتاګانو د پرانیستلو لپاره د ټیلیفون هماغه د ننوتلو لاره او حساب وټاکئ.",
+  providerHelp: "په ټیلیفون کې کاتا لرئ؟ د ننوتلو هماغه لاره او حساب وکاروئ.",
   privacy: "محرمیت",
   terms: "شرطونه",
-  session: "پر ګډ کمپیوټر د کار له پای وروسته ووځئ. ستاسو ناسته د براوزر په همدې ټب کې ساتل کېږي.",
+  session: "پر ګډ کمپیوټر د کار له پای وروسته ووځئ.",
+  accountHelp: "ستاسو د حساب په اړه",
   network: "له کاتا سره اړیکه ټینګه نه شوه. انټرنېټ وګورئ او بیا هڅه وکړئ.",
   credentials: "برېښنالیک، کارن نوم یا پټنوم ناسم دی.",
   invalidCode: "کوډ ناسم دی یا وخت یې تېر شوی. بیا هڅه وکړئ یا نوی کوډ وغواړئ.",
@@ -255,14 +227,20 @@ function errorText(error: unknown, copy: Copy): string {
   }
 }
 
-export function WorkspaceAuth({ onSignedIn }: { onSignedIn: (session: WebSession) => void }) {
-  // Consume the return before any provider script loads; tokens never stay in
-  // the address bar. The helper caches one completion across StrictMode effects.
-  const [appleReturn] = useState(consumeWebAppleCallback);
+export function WorkspaceAuth({
+  mode,
+  appleReturn,
+  onAppleReturnHandled,
+  onSignedIn,
+}: {
+  mode: WebAuthMode;
+  appleReturn: WebAppleCallback;
+  onAppleReturnHandled: () => void;
+  onSignedIn: (session: WebSession) => void;
+}) {
   const { lang, setLang, t } = useI18n();
   const toast = useToast();
   const copy = copies[lang];
-  const [mode, setMode] = useState<"signin" | "signup" | "reset">("signin");
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -281,12 +259,22 @@ export function WorkspaceAuth({ onSignedIn }: { onSignedIn: (session: WebSession
   const [providerAttempt, setProviderAttempt] = useState(0);
   const [googleAttempt, setGoogleAttempt] = useState(0);
   const googleContainer = useRef<HTMLDivElement>(null);
+  const heading = useRef<HTMLHeadingElement>(null);
+  const codeInput = useRef<HTMLInputElement>(null);
   const completeSignIn = (session: WebSession) => {
     if (session.deletion_cancelled) toast.push(copy.deletionCancelled, "info");
     onSignedIn(session);
   };
-  const latest = useRef({ completeSignIn, copy });
-  latest.current = { completeSignIn, copy };
+  const latest = useRef({ completeSignIn, copy, onAppleReturnHandled });
+  latest.current = { completeSignIn, copy, onAppleReturnHandled };
+
+  useEffect(() => {
+    heading.current?.focus({ preventScroll: true });
+  }, []);
+
+  useEffect(() => {
+    if (sent) codeInput.current?.focus();
+  }, [sent]);
 
   useEffect(() => {
     const resumed = (event: PageTransitionEvent) => {
@@ -304,9 +292,13 @@ export function WorkspaceAuth({ onSignedIn }: { onSignedIn: (session: WebSession
     if (appleReturn.status === "error") {
       setError(latest.current.copy.appleError);
       dismissWebAppleCallback();
+      latest.current.onAppleReturnHandled();
       return;
     }
-    if (appleReturn.status === "cancelled") dismissWebAppleCallback();
+    if (appleReturn.status === "cancelled") {
+      dismissWebAppleCallback();
+      latest.current.onAppleReturnHandled();
+    }
     if (appleReturn.status !== "ready") return;
     let active = true;
     void appleReturn
@@ -321,6 +313,7 @@ export function WorkspaceAuth({ onSignedIn }: { onSignedIn: (session: WebSession
         if (active) {
           busyRef.current = false;
           setBusy(false);
+          latest.current.onAppleReturnHandled();
         }
       });
     return () => {
@@ -408,15 +401,6 @@ export function WorkspaceAuth({ onSignedIn }: { onSignedIn: (session: WebSession
     dismissWebAppleCallback();
   }
 
-  const switchMode = (next: typeof mode) => {
-    setMode(next);
-    setPassword("");
-    setConfirm("");
-    setCode("");
-    setSent(false);
-    setError("");
-  };
-
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (busyRef.current) return;
@@ -471,14 +455,14 @@ export function WorkspaceAuth({ onSignedIn }: { onSignedIn: (session: WebSession
   }
 
   return (
-    <main className="min-h-screen bg-white text-neutral-900">
-      <header className="mx-auto flex max-w-[1440px] items-center justify-between px-6 py-6 sm:px-10">
+    <div
+      className="flex min-h-dvh flex-col bg-neutral-50 text-neutral-900"
+      dir={lang === "en" ? "ltr" : "rtl"}
+    >
+      <header className="mx-auto flex w-full max-w-6xl items-center justify-between px-5 py-5 sm:px-8 sm:py-7">
         <Link to="/" onClick={leaveSignIn} className="flex items-center gap-2.5" aria-label="Kaata">
-          <BrandLogo className="h-9 w-9" />
+          <BrandLogo className="h-8 w-8" />
           <span className="text-xl font-bold">{t("brand.wordmark")}</span>
-          <span className="ms-2 rounded-full border border-neutral-200 px-2.5 py-1 text-[11px] font-medium text-neutral-500">
-            {copy.beta}
-          </span>
         </Link>
         <label className="flex items-center gap-2 text-sm text-neutral-500">
           <span className="sr-only">{copy.language}</span>
@@ -493,39 +477,23 @@ export function WorkspaceAuth({ onSignedIn }: { onSignedIn: (session: WebSession
           </select>
         </label>
       </header>
-      <div className="mx-auto grid max-w-6xl items-center gap-12 px-6 pb-12 pt-8 sm:px-10 lg:min-h-[calc(100vh-110px)] lg:grid-cols-2 lg:gap-24 lg:py-16">
-        <section className="hidden lg:block">
-          <p className="mb-6 text-xs font-semibold uppercase tracking-widest text-neutral-500">
-            {copy.web}
-          </p>
-          <h1 className="whitespace-pre-line text-5xl font-semibold leading-[1.18]">
-            {copy.heading}
-          </h1>
-          <p className="mt-6 max-w-md text-lg leading-relaxed text-neutral-500">{copy.intro}</p>
-          <ul className="mt-12 space-y-5 text-sm text-neutral-700">
-            {[copy.one, copy.two, copy.three].map((item) => (
-              <li key={item} className="flex items-center gap-3">
-                <span
-                  aria-hidden="true"
-                  className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-neutral-100 text-xs"
-                >
-                  ✓
-                </span>
-                {item}
-              </li>
-            ))}
-          </ul>
-          <p className="mt-12 max-w-sm border-t border-neutral-200 pt-5 text-xs leading-relaxed text-neutral-500">
-            {copy.online}
-          </p>
-        </section>
-        <section className="mx-auto w-full max-w-sm" aria-labelledby="web-auth-heading">
-          <h2 id="web-auth-heading" className="text-3xl font-semibold">
+      <main className="flex flex-1 items-center justify-center px-5 pb-10 pt-3 sm:pb-16 sm:pt-6">
+        <section
+          className="w-full max-w-[424px] rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm sm:p-8"
+          aria-labelledby="web-auth-heading"
+          aria-busy={busy}
+        >
+          <h1
+            ref={heading}
+            tabIndex={-1}
+            id="web-auth-heading"
+            className="text-2xl font-semibold leading-snug tracking-tight outline-none focus:outline-none"
+          >
             {copy[mode]}
-          </h2>
-          <p className="mb-8 mt-3 text-sm leading-relaxed text-neutral-500">{copy[`${mode}Sub`]}</p>
+          </h1>
+          <p className="mb-7 mt-2 text-sm leading-relaxed text-neutral-500">{copy[`${mode}Sub`]}</p>
           {mode !== "reset" && !sent && (
-            <div className="mx-auto mb-6 max-w-[360px] space-y-3">
+            <div className="mb-6 space-y-3">
               {!providers && !providersError && (
                 <p role="status" className="text-sm text-neutral-500">
                   {copy.providersLoading}
@@ -549,7 +517,7 @@ export function WorkspaceAuth({ onSignedIn }: { onSignedIn: (session: WebSession
                   type="button"
                   onClick={appleSignIn}
                   disabled={busy}
-                  className="flex h-11 w-full items-center justify-center gap-3 rounded border border-black bg-black px-4 text-sm font-medium text-white transition-colors hover:bg-neutral-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black disabled:opacity-60"
+                  className="flex h-11 w-full items-center justify-center gap-3 rounded-md border border-black bg-black px-4 text-sm font-medium text-white transition-colors hover:bg-neutral-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black disabled:opacity-60"
                 >
                   <svg
                     viewBox="0 0 24 24"
@@ -603,7 +571,7 @@ export function WorkspaceAuth({ onSignedIn }: { onSignedIn: (session: WebSession
                   id="web-email"
                   name="username"
                   type={mode === "signin" ? "text" : "email"}
-                  autoComplete="username"
+                  autoComplete={mode === "signin" ? "username" : "email"}
                   autoCapitalize="none"
                   spellCheck={false}
                   required
@@ -621,6 +589,8 @@ export function WorkspaceAuth({ onSignedIn }: { onSignedIn: (session: WebSession
                     onClick={() => {
                       setSent(false);
                       setCode("");
+                      setPassword("");
+                      setConfirm("");
                       setError("");
                     }}
                   >
@@ -642,6 +612,7 @@ export function WorkspaceAuth({ onSignedIn }: { onSignedIn: (session: WebSession
                     </label>
                     <Input
                       id="web-code"
+                      ref={codeInput}
                       name="code"
                       value={code}
                       required
@@ -667,9 +638,20 @@ export function WorkspaceAuth({ onSignedIn }: { onSignedIn: (session: WebSession
               )}
               {(mode === "signin" || sent) && (
                 <div className="space-y-2">
-                  <label htmlFor="web-password" className="block text-sm font-medium">
-                    {mode === "reset" ? copy.newPassword : copy.password}
-                  </label>
+                  <div className="flex items-baseline justify-between gap-3">
+                    <label htmlFor="web-password" className="block text-sm font-medium">
+                      {mode === "reset" ? copy.newPassword : copy.password}
+                    </label>
+                    {mode === "signin" && (
+                      <Link
+                        to={authRoute("reset")}
+                        onClick={leaveSignIn}
+                        className="text-xs text-neutral-500 underline-offset-4 hover:text-neutral-900 hover:underline"
+                      >
+                        {copy.forgot}
+                      </Link>
+                    )}
+                  </div>
                   <Input
                     id="web-password"
                     name="password"
@@ -748,54 +730,55 @@ export function WorkspaceAuth({ onSignedIn }: { onSignedIn: (session: WebSession
                     : copy.resend}
                 </button>
               )}
-              {mode === "signin" && (
-                <button
-                  type="button"
-                  onClick={() => switchMode("reset")}
-                  className="block w-full text-center text-sm text-neutral-600 underline underline-offset-4"
-                >
-                  {copy.forgot}
-                </button>
-              )}
             </fieldset>
           </form>
-          <div className="mt-7 border-t border-neutral-200 pt-6 text-center text-sm text-neutral-500">
+          <div className="mt-6 text-center text-sm text-neutral-500">
             {mode === "signin" ? (
               <>
                 {copy.newHere}{" "}
-                <button
-                  disabled={busy}
-                  onClick={() => switchMode("signup")}
+                <Link
+                  to={authRoute("signup")}
+                  onClick={leaveSignIn}
                   className="font-medium text-neutral-900 underline underline-offset-4"
                 >
                   {copy.createLink}
-                </button>
+                </Link>
               </>
             ) : (
-              <button
-                disabled={busy}
-                onClick={() => switchMode("signin")}
-                className="font-medium text-neutral-900 underline underline-offset-4"
-              >
-                {copy.back}
-              </button>
+              <>
+                {mode === "signup" && <>{copy.haveAccount} </>}
+                <Link
+                  to={authRoute("signin")}
+                  onClick={leaveSignIn}
+                  className="font-medium text-neutral-900 underline underline-offset-4"
+                >
+                  {mode === "signup" ? copy.continue : copy.back}
+                </Link>
+              </>
             )}
           </div>
           {mode === "signin" && (
-            <p className="mt-6 text-xs leading-relaxed text-neutral-500">{copy.providerHelp}</p>
+            <p className="mt-6 border-t border-neutral-100 pt-5 text-xs leading-relaxed text-neutral-500">
+              {copy.providerHelp}
+            </p>
           )}
-          <p className="mt-5 text-xs leading-relaxed text-neutral-400">{copy.session}</p>
-          <p className="mt-3 text-xs leading-relaxed text-neutral-500">{copy.deletionHint}</p>
-          <div className="mt-6 flex gap-5 text-xs text-neutral-500">
-            <Link to="/privacy" onClick={leaveSignIn} className="hover:underline">
-              {copy.privacy}
-            </Link>
-            <Link to="/terms" onClick={leaveSignIn} className="hover:underline">
-              {copy.terms}
-            </Link>
-          </div>
+          <details className="mt-4 text-xs leading-relaxed text-neutral-500">
+            <summary className="cursor-pointer underline-offset-4 hover:text-neutral-900 hover:underline">
+              {copy.accountHelp}
+            </summary>
+            <p className="mt-3">{copy.session}</p>
+            <p className="mt-2">{copy.deletionHint}</p>
+          </details>
         </section>
-      </div>
-    </main>
+      </main>
+      <footer className="flex justify-center gap-5 px-5 pb-6 text-xs text-neutral-500">
+        <Link to="/privacy" onClick={leaveSignIn} className="hover:underline">
+          {copy.privacy}
+        </Link>
+        <Link to="/terms" onClick={leaveSignIn} className="hover:underline">
+          {copy.terms}
+        </Link>
+      </footer>
+    </div>
   );
 }

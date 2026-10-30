@@ -13,14 +13,7 @@ import { useToast } from "../../components/Toast";
 import { useI18n, type Lang } from "../../lib/i18n";
 import { createWebLive, type WebLiveState } from "../../lib/web-live";
 import { createWebRefresh } from "../../lib/web-refresh";
-import { consumeWebAppleCallback, dismissWebAppleCallback } from "../../lib/web-apple";
-import {
-  getWebSession,
-  signOut,
-  WEB_SESSION_EVENT,
-  WebApiError,
-  type WebSession,
-} from "../../lib/web-auth";
+import { signOut, WebApiError, type WebSession } from "../../lib/web-auth";
 import {
   createWebEntry,
   createWebPerson,
@@ -38,7 +31,6 @@ import {
   type WebPerson,
   type WebVault,
 } from "../../lib/web-ledger";
-import { WorkspaceAuth } from "./Auth";
 import { workspaceCopy, type WorkspaceCopy } from "./copy";
 import {
   amountInput,
@@ -63,35 +55,7 @@ type Modal =
   | { kind: "delete"; entry: WebEntry }
   | { kind: "vault" };
 
-export default function Workspace() {
-  const { lang } = useI18n();
-  const [session, setSession] = useState(() => {
-    const current = getWebSession();
-    // Never switch an open account because of an unsolicited provider return.
-    if (current && consumeWebAppleCallback().status !== "none") dismissWebAppleCallback();
-    return current;
-  });
-  useEffect(() => {
-    const changed = () => setSession(getWebSession());
-    window.addEventListener(WEB_SESSION_EVENT, changed);
-    return () => window.removeEventListener(WEB_SESSION_EVENT, changed);
-  }, []);
-  useEffect(() => {
-    const title = document.title;
-    document.title = {
-      en: "Kaata · Your workspace",
-      fa: "کاتا · کاتای وب",
-      ps: "کاتا · د وېب کاتا",
-    }[lang];
-    return () => {
-      document.title = title;
-    };
-  }, [lang]);
-  if (!session) return <WorkspaceAuth onSignedIn={() => setSession(getWebSession())} />;
-  return <LedgerWorkspace key={session.install_id} session={session} />;
-}
-
-function LedgerWorkspace({ session }: { session: WebSession }) {
+export default function LedgerWorkspace({ session }: { session: WebSession }) {
   const { lang, setLang } = useI18n();
   const c = workspaceCopy[lang];
   const toast = useToast();

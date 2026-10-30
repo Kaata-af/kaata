@@ -1,7 +1,10 @@
-import { lazy, Suspense, useEffect } from "react";
+import { lazy, Suspense, useEffect, useLayoutEffect, useRef } from "react";
 import { Route, Routes, useLocation } from "react-router-dom";
 import { ToastProvider } from "./components/Toast";
 import { fireVisitOnce, getSource } from "./lib/analytics";
+import { dismissWebAppleCallback } from "./lib/web-apple";
+import { cancelPendingWebSignIn } from "./lib/web-auth";
+import { WEB_AUTH_ROUTE_EVENT, webAuthMode } from "./lib/web-routes";
 import { CustomerView } from "./pages/CustomerView";
 import { DeleteAccount } from "./pages/DeleteAccount";
 import { Download } from "./pages/Download";
@@ -14,7 +17,7 @@ import { Terms } from "./pages/Terms";
 // Lazy + code-split: the admin dashboard pulls in recharts, which must NOT ship
 // in the public marketing bundle. Only loaded when an admin route is hit.
 const Admin = lazy(() => import("./pages/Admin"));
-const Workspace = lazy(() => import("./pages/workspace/Workspace"));
+const WorkspaceRoutes = lazy(() => import("./pages/workspace/WorkspaceRoutes"));
 const AdminFallback = <div className="p-6 text-sm text-neutral-400">Loading dashboard…</div>;
 
 // The operator dashboard lives ONLY on its own subdomain (admin.kaata.af):
@@ -42,6 +45,7 @@ export function App() {
   return (
     <ToastProvider>
       <ScrollManager />
+      <AuthNavigation />
       {IS_ADMIN_HOST ? (
         <Suspense fallback={AdminFallback}>
           <Routes>
@@ -64,7 +68,7 @@ export function App() {
                   </div>
                 }
               >
-                <Workspace />
+                <WorkspaceRoutes />
               </Suspense>
             }
           />
@@ -85,6 +89,23 @@ export function App() {
       )}
     </ToastProvider>
   );
+}
+
+// Navigation can come from browser Back/Forward as well as links. Invalidate
+// an unfinished login before its response can save a session on another page.
+// Comparing locations avoids treating StrictMode's effect replay as departure.
+function AuthNavigation() {
+  const location = useLocation();
+  const previous = useRef(location);
+  useLayoutEffect(() => {
+    const from = previous.current;
+    previous.current = location;
+    if (from.key === location.key || webAuthMode(from.pathname) === null) return;
+    cancelPendingWebSignIn();
+    dismissWebAppleCallback();
+    window.dispatchEvent(new Event(WEB_AUTH_ROUTE_EVENT));
+  }, [location]);
+  return null;
 }
 
 // react-router-dom v7 doesn't auto-scroll on navigation. Without this:
