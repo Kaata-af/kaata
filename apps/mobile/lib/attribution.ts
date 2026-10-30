@@ -108,11 +108,13 @@ export async function loadMemberNames(vaultId: string): Promise<Map<string, stri
   const db = await getDb();
   // A member's CURRENT name (the authorized profile this phone last fetched)
   // wins over the name recorded when they joined, so a rename reaches "Added
-  // by" too (audit #19). Members who left keep their recorded name.
+  // by" too (audit #19). An explicitly cleared current name stays unknown;
+  // members who left keep their recorded historical name.
   const rows = await db.getAllAsync<{ account_id: string; display_name: string | null }>(
     `SELECT vmm.account_id AS account_id,
-            COALESCE(NULLIF(TRIM(p.display_name), ''), vmm.display_name, u.display_name)
-              AS display_name
+            CASE WHEN p.account_id IS NOT NULL
+              THEN NULLIF(TRIM(p.display_name), '')
+              ELSE COALESCE(vmm.display_name, u.display_name) END AS display_name
        FROM vault_members_mirror vmm
        LEFT JOIN users u ON u.account_id = vmm.account_id
        LEFT JOIN vault_member_profiles p

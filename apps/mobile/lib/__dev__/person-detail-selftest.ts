@@ -331,6 +331,7 @@ const components = Object.fromEntries(
     "TallyHighlight",
     "TallyFlowSummary",
     "CustomerBalanceCarousel",
+    "CustomerNoteCard",
     "BalanceCardGlass",
     "HomeBalanceFilterSwipe",
     "CustomerTallyFilterPopover",
@@ -404,6 +405,19 @@ const mocks: Record<string, any> = {
   "../../lib/person-note": {
     getPersonNote: async (vault: string, customer: string) =>
       vault === "vault" && customer === "person" ? (noteReadGate ?? staffNote) : null,
+    getPersonNoteDetails: (vault: string, customer: string) => {
+      const details = (note: string | null) => ({
+        note,
+        author: null,
+        updated: null,
+        history: [],
+        hasMoreHistory: false,
+        historyCursor: null,
+      });
+      if (vault !== "vault" || customer !== "person") return details(null);
+      return noteReadGate ? noteReadGate.then(details) : details(staffNote);
+    },
+    getPersonNoteHistory: async () => ({ entries: [], hasMore: false, nextCursor: null }),
   },
   "../../components/CurrencySelector": { CurrencySelector: "CurrencySelector" },
   "../../lib/currency": {
@@ -3964,17 +3978,25 @@ async function main() {
       rtl = direction;
       staffNote = "TEAM-ONLY-NOTE: Call their son before giving more credit.\nAfter 4 PM.";
       await flush();
-      const byNoteId = (id: string) => nodes(tree).find((node) => node.props.testID === id);
-      assert.ok(words(byNoteId("customer-note-value")).includes(staffNote));
-      assert.equal(byNoteId("customer-note-value")!.props.numberOfLines, 3);
-      byNoteId("customer-note-disclosure")!.props.onPress();
-      await flush();
-      assert.equal(byNoteId("customer-note-value")!.props.numberOfLines, undefined);
+      const card = find("CustomerNoteCard")!;
+      assert.ok(card, "The customer page mounts the measured note component");
+      assert.equal(card.props.details.note, staffNote);
+      assert.equal(typeof card.props.onEdit, "function");
+      const editThisCustomer = card.props.onEdit;
+      const loadThisCustomerHistory = card.props.loadMoreHistory;
+      const routesBeforeEdit = routes.length;
+      editThisCustomer();
+      assert.deepEqual(routes.at(-1), { pathname: "/person/[id]/edit", params: { id: "person" } });
+      routes.splice(routesBeforeEdit);
       canAmend = false;
       dirty = true;
       await flush();
-      assert.ok(byNoteId("customer-note-value"), "Clerks and viewers can read the Kaata note");
-      assert.equal(byNoteId("customer-note-edit"), undefined);
+      assert.equal(
+        find("CustomerNoteCard")!.props.details.note,
+        staffNote,
+        "Clerks and viewers can read the Kaata note",
+      );
+      assert.equal(find("CustomerNoteCard")!.props.onEdit, undefined);
       pingButton().props.onPress();
       await flush();
       assert.equal(shares.length, 1);
@@ -3985,9 +4007,20 @@ async function main() {
       vaultId = "another-kaata";
       render();
       assert.equal(
-        byNoteId("customer-note"),
+        find("CustomerNoteCard"),
         undefined,
         "A new Kaata cannot briefly show old instructions",
+      );
+      editThisCustomer();
+      assert.equal(
+        routes.length,
+        routesBeforeEdit,
+        "A retained Edit callback cannot navigate from a different Kaata",
+      );
+      assert.equal(
+        await loadThisCustomerHistory("old-cursor"),
+        null,
+        "A retained history loader cannot read another Kaata",
       );
       await flush();
     }
@@ -4001,11 +4034,13 @@ async function main() {
   pendingNote.resolve("Old customer's delayed note");
   await flush();
   assert.ok(
-    !words(tree).includes("Old customer's delayed note"),
+    !JSON.stringify(find("CustomerNoteCard")?.props.details ?? null).includes(
+      "Old customer's delayed note",
+    ),
     "Late customer note reads cannot repaint a new contact",
   );
   console.log(
-    "PASS customer note detail UI: compact/full note, read-only team access, bill/reminder privacy and stale customer/Kaata isolation on Android/iOS LTR/RTL",
+    "PASS customer note detail integration: measured card, guarded editing/history, read-only team access, bill/reminder privacy and stale customer/Kaata isolation on Android/iOS LTR/RTL",
   );
   await androidTimelineReuseTests();
   await customerTallyFilterTests();

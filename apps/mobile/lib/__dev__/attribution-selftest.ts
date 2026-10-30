@@ -332,7 +332,8 @@ async function main() {
       assert.equal(names.has("acct-placeholder-fa"), false);
       assert.equal(names.has("acct-placeholder-ps"), false);
       // A rename reaches "Added by": the current profile name wins over the
-      // name recorded at joining (audit #19). A blank profile name does not.
+      // name recorded at joining (audit #19). An explicitly cleared profile
+      // stays unnamed rather than resurrecting an older admission/contact name.
       fixture
         .prepare(
           "INSERT INTO vault_member_profiles VALUES ('viewer', ?, ?, 'Sara Karimi', NULL, 1)",
@@ -343,7 +344,22 @@ async function main() {
         .run(VAULT, AHMAD);
       const renamed = await loadMemberNames(VAULT);
       assert.equal(renamed.get(SARA), "Sara Karimi");
-      assert.equal(renamed.get(AHMAD), "Ahmad Wali");
+      assert.equal(renamed.has(AHMAD), false);
+      fixture
+        .prepare("UPDATE vault_member_profiles SET display_name=NULL WHERE account_id=?")
+        .run(SARA);
+      fixture
+        .prepare(
+          "INSERT INTO vault_member_profiles VALUES ('viewer', ?, ?, 'Should not replace history', NULL, 1)",
+        )
+        .run(VAULT, GONE);
+      const cleared = await loadMemberNames(VAULT);
+      assert.equal(
+        cleared.has(SARA),
+        false,
+        "null current name must not resurrect old admission name",
+      );
+      assert.equal(cleared.get(GONE), "Old Staff", "revoked member retains historical name");
       fixture.exec("DELETE FROM vault_member_profiles");
     },
   );
