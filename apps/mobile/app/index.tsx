@@ -60,7 +60,7 @@ import {
   getEnabledCurrencies,
   useCurrency,
 } from "../lib/currency";
-import { VaultPickerSheet } from "../components/VaultPickerSheet";
+import { VaultPickerSheet, type VaultPickerItem } from "../components/VaultPickerSheet";
 import { getSessionUser, type SessionUser, signOut } from "../lib/auth";
 import {
   archivePerson,
@@ -332,7 +332,7 @@ export default function HomeScreen() {
   // non-archived vaults; the archived sub-section (toggle-revealed) reads
   // `archivedVaults`. Two arrays > one array + per-render filter — the
   // picker no longer needs to know what archive means.
-  const [vaults, setVaults] = useState<VaultListItem[]>([]);
+  const [vaults, setVaults] = useState<VaultPickerItem[]>([]);
   const [archivedVaults, setArchivedVaults] = useState<VaultListItem[]>([]);
   const [shopModeEnabled, setShopModeEnabled] = useState(false);
   const [shopModeBusy, setShopModeBusy] = useState(false);
@@ -510,9 +510,20 @@ export default function HomeScreen() {
           listAllVaultsIncludingArchived(),
         ]);
         if (!current()) return;
-        setVaults(
-          active.map((r) => ({ id: r.id, name: r.name, currency: r.currency, archived: false })),
+        const pickerVaults = await Promise.all(
+          active.map(async (r) => ({
+            id: r.id,
+            name: r.name,
+            currency: r.currency,
+            currencies:
+              r.id === requestedVault
+                ? enabledCurrencies
+                : await getEnabledCurrencies(r.id).catch(() => [r.currency]),
+            archived: false,
+          })),
         );
+        if (!current()) return;
+        setVaults(pickerVaults);
         setArchivedVaults(
           all
             .filter((r) => r.archived)

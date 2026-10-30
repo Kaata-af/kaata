@@ -9,7 +9,7 @@ import { useEffect, useMemo, useRef } from "react";
 import type { ComponentProps } from "react";
 import { Animated, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { colors } from "../lib/colors";
-import { getCurrencySymbol } from "../lib/currency";
+import { getCurrencyLabel } from "../lib/currency";
 import { rowDir, textDir, trackingSafe, useIsRTL } from "../lib/direction";
 import { fonts } from "../lib/fonts";
 import { t } from "../lib/i18n";
@@ -45,10 +45,9 @@ const EXIT_DURATION_MS = 220;
 export type VaultPickerItem = {
   id: string;
   name: string;
-  // ISO code (e.g. "AFN", "USD"). Rendered as a trailing symbol on the row —
-  // the two-books-per-store pattern (AFN kaata + USD kaata) needs the
-  // currency legible right where kaatas are picked. Optional so non-vault
-  // rows / stale callers don't break; absent → no symbol.
+  // Enabled ISO codes, with the legacy currency as a fallback for older reads.
+  // Codes distinguish currencies that share a symbol, such as USD and CAD.
+  currencies?: readonly string[];
   currency?: string;
   archived: boolean;
 };
@@ -154,13 +153,18 @@ export function VaultPickerSheet(props: {
               ) : (
                 activeVaults.map((v) => {
                   const isActive = v.id === props.activeVaultId;
+                  const currencies = v.currencies?.length
+                    ? v.currencies
+                    : v.currency
+                      ? [v.currency]
+                      : [];
                   return (
                     <PickerItem
                       key={v.id}
                       icon={isActive ? "checkmark-circle" : "ellipse-outline"}
                       iconColor={isActive ? colors.actionPrimary : colors.textMuted}
                       label={v.name}
-                      trailing={v.currency ? getCurrencySymbol(v.currency) : undefined}
+                      trailing={[...new Set(currencies)].map(getCurrencyLabel).join(" · ")}
                       bold={isActive}
                       // Engineering critique #6: announce active-vault
                       // selection via a11y so TalkBack / VoiceOver users
@@ -228,9 +232,7 @@ function PickerItem(props: {
   icon: ComponentProps<typeof Ionicons>["name"];
   iconColor?: string;
   label: string;
-  // Trailing end-of-row text (the vault's currency symbol). Placed after the
-  // flex:1 text column, so rowDir's row-reverse lands it on the visual end
-  // side in RTL too.
+  // The currency list uses the space left by the name, with native ellipsis.
   trailing?: string;
   onPress: () => void;
   isRTL: boolean;
@@ -248,6 +250,7 @@ function PickerItem(props: {
     <Pressable
       onPress={props.onPress}
       accessibilityRole="button"
+      accessibilityLabel={props.trailing ? `${props.label}, ${props.trailing}` : props.label}
       accessibilityState={props.selected != null ? { selected: props.selected } : undefined}
       style={({ pressed }) => [
         styles.menuItem,
@@ -262,7 +265,7 @@ function PickerItem(props: {
         color={props.iconColor ?? color}
         style={props.isRTL ? { marginLeft: 14 } : { marginRight: 14 }}
       />
-      <View style={styles.menuItemTextCol}>
+      <View style={[styles.menuItemTextCol, props.trailing && styles.menuItemNameWithCurrencies]}>
         <Text
           style={[
             styles.menuItemLabel,
@@ -275,7 +278,15 @@ function PickerItem(props: {
           {props.label}
         </Text>
       </View>
-      {props.trailing ? <Text style={styles.menuItemTrailing}>{props.trailing}</Text> : null}
+      {props.trailing ? (
+        <Text
+          style={[styles.menuItemTrailing, { textAlign: props.isRTL ? "left" : "right" }]}
+          numberOfLines={1}
+          ellipsizeMode="tail"
+        >
+          {props.trailing}
+        </Text>
+      ) : null}
     </Pressable>
   );
 }
@@ -334,15 +345,24 @@ const styles = StyleSheet.create({
   menuItemTextCol: {
     flex: 1,
   },
+  menuItemNameWithCurrencies: {
+    flex: 0,
+    flexShrink: 1,
+    minWidth: 0,
+    maxWidth: "50%",
+  },
   menuItemLabel: {
     fontSize: 15,
     fontFamily: fonts.sansMedium,
   },
   menuItemTrailing: {
+    flex: 1,
+    minWidth: 0,
     fontSize: 14,
     fontFamily: fonts.sansMedium,
     color: colors.textMuted,
     marginHorizontal: 4,
+    writingDirection: "ltr",
   },
   emptyHint: {
     fontSize: 13,

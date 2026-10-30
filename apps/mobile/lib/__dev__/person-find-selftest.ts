@@ -28,6 +28,9 @@ let rtl = false,
   vaultId: string | null = "kaata";
 let selectedCurrency = "AFN";
 let enabledCurrencies = ["AFN"];
+const enabledCurrenciesByVault = new Map<string, string[]>();
+const delayedEnabledCurrencies = new Map<string, Promise<string[]>>();
+const failedEnabledCurrencies = new Set<string>();
 const currencyListeners = new Set<(code: string) => void>();
 const changeCurrency = (code: string) => {
   selectedCurrency = code;
@@ -468,7 +471,14 @@ const libMocks: Record<string, any> = {
   "tabs/link-status": require("../tabs/link-status"),
   currency: {
     applyVaultCurrency: async () => {},
-    getEnabledCurrencies: async () => [...enabledCurrencies],
+    getEnabledCurrencies: async (id: string) => {
+      if (failedEnabledCurrencies.has(id)) throw new Error("fixture currency read failed");
+      return (
+        delayedEnabledCurrencies.get(id) ?? [
+          ...(enabledCurrenciesByVault.get(id) ?? enabledCurrencies),
+        ]
+      );
+    },
     getCurrencyLabel: (code: string) => code,
     getCurrentCurrencySymbol: () => selectedCurrency,
     getCurrentCurrencyCode: () => selectedCurrency,
@@ -738,6 +748,9 @@ function fixture(
   cachedAccountId = null;
   selectedCurrency = "AFN";
   enabledCurrencies = ["AFN"];
+  enabledCurrenciesByVault.clear();
+  delayedEnabledCurrencies.clear();
+  failedEnabledCurrencies.clear();
   screenWidth = 390;
   screenFontScale = 1;
   routeParams = {};
@@ -1810,6 +1823,93 @@ async function main() {
       assert.equal(routes.length, 0);
       assert.equal(writes.length, 0, "balance filtering never mutates ledger data");
     }
+
+  fixture(home, "owner");
+  activeVaultsOverride = [
+    { id: "kaata", name: "Shop", currency: "AFN" },
+    { id: "foreign", name: "Other shop", currency: "USD" },
+  ];
+  enabledCurrenciesByVault.set("kaata", ["USD", "EUR"]);
+  enabledCurrenciesByVault.set("foreign", ["USD", "CAD", "AUD"]);
+  await flush();
+  const pickerCurrencies = () =>
+    find("VaultPicker")!.props.vaults.map((book: any) => [book.id, book.currencies]);
+  assert.deepEqual(
+    pickerCurrencies(),
+    [
+      ["kaata", ["USD", "EUR"]],
+      ["foreign", ["USD", "CAD", "AUD"]],
+    ],
+    "each switcher row keeps its own enabled list, without adding a disabled legacy currency",
+  );
+  enabledCurrenciesByVault.set("foreign", ["JPY", "USD"]);
+  ledgerEvents.emitLedgerApplied("foreign", "remote");
+  await runTimers();
+  assert.deepEqual(
+    pickerCurrencies()[1],
+    ["foreign", ["JPY", "USD"]],
+    "other-book settings refresh the switcher",
+  );
+  failedEnabledCurrencies.add("foreign");
+  ledgerEvents.emitLedgerApplied("foreign", "remote");
+  await runTimers();
+  assert.deepEqual(
+    pickerCurrencies(),
+    [
+      ["kaata", ["USD", "EUR"]],
+      ["foreign", ["USD"]],
+    ],
+    "a failed other-book currency read falls back only that row and keeps switching available",
+  );
+
+  for (const invalidation of ["vault", "account", "unmount"]) {
+    fixture(home, "owner");
+    activeVaultsOverride = [
+      { id: "kaata", name: "Shop", currency: "AFN" },
+      { id: "foreign", name: "Other shop", currency: "USD" },
+    ];
+    await flush();
+    let finishCurrencyRead!: (codes: string[]) => void;
+    delayedEnabledCurrencies.set(
+      "foreign",
+      new Promise((resolve) => {
+        finishCurrencyRead = resolve;
+      }),
+    );
+    ledgerEvents.emitLedgerApplied("foreign", "remote");
+    await runTimers();
+    delayedEnabledCurrencies.delete("foreign");
+    if (invalidation === "unmount") {
+      unmount();
+      dirty = false;
+      finishCurrencyRead(["JPY"]);
+      for (let tick = 0; tick < 30; tick++) await Promise.resolve();
+      assert.equal(dirty, false, "late switcher currency reads cannot update an unmounted home");
+      continue;
+    }
+    const currentVault = invalidation === "vault" ? "replacement" : "kaata";
+    activeVaultsOverride = [{ id: currentVault, name: "Current shop", currency: "GBP" }];
+    enabledCurrenciesByVault.set(currentVault, ["GBP", "EUR"]);
+    if (invalidation === "vault") {
+      vaultId = currentVault;
+      peopleByVault.set(currentVault, people);
+      ledgerEvents.emitLedgerApplied(currentVault, "remote");
+      await runTimers();
+    } else {
+      cachedAccountId = "replacement-account";
+      for (const listener of [...identityListeners]) listener();
+      await flush();
+    }
+    const expected = [[currentVault, ["GBP", "EUR"]]];
+    assert.deepEqual(pickerCurrencies(), expected);
+    finishCurrencyRead(["JPY"]);
+    await flush();
+    assert.deepEqual(
+      pickerCurrencies(),
+      expected,
+      `${invalidation}: a late currency list cannot replace the current switcher`,
+    );
+  }
 
   for (const nextRole of ["viewer", "editor", "clerk"] as const) {
     fixture(home, nextRole);
