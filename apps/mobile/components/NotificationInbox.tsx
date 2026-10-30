@@ -382,7 +382,12 @@ export function NotificationBell({
         transparent
         visible={visible}
         animationType="none"
+        // Match the host's Android window through the final dismissal frame.
+        // A software-rendered dialog with different system-bar insets jumps
+        // when its fading blur hands the screen back to the main activity.
+        hardwareAccelerated
         statusBarTranslucent
+        navigationBarTranslucent
         onRequestClose={() => close()}
       >
         <Animated.View

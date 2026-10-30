@@ -194,6 +194,22 @@ function fixture() {
 }
 
 async function main() {
+  const assertNativeWindow = (popup: ReturnType<typeof fixture>) => {
+    const modal = popup.find("Modal").props;
+    assert.deepEqual(
+      {
+        statusBarTranslucent: modal.statusBarTranslucent,
+        navigationBarTranslucent: modal.navigationBarTranslucent,
+        hardwareAccelerated: modal.hardwareAccelerated,
+      },
+      {
+        statusBarTranslucent: true,
+        navigationBarTranslucent: true,
+        hardwareAccelerated: true,
+      },
+      "The transparent dropdown keeps an accelerated edge-to-edge Android window throughout dismissal",
+    );
+  };
   const normal = fixture();
   normal.policy(false);
   await settleUI();
@@ -202,6 +218,7 @@ async function main() {
   normal.measure(120);
   assert.equal(normal.top(), 170);
   assert.equal(normal.find("Modal").props.visible, true);
+  assertNativeWindow(normal);
   assert.equal(normal.visibility.at(-1), true, "An open inbox prevents idle rating requests");
   normal.finish();
   normal.close();
@@ -211,6 +228,7 @@ async function main() {
     "closing keeps measured placement while native portal is visible",
   );
   assert.equal(normal.find("Modal").props.visible, true, "fade completes before portal dismisses");
+  assertNativeWindow(normal);
   assert.equal(
     normal.find("AnimatedView").props.pointerEvents,
     "none",
@@ -218,6 +236,7 @@ async function main() {
   );
   normal.finish();
   assert.equal(normal.find("Modal").props.visible, false);
+  assertNativeWindow(normal);
   assert.equal(normal.visibility.at(-1), false, "The inbox remains busy until its exit finishes");
   assert.equal(normal.top(), 170, "last native dismissal frame cannot jump to safe-area top");
   assert.equal(
@@ -348,7 +367,7 @@ async function main() {
   normal.hooks.unmount();
   reduced.hooks.unmount();
   console.log(
-    "PASS: notification dropdown keeps placement through dismissal; reduced motion, stale measurements/completions, rapid reopening, navigation and unmount guards",
+    "PASS: notification dropdown keeps accelerated edge-to-edge window flags and placement through dismissal; reduced motion, stale measurements/completions, rapid reopening, navigation and unmount guards",
   );
 }
 void main().catch((error) => {
