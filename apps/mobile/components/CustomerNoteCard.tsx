@@ -130,7 +130,12 @@ export function CustomerNoteCard(props: {
   const hasHistory = details.history.length > 0;
   return (
     <View testID="customer-note" style={styles.card}>
-      <View style={[styles.header, props.onEdit && styles.headerWithEdit]}>
+      <View
+        style={[
+          styles.header,
+          props.onEdit && (isRTL ? styles.headerWithEditRTL : styles.headerWithEditLTR),
+        ]}
+      >
         <View style={[styles.titleRow, rowDir(isRTL)]}>
           <Ionicons name="document-text-outline" size={16} color={colors.textSubtle} />
           <Text style={[styles.label, textDir(isRTL)]}>{t("customerNote.label")}</Text>
@@ -144,7 +149,7 @@ export function CustomerNoteCard(props: {
           onPress={() => {
             if (current()) props.onEdit?.();
           }}
-          style={styles.edit}
+          style={[styles.edit, isRTL ? styles.editRTL : styles.editLTR]}
         >
           <Ionicons name="create-outline" size={18} color={colors.textSubtle} />
         </Pressable>
@@ -387,18 +392,20 @@ const styles = StyleSheet.create({
     padding: 12,
   },
   header: { minHeight: 24, justifyContent: "center", marginBottom: 10 },
-  headerWithEdit: { paddingRight: TOUCH_MIN - 10 },
+  headerWithEditLTR: { paddingRight: TOUCH_MIN - 10 },
+  headerWithEditRTL: { paddingLeft: TOUCH_MIN - 10 },
   titleRow: { alignItems: "center", gap: 6 },
   label: { flexShrink: 1, fontSize: 12, color: colors.textSubtle, fontFamily: fonts.sansMedium },
   edit: {
     position: "absolute",
     top: 2,
-    right: 2,
     width: TOUCH_MIN,
     height: TOUCH_MIN,
     alignItems: "center",
     justifyContent: "center",
   },
+  editLTR: { right: 2 },
+  editRTL: { left: 2 },
   value: {
     fontSize: 14,
     lineHeight: sansLineHeight(14, 20),

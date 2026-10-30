@@ -230,8 +230,13 @@ async function main() {
       const edit = f.byId("customer-note-edit")!;
       assert.equal(
         flattenStyle(edit.props.style).right,
-        2,
-        "Edit stays physically right in every language",
+        locale === "en" ? 2 : undefined,
+        "Edit is anchored right only in LTR",
+      );
+      assert.equal(
+        flattenStyle(edit.props.style).left,
+        locale === "en" ? undefined : 2,
+        "Edit mirrors to the left in RTL",
       );
       assert.equal(flattenStyle(edit.props.style).top, 2, "Edit sits at the top of the card");
       edit.props.onPress();
