@@ -22,7 +22,7 @@ import "./WebPro.css";
 const UPDATE_EVENT = "kaata:web-pro-updated";
 const copies = {
   en: {
-    name: "Kaata Web Pro",
+    name: "Kaata Pro",
     trial: "Free trial",
     active: "Pro active",
     subscribe: "Subscribe",
@@ -82,7 +82,7 @@ const copies = {
     phone: "This plan is for Kaata Web. Pro subscriptions in the phone app will come later.",
   },
   fa: {
-    name: "کاتا وب پرو",
+    name: "کاتا پرو",
     trial: "دورۀ آزمایشی رایگان",
     active: "پرو فعال است",
     subscribe: "خرید اشتراک",
@@ -141,7 +141,7 @@ const copies = {
     phone: "این اشتراک برای کاتای وب است. اشتراک پرو در اپ تلفون بعداً اضافه می‌شود.",
   },
   ps: {
-    name: "کاتا وېب پرو",
+    name: "کاتا پرو",
     trial: "وړیا ازمایښتي دوره",
     active: "پرو فعال دی",
     subscribe: "ګډون واخلئ",

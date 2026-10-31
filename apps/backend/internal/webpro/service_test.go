@@ -94,8 +94,14 @@ func TestCheckoutAndVerifiedRenewalLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Model an existing checkout created before the Kaata Pro rename. Its
+	// stored invoice name must survive retries and late payment confirmation.
+	order.itemName = "Kaata Web Pro - 1 month"
+	if _, err = pool.Exec(ctx, `UPDATE web_pro_orders SET item_name=$2 WHERE id=$1::uuid`, order.ID, order.itemName); err != nil {
+		t.Fatal(err)
+	}
 	again, err := s.Checkout(ctx, accountID, "web_pro_monthly", req)
-	if err != nil || order.ID != again.ID || gw.createCalls != 1 {
+	if err != nil || order.ID != again.ID || again.itemName != order.itemName || gw.createCalls != 1 {
 		t.Fatalf("retry duplicated checkout: %+v,%v,calls%d", again, err, gw.createCalls)
 	}
 	status, _ = s.Status(ctx, accountID)
@@ -141,6 +147,12 @@ func TestCheckoutAndVerifiedRenewalLifecycle(t *testing.T) {
 	bad.Items[0].ID = uuid.NewString()
 	if got := webhookRequest(s, bad, cfg.WebhookToken); got != 400 {
 		t.Fatalf("wrong item status%d", got)
+	}
+	bad = payment
+	bad.Items = append([]paymentItem{}, payment.Items...)
+	bad.Items[0].Name = itemName(order.PlanID)
+	if got := webhookRequest(s, bad, cfg.WebhookToken); got != 400 {
+		t.Fatalf("current product name replaced the stored invoice name: %d", got)
 	}
 	bad = payment
 	bad.Currency = "USD"

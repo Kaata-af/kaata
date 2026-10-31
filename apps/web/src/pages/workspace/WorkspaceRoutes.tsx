@@ -25,7 +25,7 @@ const NO_APPLE_RETURN: WebAppleCallback = { status: "none" };
 const titles = {
   en: {
     workspace: "Your workspace",
-    subscription: "Kaata Web Pro",
+    subscription: "Kaata Pro",
     signin: "Sign in",
     missing: "Page not found",
     loading: "Opening Kaata…",
@@ -34,7 +34,7 @@ const titles = {
   },
   fa: {
     workspace: "کاتای وب",
-    subscription: "کاتا وب پرو",
+    subscription: "کاتا پرو",
     signin: "ورود",
     missing: "صفحه پیدا نشد",
     loading: "کاتا باز می‌شود…",
@@ -43,7 +43,7 @@ const titles = {
   },
   ps: {
     workspace: "د وېب کاتا",
-    subscription: "کاتا وېب پرو",
+    subscription: "کاتا پرو",
     signin: "ننوتل",
     missing: "پاڼه ونه موندل شوه",
     loading: "کاتا پرانیستل کېږي…",

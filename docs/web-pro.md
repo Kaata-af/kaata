@@ -1,4 +1,4 @@
-# Kaata Web Pro
+# Kaata Pro
 
 Kaata Web is an open free trial. Every account keeps all existing workspace access, whether it has paid, has an expired subscription, cannot reach billing, or has a payment still being confirmed. There is no trial deadline or Pro authorization middleware. Mobile access and mobile subscriptions are unchanged.
 

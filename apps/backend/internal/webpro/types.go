@@ -41,9 +41,9 @@ func planByID(id string) (Plan, bool) {
 
 func itemName(planID string) string {
 	if planID == "web_pro_yearly" {
-		return "Kaata Web Pro - 1 year"
+		return "Kaata Pro - 1 year"
 	}
-	return "Kaata Web Pro - 1 month"
+	return "Kaata Pro - 1 month"
 }
 
 type Status struct {
