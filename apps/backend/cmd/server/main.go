@@ -203,12 +203,13 @@ func main() {
 	adminH := admin.NewHandler(admin.NewService(pool, cfg.OperatorAccountIDs, cfg.OperatorIPs))
 	adminLive := admin.NewLive(ctx, cfg.AdminAPIKey != "")
 	webProH := webpro.NewHandler(webpro.NewService(pool, webpro.Config{
-		APIKey:        cfg.HesabPayAPIKey,
-		Environment:   cfg.HesabPayEnvironment,
-		WebhookToken:  cfg.HesabPayWebhookToken,
-		WebhookReady:  cfg.HesabPayWebhookReady,
-		CheckoutHosts: cfg.HesabPayCheckoutHosts,
-		WebBaseURL:    cfg.WebBaseURL,
+		APIKey:            cfg.HesabPayAPIKey,
+		Environment:       cfg.HesabPayEnvironment,
+		WebhookToken:      cfg.HesabPayWebhookToken,
+		WebhookReady:      cfg.HesabPayWebhookReady,
+		CheckoutHosts:     cfg.HesabPayCheckoutHosts,
+		ForeignWebhookURL: cfg.HesabPayForeignWebhookURL,
+		WebBaseURL:        cfg.WebBaseURL,
 	}))
 	authenticator := auth.NewSessionAuthenticator(authSvc, cfg.SessionJWTSecret)
 	// Wire the cache so SignOut purges the cached revocation entry instead of

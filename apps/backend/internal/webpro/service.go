@@ -3,6 +3,7 @@ package webpro
 import (
 	"context"
 	"errors"
+	"net/http"
 	"time"
 
 	"github.com/google/uuid"
@@ -11,15 +12,22 @@ import (
 )
 
 type Service struct {
-	pool    *pgxpool.Pool
-	cfg     Config
-	gateway gateway
-	now     func() time.Time
+	pool          *pgxpool.Pool
+	cfg           Config
+	gateway       gateway
+	now           func() time.Time
+	foreignClient *http.Client
 }
 
 func NewService(pool *pgxpool.Pool, cfg Config) *Service {
 	cfg = normalizeConfig(cfg)
-	return &Service{pool: pool, cfg: cfg, gateway: newHesabPay(cfg), now: func() time.Time { return time.Now().UTC() }}
+	return &Service{pool: pool, cfg: cfg, gateway: newHesabPay(cfg), foreignClient: newForeignWebhookClient(), now: func() time.Time { return time.Now().UTC() }}
+}
+
+func (s *Service) ownsWebhookOrder(ctx context.Context, id string) (bool, error) {
+	var known bool
+	err := s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM web_pro_orders WHERE id=$1::uuid)`, id).Scan(&known)
+	return known, err
 }
 
 func (s *Service) Status(ctx context.Context, accountID string) (Status, error) {

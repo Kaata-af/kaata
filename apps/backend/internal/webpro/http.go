@@ -159,13 +159,22 @@ func (h *Handler) Webhook(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	var payment webhookPayment
-	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 32768))
-	if decoder.Decode(&payment) != nil || decoder.Decode(new(any)) != io.EOF || !payment.fresh(h.svc.now()) {
+	raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 128*1024))
+	if err != nil {
+		status := 400
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			status = 413
+		}
+		httpx.ErrorCode(w, status, "invalid_webhook", "Payment notification could not be verified.")
+		return
+	}
+	envelope, err := parseWebhookEnvelope(raw)
+	if err != nil || !(webhookPayment{Signature: envelope.signature, Timestamp: envelope.timestamp}).fresh(h.svc.now()) {
 		httpx.ErrorCode(w, 400, "invalid_webhook", "Payment notification could not be verified.")
 		return
 	}
-	if err := h.svc.gateway.Verify(r.Context(), payment.Signature, payment.Timestamp); err != nil {
+	if err := h.svc.gateway.Verify(r.Context(), envelope.signature, envelope.timestamp); err != nil {
 		if errors.Is(err, ErrVerification) {
 			httpx.ErrorCode(w, 400, "invalid_webhook", "Payment notification could not be verified.")
 		} else {
@@ -173,29 +182,54 @@ func (h *Handler) Webhook(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	if payment.Type == "webhook.validation" && payment.Test {
-		if _, err := uuid.Parse(payment.ValidationID); err == nil && (payment.EventType == "payment_success" || payment.EventType == "payment_failure") {
+	if envelope.kind == "webhook.validation" && envelope.test {
+		if _, err := uuid.Parse(envelope.validationID); err == nil && (envelope.eventType == "payment_success" || envelope.eventType == "payment_failure") {
 			httpx.JSON(w, 200, map[string]bool{"success": true})
 			return
 		}
 	}
-	if payment.Test || payment.Type != "" {
+	if envelope.test || envelope.kind == "webhook.validation" {
 		httpx.ErrorCode(w, 400, "invalid_webhook", "Payment notification could not be verified.")
 		return
 	}
-	// Failed/cancelled notifications never grant access or downgrade a payment
-	// that was already fulfilled. Their signature was still checked above.
-	if !payment.Success || payment.StatusCode != 10 {
+	known := false
+	if parsedID, err := uuid.Parse(envelope.userID); err == nil {
+		known, err = h.svc.ownsWebhookOrder(r.Context(), parsedID.String())
+		if err != nil {
+			httpx.ErrorCode(w, 503, "payment_pending", "Payment confirmation is temporarily unavailable.")
+			return
+		}
+		if known && envelope.userID != parsedID.String() {
+			httpx.ErrorCode(w, 400, "invalid_webhook", "Payment notification could not be verified.")
+			return
+		}
+	}
+	if !known {
+		if err := h.svc.forwardForeignWebhook(r.Context(), raw); err != nil {
+			httpx.ErrorCode(w, 503, "foreign_delivery_pending", "Merchant notification delivery is temporarily unavailable.")
+			return
+		}
 		httpx.JSON(w, 200, map[string]bool{"success": true})
 		return
 	}
-	if _, err := uuid.Parse(payment.UserID); err != nil {
-		// Merchant webhooks can cover other applications using separate keys.
-		// A verified foreign delivery is acknowledged without any entitlement.
+	// Only Kaata orders use this strict payment schema. Other merchant apps
+	// may have older/different callback fields, which are relayed untouched.
+	// Explicit failure needs no paid-transaction schema and never downgrades
+	// or forwards an existing Kaata order.
+	if envelope.successState == -1 {
 		httpx.JSON(w, 200, map[string]bool{"success": true})
 		return
 	}
-	err := h.svc.fulfill(r.Context(), payment)
+	if envelope.successState != 1 {
+		httpx.ErrorCode(w, 400, "invalid_webhook", "Payment notification could not be verified.")
+		return
+	}
+	var payment webhookPayment
+	if json.Unmarshal(raw, &payment) != nil || payment.Test || payment.Type != "" {
+		httpx.ErrorCode(w, 400, "invalid_webhook", "Payment notification could not be verified.")
+		return
+	}
+	err = h.svc.fulfill(r.Context(), payment)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			httpx.JSON(w, 200, map[string]bool{"success": true})

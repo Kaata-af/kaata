@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -79,6 +80,11 @@ func TestCheckoutAndVerifiedRenewalLifecycle(t *testing.T) {
 	s.now = func() time.Time { return now }
 	gw := &fakeGateway{now: now}
 	s.gateway = gw
+	var foreignCalls atomic.Int64
+	legacy := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { foreignCalls.Add(1); w.WriteHeader(200) }))
+	defer legacy.Close()
+	s.cfg.ForeignWebhookURL = "https://example.com/api/webhooks/hesabpay"
+	s.foreignClient.Transport = foreignTLSTransport(t, legacy)
 	status, err := s.Status(ctx, accountID)
 	if err != nil || status.Access != "trial_open" || status.Status != "trial" || !status.CheckoutReady {
 		t.Fatalf("initial status=%+v,%v", status, err)
@@ -183,6 +189,14 @@ func TestCheckoutAndVerifiedRenewalLifecycle(t *testing.T) {
 	if after.Status != "paid" {
 		t.Fatal("failure downgraded paid order")
 	}
+	legacyFailure := []byte(fmt.Sprintf(`{"signature":"synthetic-signature","timestamp":"%d","user_id":"%s","success":false,"status_code":"declined","transaction_id":123456,"amount":null}`, now.Unix(), order.ID))
+	if got := rawWebhookRequest(s, legacyFailure, cfg.WebhookToken).Code; got != 200 {
+		t.Fatalf("known Kaata failure with provider field variants was not acknowledged: %d", got)
+	}
+	after, _ = s.GetOrder(ctx, accountID, order.ID)
+	if after.Status != "paid" {
+		t.Fatal("legacy failure downgraded paid order")
+	}
 	s.cfg.WebhookReady = true
 	year, err := s.Checkout(ctx, accountID, "web_pro_yearly", uuid.NewString())
 	if err != nil {
@@ -207,6 +221,9 @@ func TestCheckoutAndVerifiedRenewalLifecycle(t *testing.T) {
 		t.Fatal("replay granted another account")
 	}
 	// FK policy must not make native account deletion fail.
+	if foreignCalls.Load() != 0 {
+		t.Fatal("known Kaata payment/replay/tamper/failure was forwarded to another application")
+	}
 	if _, err = pool.Exec(ctx, `DELETE FROM accounts WHERE id=$1::uuid`, accountID); err != nil {
 		t.Fatalf("billing blocks account deletion: %v", err)
 	}
@@ -221,6 +238,9 @@ func TestCheckoutAndVerifiedRenewalLifecycle(t *testing.T) {
 	foreign.UserID = uuid.NewString()
 	if got := webhookRequest(s, foreign, cfg.WebhookToken); got != 200 {
 		t.Fatal("verified unknown merchant UUID was not acknowledged")
+	}
+	if foreignCalls.Load() != 3 {
+		t.Fatalf("verified foreign deliveries not preserved: %d", foreignCalls.Load())
 	}
 }
 

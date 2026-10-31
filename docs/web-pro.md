@@ -35,7 +35,47 @@ HESABPAY_WEBHOOK_READY=false
 
 `developers.hesab.com` was observed in a successful response from the official production create-session API. The allowlist matches exact HTTPS hosts; the client validates it too. Sandbox calls use the provider's separate official sandbox API.
 
-Once the deployed receiver is available, register its private `https://api.kaata.af/v1/web-pro/hesabpay/webhook/<token>` URL for `payment_success` and `payment_failure` in the merchant portal. Keep existing receivers intact. Its signed validation request must pass before setting `HESABPAY_WEBHOOK_READY=true`. The readiness flag enables creating checkouts, independently of the receiver and open workspace access. Verify the merchant's website/domain configuration when completing the provider setup.
+Once the deployed receiver is available, register its private `https://api.kaata.af/v1/web-pro/hesabpay/webhook/<token>` URL for `payment_success` and `payment_failure` in the merchant portal. Its signed validation request must pass before setting `HESABPAY_WEBHOOK_READY=true`. The readiness flag enables creating checkouts, independently of the receiver and open workspace access. Verify the merchant's website/domain configuration when completing the provider setup.
+
+### Existing merchant receiver
+
+The live merchant portal permits one receiver per event across API keys. Moving
+those event URLs affects the other application using the same merchant account.
+Do not replace them until the user has specifically approved the shared routing
+change. The optional server-only setting below preserves verified foreign
+notifications through the existing receiver; it is unset by default.
+
+```dotenv
+# Set only after approving the existing receiver's use as the relay destination.
+HESABPAY_FOREIGN_WEBHOOK_URL=https://existing-merchant.example/api/webhooks/hesabpay
+```
+
+The relay destination is a fixed HTTPS DNS URL from deployment configuration,
+never from a browser or callback field. Credentials, ports, literal IP addresses,
+query strings, fragments and normalized self-loop callback paths are rejected.
+An invalid nonempty destination disables new checkout creation and returns a
+retryable error for foreign events; it never silently becomes an unset relay.
+
+After the private callback token and HesabPay signature/timestamp checks pass,
+the receiver classifies ownership from a minimal envelope. Foreign success and
+failure payloads are forwarded synchronously as the original JSON bytes, up to
+128 KiB, without Kaata authorization, cookies or other incoming headers. The
+client validates TLS, refuses redirects and times out after five seconds. Only
+the existing receiver's HTTP 200 acknowledges a foreign delivery; other statuses
+and timeouts return 503 so HesabPay can retry with a fresh timestamp/signature.
+There is no asynchronous replay queue for expiring signatures.
+
+Here, unmatched means that the order ID is not present in Kaata's database. A
+late notification for a deleted Kaata order also falls into that category; it
+cannot recreate an account or restore its entitlement. Review this routing
+boundary together with the added availability dependency before switching an
+existing merchant receiver.
+
+Kaata's known successful payments retain strict order/item/amount matching and
+exactly-once fulfillment. Known Kaata failures are acknowledged locally without
+downgrading a paid order. Validation probes stay local, and unverified events
+never reach the other receiver. With the optional destination unset, verified
+foreign events retain the original acknowledge-without-forwarding behavior.
 
 The backend logger redacts the callback token. Proxies and external request logs must also keep that private path confidential. Never add the merchant key or callback token to a tracked file, frontend build argument, browser storage or public environment variable.
 
@@ -44,3 +84,14 @@ The backend logger redacts the callback token. Proxies and external request logs
 Web client tests cover authenticated account scope, request identity, fixed prices, unsafe checkout URLs, malformed responses and untrusted return data. Backend tests use disposable PostgreSQL and a simulated provider to cover binding, concurrent reservations and renewals, replay, failed and delayed payments, receiver probes, account isolation, and calendar boundaries. A production setup checkout validated the supplied key and actual checkout hostname without making a payment. A receiver-validation check verifies delivery setup, not a completed payment.
 
 This release passed all 271 web tests across 27 files, nine privacy/metadata checks, the production TypeScript/Vite build, nine Web Pro tests with real disposable PostgreSQL, the full backend auth suite, HTTP middleware tests and server compilation. Browser QA with sample records verified optional trial access during billing setup/outage, preserved note drafts, the yearly checkout and origin-only link, explicit expired-payment review, a paid receipt alongside an older pending payment, and the 390px Dari layout. Test services and the temporary PostgreSQL cluster were stopped and removed after verification.
+
+The optional shared-receiver relay update passed all 15 Web Pro tests, including
+six new TLS relay tests, real disposable PostgreSQL lifecycle checks, HTTP
+middleware tests and server compilation. Coverage includes untouched legacy
+success/failure JSON, header isolation, body limits, verification before
+forwarding, local probes, normalized self-loop rejection, redirect refusal,
+200-only acknowledgement, timeout retries and no forwarding of known Kaata
+paid/replayed/tampered/failed orders. Its temporary PostgreSQL instance was
+stopped and its data removed. These checks do not switch merchant receivers or
+authorize forwarding in production; the optional setting remains unset until
+the shared routing change is approved.

@@ -21,12 +21,14 @@ import (
 // high-entropy callback URL token is therefore also required to authenticate
 // delivery. Neither credential is sent to a browser or included in logs.
 type Config struct {
-	APIKey        string
-	Environment   string
-	WebhookToken  string
-	WebhookReady  bool
-	CheckoutHosts []string
-	WebBaseURL    string
+	APIKey                string
+	Environment           string
+	WebhookToken          string
+	WebhookReady          bool
+	CheckoutHosts         []string
+	WebBaseURL            string
+	ForeignWebhookURL     string
+	foreignWebhookInvalid bool
 }
 
 type gateway interface {
@@ -71,6 +73,10 @@ func normalizeConfig(cfg Config) Config {
 		}
 	}
 	cfg.CheckoutHosts = hosts
+	if cfg.ForeignWebhookURL != "" && !validForeignWebhookURL(cfg.ForeignWebhookURL) {
+		cfg.foreignWebhookInvalid = true
+		cfg.ForeignWebhookURL = ""
+	}
 	web, err := url.Parse(cfg.WebBaseURL)
 	if err != nil || web.Scheme != "https" || web.Hostname() == "" || web.User != nil || web.RawQuery != "" || web.Fragment != "" || (web.Path != "" && web.Path != "/") {
 		cfg.WebBaseURL = ""
@@ -81,7 +87,7 @@ func normalizeConfig(cfg Config) Config {
 }
 
 func checkoutReady(cfg Config) bool {
-	return cfg.APIKey != "" && cfg.WebhookToken != "" && cfg.WebhookReady && len(cfg.CheckoutHosts) > 0 && cfg.WebBaseURL != "" && (cfg.Environment == "production" || cfg.Environment == "sandbox")
+	return cfg.APIKey != "" && cfg.WebhookToken != "" && cfg.WebhookReady && !cfg.foreignWebhookInvalid && len(cfg.CheckoutHosts) > 0 && cfg.WebBaseURL != "" && (cfg.Environment == "production" || cfg.Environment == "sandbox")
 }
 
 func allowedReturnOrigin(cfg Config, requested string) (string, bool) {

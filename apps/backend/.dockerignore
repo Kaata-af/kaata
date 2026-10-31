@@ -3,6 +3,7 @@ server
 server.exe
 *.log
 .env
+.env.*
 .env.local
 .git
 .gitignore
