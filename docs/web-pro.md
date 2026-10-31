@@ -82,6 +82,28 @@ foreign events retain the original acknowledge-without-forwarding behavior.
 
 The backend logger redacts the callback token. Proxies and external request logs must also keep that private path confidential. Never add the merchant key or callback token to a tracked file, frontend build argument, browser storage or public environment variable.
 
+### Production routing
+
+On 31 October 2026, both production HesabPay events were moved to Kaata's private
+receiver after approval of the shared routing. Both provider validation requests
+returned HTTP 200. Forwarding was applied and verified in the healthy runtime
+before either event moved; a credential-free HTTPS request from that container
+to Kaka Malem's existing receiver returned HTTP 200 in under one second with
+certificate verification enabled. Checkout readiness was then enabled in both
+the encrypted deployment configuration and running service. Web access remains
+`trial_open` for every account.
+
+Kaka Malem uses the same existing merchant key. Its timestamp window now matches
+Kaata: ten minutes old and one minute ahead. Its PostgreSQL 16 compatibility fix
+and migration 0053 are deployed, and the invoice timer below is active. These
+validation and network checks do not establish a completed real payment or an
+actual foreign payment notification passing through the relay.
+
+For rollback, disable new checkout creation first. Keep forwarding configured
+while either provider event still points to Kaata: an unset relay acknowledges
+unmatched notifications without forwarding. Restore both existing Kaka Malem
+receiver URLs before removing the relay destination.
+
 ### Shared VPS invoice worker
 
 Kaka Malem's subscription invoice queue runs every minute through the host's
@@ -109,5 +131,5 @@ forwarding, local probes, normalized self-loop rejection, redirect refusal,
 200-only acknowledgement, timeout retries and no forwarding of known Kaata
 paid/replayed/tampered/failed orders. Its temporary PostgreSQL instance was
 stopped and its data removed. These checks do not switch merchant receivers or
-authorize forwarding in production; the optional setting remains unset until
-the shared routing change is approved.
+authorize forwarding in production. The subsequent approved production cutover
+and its live checks are recorded above.
