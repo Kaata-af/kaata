@@ -104,6 +104,22 @@ while either provider event still points to Kaata: an unset relay acknowledges
 unmatched notifications without forwarding. Restore both existing Kaka Malem
 receiver URLs before removing the relay destination.
 
+### Production domain ownership
+
+On 31 October 2026, `kaata.af` and `kakamalem.com` were verified and enabled in
+HesabPay's production registered domains. Each Cloudflare zone retains its
+public `_hesabpay-prod` TXT ownership proof. The same existing merchant API key
+remains unchanged. Kaka Malem remains Primary as a management preference; it
+does not restrict the shared key to that website. Existing website and email
+routing records were preserved.
+
+Both payment receiver checks were refreshed after verification and returned
+HTTP 200 with the existing shared receiver URLs.
+
+Keep both TXT records for future manual ownership rechecks. Follow the official
+[domain verification guide](https://docs.hesab.com/quickstart/domain-verification/)
+when maintaining registrations or replacing an expired challenge.
+
 ### Shared VPS invoice worker
 
 Kaka Malem's subscription invoice queue runs every minute through the host's
