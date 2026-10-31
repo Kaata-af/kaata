@@ -1,11 +1,17 @@
 import {
   getWebSession,
+  isSameWebSession,
   clearWebSession,
   webRequest,
   WebApiError,
   WEB_SESSION_EVENT,
   type WebSession,
 } from "./web-auth";
+import {
+  readWebBrowserValue,
+  removeWebBrowserValue,
+  writeWebBrowserValue,
+} from "./web-browser-storage";
 import { WEB_SYNC_HEADERS } from "./web-sync-headers";
 import {
   bytesToWebBase64,
@@ -144,7 +150,7 @@ let inFlight: Promise<unknown> = Promise.resolve();
 function currentSession(): WebSession {
   const session = getWebSession();
   if (!session) {
-    // Local expiry occurs before HTTP. Notify the UI and erase tab-scoped
+    // Local expiry occurs before HTTP. Notify the UI and erase this session's
     // signing material just as an authenticated 401 would.
     clearWebSession();
     throw new WebLedgerError("Your session has ended. Sign in again.", "session_expired");
@@ -153,13 +159,13 @@ function currentSession(): WebSession {
 }
 
 function assertSession(session: WebSession): void {
-  if (getWebSession()?.session_jwt !== session.session_jwt)
+  if (!isSameWebSession(getWebSession(), session))
     throw new WebLedgerError("Your account changed. Open the kaata again.", "session_expired");
 }
 
 function sessionJSON<T>(key: string): T | null {
   try {
-    const value = window.sessionStorage.getItem(key);
+    const value = readWebBrowserValue(key);
     return value ? (JSON.parse(value) as T) : null;
   } catch {
     throw new WebLedgerError(
@@ -171,7 +177,7 @@ function sessionJSON<T>(key: string): T | null {
 
 function storePending(value: PendingWrite): void {
   try {
-    window.sessionStorage.setItem(PENDING_KEY, JSON.stringify(value));
+    writeWebBrowserValue(PENDING_KEY, JSON.stringify(value));
   } catch {
     throw new WebLedgerError(
       "Browser storage is unavailable. Enable it before saving.",
@@ -180,10 +186,11 @@ function storePending(value: PendingWrite): void {
   }
 }
 
-// The JWT and signing material share a tab-scoped lifetime. Nothing is placed
-// in localStorage. A fresh login always has a fresh install/device identity.
+// The signing identity and pending signed batch follow the saved browser
+// session across tabs and restarts. A fresh login gets a fresh install identity.
 function clearOldIdentity(): void {
   const installID = getWebSession()?.install_id;
+  const previousInstallID = identityInstallID;
   if (identityInstallID !== installID) {
     identityPromise = undefined;
     identityInstallID = installID;
@@ -191,7 +198,8 @@ function clearOldIdentity(): void {
   try {
     for (const key of [IDENTITY_KEY, PENDING_KEY]) {
       const value = sessionJSON<{ installID: string }>(key);
-      if (value && value.installID !== installID) window.sessionStorage.removeItem(key);
+      if (value && value.installID === previousInstallID && previousInstallID !== installID)
+        removeWebBrowserValue(key);
     }
   } catch {
     /* A later write refuses unavailable or damaged storage. */
@@ -245,7 +253,7 @@ async function getIdentity(session: WebSession, mustExist = false): Promise<Iden
             ),
           };
           assertSession(session);
-          window.sessionStorage.setItem(IDENTITY_KEY, JSON.stringify(stored));
+          writeWebBrowserValue(IDENTITY_KEY, JSON.stringify(stored));
         }
         const privateKey = await crypto.subtle.importKey(
           "pkcs8",
@@ -606,18 +614,41 @@ async function replayPending(session: WebSession, pending: PendingWrite): Promis
       error instanceof WebLedgerRejection ||
       (error instanceof WebApiError && [400, 403, 404, 413, 426].includes(error.status))
     ) {
-      window.sessionStorage.removeItem(PENDING_KEY);
+      removePending(pending);
     }
     throw error;
   }
-  window.sessionStorage.removeItem(PENDING_KEY);
+  removePending(pending);
   return pending.result;
+}
+
+function removePending(pending: PendingWrite): void {
+  // A late response from a signed-out account must not remove a new account's
+  // batch. Shared storage can change while the request is in flight.
+  if (readWebBrowserValue(PENDING_KEY) === JSON.stringify(pending))
+    removeWebBrowserValue(PENDING_KEY);
+}
+
+function readPending(session: WebSession): PendingWrite | null {
+  assertSession(session);
+  const pending = sessionJSON<PendingWrite>(PENDING_KEY);
+  if (
+    pending &&
+    (pending.installID !== session.install_id || pending.accountID !== session.account_id)
+  ) {
+    // An expired session may have left a batch before this page was opened.
+    // It cannot authorize writes for the new credential or block its saves.
+    assertSession(session);
+    removePending(pending);
+    return null;
+  }
+  return pending;
 }
 
 export function hasPendingWebWrite(): boolean {
   try {
     const session = getWebSession();
-    return !!session && sessionJSON<PendingWrite>(PENDING_KEY)?.installID === session.install_id;
+    return !!session && !!readPending(session);
   } catch {
     return false;
   }
@@ -642,7 +673,7 @@ export function retryPendingWebWrite(): Promise<string | null> {
   const session = currentSession();
   return serialized(async () => {
     assertSession(session);
-    const pending = sessionJSON<PendingWrite>(PENDING_KEY);
+    const pending = readPending(session);
     if (!pending) return null;
     await replayPending(session, pending);
     return pending.vaultID;
@@ -659,7 +690,7 @@ async function write(
   return serialized(async () => {
     assertSession(session);
     const fingerprint = canonicalWebJSON({ vault: ledger.vault_id, operation });
-    const pending = sessionJSON<PendingWrite>(PENDING_KEY);
+    const pending = readPending(session);
     if (pending) {
       if (pending.fingerprint !== fingerprint)
         throw new WebLedgerError(
@@ -980,7 +1011,7 @@ export function createWebVault(input: {
       currency: input.currency,
       ...(input.enabled_currencies ? { enabled_currencies: enabled } : {}),
     });
-    const pending = sessionJSON<PendingWrite>(PENDING_KEY);
+    const pending = readPending(session);
     if (pending) {
       if (pending.fingerprint !== fingerprint)
         throw new WebLedgerError(

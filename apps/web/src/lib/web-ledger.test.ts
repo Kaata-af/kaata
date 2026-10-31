@@ -3,25 +3,28 @@ import { test } from "node:test";
 import { canonicalWebEvent, webBase64ToBytes } from "./web-ledger-protocol.ts";
 import type { WebLedger, WebPerson } from "./web-ledger.ts";
 
-test("browser signs device admission and safely retries a lost save response without another person", async () => {
+test("browser keeps its signing identity across reopen and safely retries a lost save response without another person", async () => {
   const originalWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
   const originalFetch = globalThis.fetch;
   const storage = new Map<string, string>();
+  const tabStorage = new Map<string, string>();
   const target = new EventTarget();
-  const browser = Object.assign(target, {
-    sessionStorage: {
-      getItem: (key: string) => storage.get(key) ?? null,
-      setItem: (key: string, value: string) => {
-        storage.set(key, value);
-      },
-      removeItem: (key: string) => {
-        storage.delete(key);
-      },
+  const storageAPI = (values: Map<string, string>) => ({
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => {
+      values.set(key, value);
     },
+    removeItem: (key: string) => {
+      values.delete(key);
+    },
+  });
+  const browser = Object.assign(target, {
+    sessionStorage: storageAPI(tabStorage),
+    localStorage: storageAPI(storage),
   });
   Object.defineProperty(globalThis, "window", { configurable: true, value: browser });
   const auth = await import("./web-auth.ts");
-  const client = await import("./web-ledger.ts");
+  let client = await import("./web-ledger.ts");
   auth.clearWebSession();
   const accountID = crypto.randomUUID();
   const vaultID = crypto.randomUUID();
@@ -31,6 +34,7 @@ test("browser signs device admission and safely retries a lost save response wit
   let personPushCount = 0;
   let loseNoteResponse = true;
   let notePushCount = 0;
+  let renewDuringRead = false;
   const historyEventID = crypto.randomUUID();
   let historyResponse: unknown = {
     entries: [{ event_id: historyEventID, note: null, at: 100, actor: null }],
@@ -79,7 +83,18 @@ test("browser signs device admission and safely retries a lost save response wit
         user: { name: "Owner", has_password: true },
       });
     }
-    if (path === "/v1/sync/ledger") return respond(ledger);
+    if (path === "/v1/sync/ledger") {
+      if (renewDuringRead) {
+        renewDuringRead = false;
+        const previous = auth.getWebSession()!;
+        const claims = JSON.parse(
+          Buffer.from(previous.session_jwt.split(".")[1], "base64url").toString(),
+        );
+        const renewed = `header.${Buffer.from(JSON.stringify({ ...claims, exp: claims.exp + 3600 })).toString("base64url")}.renewed`;
+        assert.equal(auth.refreshWebSession(previous, renewed), true);
+      }
+      return respond(ledger);
+    }
     if (path === "/v1/devices/register-key") {
       publicKey = body.ed25519_pubkey;
       return respond({ registered: true });
@@ -239,9 +254,24 @@ test("browser signs device admission and safely retries a lost save response wit
     await auth.signInWithGoogle("fixture-google-token", auth.createWebAuthNonce());
     const initial = structuredClone(ledger);
     const personInput = { name: "Ahmad", phone_e164: "+93701234567" };
+    storage.set(
+      "kaata_web_pending_v1",
+      JSON.stringify({ installID: "expired-browser", accountID: "former-account" }),
+    );
     await assert.rejects(client.createWebPerson(initial, personInput), /Cannot reach/);
     assert.equal(client.hasPendingWebWrite(), true);
     assert.equal(ledger.people.length, 1);
+    const savedIdentity = storage.get("kaata_web_signing_v1");
+    const savedPending = storage.get("kaata_web_pending_v1");
+    assert.ok(savedIdentity);
+    assert.ok(savedPending);
+    // A fresh page has no in-memory signing key or tab storage. It must use
+    // the same saved key and retry the exact committed event IDs.
+    tabStorage.clear();
+    const reopenedModule = "./web-ledger.ts?reopened";
+    client = await import(reopenedModule);
+    assert.equal(client.hasPendingWebWrite(), true);
+    assert.equal(storage.get("kaata_web_pending_v1"), savedPending);
     await assert.rejects(client.createWebPerson(initial, { name: "Different" }), /previous save/);
     const relationshipID = await client.createWebPerson(initial, personInput);
     assert.equal(relationshipID, ledger.people[0].relationship_id);
@@ -249,6 +279,8 @@ test("browser signs device admission and safely retries a lost save response wit
     assert.equal(ledger.people.length, 1);
     assert.equal(client.hasPendingWebWrite(), false);
 
+    // A rolling renewal during a save keeps this same credential and key.
+    renewDuringRead = true;
     await client.createWebEntry(ledger, ledger.people[0], {
       type: "debt",
       amount: "۱۲٫۵۰",
@@ -258,6 +290,8 @@ test("browser signs device admission and safely retries a lost save response wit
     });
     assert.equal(ledger.entries[0].amount_afn, "12.5");
     assert.equal(ledger.entries[0].currency, "USD");
+    assert.equal(storage.get("kaata_web_signing_v1"), savedIdentity);
+    assert.equal(tabStorage.size, 0);
     const stale = { ...ledger.entries[0], current_event_id: crypto.randomUUID() };
     await assert.rejects(client.deleteWebEntry(ledger, stale), /Someone changed/);
     const settled = ledger.entries[0];
@@ -576,6 +610,99 @@ test("browser signs device admission and safely retries a lost save response wit
     assert.equal(storage.has("kaata_web_signing_v1"), false);
     assert.equal(storage.has("kaata_web_pending_v1"), false);
     assert.equal(client.hasPendingWebWrite(), false);
+    await auth.signInWithGoogle("fixture-google-token", auth.createWebAuthNonce());
+    storage.set("kaata_web_signing_v1", JSON.stringify({ installID }));
+    storage.set("kaata_web_pending_v1", JSON.stringify({ installID, accountID }));
+    await auth.signOut();
+    assert.equal(storage.has("kaata_web_signing_v1"), false);
+    assert.equal(storage.has("kaata_web_pending_v1"), false);
+    assert.equal(auth.getWebSession(), null);
+  } finally {
+    auth.clearWebSession();
+    globalThis.fetch = originalFetch;
+    if (originalWindow) Object.defineProperty(globalThis, "window", originalWindow);
+    else Reflect.deleteProperty(globalThis, "window");
+  }
+});
+
+test("a fresh page with expired auth and an orphan pending batch can sign in and save again", async () => {
+  const originalWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+  const originalFetch = globalThis.fetch;
+  const storage = new Map<string, string>();
+  const tabStorage = new Map<string, string>();
+  const storageAPI = (values: Map<string, string>) => ({
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => values.set(key, value),
+    removeItem: (key: string) => values.delete(key),
+  });
+  const browser = Object.assign(new EventTarget(), {
+    localStorage: storageAPI(storage),
+    sessionStorage: storageAPI(tabStorage),
+  });
+  const oldInstall = crypto.randomUUID();
+  const oldAccount = crypto.randomUUID();
+  const expiredJWT = `header.${Buffer.from(JSON.stringify({ account_id: oldAccount, install_id: oldInstall, exp: Math.floor(Date.now() / 1000) - 60 })).toString("base64url")}.expired`;
+  storage.set(
+    "kaata_web_session_v2",
+    JSON.stringify({
+      session_jwt: expiredJWT,
+      account_id: oldAccount,
+      install_id: oldInstall,
+      default_vault_id: null,
+      user: { has_password: false },
+    }),
+  );
+  const orphan = JSON.stringify({
+    installID: oldInstall,
+    accountID: oldAccount,
+    fingerprint: "unconfirmed old save",
+    events: [],
+  });
+  storage.set("kaata_web_pending_v1", orphan);
+  Object.defineProperty(globalThis, "window", { configurable: true, value: browser });
+  const auth = await import("./web-auth.ts");
+  const freshModule = "./web-ledger.ts?expired-page";
+  const client: typeof import("./web-ledger.ts") = await import(freshModule);
+  const accountID = crypto.randomUUID();
+  let createdVault = "";
+  globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    const path = new URL(String(url)).pathname;
+    const body = init?.body ? JSON.parse(String(init.body)) : {};
+    if (path === "/v1/auth/google") {
+      const jwt = `header.${Buffer.from(JSON.stringify({ account_id: accountID, install_id: body.install_id, exp: Math.floor(Date.now() / 1000) + 3600 })).toString("base64url")}.signature`;
+      return Response.json({
+        session_jwt: jwt,
+        account_id: accountID,
+        default_vault_id: null,
+        user: { has_password: false },
+      });
+    }
+    if (path === "/v1/devices/register-key") return Response.json({ registered: true });
+    if (path === "/v1/vaults") {
+      createdVault = body.vault_id;
+      return Response.json({ vault_id: createdVault });
+    }
+    if (path === "/v1/sync/push")
+      return Response.json({
+        accepted: body.events.map((event: { event_id: string }, index: number) => ({
+          event_id: event.event_id,
+          server_seq: index + 1,
+        })),
+        duplicates: [],
+        rejected: [],
+      });
+    throw new Error(`Unexpected request: ${path}`);
+  }) as typeof fetch;
+  try {
+    assert.equal(auth.getWebSession(), null);
+    await auth.signInWithGoogle("fixture-google-token", auth.createWebAuthNonce());
+    assert.equal(storage.get("kaata_web_pending_v1"), orphan);
+    assert.equal(await client.retryPendingWebWrite(), null);
+    assert.equal(storage.has("kaata_web_pending_v1"), false);
+    storage.set("kaata_web_pending_v1", orphan);
+    assert.equal(await client.createWebVault({ name: "New kaata", currency: "AFN" }), createdVault);
+    assert.ok(createdVault);
+    assert.equal(storage.has("kaata_web_pending_v1"), false);
   } finally {
     auth.clearWebSession();
     globalThis.fetch = originalFetch;

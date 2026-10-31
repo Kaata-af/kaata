@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { after, beforeEach, test } from "node:test";
-import { clearWebSession, createWebAuthNonce, signInWithGoogle, WebApiError } from "./web-auth";
+import {
+  clearWebSession,
+  createWebAuthNonce,
+  refreshWebSession,
+  signInWithGoogle,
+  WebApiError,
+} from "./web-auth";
 import {
   createWebProCheckout,
   getWebProOrder,
@@ -16,8 +22,9 @@ import {
 const originalFetch = globalThis.fetch;
 const originalWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
 const storage = new Map<string, string>();
+const tabStorage = new Map<string, string>();
 const browser = Object.assign(new EventTarget(), {
-  sessionStorage: {
+  localStorage: {
     getItem: (key: string) => storage.get(key) ?? null,
     setItem: (key: string, value: string) => {
       storage.set(key, value);
@@ -25,6 +32,11 @@ const browser = Object.assign(new EventTarget(), {
     removeItem: (key: string) => {
       storage.delete(key);
     },
+  },
+  sessionStorage: {
+    getItem: (key: string) => tabStorage.get(key) ?? null,
+    setItem: (key: string, value: string) => tabStorage.set(key, value),
+    removeItem: (key: string) => tabStorage.delete(key),
   },
 });
 Object.defineProperty(globalThis, "window", { configurable: true, value: browser });
@@ -50,6 +62,10 @@ async function login(account = "fixture-account") {
     const claims = {
       account_id: account,
       install_id: body.install_id,
+      provider: "google",
+      provider_sub: "fixture-provider",
+      ep: 1,
+      iat: Math.floor(Date.now() / 1000) - 3600,
       exp: Math.floor(Date.now() / 1000) + 3600,
     };
     return Response.json({
@@ -64,6 +80,7 @@ async function login(account = "fixture-account") {
 beforeEach(() => {
   clearWebSession();
   storage.clear();
+  tabStorage.clear();
 });
 after(() => {
   clearWebSession();
@@ -202,6 +219,21 @@ test("old accounts cannot prepare checkout or accept an in-flight billing respon
     loading,
     (error: unknown) => error instanceof WebApiError && error.code === "session_expired",
   );
+});
+
+test("renewing the same browser credential preserves an in-flight checkout", async () => {
+  const session = await login();
+  let finish!: (response: Response) => void;
+  globalThis.fetch = (() =>
+    new Promise<Response>((resolve) => {
+      finish = resolve;
+    })) as typeof fetch;
+  const checkout = createWebProCheckout(session, WEB_PRO_OFFERS[0], REQUEST, hosts);
+  const claims = JSON.parse(Buffer.from(session.session_jwt.split(".")[1], "base64url").toString());
+  const token = `header.${Buffer.from(JSON.stringify({ ...claims, iat: Math.floor(Date.now() / 1000), exp: claims.exp + 3600 })).toString("base64url")}.renewed-signature`;
+  assert.equal(refreshWebSession(session, token), true);
+  finish(Response.json({ order_id: ORDER, checkout_url: CHECKOUT }));
+  assert.deepEqual(await checkout, { order_id: ORDER, checkout_url: CHECKOUT });
 });
 
 test("expired checkout replacement is explicitly scoped to the acknowledged order", async () => {

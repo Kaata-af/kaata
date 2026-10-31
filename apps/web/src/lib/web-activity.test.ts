@@ -25,6 +25,7 @@ function fixture(options: { visible?: boolean; request?: () => Promise<unknown> 
   let nextID = 0;
   const timers = new Map<number, { at: number; callback: () => void }>();
   const calls: { at: number; locale: string; signal: AbortSignal }[] = [];
+  const renewals: { expected: WebSession; token: string }[] = [];
   const activity = createWebActivity({
     session,
     locale: () => locale,
@@ -36,6 +37,12 @@ function fixture(options: { visible?: boolean; request?: () => Promise<unknown> 
       request: async (language, signal) => {
         calls.push({ at: now, locale: language, signal });
         return options.request?.();
+      },
+      refreshSession: (expected, token) => {
+        renewals.push({ expected, token });
+        current = { ...expected, session_jwt: token };
+        change?.();
+        return true;
       },
       subscribe: (handler) => {
         change = handler;
@@ -67,6 +74,7 @@ function fixture(options: { visible?: boolean; request?: () => Promise<unknown> 
   return {
     ...activity,
     calls,
+    renewals,
     timers,
     advance,
     changed: () => change?.(),
@@ -167,6 +175,50 @@ test("sign-out or a different browser credential aborts pending work and unsubsc
     f.session(session);
     await f.advance(180_000);
     assert.equal(f.calls.length, 1);
+    f.stop();
+  }
+});
+
+test("a valid heartbeat renewal updates the captured session once and stops the old controller", async () => {
+  const f = fixture({ request: async () => ({ session_jwt_refresh: "renewed-token" }) });
+  await f.advance(0);
+  assert.deepEqual(f.renewals, [{ expected: session, token: "renewed-token" }]);
+  assert.equal(f.timers.size, 0);
+  await f.advance(180_000);
+  assert.equal(f.calls.length, 1);
+  f.stop();
+});
+
+test("ordinary or malformed heartbeat replies do not attempt renewal", async () => {
+  for (const result of [undefined, null, {}, { session_jwt_refresh: 42 }]) {
+    const f = fixture({ request: async () => result });
+    await f.advance(0);
+    assert.equal(f.renewals.length, 0);
+    await f.advance(60_000);
+    assert.equal(f.calls.length, 2);
+    f.stop();
+  }
+});
+
+test("a late heartbeat cannot renew after logout, another login, or a newer token", async () => {
+  for (const next of [
+    null,
+    { ...session, install_id: "another-login" },
+    { ...session, session_jwt: "already-renewed" },
+  ]) {
+    let finish!: (value: unknown) => void;
+    const f = fixture({
+      request: () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    });
+    await f.advance(0);
+    f.session(next);
+    finish({ session_jwt_refresh: "late-token" });
+    await microtasks();
+    assert.equal(f.renewals.length, 0);
+    assert.equal(f.timers.size, 0);
     f.stop();
   }
 });

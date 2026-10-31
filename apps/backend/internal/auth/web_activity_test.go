@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -9,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/matee/kaata-backend/internal/testutil"
 )
@@ -82,6 +84,7 @@ func TestWebActivityRejectsRevokedReboundRetiredAndPendingSessions(t *testing.T)
 			install := uuid.NewString()
 			result := signUp(t, svc, pool, "ended-presence@shop.af", install)
 			claims := sessionOf(t, result)
+			claims.IssuedAt = jwt.NewNumericDate(time.Now().Add(-8 * 24 * time.Hour))
 			var err error
 			switch state {
 			case "signed out":
@@ -109,12 +112,93 @@ func TestWebActivityRejectsRevokedReboundRetiredAndPendingSessions(t *testing.T)
 			if err := svc.RecordWebActivity(t.Context(), claims, "en"); !errors.Is(err, ErrSessionRevoked) {
 				t.Fatalf("expected ended session, got %v", err)
 			}
+			req := httptest.NewRequest(http.MethodPost, "/v1/account/web-activity", strings.NewReader(`{"locale":"en"}`))
+			req = req.WithContext(context.WithValue(req.Context(), claimsContextKey, claims))
+			w := httptest.NewRecorder()
+			NewHandler(svc).WebActivity(w, req)
+			if w.Code != http.StatusUnauthorized || strings.Contains(w.Body.String(), "session_jwt_refresh") {
+				t.Fatalf("ended session renewed: status=%d body=%s", w.Code, w.Body.String())
+			}
 			var updated int
 			if err := pool.QueryRow(t.Context(), `SELECT COUNT(*) FROM installs WHERE platform='web'
 				OR last_seen_at>NOW()-INTERVAL '1 day' AND install_id=$1`, install).Scan(&updated); err != nil || updated != 0 {
 				t.Fatalf("ended session wrote presence: count=%d err=%v", updated, err)
 			}
 		})
+	}
+}
+
+func TestWebActivityRenewsOnlyLiveOlderSessionsWithoutChangingIdentity(t *testing.T) {
+	pool := testutil.ConnectTestDB(t)
+	svc := newEmailService(t, pool)
+	install := uuid.NewString()
+	result := signUp(t, svc, pool, "renew-browser@shop.af", install)
+	claims := sessionOf(t, result)
+	authenticator := NewSessionAuthenticator(svc, emailTestSecret)
+	handler := authenticator.Middleware()(http.HandlerFunc(NewHandler(svc).WebActivity))
+	request := func(token string) *httptest.ResponseRecorder {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodPost, "/v1/account/web-activity", strings.NewReader(`{"locale":"en"}`))
+		req.Header.Set("Authorization", "Bearer "+token)
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+		return w
+	}
+	if w := request(result.SessionJWT); w.Code != http.StatusNoContent || w.Body.Len() != 0 {
+		t.Fatalf("fresh session unnecessarily renewed: status=%d body=%s", w.Code, w.Body.String())
+	}
+	claims.IssuedAt = jwt.NewNumericDate(time.Now().Add(-8 * 24 * time.Hour))
+	claims.NotBefore = claims.IssuedAt
+	claims.ExpiresAt = jwt.NewNumericDate(claims.IssuedAt.Add(SessionLifetime))
+	olderToken, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(emailTestSecret))
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := request(olderToken)
+	if w.Code != http.StatusOK || w.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("old live session not renewed: status=%d body=%s", w.Code, w.Body.String())
+	}
+	var body struct {
+		JWT string `json:"session_jwt_refresh"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	renewed, err := ParseSession(emailTestSecret, body.JWT)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if renewed.AccountID != claims.AccountID || renewed.InstallID != claims.InstallID ||
+		renewed.Provider != claims.Provider || renewed.ProviderSub != claims.ProviderSub || renewed.Epoch != claims.Epoch {
+		t.Fatalf("renewal changed credential identity: got=%+v want=%+v", renewed, claims)
+	}
+	if renewed.IssuedAtAge() > time.Minute || time.Until(renewed.ExpiresAt.Time) < SessionLifetime-time.Minute {
+		t.Fatal("renewal did not open a fresh rolling session window")
+	}
+	if w := request(body.JWT); w.Code != http.StatusNoContent {
+		t.Fatalf("renewed session not usable: status=%d body=%s", w.Code, w.Body.String())
+	}
+	expiredClaims := *claims
+	expiredClaims.IssuedAt = jwt.NewNumericDate(time.Now().Add(-31 * 24 * time.Hour))
+	expiredClaims.NotBefore = expiredClaims.IssuedAt
+	expiredClaims.ExpiresAt = jwt.NewNumericDate(time.Now().Add(-24 * time.Hour))
+	expiredToken, err := jwt.NewWithClaims(jwt.SigningMethodHS256, expiredClaims).SignedString([]byte(emailTestSecret))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w := request(expiredToken); w.Code != http.StatusUnauthorized || strings.Contains(w.Body.String(), "session_jwt_refresh") {
+		t.Fatalf("expired session renewed: status=%d body=%s", w.Code, w.Body.String())
+	}
+	// Both tokens have cached middleware approvals. The handler's fresh check
+	// still refuses renewal immediately after revocation, including a token
+	// minted just before sign-out completed.
+	if err := svc.SignOut(t.Context(), install, claims.Provider); err != nil {
+		t.Fatal(err)
+	}
+	for _, token := range []string{olderToken, body.JWT} {
+		if w := request(token); w.Code != http.StatusUnauthorized || strings.Contains(w.Body.String(), "session_jwt_refresh") {
+			t.Fatalf("revoked token renewed through cached approval: status=%d body=%s", w.Code, w.Body.String())
+		}
 	}
 }
 

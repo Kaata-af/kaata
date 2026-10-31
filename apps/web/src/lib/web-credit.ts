@@ -1,4 +1,10 @@
-import { getWebSession, webRequest, WebApiError, type WebSession } from "./web-auth";
+import {
+  getWebSession,
+  isSameWebSession,
+  webRequest,
+  WebApiError,
+  type WebSession,
+} from "./web-auth";
 import type { WebLedger, WebPerson } from "./web-ledger";
 import { WEB_SYNC_HEADERS } from "./web-sync-headers";
 
@@ -32,14 +38,7 @@ function session(): WebSession {
 }
 
 function assertSession(expected: WebSession) {
-  const current = getWebSession();
-  if (
-    !current ||
-    current.account_id !== expected.account_id ||
-    current.install_id !== expected.install_id ||
-    current.session_jwt !== expected.session_jwt
-  )
-    throw new WebCreditError("session_changed");
+  if (!isSameWebSession(getWebSession(), expected)) throw new WebCreditError("session_changed");
 }
 
 function path(vaultID: string): string {

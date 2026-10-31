@@ -1,4 +1,10 @@
-import { getWebSession, webRequest, WebApiError, type WebSession } from "./web-auth";
+import {
+  getWebSession,
+  isSameWebSession,
+  webRequest,
+  WebApiError,
+  type WebSession,
+} from "./web-auth";
 
 export type WebProPlan = {
   id: "web_pro_monthly" | "web_pro_yearly";
@@ -126,13 +132,7 @@ export function validateWebProCheckoutURL(value: unknown, allowedHosts: readonly
 }
 
 function currentSession(session: WebSession) {
-  const current = getWebSession();
-  if (
-    !current ||
-    current.account_id !== session.account_id ||
-    current.install_id !== session.install_id ||
-    current.session_jwt !== session.session_jwt
-  )
+  if (!isSameWebSession(getWebSession(), session))
     throw new WebApiError(
       "Your session has changed. Open subscriptions again.",
       401,

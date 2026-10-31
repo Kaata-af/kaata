@@ -1,4 +1,10 @@
-import { getWebSession, WEB_SESSION_EVENT, webRequest, type WebSession } from "./web-auth";
+import {
+  getWebSession,
+  refreshWebSession,
+  WEB_SESSION_EVENT,
+  webRequest,
+  type WebSession,
+} from "./web-auth";
 
 const INTERVAL_MS = 60_000;
 
@@ -8,6 +14,7 @@ export type WebActivityDependencies = {
   online: () => boolean;
   getSession: () => WebSession | null;
   request: (locale: string, signal: AbortSignal) => Promise<unknown>;
+  refreshSession: (expected: WebSession, token: string) => boolean;
   subscribe: (changed: () => void) => () => void;
   setTimer: (callback: () => void, delay: number) => unknown;
   clearTimer: (timer: unknown) => void;
@@ -34,6 +41,7 @@ export function createWebActivity({
         body: JSON.stringify({ locale: language }),
         signal,
       }),
+    refreshSession: refreshWebSession,
     subscribe: (changed) => {
       document.addEventListener("visibilitychange", changed);
       window.addEventListener("online", changed);
@@ -95,11 +103,24 @@ export function createWebActivity({
 
   async function send() {
     if (!current() || !deps.visible() || !deps.online() || running) return;
+    const expected = deps.getSession();
+    if (!expected) return;
     const controller = new AbortController();
     running = controller;
     lastStarted = deps.now();
     try {
-      await deps.request(locale(), controller.signal);
+      const result = await deps.request(locale(), controller.signal);
+      if (
+        current() &&
+        result &&
+        typeof result === "object" &&
+        "session_jwt_refresh" in result &&
+        typeof result.session_jwt_refresh === "string"
+      ) {
+        // A slow heartbeat must not revive a signed-out session or overwrite
+        // another login. The auth layer validates the exact captured token.
+        deps.refreshSession(expected, result.session_jwt_refresh);
+      }
     } catch {
       // Presence is best-effort. It never blocks or interrupts ledger work.
     } finally {

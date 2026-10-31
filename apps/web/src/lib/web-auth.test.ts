@@ -4,8 +4,10 @@ import {
   clearWebSession,
   createWebAuthNonce,
   getWebSession,
+  isSameWebSession,
   loadWebAuthProviders,
   parseWebSession,
+  refreshWebSession,
   signInWithApple,
   signInWithGoogle,
   signOut,
@@ -19,6 +21,7 @@ import { BACKEND_URL } from "../env";
 const originalFetch = globalThis.fetch;
 const originalWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
 const storage = new Map<string, string>();
+const tabStorage = new Map<string, string>();
 const events = new EventTarget();
 let changes = 0;
 events.addEventListener(WEB_SESSION_EVENT, () => changes++);
@@ -26,13 +29,17 @@ Object.defineProperty(globalThis, "window", {
   configurable: true,
   value: {
     sessionStorage: {
+      getItem: (key: string) => tabStorage.get(key) ?? null,
+      setItem: (key: string, value: string) => tabStorage.set(key, value),
+      removeItem: (key: string) => tabStorage.delete(key),
+    },
+    localStorage: {
       getItem: (key: string) => storage.get(key) ?? null,
       setItem: (key: string, value: string) => storage.set(key, value),
       removeItem: (key: string) => storage.delete(key),
     },
-    localStorage: {
-      setItem: () => assert.fail("An auth credential must never go in localStorage"),
-    },
+    addEventListener: (...args: Parameters<EventTarget["addEventListener"]>) =>
+      events.addEventListener(...args),
     dispatchEvent: (event: Event) => events.dispatchEvent(event),
   },
 });
@@ -61,9 +68,22 @@ function loginFetch(record?: (body: Record<string, string>) => void) {
   }) as typeof fetch;
 }
 
+function storageChanged(key: string | null = "kaata_web_session_v2") {
+  const event = new Event("storage");
+  Object.defineProperty(event, "key", { value: key });
+  events.dispatchEvent(event);
+}
+
+function renewedSession(current: WebSession, changes: Record<string, unknown> = {}): WebSession {
+  const claims = JSON.parse(Buffer.from(current.session_jwt.split(".")[1], "base64url").toString());
+  const token = `header.${Buffer.from(JSON.stringify({ ...claims, exp: claims.exp + 86_400, ...changes })).toString("base64url")}.renewed`;
+  return { ...current, session_jwt: token };
+}
+
 beforeEach(() => {
   clearWebSession();
   storage.clear();
+  tabStorage.clear();
   changes = 0;
 });
 after(() => {
@@ -88,7 +108,189 @@ test("cached auth rejects expiry, corruption, and a JWT bound to another account
   assert.equal(parseWebSession(JSON.stringify({ ...valid, install_id: "other-install" })), null);
 });
 
-test("each login gets a new web install; provider credentials never enter session storage", async () => {
+test("reopening a new tab restores the same browser credential without provider sign-in", async () => {
+  loginFetch();
+  const current = await signInWithGoogle("one-use-google-token", createWebAuthNonce());
+  assert.deepEqual(JSON.parse(storage.get("kaata_web_session_v2")!), current);
+  assert.equal(tabStorage.has("kaata_web_session_v2"), false);
+  tabStorage.clear();
+  const reopened = await import(`./web-auth.ts?reopened=${crypto.randomUUID()}`);
+  assert.deepEqual(reopened.getWebSession(), current);
+  let requests = 0;
+  globalThis.fetch = (async (_url, init) => {
+    requests++;
+    assert.equal(new Headers(init?.headers).get("Authorization"), `Bearer ${current.session_jwt}`);
+    return Response.json({ vaults: [] });
+  }) as typeof fetch;
+  await reopened.webRequest("/v1/vaults");
+  assert.equal(requests, 1);
+});
+
+test("an existing tab migrates only its matching signing identity and pending batch", () => {
+  const current = session();
+  const identity = JSON.stringify({
+    installID: current.install_id,
+    publicKey: "key",
+    privateKey: "key",
+  });
+  const pending = JSON.stringify({
+    installID: current.install_id,
+    accountID: current.account_id,
+    events: [{ event_id: "same-id-after-reopen" }],
+  });
+  tabStorage.set("kaata_web_session_v1", JSON.stringify(current));
+  tabStorage.set("kaata_web_signing_v1", identity);
+  tabStorage.set("kaata_web_pending_v1", pending);
+  assert.deepEqual(getWebSession(), current);
+  assert.equal(storage.get("kaata_web_signing_v1"), identity);
+  assert.equal(storage.get("kaata_web_pending_v1"), pending);
+  assert.equal(tabStorage.has("kaata_web_session_v1"), false);
+  assert.equal(tabStorage.has("kaata_web_signing_v1"), false);
+  assert.equal(tabStorage.has("kaata_web_pending_v1"), false);
+  tabStorage.clear();
+  assert.deepEqual(getWebSession(), current);
+});
+
+test("damaged or different-account legacy material cannot prevent durable session migration", () => {
+  const current = session();
+  tabStorage.set("kaata_web_session_v1", JSON.stringify(current));
+  tabStorage.set("kaata_web_signing_v1", "damaged");
+  tabStorage.set(
+    "kaata_web_pending_v1",
+    JSON.stringify({ installID: current.install_id, accountID: "someone-else" }),
+  );
+  assert.deepEqual(getWebSession(), current);
+  assert.equal(storage.has("kaata_web_signing_v1"), false);
+  assert.equal(storage.has("kaata_web_pending_v1"), false);
+  tabStorage.clear();
+  assert.deepEqual(getWebSession(), current);
+});
+
+test("a browser-wide logout takes precedence over stale tab-only sessions", async () => {
+  loginFetch();
+  const current = await signInWithGoogle("token", createWebAuthNonce());
+  clearWebSession();
+  tabStorage.set("kaata_web_session_v1", JSON.stringify(current));
+  storageChanged();
+  assert.equal(getWebSession(), null);
+  assert.equal(tabStorage.has("kaata_web_session_v1"), false);
+  assert.equal(storage.get("kaata_web_session_v2"), "null");
+});
+
+test("another tab's login or logout updates the current session and cancels a pending login", async () => {
+  loginFetch();
+  const old = await signInWithGoogle("token", createWebAuthNonce());
+  let finish!: (response: Response) => void;
+  let pendingInstall = "";
+  globalThis.fetch = ((_url, init) =>
+    new Promise<Response>((resolve) => {
+      finish = resolve;
+      pendingInstall = JSON.parse(init?.body as string).install_id;
+    })) as typeof fetch;
+  const pending = signInWithGoogle("slow-token", createWebAuthNonce());
+  const other = session("another-browser-install", "another-account");
+  storage.set("kaata_web_session_v2", JSON.stringify(other));
+  const before = changes;
+  storageChanged();
+  assert.ok(changes > before);
+  assert.deepEqual(getWebSession(), other);
+  finish(Response.json(session(pendingInstall)));
+  await assert.rejects(
+    pending,
+    (error: unknown) => error instanceof WebApiError && error.code === "signin_cancelled",
+  );
+  assert.deepEqual(getWebSession(), other);
+  storage.set("kaata_web_session_v2", "null");
+  storageChanged();
+  assert.equal(getWebSession(), null);
+  assert.notEqual(old.install_id, other.install_id);
+});
+
+test("rolling renewal preserves credential identity, rejects changed claims, and never revives logout", async () => {
+  loginFetch();
+  const current = await signInWithGoogle("token", createWebAuthNonce());
+  const renewed = renewedSession(current);
+  assert.equal(isSameWebSession(renewed, current), true);
+  for (const claim of [
+    { account_id: "other" },
+    { install_id: "other" },
+    { ep: 123 },
+    { provider: "apple" },
+    { provider_sub: "other" },
+  ]) {
+    const changed = renewedSession(current, claim);
+    assert.equal(isSameWebSession(changed, current), false);
+    assert.equal(refreshWebSession(current, changed.session_jwt), false);
+  }
+  assert.equal(refreshWebSession(current, current.session_jwt), false);
+  assert.equal(refreshWebSession(current, renewed.session_jwt), true);
+  assert.deepEqual(getWebSession(), renewed);
+  assert.deepEqual(JSON.parse(storage.get("kaata_web_session_v2")!), renewed);
+  assert.equal(refreshWebSession(current, renewedSession(renewed).session_jwt), false);
+  clearWebSession();
+  assert.equal(refreshWebSession(renewed, renewedSession(renewed).session_jwt), false);
+  assert.equal(getWebSession(), null);
+});
+
+test("a delayed storage event cannot let an old sign-in overwrite another tab's login or logout", async () => {
+  for (const next of [JSON.stringify(session("other-install", "other-account")), "null"]) {
+    storage.clear();
+    let finish!: (response: Response) => void;
+    let install = "";
+    globalThis.fetch = ((_url, init) =>
+      new Promise<Response>((resolve) => {
+        finish = resolve;
+        install = JSON.parse(init?.body as string).install_id;
+      })) as typeof fetch;
+    const pending = signInWithGoogle("slow-token", createWebAuthNonce());
+    storage.set("kaata_web_session_v2", next);
+    finish(Response.json(session(install)));
+    await assert.rejects(
+      pending,
+      (error: unknown) => error instanceof WebApiError && error.code === "signin_cancelled",
+    );
+    assert.equal(storage.get("kaata_web_session_v2"), next);
+  }
+});
+
+test("late sign-out cannot clear a newer sign-in made while revocation is in flight", async () => {
+  loginFetch();
+  await signInWithGoogle("token", createWebAuthNonce());
+  let finish!: (response: Response) => void;
+  globalThis.fetch = (() =>
+    new Promise<Response>((resolve) => {
+      finish = resolve;
+    })) as typeof fetch;
+  const leaving = signOut();
+  loginFetch();
+  const newer = await signInWithGoogle("new-token", createWebAuthNonce());
+  finish(new Response(null, { status: 204 }));
+  await leaving;
+  assert.deepEqual(getWebSession(), newer);
+});
+
+test("a stale 401 cannot erase a silently renewed credential, and expired saved sessions stay closed", async () => {
+  loginFetch();
+  const current = await signInWithGoogle("token", createWebAuthNonce());
+  let finish!: (response: Response) => void;
+  globalThis.fetch = (() =>
+    new Promise<Response>((resolve) => {
+      finish = resolve;
+    })) as typeof fetch;
+  const pending = webRequest("/v1/vaults").catch(() => {});
+  const renewed = renewedSession(current);
+  assert.equal(refreshWebSession(current, renewed.session_jwt), true);
+  finish(Response.json({ error: "old token rejected" }, { status: 401 }));
+  await pending;
+  assert.deepEqual(getWebSession(), renewed);
+  storage.set(
+    "kaata_web_session_v2",
+    JSON.stringify(session("expired", "account", Date.now() - 1000)),
+  );
+  assert.equal(getWebSession(), null);
+});
+
+test("each explicit login gets a new web install; provider credentials are never stored", async () => {
   const installs: string[] = [];
   loginFetch((body) => {
     assert.equal(body.platform, "web");
@@ -135,7 +337,7 @@ test("401 ends the session, while permission errors preserve it", async () => {
     Response.json({ error: "expired" }, { status: 401 })) as typeof fetch;
   await assert.rejects(() => webRequest("/v1/vaults"));
   assert.equal(getWebSession(), null);
-  assert.equal(storage.size, 0);
+  assert.equal(storage.get("kaata_web_session_v2"), "null");
 });
 
 test("late 401 from an older account cannot erase a newer sign-in", async () => {

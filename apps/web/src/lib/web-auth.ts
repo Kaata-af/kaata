@@ -1,7 +1,13 @@
 import { BACKEND_URL } from "../env";
+import {
+  readWebBrowserValue,
+  removeLegacyWebTabValue,
+  writeWebBrowserValue,
+} from "./web-browser-storage";
 
 export const WEB_SESSION_EVENT = "kaata:web-session-changed";
-const SESSION_KEY = "kaata_web_session_v1";
+const SESSION_KEY = "kaata_web_session_v2";
+const LEGACY_SESSION_KEY = "kaata_web_session_v1";
 
 export type WebSession = {
   session_jwt: string;
@@ -21,6 +27,59 @@ export type WebSession = {
 type SignInResult = Omit<WebSession, "install_id">;
 let memorySession: WebSession | null | undefined;
 let authenticationGeneration = 0;
+const observedWindows = new WeakSet<Window>();
+
+type WebSessionClaims = {
+  exp?: number;
+  account_id?: string;
+  install_id?: string;
+  provider?: string;
+  provider_sub?: string;
+  ep?: number;
+};
+
+function sessionClaims(token: string): WebSessionClaims | null {
+  try {
+    const payload = token.split(".")[1];
+    if (!payload) return null;
+    const normalized = payload.replaceAll("-", "+").replaceAll("_", "/");
+    const claims: unknown = JSON.parse(
+      atob(normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=")),
+    );
+    return claims && typeof claims === "object" ? (claims as WebSessionClaims) : null;
+  } catch {
+    return null;
+  }
+}
+
+// A rolling renewal changes only token dates/signature. A new sign-in has a
+// new browser install; credential revocation/rebinding also changes its epoch.
+export function isSameWebSession(
+  current: WebSession | null | undefined,
+  expected: WebSession | null | undefined,
+): boolean {
+  if (
+    !current ||
+    !expected ||
+    current.account_id !== expected.account_id ||
+    current.install_id !== expected.install_id
+  )
+    return false;
+  if (current.session_jwt === expected.session_jwt) return true;
+  const a = sessionClaims(current.session_jwt);
+  const b = sessionClaims(expected.session_jwt);
+  return !!(
+    a &&
+    b &&
+    a.account_id === current.account_id &&
+    b.account_id === expected.account_id &&
+    a.install_id === current.install_id &&
+    b.install_id === expected.install_id &&
+    a.provider === b.provider &&
+    a.provider_sub === b.provider_sub &&
+    (a.ep ?? 0) === (b.ep ?? 0)
+  );
+}
 
 // This only checks the local cache's shape/expiry. Every request is authorized
 // by the server, which verifies the signature and the current credential epoch.
@@ -45,17 +104,9 @@ export function parseWebSession(raw: string | null, now = Date.now()): WebSessio
       !(value.default_vault_id === null || typeof value.default_vault_id === "string")
     )
       return null;
-    const payload = value.session_jwt.split(".")[1];
-    if (!payload) return null;
-    const normalized = payload.replaceAll("-", "+").replaceAll("_", "/");
-    const claims = JSON.parse(
-      atob(normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=")),
-    ) as {
-      exp?: number;
-      account_id?: string;
-      install_id?: string;
-    };
+    const claims = sessionClaims(value.session_jwt);
     if (
+      !claims ||
       typeof claims.exp !== "number" ||
       !Number.isFinite(claims.exp) ||
       claims.exp * 1000 <= now ||
@@ -70,29 +121,96 @@ export function parseWebSession(raw: string | null, now = Date.now()): WebSessio
 }
 
 export function getWebSession(): WebSession | null {
-  if (memorySession !== undefined) {
-    // Expiry is checked on every access, including tabs left open overnight.
-    return memorySession && parseWebSession(JSON.stringify(memorySession));
-  }
+  observeSessionChanges();
   try {
-    memorySession = parseWebSession(window.sessionStorage.getItem(SESSION_KEY));
-    if (!memorySession) window.sessionStorage.removeItem(SESSION_KEY);
+    const raw = readWebBrowserValue(SESSION_KEY);
+    // The explicit "null" tombstone prevents another tab's older, tab-only
+    // session from restoring a credential after a browser-wide sign-out.
+    if (raw === null) {
+      const legacy = parseWebSession(window.sessionStorage.getItem(LEGACY_SESSION_KEY));
+      if (legacy) {
+        // Preserve the registered device key and exact pending event IDs when
+        // upgrading an already signed-in tab to durable browser storage.
+        memorySession = legacy;
+        for (const key of ["kaata_web_signing_v1", "kaata_web_pending_v1"]) {
+          const previous = window.sessionStorage.getItem(key);
+          if (!previous) continue;
+          let value: { installID?: string; accountID?: string } | null;
+          try {
+            value = JSON.parse(previous);
+          } catch {
+            continue;
+          }
+          if (
+            value?.installID === legacy.install_id &&
+            (key !== "kaata_web_pending_v1" || value.accountID === legacy.account_id)
+          )
+            writeWebBrowserValue(key, previous);
+        }
+        writeWebBrowserValue(SESSION_KEY, JSON.stringify(legacy));
+      } else memorySession = null;
+    } else memorySession = parseWebSession(raw);
+    window.sessionStorage.removeItem(LEGACY_SESSION_KEY);
+    for (const key of ["kaata_web_signing_v1", "kaata_web_pending_v1"])
+      removeLegacyWebTabValue(key);
   } catch {
-    memorySession = null;
+    // A browser that disables all storage can still use its current in-memory
+    // session. Expiry remains enforced even when a tab stays open overnight.
   }
-  return memorySession;
+  return memorySession ? parseWebSession(JSON.stringify(memorySession)) : null;
+}
+
+function observeSessionChanges() {
+  if (
+    typeof window === "undefined" ||
+    observedWindows.has(window) ||
+    typeof window.addEventListener !== "function"
+  )
+    return;
+  observedWindows.add(window);
+  window.addEventListener("storage", (event) => {
+    if (event.key !== SESSION_KEY && event.key !== null) return;
+    cancelPendingWebSignIn();
+    getWebSession();
+    window.dispatchEvent(new Event(WEB_SESSION_EVENT));
+  });
 }
 
 function saveSession(session: WebSession | null) {
   memorySession = session;
   try {
-    if (session) window.sessionStorage.setItem(SESSION_KEY, JSON.stringify(session));
-    else window.sessionStorage.removeItem(SESSION_KEY);
+    writeWebBrowserValue(SESSION_KEY, JSON.stringify(session));
+    window.sessionStorage.removeItem(LEGACY_SESSION_KEY);
+    for (const key of ["kaata_web_signing_v1", "kaata_web_pending_v1"])
+      removeLegacyWebTabValue(key);
   } catch {
     // Storage can be unavailable in private browsing. The session still works
     // in memory and simply asks for sign-in again after a page reload.
   }
   if (typeof window !== "undefined") window.dispatchEvent(new Event(WEB_SESSION_EVENT));
+}
+
+function storedSessionValue(): string | null | undefined {
+  try {
+    return readWebBrowserValue(SESSION_KEY);
+  } catch {
+    return undefined;
+  }
+}
+
+export function refreshWebSession(expected: WebSession, token: string): boolean {
+  const current = getWebSession();
+  // Neither a slow heartbeat nor a different tab may revive a signed-out
+  // session or replace a newer sign-in/renewal.
+  if (!current || current.session_jwt !== expected.session_jwt) return false;
+  const renewed = parseWebSession(JSON.stringify({ ...current, session_jwt: token }));
+  if (!renewed || !isSameWebSession(renewed, current)) return false;
+  const oldExpiry = sessionClaims(current.session_jwt)?.exp;
+  const newExpiry = sessionClaims(token)?.exp;
+  if (typeof oldExpiry !== "number" || typeof newExpiry !== "number" || newExpiry <= oldExpiry)
+    return false;
+  saveSession(renewed);
+  return true;
 }
 
 export function clearWebSession() {
@@ -254,9 +372,12 @@ export async function loadWebAuthProviders(signal?: AbortSignal): Promise<WebAut
 }
 
 async function authenticate(path: string, body: Record<string, string>): Promise<WebSession> {
+  observeSessionChanges();
+  getWebSession();
+  const previousSession = storedSessionValue();
   const generation = ++authenticationGeneration;
-  // A fresh identity per login protects the phone and other browser tabs from
-  // rebinding. In particular, duplicated tabs may have copied sessionStorage.
+  // A fresh identity per explicit login protects the phone and any previous
+  // browser credential from rebinding. Reopening shares the saved identity.
   const installID = crypto.randomUUID();
   const result = await request<SignInResult>(
     path,
@@ -266,7 +387,7 @@ async function authenticate(path: string, body: Record<string, string>): Promise
     },
     false,
   );
-  if (generation !== authenticationGeneration) {
+  if (generation !== authenticationGeneration || storedSessionValue() !== previousSession) {
     throw new WebApiError("This sign-in attempt has ended.", 409, "signin_cancelled");
   }
   const session = parseWebSession(JSON.stringify({ ...result, install_id: installID }));
@@ -301,6 +422,7 @@ export async function signInWithApple(identityToken: string, displayName: string
 }
 
 export async function signOut(): Promise<void> {
+  const session = getWebSession();
   try {
     await webRequest("/v1/auth/signout", { method: "POST" });
   } catch (error) {
@@ -308,5 +430,5 @@ export async function signOut(): Promise<void> {
     // the session available to retry; never claim server revocation offline.
     if (!(error instanceof WebApiError && error.status === 401)) throw error;
   }
-  clearWebSession();
+  if (isSameWebSession(getWebSession(), session)) clearWebSession();
 }

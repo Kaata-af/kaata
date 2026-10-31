@@ -13,6 +13,7 @@ import (
 
 // WebActivity refreshes an existing browser session's presence. It does not
 // create an installation, report ledger usage, or claim mobile attribution.
+// Active browsers renew the same credential on mobile's rolling-session policy.
 func (h *Handler) WebActivity(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || claims == nil {
@@ -37,6 +38,19 @@ func (h *Handler) WebActivity(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		httpx.Error(w, http.StatusServiceUnavailable, "activity unavailable")
+		return
+	}
+	if claims.IssuedAtAge() > RefreshIfOlderThan {
+		// RecordWebActivity checked the exact live account/install/epoch under
+		// locks. Keep that epoch when renewing: a concurrent sign-out or account
+		// deletion still revokes this token through the normal authorization path.
+		refreshed, err := h.svc.IssueRefreshJWT(claims)
+		if err != nil {
+			httpx.Error(w, http.StatusServiceUnavailable, "session renewal unavailable")
+			return
+		}
+		w.Header().Set("Cache-Control", "no-store")
+		httpx.JSON(w, http.StatusOK, map[string]string{"session_jwt_refresh": refreshed})
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

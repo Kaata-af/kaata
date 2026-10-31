@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 import { after, beforeEach, test } from "node:test";
-import { clearWebSession, createWebAuthNonce, signInWithGoogle, WebApiError } from "./web-auth";
+import {
+  clearWebSession,
+  createWebAuthNonce,
+  refreshWebSession,
+  signInWithGoogle,
+  WebApiError,
+  type WebSession,
+} from "./web-auth";
 import type { WebLedger, WebPerson } from "./web-ledger";
 import {
   effectiveWebCreditPolicy,
@@ -21,8 +28,9 @@ const PERSON = "20000000-0000-4000-8000-000000000001";
 const originalFetch = globalThis.fetch;
 const originalWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
 const storage = new Map<string, string>();
+const tabStorage = new Map<string, string>();
 const browser = Object.assign(new EventTarget(), {
-  sessionStorage: {
+  localStorage: {
     getItem: (key: string) => storage.get(key) ?? null,
     setItem: (key: string, value: string) => {
       storage.set(key, value);
@@ -30,6 +38,11 @@ const browser = Object.assign(new EventTarget(), {
     removeItem: (key: string) => {
       storage.delete(key);
     },
+  },
+  sessionStorage: {
+    getItem: (key: string) => tabStorage.get(key) ?? null,
+    setItem: (key: string, value: string) => tabStorage.set(key, value),
+    removeItem: (key: string) => tabStorage.delete(key),
   },
 });
 Object.defineProperty(globalThis, "window", { configurable: true, value: browser });
@@ -83,6 +96,10 @@ async function login() {
     const claims = {
       account_id: "fixture-account",
       install_id: body.install_id,
+      provider: "google",
+      provider_sub: "fixture-provider",
+      ep: 1,
+      iat: Math.floor(Date.now() / 1000) - 3600,
       exp: Math.floor(Date.now() / 1000) + 3600,
     };
     return Response.json({
@@ -97,6 +114,44 @@ async function login() {
 beforeEach(() => {
   clearWebSession();
   storage.clear();
+  tabStorage.clear();
+});
+
+function renewedToken(session: WebSession): string {
+  const claims = JSON.parse(Buffer.from(session.session_jwt.split(".")[1], "base64url").toString());
+  return `header.${Buffer.from(JSON.stringify({ ...claims, iat: Math.floor(Date.now() / 1000), exp: claims.exp + 3600 })).toString("base64url")}.renewed-signature`;
+}
+
+test("renewing the same credential preserves in-flight credit reads and settings saves", async () => {
+  let session = await login();
+  let finish!: (response: Response) => void;
+  globalThis.fetch = (() =>
+    new Promise<Response>((resolve) => {
+      finish = resolve;
+    })) as typeof fetch;
+  const reading = loadWebCreditPolicies(VAULT);
+  assert.equal(refreshWebSession(session, renewedToken(session)), true);
+  finish(Response.json([policy()]));
+  assert.deepEqual(await reading, [policy()]);
+
+  session = await login();
+  let putStarted!: () => void;
+  const started = new Promise<void>((resolve) => {
+    putStarted = resolve;
+  });
+  globalThis.fetch = (async (_url, init) => {
+    if (!init?.method) return Response.json([policy()]);
+    putStarted();
+    return new Promise<Response>((resolve) => {
+      finish = resolve;
+    });
+  }) as typeof fetch;
+  const changed = policy({ max_pay_minor: 2500, updated_at_ms: 200 });
+  const saving = saveWebCreditPolicy(ledger, { ...input(), max_pay_minor: 2500 }, policy());
+  await started;
+  assert.equal(refreshWebSession(session, renewedToken(session)), true);
+  finish(Response.json(changed));
+  assert.deepEqual(await saving, changed);
 });
 after(() => {
   clearWebSession();
