@@ -1,0 +1,351 @@
+.web-pro-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 16px 20px;
+  margin-bottom: 20px;
+  border: 1px solid #dce6de;
+  border-radius: 12px;
+  background: #f4f8f4;
+  color: #294b34;
+}
+.web-pro-banner strong {
+  font-size: 13px;
+}
+.web-pro-banner .web-pro-badge {
+  margin-inline-start: 10px;
+}
+.web-pro-banner p {
+  margin: 6px 0 0;
+  color: #657568;
+  font-size: 12px;
+  line-height: 1.7;
+}
+.web-pro-banner > a {
+  flex: 0 0 auto;
+  padding: 9px 13px;
+  border: 1px solid #c9d7cc;
+  border-radius: 7px;
+  background: #fff;
+  color: #294b34;
+  font-size: 12px;
+  font-weight: 600;
+}
+.web-pro-badge {
+  display: inline-block;
+  padding: 4px 8px;
+  border-radius: 5px;
+  background: #e8efe8;
+  color: #3c6244;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+.web-pro-page {
+  width: 100dvw;
+  max-width: none;
+  height: 100dvh;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  overflow-y: auto;
+  background: #fafafa;
+  color: #171717;
+}
+.web-pro-page::backdrop {
+  background: #fafafa;
+}
+.web-pro-page button,
+.web-pro-page select,
+.web-pro-page input {
+  font: inherit;
+}
+.web-pro-page button:not(:disabled),
+.web-pro-page select,
+.web-pro-plan {
+  cursor: pointer;
+}
+.web-pro-page button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.web-pro-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 25px max(28px, calc((100vw - 1100px) / 2));
+  border-bottom: 1px solid #e8e8e8;
+  background: #fff;
+}
+.web-pro-brand {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 23px;
+  font-weight: 750;
+  letter-spacing: -0.8px;
+}
+.web-pro-header select {
+  padding: 8px 10px;
+  border: 1px solid #e5e5e5;
+  border-radius: 7px;
+  background: #fff;
+  color: #525252;
+  font-size: 12px;
+}
+.web-pro-content {
+  max-width: 700px;
+  margin: 0 auto;
+  padding: 30px 28px 50px;
+}
+.web-pro-back {
+  font-size: 12px;
+  color: #737373;
+}
+.web-pro-intro {
+  margin-top: 40px;
+}
+.web-pro-eyebrow {
+  margin: 20px 0 10px;
+  color: #737373;
+  font-size: 12px;
+  font-weight: 600;
+}
+.web-pro-intro h1 {
+  margin: 0;
+  font-size: clamp(27px, 5vw, 38px);
+  font-weight: 650;
+  letter-spacing: -1px;
+  line-height: 1.25;
+  outline: none;
+}
+.web-pro-intro > p:last-child {
+  margin-top: 16px;
+  max-width: 510px;
+  color: #737373;
+  font-size: 14px;
+  line-height: 1.85;
+}
+.web-pro-access,
+.web-pro-result {
+  margin-top: 25px;
+  padding: 15px 18px;
+  border: 1px solid #dce6de;
+  border-radius: 9px;
+  background: #f0f6f0;
+  color: #426149;
+  font-size: 12px;
+  line-height: 1.9;
+}
+.web-pro-result {
+  border-color: #e5e5e5;
+  background: #fff;
+  color: #525252;
+}
+.web-pro-features {
+  display: grid;
+  gap: 14px;
+  margin: 28px 0;
+  list-style: none;
+  padding: 0;
+  color: #525252;
+  font-size: 13px;
+}
+.web-pro-features li {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+.web-pro-features li > span {
+  color: #54735c;
+}
+.web-pro-plans {
+  padding: 24px;
+  border: 1px solid #e5e5e5;
+  border-radius: 14px;
+  background: #fff;
+}
+.web-pro-options {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 13px;
+}
+.web-pro-plan {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 19px;
+  border: 1px solid #e5e5e5;
+  border-radius: 10px;
+  color: #737373;
+  font-size: 11px;
+}
+.web-pro-plan.is-selected {
+  background: #f5f8f5;
+  border-color: #7b9881;
+  box-shadow: 0 0 0 1px #7b9881;
+}
+.web-pro-plan input {
+  position: absolute;
+  inset-inline-end: 15px;
+  top: 20px;
+  accent-color: #4c6c54;
+  width: 13px;
+  height: 13px;
+}
+.web-pro-plan-name {
+  color: #525252;
+  font-size: 12px;
+  font-weight: 600;
+  padding-inline-end: 17px;
+}
+.web-pro-plan strong {
+  color: #171717;
+  font-size: 28px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+.web-pro-plan small {
+  color: #737373;
+  font-size: 11px;
+  font-weight: 400;
+}
+.web-pro-coverage {
+  margin: 20px 0 5px;
+  font-size: 12px;
+  color: #525252;
+}
+.web-pro-prepaid {
+  margin: 0 0 22px;
+  color: #8a8a8a;
+  font-size: 11px;
+  line-height: 1.8;
+}
+.web-pro-primary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  width: 100%;
+  margin-top: 20px;
+  padding: 14px 18px;
+  border: 0;
+  border-radius: 8px;
+  background: #171717;
+  color: #fff;
+  text-align: center;
+  font-size: 13px !important;
+  font-weight: 500 !important;
+}
+.web-pro-primary:not(:disabled):hover {
+  background: #333;
+}
+.web-pro-payment-note {
+  margin-top: 18px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: #f7f7f7;
+  color: #737373;
+  font-size: 12px;
+  line-height: 1.9;
+}
+.web-pro-payment-note button {
+  margin-top: 7px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.is-warning.web-pro-payment-note,
+.is-warning.web-pro-result {
+  background: #fcf6ed;
+  border-color: #efe2cb;
+  color: #80632d;
+}
+.web-pro-checkout > strong {
+  color: #426149;
+  font-size: 13px;
+}
+.web-pro-checkout > p {
+  margin-top: 12px;
+  color: #737373;
+  font-size: 12px;
+  line-height: 1.9;
+}
+.web-pro-refresh {
+  display: block;
+  margin: 18px auto 0;
+  padding: 3px;
+  color: #737373;
+  font-size: 11px !important;
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+.web-pro-replace {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 12px;
+  cursor: pointer;
+}
+.web-pro-replace input {
+  flex: 0 0 auto;
+  margin-top: 5px;
+  accent-color: #4c6c54;
+}
+.web-pro-phone {
+  margin-top: 20px;
+  color: #8a8a8a;
+  font-size: 11px;
+  line-height: 1.9;
+  text-align: center;
+}
+.web-pro-page[dir="rtl"] .web-pro-brand,
+.web-pro-page[dir="rtl"] h1 {
+  letter-spacing: normal;
+}
+.web-pro-page :focus-visible,
+.web-pro-banner a:focus-visible {
+  outline: 2px solid #77987f;
+  outline-offset: 4px;
+}
+@media (max-width: 600px) {
+  .web-pro-banner {
+    align-items: flex-start;
+    gap: 12px;
+    padding: 14px;
+  }
+  .web-pro-banner .web-pro-badge {
+    display: table;
+    margin: 6px 0 0;
+  }
+  .web-pro-banner > a {
+    margin-top: 2px;
+  }
+  .web-pro-header {
+    padding: 20px;
+  }
+  .web-pro-content {
+    padding: 23px 20px 35px;
+  }
+  .web-pro-intro {
+    margin-top: 30px;
+  }
+  .web-pro-plans {
+    padding: 18px;
+  }
+  .web-pro-options {
+    gap: 10px;
+  }
+  .web-pro-plan {
+    padding: 15px 13px;
+  }
+  .web-pro-plan strong {
+    font-size: 25px;
+  }
+  .web-pro-plan input {
+    inset-inline-end: 11px;
+    top: 17px;
+  }
+}

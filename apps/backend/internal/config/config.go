@@ -98,6 +98,14 @@ type Config struct {
 	MailMaxPerDay  int
 	// KaataEnv is KAATA_ENV ("production" on the live server).
 	KaataEnv string
+	// Voluntary web-only prepaid Pro periods. Checkout stays disabled until
+	// the dedicated merchant key, authenticated webhook and exact hosted URL
+	// allowlist have been configured and the dashboard validation has passed.
+	HesabPayAPIKey        string
+	HesabPayEnvironment   string
+	HesabPayWebhookToken  string
+	HesabPayWebhookReady  bool
+	HesabPayCheckoutHosts []string
 }
 
 func Load() Config {
@@ -122,15 +130,20 @@ func Load() Config {
 		OperatorAccountIDs: splitCSV(os.Getenv("OPERATOR_ACCOUNT_IDS")),
 		OperatorIPs:        splitCSV(os.Getenv("OPERATOR_IPS")),
 
-		MailDriver:     os.Getenv("MAIL_DRIVER"),
-		SMTPHost:       os.Getenv("SMTP_HOST"),
-		SMTPPort:       os.Getenv("SMTP_PORT"),
-		SMTPUsername:   os.Getenv("SMTP_USERNAME"),
-		SMTPPassword:   os.Getenv("SMTP_PASSWORD"),
-		MailFrom:       os.Getenv("MAIL_FROM"),
-		MailMaxPerHour: atoiDefault(os.Getenv("MAIL_MAX_PER_HOUR"), 200),
-		MailMaxPerDay:  atoiDefault(os.Getenv("MAIL_MAX_PER_DAY"), 1000),
-		KaataEnv:       os.Getenv("KAATA_ENV"),
+		MailDriver:            os.Getenv("MAIL_DRIVER"),
+		SMTPHost:              os.Getenv("SMTP_HOST"),
+		SMTPPort:              os.Getenv("SMTP_PORT"),
+		SMTPUsername:          os.Getenv("SMTP_USERNAME"),
+		SMTPPassword:          os.Getenv("SMTP_PASSWORD"),
+		MailFrom:              os.Getenv("MAIL_FROM"),
+		MailMaxPerHour:        atoiDefault(os.Getenv("MAIL_MAX_PER_HOUR"), 200),
+		MailMaxPerDay:         atoiDefault(os.Getenv("MAIL_MAX_PER_DAY"), 1000),
+		KaataEnv:              os.Getenv("KAATA_ENV"),
+		HesabPayAPIKey:        os.Getenv("HESABPAY_API_KEY"),
+		HesabPayEnvironment:   getenv("HESABPAY_ENVIRONMENT", "production"),
+		HesabPayWebhookToken:  os.Getenv("HESABPAY_WEBHOOK_TOKEN"),
+		HesabPayWebhookReady:  os.Getenv("HESABPAY_WEBHOOK_READY") == "true",
+		HesabPayCheckoutHosts: splitCSV(os.Getenv("HESABPAY_CHECKOUT_HOSTS")),
 	}
 }
 

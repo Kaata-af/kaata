@@ -25,6 +25,7 @@ This release deliberately excludes reminders, contact import, shared-account fin
 | Route                  | Page                                    |
 | ---------------------- | --------------------------------------- |
 | `/app`                 | Authenticated workspace                 |
+| `/app/subscription`    | Optional Web Pro plans and payment status |
 | `/app/sign-in`         | Apple or Google sign-in                 |
 | `/app/sign-up`         | Redirect to the provider sign-in screen |
 | `/app/forgot-password` | Redirect to the provider sign-in screen |
@@ -34,6 +35,8 @@ The compact provider screen loads separately from the ledger. It has no email, p
 Auth history changes cancel pending sign-in, including browser Back, so a late response cannot open an account after the visitor leaves. The existing Apple `/app#...` return remains compatible: its fragment is removed before routing or provider scripts load, and completion is consumed once. Sign-out returns to `/app/sign-in` without replaying a completed Apple return.
 
 ## Data and security
+
+Kaata Web Pro currently runs as an open free trial. The subscription banner and authenticated plan page do not restrict any workspace operation. Plans cost 200 AFN monthly or 2,000 AFN yearly, prepaid through HesabPay, with mobile subscriptions deferred. See [Web Pro](web-pro.md) for payment verification, renewal, deployment and operational checks.
 
 `GET /v1/sync/ledger?vault_id=...` reads current authorization, vault metadata, all events and tab bindings in one repeatable-read transaction. It folds the current event log, including events newer than any persisted snapshot. It does not expose a second source of ledger truth. Reads are authenticated, rate-limited and `no-store`. Exact decimal amounts are returned as strings; UI arithmetic uses integer hundredths, and totals never mix currencies.
 
@@ -55,7 +58,7 @@ Live messages contain invalidation hints, not ledger data. Visible tabs reload t
 
 ## Deployment
 
-Deploy backend and web from the same commit, backend first. There is no database migration for this feature. Keep the existing mesh signer configured: witnessed admission of another device needs it.
+Deploy backend and web from the same commit, backend first. The ledger parity features need no database migration; optional Web Pro adds migration `076_web_pro.sql`. Keep the existing mesh signer configured: witnessed admission of another device needs it.
 
 - Existing backend `SESSION_JWT_SECRET` and database configuration continue to apply. Browser sign-in uses the configured Apple and Google providers.
 - Set web build argument `VITE_BACKEND_URL` to the API origin.

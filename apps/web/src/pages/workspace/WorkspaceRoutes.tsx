@@ -17,11 +17,15 @@ import {
 
 const Auth = lazy(() => import("./Auth").then((module) => ({ default: module.WorkspaceAuth })));
 const Ledger = lazy(() => import("./Workspace"));
+const Subscription = lazy(() =>
+  import("./WebPro").then((module) => ({ default: module.WebProPage })),
+);
 const NO_APPLE_RETURN: WebAppleCallback = { status: "none" };
 
 const titles = {
   en: {
     workspace: "Your workspace",
+    subscription: "Kaata Web Pro",
     signin: "Sign in",
     missing: "Page not found",
     loading: "Opening Kaata…",
@@ -30,6 +34,7 @@ const titles = {
   },
   fa: {
     workspace: "کاتای وب",
+    subscription: "کاتا وب پرو",
     signin: "ورود",
     missing: "صفحه پیدا نشد",
     loading: "کاتا باز می‌شود…",
@@ -38,6 +43,7 @@ const titles = {
   },
   ps: {
     workspace: "د وېب کاتا",
+    subscription: "کاتا وېب پرو",
     signin: "ننوتل",
     missing: "پاڼه ونه موندل شوه",
     loading: "کاتا پرانیستل کېږي…",
@@ -79,25 +85,26 @@ export default function WorkspaceRoutes() {
   const signin = isWebAuthPath(pathname);
   const retiredAuth = isRetiredWebAuthPath(pathname);
   const workspace = pathname === WEB_ROUTES.workspace;
+  const subscription = pathname === WEB_ROUTES.subscription;
 
   useEffect(() => {
     const previous = document.title;
     const brand = { en: "Kaata", fa: "کاتا", ps: "کاتا" }[lang];
-    document.title = `${brand} · ${copy[signin || retiredAuth ? "signin" : workspace ? "workspace" : "missing"]}`;
+    document.title = `${brand} · ${copy[signin || retiredAuth ? "signin" : subscription ? "subscription" : workspace ? "workspace" : "missing"]}`;
     return () => {
       document.title = previous;
     };
-  }, [copy, lang, signin, retiredAuth, workspace]);
+  }, [copy, lang, signin, retiredAuth, workspace, subscription]);
 
   // Retain old bookmarks without retaining separate registration or recovery.
   if (retiredAuth)
     return <Navigate replace to={session ? WEB_ROUTES.workspace : WEB_ROUTES.signin} />;
 
-  if (location.pathname !== pathname && (workspace || signin))
+  if (location.pathname !== pathname && (workspace || subscription || signin))
     return <Navigate replace to={pathname} />;
 
   // Only known routes are guarded. A typo must not silently open a ledger.
-  if (!workspace && !signin)
+  if (!workspace && !subscription && !signin)
     return (
       <main className="flex min-h-dvh flex-col items-center justify-center bg-neutral-50 px-6 text-center text-neutral-900">
         <BrandLogo className="mb-8 h-10 w-10" />
@@ -113,7 +120,7 @@ export default function WorkspaceRoutes() {
       </main>
     );
 
-  if (!session && workspace) return <Navigate replace to={WEB_ROUTES.signin} />;
+  if (!session && (workspace || subscription)) return <Navigate replace to={WEB_ROUTES.signin} />;
   if (session && signin) return <Navigate replace to={WEB_ROUTES.workspace} />;
 
   return (
@@ -128,7 +135,11 @@ export default function WorkspaceRoutes() {
       }
     >
       {session ? (
-        <Ledger key={session.install_id} session={session} />
+        <>
+          {/* Billing is a route modal so visiting it does not discard ledger drafts. */}
+          <Ledger key={session.install_id} session={session} />
+          {subscription && <Subscription key={session.install_id} session={session} />}
+        </>
       ) : (
         <Auth
           key={location.key}

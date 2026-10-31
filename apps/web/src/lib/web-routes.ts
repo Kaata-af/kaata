@@ -1,5 +1,6 @@
 export const WEB_ROUTES = {
   workspace: "/app",
+  subscription: "/app/subscription",
   signin: "/app/sign-in",
 } as const;
 

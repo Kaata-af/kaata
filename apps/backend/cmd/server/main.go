@@ -29,6 +29,7 @@ import (
 	"github.com/matee/kaata-backend/internal/tabs"
 	"github.com/matee/kaata-backend/internal/vaults"
 	"github.com/matee/kaata-backend/internal/visit"
+	"github.com/matee/kaata-backend/internal/webpro"
 )
 
 // minJWTSecretLen is the floor below which we refuse to boot. HS256 with a
@@ -201,6 +202,14 @@ func main() {
 
 	adminH := admin.NewHandler(admin.NewService(pool, cfg.OperatorAccountIDs, cfg.OperatorIPs))
 	adminLive := admin.NewLive(ctx, cfg.AdminAPIKey != "")
+	webProH := webpro.NewHandler(webpro.NewService(pool, webpro.Config{
+		APIKey:        cfg.HesabPayAPIKey,
+		Environment:   cfg.HesabPayEnvironment,
+		WebhookToken:  cfg.HesabPayWebhookToken,
+		WebhookReady:  cfg.HesabPayWebhookReady,
+		CheckoutHosts: cfg.HesabPayCheckoutHosts,
+		WebBaseURL:    cfg.WebBaseURL,
+	}))
 	authenticator := auth.NewSessionAuthenticator(authSvc, cfg.SessionJWTSecret)
 	// Wire the cache so SignOut purges the cached revocation entry instead of
 	// leaving up to 60s of valid-looking auth in front of a deleted credential.
@@ -331,6 +340,10 @@ func main() {
 			"commit":  Commit,
 		})
 	})
+	// HesabPay authenticates callbacks with an independent secret URL plus
+	// its signature-verification API. The token is redacted by httpx.Logger.
+	r.With(httpx.RateLimitPerIP(180, time.Minute)).
+		Post("/v1/web-pro/hesabpay/webhook/{token}", webProH.Webhook)
 	r.Group(func(pr chi.Router) {
 		pr.Use(authenticator.OptionalMiddleware())
 		pr.With(httpx.RateLimitPerIP(checkInLimit, checkInWindow)).
@@ -500,6 +513,11 @@ func main() {
 	r.Group(func(pr chi.Router) {
 		pr.Use(authenticator.Middleware())
 		pr.Post("/v1/auth/signout", authH.SignOut)
+		// Informational billing only: no existing web/native route is gated.
+		pr.With(httpx.RateLimitPerAccount(60, time.Minute)).Get("/v1/web-pro", webProH.Status)
+		pr.With(httpx.RateLimitPerAccount(60, time.Minute)).Get("/v1/web-pro/orders/{order_id}", webProH.Order)
+		pr.With(httpx.RateLimitPerAccount(10, time.Hour), httpx.RateLimitPerIP(60, time.Hour)).
+			Post("/v1/web-pro/checkout", webProH.Checkout)
 		pr.Get("/v1/account/deletion-policy", authH.AccountDeletionPolicy)
 		// Account-level phone: persists the shopkeeper's own number server-side so
 		// it survives a reinstall (the device-local users.phone_e164 never syncs).
