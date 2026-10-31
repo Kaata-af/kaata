@@ -1,10 +1,10 @@
 import { getWebSession, webRequest, WebApiError, type WebSession } from "./web-auth";
 import type { WebLedger, WebPerson } from "./web-ledger";
+import { WEB_SYNC_HEADERS } from "./web-sync-headers";
 
 export const WEB_DEFAULT_CREDIT_ID = "00000000-0000-0000-0000-000000000000";
 const MAX_CREDIT_MINOR = 999_999_999_999;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const HEADERS = { "X-Kaata-Currencies": "1" };
 
 export type WebCreditPolicy = {
   relationship_id: string;
@@ -91,7 +91,7 @@ export async function loadWebCreditPolicies(
 ): Promise<WebCreditPolicy[]> {
   const current = session();
   signal?.throwIfAborted();
-  const response = await webRequest<unknown>(path(vaultID), { headers: HEADERS, signal });
+  const response = await webRequest<unknown>(path(vaultID), { headers: WEB_SYNC_HEADERS, signal });
   signal?.throwIfAborted();
   assertSession(current);
   if (!Array.isArray(response)) throw new WebCreditError("invalid_credit_response");
@@ -165,7 +165,7 @@ export async function saveWebCreditPolicy(
   const { updated_at_ms: _updatedAt, ...body } = proposed;
   const response = await webRequest<unknown>(path(ledger.vault_id), {
     method: "PUT",
-    headers: HEADERS,
+    headers: WEB_SYNC_HEADERS,
     signal,
     body: JSON.stringify(body),
   });

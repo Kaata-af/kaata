@@ -181,6 +181,8 @@ test("credit reads are authenticated, currency-aware, abortable and scoped to on
     assert.equal(parsed.search, `?vault_id=${VAULT}`);
     assert.equal(new Headers(init?.headers).get("Authorization"), `Bearer ${signedIn.session_jwt}`);
     assert.equal(new Headers(init?.headers).get("X-Kaata-Currencies"), "1");
+    assert.equal(new Headers(init?.headers).get("X-Kaata-Entry-Currency-Edit"), "1");
+    assert.equal(new Headers(init?.headers).get("X-Kaata-Tab-Group"), "1");
     assert.equal(init?.credentials, "omit");
     assert.equal(init?.redirect, "error");
     assert.equal(init?.cache, "no-store");
@@ -239,6 +241,33 @@ test("saving writes just the chosen currency and preserves explicit zero/unlimit
     updated_at_ms: 200,
   });
   assert.deepEqual(calls, ["GET", "PUT"]);
+});
+
+test("corrected-currency and shared-account books can refresh and save their credit rules", async () => {
+  await login();
+  let current: WebCreditPolicy[] = [];
+  const calls: string[] = [];
+  globalThis.fetch = (async (_url, init) => {
+    calls.push(init?.method ?? "GET");
+    const headers = new Headers(init?.headers);
+    if (headers.get("X-Kaata-Entry-Currency-Edit") !== "1")
+      return Response.json({ error_code: "entry_currency_upgrade_required" }, { status: 426 });
+    if (headers.get("X-Kaata-Tab-Group") !== "1")
+      return Response.json({ error_code: "shared_account_upgrade_required" }, { status: 426 });
+    if (init?.method === "PUT") {
+      const saved = { ...JSON.parse(String(init.body)), updated_at_ms: 200 };
+      current = [saved];
+      return Response.json(saved);
+    }
+    return Response.json(current);
+  }) as typeof fetch;
+  assert.deepEqual(await loadWebCreditPolicies(VAULT), []);
+  assert.deepEqual(await saveWebCreditPolicy(ledger, input(), null), {
+    ...input(),
+    updated_at_ms: 200,
+  });
+  assert.deepEqual(await loadWebCreditPolicies(VAULT), current);
+  assert.deepEqual(calls, ["GET", "GET", "PUT", "GET"]);
 });
 
 test("client role/archive gates and freshly changed policy prevent an unauthorized replacement", async () => {

@@ -6,6 +6,7 @@ import {
   WEB_SESSION_EVENT,
   type WebSession,
 } from "./web-auth";
+import { WEB_SYNC_HEADERS } from "./web-sync-headers";
 import {
   bytesToWebBase64,
   canonicalWebEvent,
@@ -136,11 +137,6 @@ type PendingWrite = {
 };
 const IDENTITY_KEY = "kaata_web_signing_v1";
 const PENDING_KEY = "kaata_web_pending_v1";
-const HEADERS = {
-  "X-Kaata-Currencies": "1",
-  "X-Kaata-Entry-Currency-Edit": "1",
-  "X-Kaata-Tab-Group": "1",
-};
 let identityPromise: Promise<Identity> | undefined;
 let identityInstallID: string | undefined;
 let inFlight: Promise<unknown> = Promise.resolve();
@@ -287,7 +283,9 @@ async function getIdentity(session: WebSession, mustExist = false): Promise<Iden
 
 export async function listWebVaults(): Promise<WebVault[]> {
   const session = currentSession();
-  const result = await webRequest<{ vaults: WebVault[] }>("/v1/vaults", { headers: HEADERS });
+  const result = await webRequest<{ vaults: WebVault[] }>("/v1/vaults", {
+    headers: WEB_SYNC_HEADERS,
+  });
   assertSession(session);
   return result.vaults;
 }
@@ -297,7 +295,7 @@ export async function getWebLedger(vaultID: string): Promise<WebLedger> {
   const ledger = await webRequest<WebLedger>(
     `/v1/sync/ledger?vault_id=${encodeURIComponent(vaultID)}`,
     {
-      headers: HEADERS,
+      headers: WEB_SYNC_HEADERS,
     },
   );
   assertSession(session);
@@ -353,7 +351,7 @@ export async function getWebPersonNoteHistory(
   });
   if (cursor) query.set("cursor", cursor);
   const page = await webRequest<unknown>(`/v1/sync/person-notes?${query}`, {
-    headers: HEADERS,
+    headers: WEB_SYNC_HEADERS,
   }).catch((error: unknown) => {
     if (error instanceof WebApiError && error.code === "invalid_response") return undefined;
     throw error;
@@ -420,7 +418,7 @@ async function pushEvents(
   assertSession(session);
   const result = await webRequest<PushResult>("/v1/sync/push", {
     method: "POST",
-    headers: HEADERS,
+    headers: WEB_SYNC_HEADERS,
     body: JSON.stringify({ vault_id: vaultID, device_id: session.install_id, events }),
   });
   assertSession(session);
@@ -595,7 +593,7 @@ async function replayPending(session: WebSession, pending: PendingWrite): Promis
     if (pending.create) {
       await webRequest("/v1/vaults", {
         method: "POST",
-        headers: HEADERS,
+        headers: WEB_SYNC_HEADERS,
         body: JSON.stringify(pending.create),
       });
       assertSession(session);
