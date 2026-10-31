@@ -138,7 +138,12 @@ export default function WorkspaceRoutes() {
         <>
           {/* Billing is a route modal so visiting it does not discard ledger drafts. */}
           <Ledger key={session.install_id} session={session} />
-          {subscription && <Subscription key={session.install_id} session={session} />}
+          {subscription && (
+            // Loading billing must keep the ledger's layout and scroll position.
+            <Suspense fallback={null}>
+              <Subscription key={session.install_id} session={session} />
+            </Suspense>
+          )}
         </>
       ) : (
         <Auth

@@ -4,7 +4,7 @@ import { ToastProvider } from "./components/Toast";
 import { fireVisitOnce, getSource } from "./lib/analytics";
 import { dismissWebAppleCallback } from "./lib/web-apple";
 import { cancelPendingWebSignIn } from "./lib/web-auth";
-import { WEB_AUTH_ROUTE_EVENT, isWebAuthPath } from "./lib/web-routes";
+import { WEB_AUTH_ROUTE_EVENT, isWebAuthPath, preservesWorkspaceScroll } from "./lib/web-routes";
 import { CustomerView } from "./pages/CustomerView";
 import { DeleteAccount } from "./pages/DeleteAccount";
 import { Download } from "./pages/Download";
@@ -115,8 +115,12 @@ function AuthNavigation() {
 // sticky header via `scroll-mt-*` on the targets). No hash → top.
 function ScrollManager() {
   const { hash, pathname } = useLocation();
+  const previousPath = useRef<string | undefined>(undefined);
 
   useEffect(() => {
+    const previous = previousPath.current;
+    previousPath.current = pathname;
+    if (preservesWorkspaceScroll(previous, pathname)) return;
     if (hash) {
       const el = document.getElementById(hash.slice(1));
       if (el) {

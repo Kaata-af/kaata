@@ -4,7 +4,7 @@ Kaata Web is an open free trial. Every account keeps all existing workspace acce
 
 Pro belongs to the signed-in account and covers its web workspace. The approved prices are **200 AFN for one month** and **2,000 AFN for twelve months**. These are prepaid periods with manual renewal, not recurring deductions. Ledger currencies do not change the AFN subscription price.
 
-The workspace banner links to authenticated `/app/subscription`. Its route dialog preserves the mounted workspace and open drafts. English, Dari and Pashto show the plans, open-trial status, checkout setup or errors, and server-confirmed subscription expiry.
+The workspace banner links to authenticated `/app/subscription`. Its route dialog preserves the mounted workspace and open drafts. The dialog owns scrolling while open, starts at the top, and restores the workspace's scroll position and focus when closed. Loading the subscription module does not hide the ledger. English, Dari and Pashto show the plans, open-trial status, checkout setup or errors, and server-confirmed subscription expiry.
 
 ## Payment flow
 

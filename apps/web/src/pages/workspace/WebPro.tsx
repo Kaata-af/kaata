@@ -4,6 +4,7 @@ import { BrandLogo } from "../../components/BrandLogo";
 import { useI18n, type Lang } from "../../lib/i18n";
 import { WebApiError, type WebSession } from "../../lib/web-auth";
 import { WEB_ROUTES } from "../../lib/web-routes";
+import { openWebRouteDialog } from "../../lib/web-route-dialog";
 import {
   createWebProCheckout,
   getWebProOrder,
@@ -325,11 +326,10 @@ export function WebProPage({ session }: { session: WebSession }) {
 
   useEffect(() => {
     const element = dialog.current;
-    element?.showModal();
-    element?.querySelector<HTMLHeadingElement>("h1")?.focus();
+    const close = element ? openWebRouteDialog(element) : undefined;
     return () => {
       checkoutRequest.current?.abort();
-      element?.close();
+      close?.();
     };
   }, []);
   useEffect(() => {
