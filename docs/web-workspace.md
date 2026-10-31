@@ -30,7 +30,9 @@ This release deliberately excludes reminders, contact import, shared-account fin
 | `/app/sign-up`         | Redirect to the provider sign-in screen |
 | `/app/forgot-password` | Redirect to the provider sign-in screen |
 
-The compact provider screen loads separately from the ledger. It has no email, password, verification-code or separate registration form. Provider discovery and SDK failures show retry options. Session guards replace the current entry when redirecting signed-out visitors to sign-in or signed-in visitors to the workspace; retired auth URLs also use replacement redirects. Unknown `/app/*` routes show a localized 404. Page titles follow the active route and language.
+The provider screen loads separately from the ledger. It uses the existing shadcn Card and Button primitives, with green/red accents and glass surfaces shared by the workspace and Pro page. Desktop has a decorative example kaata; narrow layouts prioritize sign-in. It has no email, password, verification-code or separate registration form. Provider discovery and SDK failures show retry options. Session guards replace the current entry when redirecting signed-out visitors to sign-in or signed-in visitors to the workspace; retired auth URLs also use replacement redirects. Unknown `/app/*` routes show a localized 404. Page titles follow the active route and language.
+
+Google owns its visible sign-in button. Its supported pill shape, measured width and 40px height match the Apple button without overlays or iframe restyling. The initial SDK and each button receive a supported locale (Dari or English, with English for Pashto). Resizing re-renders presentation while preserving the same nonce and credential callback; aborting a mount disconnects its observer and pending resize timer.
 
 Auth history changes cancel pending sign-in, including browser Back, so a late response cannot open an account after the visitor leaves. The existing Apple `/app#...` return remains compatible: its fragment is removed before routing or provider scripts load, and completion is consumed once. Sign-out returns to `/app/sign-in` without replaying a completed Apple return.
 

@@ -9,7 +9,15 @@ type GoogleIdentity = {
   }) => void;
   renderButton: (
     element: HTMLElement,
-    options: { theme: string; size: string; text: string; width: number; locale: string },
+    options: {
+      theme: string;
+      size: string;
+      text: string;
+      shape: string;
+      logo_alignment: string;
+      width: number;
+      locale: string;
+    },
   ) => void;
   disableAutoSelect: () => void;
 };
@@ -22,7 +30,7 @@ function googleIdentity(): GoogleIdentity | undefined {
     ?.id;
 }
 
-function loadGoogle(): Promise<GoogleIdentity> {
+function loadGoogle(locale: string): Promise<GoogleIdentity> {
   const existing = googleIdentity();
   if (existing) return Promise.resolve(existing);
   if (ready) return ready;
@@ -42,7 +50,9 @@ function loadGoogle(): Promise<GoogleIdentity> {
       resolve(identity);
     };
     const timeout = setTimeout(complete, 15_000);
-    script.src = "https://accounts.google.com/gsi/client";
+    // Both the SDK and each rendered button receive a supported language.
+    // Pashto uses Google's English fallback; the surrounding page stays Pashto.
+    script.src = `https://accounts.google.com/gsi/client?hl=${locale}`;
     // GIS can validate the site's origin without receiving an app path/query.
     script.referrerPolicy = "strict-origin";
     script.async = true;
@@ -71,9 +81,14 @@ export async function mountGoogleButton(
   }
   const mount = {};
   const nonce = createWebAuthNonce();
+  const locale = lang === "fa" ? "fa" : "en";
   let delivered = false;
+  let observer: ResizeObserver | undefined;
+  let resizeTimer: ReturnType<typeof setTimeout> | undefined;
   activeMount = mount;
   const cleanup = () => {
+    observer?.disconnect();
+    clearTimeout(resizeTimer);
     if (activeMount !== mount) return;
     activeMount = undefined;
     element.replaceChildren();
@@ -81,7 +96,7 @@ export async function mountGoogleButton(
   signal.addEventListener("abort", cleanup, { once: true });
   let identity: GoogleIdentity;
   try {
-    identity = await loadGoogle();
+    identity = await loadGoogle(locale);
   } catch (error) {
     cleanup();
     signal.removeEventListener("abort", cleanup);
@@ -109,11 +124,33 @@ export async function mountGoogleButton(
       callback(result.credential, nonce);
     },
   });
-  identity.renderButton(element, {
-    theme: "outline",
-    size: "large",
-    text: "continue_with",
-    width: Math.min(360, Math.max(200, element.clientWidth)),
-    locale: lang === "ps" ? "en" : lang,
-  });
+  const buttonWidth = () => Math.min(400, Math.max(200, Math.floor(element.clientWidth)));
+  let renderedWidth: number | undefined;
+  const render = () => {
+    if (signal.aborted || activeMount !== mount) return;
+    const width = buttonWidth();
+    if (width === renderedWidth) return;
+    renderedWidth = width;
+    element.replaceChildren();
+    identity.renderButton(element, {
+      theme: "outline",
+      size: "large",
+      text: "continue_with",
+      shape: "pill",
+      logo_alignment: "left",
+      width,
+      locale,
+    });
+  };
+  render();
+  // Resizing changes only Google's presentation. Retain the same verified
+  // login attempt, nonce and guarded callback while the card changes width.
+  if (typeof ResizeObserver !== "undefined") {
+    observer = new ResizeObserver(() => {
+      if (signal.aborted || activeMount !== mount || buttonWidth() === renderedWidth) return;
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(render, 100);
+    });
+    observer.observe(element);
+  }
 }

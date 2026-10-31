@@ -14,8 +14,10 @@
   min-height: 100dvh;
   display: grid;
   grid-template-columns: 238px minmax(0, 1fr);
-  background: #fafafa;
-  color: #171717;
+  background:
+    radial-gradient(ellipse at 12% 0, #dcebe180, transparent 46%),
+    radial-gradient(ellipse at 100% 8%, #f4e3e550, transparent 36%), #f7f9f8;
+  color: #20362b;
   font-size: 14px;
 }
 .workspace button,
@@ -44,8 +46,10 @@
   top: 0;
   height: 100dvh;
   padding: 30px 18px 20px;
-  border-inline-end: 1px solid #e5e5e5;
-  background: #fff;
+  border-inline-end: 1px solid #dfe7e2;
+  background: #ffffffb8;
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
   display: flex;
   flex-direction: column;
 }
@@ -53,7 +57,7 @@
   display: flex;
   align-items: center;
   gap: 9px;
-  margin: 0 5px 48px;
+  margin: 0 5px 40px;
 }
 .workspace-brand > span:not(:first-child) {
   font-size: 25px;
@@ -78,10 +82,12 @@
 }
 .workspace-book-select {
   width: 100%;
-  border: 1px solid #e5e5e5;
-  border-radius: 8px;
+  border: 1px solid #dce5de;
+  border-radius: 10px;
   padding: 11px 9px;
-  background: #fafafa;
+  background: #ffffffd9;
+  color: #294b37;
+  box-shadow: 0 2px 4px #243d2e05;
   font-weight: 600 !important;
   text-overflow: ellipsis;
 }
@@ -90,7 +96,7 @@
   align-items: center;
   gap: 8px;
   padding: 13px 10px;
-  color: #737373;
+  color: #3e6149;
   font-size: 12px !important;
 }
 .workspace-new-book svg {
@@ -101,10 +107,12 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  border-radius: 8px;
+  border: 1px solid #dbe7de;
+  border-radius: 10px;
   margin-top: 24px;
   padding: 12px;
-  background: #f1f1f1;
+  background: linear-gradient(105deg, #e8f0e9, #eff5ef);
+  color: #31563c;
   font-weight: 600;
 }
 .workspace-nav-active span {
@@ -156,11 +164,11 @@
   flex-shrink: 0;
   width: 36px;
   height: 36px;
-  border: 1px solid #e5e5e5;
+  border: 1px solid #dce6df;
   border-radius: 50%;
-  background: #f5f5f5;
+  background: linear-gradient(145deg, #f1f6f2, #e5eee7);
   font-weight: 600;
-  color: #525252;
+  color: #3e6149;
   font-size: 14px;
 }
 .workspace-avatar.large {
@@ -190,9 +198,9 @@
 }
 .workspace-language {
   padding: 8px 9px;
-  border: 1px solid #e5e5e5;
-  border-radius: 6px;
-  background: white;
+  border: 1px solid #dce5de;
+  border-radius: 8px;
+  background: #ffffffd9;
   color: #525252;
   font-size: 12px !important;
 }
@@ -217,9 +225,10 @@
   margin-bottom: 7px;
 }
 .workspace-header h1 {
-  font-size: 26px;
+  font-size: 29px;
   font-weight: 650;
   line-height: 1.3;
+  letter-spacing: -0.8px;
   overflow-wrap: anywhere;
 }
 .workspace-header-actions {
@@ -252,19 +261,24 @@
   justify-content: center;
   align-items: center;
   gap: 7px;
-  min-height: 36px;
-  border: 1px solid #e5e5e5;
-  border-radius: 7px;
-  background: white;
-  padding: 8px 12px;
-  color: #404040;
+  min-height: 38px;
+  border: 1px solid #dce4de;
+  border-radius: 9px;
+  background: #ffffffeb;
+  padding: 9px 13px;
+  color: #405449;
+  box-shadow: 0 1px 2px #233a2c08;
   font-size: 12px !important;
   font-weight: 500 !important;
   line-height: 1.4;
-  transition: background 0.15s;
+  transition:
+    background 0.18s,
+    border-color 0.18s,
+    box-shadow 0.18s;
 }
 .workspace-button:hover:not(:disabled) {
-  background: #f5f5f5;
+  background: #f3f7f4;
+  border-color: #bacfc0;
 }
 .workspace-button svg {
   width: 15px;
@@ -272,11 +286,15 @@
 }
 .workspace-button.primary {
   color: white;
-  background: #171717;
-  border-color: #171717;
+  background: linear-gradient(180deg, #4c7258, #3e6149);
+  border-color: #3e6149;
+  box-shadow:
+    0 1px 2px #1f3f2a24,
+    inset 0 1px #ffffff1f;
 }
 .workspace-button.primary:hover:not(:disabled) {
-  background: #353535;
+  background: linear-gradient(180deg, #42684e, #31533b);
+  border-color: #31533b;
 }
 .workspace-button.gave,
 .workspace-direction-toggle .gave {
@@ -300,6 +318,13 @@
   color: white;
   background: #a3203a;
   border-color: #a3203a;
+  box-shadow:
+    0 1px 2px #85192e1f,
+    inset 0 1px #ffffff14;
+}
+.workspace-button.danger:hover:not(:disabled) {
+  background: #8b1b32;
+  border-color: #8b1b32;
 }
 .workspace-icon-button {
   display: inline-flex;
@@ -312,8 +337,8 @@
   flex-shrink: 0;
 }
 .workspace-icon-button:hover:not(:disabled) {
-  background: #f0f0f0;
-  color: #171717;
+  background: #eaf1ec;
+  color: #31563d;
 }
 .workspace-icon-button svg {
   width: 16px;
@@ -359,9 +384,12 @@
   align-items: center;
   gap: 14px;
   padding: 20px;
-  background: var(--workspace-balance-surface);
+  background: linear-gradient(145deg, #ffffffd9, #eff6f0bf);
   border: 1px solid var(--workspace-balance-border);
-  border-radius: 11px;
+  border-radius: 16px;
+  box-shadow:
+    0 6px 22px #294b3405,
+    inset 0 1px #fff;
   min-width: 0;
 }
 .workspace-summary-card > div {
@@ -389,6 +417,10 @@
 }
 .workspace-summary-card:has(.workspace-direction.pay) strong {
   color: #a3203a;
+}
+.workspace-summary-card:has(.workspace-direction.pay) {
+  background: linear-gradient(145deg, #ffffffd9, #fbf0f2b3);
+  border-color: #eadde1;
 }
 .workspace-summary-card small {
   font-size: 12px;
@@ -419,9 +451,12 @@
 .workspace-ledger {
   display: grid;
   grid-template-columns: minmax(300px, 0.95fr) minmax(360px, 1.3fr);
-  background: white;
-  border: 1px solid #e5e5e5;
-  border-radius: 12px;
+  background: #ffffffed;
+  border: 1px solid #dfe7e1;
+  border-radius: 18px;
+  box-shadow:
+    0 12px 40px #2d493508,
+    0 1px 3px #2d493505;
   min-height: min(660px, 72dvh);
   overflow: hidden;
 }
@@ -429,7 +464,8 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
-  border-inline-end: 1px solid #e5e5e5;
+  border-inline-end: 1px solid #e3eae5;
+  background: #fafcfb70;
 }
 .workspace-section-heading {
   display: flex;
@@ -455,9 +491,9 @@
   gap: 9px;
   align-items: center;
   padding: 10px 12px;
-  background: #fafafa;
-  border: 1px solid #e5e5e5;
-  border-radius: 7px;
+  background: #f6f9f7;
+  border: 1px solid #e1e8e3;
+  border-radius: 10px;
 }
 .workspace-search svg {
   width: 16px;
@@ -473,8 +509,9 @@
   font-size: 12px;
 }
 .workspace-search:focus-within {
-  outline: 2px solid #737373;
-  outline-offset: 2px;
+  outline: 3px solid #3e61491a;
+  outline-offset: 0;
+  border-color: #7b9c85;
 }
 .workspace-filters {
   display: flex;
@@ -490,8 +527,8 @@
   color: #737373;
 }
 .workspace-filters button.active {
-  background: #f0f0f0;
-  color: #171717;
+  background: #eaf1ec;
+  color: #31563d;
   font-weight: 600;
 }
 .workspace-people-list {
@@ -510,14 +547,14 @@
   text-align: start;
 }
 .workspace-person-row:hover {
-  background: #fafafa;
+  background: #f4f8f5;
 }
 .workspace-person-row.selected {
-  background: #f5f5f5;
-  box-shadow: inset 3px 0 #171717;
+  background: linear-gradient(90deg, #eaf3ec, #f2f7f3);
+  box-shadow: inset 3px 0 #4f795b;
 }
 .workspace[dir="rtl"] .workspace-person-row.selected {
-  box-shadow: inset -3px 0 #171717;
+  box-shadow: inset -3px 0 #4f795b;
 }
 .workspace-person-name {
   flex: 1;
@@ -595,7 +632,7 @@
   padding: 27px 28px 19px;
 }
 .workspace-person-header h2 {
-  font-size: 19px;
+  font-size: 21px;
   font-weight: 600;
   overflow-wrap: anywhere;
 }
@@ -658,6 +695,7 @@
   padding: 13px 28px;
   border-top: 1px solid #ededed;
   border-bottom: 1px solid #ededed;
+  background: #f8faf980;
 }
 .workspace-history-heading h3 {
   font-size: 12px;
@@ -755,16 +793,31 @@
   max-width: 400px;
   min-height: 220px;
 }
+.workspace-main > .workspace-empty {
+  width: 100%;
+  max-width: none;
+  min-height: 420px;
+  margin: 0;
+  padding: 64px 28px;
+  border: 1px solid #dfe7e1;
+  border-radius: 18px;
+  background: #ffffffc9;
+  box-shadow: 0 12px 40px #2d493508;
+}
+.workspace-main > .workspace-empty p {
+  max-width: 360px;
+}
 .workspace-empty-icon {
   display: flex;
   align-items: center;
   justify-content: center;
   width: 56px;
   height: 56px;
-  border: 1px solid #e5e5e5;
-  border-radius: 15px;
-  color: #8a8a8a;
-  background: #fafafa;
+  border: 1px solid #dce7df;
+  border-radius: 17px;
+  color: #5a7b63;
+  background: linear-gradient(145deg, #ffffff, #eaf2ec);
+  box-shadow: 0 5px 18px #3e614908;
   margin-bottom: 21px;
 }
 .workspace-empty-icon svg {
@@ -807,7 +860,7 @@
   width: 18px;
   height: 18px;
   border: 2px solid #e5e5e5;
-  border-top-color: #525252;
+  border-top-color: #3e6149;
   border-radius: 50%;
   animation: workspace-spin 1s linear infinite;
 }
@@ -817,19 +870,24 @@
   }
 }
 .workspace-dialog {
-  border: 1px solid #e5e5e5;
-  border-radius: 14px;
+  border: 1px solid #ffffff;
+  border-radius: 20px;
   width: min(460px, calc(100vw - 32px));
   padding: 26px;
-  color: #171717;
-  background: white;
+  color: #20362b;
+  background: #ffffffed;
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
   max-height: calc(100dvh - 40px);
   overflow-y: auto;
-  box-shadow: 0 24px 80px #0002;
+  box-shadow:
+    0 24px 80px #18352326,
+    0 2px 8px #1835230d;
 }
 .workspace-dialog::backdrop {
-  background: #17171766;
-  backdrop-filter: blur(3px);
+  background: #16332252;
+  backdrop-filter: blur(7px);
+  -webkit-backdrop-filter: blur(7px);
 }
 .workspace-dialog-heading {
   display: flex;
@@ -857,9 +915,9 @@
 .workspace-dialog label > input,
 .workspace-dialog label > select,
 .workspace-dialog label > textarea {
-  border: 1px solid #d4d4d4;
+  border: 1px solid #d7e1da;
   padding: 10px 12px;
-  border-radius: 7px;
+  border-radius: 9px;
   width: 100%;
   background: #fff;
   font-size: 14px;
@@ -1127,6 +1185,10 @@
   .workspace-ledger {
     min-height: 480px;
   }
+  .workspace-main > .workspace-empty {
+    min-height: 320px;
+    padding: 44px 22px;
+  }
   .workspace-people-list {
     max-height: none;
   }
@@ -1159,9 +1221,9 @@
 .workspace-person-note {
   margin: 0 24px 18px;
   padding: 16px;
-  border: 1px solid #e5e5e5;
+  border: 1px solid #e1e8e3;
   border-radius: 12px;
-  background: #fafafa;
+  background: #f7faf8;
 }
 .workspace-detail > .web-credit-panel {
   margin: 0 24px 18px;
@@ -1225,7 +1287,16 @@
   font-size: 12px;
   text-decoration: underline;
   text-underline-offset: 3px;
-  color: #525252;
+  color: #3e6149;
+}
+
+.workspace :is(button, select, input, textarea):focus-visible,
+.workspace-dialog :is(button, select, input, textarea):focus-visible {
+  outline: 3px solid #3e614938;
+  outline-offset: 3px;
+}
+.workspace[dir="rtl"] .workspace-header h1 {
+  letter-spacing: normal;
 }
 .workspace-note-history {
   margin-top: 14px;

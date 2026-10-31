@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, type MouseEvent } from "react";
 import { Link } from "react-router-dom";
 import { BrandLogo } from "../../components/BrandLogo";
+import { Button } from "../../components/ui/button";
+import { Card } from "../../components/ui/card";
 import { useToast } from "../../components/Toast";
 import { useI18n, type Lang } from "../../lib/i18n";
 import {
@@ -16,8 +18,21 @@ import {
   startWebAppleSignIn,
   type WebAppleCallback,
 } from "../../lib/web-apple";
+import "./Auth.css";
 
 const en = {
+  eyebrow: "KAATA FOR WEB",
+  pitch: "Your kaata.",
+  pitchAccent: "Room to see it all.",
+  pitchBody: "The people, balances, and history from your phone. Together on a bigger screen.",
+  everywhere: "One account, every screen",
+  synced: "Changes stay in sync",
+  preview: "An everyday kaata",
+  collect: "To collect",
+  pay: "To pay",
+  history: "Every tally, in its place",
+  previewNote: "An example of a little more clarity.",
+  private: "Your workspace, your account",
   language: "Language",
   heading: "Welcome to Kaata",
   subtitle: "Continue with Apple or Google to open your kaatas.",
@@ -44,6 +59,18 @@ const en = {
 };
 type Copy = { [K in keyof typeof en]: string };
 const fa: Copy = {
+  eyebrow: "کاتا برای وب",
+  pitch: "کاتای شما.",
+  pitchAccent: "جای بیشتر برای دیدن همه‌چیز.",
+  pitchBody: "اشخاص، بیلانس‌ها و تاریخچۀ تلفون‌تان، یک‌جا در صفحۀ بزرگ‌تر.",
+  everywhere: "یک حساب، در هر صفحه",
+  synced: "تغییرات همگام می‌مانند",
+  preview: "یک کاتای روزمره",
+  collect: "طلب شما",
+  pay: "قرض شما",
+  history: "هر ثبت، در جای خودش",
+  previewNote: "نمونه‌ای از یک حساب روشن‌تر.",
+  private: "کاتای شما، حساب شما",
   language: "زبان",
   heading: "به کاتا خوش آمدید",
   subtitle: "برای باز کردن کاتاهای خود، با اپل یا گوگل ادامه دهید.",
@@ -68,6 +95,18 @@ const fa: Copy = {
   deletionCancelled: "حساب شما بازیابی شد و درخواست حذف آن لغو گردید.",
 };
 const ps: Copy = {
+  eyebrow: "کاتا د وېب لپاره",
+  pitch: "ستاسو کاتا.",
+  pitchAccent: "د هر څه د لیدلو لپاره ډېر ځای.",
+  pitchBody: "ستاسو د ټیلیفون کسان، بیلانسونه او تاریخچه، په لویه پرده کې یو ځای.",
+  everywhere: "یو حساب، په هره پرده",
+  synced: "بدلونونه همغږي پاتې کېږي",
+  preview: "یوه ورځنۍ کاتا",
+  collect: "ستاسو طلب",
+  pay: "ستاسو پور",
+  history: "هر ثبت په خپل ځای کې",
+  previewNote: "د یوه روښانه حساب بېلګه.",
+  private: "ستاسو کاتا، ستاسو حساب",
   language: "ژبه",
   heading: "کاتا ته ښه راغلاست",
   subtitle: "د خپلو کاتاګانو د پرانیستلو لپاره له اپل یا ګوګل سره دوام ورکړئ.",
@@ -270,68 +309,183 @@ export function WorkspaceAuth({
   }
 
   return (
-    <div
-      className="flex min-h-dvh flex-col bg-neutral-50 text-neutral-900"
-      dir={lang === "en" ? "ltr" : "rtl"}
-    >
-      <header className="mx-auto flex w-full max-w-6xl items-center justify-between px-5 py-5 sm:px-8 sm:py-7">
-        <Link to="/" onClick={leaveSignIn} className="flex items-center gap-2.5" aria-label="Kaata">
-          <BrandLogo className="h-8 w-8" />
-          <span className="text-xl font-bold">{t("brand.wordmark")}</span>
+    <div className="web-auth" dir={lang === "en" ? "ltr" : "rtl"}>
+      <div className="web-auth-atmosphere" aria-hidden="true" />
+      <header className="web-auth-header">
+        <Link to="/" onClick={leaveSignIn} className="web-auth-brand" aria-label="Kaata">
+          <BrandLogo className="h-9 w-9" />
+          <span>{t("brand.wordmark")}</span>
         </Link>
-        <label className="flex items-center gap-2 text-sm text-neutral-500">
+        <label className="web-auth-language">
           <span className="sr-only">{copy.language}</span>
-          <select
-            value={lang}
-            onChange={(event) => setLang(event.target.value as Lang)}
-            className="rounded-lg border border-neutral-200 bg-white px-3 py-2"
-          >
+          <AuthSymbol kind="globe" />
+          <select value={lang} onChange={(event) => setLang(event.target.value as Lang)}>
             <option value="en">English</option>
             <option value="fa">دری</option>
             <option value="ps">پښتو</option>
           </select>
         </label>
       </header>
-      <main className="flex flex-1 items-center justify-center px-5 pb-10 pt-3 sm:pb-16 sm:pt-6">
-        <section
-          className="w-full max-w-[424px] rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm sm:p-8"
+      <main className="web-auth-main">
+        <aside className="web-auth-story" aria-labelledby="web-auth-pitch">
+          <p className="web-auth-eyebrow">
+            <span />
+            {copy.eyebrow}
+          </p>
+          <h2 id="web-auth-pitch">
+            {copy.pitch}
+            <br />
+            <span>{copy.pitchAccent}</span>
+          </h2>
+          <p className="web-auth-story-body">{copy.pitchBody}</p>
+          <div className="web-auth-benefits">
+            <span>
+              <AuthSymbol kind="screens" />
+              {copy.everywhere}
+            </span>
+            <span>
+              <AuthSymbol kind="sync" />
+              {copy.synced}
+            </span>
+          </div>
+          <div className="web-auth-preview" aria-hidden="true">
+            <div className="web-auth-preview-heading">
+              <span className="web-auth-preview-mark">
+                <BrandLogo className="h-5 w-5" />
+                {copy.preview}
+              </span>
+              <span className="web-auth-preview-dots">
+                <i />
+                <i />
+                <i />
+              </span>
+            </div>
+            <div className="web-auth-preview-balances">
+              <div className="web-auth-preview-collect">
+                <span>
+                  <AuthSymbol kind="in" />
+                  {copy.collect}
+                </span>
+                <strong>
+                  <bdi>
+                    {new Intl.NumberFormat(lang === "en" ? "en" : `${lang}-AF`).format(12450)}{" "}
+                    <small>AFN</small>
+                  </bdi>
+                </strong>
+                <div className="web-auth-preview-chart">
+                  <i />
+                  <i />
+                  <i />
+                  <i />
+                  <i />
+                  <i />
+                  <i />
+                  <i />
+                  <i />
+                </div>
+              </div>
+              <div className="web-auth-preview-pay">
+                <span>
+                  <AuthSymbol kind="out" />
+                  {copy.pay}
+                </span>
+                <strong>
+                  <bdi>
+                    {new Intl.NumberFormat(lang === "en" ? "en" : `${lang}-AF`).format(3200)}{" "}
+                    <small>AFN</small>
+                  </bdi>
+                </strong>
+                <div className="web-auth-preview-chart">
+                  <i />
+                  <i />
+                  <i />
+                  <i />
+                  <i />
+                  <i />
+                  <i />
+                  <i />
+                  <i />
+                </div>
+              </div>
+            </div>
+            <div className="web-auth-preview-history">
+              <span>
+                <AuthSymbol kind="history" />
+                {copy.history}
+              </span>
+              <span>↗</span>
+            </div>
+            <p className="web-auth-preview-note">{copy.previewNote}</p>
+          </div>
+        </aside>
+        <Card
+          className="web-auth-card"
+          role="region"
           aria-labelledby="web-auth-heading"
           aria-busy={busy}
         >
-          <h1
-            ref={heading}
-            tabIndex={-1}
-            id="web-auth-heading"
-            className="text-2xl font-semibold leading-snug tracking-tight outline-none focus:outline-none"
-          >
+          <div className="web-auth-card-kicker">
+            <span>
+              <AuthSymbol kind="lock" />
+            </span>
+            {copy.private}
+          </div>
+          <h1 ref={heading} tabIndex={-1} id="web-auth-heading">
             {copy.heading}
           </h1>
-          <p className="mb-7 mt-2 text-sm leading-relaxed text-neutral-500">{copy.subtitle}</p>
-          <div className="mb-6 space-y-3">
+          <p className="web-auth-subtitle">{copy.subtitle}</p>
+          <div className="web-auth-providers">
             {!providers && !providersError && (
-              <p role="status" className="text-sm text-neutral-500">
-                {copy.providersLoading}
-              </p>
+              <div role="status" className="web-auth-provider-loading">
+                <span className="sr-only">{copy.providersLoading}</span>
+                <div aria-hidden="true" />
+                <div aria-hidden="true" />
+              </div>
             )}
             {providersError && (
-              <div role="status" className="text-sm leading-relaxed text-neutral-500">
+              <div role="status" className="web-auth-provider-error">
                 <p>{copy.providersError}</p>
-                <button
+                <Button
                   type="button"
                   disabled={busy}
-                  className="mt-2 underline underline-offset-4"
+                  variant="brand"
+                  className="mt-3 rounded-full"
                   onClick={() => setProviderAttempt((value) => value + 1)}
                 >
                   {copy.retry}
-                </button>
+                </Button>
+              </div>
+            )}
+            {providers?.google && (
+              <div className="web-auth-google">
+                <div
+                  ref={googleContainer}
+                  className={`web-auth-google-control ${busy ? "is-busy" : ""}`}
+                  inert={busy}
+                />
+                {googleError && (
+                  <div role="status" className="web-auth-provider-error">
+                    <p>{copy.googleError}</p>
+                    <Button
+                      type="button"
+                      variant="glass"
+                      size="sm"
+                      disabled={busy}
+                      className="mt-2 rounded-full"
+                      onClick={() => setGoogleAttempt((value) => value + 1)}
+                    >
+                      {copy.retry}
+                    </Button>
+                  </div>
+                )}
               </div>
             )}
             {providers?.apple && (
-              <button
+              <Button
                 type="button"
                 onClick={appleSignIn}
                 disabled={busy}
-                className="flex h-11 w-full items-center justify-center gap-3 rounded-md border border-black bg-black px-4 text-sm font-medium text-white transition-colors hover:bg-neutral-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black disabled:opacity-60"
+                className="web-auth-apple h-10 w-full rounded-full"
               >
                 <svg
                   viewBox="0 0 24 24"
@@ -342,64 +496,71 @@ export function WorkspaceAuth({
                   <path d="M17.05 20.28c-.98.95-2.05.8-3.08.35-1.09-.46-2.09-.48-3.24 0-1.44.62-2.2.44-3.06-.35C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.75 3.08.81 1.18-.24 2.3-.94 3.56-.85 1.51.12 2.64.72 3.39 1.8-3.11 1.87-2.37 5.98.48 7.13-.57 1.5-1.31 2.99-2.52 4.09l.01-.01ZM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25Z" />
                 </svg>
                 {copy.apple}
-              </button>
-            )}
-            {providers?.google && (
-              <div>
-                <div
-                  ref={googleContainer}
-                  className={`flex min-h-11 justify-center ${busy ? "pointer-events-none opacity-60" : ""}`}
-                  inert={busy}
-                />
-                {googleError && (
-                  <div role="status" className="mt-2 text-xs leading-relaxed text-neutral-500">
-                    <p>{copy.googleError}</p>
-                    <button
-                      type="button"
-                      disabled={busy}
-                      className="mt-2 underline underline-offset-4"
-                      onClick={() => setGoogleAttempt((value) => value + 1)}
-                    >
-                      {copy.retry}
-                    </button>
-                  </div>
-                )}
-              </div>
+              </Button>
             )}
           </div>
           {busy && (
-            <p role="status" className="mt-4 text-sm text-neutral-500">
+            <p role="status" className="web-auth-wait">
+              <span className="web-auth-spinner" aria-hidden="true" />
               {copy.wait}
             </p>
           )}
           {error && (
-            <p
-              role="alert"
-              className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm leading-relaxed text-red-800"
-            >
+            <p role="alert" className="web-auth-error">
               {error}
             </p>
           )}
-          <p className="mt-6 border-t border-neutral-100 pt-5 text-xs leading-relaxed text-neutral-500">
+          <p className="web-auth-provider-help">
+            <AuthSymbol kind="screens" />
             {copy.providerHelp}
           </p>
-          <details className="mt-4 text-xs leading-relaxed text-neutral-500">
-            <summary className="cursor-pointer underline-offset-4 hover:text-neutral-900 hover:underline">
-              {copy.accountHelp}
-            </summary>
+          <details className="web-auth-account-help">
+            <summary>{copy.accountHelp}</summary>
             <p className="mt-3">{copy.session}</p>
             <p className="mt-2">{copy.deletionHint}</p>
           </details>
-        </section>
+        </Card>
       </main>
-      <footer className="flex justify-center gap-5 px-5 pb-6 text-xs text-neutral-500">
-        <Link to="/privacy" onClick={leaveSignIn} className="hover:underline">
-          {copy.privacy}
-        </Link>
-        <Link to="/terms" onClick={leaveSignIn} className="hover:underline">
-          {copy.terms}
-        </Link>
+      <footer className="web-auth-footer">
+        <span>{copy.eyebrow}</span>
+        <nav aria-label={copy.accountHelp}>
+          <Link to="/privacy" onClick={leaveSignIn} className="hover:underline">
+            {copy.privacy}
+          </Link>
+          <Link to="/terms" onClick={leaveSignIn} className="hover:underline">
+            {copy.terms}
+          </Link>
+        </nav>
       </footer>
     </div>
+  );
+}
+
+function AuthSymbol({
+  kind,
+}: {
+  kind: "screens" | "sync" | "lock" | "globe" | "in" | "out" | "history";
+}) {
+  const paths = {
+    screens: "M3 4h13v10H3z M7 18h5 M9 14v4 M18 8h3v13h-7v-5",
+    sync: "M20 7v5h-5 M4 17v-5h5 M5.6 7a7 7 0 0 1 11.6-2L20 8 M4 16l2.8 3A7 7 0 0 0 18.4 17",
+    lock: "M7 10V7a5 5 0 0 1 10 0v3 M5 10h14v11H5z M12 14v3",
+    globe: "M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0 M3 12h18 M12 3a18 18 0 0 1 0 18 18 18 0 0 1 0-18",
+    in: "M7 5v12h12 M7 17 19 5",
+    out: "M5 7h12v12 M17 7 5 19",
+    history: "M3 4v5h5 M3 9a9 9 0 1 1 0 6 M12 7v5l3 2",
+  };
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d={paths[kind]} />
+    </svg>
   );
 }
