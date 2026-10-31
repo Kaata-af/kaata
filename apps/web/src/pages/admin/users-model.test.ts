@@ -1,6 +1,7 @@
 ﻿import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { InstallRow, UserRow, UsersResult } from "./api";
+import { accountPlatforms, platformFacets, platformsLabel } from "./platforms.ts";
 import {
   DEFAULT_FILTERS,
   activePreset,
@@ -124,6 +125,51 @@ test("the install time is the earlier of the device's mint time and the server's
   );
   assert.equal(legacy.installed_at, "2026-05-17T09:00:00Z");
   assert.equal(legacy.installed_day, "2026-05-17");
+});
+
+test("one account displays every platform and matches any platform without duplicate people", () => {
+  const rows = userRows(
+    data(
+      [],
+      [
+        account({
+          platform: "web",
+          platforms: ["iOS", "android", " Web ", "ios", "", "__unknown__"],
+          install_count: 2,
+        }),
+      ],
+    ),
+  );
+  assert.equal(rows.length, 1);
+  assert.deepEqual(rows[0].platforms, ["android", "ios", "web"]);
+  assert.equal(platformsLabel(rows[0].platforms), "Android · iOS · Web");
+  for (const platform of ["ios", "android", "web"]) {
+    const matches = filterUsers(rows, { ...DEFAULT_FILTERS, platform }, "", NOW).visible;
+    assert.deepEqual(
+      matches.map((row) => row.id),
+      ["a:account-1"],
+    );
+  }
+  assert.equal(
+    filterUsers(rows, { ...DEFAULT_FILTERS, platform: "__unknown__" }, "", NOW).visible.length,
+    0,
+  );
+  assert.equal(reportedDevices(rows), 2);
+});
+
+test("platform rollout keeps latest values, nonstandard labels and true unknowns", () => {
+  const rows = userRows(data([install("unknown", { platform: "" })], [account()]));
+  assert.deepEqual(rows[0].platforms, ["ios"]);
+  assert.deepEqual(platformFacets(rows[1].platforms), ["__unknown__"]);
+  assert.deepEqual(accountPlatforms(["linux", " Linux ", "unknown"], "web"), ["linux", "web"]);
+  assert.equal(platformsLabel(undefined, "web"), "Web");
+  assert.equal(platformsLabel([]), "Unknown");
+  assert.deepEqual(
+    filterUsers(rows, { ...DEFAULT_FILTERS, platform: "__unknown__" }, "", NOW).visible.map(
+      (r) => r.id,
+    ),
+    ["i:unknown"],
+  );
 });
 
 test("facets combine with search across profile fields and normalized phone digits", () => {

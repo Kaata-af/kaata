@@ -153,14 +153,14 @@ func (s *Service) queryDayComparison(ctx context.Context, now time.Time, dates [
 		completed[index] = int32(day.CompletedHours)
 	}
 	rows, err := s.pool.Query(ctx, `
-		WITH `+reportExclusionCTEs+`,
+		WITH `+installMetricCTEs+`,
 		days(idx, starts_at, completed_hours) AS (
 		  SELECT (selected.ord - 1)::int, selected.starts_at, selected.completed_hours
 		  FROM unnest($3::timestamptz[], $4::int[]) WITH ORDINALITY
 		    AS selected(starts_at, completed_hours, ord)
 		), kept_installs AS (
 		  SELECT install_id, LEAST(installed_at, first_seen_at) AS installed_at
-		  FROM installs
+		  FROM report_native_installs
 		  WHERE first_seen_at <= $2::timestamptz
 		    AND install_id NOT IN (SELECT install_id FROM report_excluded_installs)
 		), activity_rows AS (

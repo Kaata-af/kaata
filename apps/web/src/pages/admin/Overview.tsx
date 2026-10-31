@@ -122,9 +122,22 @@ function KpiStrip({ stats: s }: { stats: Stats }) {
   return (
     <div className="min-w-0">
       <div className="grid min-w-0 grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-5">
-        <Kpi label="Active today" value={fmtInt(s.dau)} sub="DAU · since Kabul midnight" headline />
-        <Kpi label="Active · 7 days" value={fmtInt(s.wau)} sub="WAU · today + previous 6 days" />
-        <Kpi label="Active · 30 days" value={fmtInt(s.mau)} sub="MAU · today + previous 29 days" />
+        <Kpi
+          label="Active app installs today"
+          value={fmtInt(s.dau)}
+          sub="DAU · since Kabul midnight"
+          headline
+        />
+        <Kpi
+          label="Active app installs · 7 days"
+          value={fmtInt(s.wau)}
+          sub="WAU · today + previous 6 days"
+        />
+        <Kpi
+          label="Active app installs · 30 days"
+          value={fmtInt(s.mau)}
+          sub="MAU · today + previous 29 days"
+        />
         <Kpi
           label="Daily share of MAU"
           value={fmtPct(s.dau, s.mau)}
@@ -135,6 +148,35 @@ function KpiStrip({ stats: s }: { stats: Stats }) {
       <p className="mt-3 text-xs leading-relaxed text-brand-sub">
         Activity counts distinct app installs that checked in, including people who only opened the
         app. Each install counts once per period. Operator and test devices are left out.
+      </p>
+      <WebAccounts stats={s} />
+    </div>
+  );
+}
+
+export function WebAccounts({
+  stats,
+}: {
+  stats: Pick<Stats, "web_accounts_total" | "web_active_7d">;
+}) {
+  return (
+    <div className="mt-4 rounded-xl border border-brand-border bg-white px-4 py-3">
+      <dl className="grid grid-cols-2 gap-4">
+        <div>
+          <dt className="text-xs text-brand-sub">Web accounts</dt>
+          <dd className="mt-1 text-lg font-semibold tabular-nums text-brand-ink">
+            {stats.web_accounts_total === undefined ? "—" : fmtInt(stats.web_accounts_total)}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-xs text-brand-sub">Active on web · 7 days</dt>
+          <dd className="mt-1 text-lg font-semibold tabular-nums text-brand-ink">
+            {stats.web_active_7d === undefined ? "—" : fmtInt(stats.web_active_7d)}
+          </dd>
+        </div>
+      </dl>
+      <p className="mt-2 text-xs leading-5 text-brand-muted">
+        Signed-in accounts, counted once across browsers. Web activity does not add app installs.
       </p>
     </div>
   );

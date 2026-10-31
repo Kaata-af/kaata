@@ -7,6 +7,7 @@ import { fmtDateTimeParts, reportingDay } from "./dates";
 import { ErrorCard, PageHeader, SkeletonCard, fmtDateTime, fmtInt, lastSeenInfo } from "./ui";
 import { AccountDetail, InstallDetail } from "./UsersDetails";
 import { DeviceEstimateCard } from "./DeviceEstimateCard";
+import { platformFacets, platformLabel, platformsLabel } from "./platforms";
 import {
   DEFAULT_FILTERS,
   PRESETS,
@@ -44,7 +45,7 @@ const BUTTON =
 const PAGE_SIZES = [25, 50, 100];
 const SORT_OPTIONS: [SortKey, string][] = [
   ["last_seen", "Last seen"],
-  ["installed_at", "Installed"],
+  ["installed_at", "First used"],
   ["name", "Name"],
   ["entries", "Entries"],
   ["customers", "Customers"],
@@ -151,6 +152,20 @@ function displayName(row: UserListRow): string {
 }
 function humanValue(value: string): string {
   return value === "__unknown__" ? "Unknown" : value;
+}
+
+function PlatformsSummary({ row }: { row: UserListRow }) {
+  return (
+    <>
+      {platformsLabel(row.platforms)}
+      {row.version && row.version !== "web" ? (
+        <span className="mt-0.5 block text-[11px] font-normal text-brand-muted">
+          {row.platforms.length > 1 ? `Latest: ${platformLabel(row.platform)} · ` : ""}v
+          {row.version}
+        </span>
+      ) : null}
+    </>
+  );
 }
 
 export function Users() {
@@ -263,7 +278,13 @@ export function Users() {
     field: "platform" | "locale" | "source" | "version",
     selected: string,
   ): [string, string][] => {
-    const values = [...new Set(allRows.map((row) => row[field] || "__unknown__"))];
+    const values = [
+      ...new Set(
+        allRows.flatMap((row) =>
+          field === "platform" ? [...platformFacets(row.platforms)] : [row[field] || "__unknown__"],
+        ),
+      ),
+    ];
     if (selected && !values.includes(selected)) values.push(selected);
     return [
       ["", "All"],
@@ -272,11 +293,7 @@ export function Users() {
         .map((value): [string, string] => [
           value,
           field === "platform"
-            ? value === "ios"
-              ? "iOS"
-              : value === "android"
-                ? "Android"
-                : humanValue(value)
+            ? platformLabel(value)
             : field === "locale"
               ? value === "__unknown__"
                 ? humanValue(value)
@@ -311,7 +328,7 @@ export function Users() {
             <SummaryCard
               label="Signed-in accounts"
               value={summary.accounts}
-              sub={`${fmtInt(summary.installations)} installations in total`}
+              sub={`${fmtInt(summary.installations)} app installations in total`}
               onClick={() => {
                 reset();
                 updateFilters({ signIn: "signed-in" });
@@ -465,8 +482,13 @@ export function Users() {
                   </div>
                   <div className="mt-4 border-t border-brand-border pt-4">
                     <div className="flex flex-wrap items-center justify-between gap-2">
-                      <h3 className="text-xs font-semibold text-brand-sub">Install date range</h3>
-                      <div className="flex flex-wrap gap-1" aria-label="Quick install date ranges">
+                      <h3 className="text-xs font-semibold text-brand-sub">
+                        First used date range
+                      </h3>
+                      <div
+                        className="flex flex-wrap gap-1"
+                        aria-label="Quick first used date ranges"
+                      >
                         {[
                           [1, "Today"],
                           [7, "Last 7 days"],
@@ -493,7 +515,7 @@ export function Users() {
                         From
                         <input
                           type="date"
-                          aria-label="Installed from"
+                          aria-label="First used from"
                           aria-invalid={invalidRange}
                           value={filters.from}
                           max={reportingDay(now)}
@@ -505,7 +527,7 @@ export function Users() {
                         Through
                         <input
                           type="date"
-                          aria-label="Installed through"
+                          aria-label="First used through"
                           aria-invalid={invalidRange}
                           value={filters.to}
                           max={reportingDay(now)}
@@ -851,8 +873,8 @@ function Pill(props: { children: ReactNode; tone?: "green" | "amber" | "gray" })
 const HEADERS: { label: string; key?: SortKey; className?: string }[] = [
   { label: "Person", key: "name", className: "min-w-[260px]" },
   { label: "Status" },
-  { label: "Device" },
-  { label: "Installed", key: "installed_at" },
+  { label: "Platforms" },
+  { label: "First used", key: "installed_at" },
   { label: "Last seen", key: "last_seen" },
   { label: "Entries", key: "entries", className: "text-right" },
   { label: "Details" },
@@ -977,20 +999,17 @@ function UserCards(props: UserResultsProps) {
                 </dd>
               </div>
               <div className="min-w-0">
-                <dt className="text-[11px] text-brand-muted">Installed</dt>
+                <dt className="text-[11px] text-brand-muted">
+                  {row.kind === "account" ? "First used" : "Installed"}
+                </dt>
                 <dd className="mt-1 text-xs leading-5 text-brand-sub">
                   <InstalledStamp at={row.installed_at} />
                 </dd>
               </div>
               <div className="min-w-0">
-                <dt className="text-[11px] text-brand-muted">Device</dt>
+                <dt className="text-[11px] text-brand-muted">Platforms</dt>
                 <dd className="mt-1 text-xs leading-5 text-brand-sub [overflow-wrap:anywhere]">
-                  {row.platform === "ios"
-                    ? "iOS"
-                    : row.platform === "android"
-                      ? "Android"
-                      : row.platform || "Unknown"}
-                  {row.version ? ` · v${row.version}` : ""}
+                  <PlatformsSummary row={row} />
                 </dd>
               </div>
             </dl>
@@ -1131,16 +1150,9 @@ function UsersTable(props: UserResultsProps) {
                     </div>
                   </td>
                   <td className="px-4 py-4">
-                    <p className="whitespace-nowrap text-xs font-medium text-brand-sub">
-                      {row.platform === "ios"
-                        ? "iOS"
-                        : row.platform === "android"
-                          ? "Android"
-                          : row.platform || "Unknown"}
-                      {row.version ? (
-                        <span className="ml-1.5 font-normal text-brand-muted">v{row.version}</span>
-                      ) : null}
-                    </p>
+                    <div className="text-xs font-medium text-brand-sub [overflow-wrap:anywhere]">
+                      <PlatformsSummary row={row} />
+                    </div>
                     <p
                       className="mt-1 max-w-36 truncate text-[11px] text-brand-muted"
                       title={`${languageLabel(row.locale)} · ${row.source || "Unknown source"}`}
@@ -1231,7 +1243,7 @@ function UserDetails({
           </h3>
           <p className="mt-1 text-xs leading-5 text-brand-muted">
             {row.kind === "account"
-              ? `Signed-in account · ${fmtInt(row.account?.install_count ?? 0)} linked installations`
+              ? `Signed-in account · ${fmtInt(row.account?.install_count ?? 0)} linked app installations`
               : "Signed-out installation profile"}
           </p>
         </div>
@@ -1253,7 +1265,10 @@ function UserDetails({
         <Detail label="Source" value={row.source} />
         {/* The one install time (installTime): the earliest record of the
             account's first device or of this device, in Kabul time. */}
-        <Detail label="Installed" value={fmtDateTime(row.installed_at)} />
+        <Detail
+          label={row.kind === "account" ? "First used" : "Installed"}
+          value={fmtDateTime(row.installed_at)}
+        />
       </div>
       {row.account ? (
         <AccountDetail u={row.account} />

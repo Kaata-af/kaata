@@ -30,11 +30,11 @@ func (s *Service) getDeviceEstimate(ctx context.Context, tx pgx.Tx) (DeviceEstim
 	var estimate DeviceEstimate
 	var total int64
 	err := tx.QueryRow(ctx, `
-		WITH `+reportExclusionCTEs+`
+		WITH `+installMetricCTEs+`
 		SELECT COUNT(*),
 		       COUNT(*) FILTER (WHERE device_id_hash IS NOT NULL),
 		       COUNT(DISTINCT (device_id_kind, device_id_hash)) FILTER (WHERE device_id_hash IS NOT NULL)
-		FROM installs
+		FROM report_native_installs
 		WHERE install_id NOT IN (SELECT install_id FROM report_excluded_installs)
 	`, s.operatorAccountIDs).Scan(&total, &estimate.IdentifiedInstalls, &estimate.IdentifiedDevices)
 	if err != nil {

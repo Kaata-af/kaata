@@ -14,12 +14,12 @@ export function DeviceEstimateCard({
 
   return (
     <Card
-      title="Installations & devices"
+      title="App installations & devices"
       sub="A separate device estimate, with installation history preserved."
     >
       <dl className="grid min-w-0 grid-cols-2 gap-x-4 gap-y-5 sm:grid-cols-3 sm:gap-6">
         <div className="min-w-0">
-          <dt className="text-xs font-medium text-brand-sub">Installations</dt>
+          <dt className="text-xs font-medium text-brand-sub">App installations</dt>
           <dd className="mt-1.5 break-words text-2xl font-semibold tabular-nums tracking-tight text-brand-ink sm:text-3xl">
             {fmtInt(total)}
           </dd>

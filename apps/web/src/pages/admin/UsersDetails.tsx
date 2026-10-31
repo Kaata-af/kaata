@@ -1,5 +1,6 @@
 import type { InstallRow, UserRow } from "./api";
 import { fmtDateTime, fmtInt } from "./ui";
+import { platformLabel, platformsLabel } from "./platforms";
 
 function DetailItem(props: { label: string; value: string }) {
   return (
@@ -21,11 +22,15 @@ export function AccountDetail(props: { u: UserRow }) {
         <DetailItem label="Account created" value={fmtDateTime(u.created_at)} />
         <DetailItem label="Last sign-in" value={fmtDateTime(u.last_login_at)} />
         <DetailItem label="Last reported activity" value={fmtDateTime(u.last_activity_at)} />
+        <DetailItem label="Platforms" value={platformsLabel(u.platforms, u.platform)} />
         <DetailItem
-          label="Latest installation"
-          value={`${u.platform || "Unknown"}${u.app_version ? ` · v${u.app_version}` : ""}`}
+          label="Latest platform"
+          value={`${platformLabel(u.platform)}${u.app_version && u.app_version !== "web" ? ` · v${u.app_version}` : ""}`}
         />
-        <DetailItem label="Linked installations" value={fmtInt(u.install_count)} />
+        <DetailItem label="Linked app installations" value={fmtInt(u.install_count)} />
+        {u.web_session_count !== undefined ? (
+          <DetailItem label="Browser sessions" value={fmtInt(u.web_session_count)} />
+        ) : null}
         <DetailItem label="Onboarding" value={u.has_onboarded ? "Completed" : "Not completed"} />
       </dl>
       <div className="mt-5">
@@ -90,7 +95,7 @@ export function InstallDetail(props: { d: InstallRow }) {
       <DetailItem label="Install ID" value={d.install_id} />
       <DetailItem
         label="Device"
-        value={`${d.platform || "Unknown"}${d.app_version ? ` · v${d.app_version}` : ""}`}
+        value={`${platformLabel(d.platform)}${d.app_version && d.app_version !== "web" ? ` · v${d.app_version}` : ""}`}
       />
       {/* "Installed" is shown once, above, as the earlier of the device's
           own clock and First seen (users-model installTime). */}

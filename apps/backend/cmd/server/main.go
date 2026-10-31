@@ -514,6 +514,8 @@ func main() {
 	r.Group(func(pr chi.Router) {
 		pr.Use(authenticator.Middleware())
 		pr.Post("/v1/auth/signout", authH.SignOut)
+		pr.With(httpx.RateLimitPerAccount(60, time.Minute)).
+			Post("/v1/account/web-activity", authH.WebActivity)
 		// Informational billing only: no existing web/native route is gated.
 		pr.With(httpx.RateLimitPerAccount(60, time.Minute)).Get("/v1/web-pro", webProH.Status)
 		pr.With(httpx.RateLimitPerAccount(60, time.Minute)).Get("/v1/web-pro/orders/{order_id}", webProH.Order)

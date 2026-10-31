@@ -105,7 +105,7 @@ import {
   contactInitials,
   contactPills,
   dialCode,
-  facetValue,
+  facetValues,
   filterOutreach,
   formatMoney,
   isNeverMessaged,
@@ -159,6 +159,7 @@ import {
   type SessionLanguage,
 } from "./outreach-model";
 import { Card, ErrorCard, PageHeader, SkeletonCard, fmtDateTime, fmtInt, lastSeenInfo } from "./ui";
+import { platformsLabel } from "./platforms";
 
 // v2 (2026-09-30): "Messaged before" now follows never_messaged, so a v1
 // value is ignored and a tab that held one opens on Prospects like a fresh one.
@@ -748,7 +749,7 @@ export function Outreach() {
     field: "platform" | "language" | "source",
     selectedValue: string,
   ): [string, string][] => {
-    const values = [...new Set(contacts.map((contact) => facetValue(contact, field)))];
+    const values = [...new Set(contacts.flatMap((contact) => [...facetValues(contact, field)]))];
     if (selectedValue && !values.includes(selectedValue)) values.push(selectedValue);
     return [
       ["", "All"],
@@ -3470,15 +3471,22 @@ function ShopkeeperBlock(props: {
             <DetailItem label="Email" value={s.email} />
             <DetailItem label="Signed in" value={s.signed_in ? "Yes" : "No"} />
             <DetailItem label="Account ID" value={s.account_id} mono />
-            <DetailItem label="Installs" value={fmtInt(s.install_count)} />
+            <DetailItem label="App installs" value={fmtInt(s.install_count)} />
+            {s.web_session_count !== undefined ? (
+              <DetailItem label="Browser sessions" value={fmtInt(s.web_session_count)} />
+            ) : null}
+            <DetailItem label="Platforms" value={platformsLabel(s.platforms, s.platform)} />
             <DetailItem
-              label="Device"
-              value={`${platformLabel(s.platform)}${s.app_version ? ` · v${s.app_version}` : ""}`}
+              label="Latest platform"
+              value={`${platformLabel(s.platform)}${s.app_version && s.app_version !== "web" ? ` · v${s.app_version}` : ""}`}
             />
             <DetailItem label="Language" value={languageLabel(s.locale)} />
             <DetailItem label="Source" value={s.source} />
             <DetailItem label="Attribution" value={s.attribution} />
-            <DetailItem label="Installed" value={fmtDateTime(s.installed_at)} />
+            <DetailItem
+              label={s.signed_in ? "First used" : "Installed"}
+              value={fmtDateTime(s.installed_at)}
+            />
             <DetailItem label="First seen" value={fmtDateTime(s.first_seen)} />
             <DetailItem label="Last seen" value={fmtDateTime(s.last_seen)} />
             <DetailItem label="Last activity" value={fmtDateTime(s.last_activity_at)} />

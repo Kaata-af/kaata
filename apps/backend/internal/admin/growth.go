@@ -140,7 +140,7 @@ func (s *Service) GetGrowth(ctx context.Context) (Growth, error) {
 	//    install weeks, so empty cohort weeks still emit a row. Same keep
 	//    predicate + installed_at fallback as GetStats' installs series.
 	rows, err := s.pool.Query(ctx, `
-		WITH `+reportExclusionCTEs+`,
+		WITH `+installMetricCTEs+`,
 		cur AS (
 		  SELECT admin_bucket_start('week', $3::timestamptz AT TIME ZONE 'Asia/Kabul')::date AS w
 		),
@@ -149,7 +149,7 @@ func (s *Service) GetGrowth(ctx context.Context) (Growth, error) {
 		),
 		base AS (
 		  SELECT admin_bucket_start('week', d.installed_date::timestamp)::date AS cw
-		  FROM installs JOIN admin_install_dates d USING (install_id)
+		  FROM report_native_installs JOIN admin_install_dates d USING (install_id)
 		  WHERE install_id NOT IN (SELECT install_id FROM report_excluded_installs)
 		)
 		SELECT to_char(weeks.w, 'YYYY-MM-DD'), COUNT(base.cw)
@@ -187,19 +187,19 @@ func (s *Service) GetGrowth(ctx context.Context) (Growth, error) {
 	//    offset 0 is the install week itself. Activity before the install week
 	//    (clock skew / reinstall edge) is dropped rather than mis-bucketed.
 	rrows, err := s.pool.Query(ctx, `
-		WITH `+reportExclusionCTEs+`,
+		WITH `+installMetricCTEs+`,
 		cur AS (
 		  SELECT admin_bucket_start('week', $3::timestamptz AT TIME ZONE 'Asia/Kabul')::date AS w
 		),
 		base AS (
 		  SELECT install_id,
 		         admin_bucket_start('week', d.installed_date::timestamp)::date AS cw
-		  FROM installs JOIN admin_install_dates d USING (install_id)
+		  FROM report_native_installs JOIN admin_install_dates d USING (install_id)
 		  WHERE install_id NOT IN (SELECT install_id FROM report_excluded_installs)
 		),
 		act AS (
 		  SELECT DISTINCT install_id, admin_bucket_start('week', active_date::timestamp)::date AS aw
-		  FROM admin_active_days
+		  FROM report_native_active_days
 		  WHERE active_date <= ($3::timestamptz AT TIME ZONE 'Asia/Kabul')::date
 		)
 		SELECT to_char(b.cw, 'YYYY-MM-DD'), (act.aw - b.cw) / 7 AS wk_offset, COUNT(DISTINCT b.install_id)
@@ -236,7 +236,7 @@ func (s *Service) GetGrowth(ctx context.Context) (Growth, error) {
 	//    week), churned (active last week, silent this week). LEFT JOIN LATERAL
 	//    keeps the dense week series even when there are zero installs.
 	grows, err := s.pool.Query(ctx, `
-		WITH `+reportExclusionCTEs+`,
+		WITH `+installMetricCTEs+`,
 		cur AS (
 		  SELECT admin_bucket_start('week', $3::timestamptz AT TIME ZONE 'Asia/Kabul')::date AS w
 		),
@@ -245,7 +245,7 @@ func (s *Service) GetGrowth(ctx context.Context) (Growth, error) {
 		),
 		aw AS (
 		  SELECT DISTINCT a.install_id, admin_bucket_start('week', a.active_date::timestamp)::date AS w
-		  FROM admin_active_days a
+		  FROM report_native_active_days a
 		  WHERE a.install_id NOT IN (SELECT install_id FROM report_excluded_installs)
 		    AND a.active_date <= ($3::timestamptz AT TIME ZONE 'Asia/Kabul')::date
 		),
@@ -294,7 +294,7 @@ func (s *Service) GetGrowth(ctx context.Context) (Growth, error) {
 	//    owned by an excluded account nor excluded themselves (the only place a
 	//    vault exclusion reaches the install metrics).
 	if err := s.pool.QueryRow(ctx, `
-		WITH `+reportExclusionCTEs+`
+		WITH `+installMetricCTEs+`
 		SELECT
 		  COUNT(*) FILTER (WHERE keep AND account_id IS NOT NULL),
 		  COUNT(*) FILTER (WHERE keep AND usage_shares_sent > 0),
@@ -322,7 +322,7 @@ func (s *Service) GetGrowth(ctx context.Context) (Growth, error) {
 		  COUNT(*) FILTER (WHERE NOT keep)
 		FROM (
 		  SELECT *, (install_id NOT IN (SELECT install_id FROM report_excluded_installs)) AS keep
-		  FROM installs
+		  FROM report_native_installs
 		) i
 	`, s.operatorAccountIDs).Scan(
 		&g.Adoption.SignedIn, &g.Adoption.WithShares,

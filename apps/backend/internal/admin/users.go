@@ -57,13 +57,16 @@ type UserRow struct {
 	// ShopName comes from the latest install's check-in-reported shop profile
 	// (snapshots don't carry it). Empty when the device never reported one.
 	ShopName string `json:"shop_name"`
-	// Device/telemetry fields, folded in from the account's installs. Platform /
-	// AppVersion / Source come from the account's MOST RECENT install; InstalledAt
-	// is the earliest, LastActivityAt the latest real usage, HasOnboarded true if
-	// any install onboarded, InstallCount how many devices/reinstalls.
-	Platform    string `json:"platform"`
-	AppVersion  string `json:"app_version"`
-	InstalledAt string `json:"installed_at"`
+	// Platform/AppVersion describe the most recent installation or browser
+	// session; Platforms preserves every known account platform. Source/profile
+	// use the latest nonempty values so browser sessions cannot erase them.
+	// InstallCount counts native installations/reinstalls; WebSessionCount is
+	// separate. Timeline fields span all proven account-linked rows.
+	Platform        string   `json:"platform"`
+	Platforms       []string `json:"platforms"`
+	WebSessionCount int      `json:"web_session_count"`
+	AppVersion      string   `json:"app_version"`
+	InstalledAt     string   `json:"installed_at"`
 	// FirstSeen = earliest first_seen_at across the account's installs. Mirrors
 	// InstallRow.FirstSeen so the dashboard can date an account the same way it
 	// dates an install. Needed because InstalledAt is DEVICE-supplied and
@@ -164,14 +167,14 @@ type snapDoc struct {
 // credential accounts remain unlinked. Names and self-reported phones are not
 // identity evidence. Every install-dependent query must use this same CTE.
 const userReportInstalls = `
-	WITH report_installs AS (
+	WITH ` + installReportingCTEs + `, report_installs AS (
 		SELECT i.*, COALESCE(i.account_id, (
 			SELECT (array_agg(DISTINCT ac.account_id))[1]
 			FROM auth_credentials ac
 			WHERE ac.install_id = i.install_id AND ac.revoked_at IS NULL
 			HAVING COUNT(DISTINCT ac.account_id) = 1
 		)) AS resolved_account_id
-		FROM installs i
+		FROM report_classified_installs i
 	)
 `
 
@@ -225,6 +228,7 @@ func (s *Service) GetUsers(ctx context.Context) (UsersResult, error) {
 			u.LastSeen = lastSeen.UTC().Format(time.RFC3339)
 		}
 		u.Kaatas = []UserKaata{}
+		u.Platforms = []string{}
 		byID[u.AccountID] = &u
 		order = append(order, u.AccountID)
 	}
@@ -395,8 +399,8 @@ func (s *Service) GetUsers(ctx context.Context) (UsersResult, error) {
 }
 
 // enrichInstallTelemetry folds device-level telemetry from the installs table
-// into each signed-in account: platform/version/source from the MOST RECENT
-// install, and timeline aggregates (install count, first install, last activity,
+// into each signed-in account: platform/version from the most recent row,
+// latest nonempty profile/source, and timeline aggregates (native install count, first install, last activity,
 // onboarded) across all the account's installs. A missing install
 // just leaves the fields blank. Operator accounts are already absent from byID,
 // so the unfiltered queries below only ever touch shown accounts.
@@ -404,21 +408,29 @@ func (s *Service) enrichInstallTelemetry(ctx context.Context, tx pgx.Tx, byID ma
 	if len(byID) == 0 {
 		return nil
 	}
-	// Latest install per account → platform / version / source / locale fallback,
-	// plus the self profile (name/phone) the device reports on check-in. The self
+	// Latest platform/version, plus latest nonempty source/locale and self profile.
+	// A browser heartbeat must not hide the known native shop identity. The self
 	// profile is a FALLBACK only: it fills LedgerName/LedgerPhone for accounts
 	// that signed in but never backed up a vault (so no snapshot to read from);
 	// the snapshot enrich below overrides it when a backed-up name/phone exists.
 	lrows, err := tx.Query(ctx, userReportInstalls+`
-		SELECT DISTINCT ON (resolved_account_id) resolved_account_id::text,
-		       COALESCE(platform, ''), COALESCE(app_version, ''),
-		       COALESCE(source, ''),
-		       COALESCE(NULLIF(app_locale, ''), COALESCE(device_locale, '')),
-		       COALESCE(self_name, ''), COALESCE(self_phone, ''),
-		       COALESCE(shop_name, '')
+		SELECT resolved_account_id::text,
+		  (array_agg(reported_platform ORDER BY last_seen_at DESC NULLS LAST, install_id))[1],
+		  COALESCE((array_agg(app_version ORDER BY last_seen_at DESC NULLS LAST, install_id))[1], ''),
+		  COALESCE((array_agg(source ORDER BY last_seen_at DESC NULLS LAST, install_id)
+		    FILTER (WHERE NULLIF(source, '') IS NOT NULL))[1], ''),
+		  COALESCE((array_agg(COALESCE(NULLIF(app_locale, ''), NULLIF(device_locale, ''))
+		    ORDER BY last_seen_at DESC NULLS LAST, install_id)
+		    FILTER (WHERE COALESCE(NULLIF(app_locale, ''), NULLIF(device_locale, '')) IS NOT NULL))[1], ''),
+		  COALESCE((array_agg(self_name ORDER BY last_seen_at DESC NULLS LAST, install_id)
+		    FILTER (WHERE NULLIF(self_name, '') IS NOT NULL))[1], ''),
+		  COALESCE((array_agg(self_phone ORDER BY last_seen_at DESC NULLS LAST, install_id)
+		    FILTER (WHERE NULLIF(self_phone, '') IS NOT NULL))[1], ''),
+		  COALESCE((array_agg(shop_name ORDER BY last_seen_at DESC NULLS LAST, install_id)
+		    FILTER (WHERE NULLIF(shop_name, '') IS NOT NULL))[1], '')
 		FROM report_installs
 		WHERE resolved_account_id IS NOT NULL
-		ORDER BY resolved_account_id, last_seen_at DESC NULLS LAST
+		GROUP BY resolved_account_id
 	`)
 	if err != nil {
 		return err
@@ -452,8 +464,11 @@ func (s *Service) enrichInstallTelemetry(ctx context.Context, tx pgx.Tx, byID ma
 	}
 	// Aggregates per account → install count, first install, last activity, onboarded.
 	arows, err := tx.Query(ctx, userReportInstalls+`
-		SELECT resolved_account_id::text, COUNT(*),
-		       MIN(installed_at), MIN(first_seen_at), MAX(last_activity_at), bool_or(has_onboarded)
+		SELECT resolved_account_id::text, COUNT(*) FILTER (WHERE NOT is_web_session),
+		       MIN(installed_at), MIN(first_seen_at), MAX(last_activity_at), bool_or(has_onboarded),
+		       COALESCE(array_agg(DISTINCT reported_platform ORDER BY reported_platform)
+		         FILTER (WHERE reported_platform IN ('ios', 'android', 'web')), ARRAY[]::text[]),
+		       COUNT(*) FILTER (WHERE is_web_session)
 		FROM report_installs
 		WHERE resolved_account_id IS NOT NULL
 		GROUP BY resolved_account_id
@@ -466,12 +481,16 @@ func (s *Service) enrichInstallTelemetry(ctx context.Context, tx pgx.Tx, byID ma
 		var cnt int64
 		var firstInstall, firstSeen, lastActivity *time.Time
 		var onboarded bool
-		if err := arows.Scan(&acct, &cnt, &firstInstall, &firstSeen, &lastActivity, &onboarded); err != nil {
+		var platforms []string
+		var webSessions int
+		if err := arows.Scan(&acct, &cnt, &firstInstall, &firstSeen, &lastActivity, &onboarded, &platforms, &webSessions); err != nil {
 			arows.Close()
 			return err
 		}
 		if u := byID[acct]; u != nil {
 			u.InstallCount = int(cnt)
+			u.Platforms = platforms
+			u.WebSessionCount = webSessions
 			u.HasOnboarded = onboarded
 			if firstInstall != nil {
 				u.InstalledAt = firstInstall.UTC().Format(time.RFC3339)
@@ -501,7 +520,7 @@ func (s *Service) enrichInstallTelemetry(ctx context.Context, tx pgx.Tx, byID ma
 func (s *Service) fetchAnonymousInstalls(ctx context.Context, tx pgx.Tx) ([]InstallRow, error) {
 	out := []InstallRow{}
 	rows, err := tx.Query(ctx, userReportInstalls+`
-		SELECT install_id::text, COALESCE(platform, ''), COALESCE(app_version, ''),
+		SELECT install_id::text, reported_platform, COALESCE(app_version, ''),
 		       COALESCE(NULLIF(app_locale, ''), COALESCE(device_locale, '')),
 		       installed_at, first_seen_at, last_seen_at, last_activity_at,
 		       has_onboarded, COALESCE(source, ''), COALESCE(attribution_method, ''),
@@ -509,7 +528,7 @@ func (s *Service) fetchAnonymousInstalls(ctx context.Context, tx pgx.Tx) ([]Inst
 		       check_in_count,
 		       COALESCE(self_name, ''), COALESCE(self_phone, ''), COALESCE(shop_name, '')
 		FROM report_installs
-		WHERE resolved_account_id IS NULL
+		WHERE resolved_account_id IS NULL AND NOT is_web_session
 		ORDER BY last_seen_at DESC NULLS LAST
 	`)
 	if err != nil {
@@ -623,7 +642,7 @@ func (s *Service) applyAccountExclusions(ctx context.Context, tx pgx.Tx, byID ma
 	rows, err := tx.Query(ctx, userReportInstalls+`
 		SELECT resolved_account_id::text, install_id::text
 		FROM report_installs
-		WHERE resolved_account_id IS NOT NULL
+		WHERE resolved_account_id IS NOT NULL AND NOT is_web_session
 	`)
 	if err != nil {
 		return err

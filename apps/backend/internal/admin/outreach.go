@@ -175,6 +175,8 @@ type OutreachShopkeeper struct {
 	InstallCount    int                      `json:"install_count"`
 	InstallIDs      []string                 `json:"install_ids"` // never null; most recently seen first
 	Platform        string                   `json:"platform"`
+	Platforms       []string                 `json:"platforms"`
+	WebSessionCount int                      `json:"web_session_count"`
 	AppVersion      string                   `json:"app_version"`
 	Locale          string                   `json:"locale"`
 	Source          string                   `json:"source"`
@@ -985,14 +987,15 @@ func (s *Service) outreachInstalls(ctx context.Context, tx pgx.Tx) ([]outreachIn
 	rows, err := tx.Query(ctx, userReportInstalls+`
 		SELECT install_id::text, COALESCE(resolved_account_id::text, ''),
 		       COALESCE(self_name, ''), COALESCE(self_phone, ''), COALESCE(shop_name, ''),
-		       COALESCE(platform, ''), COALESCE(app_version, ''),
+		       reported_platform, COALESCE(app_version, ''),
 		       COALESCE(NULLIF(app_locale, ''), COALESCE(device_locale, '')),
 		       COALESCE(source, ''), COALESCE(attribution_method, ''),
 		       installed_at, first_seen_at, last_seen_at, last_activity_at,
 		       has_onboarded, check_in_count,
 		       usage_entries_created, usage_customers_added, usage_shares_sent
 		FROM report_installs
-		WHERE resolved_account_id IS NULL OR resolved_account_id::text <> ALL($1::text[])
+		WHERE (resolved_account_id IS NULL OR resolved_account_id::text <> ALL($1::text[]))
+		  AND (resolved_account_id IS NOT NULL OR NOT is_web_session)
 		ORDER BY last_seen_at DESC, install_id
 	`, s.operatorAccountIDs)
 	if err != nil {
@@ -1109,17 +1112,25 @@ type outreachShopBuilt struct {
 }
 
 func buildOutreachShopkeeper(g *outreachShopGroup, vaults map[string]*outreachVault, membersByAccount map[string][]outreachMember) outreachShopBuilt {
-	b := outreachShopBuilt{sk: OutreachShopkeeper{Kaatas: []OutreachKaata{}, InstallIDs: []string{}}}
+	b := outreachShopBuilt{sk: OutreachShopkeeper{Kaatas: []OutreachKaata{}, InstallIDs: []string{}, Platforms: []string{}}}
 	sk := &b.sk
 	if g.account != nil {
 		sk.AccountID = g.account.id
 		sk.Email = g.account.email
 		sk.SignedIn = true
 	}
-	sk.InstallCount = len(g.installs)
+	platforms := map[string]bool{}
 	var firstSeen, lastActivity *time.Time
 	for i, in := range g.installs {
 		sk.InstallIDs = append(sk.InstallIDs, in.installID)
+		if in.platform == "web" {
+			sk.WebSessionCount++
+		} else {
+			sk.InstallCount++
+		}
+		if in.platform == "ios" || in.platform == "android" || in.platform == "web" {
+			platforms[in.platform] = true
+		}
 		if i == 0 {
 			sk.Platform = in.platform
 			sk.AppVersion = in.appVersion
@@ -1132,6 +1143,14 @@ func buildOutreachShopkeeper(g *outreachShopGroup, vaults map[string]*outreachVa
 		}
 		if b.shop == "" {
 			b.shop = in.shopName
+		}
+		// A recent browser heartbeat has no install acquisition metadata.
+		// Retain the latest known attribution from this account's installs.
+		if sk.Source == "" {
+			sk.Source = in.source
+		}
+		if sk.Attribution == "" {
+			sk.Attribution = in.attribution
 		}
 		sk.HasOnboarded = sk.HasOnboarded || in.hasOnboarded
 		sk.CheckInCount += in.checkInCount
@@ -1149,6 +1168,10 @@ func buildOutreachShopkeeper(g *outreachShopGroup, vaults map[string]*outreachVa
 			lastActivity = maxTimePtr(lastActivity, *in.lastActivityAt)
 		}
 	}
+	for platform := range platforms {
+		sk.Platforms = append(sk.Platforms, platform)
+	}
+	sort.Strings(sk.Platforms)
 	if len(g.installs) == 0 && g.account != nil {
 		created := g.account.createdAt
 		b.installedAt = &created

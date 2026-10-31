@@ -47,6 +47,7 @@ import type {
 } from "./api";
 import { languageForLocale } from "../../lib/language.ts";
 import { reportingDay } from "./dates.ts";
+import { accountPlatforms, platformFacets } from "./platforms.ts";
 
 export const OUTREACH_STATUSES: OutreachStatus[] = [
   "new",
@@ -516,12 +517,7 @@ export function languageLabel(locale: string): string {
   if (language === "en") return `English (${locale})`;
   return locale;
 }
-export function platformLabel(platform: string): string {
-  const lower = (platform || "").toLowerCase();
-  if (lower === "ios") return "iOS";
-  if (lower === "android") return "Android";
-  return platform && platform !== "__unknown__" ? platform : "Unknown";
-}
+export { platformLabel } from "./platforms.ts";
 function parseTime(iso: string | undefined): number | null {
   if (!iso) return null;
   const time = Date.parse(iso);
@@ -943,6 +939,19 @@ export function facetValue(
   return contact.shopkeeper?.source || "__unknown__";
 }
 
+export function outreachPlatforms(contact: OutreachContact): string[] {
+  return accountPlatforms(contact.shopkeeper?.platforms, contact.shopkeeper?.platform);
+}
+
+export function facetValues(
+  contact: OutreachContact,
+  field: "platform" | "language" | "source",
+): readonly string[] {
+  return field === "platform"
+    ? platformFacets(outreachPlatforms(contact))
+    : [facetValue(contact, field)];
+}
+
 export function filterOutreach(
   rows: OutreachContact[],
   filters: OutreachFilters,
@@ -970,7 +979,7 @@ export function filterOutreach(
     if (filters.country && dialCode(contact.phone).code !== filters.country) return false;
     if (filters.carrier && afghanCarrier(contact.phone) !== filters.carrier) return false;
     for (const field of ["platform", "language", "source"] as const) {
-      if (filters[field] && filters[field] !== facetValue(contact, field)) return false;
+      if (filters[field] && !facetValues(contact, field).includes(filters[field])) return false;
     }
     if (filters.signedIn === "yes" && !shopkeeper?.signed_in) return false;
     if (filters.signedIn === "no" && (!shopkeeper || shopkeeper.signed_in)) return false;
@@ -1193,7 +1202,9 @@ export const CSV_COLUMNS: [string, (c: OutreachContact) => string | number | boo
   ["email", (c) => c.shopkeeper?.email ?? ""],
   ["signed_in", (c) => c.shopkeeper?.signed_in ?? ""],
   ["install_count", (c) => c.shopkeeper?.install_count ?? ""],
+  ["web_session_count", (c) => c.shopkeeper?.web_session_count ?? ""],
   ["platform", (c) => c.shopkeeper?.platform ?? ""],
+  ["platforms", (c) => outreachPlatforms(c).join("; ")],
   ["app_version", (c) => c.shopkeeper?.app_version ?? ""],
   ["source", (c) => c.shopkeeper?.source ?? ""],
   ["attribution", (c) => c.shopkeeper?.attribution ?? ""],

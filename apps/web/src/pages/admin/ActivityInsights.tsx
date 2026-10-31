@@ -5,6 +5,7 @@ import { fmtExactDateTime } from "./dates";
 import { busiestHours, hourlyProfile, hourlyTimeline, type HourlyPeak } from "./hourly-activity";
 import { C, Card, ErrorCard, fmtInt } from "./ui";
 import { DayComparison } from "./DayComparison";
+import { platformLabel } from "./platforms";
 
 export type ActivityView = "hour" | "day" | "profile" | "compare";
 
@@ -34,7 +35,7 @@ export function ActivityInsights(props: {
   const refreshing = props.fetching && !props.pending;
   return (
     <Card
-      title="Activity & installs"
+      title="Activity & app installs"
       sub={
         props.view === "compare"
           ? "Compare Kabul days through the same completed hour"
@@ -69,8 +70,8 @@ export function ActivityInsights(props: {
             <p className="flex min-w-0 items-center gap-2 text-xs text-brand-sub">
               <span>
                 {props.view === "profile"
-                  ? "Average devices and installs at each hour of the day"
-                  : "Active devices and new installs"}
+                  ? "Average active app installs and new app installs at each hour of the day"
+                  : "Active app installs and new app installs"}
               </span>
               <span
                 role="status"
@@ -306,7 +307,7 @@ function HourlyTooltip({ active, payload }: CustomTooltipProps) {
 
 export function RecentInstalls({ stats }: { stats: Stats }) {
   return (
-    <Card title="Latest installs" sub="Reported install times · Kabul (UTC+04:30)">
+    <Card title="Latest app installs" sub="Reported install times · Kabul (UTC+04:30)">
       {stats.latest_installs === undefined ? (
         <p className="py-5 text-sm text-brand-sub">
           Exact install history is unavailable right now. Recorded install times are available in
@@ -326,11 +327,9 @@ export function RecentInstalls({ stats }: { stats: Stats }) {
                   {install.name || "Unidentified install"}
                 </p>
                 <p className="mt-0.5 text-xs text-brand-sub">
-                  {install.platform === "ios"
-                    ? "iOS"
-                    : install.platform === "android"
-                      ? "Android"
-                      : "Platform unknown"}
+                  {platformLabel(install.platform) === "Unknown"
+                    ? "Platform unknown"
+                    : platformLabel(install.platform)}
                 </p>
               </div>
               <time
@@ -346,7 +345,8 @@ export function RecentInstalls({ stats }: { stats: Stats }) {
       )}
       <p className="mt-4 border-t border-brand-border pt-3 text-xs leading-relaxed text-brand-sub">
         Install time is the earlier of the device's recorded install and its first server contact.
-        Offline installs can reach the server later. Operator and test devices are excluded.{" "}
+        Offline installs can reach the server later. Browser sessions are reported separately.
+        Operator and test devices are excluded.{" "}
         <a className="font-medium text-brand-ink hover:underline" href="#users">
           See all installs in Users →
         </a>

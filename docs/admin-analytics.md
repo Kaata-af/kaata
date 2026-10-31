@@ -1,6 +1,38 @@
 # Admin activity and reporting calendar
 
-The Overview activity chart and DAU count the same thing: distinct installs
+## Accounts across mobile and web
+
+The user directory keeps one row per proven signed-in account. Its `platforms`
+contains every known linked platform (iOS, Android and Web), and the platform
+filter matches any of them. The existing `platform` / `app_version` pair still
+describes the most recently seen installation or browser session. Names, phone
+numbers and email text are never used to guess that two accounts are one user.
+The latest nonempty shop profile and acquisition source remain available when
+the newest session is a browser that has never reported those fields.
+
+Browser sign-ins use independent session/device identities so signing out or
+switching accounts in one tab cannot rebind another tab or a phone. These are
+browser sessions, not fresh app installations. App install totals, recent app
+installs, device estimates, acquisition, activity and retention reports leave
+web sessions out. Account `install_count` and `excluded_installs` likewise count
+only app installations; `web_session_count` is separate. Existing browser rows
+with an exact `app_version = 'web'` marker and an unknown platform are classified
+as web without guessing the platform of other older installations.
+The growth reporting rule version changes once so previously recorded weeks
+are recomputed with the same app-only definition.
+
+Overview separately shows `web_accounts_total` and `web_active_7d`, counting each
+proven account once even when it has signed in through several browsers or tabs.
+The same operator and test exclusions apply. An authenticated, visible, online
+web workspace sends a best-effort activity update at most once per minute to
+`POST /v1/account/web-activity`. The server derives the account and session from
+the verified credential, updates only that existing browser session, and never
+creates an install or changes a known phone's platform. This keeps account
+last-seen times current without adding website visits or store attribution.
+
+## App installation activity
+
+The Overview activity chart and DAU count the same thing: distinct app installs
 that checked in, including signed-out users and people who only read a balance.
 They do not count ledger events or signed-in accounts. Repeated check-ins count
 once per bucket; operator and test data (see "Test data and frozen weeks") is

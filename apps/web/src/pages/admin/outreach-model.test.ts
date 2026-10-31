@@ -43,6 +43,7 @@ import {
   csvCell,
   dialCode,
   fillTemplate,
+  facetValues,
   filterOutreach,
   formatMoney,
   internationalDigits,
@@ -68,6 +69,7 @@ import {
   openableCount,
   openedTemplateKey,
   outreachCsv,
+  outreachPlatforms,
   parseMoney,
   parseOutreachPreferences,
   pendingRows,
@@ -229,6 +231,37 @@ function contact(phone: string, overrides: Partial<OutreachContact> = {}): Outre
     ...overrides,
   };
 }
+test("outreach filters every account platform and exports the complete set alongside latest", () => {
+  const person = contact("+93700123456", {
+    shopkeeper: shopkeeper({
+      platform: "web",
+      platforms: ["ios", "android", "web", "IOS"],
+    }),
+  });
+  assert.deepEqual(outreachPlatforms(person), ["android", "ios", "web"]);
+  assert.deepEqual(facetValues(person, "platform"), ["android", "ios", "web"]);
+  for (const platform of ["ios", "android", "web"]) {
+    assert.deepEqual(filterOutreach([person], { ...DEFAULT_OUTREACH_FILTERS, platform }, "", NOW), [
+      person,
+    ]);
+  }
+  const csv = outreachCsv([person]);
+  const [header, row] = csv.split("\r\n");
+  const columns = header.split(",");
+  assert.equal(row.split(",")[columns.indexOf("platform")], "web");
+  assert.equal(row.split(",")[columns.indexOf("platforms")], "android; ios; web");
+  assert.deepEqual(
+    facetValues(
+      contact("+93700123457", { shopkeeper: shopkeeper({ platform: "iOS" }) }),
+      "platform",
+    ),
+    ["ios"],
+  );
+  assert.deepEqual(facetValues(contact("+93700123458", { shopkeeper: null }), "platform"), [
+    "__unknown__",
+  ]);
+});
+
 function result(
   contacts: OutreachContact[],
   settings: Record<string, string> = {},

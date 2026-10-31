@@ -92,6 +92,10 @@ type Stats struct {
 	UsersTotal     int64 `json:"users_total"`
 	UsersAccounts  int64 `json:"users_accounts"`
 	UsersAnonymous int64 `json:"users_anonymous"`
+	// Browser session credentials are collapsed by their proven account link.
+	// They never enter the installation or device metrics below.
+	WebAccountsTotal int64 `json:"web_accounts_total"`
+	WebActive7d      int64 `json:"web_active_7d"`
 	// Funnel (installs): total → onboarded → made an entry → shared → active.
 	InstallsTotal  int64          `json:"installs_total"`
 	DeviceEstimate DeviceEstimate `json:"device_estimate"`
@@ -204,12 +208,22 @@ func (s *Service) GetStats(ctx context.Context, bucket string, points int) (Stat
 		     WHERE a.id::text NOT IN (SELECT id FROM report_excluded_accounts)) AS accounts,
 		    (SELECT COUNT(*) FROM report_installs i
 		     WHERE i.resolved_account_id IS NULL
+		       AND NOT i.is_web_session
 		       AND i.install_id NOT IN (SELECT install_id FROM report_excluded_installs)) AS anonymous
+		), web_counts AS (
+		  SELECT COUNT(DISTINCT resolved_account_id) AS accounts,
+		    COUNT(DISTINCT resolved_account_id) FILTER (
+		      WHERE last_seen_at >= $2::timestamptz - INTERVAL '7 days' AND last_seen_at <= $2::timestamptz) AS active_7d
+		  FROM report_installs i
+		  WHERE is_web_session AND resolved_account_id IS NOT NULL
+		    AND resolved_account_id IN (SELECT id FROM accounts)
+		    AND install_id NOT IN (SELECT install_id FROM report_excluded_installs)
 		)
 		SELECT
 		  (SELECT accounts + anonymous FROM user_counts),
 		  (SELECT accounts FROM user_counts),
 		  (SELECT anonymous FROM user_counts),
+		  (SELECT accounts FROM web_counts), (SELECT active_7d FROM web_counts),
 		  COUNT(*) FILTER (WHERE keep),
 		  COUNT(*) FILTER (WHERE keep AND has_onboarded),
 		  COUNT(*) FILTER (WHERE keep AND usage_entries_created > 0),
@@ -226,10 +240,11 @@ func (s *Service) GetStats(ctx context.Context, bucket string, points int) (Stat
 		  COUNT(DISTINCT (device_id_kind, device_id_hash)) FILTER (WHERE keep AND device_id_hash IS NOT NULL)
 		FROM (
 		  SELECT *, (install_id NOT IN (SELECT install_id FROM report_excluded_installs)) AS keep
-		  FROM installs
+		  FROM report_native_installs
 		) i
-	`, s.operatorAccountIDs).Scan(
+	`, s.operatorAccountIDs, now).Scan(
 		&st.UsersTotal, &st.UsersAccounts, &st.UsersAnonymous,
+		&st.WebAccountsTotal, &st.WebActive7d,
 		&st.InstallsTotal, &st.Onboarded, &st.WithEntries, &st.WithShares,
 		&st.Active7d, &st.Active30d, &st.EverActive, &st.DistinctAccounts,
 		&st.EntriesSum, &st.CustomersSum, &st.SharesSum, &st.ExcludedInstalls,
@@ -268,7 +283,7 @@ func (s *Service) GetStats(ctx context.Context, bucket string, points int) (Stat
 	// lands between them. "Active" means checked in, not uploaded ledger edits.
 	// All new day/hour/week/month boundaries are explicitly Kabul-local.
 	rows, err := s.pool.Query(ctx, `
-		WITH `+reportExclusionCTEs+`,
+		WITH `+installMetricCTEs+`,
 		clock AS (
 		  SELECT $6::timestamptz AT TIME ZONE 'Asia/Kabul' AS local_now
 		), buckets AS (
@@ -283,7 +298,7 @@ func (s *Service) GetStats(ctx context.Context, bucket string, points int) (Stat
 		  SELECT admin_bucket_start($2, CASE WHEN $2 = 'hour'
 		    THEN LEAST(i.installed_at, i.first_seen_at) AT TIME ZONE 'Asia/Kabul'
 		    ELSE d.installed_date::timestamp END) AS b, COUNT(*) AS n
-		  FROM installs i JOIN admin_install_dates d USING (install_id)
+		  FROM report_native_installs i JOIN admin_install_dates d USING (install_id)
 		  WHERE i.install_id NOT IN (SELECT install_id FROM report_excluded_installs)
 		    AND CASE WHEN $2 = 'hour' THEN LEAST(i.installed_at, i.first_seen_at)
 		      ELSE COALESCE(i.installed_at, i.first_seen_at) END <= $6
@@ -292,7 +307,7 @@ func (s *Service) GetStats(ctx context.Context, bucket string, points int) (Stat
 		),
 		days AS (
 		  SELECT ad.install_id, ad.active_date
-		  FROM admin_active_days ad
+		  FROM report_native_active_days ad
 		  WHERE ad.install_id NOT IN (SELECT install_id FROM report_excluded_installs)
 		    AND ad.active_date <= (SELECT local_now::date FROM clock)
 		),
@@ -300,7 +315,7 @@ func (s *Service) GetStats(ctx context.Context, bucket string, points int) (Stat
 		  SELECT install_id, active_date::timestamp AS at FROM days WHERE $2 <> 'hour'
 		  UNION ALL
 		  SELECT h.install_id, h.active_hour AT TIME ZONE 'Asia/Kabul'
-		  FROM install_active_hours h
+		  FROM report_native_active_hours h
 		  WHERE $2 = 'hour' AND h.active_hour <= $6
 		    AND h.install_id NOT IN (SELECT install_id FROM report_excluded_installs)
 		),
@@ -346,12 +361,12 @@ func (s *Service) GetStats(ctx context.Context, bucket string, points int) (Stat
 	// whole Users directory. Apply the same exclusion rules as the charts and
 	// do not show installations first observed after this report's clock.
 	irrows, err := s.pool.Query(ctx, `
-		WITH `+reportExclusionCTEs+`
+		WITH `+installMetricCTEs+`
 		SELECT i.install_id::text,
 		       COALESCE(NULLIF(a.name, ''), i.self_name, ''),
 		       COALESCE(i.platform, ''),
 		       LEAST(i.installed_at, i.first_seen_at), i.first_seen_at
-		FROM installs i LEFT JOIN accounts a ON a.id = i.account_id
+		FROM report_native_installs i LEFT JOIN accounts a ON a.id = i.account_id
 		WHERE i.install_id NOT IN (SELECT install_id FROM report_excluded_installs)
 		  AND LEAST(i.installed_at, i.first_seen_at) <= $2
 		  AND i.first_seen_at <= $2
@@ -381,21 +396,21 @@ func (s *Service) GetStats(ctx context.Context, bucket string, points int) (Stat
 	// day d0+N). Raw counts; frontend divides. Meaningful only for installs first
 	// seen AFTER per-day tracking deployed.
 	if err := s.pool.QueryRow(ctx, `
-		WITH `+reportExclusionCTEs+`,
+		WITH `+installMetricCTEs+`,
 		clock AS (
 		  SELECT ($2::timestamptz AT TIME ZONE 'Asia/Kabul')::date AS today
 		), base AS (
 		  SELECT i.install_id, d.first_seen_date AS d0
-		  FROM installs i JOIN admin_install_dates d USING (install_id)
+		  FROM report_native_installs i JOIN admin_install_dates d USING (install_id)
 		  WHERE i.install_id NOT IN (SELECT install_id FROM report_excluded_installs)
 		)
 		SELECT
 		  COUNT(*) FILTER (WHERE d0 <= today - 1),
-		  COUNT(*) FILTER (WHERE d0 <= today - 1  AND EXISTS (SELECT 1 FROM admin_active_days a WHERE a.install_id = base.install_id AND a.active_date = base.d0 + 1)),
+		  COUNT(*) FILTER (WHERE d0 <= today - 1  AND EXISTS (SELECT 1 FROM report_native_active_days a WHERE a.install_id = base.install_id AND a.active_date = base.d0 + 1)),
 		  COUNT(*) FILTER (WHERE d0 <= today - 7),
-		  COUNT(*) FILTER (WHERE d0 <= today - 7  AND EXISTS (SELECT 1 FROM admin_active_days a WHERE a.install_id = base.install_id AND a.active_date = base.d0 + 7)),
+		  COUNT(*) FILTER (WHERE d0 <= today - 7  AND EXISTS (SELECT 1 FROM report_native_active_days a WHERE a.install_id = base.install_id AND a.active_date = base.d0 + 7)),
 		  COUNT(*) FILTER (WHERE d0 <= today - 30),
-		  COUNT(*) FILTER (WHERE d0 <= today - 30 AND EXISTS (SELECT 1 FROM admin_active_days a WHERE a.install_id = base.install_id AND a.active_date = base.d0 + 30))
+		  COUNT(*) FILTER (WHERE d0 <= today - 30 AND EXISTS (SELECT 1 FROM report_native_active_days a WHERE a.install_id = base.install_id AND a.active_date = base.d0 + 30))
 		FROM base CROSS JOIN clock
 	`, s.operatorAccountIDs, now).Scan(
 		&st.RetD1Eligible, &st.RetD1Retained,
@@ -407,9 +422,9 @@ func (s *Service) GetStats(ctx context.Context, bucket string, points int) (Stat
 
 	// Language split — installs by in-app language (app_locale).
 	lrows, err := s.pool.Query(ctx, `
-		WITH `+reportExclusionCTEs+`
+		WITH `+installMetricCTEs+`
 		SELECT COALESCE(NULLIF(app_locale, ''), 'unknown') AS locale, COUNT(*)
-		FROM installs
+		FROM report_native_installs
 		WHERE install_id NOT IN (SELECT install_id FROM report_excluded_installs)
 		GROUP BY 1 ORDER BY 2 DESC
 	`, s.operatorAccountIDs)
@@ -446,7 +461,7 @@ func (s *Service) GetStats(ctx context.Context, bucket string, points int) (Stat
 	// group by hitting the site with ?s=<anything>) but at a bound no real
 	// operator will reach.
 	srows, err := s.pool.Query(ctx, `
-		WITH w AS (
+		WITH `+installReportingCTEs+`, w AS (
 		  SELECT COALESCE(source, '(direct)') AS source, kind, ip, user_agent, visited_at, claimed_by_install_id,
 		         (
 		           (ip IS NULL OR ip <> ALL($1::text[]))
@@ -458,7 +473,7 @@ func (s *Service) GetStats(ctx context.Context, bucket string, points int) (Stat
 		       COUNT(DISTINCT (ip, user_agent, date_trunc('hour', visited_at))) FILTER (WHERE keep AND kind = 'visit') AS visits,
 		       COUNT(DISTINCT (ip, user_agent, date_trunc('hour', visited_at))) FILTER (WHERE keep AND kind = 'download'),
 		       COUNT(DISTINCT (ip, user_agent, date_trunc('hour', visited_at))) FILTER (WHERE keep AND kind = 'store_click'),
-		       COUNT(DISTINCT claimed_by_install_id) FILTER (WHERE keep AND claimed_by_install_id IS NOT NULL),
+		       COUNT(DISTINCT claimed_by_install_id) FILTER (WHERE keep AND claimed_by_install_id IN (SELECT install_id FROM report_native_installs)),
 		       COUNT(*) FILTER (WHERE kind = 'visit') AS raw_visits,
 		       COUNT(*) FILTER (WHERE NOT keep) AS excluded_rows
 		FROM w

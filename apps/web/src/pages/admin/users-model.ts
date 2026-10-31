@@ -1,5 +1,6 @@
 import type { InstallExclusionSource, InstallRow, UserRow, UsersResult } from "./api";
 import { reportingDay } from "./dates.ts";
+import { accountPlatforms, platformFacets } from "./platforms.ts";
 
 // The API combines signed-in accounts (possibly several devices) and
 // signed-out installs. Keep these units explicit; rows are not device counts.
@@ -13,6 +14,7 @@ export type UserListRow = {
   locale: string;
   source: string;
   platform: string;
+  platforms: string[];
   version: string;
   onboarded: boolean;
   // The truthful install moment (installTime) and its Kabul calendar day,
@@ -154,6 +156,7 @@ export function userRows(data: UsersResult | undefined): UserListRow[] {
         locale: u.locale,
         source: u.source,
         platform: (u.platform || "").toLowerCase(),
+        platforms: accountPlatforms(u.platforms, u.platform),
         version: u.app_version,
         onboarded: u.has_onboarded,
         installed_at: installedAt,
@@ -182,6 +185,7 @@ export function userRows(data: UsersResult | undefined): UserListRow[] {
         locale: d.locale,
         source: d.source,
         platform: (d.platform || "").toLowerCase(),
+        platforms: accountPlatforms(undefined, d.platform),
         version: d.app_version,
         onboarded: d.has_onboarded,
         installed_at: installedAt,
@@ -277,7 +281,8 @@ export function filterUsers(
     if (filters.onboarding !== "all" && row.onboarded !== (filters.onboarding === "complete"))
       return false;
     if (!matchesActivity(row, filters.activity, now)) return false;
-    for (const key of ["platform", "source", "version"] as const) {
+    if (filters.platform && !platformFacets(row.platforms).includes(filters.platform)) return false;
+    for (const key of ["source", "version"] as const) {
       if (filters[key] && filters[key] !== (row[key] || "__unknown__")) return false;
     }
     if (filters.language && filters.language !== (row.locale || "__unknown__")) return false;

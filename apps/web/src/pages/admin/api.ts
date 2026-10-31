@@ -76,6 +76,8 @@ export type Stats = {
   users_total?: number;
   users_accounts?: number;
   users_anonymous?: number;
+  web_accounts_total?: number;
+  web_active_7d?: number;
   // Optional while the dashboard and backend roll out independently.
   device_estimate?: DeviceEstimate;
   onboarded: number;
@@ -175,6 +177,9 @@ export type UserRow = {
   ledger_phone: string;
   shop_name: string;
   platform: string;
+  // All platforms linked to this account. Optional during server rollout;
+  // platform/app_version remain the latest installation's pair.
+  platforms?: string[];
   app_version: string;
   installed_at: string;
   // Optional so a dashboard deployed ahead of the backend that adds it still
@@ -187,6 +192,7 @@ export type UserRow = {
   has_onboarded: boolean;
   source: string;
   install_count: number;
+  web_session_count?: number;
   kaatas: UserKaata[];
   // Test data (2026-10-12; optional while an older backend is live). An
   // account excluded by hand (outreach_exclusions kind "account") leaves
@@ -429,7 +435,9 @@ export type OutreachShopkeeper = {
   email: string;
   signed_in: boolean;
   install_count: number;
+  web_session_count?: number;
   platform: string;
+  platforms?: string[];
   app_version: string;
   locale: string;
   source: string;
