@@ -73,7 +73,7 @@ function FinalCTA() {
         <p className="mt-5 text-base md:text-lg text-muted-foreground max-w-md mx-auto leading-relaxed">
           {t("cta.sub")}
         </p>
-        <Button asChild size="lg" className="mt-8 min-h-11">
+        <Button asChild variant="brand" size="lg" className="mt-8 min-h-11">
           <Link to="/download">{t("cta.button")}</Link>
         </Button>
       </Card>

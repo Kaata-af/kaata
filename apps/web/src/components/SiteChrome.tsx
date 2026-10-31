@@ -4,6 +4,7 @@ import { FACEBOOK_URL, INSTAGRAM_URL, TIKTOK_URL, WHATSAPP_CONTACT_URL, YOUTUBE_
 import { useI18n, type Lang } from "../lib/i18n";
 import { BrandLogo } from "./BrandLogo";
 import { Button } from "./ui/button";
+import { NativeSelect } from "./ui/native-select";
 
 // Header mirrors dub.co's chassis: logo at the start, nav links centered,
 // primary CTA at the end (start/end flip with the document direction for
@@ -62,11 +63,11 @@ export function SiteHeader() {
           <label className="sr-only" htmlFor="site-language">
             {lang === "ps" ? "ژبه" : lang === "fa" ? "زبان" : "Language"}
           </label>
-          <select
+          <NativeSelect
             id="site-language"
             value={lang}
             onChange={(event) => setLang(event.target.value as Lang)}
-            className="h-9 rounded-md border border-neutral-200 bg-transparent px-2 text-[13px] text-muted-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-primary"
+            className="border-neutral-200 bg-white/60 text-[13px] text-muted-foreground focus-visible:ring-[#3e6149]"
           >
             <option value="en" lang="en">
               English
@@ -77,9 +78,9 @@ export function SiteHeader() {
             <option value="ps" lang="ps">
               پښتو
             </option>
-          </select>
+          </NativeSelect>
 
-          <Button asChild size="sm" className="text-[13px]">
+          <Button asChild variant="brand" size="sm" className="text-[13px]">
             <Link reloadDocument to="/app">
               {lang === "fa" ? "کاتای وب" : lang === "ps" ? "کاتا وېب" : "Open Kaata"}
             </Link>
@@ -123,42 +124,24 @@ export function SiteFooter() {
               Icons inherit currentColor and share the same neutral hover as the
               text links above. */}
           <div className="mt-6 flex items-center gap-2">
-            <a
-              href={FACEBOOK_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label={t("footer.followFacebook")}
-              className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-neutral-500 hover:text-neutral-900 hover:bg-neutral-100 transition-colors"
-            >
-              <FacebookIcon />
-            </a>
-            <a
-              href={INSTAGRAM_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label={t("footer.followInstagram")}
-              className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-neutral-500 hover:text-neutral-900 hover:bg-neutral-100 transition-colors"
-            >
-              <InstagramIcon />
-            </a>
-            <a
-              href={TIKTOK_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label={t("footer.followTiktok")}
-              className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-neutral-500 hover:text-neutral-900 hover:bg-neutral-100 transition-colors"
-            >
-              <TiktokIcon />
-            </a>
-            <a
-              href={YOUTUBE_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label={t("footer.followYoutube")}
-              className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-neutral-500 hover:text-neutral-900 hover:bg-neutral-100 transition-colors"
-            >
-              <YoutubeIcon />
-            </a>
+            {[
+              { href: FACEBOOK_URL, label: t("footer.followFacebook"), icon: <FacebookIcon /> },
+              { href: INSTAGRAM_URL, label: t("footer.followInstagram"), icon: <InstagramIcon /> },
+              { href: TIKTOK_URL, label: t("footer.followTiktok"), icon: <TiktokIcon /> },
+              { href: YOUTUBE_URL, label: t("footer.followYoutube"), icon: <YoutubeIcon /> },
+            ].map(({ href, label, icon }) => (
+              <Button
+                key={href}
+                asChild
+                variant="ghost"
+                size="icon"
+                className="rounded-lg text-neutral-500 hover:text-neutral-900"
+              >
+                <a href={href} target="_blank" rel="noopener noreferrer" aria-label={label}>
+                  {icon}
+                </a>
+              </Button>
+            ))}
           </div>
         </div>
 

@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 import { useI18n } from "../lib/i18n";
 import { PhoneMockupHome } from "./PhoneMockups";
 import { Button } from "./ui/button";
+import { Card } from "./ui/card";
 
 export function Hero() {
   const { t } = useI18n();
@@ -19,7 +20,7 @@ export function Hero() {
         </p>
 
         <div className="mt-8 flex flex-col sm:flex-row gap-3 justify-center items-stretch sm:items-center">
-          <Button asChild size="lg" className="min-h-11">
+          <Button asChild variant="brand" size="lg" className="min-h-11">
             <Link to="/download">{t("hero.cta")}</Link>
           </Button>
           <Button asChild variant="ghost" size="lg" className="min-h-11">
@@ -30,9 +31,9 @@ export function Hero() {
         <p className="mt-7 text-xs text-neutral-500 font-medium">{t("hero.points")}</p>
       </div>
 
-      <div className="mt-12 md:mt-16 mx-auto max-w-5xl flex justify-center rounded-[2rem] border border-surface-balance-border bg-surface-balance bg-[radial-gradient(ellipse_at_top_left,#E4EEE6,transparent_60%),radial-gradient(ellipse_at_bottom_right,#F8EAEC,transparent_60%)] py-10 md:py-14">
+      <Card className="mt-12 md:mt-16 mx-auto max-w-5xl flex justify-center rounded-[2rem] border-surface-balance-border bg-surface-balance bg-[radial-gradient(ellipse_at_top_left,#E4EEE6,transparent_60%),radial-gradient(ellipse_at_bottom_right,#F8EAEC,transparent_60%)] py-10 md:py-14 shadow-none">
         <PhoneMockupHome />
-      </div>
+      </Card>
     </section>
   );
 }
