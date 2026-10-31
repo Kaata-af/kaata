@@ -1,9 +1,9 @@
 # =============================================================================
 # Kaata web — Vite + React SPA, served by Caddy.
-# Build from the REPOSITORY ROOT so the canonical shared palette is available:
+# Build from the REPOSITORY ROOT for the shared palette and pure domain logic:
 #   docker build -f apps/web/Dockerfile .
 # Dokploy: Dockerfile = apps/web/Dockerfile; Docker context = .
-# Dockerfile.dockerignore limits this root context to web inputs and the palette.
+# Dockerfile.dockerignore limits this root context to explicit public build inputs.
 # =============================================================================
 
 # -----------------------------------------------------------------------------
@@ -25,6 +25,8 @@ RUN bun install --frozen-lockfile
 
 COPY apps/web/ ./
 COPY apps/_shared/brand-palette.json /app/apps/_shared/brand-palette.json
+# Portable domain logic also used by the released mobile app; no native code.
+COPY apps/mobile/lib/currency-catalog.ts apps/mobile/lib/calculator.ts apps/mobile/lib/calculator-input.ts apps/mobile/lib/money.ts apps/mobile/lib/digits.ts /app/apps/mobile/lib/
 RUN bun run build
 
 # -----------------------------------------------------------------------------

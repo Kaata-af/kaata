@@ -1,12 +1,19 @@
 # Paths are relative to the repository-root build context. This file takes
 # precedence over a root .dockerignore when building apps/web/Dockerfile.
-# Only the web app and its canonical shared palette enter the context.
+# Only web inputs, the shared palette and explicit pure domain modules enter.
 **
 !apps/
 !apps/web/
 !apps/web/**
 !apps/_shared/
 !apps/_shared/brand-palette.json
+!apps/mobile/
+!apps/mobile/lib/
+!apps/mobile/lib/currency-catalog.ts
+!apps/mobile/lib/calculator.ts
+!apps/mobile/lib/calculator-input.ts
+!apps/mobile/lib/money.ts
+!apps/mobile/lib/digits.ts
 
 # Keep local dependencies, generated output and private environment files out.
 **/node_modules

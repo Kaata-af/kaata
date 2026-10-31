@@ -8,6 +8,7 @@ import {
   entryDate,
   entryTimestamp,
   localDateValue,
+  localTimeValue,
   minorUnits,
   money,
   personBalances,
@@ -51,6 +52,35 @@ function entry(
     ...extra,
   };
 }
+
+test("disputed tallies stay in history but never inflate balances or credit exposure", () => {
+  const rows = [
+    entry("normal", "A", "12.34"),
+    entry("disputed", "A", "999", { disputed_at: 10 }),
+    entry("payment", "A", "2.34", { type: "payment" }),
+  ];
+  assert.equal(balanceMap(rows).get("A")?.get("AFN"), 1000n);
+  assert.equal(rows.length, 3);
+});
+
+test("explicit tally times preserve untouched milliseconds and reject impossible or future times", () => {
+  const original = new Date(2025, 2, 15, 10, 42, 33, 123).getTime();
+  const opened = Date.now();
+  assert.equal(
+    entryTimestamp(localDateValue(original), opened, original, localTimeValue(original)),
+    original,
+  );
+  assert.equal(
+    entryTimestamp("2025-03-15", opened, original, "09:30"),
+    new Date(2025, 2, 15, 9, 30).getTime(),
+  );
+  assert.equal(entryTimestamp("2025-03-15", opened, original, "25:00"), null);
+  assert.equal(entryTimestamp("2025-03-15", opened, original, "10:60"), null);
+  const now = new Date();
+  if (now.getHours() < 23) {
+    assert.equal(entryTimestamp(localDateValue(), opened, undefined, "23:59"), null);
+  }
+});
 
 test("ledger totals preserve cents, direction, and currency without adding shared or archived balances", () => {
   const rows = [
@@ -233,19 +263,44 @@ test("unknown shared balances cannot appear settled and contact search normalize
   assert.equal(peopleInView(people, new Map(), "۷۰۰", "all")[0].name, "Ahmad");
 });
 
-test("CSV exports full private history across currencies and neutralizes spreadsheet formulas", () => {
+test("CSV identifies current, settled and disputed history across currencies and safely localizes exports", () => {
   const contact = person("a", { name: '=HYPERLINK("bad")' });
-  const csv = statementCSV(contact, [
+  const rows = [
     entry("1", "a", "10.50", { note: '+danger,\nquoted"' }),
-    entry("2", "a", "5", { currency: "USD", type: "payment" }),
+    entry("2", "a", "5", { currency: "USD", type: "payment", settled_at: 10 }),
     entry("3", "a", "99", { is_deleted: true }),
     entry("4", "other", "999"),
-  ]);
+    entry("5", "a", "7.25", { currency: "EUR", disputed_at: 12 }),
+    entry("6", "a", "3.75", { currency: "GBP", type: "payment", settled_at: 10, disputed_at: 12 }),
+  ];
+  const csv = statementCSV(contact, rows);
+  assert.ok(csv.startsWith('\ufeff"Person","Date","Type","Amount","Currency","Note","Status"\r\n'));
   assert.ok(csv.includes("'" + '=HYPERLINK(""bad"")'));
   assert.ok(csv.includes("'+danger,"));
   assert.ok(csv.includes('"10.50","AFN"'));
   assert.ok(csv.includes('"5","USD"'));
+  assert.ok(csv.includes('"7.25","EUR","","Disputed"'));
+  assert.ok(
+    csv.includes('"3.75","GBP","","Disputed"'),
+    "a disputed settled row must still be flagged as disputed",
+  );
+  assert.equal(csv.match(/,"Current"(?:\r\n|$)/g)?.length, 1);
+  assert.equal(csv.match(/,"Settled"(?:\r\n|$)/g)?.length, 1);
+  assert.equal(csv.match(/,"Disputed"(?:\r\n|$)/g)?.length, 2);
   assert.ok(!csv.includes('"99"') && !csv.includes('"999"'));
+  for (const [locale, statusHeader, current, settled, disputed, gave, received] of [
+    ["fa", "وضعیت", "جاری", "تصفیه‌شده", "مورد اختلاف", "دادم", "گرفتم"],
+    ["ps", "حالت", "اوسنی", "تصفیه شوی", "لانجمن", "ورکړل", "واخیستل"],
+  ] as const) {
+    const localized = statementCSV(contact, rows, locale);
+    assert.ok(localized.includes(`,"${statusHeader}"\r\n`));
+    for (const label of [current, settled, disputed, gave, received])
+      assert.ok(localized.includes(`"${label}"`));
+    assert.ok(localized.includes('"7.25","EUR","",' + `"${disputed}"`));
+    assert.ok(localized.includes("'" + '=HYPERLINK(""bad"")'));
+    assert.ok(localized.includes("'+danger,"));
+    assert.ok(!localized.includes('"99"') && !localized.includes('"999"'));
+  }
   assert.throws(() => statementCSV(person("shared", { read_only_reason: "shared_tab" }), []));
 });
 

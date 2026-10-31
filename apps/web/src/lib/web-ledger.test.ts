@@ -29,6 +29,20 @@ test("browser signs device admission and safely retries a lost save response wit
   let publicKey = "";
   let losePersonResponse = true;
   let personPushCount = 0;
+  let loseNoteResponse = true;
+  let notePushCount = 0;
+  const historyEventID = crypto.randomUUID();
+  let historyResponse: unknown = {
+    entries: [{ event_id: historyEventID, note: null, at: 100, actor: null }],
+    next_cursor: null,
+    has_more: false,
+  };
+  let attemptedCreate:
+    | {
+        events: { event_type: string; payload: { key?: string; value?: string } }[];
+        create: { currency: string };
+      }
+    | undefined;
   const events = new Set<string>();
   const ledger: WebLedger = {
     vault_id: vaultID,
@@ -70,8 +84,17 @@ test("browser signs device admission and safely retries a lost save response wit
       publicKey = body.ed25519_pubkey;
       return respond({ registered: true });
     }
-    if (path === "/v1/vaults" && init?.method === "POST")
+    if (path === "/v1/sync/person-notes") {
+      const query = new URL(String(url)).searchParams;
+      assert.equal(query.get("vault_id"), vaultID);
+      assert.equal(query.get("relationship_id"), ledger.people[0].relationship_id);
+      assert.equal(query.get("cursor"), "scoped-cursor");
+      return respond(historyResponse);
+    }
+    if (path === "/v1/vaults" && init?.method === "POST") {
+      attemptedCreate = JSON.parse(storage.get("kaata_web_pending_v1")!);
       return new Response(JSON.stringify({ error: "Kaata creation refused" }), { status: 403 });
+    }
     if (path === `/v1/vaults/${vaultID}/witness`)
       return respond({
         server_key_id: "primary",
@@ -114,6 +137,7 @@ test("browser signs device admission and safely retries a lost save response wit
           true,
         );
         if (event.event_type === "person_added") personPushCount++;
+        if (event.event_type === "person_note_set") notePushCount++;
         if (events.has(event.event_id)) {
           duplicates.push(event.event_id);
           continue;
@@ -170,6 +194,24 @@ test("browser signs device admission and safely retries a lost save response wit
           row.current_event_id = event.event_id;
           row.updated_at = event.hlc.physical_ms;
         }
+        if (event.event_type === "person_note_set") {
+          const person = ledger.people.find(
+            (row) => row.relationship_id === event.relationship_id,
+          )!;
+          assert.equal(event.target_id, person.relationship_id);
+          person.note = event.payload.note;
+          person.note_hlc = { ...ledger.hlc_last };
+          person.note_event_id = event.event_id;
+        }
+        if (event.event_type === "vault_setting_set") {
+          assert.equal(event.target_id, vaultID);
+          assert.equal(event.relationship_id, null);
+          if (event.payload.key === "default_entry_currency")
+            ledger.default_entry_currency = event.payload.value;
+          else if (event.payload.key === "enabled_currencies")
+            ledger.enabled_currencies = JSON.parse(event.payload.value);
+          else assert.fail("Unexpected book setting");
+        }
         accepted.push({ event_id: event.event_id, server_seq: ledger.server_seq });
       }
       if (
@@ -178,6 +220,15 @@ test("browser signs device admission and safely retries a lost save response wit
       ) {
         losePersonResponse = false;
         throw new TypeError("connection lost after commit");
+      }
+      if (
+        body.events.some(
+          (event: { event_type: string }) => event.event_type === "person_note_set",
+        ) &&
+        loseNoteResponse
+      ) {
+        loseNoteResponse = false;
+        throw new TypeError("note response lost after commit");
       }
       return respond({ accepted, duplicates, rejected: [] });
     }
@@ -290,6 +341,192 @@ test("browser signs device admission and safely retries a lost save response wit
       read_only_reason: "shared_tab",
     };
     ledger.people[0] = linked;
+    // Shared financial data stays read-only; private staff instructions do not.
+    const noteOriginal = structuredClone(linked);
+    await assert.rejects(
+      client.updateWebPersonNote(ledger, noteOriginal, "  Call first 💬  "),
+      /Cannot reach/,
+    );
+    assert.equal(linked.note, "Call first 💬");
+    assert.equal(client.hasPendingWebWrite(), true);
+    await client.updateWebPersonNote(ledger, noteOriginal, "  Call first 💬  ");
+    assert.equal(notePushCount, 2);
+    assert.equal(client.hasPendingWebWrite(), false);
+    await assert.rejects(client.updateWebPersonNote(ledger, noteOriginal, "overwrite"), {
+      code: "stale_person_note",
+    });
+    const sameTextBefore = structuredClone(linked);
+    linked.note_hlc = { ...linked.note_hlc!, l: linked.note_hlc!.l + 1 };
+    linked.note_event_id = crypto.randomUUID();
+    await assert.rejects(client.updateWebPersonNote(ledger, sameTextBefore, "overwrite"), {
+      code: "stale_person_note",
+    });
+    await assert.rejects(
+      client.updateWebPersonNote(ledger, structuredClone(linked), "💬".repeat(2001)),
+      { code: "invalid_person_note" },
+    );
+    const beforeNoop = events.size;
+    await client.updateWebPersonNote(ledger, structuredClone(linked), "  Call first 💬  ");
+    assert.equal(events.size, beforeNoop);
+    for (const role of ["clerk", "viewer"] as const) {
+      ledger.role = role;
+      await assert.rejects(client.updateWebPersonNote(ledger, structuredClone(linked), "blocked"), {
+        code: "permission_denied",
+      });
+    }
+    ledger.role = "editor";
+    await client.updateWebPersonNote(ledger, structuredClone(linked), "💬".repeat(2000));
+    assert.equal(Array.from(linked.note!).length, 2000);
+    await client.updateWebPersonNote(ledger, structuredClone(linked), "   ");
+    assert.equal(linked.note, null);
+    linked.archived_at = Date.now();
+    await assert.rejects(client.updateWebPersonNote(ledger, structuredClone(linked), "blocked"), {
+      code: "person_read_only",
+    });
+    linked.archived_at = null;
+    linked.read_only_reason = null;
+    await assert.rejects(client.updateWebPersonNote(ledger, structuredClone(linked), "blocked"), {
+      code: "person_read_only",
+    });
+    linked.read_only_reason = "shared_tab";
+    const history = await client.getWebPersonNoteHistory(ledger, linked, "scoped-cursor");
+    assert.deepEqual(history.entries[0], {
+      event_id: historyEventID,
+      note: null,
+      at: 100,
+      actor: null,
+    });
+    const validHistory = structuredClone(history);
+    const validRevision = validHistory.entries[0];
+    const malformedHistories: [string, unknown][] = [
+      ["null page", null],
+      ["wrong page shape", { events: [], has_more: false }],
+      ["unbounded page", { ...validHistory, entries: Array(51).fill(validRevision) }],
+      ["null revision", { ...validHistory, entries: [null] }],
+      [
+        "invalid event UUID",
+        { ...validHistory, entries: [{ ...validRevision, event_id: "not-an-event" }] },
+      ],
+      ["missing event UUID", { ...validHistory, entries: [{ ...validRevision, event_id: null }] }],
+      ["non-text note", { ...validHistory, entries: [{ ...validRevision, note: {} }] }],
+      ["missing note", { ...validHistory, entries: [{ ...validRevision, note: undefined }] }],
+      [
+        "oversized Unicode note",
+        { ...validHistory, entries: [{ ...validRevision, note: "💬".repeat(2001) }] },
+      ],
+      ["negative time", { ...validHistory, entries: [{ ...validRevision, at: -1 }] }],
+      ["fractional time", { ...validHistory, entries: [{ ...validRevision, at: 1.5 }] }],
+      ["text time", { ...validHistory, entries: [{ ...validRevision, at: "100" }] }],
+      [
+        "safe integer outside Date range",
+        { ...validHistory, entries: [{ ...validRevision, at: 8_640_000_000_000_001 }] },
+      ],
+      [
+        "unsafe integer",
+        { ...validHistory, entries: [{ ...validRevision, at: Number.MAX_SAFE_INTEGER + 1 }] },
+      ],
+      ["nonfinite time", { ...validHistory, entries: [{ ...validRevision, at: Infinity }] }],
+      [
+        "claimed author",
+        { ...validHistory, entries: [{ ...validRevision, actor: { account_id: accountID } }] },
+      ],
+      [
+        "missing author state",
+        { ...validHistory, entries: [{ ...validRevision, actor: undefined }] },
+      ],
+      ["invalid page flag", { ...validHistory, has_more: 1 }],
+      ["missing cursor", { ...validHistory, next_cursor: undefined }],
+      ["wrong cursor type", { ...validHistory, next_cursor: 1 }],
+      ["oversized cursor", { ...validHistory, next_cursor: "a".repeat(1025) }],
+      ["more without cursor", { ...validHistory, has_more: true }],
+      ["more with empty cursor", { ...validHistory, has_more: true, next_cursor: "" }],
+      [
+        "cursor does not advance",
+        { ...validHistory, has_more: true, next_cursor: "scoped-cursor" },
+      ],
+      ["empty page with more", { entries: [], has_more: true, next_cursor: "later" }],
+    ];
+    for (const [label, response] of malformedHistories) {
+      historyResponse = response;
+      await assert.rejects(
+        client.getWebPersonNoteHistory(ledger, linked, "scoped-cursor"),
+        { code: "notes_history_unavailable" },
+        label,
+      );
+    }
+    historyResponse = {
+      entries: Array.from({ length: 50 }, (_, index) => ({
+        event_id: crypto.randomUUID(),
+        note: "💬".repeat(2000),
+        at: index === 0 ? 0 : 8_640_000_000_000_000,
+        actor: null,
+      })),
+      next_cursor: "a".repeat(1024),
+      has_more: true,
+    };
+    const boundedHistory = await client.getWebPersonNoteHistory(ledger, linked, "scoped-cursor");
+    assert.equal(boundedHistory.entries.length, 50);
+    for (const row of boundedHistory.entries)
+      assert.doesNotThrow(() => new Date(row.at).toISOString());
+    historyResponse = { entries: [], next_cursor: null, has_more: false };
+    assert.deepEqual(
+      await client.getWebPersonNoteHistory(ledger, linked, "scoped-cursor"),
+      historyResponse,
+    );
+    historyResponse = validHistory;
+    await assert.rejects(
+      client.getWebPersonNoteHistory(ledger, { ...linked, relationship_id: crypto.randomUUID() }),
+      { code: "person_missing" },
+    );
+
+    const currencyChange = {
+      default_entry_currency: "EUR",
+      enabled_currencies: ["EUR", "USD", "AFN"],
+    };
+    await assert.rejects(client.updateWebCurrencies(ledger, currencyChange), {
+      code: "permission_denied",
+    });
+    ledger.role = "manager";
+    const originalCurrencies = structuredClone(ledger);
+    await client.updateWebCurrencies(originalCurrencies, currencyChange);
+    assert.equal(ledger.default_entry_currency, "EUR");
+    assert.deepEqual(ledger.enabled_currencies, currencyChange.enabled_currencies);
+    assert.equal(ledger.legacy_currency, "AFN");
+    assert.equal(ledger.currency, "AFN");
+    assert.equal(ledger.entries[0].currency, "USD");
+    await assert.rejects(
+      client.updateWebCurrencies(originalCurrencies, {
+        default_entry_currency: "AFN",
+        enabled_currencies: ["AFN"],
+      }),
+      { code: "stale_currencies" },
+    );
+    for (const input of [
+      { default_entry_currency: "AFN", enabled_currencies: [] },
+      { default_entry_currency: "AFN", enabled_currencies: ["USD"] },
+      { default_entry_currency: "AFN", enabled_currencies: ["AFN", "AFN"] },
+      { default_entry_currency: "afn", enabled_currencies: ["afn"] },
+      { default_entry_currency: "AFN", enabled_currencies: ["AFN", "US"] },
+      {
+        default_entry_currency: "AAA",
+        enabled_currencies: Array.from(
+          { length: 65 },
+          (_, i) =>
+            `A${String.fromCharCode(65 + Math.floor(i / 26))}${String.fromCharCode(65 + (i % 26))}`,
+        ),
+      },
+    ])
+      await assert.rejects(client.updateWebCurrencies(ledger, input), {
+        code: "invalid_currencies",
+      });
+    ledger.archived_at_ms = Date.now();
+    await assert.rejects(client.updateWebCurrencies(ledger, currencyChange), {
+      code: "permission_denied",
+    });
+    await assert.rejects(client.updateWebPersonNote(ledger, linked, "blocked"), {
+      code: "permission_denied",
+    });
+    ledger.archived_at_ms = null;
     await assert.rejects(
       client.createWebEntry(ledger, linked, {
         type: "payment",
@@ -308,9 +545,22 @@ test("browser signs device admission and safely retries a lost save response wit
       code: "signing_key_missing",
     });
     ledger.device_pubkey = publicKey;
-    await assert.rejects(client.createWebVault({ name: "Refused kaata", currency: "AFN" }), {
-      status: 403,
-    });
+    await assert.rejects(
+      client.createWebVault({
+        name: "Refused kaata",
+        currency: "AFN",
+        enabled_currencies: ["AFN", "USD", "EUR"],
+      }),
+      {
+        status: 403,
+      },
+    );
+    assert.equal(attemptedCreate?.create.currency, "AFN");
+    assert.equal(
+      attemptedCreate?.events.find((event) => event.payload.key === "enabled_currencies")?.payload
+        .value,
+      '["AFN","USD","EUR"]',
+    );
     assert.equal(client.hasPendingWebWrite(), false);
     assert.equal(storage.has("kaata_web_pending_v1"), false);
     assert.ok(storage.has("kaata_web_signing_v1"));

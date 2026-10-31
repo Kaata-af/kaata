@@ -32,6 +32,11 @@ import {
   type WebVault,
 } from "../../lib/web-ledger";
 import { workspaceCopy, type WorkspaceCopy } from "./copy";
+import { CreditPanel } from "./CreditPanel";
+import { CurrencyPicker, CurrencySettings, EnabledCurrencies } from "./CurrencySettings";
+import { EntryCalculator } from "./EntryCalculator";
+import { EntryHistory } from "./EntryHistory";
+import { PersonNotePanel } from "./PersonNotePanel";
 import {
   amountInput,
   asciiDigits,
@@ -39,7 +44,7 @@ import {
   defaultPersonEntryCurrency,
   entryTimestamp,
   localDateValue,
-  minorUnits,
+  localTimeValue,
   money,
   peopleInView,
   personBalances,
@@ -72,6 +77,7 @@ export default function LedgerWorkspace({ session }: { session: WebSession }) {
   const [online, setOnline] = useState(navigator.onLine);
   const [liveState, setLiveState] = useState<WebLiveState>("connecting");
   const [modal, setModal] = useState<Modal | null>(null);
+  const [currencySettings, setCurrencySettings] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
   const [pending, setPending] = useState(hasPendingWebWrite);
   const [retrying, setRetrying] = useState(false);
@@ -197,6 +203,7 @@ export default function LedgerWorkspace({ session }: { session: WebSession }) {
     setQuery("");
     setFilter("all");
     setModal((current) => (current?.kind === "vault" ? current : null));
+    setCurrencySettings(false);
     if (vaultID) void refresh(vaultID, true);
     return () => {
       requestVersion.current++;
@@ -276,6 +283,9 @@ export default function LedgerWorkspace({ session }: { session: WebSession }) {
     !pending;
   const canWritePerson = canWrite && !!person && !person.read_only;
   const canAmendPerson = canWritePerson && ledger?.role !== "clerk";
+  const canConfigure = canWrite && !!ledger && ["owner", "manager"].includes(ledger.role);
+  const canEditNote =
+    canWrite && !!person && person.archived_at == null && ledger?.role !== "clerk";
   const visibleEntries = useMemo(
     () =>
       (ledger?.entries ?? [])
@@ -315,7 +325,7 @@ export default function LedgerWorkspace({ session }: { session: WebSession }) {
   function exportPerson() {
     if (!person || !ledger) return;
     const url = URL.createObjectURL(
-      new Blob([statementCSV(person, ledger.entries)], { type: "text/csv;charset=utf-8" }),
+      new Blob([statementCSV(person, ledger.entries, lang)], { type: "text/csv;charset=utf-8" }),
     );
     const anchor = document.createElement("a");
     anchor.href = url;
@@ -340,7 +350,7 @@ export default function LedgerWorkspace({ session }: { session: WebSession }) {
           id="workspace-vault"
           value={vaultID}
           onChange={(event) => selectVault(event.target.value)}
-          disabled={!!modal || !vaults.length}
+          disabled={!!modal || currencySettings || !vaults.length}
           className="workspace-book-select"
         >
           {!vaults.length && <option value="">{c.kaatas}</option>}
@@ -360,6 +370,19 @@ export default function LedgerWorkspace({ session }: { session: WebSession }) {
           <Icon name="plus" />
           {c.newKaata}
         </button>
+        {ledger && (
+          <div className="workspace-settings-actions">
+            <button
+              type="button"
+              className="workspace-button"
+              disabled={!canConfigure}
+              onClick={() => setCurrencySettings(true)}
+            >
+              {c.currencySettings}
+            </button>
+            <CreditPanel ledger={ledger} canConfigure={canConfigure} />
+          </div>
+        )}
         <div className="workspace-nav-active">
           <Icon name="people" />
           {c.people}
@@ -387,7 +410,14 @@ export default function LedgerWorkspace({ session }: { session: WebSession }) {
             title={c.signOut}
             aria-label={c.signOut}
             disabled={signingOut || retrying}
-            onClick={() => (pending ? setConfirmSignout(true) : void loggedOut())}
+            onClick={() => {
+              // An inline save may have queued its signed event while its
+              // request is still in flight, before React's pending state updates.
+              const needsConfirmation = hasPendingWebWrite();
+              setPending(needsConfirmation);
+              if (needsConfirmation) setConfirmSignout(true);
+              else void loggedOut();
+            }}
             className="workspace-icon-button"
           >
             <Icon name="logout" />
@@ -673,6 +703,27 @@ export default function LedgerWorkspace({ session }: { session: WebSession }) {
                         <Icon name="edit" />
                       </button>
                     </div>
+                    <PersonNotePanel
+                      key={`${session.install_id}:${ledger.vault_id}:${person.relationship_id}`}
+                      ledger={ledger}
+                      person={person}
+                      canEdit={canEditNote}
+                      onWriteSettled={() => setPending(hasPendingWebWrite())}
+                      onSaved={async () => {
+                        setPending(hasPendingWebWrite());
+                        if (activeVault.current === ledger.vault_id) await refresh(ledger.vault_id);
+                      }}
+                    />
+                    <CreditPanel
+                      key={`credit:${session.install_id}:${ledger.vault_id}:${person.relationship_id}`}
+                      ledger={ledger}
+                      person={person}
+                      balances={ledger.credit_balances_complete ? selectedBalances : undefined}
+                      canConfigure={canConfigure}
+                      onSaved={async () => {
+                        if (activeVault.current === ledger.vault_id) await refresh(ledger.vault_id);
+                      }}
+                    />
                     {person.read_only_reason === "shared_tab" ? (
                       <Empty icon="link" title={c.shared} body={c.sharedDetail}>
                         <Link className="workspace-button" to="/download">
@@ -717,83 +768,16 @@ export default function LedgerWorkspace({ session }: { session: WebSession }) {
                             {c.gave}
                           </button>
                         </div>
-                        <div className="workspace-history-heading">
-                          <h3>
-                            {c.history}
-                            <span>{visibleEntries.length}</span>
-                          </h3>
-                          <button
-                            className="workspace-icon-button"
-                            aria-label={c.export}
-                            title={c.export}
-                            onClick={exportPerson}
-                            disabled={
-                              !ledger.entries.some(
-                                (entry) => entry.relationship_id === personID && !entry.is_deleted,
-                              )
-                            }
-                          >
-                            <Icon name="download" />
-                          </button>
-                        </div>
-                        <div className="workspace-history">
-                          {!visibleEntries.length ? (
-                            <Empty icon="book" title={c.noEntries} body={c.noEntriesText} />
-                          ) : (
-                            visibleEntries.map((entry) => (
-                              <article key={entry.id} className="workspace-entry">
-                                <span
-                                  className={`workspace-direction ${entry.type === "debt" ? "pay" : "collect"}`}
-                                >
-                                  <Icon name={entry.type === "debt" ? "up" : "down"} />
-                                </span>
-                                <div className="workspace-entry-info">
-                                  <strong>{entry.type === "debt" ? c.gave : c.received}</strong>
-                                  <time dateTime={new Date(entry.created_at).toISOString()}>
-                                    {formatDate(entry.created_at, lang)}
-                                  </time>
-                                  {entry.note && <p>{entry.note}</p>}
-                                  {entry.settled_at != null && <small>{c.settled}</small>}
-                                </div>
-                                <div className="workspace-entry-end">
-                                  <strong dir="ltr">
-                                    {money(minorUnits(String(entry.amount_afn)))}{" "}
-                                    <small>{entry.currency}</small>
-                                  </strong>
-                                  {canAmendPerson && !entry.read_only && (
-                                    <div className="workspace-entry-controls">
-                                      <button
-                                        type="button"
-                                        className="workspace-icon-button"
-                                        aria-label={`${c.editEntry} · ${formatDate(entry.created_at, lang)}`}
-                                        title={c.editEntry}
-                                        onClick={() =>
-                                          setModal({
-                                            kind: "entry",
-                                            person,
-                                            entry,
-                                            direction: entry.type,
-                                          })
-                                        }
-                                      >
-                                        <Icon name="edit" />
-                                      </button>
-                                      <button
-                                        type="button"
-                                        className="workspace-icon-button"
-                                        aria-label={`${c.delete} · ${formatDate(entry.created_at, lang)}`}
-                                        title={c.delete}
-                                        onClick={() => setModal({ kind: "delete", entry })}
-                                      >
-                                        <Icon name="trash" />
-                                      </button>
-                                    </div>
-                                  )}
-                                </div>
-                              </article>
-                            ))
-                          )}
-                        </div>
+                        <EntryHistory
+                          key={`${ledger.vault_id}:${person.relationship_id}`}
+                          entries={visibleEntries}
+                          canAmend={canAmendPerson}
+                          onExport={exportPerson}
+                          onEdit={(entry) =>
+                            setModal({ kind: "entry", person, entry, direction: entry.type })
+                          }
+                          onDelete={(entry) => setModal({ kind: "delete", entry })}
+                        />
                       </>
                     )}
                   </>
@@ -810,6 +794,23 @@ export default function LedgerWorkspace({ session }: { session: WebSession }) {
           busy={signingOut}
           onCancel={() => setConfirmSignout(false)}
           onConfirm={() => void loggedOut()}
+        />
+      )}
+      {currencySettings && ledger && (
+        <CurrencySettings
+          key={ledger.vault_id}
+          ledger={ledger}
+          onClose={() => {
+            setCurrencySettings(false);
+            setPending(hasPendingWebWrite());
+          }}
+          onSaved={async () => {
+            setCurrencySettings(false);
+            setPending(hasPendingWebWrite());
+            await loadVaults();
+            if (activeVault.current === ledger.vault_id) await refresh(ledger.vault_id);
+            toast.push(c.saved, "success");
+          }}
         />
       )}
       {modal && (
@@ -864,6 +865,7 @@ function WorkspaceModal({
   const [note, setNote] = useState(entry?.note ?? "");
   const [openedAt] = useState(Date.now);
   const [date, setDate] = useState(localDateValue(entry?.created_at ?? openedAt));
+  const [time, setTime] = useState(localTimeValue(entry?.created_at ?? openedAt));
   const [code, setCode] = useState(
     entry?.currency ??
       (modal.kind === "entry" && ledger
@@ -873,6 +875,7 @@ function WorkspaceModal({
           : ledger?.default_entry_currency || "AFN"),
   );
   const [direction, setDirection] = useState(modal.kind === "entry" ? modal.direction : "debt");
+  const [enabledCurrencies, setEnabledCurrencies] = useState([code]);
   useEffect(() => {
     const element = dialog.current;
     element?.showModal();
@@ -902,7 +905,11 @@ function WorkspaceModal({
     try {
       if (modal.kind === "vault") {
         if (!name.trim()) throw new Error(c.nameRequired);
-        const id = await createWebVault({ name: name.trim(), currency: code });
+        const id = await createWebVault({
+          name: name.trim(),
+          currency: code,
+          enabled_currencies: enabledCurrencies,
+        });
         await onSaved({ message: c.bookCreated, vaultID: id });
       } else if (!ledger) throw new Error(c.loadError);
       else if (modal.kind === "person") {
@@ -923,7 +930,7 @@ function WorkspaceModal({
       } else {
         const parsed = amountInput(amount);
         if (!parsed) throw new Error(c.amountInvalid);
-        const occurred = entryTimestamp(date, openedAt, entry?.created_at);
+        const occurred = entryTimestamp(date, openedAt, entry?.created_at, time);
         if (occurred === null) throw new Error(c.dateInvalid);
         // Preserve original timestamp when only amount/note changes.
         const value = {
@@ -944,10 +951,7 @@ function WorkspaceModal({
     }
   }
 
-  const currencies =
-    modal.kind === "vault"
-      ? ["AFN", "USD", "PKR", "IRR", "EUR", "AED", "SAR", "GBP", "INR"]
-      : [...new Set([code, ...(ledger?.enabled_currencies ?? [])])];
+  const currencies = [...new Set([code, ...(ledger?.enabled_currencies ?? [])])];
   return (
     <dialog
       ref={dialog}
@@ -1038,19 +1042,38 @@ function WorkspaceModal({
                     autoComplete="off"
                   />
                 </label>
+                <EntryCalculator
+                  amount={amount}
+                  onApply={setAmount}
+                  disabled={busy}
+                  currency={code}
+                />
               </>
             )}
             {(modal.kind === "vault" || modal.kind === "entry") && (
-              <label>
-                {c.currency}
-                <select value={code} onChange={(event) => setCode(event.target.value)}>
-                  {currencies.map((item) => (
-                    <option key={item} value={item}>
-                      {item}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <CurrencyPicker
+                label={c.currency}
+                value={code}
+                codes={modal.kind === "vault" ? undefined : currencies}
+                disabled={busy}
+                onChange={(next) => {
+                  if (modal.kind === "vault") {
+                    if (!enabledCurrencies.includes(next) && enabledCurrencies.length >= 64) return;
+                    setEnabledCurrencies((current) =>
+                      current.includes(next) ? current : [...current, next],
+                    );
+                  }
+                  setCode(next);
+                }}
+              />
+            )}
+            {modal.kind === "vault" && (
+              <EnabledCurrencies
+                value={enabledCurrencies}
+                defaultCurrency={code}
+                onChange={setEnabledCurrencies}
+                disabled={busy}
+              />
             )}
             {modal.kind === "entry" && (
               <>
@@ -1065,6 +1088,16 @@ function WorkspaceModal({
                     required
                   />
                   <small>{c.dateHint}</small>
+                </label>
+                <label>
+                  {c.time}
+                  <input
+                    type="time"
+                    value={time}
+                    onChange={(event) => setTime(event.target.value)}
+                    required
+                    dir="ltr"
+                  />
                 </label>
                 <label>
                   {c.note}
@@ -1178,14 +1211,6 @@ function SignOutDialog({
       </div>
     </dialog>
   );
-}
-
-function formatDate(ms: number, lang: Lang): string {
-  return new Intl.DateTimeFormat(lang === "en" ? "en-GB" : lang === "fa" ? "fa-AF" : "ps-AF", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  }).format(ms);
 }
 
 function Notice({ children, error = false }: { children: ReactNode; error?: boolean }) {

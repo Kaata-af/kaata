@@ -22,6 +22,10 @@ type PersonNotesResponse struct {
 // PersonNotes serves a separate, bounded recovery stream. Clients that restored
 // an older snapshot can recover ignored notes without rewinding financial sync.
 func (h *Handler) PersonNotes(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Query().Has("relationship_id") {
+		h.webPersonNotes(w, r)
+		return
+	}
 	w.Header().Set("Cache-Control", "no-store")
 	claims, ok := auth.ClaimsFromContext(r.Context())
 	if !ok {

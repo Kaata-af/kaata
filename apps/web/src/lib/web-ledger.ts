@@ -46,6 +46,9 @@ export type WebPerson = {
   last_entry_at?: number | null;
   is_settled?: boolean | null;
   default_entry_currency: string | null;
+  note?: string | null;
+  note_hlc?: WebHLC | null;
+  note_event_id?: string | null;
   archived_at: number | null;
   read_only: boolean;
   read_only_reason: "shared_tab" | "archived" | null;
@@ -65,6 +68,7 @@ export type WebEntry = {
   is_deleted: boolean;
   read_only: boolean;
   settled_at: number | null;
+  disputed_at?: number | null;
 };
 export type WebLedger = {
   vault_id: string;
@@ -82,6 +86,7 @@ export type WebLedger = {
   people: WebPerson[];
   entries: WebEntry[];
   incomplete_people: number;
+  credit_balances_complete?: boolean;
 };
 export type WebEntryInput = {
   type: "debt" | "payment";
@@ -89,6 +94,11 @@ export type WebEntryInput = {
   currency: string;
   note: string | null;
   occurred_at_ms: number;
+};
+export type WebPersonNoteHistoryPage = {
+  entries: { event_id: string; note: string | null; at: number; actor: null }[];
+  next_cursor: string | null;
+  has_more: boolean;
 };
 type EventDraft = { type: string; target: string; relationship?: string; payload: unknown };
 type SignedPushEvent = {
@@ -292,6 +302,69 @@ export async function getWebLedger(vaultID: string): Promise<WebLedger> {
   );
   assertSession(session);
   return ledger;
+}
+
+function validWebPersonNoteHistory(
+  value: unknown,
+  previousCursor?: string | null,
+): value is WebPersonNoteHistoryPage {
+  if (!value || typeof value !== "object") return false;
+  const page = value as Record<string, unknown>;
+  return (
+    Array.isArray(page.entries) &&
+    page.entries.length <= 50 &&
+    page.entries.every(
+      (row) =>
+        row &&
+        typeof row === "object" &&
+        typeof row.event_id === "string" &&
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(row.event_id) &&
+        (row.note === null ||
+          (typeof row.note === "string" && Array.from(row.note).length <= 2000)) &&
+        typeof row.at === "number" &&
+        Number.isSafeInteger(row.at) &&
+        row.at >= 0 &&
+        row.at <= 8_640_000_000_000_000 &&
+        Number.isFinite(new Date(row.at).getTime()) &&
+        row.actor === null,
+    ) &&
+    typeof page.has_more === "boolean" &&
+    (page.next_cursor === null ||
+      (typeof page.next_cursor === "string" && page.next_cursor.length <= 1024)) &&
+    (!page.has_more ||
+      (page.entries.length > 0 &&
+        typeof page.next_cursor === "string" &&
+        page.next_cursor.length > 0 &&
+        page.next_cursor !== previousCursor))
+  );
+}
+
+export async function getWebPersonNoteHistory(
+  ledger: WebLedger,
+  person: WebPerson,
+  cursor?: string | null,
+): Promise<WebPersonNoteHistoryPage> {
+  const session = currentSession();
+  if (!ledger.people.some((row) => row.relationship_id === person.relationship_id))
+    throw new WebLedgerError("This person is no longer available.", "person_missing");
+  const query = new URLSearchParams({
+    vault_id: ledger.vault_id,
+    relationship_id: person.relationship_id,
+  });
+  if (cursor) query.set("cursor", cursor);
+  const page = await webRequest<unknown>(`/v1/sync/person-notes?${query}`, {
+    headers: HEADERS,
+  }).catch((error: unknown) => {
+    if (error instanceof WebApiError && error.code === "invalid_response") return undefined;
+    throw error;
+  });
+  assertSession(session);
+  if (!validWebPersonNoteHistory(page, cursor))
+    throw new WebLedgerError(
+      "Note history is not available yet. Try again after refreshing.",
+      "notes_history_unavailable",
+    );
+  return page;
 }
 
 async function signDrafts(
@@ -684,6 +757,113 @@ export async function updateWebPerson(
   );
 }
 
+/** Private staff instructions are independent of shared financial history. */
+export async function updateWebPersonNote(
+  ledger: WebLedger,
+  original: WebPerson,
+  input: string | null,
+): Promise<void> {
+  const note = input?.trim() || null;
+  if (note !== null && Array.from(note).length > 2000)
+    throw new WebLedgerError(
+      "Keep the customer note within 2,000 characters.",
+      "invalid_person_note",
+    );
+  await write(
+    ledger,
+    { action: "person-note", relationship: original.relationship_id, note },
+    true,
+    (fresh) => {
+      const person = fresh.people.find((row) => row.relationship_id === original.relationship_id);
+      if (
+        !person ||
+        person.archived_at != null ||
+        person.read_only_reason === "archived" ||
+        (person.read_only && person.read_only_reason !== "shared_tab")
+      )
+        throw new WebLedgerError("This person can no longer be changed.", "person_read_only");
+      if (
+        (person.note ?? null) !== (original.note ?? null) ||
+        (original.note_event_id !== undefined &&
+          (person.note_event_id ?? null) !== original.note_event_id) ||
+        (original.note_hlc !== undefined &&
+          canonicalWebJSON(person.note_hlc ?? null) !== canonicalWebJSON(original.note_hlc))
+      )
+        throw new WebLedgerError(
+          "Someone changed this note. Refresh and review it before saving.",
+          "stale_person_note",
+        );
+      return {
+        result: person.relationship_id,
+        drafts:
+          note === (person.note ?? null)
+            ? []
+            : [
+                {
+                  type: "person_note_set",
+                  target: person.relationship_id,
+                  relationship: person.relationship_id,
+                  payload: { note },
+                },
+              ],
+      };
+    },
+  );
+}
+
+function currencyChoices(defaultCurrency: string, enabled: readonly string[]): string[] {
+  if (
+    !/^[A-Z]{3}$/.test(defaultCurrency) ||
+    enabled.length < 1 ||
+    enabled.length > 64 ||
+    enabled.some((code) => !/^[A-Z]{3}$/.test(code)) ||
+    new Set(enabled).size !== enabled.length ||
+    !enabled.includes(defaultCurrency)
+  )
+    throw new WebLedgerError(
+      "Choose up to 64 different currencies, including the default currency.",
+      "invalid_currencies",
+    );
+  return [...enabled];
+}
+
+/** Changes future choices only; the book's immutable legacy denomination stays intact. */
+export async function updateWebCurrencies(
+  ledger: WebLedger,
+  input: { default_entry_currency: string; enabled_currencies: string[] },
+): Promise<void> {
+  const enabled = currencyChoices(input.default_entry_currency, input.enabled_currencies);
+  await write(ledger, { action: "currencies", ...input }, true, (fresh) => {
+    if (!["owner", "manager"].includes(fresh.role))
+      throw new WebLedgerError(
+        "Only an owner or admin can change currencies.",
+        "permission_denied",
+      );
+    if (
+      fresh.default_entry_currency !== ledger.default_entry_currency ||
+      canonicalWebJSON(fresh.enabled_currencies) !== canonicalWebJSON(ledger.enabled_currencies)
+    )
+      throw new WebLedgerError(
+        "Someone changed the currencies. Refresh before saving.",
+        "stale_currencies",
+      );
+    const drafts: EventDraft[] = [];
+    if (canonicalWebJSON(enabled) !== canonicalWebJSON(fresh.enabled_currencies))
+      drafts.push({
+        type: "vault_setting_set",
+        target: fresh.vault_id,
+        payload: { key: "enabled_currencies", value: JSON.stringify(enabled) },
+      });
+    if (input.default_entry_currency !== fresh.default_entry_currency)
+      drafts.push({
+        type: "vault_setting_set",
+        target: fresh.vault_id,
+        payload: { key: "default_entry_currency", value: input.default_entry_currency },
+      });
+    return { result: fresh.vault_id, drafts };
+  });
+}
+
 export async function createWebEntry(
   ledger: WebLedger,
   person: WebPerson,
@@ -784,17 +964,23 @@ export async function deleteWebEntry(ledger: WebLedger, original: WebEntry): Pro
   );
 }
 
-export function createWebVault(input: { name: string; currency: string }): Promise<string> {
+export function createWebVault(input: {
+  name: string;
+  currency: string;
+  enabled_currencies?: string[];
+}): Promise<string> {
   const session = currentSession();
   return serialized(async () => {
     assertSession(session);
     const name = input.name.trim();
     if (!name || name.length > 120 || !/^[A-Z]{3}$/.test(input.currency))
       throw new WebLedgerError("Enter a kaata name and currency.", "invalid_vault");
+    const enabled = currencyChoices(input.currency, input.enabled_currencies ?? [input.currency]);
     const fingerprint = canonicalWebJSON({
       action: "vault-create",
       name,
       currency: input.currency,
+      ...(input.enabled_currencies ? { enabled_currencies: enabled } : {}),
     });
     const pending = sessionJSON<PendingWrite>(PENDING_KEY);
     if (pending) {
@@ -845,7 +1031,7 @@ export function createWebVault(input: { name: string; currency: string }): Promi
         {
           type: "vault_setting_set",
           target: vaultID,
-          payload: { key: "enabled_currencies", value: JSON.stringify([input.currency]) },
+          payload: { key: "enabled_currencies", value: JSON.stringify(enabled) },
         },
       ],
     );

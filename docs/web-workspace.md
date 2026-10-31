@@ -11,9 +11,14 @@ The first browser workspace lives at `/app` in the existing Vite application. It
 - People ordered by recent activity as on mobile: latest remaining entry date, or creation date before the first entry; explicitly settled people follow open accounts.
 - Record “I gave” and “I received,” with amount, currency, note and date; edit/delete eligible private entries.
 - Export a person's full private history as a CSV, with currencies kept separate and spreadsheet-formula injection prevented.
+- Internal customer notes with signed saves and paged edit history. Notes remain private to the kaata team, including for linked customers; unavailable author attribution is shown as unknown.
+- Per-currency credit limits and remaining-credit status, with owner/admin configuration for customer overrides and kaata defaults. Shared or incomplete exposure remains unavailable.
+- The mobile app's exact calculator inside the tally form, plus explicit tally time selection.
+- Search tally notes and exact amounts, filter by currency or inclusive Gregorian date ranges, and expand settled history. Given/received totals and exports always retain whole-history scope.
+- Search all 155 currencies when creating a kaata, enable up to 64, and change future-entry defaults without relabeling saved money.
 - English, Dari, Pashto, RTL, desktop and narrow layouts.
 
-This release deliberately excludes reminders, contact import, shared-account actions/history, member administration, credit-limit configuration, settlement actions and offline browser editing. People ever linked to a mutual tab are clearly labeled and their incomplete local balances are excluded from totals. Use the phone app for these features. Archived kaatas are view-only for their owner; archived people are hidden. Settled chapters remain visible and immutable.
+This release deliberately excludes reminders, contact import, shared-account financial actions/history, member administration, combined credit-alert rule configuration, settlement actions and offline browser editing. People ever linked to a mutual tab are clearly labeled and their incomplete local balances are excluded from totals; their internal team notes and credit settings remain available. Use the phone app for the excluded features. Archived kaatas are view-only for their owner; archived people are hidden. Settled chapters remain visible and immutable.
 
 ## Routes
 
@@ -33,6 +38,10 @@ Auth history changes cancel pending sign-in, including browser Back, so a late r
 `GET /v1/sync/ledger?vault_id=...` reads current authorization, vault metadata, all events and tab bindings in one repeatable-read transaction. It folds the current event log, including events newer than any persisted snapshot. It does not expose a second source of ledger truth. Reads are authenticated, rate-limited and `no-store`. Exact decimal amounts are returned as strings; UI arithmetic uses integer hundredths, and totals never mix currencies.
 
 Writes use the existing device registration, server witness and signed `/v1/sync/push` endpoints. The browser signs Ed25519 events with the same canonical encoding as mobile. Credit checks and role enforcement still run on the server. New kaatas include signed membership/device genesis, shop profile and currency-setting events. Editing reloads the current ledger and checks the prior entry revision; amendments carry only changed fields. Concurrent changes between that check and push retain the existing mobile last-writer-wins behavior, rather than a new compare-and-swap guarantee.
+
+Customer notes use `person_note_set` with a 2,000-code-point limit and revision checks before signing. Relationship-scoped `/v1/sync/person-notes` pages expose private revisions in signed-clock order, without changing mobile's existing recovery stream. Claimed actor fields are not treated as verified author identity. Customer notes are never added to statement exports. Independent credit settings reuse authenticated GET/PUT `/v1/sync/credit-limits`; fresh-policy checks catch known conflicts but do not provide atomic compare-and-swap. Blank caps mean unlimited, zero means no new exposure, and currencies never net or convert. Disputed entries are excluded from financial totals. The additive `credit_balances_complete` marker gates web exposure calculations during mixed-version deployments.
+
+The calculator and currency catalog are imported from the same platform-independent mobile modules used by the release. The web Docker context includes only those explicit domain files, their pure money/digit dependencies, the web app and shared palette. No native runtime or private mobile environment files are included.
 
 Every sign-in creates a fresh browser install ID so it cannot rebind a phone. JWTs, browser signing keys and a pending signed operation are confined to `sessionStorage`; sign-out revokes the server credential and clears them. Sessions are scoped to the browser tab and expire with the server credential; browsers may restore storage when reopening tabs, so sign out on shared computers. Provider ID tokens are never persisted. Keep CSP and HTTPS enabled; session storage is not protection against same-origin script compromise.
 
@@ -63,7 +72,7 @@ Deploy backend and web from the same commit, backend first. There is no database
 From the repository root:
 
 ```powershell
-bun test ./apps/web/src/lib/web-auth.test.ts ./apps/web/src/lib/web-apple.test.ts ./apps/web/src/lib/web-google.test.ts ./apps/web/src/lib/web-ledger.test.ts ./apps/web/src/lib/web-ledger-protocol.test.ts ./apps/web/src/lib/web-live.test.ts ./apps/web/src/lib/web-refresh.test.ts ./apps/web/src/pages/workspace/model.test.ts
+bun test ./apps/web/src
 node --test apps/web/scripts/analytics-privacy.test.mjs apps/web/scripts/social-metadata.test.mjs
 cd apps/web
 bun run build
@@ -74,12 +83,16 @@ With a dedicated disposable PostgreSQL test database configured through `POSTGRE
 ```powershell
 cd apps/backend
 go test ./internal/auth -count=1 -v
-go test ./internal/sync -run 'TestWebLedger|TestPopulateWebLedger|TestWebLive|TestLiveTicket|TestLiveMembership|TestLive_' -count=1 -v
+go test ./internal/sync ./internal/httpx -count=1
 go test ./internal/vaults -run TestLiveInvalidation -count=1 -v
 go test ./cmd/server
 ```
 
 The database test harness resets its test schema. Never point it at a real application database. Without a reachable test database it skips integration tests; a skipped test is not a verified authorization path.
+
+The mobile-parity update passed 262 web tests across 26 files, the production TypeScript/Vite build, and nine analytics/privacy and metadata checks. The full sync and HTTP middleware suites passed against disposable PostgreSQL, including note revision ordering, pagination, redaction, revoked access and unchanged mobile recovery signatures. Server compilation passed. The temporary database was stopped and removed afterward.
+
+A disposable browser API with synthetic records verified real Ed25519-signed note, tally and currency saves, note history, independent AFN/USD credit-policy saves, country-based currency search, exact-amount search across settled history, currency/date filters and an inclusive single-day range. It also verified that disputed amounts do not enter balances, shared accounts keep private notes without fabricated exposure, viewers cannot edit, and the 390px Dari layout fits without horizontal overflow. A committed note followed by a simulated 503 response displayed the pending-save banner and sign-out warning; retry reused the event ID and produced exactly one revision. CSV tests verify localized current/settled/disputed status labels while preserving all history and formula neutralization. No real provider account or customer record was used.
 
 Provider release checks passed all 233 web tests across 23 files, all nine analytics/privacy and social-metadata tests, and the full backend auth suite against disposable PostgreSQL. A local browser fixture using synthetic Apple credentials verified same-tab completion, immediate removal of the callback fragment, one exchange despite React StrictMode, sign-out without automatic re-entry, and cancellation. A failed Apple exchange displayed an unavailable error; a fresh sign-in attempt then succeeded, with the callback fragment removed in both cases. The real Google Identity Services library rendered its button in that fixture; Google rejected the unregistered `localhost:3004` origin as expected. These checks do not represent completed consent with a real Apple or Google account.
 

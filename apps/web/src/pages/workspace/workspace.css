@@ -1145,3 +1145,227 @@
     transition: none;
   }
 }
+
+.workspace-settings-actions {
+  display: grid;
+  gap: 8px;
+  margin: 12px 4px 0;
+}
+.workspace-settings-actions > .workspace-button {
+  justify-content: center;
+  width: 100%;
+  font-size: 12px;
+}
+.workspace-person-note {
+  margin: 0 24px 18px;
+  padding: 16px;
+  border: 1px solid #e5e5e5;
+  border-radius: 12px;
+  background: #fafafa;
+}
+.workspace-detail > .web-credit-panel {
+  margin: 0 24px 18px;
+}
+.workspace-note-heading {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.workspace-note-heading h3 {
+  font-size: 13px;
+  font-weight: 600;
+}
+.workspace-note-heading p {
+  font-size: 11px;
+  color: #737373;
+  margin-top: 4px;
+}
+.workspace-note-heading .workspace-button {
+  font-size: 11px;
+  padding: 7px 10px;
+  flex-shrink: 0;
+}
+.workspace-note-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  line-height: 1.8;
+  margin: 14px 0 10px;
+}
+.workspace-note-text.empty {
+  color: #737373;
+}
+.workspace-note-editor {
+  display: grid;
+  gap: 8px;
+  margin-top: 16px;
+  font-size: 12px;
+}
+.workspace-note-editor textarea {
+  width: 100%;
+  resize: vertical;
+  border: 1px solid #d4d4d4;
+  border-radius: 8px;
+  padding: 10px;
+  min-height: 105px;
+  background: white;
+}
+.workspace-person-note form > small {
+  color: #737373;
+  font-size: 11px;
+}
+.workspace-note-actions {
+  display: flex;
+  justify-content: end;
+  gap: 8px;
+  margin: 10px 0 12px;
+}
+.workspace-inline-link {
+  font-size: 12px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  color: #525252;
+}
+.workspace-note-history {
+  margin-top: 14px;
+  display: grid;
+  gap: 12px;
+}
+.workspace-note-history article {
+  padding-block-start: 12px;
+  border-top: 1px solid #e5e5e5;
+}
+.workspace-note-history article p {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.7;
+  font-size: 12px;
+}
+.workspace-note-history article small {
+  display: block;
+  color: #737373;
+  font-size: 10px;
+  margin-top: 6px;
+}
+.workspace-control-label {
+  font-weight: 500;
+  font-size: 12px;
+  margin-bottom: 7px;
+}
+.workspace-currency-picker details {
+  border: 1px solid #d4d4d4;
+  border-radius: 8px;
+  background: #fff;
+}
+.workspace-currency-picker summary {
+  padding: 12px;
+  cursor: pointer;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.workspace-currency-picker summary[aria-disabled="true"] {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+.workspace-currency-options {
+  border-top: 1px solid #e5e5e5;
+  padding: 10px;
+}
+.workspace-currency-options > input,
+.workspace-enabled-currencies > input {
+  width: 100%;
+  border: 1px solid #d4d4d4;
+  border-radius: 8px;
+  background: white;
+  padding: 10px;
+  font-size: 13px;
+}
+.workspace-currency-list {
+  max-height: 220px;
+  overflow: auto;
+  margin-top: 8px;
+  display: grid;
+  gap: 2px;
+  overscroll-behavior: contain;
+}
+.workspace-currency-list > button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px;
+  text-align: start;
+  border-radius: 6px;
+  font-size: 12px;
+}
+.workspace-currency-list > button[aria-pressed="true"],
+.workspace-currency-list > button:hover {
+  background: #f5f5f5;
+}
+.workspace-currency-list > button bdi {
+  width: 32px;
+  font-weight: 600;
+}
+.workspace-currency-list > button span:nth-child(2) {
+  flex: 1;
+}
+.workspace-dialog .workspace-enabled-currencies {
+  display: block;
+  min-width: 0;
+}
+.workspace-enabled-currencies legend {
+  font-size: 13px;
+  font-weight: 600;
+  margin-block: 10px;
+}
+.workspace-enabled-currencies legend small {
+  color: #737373;
+  font-weight: 400;
+}
+.workspace-enabled-currencies > p {
+  font-size: 11px;
+  color: #737373;
+  line-height: 1.7;
+  margin: 8px 0;
+}
+.workspace-enabled-currencies .workspace-currency-list > label {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  padding: 8px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.workspace-enabled-currencies .workspace-currency-list > label > input {
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  flex-shrink: 0;
+}
+.workspace-enabled-currencies .workspace-currency-list > label bdi {
+  font-weight: 600;
+}
+@media (max-width: 760px) {
+  .workspace-settings-actions {
+    grid-column: 1 / -1;
+    display: flex;
+    gap: 8px;
+    margin: 0;
+  }
+  .workspace-settings-actions > * {
+    flex: 1;
+    min-width: 0;
+  }
+  .workspace-person-note {
+    margin-inline: 20px;
+    padding: 13px;
+  }
+  .workspace-detail > .web-credit-panel {
+    margin-inline: 20px;
+  }
+  .workspace-note-heading {
+    flex-wrap: wrap;
+  }
+}

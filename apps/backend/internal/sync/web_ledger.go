@@ -69,21 +69,22 @@ func canonicalWebMoney(amount json.Number) (string, error) {
 // Browser writes still use signed events through Push, including its role and
 // credit admission checks. There is no second browser ledger or write authority.
 type WebLedger struct {
-	VaultID              string            `json:"vault_id"`
-	Name                 string            `json:"name"`
-	Role                 string            `json:"role"`
-	Currency             string            `json:"currency"`
-	LegacyCurrency       string            `json:"legacy_currency"`
-	DefaultEntryCurrency string            `json:"default_entry_currency"`
-	EnabledCurrencies    []string          `json:"enabled_currencies"`
-	ArchivedAtMS         *int64            `json:"archived_at_ms"`
-	ServerSeq            int64             `json:"server_seq"`
-	HLCLast              HLC               `json:"hlc_last"`
-	DeviceRegistered     bool              `json:"device_registered"`
-	DevicePubkey         *string           `json:"device_pubkey"`
-	People               []WebLedgerPerson `json:"people"`
-	Entries              []WebLedgerEntry  `json:"entries"`
-	IncompletePeople     int               `json:"incomplete_people"`
+	VaultID                string            `json:"vault_id"`
+	Name                   string            `json:"name"`
+	Role                   string            `json:"role"`
+	Currency               string            `json:"currency"`
+	LegacyCurrency         string            `json:"legacy_currency"`
+	DefaultEntryCurrency   string            `json:"default_entry_currency"`
+	EnabledCurrencies      []string          `json:"enabled_currencies"`
+	ArchivedAtMS           *int64            `json:"archived_at_ms"`
+	ServerSeq              int64             `json:"server_seq"`
+	HLCLast                HLC               `json:"hlc_last"`
+	DeviceRegistered       bool              `json:"device_registered"`
+	DevicePubkey           *string           `json:"device_pubkey"`
+	People                 []WebLedgerPerson `json:"people"`
+	Entries                []WebLedgerEntry  `json:"entries"`
+	IncompletePeople       int               `json:"incomplete_people"`
+	CreditBalancesComplete bool              `json:"credit_balances_complete"`
 }
 
 type WebLedgerPerson struct {
@@ -96,6 +97,8 @@ type WebLedgerPerson struct {
 	PhoneE164            *string          `json:"phone_e164"`
 	DefaultEntryCurrency *string          `json:"default_entry_currency"`
 	Note                 *string          `json:"note,omitempty"`
+	NoteHLC              *HLC             `json:"note_hlc"`
+	NoteEventID          *string          `json:"note_event_id"`
 	ArchivedAt           *int64           `json:"archived_at"`
 	ReadOnly             bool             `json:"read_only"`
 	ReadOnlyReason       *string          `json:"read_only_reason"`
@@ -117,6 +120,7 @@ type WebLedgerEntry struct {
 	IsDeleted      bool    `json:"is_deleted"`
 	ReadOnly       bool    `json:"read_only"`
 	SettledAt      *int64  `json:"settled_at"`
+	DisputedAt     *int64  `json:"disputed_at"`
 }
 
 // Ledger — GET /v1/sync/ledger?vault_id=<uuid> (PROTECTED).
@@ -236,6 +240,9 @@ func (s *Service) WebLedger(ctx context.Context, accountID, installID, vaultID s
 }
 
 func populateWebLedger(view *WebLedger, p *Projection, events []LedgerEvent, linked map[string]bool) error {
+	// Private rows include every field needed for exact credit exposure. Linked
+	// accounts still explicitly carry shared_tab and must not be treated as zero.
+	view.CreditBalancesComplete = true
 	view.EnabledCurrencies = []string{view.DefaultEntryCurrency}
 	if raw := p.VaultSettings["enabled_currencies"]; validateEnabledCurrencies(raw) == nil {
 		_ = json.Unmarshal([]byte(raw), &view.EnabledCurrencies)
@@ -254,9 +261,22 @@ func populateWebLedger(view *WebLedger, p *Projection, events []LedgerEvent, lin
 		currency string
 	}
 	settlements := map[string][]boundary{}
+	noteWinners := map[string]*string{}
 	for _, event := range events {
 		if CompareHLC(event.HLC, view.HLCLast) > 0 {
 			view.HLCLast = event.HLC
+		}
+		if event.EventType == EventPersonNoteSet && event.RelationshipID != nil && event.TargetID == *event.RelationshipID {
+			rel := p.Relationships[event.TargetID]
+			if rel != nil && rel.NoteFieldHLC != nil && CompareHLC(event.HLC, *rel.NoteFieldHLC) == 0 {
+				// Equal-clock competing events have no trustworthy winning UUID.
+				if _, seen := noteWinners[rel.ID]; seen {
+					noteWinners[rel.ID] = nil
+				} else {
+					id := event.EventID
+					noteWinners[rel.ID] = &id
+				}
+			}
 		}
 		if event.EventType != EventEntrySettled || event.RelationshipID == nil {
 			continue
@@ -281,6 +301,8 @@ func populateWebLedger(view *WebLedger, p *Projection, events []LedgerEvent, lin
 		person := WebLedgerPerson{RelationshipID: rel.ID, UserID: user.ID, Name: user.DisplayName, CreatedAt: user.CreatedAt,
 			PhoneE164: user.PhoneE164, DefaultEntryCurrency: rel.DefaultEntryCurrency, ArchivedAt: rel.ArchivedAt,
 			Note:           rel.Note,
+			NoteHLC:        rel.NoteFieldHLC,
+			NoteEventID:    noteWinners[rel.ID],
 			SettledThrough: map[string]int64{}}
 		for _, closed := range settlements[rel.ID] {
 			if closed.at > person.SettledThrough[closed.currency] {
@@ -321,8 +343,8 @@ func populateWebLedger(view *WebLedger, p *Projection, events []LedgerEvent, lin
 		row := WebLedgerEntry{ID: entry.ID, RelationshipID: entry.RelationshipID, Type: entry.Type,
 			AmountAFN: amount, Currency: currency, Note: entry.Note,
 			CreatedAt: entry.CreatedAt, RecordedAtMS: recordedAt, UpdatedAt: entry.UpdatedAt, CurrentEventID: entry.CurrentEventID,
-			IsDeleted: entry.IsDeleted || entry.DeletedAt != nil, SettledAt: entry.SettledAt,
-			ReadOnly: entry.IsSettled || entry.SettledAt != nil || rel.ArchivedAt != nil || view.ArchivedAtMS != nil}
+			IsDeleted: entry.IsDeleted || entry.DeletedAt != nil, SettledAt: entry.SettledAt, DisputedAt: entry.DisputedAt,
+			ReadOnly: entry.IsSettled || entry.SettledAt != nil || entry.DisputedAt != nil || rel.ArchivedAt != nil || view.ArchivedAtMS != nil}
 		for _, closed := range settlements[entry.RelationshipID] {
 			if closed.currency == currency && recordedAt <= closed.at {
 				row.ReadOnly = true

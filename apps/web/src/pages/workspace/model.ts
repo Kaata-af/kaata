@@ -40,7 +40,7 @@ export function money(value: bigint): string {
 export function balanceMap(entries: readonly WebEntry[]): PersonBalanceMap {
   const balances: PersonBalanceMap = new Map();
   for (const entry of entries) {
-    if (entry.is_deleted) continue;
+    if (entry.is_deleted || entry.disputed_at != null) continue;
     const amount = minorUnits(String(entry.amount_afn)) * (entry.type === "debt" ? 1n : -1n);
     const currencies = balances.get(entry.relationship_id) ?? new Map<string, bigint>();
     // Keep zero rows when the person has history in that denomination.
@@ -194,6 +194,11 @@ export function localDateValue(ms = Date.now()): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
+export function localTimeValue(ms = Date.now()): string {
+  const date = new Date(ms);
+  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
+
 export function entryDate(value: string): number | null {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
   const timestamp = new Date(`${value}T12:00:00`).getTime();
@@ -208,9 +213,27 @@ export function entryDate(value: string): number | null {
 }
 
 /** Stable across retries; today's new entries must stay after today's settlement. */
-export function entryTimestamp(value: string, openedAt: number, original?: number): number | null {
+export function entryTimestamp(
+  value: string,
+  openedAt: number,
+  original?: number,
+  time?: string,
+): number | null {
   const date = entryDate(value);
   if (date === null) return null;
+  if (time !== undefined) {
+    if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(time)) return null;
+    const initial = original ?? openedAt;
+    if (value === localDateValue(initial) && time === localTimeValue(initial)) return initial;
+    const timestamp = new Date(`${value}T${time}:00`).getTime();
+    // A nonexistent local DST time must not silently move the tally's date.
+    return Number.isFinite(timestamp) &&
+      timestamp <= Date.now() &&
+      localDateValue(timestamp) === value &&
+      localTimeValue(timestamp) === time
+      ? timestamp
+      : null;
+  }
   if (original !== undefined && value === localDateValue(original)) return original;
   return value === localDateValue(openedAt) ? openedAt : date;
 }
@@ -222,21 +245,59 @@ function csvCell(value: unknown): string {
   return `"${text.replace(/"/g, '""')}"`;
 }
 
-/** Only a complete, private-person statement can be exported in this release. */
-export function statementCSV(person: WebPerson, entries: WebEntry[]): string {
+const statementCopy = {
+  en: {
+    columns: ["Person", "Date", "Type", "Amount", "Currency", "Note", "Status"],
+    gave: "I gave",
+    received: "I received",
+    current: "Current",
+    settled: "Settled",
+    disputed: "Disputed",
+  },
+  fa: {
+    columns: ["شخص", "تاریخ", "نوع", "مبلغ", "واحد پول", "یادداشت", "وضعیت"],
+    gave: "دادم",
+    received: "گرفتم",
+    current: "جاری",
+    settled: "تصفیه‌شده",
+    disputed: "مورد اختلاف",
+  },
+  ps: {
+    columns: ["شخص", "نېټه", "ډول", "اندازه", "اسعار", "یادښت", "حالت"],
+    gave: "ورکړل",
+    received: "واخیستل",
+    current: "اوسنی",
+    settled: "تصفیه شوی",
+    disputed: "لانجمن",
+  },
+};
+
+/** Full private history retains disputed rows, explicitly marked so they
+ * cannot be mistaken for amounts included in the current balance. */
+export function statementCSV(
+  person: WebPerson,
+  entries: WebEntry[],
+  locale: "en" | "fa" | "ps" = "en",
+): string {
   if (person.read_only_reason === "shared_tab")
     throw new Error("Shared statements are available in the mobile app");
-  const rows: unknown[][] = [["Person", "Date", "Type", "Amount", "Currency", "Note"]];
+  const copy = statementCopy[locale];
+  const rows: unknown[][] = [copy.columns];
   for (const entry of entries
     .filter((row) => row.relationship_id === person.relationship_id && !row.is_deleted)
     .sort((a, b) => a.created_at - b.created_at || a.id.localeCompare(b.id))) {
     rows.push([
       person.name,
       localDateValue(entry.created_at),
-      entry.type === "debt" ? "I gave" : "I received",
+      entry.type === "debt" ? copy.gave : copy.received,
       entry.amount_afn,
       entry.currency,
       entry.note,
+      entry.disputed_at != null
+        ? copy.disputed
+        : entry.settled_at != null
+          ? copy.settled
+          : copy.current,
     ]);
   }
   return "\ufeff" + rows.map((row) => row.map(csvCell).join(",")).join("\r\n");
