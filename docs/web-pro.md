@@ -26,7 +26,7 @@ Migration `076_web_pro.sql` adds account subscriptions and checkout orders. Depl
 Configure these backend settings through the existing deployment secret configuration:
 
 ```dotenv
-HESABPAY_API_KEY=<dedicated merchant key>
+HESABPAY_API_KEY=<existing shared merchant key>
 HESABPAY_ENVIRONMENT=production
 HESABPAY_WEBHOOK_TOKEN=<independent random 32-byte token>
 HESABPAY_CHECKOUT_HOSTS=developers.hesab.com
@@ -39,8 +39,11 @@ Once the deployed receiver is available, register its private `https://api.kaata
 
 ### Existing merchant receiver
 
-The live merchant portal permits one receiver per event across API keys. Moving
-those event URLs affects the other application using the same merchant account.
+The current HesabPay merchant account permits one API key. Kaata and Kaka Malem
+use the same existing merchant key, kept on their backends; coordinate any key
+rotation across both applications. Kaata's private callback token remains an
+independent secret. The live merchant portal also permits one receiver per event.
+Moving those event URLs affects the other application using the same merchant account.
 Do not replace them until the user has specifically approved the shared routing
 change. The optional server-only setting below preserves verified foreign
 notifications through the existing receiver; it is unset by default.
@@ -78,6 +81,19 @@ never reach the other receiver. With the optional destination unset, verified
 foreign events retain the original acknowledge-without-forwarding behavior.
 
 The backend logger redacts the callback token. Proxies and external request logs must also keep that private path confidential. Never add the merchant key or callback token to a tracked file, frontend build argument, browser storage or public environment variable.
+
+### Shared VPS invoice worker
+
+Kaka Malem's subscription invoice queue runs every minute through the host's
+`kakamalem-subscription-invoices.timer` and matching oneshot service. The runner
+at `/usr/local/libexec/kakamalem-subscription-invoices.py` discovers the current
+healthy Kaka Malem container and invokes its invoice endpoint over container-local
+HTTP. It reads the existing `CRON_SECRET` inside that container; the host files
+contain no copied credential. A deployment does not require changing a container
+ID in the schedule. Systemd prevents overlapping host runs, and the application
+also locks invoice jobs across replicas. Check the service result and queue age
+when investigating delayed receipts. This schedule processes invoice PDFs and
+emails; payment recording and subscription activation happen in the webhook.
 
 ## Verification
 

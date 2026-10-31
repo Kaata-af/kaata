@@ -99,7 +99,7 @@ type Config struct {
 	// KaataEnv is KAATA_ENV ("production" on the live server).
 	KaataEnv string
 	// Voluntary web-only prepaid Pro periods. Checkout stays disabled until
-	// the dedicated merchant key, authenticated webhook and exact hosted URL
+	// the shared merchant key, authenticated webhook and exact hosted URL
 	// allowlist have been configured and the dashboard validation has passed.
 	HesabPayAPIKey            string
 	HesabPayEnvironment       string
