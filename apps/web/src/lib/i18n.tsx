@@ -31,6 +31,8 @@ const en = {
   "nav.how": "How it works",
   "nav.download": "Download",
   "nav.getApp": "Get the app",
+  "nav.downloadApp": "Download the app",
+  "nav.web": "Kaata Web",
 
   // Hero
   "hero.title.line1": "Run your shop",
@@ -193,6 +195,8 @@ const fa: Record<keyof typeof en, string> = {
   "nav.how": "طرز کار",
   "nav.download": "دانلود",
   "nav.getApp": "دریافت اپ",
+  "nav.downloadApp": "دانلود اپ",
+  "nav.web": "کاتای وب",
 
   // Hero
   "hero.title.line1": "دکان خود را",
@@ -350,6 +354,8 @@ const ps: Record<keyof typeof en, string> = {
   "nav.how": "څنګه کار کوي",
   "nav.download": "ښکته کول",
   "nav.getApp": "اپ ترلاسه کړئ",
+  "nav.downloadApp": "اپ ښکته کړئ",
+  "nav.web": "کاتا وېب",
   "hero.title.line1": "خپل دوکان وچلوئ",
   "hero.title.line2": "په باور.",
   "hero.sub":

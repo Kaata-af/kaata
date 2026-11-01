@@ -1,7 +1,17 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { FACEBOOK_URL, INSTAGRAM_URL, TIKTOK_URL, WHATSAPP_CONTACT_URL, YOUTUBE_URL } from "../env";
+import {
+  APP_STORE_URL,
+  FACEBOOK_URL,
+  INSTAGRAM_URL,
+  PLAY_STORE_URL,
+  TIKTOK_URL,
+  WHATSAPP_CONTACT_URL,
+  YOUTUBE_URL,
+} from "../env";
+import { fireStoreClick } from "../lib/analytics";
 import { useI18n, type Lang } from "../lib/i18n";
+import { currentPhonePlatform } from "../lib/web-phone";
 import { BrandLogo } from "./BrandLogo";
 import { Button } from "./ui/button";
 import { SelectField } from "./ui/select-field";
@@ -13,6 +23,8 @@ import { SelectField } from "./ui/select-field";
 export function SiteHeader() {
   const scrolled = useScrolled(8);
   const { t, lang, setLang } = useI18n();
+  const [phone] = useState(currentPhonePlatform);
+  const store = phone === "ios" ? "appstore" : phone === "android" ? "play" : null;
 
   return (
     <header
@@ -24,14 +36,14 @@ export function SiteHeader() {
     >
       {/* Flex on mobile (logo + actions hug the edges), grid on desktop so
           the nav stays perfectly centered between the two. */}
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 h-14 flex md:grid md:grid-cols-[1fr_auto_1fr] items-center justify-between">
+      <div className="max-w-6xl mx-auto px-3 sm:px-6 h-14 flex md:grid md:grid-cols-[1fr_auto_1fr] items-center justify-between">
         {/* Logo */}
-        <Link to="/" className="flex items-center gap-2 md:justify-self-start">
+        <Link to="/" className="flex items-center gap-1.5 sm:gap-2 md:justify-self-start">
           <BrandLogo />
           {/* Persian wordmark (کاتا.) drops tracking-tight — negative
               letter-spacing breaks Arabic-script joining. */}
           <span
-            className={`text-base font-bold text-brand-primary ${lang !== "en" ? "" : "tracking-tight"}`}
+            className={`text-sm sm:text-base font-bold text-brand-primary ${lang !== "en" ? "" : "tracking-tight"}`}
           >
             {t("brand.wordmark")}
           </span>
@@ -59,7 +71,7 @@ export function SiteHeader() {
           </Link>
         </nav>
 
-        <div className="flex items-center gap-2 md:justify-self-end">
+        <div className="flex items-center gap-1 sm:gap-2 md:justify-self-end">
           <label className="sr-only" htmlFor="site-language">
             {lang === "ps" ? "ژبه" : lang === "fa" ? "زبان" : "Language"}
           </label>
@@ -68,7 +80,7 @@ export function SiteHeader() {
             value={lang}
             onValueChange={(value) => setLang(value as Lang)}
             dir={lang === "en" ? "ltr" : "rtl"}
-            className="w-[100px] border-neutral-200 bg-white/60 text-[13px] text-muted-foreground"
+            className="w-[84px] px-2 text-xs sm:w-[100px] sm:px-3 sm:text-[13px] border-neutral-200 bg-white/60 text-muted-foreground"
             options={[
               { value: "en", label: <span lang="en">English</span> },
               { value: "fa", label: <span lang="fa">دری</span> },
@@ -76,10 +88,22 @@ export function SiteHeader() {
             ]}
           />
 
-          <Button asChild variant="brand" size="sm" className="text-[13px]">
-            <Link reloadDocument to="/app">
-              {lang === "fa" ? "کاتای وب" : lang === "ps" ? "کاتا وېب" : "Open Kaata"}
-            </Link>
+          <Button asChild variant="brand" size="sm" className="px-2 text-xs sm:px-3 sm:text-[13px]">
+            {store ? (
+              <a
+                href={store === "appstore" ? APP_STORE_URL : PLAY_STORE_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                referrerPolicy="no-referrer"
+                onClick={() => fireStoreClick(store)}
+              >
+                {t("nav.downloadApp")}
+              </a>
+            ) : (
+              <Link reloadDocument={!phone} to={phone ? "/download" : "/app"}>
+                {t(phone ? "nav.downloadApp" : "nav.web")}
+              </Link>
+            )}
           </Button>
         </div>
       </div>
