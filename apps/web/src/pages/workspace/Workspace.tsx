@@ -40,6 +40,7 @@ import { EntryCalculator } from "./EntryCalculator";
 import { EntryHistory } from "./EntryHistory";
 import { PersonNotePanel } from "./PersonNotePanel";
 import { WebProBanner } from "./WebPro";
+import { MobileAppPrompt } from "./MobileAppPrompt";
 import {
   amountInput,
   asciiDigits,
@@ -488,6 +489,7 @@ export default function LedgerWorkspace({ session }: { session: WebSession }) {
             </button>
           </div>
         </header>
+        <MobileAppPrompt />
         <WebProBanner session={session} />
         {!online && <Notice>{c.offline}</Notice>}
         {error && <Notice error>{loadMessage}</Notice>}

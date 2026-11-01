@@ -16,6 +16,7 @@ import {
 import { mountGoogleButton } from "../../lib/web-google";
 import { WEB_ROUTES } from "../../lib/web-routes";
 import { EmailAuth } from "./EmailAuth";
+import { MobileAppPrompt } from "./MobileAppPrompt";
 import {
   dismissWebAppleCallback,
   startWebAppleSignIn,
@@ -441,6 +442,7 @@ export function WorkspaceAuth({
           aria-labelledby="web-auth-heading"
           aria-busy={busy}
         >
+          {!emailMode && <MobileAppPrompt />}
           <div className="web-auth-card-kicker">
             <span>
               <AuthSymbol kind="lock" />

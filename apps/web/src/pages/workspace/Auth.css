@@ -476,12 +476,12 @@
 }
 .web-auth[dir="rtl"] .web-auth-brand > span:last-child,
 .web-auth[dir="rtl"] h1,
-.web-auth[dir="rtl"] h2,
+.web-auth[dir="rtl"] .web-auth-story h2,
 .web-auth[dir="rtl"] .web-auth-eyebrow,
 .web-auth[dir="rtl"] .web-auth-footer > span {
   letter-spacing: normal;
 }
-.web-auth[dir="rtl"] h2 {
+.web-auth[dir="rtl"] .web-auth-story h2 {
   line-height: 1.45;
   font-size: clamp(36px, 3.8vw, 49px);
 }
