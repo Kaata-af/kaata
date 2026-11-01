@@ -1,3 +1,4 @@
+import { useEffect, useRef, useSyncExternalStore } from "react";
 import { Link } from "react-router-dom";
 import { FeatureSection } from "../components/FeatureSection";
 import { Hero } from "../components/Hero";
@@ -10,9 +11,49 @@ import { SiteFooter, SiteHeader } from "../components/SiteChrome";
 import { useI18n } from "../lib/i18n";
 import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
+import { getWebSession, WEB_SESSION_EVENT } from "../lib/web-auth";
+import { WEB_ROUTES } from "../lib/web-routes";
+
+function subscribeToSessionChange(changed: () => void) {
+  window.addEventListener(WEB_SESSION_EVENT, changed);
+  window.addEventListener("focus", changed);
+  window.addEventListener("pageshow", changed);
+  return () => {
+    window.removeEventListener(WEB_SESSION_EVENT, changed);
+    window.removeEventListener("focus", changed);
+    window.removeEventListener("pageshow", changed);
+  };
+}
+
+const hasWebSession = () => !!getWebSession();
+const noServerSession = () => false;
 
 export function Home() {
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
+  const signedIn = useSyncExternalStore(subscribeToSessionChange, hasWebSession, noServerSession);
+  const redirected = useRef(false);
+  useEffect(() => {
+    if (!signedIn || redirected.current) return;
+    redirected.current = true;
+    // Load the private app document's CSP, cache and referrer headers. A
+    // client-only route change would retain the public landing page's CSP.
+    window.location.replace(WEB_ROUTES.workspace);
+  }, [signedIn]);
+
+  if (signedIn)
+    return (
+      <main
+        className="flex min-h-dvh items-center justify-center bg-neutral-50 text-sm text-neutral-500"
+        role="status"
+      >
+        {lang === "fa"
+          ? "کاتا باز می‌شود…"
+          : lang === "ps"
+            ? "کاتا پرانیستل کېږي…"
+            : "Opening Kaata…"}
+      </main>
+    );
+
   return (
     <main className="bg-surface">
       <SiteHeader />
