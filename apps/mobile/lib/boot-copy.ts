@@ -5,7 +5,10 @@ const en = {
   settingUp: "Setting up your kaata…",
   almostReady: "Almost ready",
   migrationInstructions:
-    "Please close kaata from your recent apps, then open it again. This is a one-time step for the new language settings to take effect.",
+    "Please fully close kaata (swipe it away from recent apps), then open it again to finish applying its language settings. You do not need to erase any data.",
+  migrationAndroid:
+    "Open Kaata's app settings, tap Force stop, then open Kaata again. Do not clear app data or uninstall Kaata.",
+  openAppSettings: "Open app settings",
   closeKaata: "Close kaata",
   openDataFailed: "Couldn't open your Kaata data",
   reopenAndroid: "Please close kaata from your recent apps and open it again.",
@@ -45,7 +48,10 @@ const fa: Record<BootKey, string> = {
   settingUp: "در حال آماده‌سازی کاتای شما…",
   almostReady: "تقریباً آماده",
   migrationInstructions:
-    "لطفاً کاتا را از برنامه‌های اخیر ببندید و دوباره باز کنید. این یک‌بار برای اعمال تنظیمات زبان جدید لازم است.",
+    "لطفاً کاتا را به‌طور کامل از برنامه‌های اخیر ببندید و دوباره باز کنید تا تنظیمات زبان اعمال شود. نیازی به پاک کردن داده‌ها نیست.",
+  migrationAndroid:
+    "تنظیمات کاتا را در تلفون باز کنید، «توقف اجباری» (Force stop) را بزنید و کاتا را دوباره باز کنید. داده‌های برنامه را پاک نکنید و کاتا را حذف نکنید.",
+  openAppSettings: "باز کردن تنظیمات کاتا",
   closeKaata: "بستن کاتا",
   openDataFailed: "داده‌های کاتای شما باز نشد",
   reopenAndroid: "لطفاً کاتا را از برنامه‌های اخیر ببندید و دوباره باز کنید.",
@@ -83,7 +89,10 @@ const ps: Record<BootKey, string> = {
   settingUp: "ستاسو کاټه چمتو کېږي…",
   almostReady: "نږدې چمتو ده",
   migrationInstructions:
-    "مهرباني وکړئ کاټه د وروستیو پرانیستل شوو اپونو له لېست څخه وتړئ او بیا یې پرانیزئ. دا کار د ژبې د نویو تنظیماتو د پلي کېدو لپاره یوازې یو ځل اړین دی.",
+    "مهرباني وکړئ کاټه په بشپړه توګه د وروستیو اپونو له لېست څخه وتړئ او بیا یې پرانیزئ، څو د ژبې تنظیمات پلي شي. د معلوماتو پاکولو ته اړتیا نشته.",
+  migrationAndroid:
+    "په ټیلیفون کې د کاټې د اپ تنظیمات پرانیزئ، «په زوره درول» (Force stop) ووهئ، بیا کاټه بېرته پرانیزئ. د اپ معلومات مه پاکوئ او کاټه مه ړنګوئ.",
+  openAppSettings: "د کاټې تنظیمات پرانیزئ",
   closeKaata: "کاټه وتړئ",
   openDataFailed: "ستاسو د کاټه معلومات پرانیستل نه شول",
   reopenAndroid:

@@ -25,6 +25,7 @@ import { useCallback, useEffect, useState, type ReactNode } from "react";
 import {
   ActivityIndicator,
   AppState,
+  Linking,
   Platform,
   Pressable,
   ScrollView,
@@ -56,46 +57,18 @@ import {
 export const unstable_settings = { anchor: "index" };
 
 // ============================================================================
-// I18nManager neutralization + one-shot migration. The architecture:
+// Kaata handles Dari/Pashto direction inside the React tree (direction.ts).
+// app.json also disables automatic native RTL before React starts. This is
+// essential: Expo Localization's default supportsRTL=true can restore native
+// RTL during an upgrade, before these JavaScript calls have a chance to run.
 //
-//   kaata sandboxes direction INSIDE the React tree via an internal flag in
-//   lib/direction.ts. The process-global I18nManager is neutralized so it
-//   doesn't second-guess our layout, and v0.2.4's bad forceRTL(true) is
-//   undone for upgraders.
-//
-// The three module-load calls:
-//
-//   1. allowRTL(false) — tells RN we don't want auto-RTL behavior.
-//   2. swapLeftAndRightInRTL(false) — disables auto-swap of margin/padding
-//      left↔right and absolute left↔right positioning.
-//   3. forceRTL(false) ONCE if the Activity came up RTL — undoes v0.2.4's
-//      bad state (persists across launches).
-//
-// CRITICAL constraint about Yoga and Android Activities:
-//
-//   I18nManager.isRTL is determined at Activity creation time by Android's
-//   layout-direction resolution. Calling forceRTL/allowRTL/etc. at JS
-//   module-load persists the new value to shared prefs but DOES NOT relayout
-//   the current Activity. So if the user is upgrading from v0.2.4 (which
-//   called forceRTL(true) on Persian), their Activity for THIS launch is
-//   still isRTL=true.
-//
-//   And when the Activity is RTL, Yoga auto-reverses `flexDirection: 'row'`
-//   children — meaning the FAB row, the give-button row, and the swipe rail
-//   all render physically reversed for this launch only. The "I gave"
-//   button ends up on the left, the FAB ends up on the left, the swipe
-//   gesture math inverts. Exactly the v0.2.4 complaint.
-//
-//   We can't fix this without a real Activity restart, which we cannot
-//   trigger without a native module we don't want to ship. So instead:
-//   detect isRTL at module load and show a blocking bilingual restart
-//   prompt instead of the broken-layout app. The user closes from recents
-//   and reopens; the next Activity comes up isRTL=false, the prompt
-//   doesn't show, and the sandboxed direction takes over.
-//
-// Effect on Expo Go: same mechanism. forceRTL(false) persists to Expo Go's
-// own shared prefs, so on the next Expo Go cold restart its host activity
-// also comes up LTR — which is what the user explicitly wanted.
+// Keep the runtime neutralization and a guard for old native hosts/Expo Go.
+// RN caches I18nManager constants for the life of the JavaScript runtime;
+// changing preferences here does not change an already-created native root.
+// BackHandler.exitApp() does NOT kill that runtime. A retained process can
+// therefore show the guard again after closing/reopening from recent apps.
+// The Android recovery screen opens app settings for a real Force stop,
+// preserving the ledger, rather than asking users to clear app data.
 //
 // Cultural invariants relying on this neutralization (all static-physical):
 //   1. "I gave" / "I received" row in person/[id].tsx — give on right
@@ -261,13 +234,9 @@ export default function RootLayout() {
 }
 
 function RootLayoutContent() {
-  // First-launch gate: if the Activity came up RTL (v0.2.4 upgrader OR a
-  // fresh install on a Persian-locale device), we cannot relayout the
-  // current view tree — Yoga has already auto-flipped `flexDirection: row`
-  // children. Render a blocking restart prompt instead of the broken Stack.
-  // After the user cold-restarts, the new Activity reads our persisted
-  // forceRTL(false) state and comes up LTR; NEEDS_RESTART_FOR_LTR is then
-  // false on that launch and the normal app renders.
+  // Native builds disable automatic RTL in app.json. An old host can still
+  // have a root created with RTL; don't mount the app with reversed physical
+  // controls. Recovery must end the process, not merely background the task.
   if (NEEDS_RESTART_FOR_LTR) {
     return <MigrationPrompt />;
   }
@@ -1195,9 +1164,8 @@ const bootSplashStyles = StyleSheet.create({
   },
 });
 
-// One-time blocking prompt rendered when the JS bundle starts up inside an
-// RTL-sealed Activity. The user closes kaata from recents and reopens; the
-// next Activity reads our persisted forceRTL(false) and comes up LTR.
+// Recovery for a root created with native RTL before JS neutralized it.
+// No database reset, sign-out or cloud restore is needed for this condition.
 //
 // Static recovery copy and a local language picker work without app_meta.
 // Centered alignment also works inside the old RTL-sealed Activity.
@@ -1279,15 +1247,22 @@ function MigrationPrompt() {
         <View style={migrationStyles.spacer} />
         <Text style={migrationStyles.heading}>{b("almostReady")}</Text>
         <View style={migrationStyles.spacer} />
-        <Text style={migrationStyles.body}>{b("migrationInstructions")}</Text>
+        <Text style={migrationStyles.body}>
+          {b(Platform.OS === "android" ? "migrationAndroid" : "migrationInstructions")}
+        </Text>
         {Platform.OS === "android" ? (
           <>
             <View style={migrationStyles.spacer} />
             <Pressable
-              onPress={() => forceRestart()}
+              accessibilityRole="button"
+              onPress={() => {
+                void Linking.openSettings().catch((err) => {
+                  console.warn("[language-restart] could not open app settings", err);
+                });
+              }}
               style={({ pressed }) => [migrationStyles.button, pressed && { opacity: 0.85 }]}
             >
-              <Text style={migrationStyles.buttonText}>{b("closeKaata")}</Text>
+              <Text style={migrationStyles.buttonText}>{b("openAppSettings")}</Text>
             </Pressable>
           </>
         ) : null}

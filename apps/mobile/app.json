@@ -12,7 +12,8 @@
       "bundleIdentifier": "af.kaata.app",
       "usesAppleSignIn": true,
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "ExpoLocalization_forcesRTL": false
       },
       "buildNumber": "48"
     },
@@ -50,6 +51,8 @@
       [
         "expo-localization",
         {
+          "supportsRTL": false,
+          "forcesRTL": false,
           "supportedLocales": ["en", "fa", "ps"]
         }
       ],
