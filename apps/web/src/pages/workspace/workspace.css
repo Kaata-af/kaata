@@ -82,6 +82,8 @@
 }
 .workspace-book-select {
   width: 100%;
+  height: auto;
+  min-height: 42px;
   border: 1px solid #dce5de;
   border-radius: 10px;
   padding: 11px 9px;
@@ -197,6 +199,8 @@
   margin-top: 4px;
 }
 .workspace-language {
+  height: auto;
+  min-height: 36px;
   padding: 8px 9px;
   border: 1px solid #dce5de;
   border-radius: 8px;
@@ -913,7 +917,7 @@
   font-weight: 500;
 }
 .workspace-dialog label > input,
-.workspace-dialog label > select,
+.workspace-dialog label > [data-slot="select-trigger"],
 .workspace-dialog label > textarea {
   border: 1px solid #d7e1da;
   padding: 10px 12px;

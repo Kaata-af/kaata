@@ -4,7 +4,7 @@ import { FACEBOOK_URL, INSTAGRAM_URL, TIKTOK_URL, WHATSAPP_CONTACT_URL, YOUTUBE_
 import { useI18n, type Lang } from "../lib/i18n";
 import { BrandLogo } from "./BrandLogo";
 import { Button } from "./ui/button";
-import { NativeSelect } from "./ui/native-select";
+import { SelectField } from "./ui/select-field";
 
 // Header mirrors dub.co's chassis: logo at the start, nav links centered,
 // primary CTA at the end (start/end flip with the document direction for
@@ -63,22 +63,18 @@ export function SiteHeader() {
           <label className="sr-only" htmlFor="site-language">
             {lang === "ps" ? "ژبه" : lang === "fa" ? "زبان" : "Language"}
           </label>
-          <NativeSelect
+          <SelectField
             id="site-language"
             value={lang}
-            onChange={(event) => setLang(event.target.value as Lang)}
-            className="border-neutral-200 bg-white/60 text-[13px] text-muted-foreground focus-visible:ring-[#3e6149]"
-          >
-            <option value="en" lang="en">
-              English
-            </option>
-            <option value="fa" lang="fa">
-              دری
-            </option>
-            <option value="ps" lang="ps">
-              پښتو
-            </option>
-          </NativeSelect>
+            onValueChange={(value) => setLang(value as Lang)}
+            dir={lang === "en" ? "ltr" : "rtl"}
+            className="w-[100px] border-neutral-200 bg-white/60 text-[13px] text-muted-foreground"
+            options={[
+              { value: "en", label: <span lang="en">English</span> },
+              { value: "fa", label: <span lang="fa">دری</span> },
+              { value: "ps", label: <span lang="ps">پښتو</span> },
+            ]}
+          />
 
           <Button asChild variant="brand" size="sm" className="text-[13px]">
             <Link reloadDocument to="/app">

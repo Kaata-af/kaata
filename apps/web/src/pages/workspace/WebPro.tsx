@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { BrandLogo } from "../../components/BrandLogo";
+import { SelectField } from "../../components/ui/select-field";
 import { useI18n, type Lang } from "../../lib/i18n";
 import { WebApiError, type WebSession } from "../../lib/web-auth";
 import { WEB_ROUTES } from "../../lib/web-routes";
@@ -439,11 +440,17 @@ export function WebProPage({ session }: { session: WebSession }) {
         </Link>
         <label>
           <span className="sr-only">{c.language}</span>
-          <select value={lang} onChange={(event) => setLang(event.target.value as Lang)}>
-            <option value="en">English</option>
-            <option value="fa">دری</option>
-            <option value="ps">پښتو</option>
-          </select>
+          <SelectField
+            value={lang}
+            onValueChange={(value) => setLang(value as Lang)}
+            dir={lang === "en" ? "ltr" : "rtl"}
+            aria-label={c.language}
+            options={[
+              { value: "en", label: "English" },
+              { value: "fa", label: "دری" },
+              { value: "ps", label: "پښتو" },
+            ]}
+          />
         </label>
       </header>
       <main className="web-pro-content">

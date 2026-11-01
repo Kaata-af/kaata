@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { SelectField } from "../../components/ui/select-field";
 import { getWebSession, WebApiError } from "../../lib/web-auth";
 import {
   effectiveWebCreditPolicy,
@@ -720,17 +721,17 @@ function CreditDialog({
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
                 />
-                <select
+                <SelectField
+                  dir={lang === "en" ? "ltr" : "rtl"}
                   aria-label={c.currency}
                   value={currency}
-                  onChange={(event) => choose(event.target.value)}
-                >
-                  {[...new Set([currency, ...matches])].map((code) => (
-                    <option key={code} value={code}>
-                      {code} · {getCurrencyNameForLocale(code, lang)}
-                    </option>
-                  ))}
-                </select>
+                  onValueChange={choose}
+                  disabled={busy || !allowed}
+                  options={[...new Set([currency, ...matches])].map((code) => ({
+                    value: code,
+                    label: `${code} · ${getCurrencyNameForLocale(code, lang)}`,
+                  }))}
+                />
                 {!matches.length && <small>{c.noCurrencies}</small>}
               </div>
             )}
@@ -756,14 +757,18 @@ function CreditDialog({
             <p className="web-credit-hint">{c.amountHint}</p>
             <label className="web-credit-field">
               <span>{c.behavior}</span>
-              <select
+              <SelectField
+                dir={lang === "en" ? "ltr" : "rtl"}
+                aria-label={c.behavior}
                 value={draft.behavior}
-                onChange={(event) => update({ behavior: event.target.value as Draft["behavior"] })}
-              >
-                <option value="warn">{c.warn}</option>
-                <option value="clerks">{c.clerks}</option>
-                <option value="staff">{c.staff}</option>
-              </select>
+                onValueChange={(value) => update({ behavior: value as Draft["behavior"] })}
+                disabled={busy || !allowed}
+                options={[
+                  { value: "warn", label: c.warn },
+                  { value: "clerks", label: c.clerks },
+                  { value: "staff", label: c.staff },
+                ]}
+              />
             </label>
             <p className="web-credit-hint">{c.ownerHint}</p>
             {person && draft.expected === null && (

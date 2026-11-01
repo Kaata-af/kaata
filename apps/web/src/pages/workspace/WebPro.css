@@ -78,12 +78,10 @@
   background: #fafafa;
 }
 .web-pro-page button,
-.web-pro-page select,
 .web-pro-page input {
   font: inherit;
 }
 .web-pro-page button:not(:disabled),
-.web-pro-page select,
 .web-pro-plan {
   cursor: pointer;
 }
@@ -109,7 +107,8 @@
   font-weight: 750;
   letter-spacing: -0.8px;
 }
-.web-pro-header select {
+.web-pro-header [data-slot="select-trigger"] {
+  width: 104px;
   padding: 8px 10px;
   border: 1px solid #dbe5de;
   border-radius: 9px;

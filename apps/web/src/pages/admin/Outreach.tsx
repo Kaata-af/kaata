@@ -47,6 +47,7 @@
 
 import { useIsMutating, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Fragment, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
+import { SelectField } from "../../components/ui/select-field";
 import { useToast } from "../../components/Toast";
 import {
   ConflictError,
@@ -177,7 +178,7 @@ const SMALL_BUTTON =
   "inline-flex min-h-11 items-center justify-center gap-1.5 rounded-md border border-brand-border bg-white px-2.5 py-1 text-xs font-medium text-brand-ink transition hover:bg-brand-ivory focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary disabled:cursor-not-allowed disabled:opacity-40 md:min-h-8";
 const CHECKBOX = "h-4 w-4 shrink-0 rounded accent-brand-primary";
 const SMALL_SELECT =
-  "min-h-11 min-w-0 max-w-full rounded-md border border-brand-border bg-white py-1.5 pl-2 pr-6 text-base text-brand-ink focus-visible:outline-brand-primary md:min-h-8 md:text-xs";
+  "min-h-11 min-w-0 w-auto max-w-full rounded-md border border-brand-border bg-white px-2 py-1.5 text-base text-brand-ink focus-visible:outline-brand-primary md:min-h-8 md:text-xs";
 const PAGE_SIZES = [25, 50, 100];
 const WA_BUTTON =
   "inline-flex min-h-11 items-center justify-center gap-1.5 rounded-md bg-[#e8f5ed] px-2.5 py-1 text-xs font-semibold text-[#116b4f] transition hover:bg-[#d7eede] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary disabled:cursor-not-allowed disabled:opacity-40 md:min-h-8";
@@ -1576,17 +1577,14 @@ export function Outreach() {
               <div className="flex min-w-0 max-w-full items-center gap-2">
                 <label className="flex min-w-0 items-center gap-2 text-xs text-brand-muted">
                   Sort by
-                  <select
+                  <SelectField
+                    dir="ltr"
+                    aria-label="Sort by"
                     value={sortKey}
-                    onChange={(event) => sortBy(event.target.value as OutreachSortKey)}
+                    onValueChange={(value) => sortBy(value as OutreachSortKey)}
                     className={SMALL_SELECT}
-                  >
-                    {OUTREACH_SORT_OPTIONS.map(([key, label]) => (
-                      <option key={key} value={key}>
-                        {label}
-                      </option>
-                    ))}
-                  </select>
+                    options={OUTREACH_SORT_OPTIONS.map(([value, label]) => ({ value, label }))}
+                  />
                 </label>
                 <button
                   className="flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-md p-1.5 text-brand-muted hover:bg-brand-faint focus-visible:outline-brand-primary"
@@ -1646,21 +1644,20 @@ export function Outreach() {
               <div className="flex flex-wrap items-center justify-between gap-3 border-t border-brand-faint px-4 py-4 sm:px-6">
                 <label className="flex items-center gap-2 text-xs text-brand-muted">
                   Rows per page
-                  <select
+                  <SelectField
+                    dir="ltr"
                     aria-label="Rows per page"
-                    className="min-h-11 rounded-md border border-brand-border bg-white px-2 py-1.5 text-base focus-visible:outline-brand-primary md:text-xs"
-                    value={pageSize}
-                    onChange={(event) => {
-                      setPreferences((p) => ({ ...p, pageSize: Number(event.target.value) }));
+                    className="min-h-11 w-auto rounded-md border border-brand-border bg-white px-2 py-1.5 text-base focus-visible:outline-brand-primary md:text-xs"
+                    value={String(pageSize)}
+                    onValueChange={(value) => {
+                      setPreferences((p) => ({ ...p, pageSize: Number(value) }));
                       setPage(0);
                     }}
-                  >
-                    {PAGE_SIZES.map((size) => (
-                      <option key={size} value={size}>
-                        {size}
-                      </option>
-                    ))}
-                  </select>
+                    options={PAGE_SIZES.map((size) => ({
+                      value: String(size),
+                      label: String(size),
+                    }))}
+                  />
                 </label>
                 <nav
                   aria-label="Outreach directory pages"
@@ -1802,25 +1799,20 @@ function QueueCard(props: {
             htmlFor="outreach-session-language"
           >
             Message language
-            <select
+            <SelectField
+              dir="ltr"
               id="outreach-session-language"
+              aria-label="Message language"
               className={SMALL_SELECT}
               value={props.sessionLanguage}
               disabled={props.languageSaving}
               aria-busy={props.languageSaving}
-              onChange={(event) => {
-                const value = SESSION_LANGUAGE_OPTIONS.find(
-                  ([option]) => option === event.target.value,
-                )?.[0];
+              onValueChange={(next) => {
+                const value = SESSION_LANGUAGE_OPTIONS.find(([option]) => option === next)?.[0];
                 if (value && value !== props.sessionLanguage) props.onLanguage(value);
               }}
-            >
-              {SESSION_LANGUAGE_OPTIONS.map(([value, label]) => (
-                <option key={value} value={value}>
-                  {label}
-                </option>
-              ))}
-            </select>
+              options={SESSION_LANGUAGE_OPTIONS.map(([value, label]) => ({ value, label }))}
+            />
           </label>
           <p className="text-[11px] leading-4 text-brand-muted">
             {props.languageSaving
@@ -2043,21 +2035,18 @@ function BooksSection(props: {
         {/* Its own name (2026-09-30), apart from the directory's "Sort by". */}
         <label className="flex min-w-0 items-center gap-2 text-xs text-brand-muted">
           Sort books by
-          <select
+          <SelectField
+            dir="ltr"
+            aria-label="Sort books by"
             value={sortKey}
-            onChange={(event) => {
-              const key = BOOK_SORT_OPTIONS.find(([option]) => option === event.target.value)?.[0];
+            onValueChange={(value) => {
+              const key = BOOK_SORT_OPTIONS.find(([option]) => option === value)?.[0];
               if (key) setSortKey(key);
               setPage(0);
             }}
             className={SMALL_SELECT}
-          >
-            {BOOK_SORT_OPTIONS.map(([key, label]) => (
-              <option key={key} value={key}>
-                {label}
-              </option>
-            ))}
-          </select>
+            options={BOOK_SORT_OPTIONS.map(([value, label]) => ({ value, label }))}
+          />
         </label>
       </div>
       <p className="mt-3 text-xs tabular-nums text-brand-muted" role="status">
@@ -2517,17 +2506,14 @@ function FilterSelect(props: {
   return (
     <label className="min-w-0 max-w-full text-xs font-medium text-brand-muted">
       {props.label}
-      <select
+      <SelectField
+        dir="ltr"
+        aria-label={props.label}
         className={`${FIELD} mt-1`}
         value={props.value}
-        onChange={(event) => props.onChange(event.target.value)}
-      >
-        {props.options.map(([value, label]) => (
-          <option key={value} value={value}>
-            {label}
-          </option>
-        ))}
-      </select>
+        onValueChange={props.onChange}
+        options={props.options.map(([value, label]) => ({ value, label }))}
+      />
     </label>
   );
 }
@@ -2665,21 +2651,17 @@ function StatusSelect(props: {
   onChange: (status: OutreachStatus) => void;
 }) {
   return (
-    <select
+    <SelectField
+      dir="ltr"
       aria-label={`Status of ${props.contact.phone}`}
       value={props.contact.outreach.status}
       disabled={props.disabled}
-      onChange={(event) => {
-        if (isOutreachStatus(event.target.value)) props.onChange(event.target.value);
+      onValueChange={(value) => {
+        if (isOutreachStatus(value)) props.onChange(value);
       }}
       className={SMALL_SELECT}
-    >
-      {OUTREACH_STATUSES.map((status) => (
-        <option key={status} value={status}>
-          {STATUS_LABELS[status]}
-        </option>
-      ))}
-    </select>
+      options={OUTREACH_STATUSES.map((value) => ({ value, label: STATUS_LABELS[value] }))}
+    />
   );
 }
 // The row's Sent box records the FIRST message (2026-09-30): a tick records
@@ -3358,24 +3340,26 @@ function ContactDetails(props: RowProps & { contact: OutreachContact; id: string
                 the next message; the hint says so. */}
             <label className="mt-4 flex min-w-0 flex-col text-[11px] font-medium text-brand-muted">
               Message language
-              <select
+              <SelectField
+                dir="ltr"
                 aria-label={`Message language for ${contact.phone}`}
                 aria-describedby={openedIn ? `${props.id}-lang-opened` : undefined}
                 className={`${SMALL_SELECT} mt-1 w-full`}
                 value={o.lang}
                 disabled={props.busy}
-                onChange={(event) => {
-                  const lang = event.target.value;
+                onValueChange={(lang) => {
                   if (isOutreachLang(lang) && lang !== o.lang) props.onLanguage(contact, lang);
                 }}
-              >
-                <option value="">
-                  {`Use session choice (${sessionChoiceLabel(sessionLanguage(props.settings), contact.locale)})`}
-                </option>
-                <option value="fa">Dari</option>
-                <option value="ps">Pashto</option>
-                <option value="en">English</option>
-              </select>
+                options={[
+                  {
+                    value: "",
+                    label: `Use session choice (${sessionChoiceLabel(sessionLanguage(props.settings), contact.locale)})`,
+                  },
+                  { value: "fa", label: "Dari" },
+                  { value: "ps", label: "Pashto" },
+                  { value: "en", label: "English" },
+                ]}
+              />
             </label>
             {openedIn ? (
               <p

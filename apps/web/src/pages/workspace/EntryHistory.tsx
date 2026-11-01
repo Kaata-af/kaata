@@ -1,4 +1,5 @@
 import { useEffect, useId, useMemo, useState } from "react";
+import { SelectField } from "../../components/ui/select-field";
 import { useI18n, type Lang } from "../../lib/i18n";
 import type { WebEntry } from "../../lib/web-ledger";
 import {
@@ -298,32 +299,28 @@ export function EntryHistory({
         <div className="entry-history-selects">
           <label>
             <span>{c.currency}</span>
-            <select
+            <SelectField
+              dir={lang === "en" ? "ltr" : "rtl"}
+              aria-label={c.currency}
               value={filters.currency}
-              onChange={(event) => setFilters({ ...filters, currency: event.target.value })}
-            >
-              <option value="">{c.allCurrencies}</option>
-              {currencies.map((currency) => (
-                <option key={currency} value={currency}>
-                  {currency}
-                </option>
-              ))}
-            </select>
+              onValueChange={(value) => setFilters({ ...filters, currency: value })}
+              options={[
+                { value: "", label: c.allCurrencies },
+                ...currencies.map((currency) => ({ value: currency, label: currency })),
+              ]}
+            />
           </label>
           <label>
             <span>{c.dates}</span>
-            <select
+            <SelectField
+              dir={lang === "en" ? "ltr" : "rtl"}
+              aria-label={c.dates}
               value={filters.preset}
-              onChange={(event) =>
-                setFilters({ ...filters, preset: event.target.value as HistoryDatePreset })
+              onValueChange={(value) =>
+                setFilters({ ...filters, preset: value as HistoryDatePreset })
               }
-            >
-              {datePresets.map((preset) => (
-                <option key={preset} value={preset}>
-                  {c[preset]}
-                </option>
-              ))}
-            </select>
+              options={datePresets.map((preset) => ({ value: preset, label: c[preset] }))}
+            />
           </label>
         </div>
         {filters.preset === "custom" && (

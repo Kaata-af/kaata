@@ -10,6 +10,7 @@ import {
 import { Link } from "react-router-dom";
 import { BrandLogo } from "../../components/BrandLogo";
 import { useToast } from "../../components/Toast";
+import { SelectField } from "../../components/ui/select-field";
 import { useI18n, type Lang } from "../../lib/i18n";
 import { createWebLive, type WebLiveState } from "../../lib/web-live";
 import { createWebRefresh } from "../../lib/web-refresh";
@@ -354,21 +355,19 @@ export default function LedgerWorkspace({ session }: { session: WebSession }) {
         <label className="sr-only" htmlFor="workspace-vault">
           {c.kaatas}
         </label>
-        <select
+        <SelectField
           id="workspace-vault"
+          dir={lang === "en" ? "ltr" : "rtl"}
           value={vaultID}
-          onChange={(event) => selectVault(event.target.value)}
+          onValueChange={selectVault}
           disabled={!!modal || currencySettings || !vaults.length}
           className="workspace-book-select"
-        >
-          {!vaults.length && <option value="">{c.kaatas}</option>}
-          {vaults.map((book) => (
-            <option key={book.vault_id} value={book.vault_id}>
-              {book.name}
-              {book.archived_at_ms ? " · " + c.archived.split(".")[0] : ""}
-            </option>
-          ))}
-        </select>
+          placeholder={c.kaatas}
+          options={vaults.map((book) => ({
+            value: book.vault_id,
+            label: book.name + (book.archived_at_ms ? " · " + c.archived.split(".")[0] : ""),
+          }))}
+        />
         <button
           type="button"
           className="workspace-new-book"
@@ -434,16 +433,18 @@ export default function LedgerWorkspace({ session }: { session: WebSession }) {
         <label className="sr-only" htmlFor="workspace-language">
           {c.language}
         </label>
-        <select
+        <SelectField
           id="workspace-language"
+          dir={lang === "en" ? "ltr" : "rtl"}
           value={lang}
-          onChange={(event) => setLang(event.target.value as Lang)}
+          onValueChange={(value) => setLang(value as Lang)}
           className="workspace-language"
-        >
-          <option value="en">English</option>
-          <option value="fa">دری</option>
-          <option value="ps">پښتو</option>
-        </select>
+          options={[
+            { value: "en", label: "English" },
+            { value: "fa", label: "دری" },
+            { value: "ps", label: "پښتو" },
+          ]}
+        />
       </aside>
 
       <main className="workspace-main">

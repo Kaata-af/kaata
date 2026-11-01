@@ -69,9 +69,13 @@
   width: 15px;
   height: 15px;
 }
-.web-auth-language select {
+.web-auth-language [data-slot="select-trigger"] {
+  height: 27px;
+  width: 92px;
   padding: 3px 0;
+  border: 0;
   background: transparent;
+  box-shadow: none;
   font-size: 12px;
   cursor: pointer;
   outline-offset: 4px;

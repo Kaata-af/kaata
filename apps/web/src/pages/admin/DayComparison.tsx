@@ -1,5 +1,6 @@
 import { LineChart, type Color, type CustomTooltipProps } from "@tremor/react";
 import { useEffect, useRef, useState } from "react";
+import { SelectField } from "../../components/ui/select-field";
 import { useDayComparison, type DayComparisonResult } from "./api";
 import { fmtDateTime, fmtExactDateTime } from "./dates";
 import {
@@ -202,27 +203,25 @@ export function DayComparisonPanel({
       <div className="flex min-w-0 flex-wrap items-end justify-between gap-3">
         <label className="min-w-0 w-full text-xs font-medium text-brand-sub sm:w-auto sm:min-w-64">
           Dates to compare
-          <select
+          <SelectField
+            dir="ltr"
             aria-label="Dates to compare"
             className={FIELD}
             value={customOpen ? "custom" : preferences.preset}
-            onChange={(event) => {
-              if (event.currentTarget.value === "custom") {
+            onValueChange={(value) => {
+              if (value === "custom") {
                 setCustomOpen(true);
                 setDateError("");
               } else {
                 setCustomOpen(false);
-                update({ preset: event.currentTarget.value as ComparisonPreferences["preset"] });
+                update({ preset: value as ComparisonPreferences["preset"] });
               }
             }}
-          >
-            {COMPARISON_PRESETS.map((preset) => (
-              <option key={preset.value} value={preset.value}>
-                {preset.label}
-              </option>
-            ))}
-            <option value="custom">Custom dates · 2 to 7</option>
-          </select>
+            options={[
+              ...COMPARISON_PRESETS.map((preset) => ({ value: preset.value, label: preset.label })),
+              { value: "custom", label: "Custom dates · 2 to 7" },
+            ]}
+          />
         </label>
         <button type="button" className={BUTTON} disabled={model.cutoff === 0} onClick={download}>
           Download CSV
@@ -326,46 +325,46 @@ export function DayComparisonPanel({
         />
         <label className="min-w-0 w-full text-xs font-medium text-brand-sub sm:w-auto sm:flex-1">
           Compare through
-          <select
+          <SelectField
+            dir="ltr"
             aria-label="Compare through"
             className={FIELD}
             disabled={model.maxCutoff === 0}
             value={
-              preferences.requestedHour === null || model.maxCutoff === 0 ? "latest" : model.cutoff
+              preferences.requestedHour === null || model.maxCutoff === 0
+                ? "latest"
+                : String(model.cutoff)
             }
-            onChange={(event) =>
+            onValueChange={(value) =>
               update({
-                requestedHour:
-                  event.currentTarget.value === "latest" ? null : Number(event.currentTarget.value),
+                requestedHour: value === "latest" ? null : Number(value),
               })
             }
-          >
-            <option value="latest">
-              {model.maxCutoff === 0
-                ? "No completed hour yet"
-                : `Latest common · ${String(model.maxCutoff).padStart(2, "0")}:00`}
-            </option>
-            {Array.from({ length: model.maxCutoff }, (_, index) => index + 1).map((hour) => (
-              <option key={hour} value={hour}>
-                {String(hour).padStart(2, "0")}:00{hour === 24 ? " · complete day" : ""}
-              </option>
-            ))}
-          </select>
+            options={[
+              {
+                value: "latest",
+                label:
+                  model.maxCutoff === 0
+                    ? "No completed hour yet"
+                    : `Latest common · ${String(model.maxCutoff).padStart(2, "0")}:00`,
+              },
+              ...Array.from({ length: model.maxCutoff }, (_, index) => index + 1).map((hour) => ({
+                value: String(hour),
+                label: `${String(hour).padStart(2, "0")}:00${hour === 24 ? " · complete day" : ""}`,
+              })),
+            ]}
+          />
         </label>
         <label className="min-w-0 w-full text-xs font-medium text-brand-sub sm:w-auto sm:flex-1">
           Baseline
-          <select
+          <SelectField
+            dir="ltr"
             aria-label="Comparison baseline"
             className={FIELD}
             value={model.baselineDate}
-            onChange={(event) => update({ baselineDate: event.currentTarget.value })}
-          >
-            {dates.map((date) => (
-              <option key={date} value={date}>
-                {labels[date]}
-              </option>
-            ))}
-          </select>
+            onValueChange={(value) => update({ baselineDate: value })}
+            options={dates.map((date) => ({ value: date, label: labels[date] }))}
+          />
         </label>
       </div>
       <p className="mt-4 flex min-w-0 items-center gap-2 text-xs font-medium text-brand-sub">

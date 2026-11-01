@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { BrandLogo } from "../../components/BrandLogo";
 import { Button } from "../../components/ui/button";
 import { Card } from "../../components/ui/card";
+import { SelectField } from "../../components/ui/select-field";
 import { useToast } from "../../components/Toast";
 import { useI18n, type Lang } from "../../lib/i18n";
 import {
@@ -319,11 +320,17 @@ export function WorkspaceAuth({
         <label className="web-auth-language">
           <span className="sr-only">{copy.language}</span>
           <AuthSymbol kind="globe" />
-          <select value={lang} onChange={(event) => setLang(event.target.value as Lang)}>
-            <option value="en">English</option>
-            <option value="fa">دری</option>
-            <option value="ps">پښتو</option>
-          </select>
+          <SelectField
+            value={lang}
+            onValueChange={(value) => setLang(value as Lang)}
+            dir={lang === "en" ? "ltr" : "rtl"}
+            aria-label={copy.language}
+            options={[
+              { value: "en", label: "English" },
+              { value: "fa", label: "دری" },
+              { value: "ps", label: "پښتو" },
+            ]}
+          />
         </label>
       </header>
       <main className="web-auth-main">

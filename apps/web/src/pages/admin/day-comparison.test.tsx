@@ -84,7 +84,10 @@ test("before 01:00 a remembered cutoff has a readable disabled selector and no i
   input.day.completed_hours = 0;
   const html = render(input, { requestedHour: 8 });
   assert.match(html, /No completed hour to compare yet/);
-  assert.match(html, /value="latest" selected="">No completed hour yet/);
+  assert.match(
+    html,
+    /<button(?=[^>]*role="combobox")(?=[^>]*aria-label="Compare through")(?=[^>]*disabled="")[^>]*>[\s\S]*?No completed hour yet[\s\S]*?<\/button>/,
+  );
   assert.match(html, /first comparison is available after 01:00 Kabul/);
   assert.doesNotMatch(html, /Average across/);
 });
