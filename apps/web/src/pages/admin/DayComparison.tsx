@@ -1,6 +1,7 @@
 import { LineChart, type Color, type CustomTooltipProps } from "@tremor/react";
 import { useEffect, useRef, useState } from "react";
 import { SelectField } from "../../components/ui/select-field";
+import { Button } from "../../components/ui/button";
 import { useDayComparison, type DayComparisonResult } from "./api";
 import { fmtDateTime, fmtExactDateTime } from "./dates";
 import {
@@ -291,12 +292,9 @@ export function DayComparisonPanel({
             >
               + Add date
             </button>
-            <button
-              type="submit"
-              className={`${BUTTON} border-brand-primary bg-brand-primary text-white hover:bg-brand-ink`}
-            >
+            <Button type="submit" variant="brand" className="min-h-11 rounded-lg px-3 py-2 text-xs">
               Apply dates
-            </button>
+            </Button>
           </div>
           <p className="mt-2 text-[11px] leading-5 text-brand-muted">
             Available {fmtDateTime(data.min_date)}–{fmtDateTime(data.max_date)}. The chart keeps its
