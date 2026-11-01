@@ -516,6 +516,8 @@ func main() {
 		pr.Post("/v1/auth/signout", authH.SignOut)
 		pr.With(httpx.RateLimitPerAccount(60, time.Minute)).
 			Post("/v1/account/web-activity", authH.WebActivity)
+		pr.With(httpx.RateLimitPerAccount(60, time.Minute)).Get("/v1/account/web-profile", authH.GetWebProfile)
+		pr.With(httpx.RateLimitPerAccount(accountSecurityLimit, emailWindow)).Put("/v1/account/web-profile", authH.PutWebProfile)
 		// Informational billing only: no existing web/native route is gated.
 		pr.With(httpx.RateLimitPerAccount(60, time.Minute)).Get("/v1/web-pro", webProH.Status)
 		pr.With(httpx.RateLimitPerAccount(60, time.Minute)).Get("/v1/web-pro/orders/{order_id}", webProH.Order)

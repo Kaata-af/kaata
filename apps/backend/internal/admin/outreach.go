@@ -312,7 +312,7 @@ type OutreachBook struct {
 	Archived       bool   `json:"archived"`   // vaults.archived_at set
 	CreatedAt      string `json:"created_at"` // vaults.created_at, RFC3339 UTC
 	OwnerAccountID string `json:"owner_account_id"`
-	OwnerName      string `json:"owner_name"`    // accounts.name ("" when unset)
+	OwnerName      string `json:"owner_name"`    // chosen account name, then provider name ("" when unset)
 	OwnerEmail     string `json:"owner_email"`   // accounts.email
 	OwnerPhone     string `json:"owner_phone"`   // same resolution listings use for owner_phone
 	MemberCount    int    `json:"member_count"`  // accepted, non-revoked members
@@ -516,6 +516,8 @@ func outreachText(s string, max int) string {
 type outreachAccount struct {
 	id, name, email, phone string
 	createdAt              time.Time
+	lastActivityAt         *time.Time
+	hasAccountName         bool
 }
 
 type outreachInstall struct {
@@ -893,7 +895,7 @@ func readOutreachExclusions(ctx context.Context, q outreachQuerier) (*outreachEx
 		return lrows.Err()
 	}
 	if err := resolve("vault", `
-		SELECT v.vault_id::text, v.name, COALESCE(a.name, ''), COALESCE(a.email, '')
+		SELECT v.vault_id::text, v.name, COALESCE(NULLIF(a.display_name, ''), a.name, ''), COALESCE(a.email, '')
 		FROM vaults v LEFT JOIN accounts a ON a.id = v.owner_account_id
 		WHERE v.vault_id::text = ANY($1::text[])
 	`, func(_, name, owner, email string) string {
@@ -913,7 +915,7 @@ func readOutreachExclusions(ctx context.Context, q outreachQuerier) (*outreachEx
 	// with neither name nor email (Apple / OTP sign-ins may carry no email)
 	// keeps its id prefix in front of the count.
 	if err := resolve("account", `
-		SELECT a.id::text, COALESCE(a.name, ''), a.email,
+		SELECT a.id::text, COALESCE(NULLIF(a.display_name, ''), a.name, ''), a.email,
 		       (SELECT COUNT(*) FROM vaults v WHERE v.owner_account_id = a.id AND v.purged_at IS NULL)::text
 		FROM accounts a
 		WHERE a.id::text = ANY($1::text[])
@@ -961,7 +963,8 @@ func (s *Service) outreachAccounts(ctx context.Context, tx pgx.Tx) (map[string]*
 	byID := map[string]*outreachAccount{}
 	order := []string{}
 	rows, err := tx.Query(ctx, `
-		SELECT a.id::text, COALESCE(a.name, ''), a.email, COALESCE(a.phone_e164, ''), a.created_at
+		SELECT a.id::text, COALESCE(NULLIF(a.display_name, ''), a.name, ''), a.email, COALESCE(a.phone_e164, ''),
+		       a.created_at, NULLIF(a.display_name, '') IS NOT NULL
 		FROM accounts a
 		WHERE a.id::text <> ALL($1::text[])
 		ORDER BY a.created_at, a.id
@@ -972,7 +975,7 @@ func (s *Service) outreachAccounts(ctx context.Context, tx pgx.Tx) (map[string]*
 	defer rows.Close()
 	for rows.Next() {
 		var a outreachAccount
-		if err := rows.Scan(&a.id, &a.name, &a.email, &a.phone, &a.createdAt); err != nil {
+		if err := rows.Scan(&a.id, &a.name, &a.email, &a.phone, &a.createdAt, &a.hasAccountName); err != nil {
 			return nil, nil, err
 		}
 		byID[a.id] = &a
@@ -1118,9 +1121,15 @@ func buildOutreachShopkeeper(g *outreachShopGroup, vaults map[string]*outreachVa
 		sk.AccountID = g.account.id
 		sk.Email = g.account.email
 		sk.SignedIn = true
+		if g.account.hasAccountName {
+			b.name = g.account.name
+		}
 	}
 	platforms := map[string]bool{}
 	var firstSeen, lastActivity *time.Time
+	if g.account != nil && g.account.lastActivityAt != nil {
+		lastActivity = g.account.lastActivityAt
+	}
 	for i, in := range g.installs {
 		sk.InstallIDs = append(sk.InstallIDs, in.installID)
 		if in.platform == "web" {
@@ -1397,6 +1406,19 @@ func (s *Service) GetOutreach(ctx context.Context) (OutreachResult, error) {
 		kept = append(kept, in)
 	}
 	installs = kept
+	keptInstallIDs := make([]string, 0, len(installs))
+	for _, in := range installs {
+		keptInstallIDs = append(keptInstallIDs, in.installID)
+	}
+	activity, err := readWebWriteActivity(ctx, tx, keptInstallIDs)
+	if err != nil {
+		return out, err
+	}
+	for id, at := range activity {
+		if a := accounts[id]; a != nil {
+			a.lastActivityAt = &at
+		}
+	}
 	vaults, vaultOrder, membersByAccount, err := s.outreachVaults(ctx, tx)
 	if err != nil {
 		return out, err
@@ -1463,10 +1485,16 @@ func (s *Service) GetOutreach(ctx context.Context) (OutreachResult, error) {
 	shops := map[string]*outreachShopGroup{}
 	for i := range installs {
 		in := &installs[i]
-		if in.selfPhone == "" {
+		phone := in.selfPhone
+		if phone == "" {
+			if a := accounts[in.accountID]; a != nil {
+				phone = a.phone
+			}
+		}
+		if phone == "" {
 			continue
 		}
-		ph, ok := normalizeOutreachPhone(in.selfPhone)
+		ph, ok := normalizeOutreachPhone(phone)
 		if !ok {
 			continue
 		}

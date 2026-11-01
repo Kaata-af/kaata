@@ -5,9 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"strings"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/matee/kaata-backend/internal/httpx"
 )
 
@@ -66,49 +64,23 @@ func (s *Service) RecordWebActivity(ctx context.Context, claims *SessionClaims, 
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	// Match sign-in/deletion's account-before-install lock order. A cached
-	// middleware verdict must not write presence after deletion or a switch.
-	var id string
-	err = tx.QueryRow(ctx, `SELECT id::text FROM accounts
-		WHERE id=$1::uuid AND pending_delete_at IS NULL AND disabled_at IS NULL
-		FOR UPDATE`, claims.AccountID).Scan(&id)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return ErrSessionRevoked
-	}
+	platform, err := lockWebSession(ctx, tx, claims)
 	if err != nil {
 		return err
 	}
-	var platform string
-	err = tx.QueryRow(ctx, `SELECT COALESCE(platform,'') FROM installs
-		WHERE install_id=$1::uuid AND account_id=$2::uuid AND account_deleted_at IS NULL
-		FOR UPDATE`, claims.InstallID, claims.AccountID).Scan(&platform)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return ErrSessionRevoked
-	}
-	if err != nil {
-		return err
-	}
-	// Hold the exact live credential until commit: concurrent sign-out then
-	// either wins first and prevents this update, or completes after it.
-	err = tx.QueryRow(ctx, `SELECT install_id::text FROM auth_credentials
-		WHERE install_id=$1::uuid AND provider=$2 AND COALESCE(account_id,$3::uuid)=$3::uuid
-		AND session_epoch=$4 AND revoked_at IS NULL FOR SHARE`,
-		claims.InstallID, claims.Provider, claims.AccountID, claims.Epoch).Scan(&id)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return ErrSessionRevoked
-	}
-	if err != nil {
-		return err
-	}
-	switch strings.ToLower(strings.TrimSpace(platform)) {
-	case "web", "unknown", "":
+	if browserProfilePlatform(platform) {
+		profiles, err := ReadOwnWebProfiles(ctx, tx, []string{claims.AccountID})
+		if err != nil {
+			return err
+		}
+		if err := syncWebInstallProfile(ctx, tx, claims.InstallID, profiles[claims.AccountID]); err != nil {
+			return err
+		}
 		_, err = tx.Exec(ctx, `UPDATE installs SET platform='web', app_version='web', last_seen_at=NOW(),
 			app_locale=COALESCE(NULLIF($2,''),app_locale) WHERE install_id=$1::uuid`, claims.InstallID, locale)
 		if err != nil {
 			return err
 		}
-	default:
-		// Platform is an analytics hint, never authority to relabel a phone.
 	}
 	return tx.Commit(ctx)
 }

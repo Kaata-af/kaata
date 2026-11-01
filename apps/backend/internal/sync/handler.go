@@ -184,6 +184,7 @@ func (h *Handler) Push(w http.ResponseWriter, r *http.Request) {
 		// the existence-oracle gap on the empty-batch shortcut.
 		res, err := h.svc.PushEvents(r.Context(), PushInput{
 			AccountID: claims.AccountID,
+			Session:   claims,
 			VaultID:   req.VaultID,
 			DeviceID:  req.DeviceID,
 			Events:    nil,
@@ -326,6 +327,7 @@ func (h *Handler) Push(w http.ResponseWriter, r *http.Request) {
 
 	res, err := h.svc.PushEvents(r.Context(), PushInput{
 		AccountID: claims.AccountID,
+		Session:   claims,
 		VaultID:   req.VaultID,
 		DeviceID:  req.DeviceID,
 		Events:    req.Events,

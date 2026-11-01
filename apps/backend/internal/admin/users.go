@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/matee/kaata-backend/internal/auth"
 )
 
 // Operator user drill-down: who's actually using kaata. For each signed-in
@@ -92,6 +93,8 @@ type UserRow struct {
 	// metrics leave out (all of them when Excluded; otherwise devices
 	// excluded by hand, or also linked to an operator or excluded account).
 	ExcludedInstalls int `json:"excluded_installs"`
+	hasAccountName   bool
+	hasAccountPhone  bool
 }
 
 // InstallRow is a device with no known account binding. We have
@@ -204,8 +207,9 @@ func (s *Service) GetUsers(ctx context.Context) (UsersResult, error) {
 			WHERE resolved_account_id IS NOT NULL
 			GROUP BY resolved_account_id
 		)
-		SELECT a.id::text, COALESCE(a.name, ''), a.email, COALESCE(a.locale, ''),
-		       a.created_at, a.last_login_at, als.last_seen
+		SELECT a.id::text, COALESCE(NULLIF(a.display_name, ''), a.name, ''), a.email, COALESCE(a.locale, ''),
+		       a.created_at, a.last_login_at, als.last_seen,
+		       NULLIF(a.display_name, '') IS NOT NULL, NULLIF(a.phone_e164, '') IS NOT NULL
 		FROM accounts a
 		LEFT JOIN account_last_seen als ON als.resolved_account_id = a.id
 		WHERE a.id::text <> ALL($1::text[])
@@ -218,7 +222,8 @@ func (s *Service) GetUsers(ctx context.Context) (UsersResult, error) {
 		var u UserRow
 		var created, lastLogin time.Time
 		var lastSeen *time.Time
-		if err := rows.Scan(&u.AccountID, &u.Name, &u.Email, &u.Locale, &created, &lastLogin, &lastSeen); err != nil {
+		if err := rows.Scan(&u.AccountID, &u.Name, &u.Email, &u.Locale, &created, &lastLogin, &lastSeen,
+			&u.hasAccountName, &u.hasAccountPhone); err != nil {
 			rows.Close()
 			return out, err
 		}
@@ -246,7 +251,7 @@ func (s *Service) GetUsers(ctx context.Context) (UsersResult, error) {
 	//    member's kaata entry below.
 	members := map[string][]KaataMember{}
 	mrows, err := tx.Query(ctx, `
-		SELECT vm.vault_id::text, COALESCE(a.name, ''), a.email, vm.role
+		SELECT vm.vault_id::text, COALESCE(NULLIF(a.display_name, ''), a.name, ''), a.email, vm.role
 		FROM vault_members vm
 		JOIN accounts a ON a.id = vm.account_id
 		WHERE vm.accepted_at IS NOT NULL AND vm.revoked_at IS NULL
@@ -352,6 +357,9 @@ func (s *Service) GetUsers(ctx context.Context) (UsersResult, error) {
 	if err := s.enrichLedgerIdentity(ctx, tx, byID); err != nil {
 		return out, err
 	}
+	if err := enrichOwnAccountProfiles(ctx, tx, byID); err != nil {
+		return out, err
+	}
 
 	// 6. Test data: which accounts and devices every install metric leaves
 	//    out, from the same definition the reports use.
@@ -396,6 +404,80 @@ func (s *Service) GetUsers(ctx context.Context) (UsersResult, error) {
 		return out, err
 	}
 	return out, nil
+}
+
+// Read the same proven own profile that web setup uses. This recovers existing
+// web accounts immediately without making a login look like completed setup,
+// and never treats another member's shop profile as this account's identity.
+// Explicit account edits win over older device or snapshot fallback values.
+func enrichOwnAccountProfiles(ctx context.Context, tx pgx.Tx, byID map[string]*UserRow) error {
+	if len(byID) == 0 {
+		return nil
+	}
+	ids := make([]string, 0, len(byID))
+	for id := range byID {
+		ids = append(ids, id)
+	}
+	profiles, err := auth.ReadOwnWebProfiles(ctx, tx, ids)
+	if err != nil {
+		return err
+	}
+	activity, err := readWebWriteActivity(ctx, tx, nil)
+	if err != nil {
+		return err
+	}
+	for id, u := range byID {
+		if p, ok := profiles[id]; ok {
+			if p.Name != "" && (u.hasAccountName || u.LedgerName == "") {
+				u.LedgerName = p.Name
+			}
+			if p.Phone != "" && (u.hasAccountPhone || u.LedgerPhone == "") {
+				u.LedgerPhone = p.Phone
+			}
+			if u.ShopName == "" {
+				u.ShopName = p.ShopName
+			}
+			if u.WebSessionCount > 0 {
+				u.HasOnboarded = u.HasOnboarded || p.HasOnboarded
+			}
+		}
+		if at, ok := activity[id]; ok {
+			current, err := time.Parse(time.RFC3339, u.LastActivityAt)
+			if err != nil || at.After(current) {
+				u.LastActivityAt = at.UTC().Format(time.RFC3339)
+			}
+		}
+	}
+	return nil
+}
+
+// Only a signed actor on that account's proven browser credential establishes
+// web write activity. Receiving a collaborator's or relayed event does not.
+// The server receipt time is known history; a client-supplied HLC is not.
+func readWebWriteActivity(ctx context.Context, tx pgx.Tx, installIDs []string) (map[string]time.Time, error) {
+	rows, err := tx.Query(ctx, userReportInstalls+`
+		SELECT i.resolved_account_id::text, MAX(e.server_received_at)
+		FROM report_installs i
+		JOIN events e ON e.device_id=i.install_id AND e.signed_actor_account_id=i.resolved_account_id
+		WHERE i.is_web_session AND i.resolved_account_id IS NOT NULL AND e.redacted_at IS NULL
+		  AND e.event_type NOT IN ('account_bound','vault_device_added','vault_device_removed')
+		  AND ($1::uuid[] IS NULL OR i.install_id=ANY($1::uuid[]))
+		GROUP BY i.resolved_account_id
+	`, installIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	activity := make(map[string]time.Time)
+	for rows.Next() {
+		var id string
+		var at time.Time
+		if err := rows.Scan(&id, &at); err != nil {
+			return nil, err
+		}
+		activity[id] = at
+	}
+	return activity, rows.Err()
 }
 
 // enrichInstallTelemetry folds device-level telemetry from the installs table
@@ -462,10 +544,11 @@ func (s *Service) enrichInstallTelemetry(ctx context.Context, tx pgx.Tx, byID ma
 	if err := lrows.Err(); err != nil {
 		return err
 	}
-	// Aggregates per account → install count, first install, last activity, onboarded.
+	// Native onboarding stays latched as before. Browser onboarding is resolved
+	// below from own profile/book evidence and proven past completion history.
 	arows, err := tx.Query(ctx, userReportInstalls+`
 		SELECT resolved_account_id::text, COUNT(*) FILTER (WHERE NOT is_web_session),
-		       MIN(installed_at), MIN(first_seen_at), MAX(last_activity_at), bool_or(has_onboarded),
+		       MIN(installed_at), MIN(first_seen_at), MAX(last_activity_at), bool_or(has_onboarded AND NOT is_web_session),
 		       COALESCE(array_agg(DISTINCT reported_platform ORDER BY reported_platform)
 		         FILTER (WHERE reported_platform IN ('ios', 'android', 'web')), ARRAY[]::text[]),
 		       COUNT(*) FILTER (WHERE is_web_session)

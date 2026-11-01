@@ -363,7 +363,7 @@ func (s *Service) GetStats(ctx context.Context, bucket string, points int) (Stat
 	irrows, err := s.pool.Query(ctx, `
 		WITH `+installMetricCTEs+`
 		SELECT i.install_id::text,
-		       COALESCE(NULLIF(a.name, ''), i.self_name, ''),
+		       COALESCE(NULLIF(a.display_name, ''), NULLIF(a.name, ''), i.self_name, ''),
 		       COALESCE(i.platform, ''),
 		       LEAST(i.installed_at, i.first_seen_at), i.first_seen_at
 		FROM report_native_installs i LEFT JOIN accounts a ON a.id = i.account_id

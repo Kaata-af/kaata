@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/matee/kaata-backend/internal/auth"
 	"github.com/matee/kaata-backend/internal/credit"
 
 	lru "github.com/hashicorp/golang-lru/v2"
@@ -205,6 +206,9 @@ type PushInput struct {
 	VaultID   string
 	DeviceID  string
 	Events    []PushEvent
+	// Session is server-authenticated context, never a wire field. It only
+	// attributes current browser usage; transport/relayed device IDs cannot.
+	Session *auth.SessionClaims
 }
 
 // PushEvents validates membership, then inserts events one-by-one inside a
@@ -254,6 +258,10 @@ func (s *Service) PushEvents(ctx context.Context, in PushInput) (*PushResponse, 
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	lockedAccounts, err := lockPushAccounts(ctx, tx, in)
+	if err != nil {
+		return nil, err
+	}
+	webUsage, err := lockWebPushUsage(ctx, tx, in)
 	if err != nil {
 		return nil, err
 	}
@@ -898,10 +906,16 @@ func (s *Service) PushEvents(ctx context.Context, in PushInput) (*PushResponse, 
 			EventID:   ev.EventID,
 			ServerSeq: nextSeq,
 		})
+		if webUsage != nil {
+			webUsage.events = append(webUsage.events, ev)
+		}
 		creditState.accepted(in.VaultID, ev)
 		curSeq = nextSeq
 	}
 
+	if err := recordWebPushUsage(ctx, tx, in.VaultID, webUsage); err != nil {
+		return nil, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("commit push tx: %w", err)
 	}

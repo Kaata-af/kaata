@@ -170,7 +170,15 @@ func (s *Service) completeSignIn(ctx context.Context, tx pgx.Tx, t signInTail) (
 	`, t.installID, t.provider, t.accountID); err != nil {
 		return GoogleSignInResult{}, tailAccount{}, fmt.Errorf("clear stale auth credential: %w", err)
 	}
-	if _, err := tx.Exec(ctx, `UPDATE installs SET account_id = $2::uuid WHERE install_id = $1`,
+	// Browser onboarding/profile belongs to its account binding. Keep the
+	// completion latch for the same account, and clear it on a real switch.
+	// Native installation history is never rewritten by this web-only repair.
+	if _, err := tx.Exec(ctx, `UPDATE installs SET
+		has_onboarded=CASE WHEN platform='web' AND account_id IS DISTINCT FROM $2::uuid THEN FALSE ELSE has_onboarded END,
+		self_name=CASE WHEN platform='web' AND account_id IS DISTINCT FROM $2::uuid THEN NULL ELSE self_name END,
+		self_phone=CASE WHEN platform='web' AND account_id IS DISTINCT FROM $2::uuid THEN NULL ELSE self_phone END,
+		shop_name=CASE WHEN platform='web' AND account_id IS DISTINCT FROM $2::uuid THEN NULL ELSE shop_name END,
+		account_id = $2::uuid WHERE install_id = $1`,
 		t.installID, t.accountID); err != nil {
 		return GoogleSignInResult{}, tailAccount{}, fmt.Errorf("set install account_id: %w", err)
 	}
