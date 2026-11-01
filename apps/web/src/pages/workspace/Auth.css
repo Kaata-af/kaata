@@ -347,19 +347,20 @@
 }
 .web-auth-apple {
   position: relative;
-  border: 1px solid #17231c;
-  background: #17231c;
+  border: 1px solid #171717;
+  background: #171717;
   color: #fff;
   font-size: 14px;
   font-weight: 500;
-  box-shadow: 0 2px 4px #1f382112;
+  box-shadow: 0 2px 4px #17171712;
   transition:
     background 0.18s,
     box-shadow 0.18s;
 }
 .web-auth-apple:hover {
-  background: #263a2f;
-  box-shadow: 0 3px 8px #1f382120;
+  background: #262626;
+  border-color: #262626;
+  box-shadow: 0 3px 8px #17171720;
 }
 .web-auth-apple svg {
   position: absolute;

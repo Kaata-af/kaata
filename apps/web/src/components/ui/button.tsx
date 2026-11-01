@@ -11,9 +11,9 @@ const buttonVariants = cva(
       variant: {
         default: "bg-primary text-primary-foreground shadow hover:bg-primary/90",
         brand:
-          "border border-[#345d4b] bg-[#3e6149] text-white shadow-sm hover:bg-[#31503c] focus-visible:ring-[#3e6149]",
+          "border border-primary bg-primary text-primary-foreground shadow-sm hover:bg-primary/90 focus-visible:ring-ring",
         glass:
-          "border border-white/80 bg-white/65 text-[#244438] shadow-sm backdrop-blur-xl hover:bg-white/90 focus-visible:ring-[#3e6149]",
+          "border border-white/80 bg-white/65 text-foreground shadow-sm backdrop-blur-xl hover:bg-white/90 focus-visible:ring-ring",
         destructive: "bg-destructive text-destructive-foreground shadow-sm hover:bg-destructive/90",
         outline:
           "border border-input bg-background shadow-sm hover:bg-accent hover:text-accent-foreground",
