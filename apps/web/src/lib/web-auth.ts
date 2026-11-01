@@ -213,6 +213,22 @@ export function refreshWebSession(expected: WebSession, token: string): boolean 
   return true;
 }
 
+// Profile replies can arrive after logout or a different sign-in. Refresh only
+// the display cache of the same live account/browser credential.
+export function updateWebSessionProfile(
+  expected: WebSession,
+  profile: { name: string; phone: string },
+): boolean {
+  const current = getWebSession();
+  if (!current || !isSameWebSession(current, expected)) return false;
+  if (current.user.name !== profile.name || current.user.phone !== profile.phone)
+    saveSession({
+      ...current,
+      user: { ...current.user, name: profile.name, phone: profile.phone },
+    });
+  return true;
+}
+
 export function clearWebSession() {
   cancelPendingWebSignIn();
   saveSession(null);

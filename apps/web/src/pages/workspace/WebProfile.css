@@ -1,0 +1,87 @@
+.web-profile-card {
+  margin-bottom: 20px;
+  padding: 22px;
+  border-color: #dbe5de;
+  border-radius: 16px;
+  background: linear-gradient(120deg, #f1f7f2eb, #ffffffdf 65%, #faf1f3c9);
+  backdrop-filter: blur(18px);
+}
+.web-profile-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.web-profile-heading h2 {
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.5;
+  color: #20362b;
+}
+.web-profile-intro,
+.web-profile-load {
+  margin-top: 8px;
+  font-size: 13px;
+  line-height: 1.8;
+  color: #52675a;
+}
+.web-profile-load button {
+  margin-top: 12px;
+}
+.web-profile-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+  margin-top: 20px;
+}
+.web-profile-fields > div {
+  min-width: 0;
+}
+.web-profile-fields label {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 12px;
+  color: #20362b;
+}
+.web-profile-fields input {
+  min-height: 42px;
+  background: #fff;
+  border-radius: 10px;
+}
+.web-profile-hint {
+  margin-top: 8px;
+  font-size: 11px;
+  line-height: 1.8;
+  color: #657568;
+}
+.web-profile-error {
+  margin-top: 16px;
+  font-size: 12px;
+  line-height: 1.8;
+  color: #a3203a;
+}
+.web-profile-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 20px;
+}
+.web-profile-dialog {
+  width: min(580px, calc(100% - 32px));
+  padding: 24px;
+}
+.workspace-profile-button {
+  justify-content: flex-start;
+  width: 100%;
+  margin-top: 10px;
+  font-size: 12px;
+}
+@media (max-width: 640px) {
+  .web-profile-card {
+    padding: 18px;
+  }
+  .web-profile-fields {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+  }
+}

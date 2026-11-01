@@ -8,6 +8,7 @@ import {
   loadWebAuthProviders,
   parseWebSession,
   refreshWebSession,
+  updateWebSessionProfile,
   signInWithApple,
   signInWithEmail,
   signInWithGoogle,
@@ -84,6 +85,35 @@ function renewedSession(current: WebSession, changes: Record<string, unknown> = 
   const token = `header.${Buffer.from(JSON.stringify({ ...claims, exp: claims.exp + 86_400, ...changes })).toString("base64url")}.renewed`;
   return { ...current, session_jwt: token };
 }
+
+test("server profile details update only the same live browser session and preserve authentication", () => {
+  const initial = session();
+  storage.set("kaata_web_session_v2", JSON.stringify(initial));
+  const renewed = renewedSession(initial);
+  storage.set("kaata_web_session_v2", JSON.stringify(renewed));
+  assert.equal(updateWebSessionProfile(initial, { name: "احمد", phone: "+93700123456" }), true);
+  const current = getWebSession()!;
+  assert.equal(current.session_jwt, renewed.session_jwt);
+  assert.equal(current.account_id, initial.account_id);
+  assert.equal(current.install_id, initial.install_id);
+  assert.deepEqual(current.user, { ...initial.user, name: "احمد", phone: "+93700123456" });
+});
+
+test("late profile replies cannot restore logout or change another account or credential", () => {
+  const initial = session();
+  for (const replacement of [
+    null,
+    session("other-browser", "other-account"),
+    renewedSession(initial, { ep: 7 }),
+  ]) {
+    storage.set("kaata_web_session_v2", JSON.stringify(replacement));
+    assert.equal(
+      updateWebSessionProfile(initial, { name: "Late profile", phone: "+93700123456" }),
+      false,
+    );
+    assert.deepEqual(getWebSession(), replacement);
+  }
+});
 
 beforeEach(() => {
   clearWebSession();

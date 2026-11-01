@@ -1,0 +1,73 @@
+import type { Lang } from "../../lib/i18n";
+
+const en = {
+  title: "Your profile",
+  setup: "Complete your profile",
+  body: "Add your own name and phone number, as you do in the mobile app. Your details stay with your Kaata account.",
+  name: "Your name",
+  phone: "Your phone number",
+  phoneHint:
+    "Include the country code, for example +93 700 123 456. Afghan numbers starting with 07 also work.",
+  save: "Save profile",
+  saving: "Saving…",
+  saved: "Profile saved",
+  close: "Close profile",
+  cancel: "Cancel",
+  retry: "Try again",
+  loading: "Loading your profile…",
+  loadError: "We couldn’t load your profile. Please try again.",
+  saveError: "We couldn’t save your profile. Check your connection and try again.",
+  invalidName: "Enter your name using 2 to 60 characters.",
+  invalidPhone:
+    "Enter a valid phone number with its country code, or an Afghan number starting with 07.",
+  offline: "Reconnect to update your profile.",
+  kaataNext: "Next, create your first kaata to finish setting up.",
+};
+type ProfileCopy = typeof en;
+export const webProfileCopy: Record<Lang, ProfileCopy> = {
+  en,
+  fa: {
+    title: "پروفایل شما",
+    setup: "پروفایل خود را تکمیل کنید",
+    body: "مانند اپ تلفون، نام و شمارۀ تلفون خود را بنویسید. این اطلاعات با حساب کاتای شما می‌ماند.",
+    name: "نام شما",
+    phone: "شمارۀ تلفون شما",
+    phoneHint:
+      "کُد کشور را هم بنویسید، مثلاً ‎+93 700 123 456. شماره‌های افغانستان که با 07 شروع می‌شوند نیز قبول است.",
+    save: "ذخیرۀ پروفایل",
+    saving: "در حال ذخیره…",
+    saved: "پروفایل ذخیره شد",
+    close: "بستن پروفایل",
+    cancel: "انصراف",
+    retry: "کوشش دوباره",
+    loading: "پروفایل شما باز می‌شود…",
+    loadError: "پروفایل شما باز نشد. دوباره کوشش کنید.",
+    saveError: "پروفایل شما ذخیره نشد. اتصال انترنت را بررسی کرده و دوباره کوشش کنید.",
+    invalidName: "نام خود را با ۲ تا ۶۰ حرف بنویسید.",
+    invalidPhone: "شمارۀ درست با کُد کشور، یا شمارۀ افغانستان که با 07 شروع می‌شود بنویسید.",
+    offline: "برای تغییر پروفایل دوباره به انترنت وصل شوید.",
+    kaataNext: "اکنون اولین کاتای خود را بسازید تا راه‌اندازی تکمیل شود.",
+  },
+  ps: {
+    title: "ستاسو پروفایل",
+    setup: "خپل پروفایل بشپړ کړئ",
+    body: "د موبایل اپ په څېر، خپل نوم او د موبایل شمېره ولیکئ. دا معلومات ستاسو له کاتا حساب سره پاتې کېږي.",
+    name: "ستاسو نوم",
+    phone: "ستاسو د موبایل شمېره",
+    phoneHint:
+      "د هېواد کوډ هم ولیکئ، لکه ‎+93 700 123 456. د افغانستان هغه شمېرې هم منل کېږي چې په 07 پیلېږي.",
+    save: "پروفایل خوندي کړئ",
+    saving: "خوندي کېږي…",
+    saved: "پروفایل خوندي شو",
+    close: "پروفایل بند کړئ",
+    cancel: "لغوه",
+    retry: "بیا هڅه وکړئ",
+    loading: "ستاسو پروفایل پرانیستل کېږي…",
+    loadError: "ستاسو پروفایل پرانیستل نه شو. بیا هڅه وکړئ.",
+    saveError: "ستاسو پروفایل خوندي نه شو. انټرنېټ وګورئ او بیا هڅه وکړئ.",
+    invalidName: "خپل نوم له ۲ تر ۶۰ تورو پورې ولیکئ.",
+    invalidPhone: "سمه شمېره د هېواد له کوډ سره، یا د افغانستان هغه شمېره ولیکئ چې په 07 پیلېږي.",
+    offline: "د پروفایل د بدلولو لپاره بیا انټرنېټ سره وصل شئ.",
+    kaataNext: "اوس خپله لومړۍ کاتا جوړه کړئ ترڅو چمتووالی بشپړ شي.",
+  },
+};

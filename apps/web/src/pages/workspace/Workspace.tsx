@@ -11,6 +11,7 @@ import { Link } from "react-router-dom";
 import { BrandLogo } from "../../components/BrandLogo";
 import { useToast } from "../../components/Toast";
 import { SelectField } from "../../components/ui/select-field";
+import { Button } from "../../components/ui/button";
 import { useI18n, type Lang } from "../../lib/i18n";
 import { createWebLive, type WebLiveState } from "../../lib/web-live";
 import { createWebRefresh } from "../../lib/web-refresh";
@@ -41,6 +42,8 @@ import { EntryHistory } from "./EntryHistory";
 import { PersonNotePanel } from "./PersonNotePanel";
 import { WebProBanner } from "./WebPro";
 import { MobileAppPrompt } from "./MobileAppPrompt";
+import { WebProfilePanel } from "./WebProfile";
+import { webProfileCopy } from "./web-profile-copy";
 import {
   amountInput,
   asciiDigits,
@@ -88,6 +91,7 @@ export default function LedgerWorkspace({ session }: { session: WebSession }) {
   const [liveState, setLiveState] = useState<WebLiveState>("connecting");
   const [modal, setModal] = useState<Modal | null>(null);
   const [currencySettings, setCurrencySettings] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
   const [pending, setPending] = useState(hasPendingWebWrite);
   const [retrying, setRetrying] = useState(false);
@@ -431,6 +435,15 @@ export default function LedgerWorkspace({ session }: { session: WebSession }) {
             <Icon name="logout" />
           </button>
         </div>
+        <Button
+          type="button"
+          variant="outline"
+          className="workspace-profile-button"
+          onClick={() => setProfileOpen(true)}
+          disabled={!!modal || currencySettings}
+        >
+          {webProfileCopy[lang].title}
+        </Button>
         <label className="sr-only" htmlFor="workspace-language">
           {c.language}
         </label>
@@ -490,6 +503,12 @@ export default function LedgerWorkspace({ session }: { session: WebSession }) {
           </div>
         </header>
         <MobileAppPrompt />
+        <WebProfilePanel
+          session={session}
+          open={profileOpen}
+          onClose={() => setProfileOpen(false)}
+          online={online}
+        />
         <WebProBanner session={session} />
         {!online && <Notice>{c.offline}</Notice>}
         {error && <Notice error>{loadMessage}</Notice>}
