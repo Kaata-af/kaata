@@ -30,6 +30,7 @@ const copies = {
     subscribe: "Subscribe",
     manage: "Your subscription",
     trialBody: "All web features are available during the free trial.",
+    mobileFree: "The mobile app will remain free forever.",
     back: "Back to your kaatas",
     language: "Language",
     heading: "More room for your kaata.",
@@ -81,7 +82,7 @@ const copies = {
     replaceWarning:
       "The earlier checkout has expired, but an already-started payment may still be confirmed. Check HesabPay before starting another payment.",
     replaceAcknowledge: "I checked HesabPay and want to start a new checkout.",
-    phone: "This plan is for Kaata Web. Pro subscriptions in the phone app will come later.",
+    phone: "This plan is for Kaata Web. The mobile app will remain free forever.",
   },
   fa: {
     name: "کاتا پرو",
@@ -90,6 +91,7 @@ const copies = {
     subscribe: "خرید اشتراک",
     manage: "اشتراک شما",
     trialBody: "در دورۀ آزمایشی رایگان، همۀ امکانات وب در دسترس شما است.",
+    mobileFree: "اپ تلفون برای همیشه رایگان می‌ماند.",
     back: "بازگشت به کاتاهای شما",
     language: "زبان",
     heading: "جای بیشتر برای کاتای شما.",
@@ -140,7 +142,7 @@ const copies = {
     replaceWarning:
       "مهلت صفحۀ پرداخت قبلی پایان یافته، اما پرداختی که آغاز شده ممکن است هنوز تأیید شود. پیش از پرداخت دوباره، حساب‌پی را بررسی کنید.",
     replaceAcknowledge: "حساب‌پی را بررسی کردم و می‌خواهم صفحۀ پرداخت تازه باز کنم.",
-    phone: "این اشتراک برای کاتای وب است. اشتراک پرو در اپ تلفون بعداً اضافه می‌شود.",
+    phone: "این اشتراک برای کاتای وب است. اپ تلفون برای همیشه رایگان می‌ماند.",
   },
   ps: {
     name: "کاتا پرو",
@@ -149,6 +151,7 @@ const copies = {
     subscribe: "ګډون واخلئ",
     manage: "ستاسو ګډون",
     trialBody: "د وړیا ازمایښتي دورې پر مهال د وېب ټولې اسانتیاوې شته.",
+    mobileFree: "د موبایل اپ به تل وړیا پاتې وي.",
     back: "بېرته خپلو کاتاګانو ته",
     language: "ژبه",
     heading: "ستاسو د کاتا لپاره ډېر ځای.",
@@ -196,7 +199,7 @@ const copies = {
     replaceWarning:
       "د پخوانۍ تادیې د پاڼې موده پای ته رسېدلې، خو پیل شوې تادیه لا هم تایید کېدای شي. تر بلې تادیې مخکې حساب‌پی وګورئ.",
     replaceAcknowledge: "حساب‌پی مې وکوت او غواړم د تادیې نوې پاڼه پرانیزم.",
-    phone: "دا ګډون د کاتا وېب لپاره دی. د موبایل اپ پرو ګډون به وروسته راشي.",
+    phone: "دا ګډون د کاتا وېب لپاره دی. د موبایل اپ به تل وړیا پاتې وي.",
   },
 };
 
@@ -263,6 +266,7 @@ export function WebProBanner({ session }: { session: WebSession }) {
         </p>
       </div>
       <Link to={WEB_ROUTES.subscription}>{active ? c.manage : c.subscribe}</Link>
+      <p className="web-pro-mobile-note">{c.mobileFree}</p>
     </section>
   );
 }
