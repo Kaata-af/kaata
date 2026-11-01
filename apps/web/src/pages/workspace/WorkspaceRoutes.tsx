@@ -148,6 +148,7 @@ export default function WorkspaceRoutes() {
       ) : (
         <Auth
           key={location.key}
+          emailMode={pathname === WEB_ROUTES.emailSignin}
           appleReturn={appleReturn}
           onAppleReturnHandled={clearAppleReturn}
           onSignedIn={signedIn}

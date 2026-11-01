@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type MouseEvent } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { BrandLogo } from "../../components/BrandLogo";
 import { Button } from "../../components/ui/button";
 import { Card } from "../../components/ui/card";
@@ -14,12 +14,15 @@ import {
   type WebSession,
 } from "../../lib/web-auth";
 import { mountGoogleButton } from "../../lib/web-google";
+import { WEB_ROUTES } from "../../lib/web-routes";
+import { EmailAuth } from "./EmailAuth";
 import {
   dismissWebAppleCallback,
   startWebAppleSignIn,
   type WebAppleCallback,
 } from "../../lib/web-apple";
 import "./Auth.css";
+import "./EmailAuth.css";
 
 const en = {
   eyebrow: "KAATA FOR WEB",
@@ -36,10 +39,11 @@ const en = {
   private: "Your workspace, your account",
   language: "Language",
   heading: "Welcome to Kaata",
-  subtitle: "Continue with Apple or Google to open your kaatas.",
+  subtitle: "Continue with Apple, Google, or email to open your kaatas.",
   apple: "Continue with Apple",
+  email: "Sign in with email",
   providersLoading: "Loading sign-in options…",
-  providersError: "Sign-in is temporarily unavailable. Please try again.",
+  providersError: "Apple and Google sign-in are unavailable right now. You can sign in with email.",
   retry: "Try again",
   wait: "Signing you in…",
   appleError: "Apple sign-in could not finish. Please try again.",
@@ -74,10 +78,11 @@ const fa: Copy = {
   private: "کاتای شما، حساب شما",
   language: "زبان",
   heading: "به کاتا خوش آمدید",
-  subtitle: "برای باز کردن کاتاهای خود، با اپل یا گوگل ادامه دهید.",
+  subtitle: "برای باز کردن کاتاهای خود، با اپل، گوگل یا ایمیل ادامه دهید.",
   apple: "ادامه با اپل",
+  email: "ورود با ایمیل",
   providersLoading: "گزینه‌های ورود بارگذاری می‌شوند…",
-  providersError: "ورود فعلاً ممکن نیست. دوباره کوشش کنید.",
+  providersError: "ورود با اپل و گوگل فعلاً ممکن نیست. می‌توانید با ایمیل وارد شوید.",
   retry: "کوشش دوباره",
   wait: "در حال ورود…",
   appleError: "ورود با اپل تکمیل نشد. دوباره کوشش کنید.",
@@ -110,10 +115,11 @@ const ps: Copy = {
   private: "ستاسو کاتا، ستاسو حساب",
   language: "ژبه",
   heading: "کاتا ته ښه راغلاست",
-  subtitle: "د خپلو کاتاګانو د پرانیستلو لپاره له اپل یا ګوګل سره دوام ورکړئ.",
+  subtitle: "د خپلو کاتاګانو د پرانیستلو لپاره له اپل، ګوګل یا برېښنالیک سره دوام ورکړئ.",
   apple: "له اپل سره دوام ورکړئ",
+  email: "له برېښنالیک سره ننوتل",
   providersLoading: "د ننوتلو لارې بارېږي…",
-  providersError: "ننوتل اوس ممکن نه دي. بیا هڅه وکړئ.",
+  providersError: "له اپل او ګوګل سره ننوتل اوس ممکن نه دي. له برېښنالیک سره ننوځئ.",
   retry: "بیا هڅه وکړئ",
   wait: "د ننوتلو په حال کې…",
   appleError: "له اپل سره ننوتل بشپړ نه شول. بیا هڅه وکړئ.",
@@ -155,12 +161,15 @@ export function WorkspaceAuth({
   appleReturn,
   onAppleReturnHandled,
   onSignedIn,
+  emailMode = false,
 }: {
   appleReturn: WebAppleCallback;
   onAppleReturnHandled: () => void;
   onSignedIn: (session: WebSession) => void;
+  emailMode?: boolean;
 }) {
   const { lang, setLang, t } = useI18n();
+  const navigate = useNavigate();
   const toast = useToast();
   const copy = copies[lang];
   const [busy, setBusy] = useState(appleReturn.status === "ready");
@@ -233,6 +242,7 @@ export function WorkspaceAuth({
   }, [appleReturn]);
 
   useEffect(() => {
+    if (emailMode) return;
     const controller = new AbortController();
     setProviders(null);
     setProvidersError(false);
@@ -246,10 +256,10 @@ export function WorkspaceAuth({
         if (!controller.signal.aborted) setProvidersError(true);
       });
     return () => controller.abort();
-  }, [providerAttempt]);
+  }, [providerAttempt, emailMode]);
 
   useEffect(() => {
-    if (!providers?.google || !googleContainer.current) return;
+    if (emailMode || !providers?.google || !googleContainer.current) return;
     const controller = new AbortController();
     setGoogleError(false);
     void mountGoogleButton(
@@ -280,7 +290,7 @@ export function WorkspaceAuth({
       if (!controller.signal.aborted) setGoogleError(true);
     });
     return () => controller.abort();
-  }, [lang, providers?.google?.client_id, googleAttempt]);
+  }, [lang, providers?.google?.client_id, googleAttempt, emailMode]);
 
   function appleSignIn() {
     if (busyRef.current || !providers?.apple) return;
@@ -437,76 +447,114 @@ export function WorkspaceAuth({
             </span>
             {copy.private}
           </div>
-          <h1 ref={heading} tabIndex={-1} id="web-auth-heading">
-            {copy.heading}
-          </h1>
-          <p className="web-auth-subtitle">{copy.subtitle}</p>
-          <div className="web-auth-providers">
-            {!providers && !providersError && (
-              <div role="status" className="web-auth-provider-loading">
-                <span className="sr-only">{copy.providersLoading}</span>
-                <div aria-hidden="true" />
-                <div aria-hidden="true" />
-              </div>
-            )}
-            {providersError && (
-              <div role="status" className="web-auth-provider-error">
-                <p>{copy.providersError}</p>
-                <Button
-                  type="button"
-                  disabled={busy}
-                  variant="brand"
-                  className="mt-3 rounded-full"
-                  onClick={() => setProviderAttempt((value) => value + 1)}
-                >
-                  {copy.retry}
-                </Button>
-              </div>
-            )}
-            {providers?.google && (
-              <div className="web-auth-google">
-                <div
-                  ref={googleContainer}
-                  className={`web-auth-google-control ${busy ? "is-busy" : ""}`}
-                  inert={busy}
-                />
-                {googleError && (
+          {emailMode ? (
+            <EmailAuth
+              onSignedIn={completeSignIn}
+              onBusyChange={(value) => {
+                busyRef.current = value;
+                setBusy(value);
+              }}
+            />
+          ) : (
+            <>
+              <h1 ref={heading} tabIndex={-1} id="web-auth-heading">
+                {copy.heading}
+              </h1>
+              <p className="web-auth-subtitle">{copy.subtitle}</p>
+              <div className="web-auth-providers">
+                {!providers && !providersError && (
+                  <div role="status" className="web-auth-provider-loading">
+                    <span className="sr-only">{copy.providersLoading}</span>
+                    <div aria-hidden="true" />
+                    <div aria-hidden="true" />
+                  </div>
+                )}
+                {providersError && (
                   <div role="status" className="web-auth-provider-error">
-                    <p>{copy.googleError}</p>
+                    <p>{copy.providersError}</p>
                     <Button
                       type="button"
-                      variant="glass"
-                      size="sm"
                       disabled={busy}
-                      className="mt-2 rounded-full"
-                      onClick={() => setGoogleAttempt((value) => value + 1)}
+                      variant="brand"
+                      className="mt-3 rounded-full"
+                      onClick={() => setProviderAttempt((value) => value + 1)}
                     >
                       {copy.retry}
                     </Button>
                   </div>
                 )}
-              </div>
-            )}
-            {providers?.apple && (
-              <Button
-                type="button"
-                onClick={appleSignIn}
-                disabled={busy}
-                className="web-auth-apple h-10 w-full rounded-full"
-              >
-                <svg
-                  viewBox="0 0 24 24"
-                  className="h-5 w-5 shrink-0"
-                  fill="currentColor"
-                  aria-hidden="true"
+                {providers?.google && (
+                  <div className="web-auth-google">
+                    <div
+                      ref={googleContainer}
+                      className={`web-auth-google-control ${busy ? "is-busy" : ""}`}
+                      inert={busy}
+                    />
+                    {googleError && (
+                      <div role="status" className="web-auth-provider-error">
+                        <p>{copy.googleError}</p>
+                        <Button
+                          type="button"
+                          variant="glass"
+                          size="sm"
+                          disabled={busy}
+                          className="mt-2 rounded-full"
+                          onClick={() => setGoogleAttempt((value) => value + 1)}
+                        >
+                          {copy.retry}
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                )}
+                {providers?.apple && (
+                  <Button
+                    type="button"
+                    onClick={appleSignIn}
+                    disabled={busy}
+                    className="web-auth-apple h-10 w-full rounded-full"
+                  >
+                    <svg
+                      viewBox="0 0 24 24"
+                      className="h-5 w-5 shrink-0"
+                      fill="currentColor"
+                      aria-hidden="true"
+                    >
+                      <path d="M17.05 20.28c-.98.95-2.05.8-3.08.35-1.09-.46-2.09-.48-3.24 0-1.44.62-2.2.44-3.06-.35C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.75 3.08.81 1.18-.24 2.3-.94 3.56-.85 1.51.12 2.64.72 3.39 1.8-3.11 1.87-2.37 5.98.48 7.13-.57 1.5-1.31 2.99-2.52 4.09l.01-.01ZM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25Z" />
+                    </svg>
+                    {copy.apple}
+                  </Button>
+                )}
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="web-auth-email h-10 w-full rounded-full"
+                  disabled={busy}
+                  onClick={() => {
+                    if (busyRef.current) return;
+                    cancelPendingWebSignIn();
+                    dismissWebAppleCallback();
+                    navigate(WEB_ROUTES.emailSignin);
+                  }}
                 >
-                  <path d="M17.05 20.28c-.98.95-2.05.8-3.08.35-1.09-.46-2.09-.48-3.24 0-1.44.62-2.2.44-3.06-.35C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.75 3.08.81 1.18-.24 2.3-.94 3.56-.85 1.51.12 2.64.72 3.39 1.8-3.11 1.87-2.37 5.98.48 7.13-.57 1.5-1.31 2.99-2.52 4.09l.01-.01ZM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25Z" />
-                </svg>
-                {copy.apple}
-              </Button>
-            )}
-          </div>
-          {busy && (
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.6"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <rect x="3" y="5" width="18" height="14" rx="3" />
+                    <path d="m4 7 8 6 8-6" />
+                  </svg>
+                  {copy.email}
+                </Button>
+              </div>
+            </>
+          )}
+          {busy && !emailMode && (
             <p role="status" className="web-auth-wait">
               <span className="web-auth-spinner" aria-hidden="true" />
               {copy.wait}

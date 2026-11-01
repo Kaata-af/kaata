@@ -9,7 +9,12 @@ import {
   parseWebSession,
   refreshWebSession,
   signInWithApple,
+  signInWithEmail,
   signInWithGoogle,
+  startWebEmailReset,
+  startWebEmailSignup,
+  verifyWebEmailReset,
+  verifyWebEmailSignup,
   signOut,
   webRequest,
   WEB_SESSION_EVENT,
@@ -515,4 +520,306 @@ test("a late provider response cannot overwrite a newer sign-in or restore a cle
     (error: unknown) => error instanceof WebApiError && error.code === "signin_cancelled",
   );
   assert.equal(getWebSession(), null);
+});
+
+test("email sign-in uses the mobile email-or-username contract and saves only the Kaata session", async () => {
+  const installs: string[] = [];
+  globalThis.fetch = (async (url, init) => {
+    assert.equal(new URL(String(url)).pathname, "/v1/auth/email/signin");
+    assert.equal(new URL(String(url)).search, "");
+    assert.equal(new Headers(init?.headers).get("Authorization"), null);
+    assert.equal(init?.credentials, "omit");
+    assert.equal(init?.redirect, "error");
+    assert.equal(init?.cache, "no-store");
+    const body = JSON.parse(String(init?.body));
+    assert.equal(body.identifier, installs.length ? "@shopkeeper" : "owner@example.test");
+    assert.equal(body.password, "do-not-store-this-password");
+    assert.equal(body.platform, "web");
+    installs.push(body.install_id);
+    return Response.json(session(body.install_id));
+  }) as typeof fetch;
+  await signInWithEmail("  owner@example.test  ", "do-not-store-this-password");
+  const current = await signInWithEmail("  @shopkeeper  ", "do-not-store-this-password");
+  assert.notEqual(installs[0], installs[1]);
+  assert.deepEqual(getWebSession(), current);
+  assert.ok(storage.has("kaata_web_session_v2"));
+  assert.ok(
+    [...storage.values(), ...tabStorage.values()].every(
+      (value) => !value.includes("do-not-store-this-password"),
+    ),
+  );
+});
+
+test("email code requests are public, generic, localized and do not alter a current sign-in", async () => {
+  loginFetch();
+  const current = await signInWithGoogle("token", createWebAuthNonce());
+  const paths: string[] = [];
+  globalThis.fetch = (async (url, init) => {
+    paths.push(new URL(String(url)).pathname);
+    assert.equal(init?.method, "POST");
+    assert.equal(new Headers(init?.headers).get("Authorization"), null);
+    assert.deepEqual(JSON.parse(String(init?.body)), {
+      email: "code-recipient@example.test",
+      lang: "fa",
+    });
+    return Response.json({ status: "sent", resend_after_s: 73 });
+  }) as typeof fetch;
+  assert.deepEqual(await startWebEmailSignup("  code-recipient@example.test  ", "fa"), {
+    resendAfterSeconds: 73,
+  });
+  assert.deepEqual(await startWebEmailReset("  code-recipient@example.test  ", "fa"), {
+    resendAfterSeconds: 73,
+  });
+  assert.deepEqual(paths, ["/v1/auth/email/signup/start", "/v1/auth/email/reset/start"]);
+  assert.deepEqual(getWebSession(), current);
+  assert.ok(
+    [...storage.values(), ...tabStorage.values()].every(
+      (value) => !value.includes("code-recipient"),
+    ),
+  );
+});
+
+test("email code requests validate the sent response and use the server's default resend delay", async () => {
+  for (const body of [null, {}, { status: "unknown" }]) {
+    globalThis.fetch = (async () => Response.json(body)) as typeof fetch;
+    await assert.rejects(
+      () => startWebEmailSignup("owner@example.test", "en"),
+      (error: unknown) => error instanceof WebApiError && error.code === "invalid_response",
+    );
+  }
+  for (const delay of [undefined, "60", -1, null]) {
+    globalThis.fetch = (async () =>
+      Response.json({ status: "sent", resend_after_s: delay })) as typeof fetch;
+    assert.deepEqual(await startWebEmailReset("owner@example.test", "en"), {
+      resendAfterSeconds: 60,
+    });
+  }
+  globalThis.fetch = (async () =>
+    Response.json({ status: "sent", resend_after_s: 0 })) as typeof fetch;
+  assert.deepEqual(await startWebEmailReset("owner@example.test", "en"), { resendAfterSeconds: 0 });
+});
+
+test("email signup and reset verification use fresh web identities without storing codes or passwords", async () => {
+  const bodies: Record<string, string>[] = [];
+  const paths: string[] = [];
+  globalThis.fetch = (async (url, init) => {
+    paths.push(new URL(String(url)).pathname);
+    assert.equal(new URL(String(url)).search, "");
+    assert.equal(new Headers(init?.headers).get("Authorization"), null);
+    const body = JSON.parse(String(init?.body));
+    bodies.push(body);
+    return Response.json(session(body.install_id));
+  }) as typeof fetch;
+  await verifyWebEmailSignup({
+    email: " signup@example.test ",
+    code: "927461",
+    password: "signup-password-private",
+    lang: "ps",
+  });
+  await verifyWebEmailReset({
+    email: " reset@example.test ",
+    code: "381792",
+    newPassword: "reset-password-private",
+    lang: "fa",
+  });
+  assert.deepEqual(paths, ["/v1/auth/email/signup/verify", "/v1/auth/email/reset/verify"]);
+  assert.equal(bodies[0].email, "signup@example.test");
+  assert.equal(bodies[0].password, "signup-password-private");
+  assert.equal(bodies[0].code, "927461");
+  assert.equal(bodies[0].lang, "ps");
+  assert.equal(bodies[1].email, "reset@example.test");
+  assert.equal(bodies[1].new_password, "reset-password-private");
+  assert.equal(bodies[1].password, undefined);
+  assert.equal(bodies[1].newPassword, undefined);
+  assert.equal(bodies[1].code, "381792");
+  assert.equal(bodies[1].lang, "fa");
+  assert.notEqual(bodies[0].install_id, bodies[1].install_id);
+  assert.ok(bodies.every((body) => body.platform === "web"));
+  const persisted = [...storage.values(), ...tabStorage.values()].join(" ");
+  for (const secret of ["signup-password-private", "reset-password-private", "927461", "381792"])
+    assert.ok(!persisted.includes(secret));
+});
+
+test("email refusals preserve the session and retain actionable code, reason and cooldown", async () => {
+  loginFetch();
+  const current = await signInWithGoogle("token", createWebAuthNonce());
+  globalThis.fetch = (async () =>
+    Response.json(
+      { error: "incorrect", error_code: "invalid_credentials" },
+      { status: 401 },
+    )) as typeof fetch;
+  await assert.rejects(
+    () => signInWithEmail("owner@example.test", "wrong"),
+    (error: unknown) => error instanceof WebApiError && error.code === "invalid_credentials",
+  );
+  assert.deepEqual(getWebSession(), current);
+  globalThis.fetch = (async () =>
+    Response.json(
+      { error: "invalid email", error_code: "invalid_email", reason: "disposable" },
+      { status: 400 },
+    )) as typeof fetch;
+  await assert.rejects(
+    () => startWebEmailSignup("owner@example.test", "en"),
+    (error: unknown) => error instanceof WebApiError && error.reason === "disposable",
+  );
+  globalThis.fetch = (async () =>
+    Response.json(
+      { error: "wait", error_code: "too_many_requests", retry_after_s: 84 },
+      { status: 429 },
+    )) as typeof fetch;
+  await assert.rejects(
+    () => startWebEmailReset("owner@example.test", "en"),
+    (error: unknown) => error instanceof WebApiError && error.retryAfterSeconds === 84,
+  );
+  assert.deepEqual(getWebSession(), current);
+});
+
+test("an explicitly uncertain verification retry can reconcile a previously completed signup or reset", async () => {
+  for (const reason of ["invalid_code", "account_exists"]) {
+    const requests: { path: string; body: Record<string, string> }[] = [];
+    globalThis.fetch = (async (url, init) => {
+      const request = { path: new URL(String(url)).pathname, body: JSON.parse(String(init?.body)) };
+      requests.push(request);
+      if (requests.length === 1)
+        return Response.json({ error: "code already used", error_code: reason }, { status: 401 });
+      return Response.json(session(request.body.install_id));
+    }) as typeof fetch;
+    const current =
+      reason === "account_exists"
+        ? await verifyWebEmailSignup(
+            {
+              email: "owner@example.test",
+              code: "123456",
+              password: "private-password",
+              lang: "en",
+            },
+            { afterTimeout: true },
+          )
+        : await verifyWebEmailReset(
+            {
+              email: "owner@example.test",
+              code: "123456",
+              newPassword: "private-password",
+              lang: "en",
+            },
+            { afterTimeout: true },
+          );
+    assert.equal(requests.length, 2);
+    assert.equal(requests[1].path, "/v1/auth/email/signin");
+    assert.equal(requests[1].body.identifier, "owner@example.test");
+    assert.equal(requests[1].body.password, "private-password");
+    assert.equal(requests[1].body.install_id, requests[0].body.install_id);
+    assert.equal(requests[1].body.platform, "web");
+    assert.equal(getWebSession()?.install_id, current.install_id);
+  }
+});
+
+test("normal code refusals and throttles never trigger hidden password sign-in attempts", async () => {
+  for (const [reason, afterTimeout] of [
+    ["invalid_code", false],
+    ["too_many_attempts", true],
+  ] as const) {
+    let requests = 0;
+    globalThis.fetch = (async () => {
+      requests++;
+      return Response.json({ error: "refused", error_code: reason }, { status: 401 });
+    }) as typeof fetch;
+    await assert.rejects(
+      () =>
+        verifyWebEmailSignup(
+          { email: "owner@example.test", code: "123456", password: "private-password", lang: "en" },
+          { afterTimeout },
+        ),
+      (error: unknown) => error instanceof WebApiError && error.code === reason,
+    );
+    assert.equal(requests, 1);
+  }
+});
+
+test("a failed retry reconciliation retains the original verification refusal", async () => {
+  let requests = 0;
+  globalThis.fetch = (async () => {
+    requests++;
+    return Response.json(
+      { error: "refused", error_code: requests === 1 ? "invalid_code" : "invalid_credentials" },
+      { status: 401 },
+    );
+  }) as typeof fetch;
+  await assert.rejects(
+    () =>
+      verifyWebEmailReset(
+        {
+          email: "owner@example.test",
+          code: "123456",
+          newPassword: "private-password",
+          lang: "en",
+        },
+        { afterTimeout: true },
+      ),
+    (error: unknown) => error instanceof WebApiError && error.code === "invalid_code",
+  );
+  assert.equal(requests, 2);
+  assert.equal(getWebSession(), null);
+});
+
+test("leaving an uncertain email verify prevents a late refusal from starting reconciliation", async () => {
+  let finish!: (response: Response) => void;
+  let requests = 0;
+  globalThis.fetch = (() => {
+    requests++;
+    return new Promise<Response>((resolve) => {
+      finish = resolve;
+    });
+  }) as typeof fetch;
+  const pending = verifyWebEmailSignup(
+    { email: "owner@example.test", code: "123456", password: "private-password", lang: "en" },
+    { afterTimeout: true },
+  );
+  clearWebSession();
+  finish(Response.json({ error: "code consumed", error_code: "invalid_code" }, { status: 401 }));
+  await assert.rejects(
+    pending,
+    (error: unknown) => error instanceof WebApiError && error.code === "signin_cancelled",
+  );
+  assert.equal(requests, 1);
+  assert.equal(getWebSession(), null);
+});
+
+test("a late email login or reconciliation cannot restore a logged-out session", async () => {
+  for (const reconcile of [false, true]) {
+    let finish!: (response: Response) => void;
+    let install = "";
+    let requests = 0;
+    globalThis.fetch = ((_url, init) => {
+      install = JSON.parse(String(init?.body)).install_id;
+      requests++;
+      if (reconcile && requests === 1)
+        return Promise.resolve(
+          Response.json({ error: "code consumed", error_code: "invalid_code" }, { status: 401 }),
+        );
+      return new Promise<Response>((resolve) => {
+        finish = resolve;
+      });
+    }) as typeof fetch;
+    const pending = reconcile
+      ? verifyWebEmailReset(
+          {
+            email: "owner@example.test",
+            code: "123456",
+            newPassword: "private-password",
+            lang: "en",
+          },
+          { afterTimeout: true },
+        )
+      : signInWithEmail("owner@example.test", "private-password");
+    for (let i = 0; i < 12 && !finish; i++) await Promise.resolve();
+    assert.ok(finish);
+    clearWebSession();
+    finish(Response.json(session(install)));
+    await assert.rejects(
+      pending,
+      (error: unknown) => error instanceof WebApiError && error.code === "signin_cancelled",
+    );
+    assert.equal(getWebSession(), null);
+  }
 });

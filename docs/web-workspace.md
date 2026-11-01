@@ -4,7 +4,7 @@ The first browser workspace lives at `/app` in the existing Vite application. It
 
 ## First release
 
-- Google and Apple sign-in only, using the existing backend provider configuration and the same accounts as mobile. The same provider screen handles new and existing accounts.
+- Google, Apple, and email sign-in using the same accounts as mobile. The quieter email button opens a separate screen for email/username plus password, account creation with a six-digit email code, and password reset.
 - List and switch kaatas; create a kaata.
 - Search people, add a person, and edit name/phone.
 - All currency balances shown together, with separate totals for each currency and collect/pay/settled filters across currencies. No page currency selector; a person's history includes every currency.
@@ -26,11 +26,14 @@ This release deliberately excludes reminders, contact import, shared-account fin
 | ---------------------- | --------------------------------------- |
 | `/app`                 | Authenticated workspace                 |
 | `/app/subscription`    | Optional Kaata Pro plans and payment status |
-| `/app/sign-in`         | Apple or Google sign-in                 |
+| `/app/sign-in`         | Apple, Google and email options          |
+| `/app/sign-in/email`   | Email sign-in, creation and recovery     |
 | `/app/sign-up`         | Redirect to the provider sign-in screen |
 | `/app/forgot-password` | Redirect to the provider sign-in screen |
 
-The provider screen loads separately from the ledger. It uses the existing shadcn Card and Button primitives, with green/red accents and glass surfaces shared by the workspace and Pro page. Desktop has a decorative example kaata; narrow layouts prioritize sign-in. It has no email, password, verification-code or separate registration form. Provider discovery and SDK failures show retry options. Session guards replace the current entry when redirecting signed-out visitors to sign-in or signed-in visitors to the workspace; retired auth URLs also use replacement redirects. Unknown `/app/*` routes show a localized 404. Page titles follow the active route and language.
+The provider screen loads separately from the ledger. It uses the existing shadcn Card, Button, Input and Select primitives, with black primary buttons, green/red accents and glass surfaces shared by the workspace and Pro page. Desktop has a decorative example kaata; narrow layouts prioritize sign-in. An outlined email button sits below Google and Apple and stays available when provider discovery or SDK loading fails. Its separate route contains email/username sign-in and the same signup/code/reset steps as mobile. Session guards replace the current entry when redirecting signed-out visitors to sign-in or signed-in visitors to the workspace; retired auth URLs also use replacement redirects. Unknown `/app/*` routes show a localized 404. Page titles follow the active route and language.
+
+Email sign-in reuses the existing public email endpoints, a fresh browser install identity and the same persistent Kaata session handling as OAuth. New-password structural rules match mobile; existing-password sign-in leaves validation to the server. Signup/reset start responses remain generic so account existence is not disclosed. Codes expire after 15 minutes, with server-provided resend and throttle delays. A tab may remember only the purpose, email and timing of an unfinished verification; passwords and codes stay in memory and out of storage, URLs and analytics. Reloading a signup code step asks for its password again. Only an explicitly uncertain verification retry may reconcile an already-consumed code by proving the same email/password. Navigation cancels late authentication replies on both sign-in routes.
 
 Google owns its visible sign-in button. Its supported pill shape, measured width and 40px height match the Apple button without overlays or iframe restyling. The initial SDK and each button receive a supported locale (Dari or English, with English for Pashto). Resizing re-renders presentation while preserving the same nonce and credential callback; aborting a mount disconnects its observer and pending resize timer.
 

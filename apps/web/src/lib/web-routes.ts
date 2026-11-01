@@ -2,10 +2,12 @@ export const WEB_ROUTES = {
   workspace: "/app",
   subscription: "/app/subscription",
   signin: "/app/sign-in",
+  emailSignin: "/app/sign-in/email",
 } as const;
 
 export function isWebAuthPath(pathname: string): boolean {
-  return pathname.replace(/\/$/, "") === WEB_ROUTES.signin;
+  const path = pathname.replace(/\/$/, "");
+  return path === WEB_ROUTES.signin || path === WEB_ROUTES.emailSignin;
 }
 
 export function isRetiredWebAuthPath(pathname: string): boolean {

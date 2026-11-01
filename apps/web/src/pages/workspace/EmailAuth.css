@@ -1,0 +1,105 @@
+.web-email-back {
+  margin: -8px 0 18px -8px;
+  color: #525252;
+}
+[dir="rtl"] .web-email-back {
+  margin-right: -8px;
+  margin-left: 0;
+}
+.web-email-auth .web-auth-subtitle {
+  overflow-wrap: anywhere;
+}
+.web-email-form {
+  margin-top: 24px;
+}
+.web-email-form fieldset {
+  display: grid;
+  min-width: 0;
+  gap: 20px;
+}
+.web-email-form label {
+  display: grid;
+  gap: 8px;
+  color: #263a2f;
+  font-size: 13px;
+  font-weight: 500;
+}
+.web-email-field {
+  display: grid;
+  gap: 8px;
+}
+.web-email-form input {
+  height: 44px;
+  border-color: #dbe4df;
+  border-radius: 11px;
+  background: #ffffffbf;
+  color: #171717;
+  font-size: 16px;
+}
+.web-email-form small,
+.web-email-hint {
+  color: #647067;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.7;
+}
+.web-email-hint {
+  margin-top: 12px;
+}
+.web-email-password {
+  position: relative;
+}
+.web-email-password input {
+  padding-inline-end: 74px;
+}
+.web-email-password button {
+  position: absolute;
+  inset-inline-end: 5px;
+  top: 6px;
+  height: 32px;
+  font-size: 11px;
+  color: #525252;
+}
+.web-email-form .web-email-code {
+  text-align: center;
+  letter-spacing: 0.35em;
+  font-size: 21px;
+  font-variant-numeric: tabular-nums;
+}
+.web-email-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 16px;
+}
+.web-email-actions button {
+  white-space: normal;
+  height: auto;
+  min-height: 36px;
+  line-height: 1.6;
+}
+.web-email-info {
+  border-radius: 10px;
+  padding: 12px;
+  background: #f1f5f2;
+  color: #3e6149;
+  font-size: 12px;
+  line-height: 1.7;
+}
+.web-auth-email {
+  position: relative;
+  color: #171717;
+  background: #ffffffb3;
+  border-color: #d5ddd7;
+}
+.web-auth-email > svg {
+  position: absolute;
+  inset-inline-start: 17px;
+  height: 18px;
+  width: 18px;
+}
+@media (max-width: 767px) {
+  .web-email-form {
+    margin-top: 20px;
+  }
+}

@@ -371,7 +371,13 @@ export async function loadWebAuthProviders(signal?: AbortSignal): Promise<WebAut
   };
 }
 
-async function authenticate(path: string, body: Record<string, string>): Promise<WebSession> {
+type AuthenticationFallback = { path: string; body: Record<string, string> };
+
+async function authenticate(
+  path: string,
+  body: Record<string, string>,
+  fallback?: AuthenticationFallback,
+): Promise<WebSession> {
   observeSessionChanges();
   getWebSession();
   const previousSession = storedSessionValue();
@@ -379,17 +385,41 @@ async function authenticate(path: string, body: Record<string, string>): Promise
   // A fresh identity per explicit login protects the phone and any previous
   // browser credential from rebinding. Reopening shares the saved identity.
   const installID = crypto.randomUUID();
-  const result = await request<SignInResult>(
-    path,
-    {
-      method: "POST",
-      body: JSON.stringify({ ...body, install_id: installID, platform: "web" }),
-    },
-    false,
-  );
-  if (generation !== authenticationGeneration || storedSessionValue() !== previousSession) {
-    throw new WebApiError("This sign-in attempt has ended.", 409, "signin_cancelled");
+  const currentAttempt = () =>
+    generation === authenticationGeneration && storedSessionValue() === previousSession;
+  const cancelled = () =>
+    new WebApiError("This sign-in attempt has ended.", 409, "signin_cancelled");
+  const exchange = (endpoint: string, payload: Record<string, string>) =>
+    request<SignInResult>(
+      endpoint,
+      {
+        method: "POST",
+        body: JSON.stringify({ ...payload, install_id: installID, platform: "web" }),
+      },
+      false,
+    );
+  let result: SignInResult;
+  try {
+    result = await exchange(path, body);
+  } catch (error) {
+    if (!currentAttempt()) throw cancelled();
+    // A previous verify may already have consumed its code before its reply
+    // was lost. Only an explicitly uncertain retry may reconcile that result
+    // by proving the same email/password, just like the mobile email flow.
+    if (
+      !fallback ||
+      !(error instanceof WebApiError) ||
+      !["invalid_code", "account_exists"].includes(error.code)
+    )
+      throw error;
+    try {
+      result = await exchange(fallback.path, fallback.body);
+    } catch {
+      if (!currentAttempt()) throw cancelled();
+      throw error;
+    }
   }
+  if (!currentAttempt()) throw cancelled();
   const session = parseWebSession(JSON.stringify({ ...result, install_id: installID }));
   if (!session)
     throw new WebApiError(
@@ -419,6 +449,89 @@ export async function signInWithApple(identityToken: string, displayName: string
     display_name: displayName,
     nonce,
   });
+}
+
+export type WebEmailCodeSent = { resendAfterSeconds: number };
+export type WebEmailVerifyOptions = { afterTimeout?: boolean };
+
+async function startWebEmailCode(
+  path: string,
+  email: string,
+  lang: string,
+): Promise<WebEmailCodeSent> {
+  const result = await request<unknown>(
+    path,
+    {
+      method: "POST",
+      body: JSON.stringify({ email: email.trim(), lang }),
+    },
+    false,
+  );
+  if (!result || typeof result !== "object" || !("status" in result) || result.status !== "sent")
+    throw new WebApiError(
+      "The server returned an unreadable response. Try again.",
+      502,
+      "invalid_response",
+    );
+  const delay = "resend_after_s" in result ? result.resend_after_s : undefined;
+  return {
+    resendAfterSeconds:
+      typeof delay === "number" && Number.isFinite(delay) && delay >= 0 ? Math.ceil(delay) : 60,
+  };
+}
+
+/** Sign in to the same Kaata account using its email address or username. */
+export function signInWithEmail(identifier: string, password: string): Promise<WebSession> {
+  return authenticate("/v1/auth/email/signin", { identifier: identifier.trim(), password });
+}
+
+/** The generic response never reveals whether an address already has an account. */
+export function startWebEmailSignup(email: string, lang: string): Promise<WebEmailCodeSent> {
+  return startWebEmailCode("/v1/auth/email/signup/start", email, lang);
+}
+
+export function verifyWebEmailSignup(
+  args: { email: string; code: string; password: string; lang: string },
+  options: WebEmailVerifyOptions = {},
+): Promise<WebSession> {
+  const email = args.email.trim();
+  return authenticate(
+    "/v1/auth/email/signup/verify",
+    { ...args, email },
+    options.afterTimeout
+      ? {
+          path: "/v1/auth/email/signin",
+          body: { identifier: email, password: args.password },
+        }
+      : undefined,
+  );
+}
+
+export function startWebEmailReset(email: string, lang: string): Promise<WebEmailCodeSent> {
+  return startWebEmailCode("/v1/auth/email/reset/start", email, lang);
+}
+
+/** A successful password reset also revokes the account's other server sessions. */
+export function verifyWebEmailReset(
+  args: { email: string; code: string; newPassword: string; lang: string },
+  options: WebEmailVerifyOptions = {},
+): Promise<WebSession> {
+  const email = args.email.trim();
+  return authenticate(
+    "/v1/auth/email/reset/verify",
+    {
+      email,
+      code: args.code,
+      new_password: args.newPassword,
+      lang: args.lang,
+    },
+    options.afterTimeout
+      ? {
+          path: "/v1/auth/email/signin",
+          body: { identifier: email, password: args.newPassword },
+        }
+      : undefined,
+  );
 }
 
 export async function signOut(): Promise<void> {
