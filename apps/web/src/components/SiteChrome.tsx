@@ -64,6 +64,12 @@ export function SiteHeader() {
             {t("nav.how")}
           </Link>
           <Link
+            to="/#pricing"
+            className="text-neutral-600 hover:text-neutral-900 font-medium transition-colors"
+          >
+            {t("nav.pricing")}
+          </Link>
+          <Link
             to="/download"
             className="text-neutral-600 hover:text-neutral-900 font-medium transition-colors"
           >
@@ -170,6 +176,11 @@ export function SiteFooter() {
             {t("footer.product")}
           </h3>
           <ul className="mt-4 space-y-2.5 text-sm text-neutral-500">
+            <li>
+              <Link to="/#pricing" className="hover:text-neutral-900 transition-colors">
+                {t("nav.pricing")}
+              </Link>
+            </li>
             <li>
               <Link to="/download" className="hover:text-neutral-900 transition-colors">
                 {t("footer.download")}

@@ -9,6 +9,12 @@ export function Hero() {
   return (
     <section className="px-6 pt-16 md:pt-24 pb-20 md:pb-24">
       <div className="max-w-3xl mx-auto text-center">
+        <Link
+          to="/#pricing"
+          className="mb-6 inline-flex rounded-full border border-surface-balance-border bg-surface-balance px-4 py-2 text-xs font-medium leading-relaxed text-brand-primary underline-offset-4 hover:underline"
+        >
+          {t("hero.pricing")}
+        </Link>
         <h1 className="text-4xl md:text-6xl font-bold -tracking-[0.02em] leading-[1.1] text-brand-primary">
           {t("hero.title.line1")}
           <br />

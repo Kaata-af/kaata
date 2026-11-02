@@ -96,6 +96,7 @@ function fixture(raw: string | null) {
     "../components/BillMockups": { PhoneMockupBill: block },
     "../components/MemberMockups": { PhoneMockupMembers: block },
     "../components/ProductComparison": { ProductComparison: block },
+    "../components/Pricing": { Pricing: block },
     "../components/Hero": {
       Hero: () => React.createElement("h1", null, "Marketing landing hero"),
     },

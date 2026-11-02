@@ -33,6 +33,7 @@ const en = {
   "nav.getApp": "Get the app",
   "nav.downloadApp": "Download the app",
   "nav.web": "Kaata Web",
+  "nav.pricing": "Pricing",
 
   // Hero
   "hero.title.line1": "Run your shop",
@@ -41,7 +42,58 @@ const en = {
     "Track what you gave and received. Share accounts with people you trust, follow updates in Kaata, and send reminders over WhatsApp.",
   "hero.cta": "Download Kaata",
   "hero.how": "See how it works ↓",
-  "hero.points": "Free forever · Private tallies work offline · Start without sign-up",
+  "hero.points": "Free mobile app · Private tallies work offline · Start without sign-up",
+  "hero.pricing": "Mobile app: free forever · See pricing",
+
+  // Pricing
+  "pricing.eyebrow": "Simple pricing",
+  "pricing.title": "Use Kaata on your phone. Free forever.",
+  "pricing.body":
+    "Keep using the mobile app without paying. Pro is an optional subscription for working from your computer.",
+  "pricing.free.badge": "Free forever",
+  "pricing.free.name": "Kaata Mobile",
+  "pricing.free.price": "0 AFN",
+  "pricing.free.period": "forever",
+  "pricing.free.body":
+    "Your everyday accounts, on Android and iPhone. All the mobile features shown on this page are free.",
+  "pricing.free.item1": "Personal ledgers that work offline",
+  "pricing.free.item2": "Shared tallies and approval modes",
+  "pricing.free.item3": "Team members and their permissions",
+  "pricing.free.item4": "In-app notifications and reminders",
+  "pricing.free.item5": "PDF / CSV statements and WhatsApp sharing",
+  "pricing.free.item6": "Backups, sync and multiple currencies",
+  "pricing.free.note":
+    "Sign in and connect to the internet for sharing, team access and backups. These are free too.",
+  "pricing.free.cta": "Get the free app",
+  "pricing.pro.badge": "Optional",
+  "pricing.pro.name": "Kaata Web Pro",
+  "pricing.pro.body":
+    "For accounts at a desk: work in your browser, on Windows or on Mac, alongside your phone.",
+  "pricing.pro.month": "month",
+  "pricing.pro.year": "year",
+  "pricing.pro.or": "or",
+  "pricing.pro.account": "For your own Kaata Web account.",
+  "pricing.pro.item1": "Your people and tallies, synced with your phone",
+  "pricing.pro.item2": "A bigger screen for notes, history and credit limits",
+  "pricing.pro.item3": "Multiple currencies and statement exports",
+  "pricing.pro.payment": "Prepaid through HesabPay. No automatic renewal.",
+  "pricing.pro.cta": "Try Kaata Web",
+  "pricing.trial.title": "Web is in an open free trial.",
+  "pricing.trial.body":
+    "Every web feature is currently available without subscribing. No trial end date has been set.",
+  "pricing.reassurance.title": "Happy working on your phone? You don’t need Pro.",
+  "pricing.reassurance.body":
+    "Adding customers, sharing tallies or inviting team members does not make the mobile app paid. Keep using it for free as your business grows.",
+  "pricing.faq.title": "A few clear answers.",
+  "pricing.faq.q1": "Is the free mobile app just a trial?",
+  "pricing.faq.a1":
+    "No. The mobile app is free forever, with no subscription or payment card needed. Download it and start a personal ledger without signing up.",
+  "pricing.faq.q2": "When would Pro be useful?",
+  "pricing.faq.a2":
+    "When you also want to handle accounts at a computer, for example at an office or a bigger business. Company size does not decide the price. If your phone is enough, stay with the free mobile app.",
+  "pricing.faq.q3": "Will I be charged automatically?",
+  "pricing.faq.a3":
+    "No. Pro is prepaid for one month or twelve months, and you choose whether to renew. Using the free app or starting the web trial does not trigger a payment.",
 
   // Feature sections
   "feature.offline.eyebrow": "Built for the bazaar",
@@ -147,7 +199,7 @@ const en = {
   // Final CTA
   "cta.title.line1": "Stop chasing slips",
   "cta.title.line2": "of paper.",
-  "cta.sub": "Free forever. No card, no fees, no setup.",
+  "cta.sub": "The mobile app is free forever. No card, no fees, no setup.",
   "cta.button": "Download Kaata",
 
   // Footer
@@ -343,6 +395,7 @@ const fa: Record<keyof typeof en, string> = {
   "nav.getApp": "دریافت اپ",
   "nav.downloadApp": "دانلود اپ",
   "nav.web": "کاتای وب",
+  "nav.pricing": "قیمت‌ها",
 
   // Hero
   "hero.title.line1": "دکان خود را",
@@ -351,7 +404,57 @@ const fa: Record<keyof typeof en, string> = {
     "آنچه دادید و گرفتید را ثبت کنید. با کسانی که به آنها اعتماد دارید حساب مشترک داشته باشید، تغییرات را در کاتا دنبال کنید و در واتساپ یادآوری بفرستید.",
   "hero.cta": "دانلود کاتا",
   "hero.how": "ببینید چطور کار می‌کند ↓",
-  "hero.points": "همیشه رایگان · ثبت‌های شخصی بدون انترنت · شروع بدون ثبت‌نام",
+  "hero.points": "اپ تلفون رایگان · ثبت‌های شخصی بدون انترنت · شروع بدون ثبت‌نام",
+  "hero.pricing": "اپ تلفون: برای همیشه رایگان · دیدن قیمت‌ها",
+
+  // Pricing
+  "pricing.eyebrow": "قیمت‌گذاری ساده",
+  "pricing.title": "کاتا را در تلفون‌تان استفاده کنید. برای همیشه رایگان.",
+  "pricing.body":
+    "بدون پرداخت از اپ تلفون استفاده کنید. پرو یک اشتراک اختیاری برای کار در کمپیوتر است.",
+  "pricing.free.badge": "برای همیشه رایگان",
+  "pricing.free.name": "کاتا در تلفون",
+  "pricing.free.price": "۰ افغانی",
+  "pricing.free.period": "برای همیشه",
+  "pricing.free.body":
+    "حساب‌های روزمرۀ شما، در اندروید و آیفون. همۀ امکانات اپ تلفون که در این صفحه می‌بینید، رایگان است.",
+  "pricing.free.item1": "دفتر حساب شخصی که بدون انترنت کار می‌کند",
+  "pricing.free.item2": "ثبت‌های مشترک و حالت‌های تأیید",
+  "pricing.free.item3": "اعضای تیم و صلاحیت‌های‌شان",
+  "pricing.free.item4": "اعلان‌ها و یادآوری‌ها در اپ",
+  "pricing.free.item5": "صورت‌حساب PDF / CSV و اشتراک‌گذاری در واتساپ",
+  "pricing.free.item6": "نسخۀ پشتیبان، همگام‌سازی و چندین واحد پول",
+  "pricing.free.note":
+    "برای اشتراک‌گذاری، دسترسی تیم و نسخۀ پشتیبان، وارد حساب شوید و به انترنت وصل شوید. این امکانات هم رایگان است.",
+  "pricing.free.cta": "اپ رایگان را بگیرید",
+  "pricing.pro.badge": "اختیاری",
+  "pricing.pro.name": "کاتای وب پرو",
+  "pricing.pro.body": "برای حساب‌داری پشت میز: در کنار تلفون، در مرورگر، ویندوز یا مک کار کنید.",
+  "pricing.pro.month": "ماه",
+  "pricing.pro.year": "سال",
+  "pricing.pro.or": "یا",
+  "pricing.pro.account": "برای حساب کاتای وب شما.",
+  "pricing.pro.item1": "اشخاص و ثبت‌های شما، همگام با تلفون",
+  "pricing.pro.item2": "صفحۀ بزرگ‌تر برای یادداشت‌ها، تاریخچه و حد اعتبار",
+  "pricing.pro.item3": "چندین واحد پول و صدور صورت‌حساب",
+  "pricing.pro.payment": "پیش‌پرداخت از طریق حساب‌پی. تمدید خودکار ندارد.",
+  "pricing.pro.cta": "کاتای وب را امتحان کنید",
+  "pricing.trial.title": "دورۀ آزمایشی رایگان وب باز است.",
+  "pricing.trial.body":
+    "فعلاً همۀ امکانات وب بدون خرید اشتراک در دسترس است. تاریخی برای پایان دورۀ آزمایشی تعیین نشده است.",
+  "pricing.reassurance.title": "کار در تلفون برای‌تان کافی است؟ به پرو نیاز ندارید.",
+  "pricing.reassurance.body":
+    "افزودن مشتری، اشتراک‌گذاری ثبت‌ها یا دعوت اعضای تیم، اپ تلفون را پولی نمی‌کند. با رشد کارتان هم رایگان از آن استفاده کنید.",
+  "pricing.faq.title": "چند جواب روشن.",
+  "pricing.faq.q1": "آیا اپ رایگان تلفون فقط یک دورۀ آزمایشی است؟",
+  "pricing.faq.a1":
+    "نخیر. اپ تلفون برای همیشه رایگان است و به اشتراک یا کارت پرداخت نیاز ندارد. آن را دانلود کنید و بدون ثبت‌نام، دفتر حساب شخصی‌تان را شروع کنید.",
+  "pricing.faq.q2": "پرو چه وقت به کار می‌آید؟",
+  "pricing.faq.a2":
+    "وقتی می‌خواهید در کمپیوتر هم حساب‌ها را مدیریت کنید؛ مثلاً در دفتر یا یک شرکت بزرگ‌تر. اندازۀ شرکت قیمت را تعیین نمی‌کند. اگر تلفون برای‌تان کافی است، از اپ رایگان استفاده کنید.",
+  "pricing.faq.q3": "آیا به‌طور خودکار از من پول گرفته می‌شود؟",
+  "pricing.faq.a3":
+    "نخیر. پرو برای یک ماه یا دوازده ماه پیش‌پرداخت می‌شود و تمدید آن به انتخاب شما است. استفاده از اپ رایگان یا شروع دورۀ آزمایشی وب، باعث پرداخت نمی‌شود.",
 
   // Feature sections
   "feature.offline.eyebrow": "ساخته‌شده برای بازار",
@@ -458,7 +561,7 @@ const fa: Record<keyof typeof en, string> = {
   // Final CTA
   "cta.title.line1": "دیگر دنبال",
   "cta.title.line2": "کاغذپاره‌ها نگردید.",
-  "cta.sub": "همیشه رایگان. بدون کارت، بدون فیس، بدون تنظیمات.",
+  "cta.sub": "اپ تلفون برای همیشه رایگان است. بدون کارت، بدون فیس، بدون تنظیمات.",
   "cta.button": "دانلود کاتا",
 
   // Footer
@@ -649,13 +752,65 @@ const ps: Record<keyof typeof en, string> = {
   "nav.getApp": "اپ ترلاسه کړئ",
   "nav.downloadApp": "اپ ښکته کړئ",
   "nav.web": "کاتا وېب",
+  "nav.pricing": "بیې",
   "hero.title.line1": "خپل دوکان وچلوئ",
   "hero.title.line2": "په باور.",
   "hero.sub":
     "هغه څه ثبت کړئ چې مو ورکړي او ترلاسه کړي دي. له باوري خلکو سره ګډ حسابونه ولرئ، په کاټه کې بدلونونه تعقیب کړئ او د WhatsApp له لارې یادونې ولېږئ.",
   "hero.cta": "کاټه ښکته کړئ",
   "hero.how": "وګورئ چې څنګه کار کوي ↓",
-  "hero.points": "تل وړیا · شخصي راکړې ورکړې بې انټرنېټه · له نوم لیکنې پرته پیل",
+  "hero.points": "وړیا موبایل اپ · شخصي راکړې ورکړې بې انټرنېټه · له نوم لیکنې پرته پیل",
+  "hero.pricing": "د موبایل اپ: د تل لپاره وړیا · بیې وګورئ",
+
+  // Pricing
+  "pricing.eyebrow": "ساده بیې",
+  "pricing.title": "کاتا په خپل موبایل کې وکاروئ. د تل لپاره وړیا.",
+  "pricing.body":
+    "د موبایل اپ له پیسو ورکولو پرته وکاروئ. پرو په کمپیوټر کې د کار لپاره یو اختیاري ګډون دی.",
+  "pricing.free.badge": "د تل لپاره وړیا",
+  "pricing.free.name": "کاتا په موبایل کې",
+  "pricing.free.price": "۰ افغانۍ",
+  "pricing.free.period": "د تل لپاره",
+  "pricing.free.body":
+    "ستاسو ورځني حسابونه، په انډرایډ او آیفون کې. په دې پاڼه کې د موبایل اپ ښودل شوې ټولې اسانتیاوې وړیا دي.",
+  "pricing.free.item1": "شخصي حساب کتاب چې بې انټرنېټه کار کوي",
+  "pricing.free.item2": "ګډې راکړې ورکړې او د تایید حالتونه",
+  "pricing.free.item3": "د ټیم غړي او د هغوی واکونه",
+  "pricing.free.item4": "په اپ کې خبرتیاوې او یادونې",
+  "pricing.free.item5": "د PDF / CSV حساب پاڼې او په واټس‌اپ کې شریکول",
+  "pricing.free.item6": "بیک‌اپ، همغږي او بېلابېلې پیسې",
+  "pricing.free.note":
+    "د شریکولو، د ټیم د لاسرسي او بیک‌اپ لپاره خپل حساب ته ننوځئ او انټرنېټ سره ونښلئ. دا هم وړیا دي.",
+  "pricing.free.cta": "وړیا اپ ترلاسه کړئ",
+  "pricing.pro.badge": "اختیاري",
+  "pricing.pro.name": "کاتا وېب پرو",
+  "pricing.pro.body":
+    "د مېز تر شا د حسابونو لپاره: د خپل موبایل تر څنګ په براوزر، وینډوز یا مک کې کار وکړئ.",
+  "pricing.pro.month": "میاشت",
+  "pricing.pro.year": "کال",
+  "pricing.pro.or": "یا",
+  "pricing.pro.account": "ستاسو د کاتا وېب حساب لپاره.",
+  "pricing.pro.item1": "ستاسو کسان او راکړې ورکړې، له موبایل سره همغږي",
+  "pricing.pro.item2": "د یادښتونو، تاریخچې او پور حدونو لپاره لویه پرده",
+  "pricing.pro.item3": "بېلابېلې پیسې او د حساب پاڼو ایستل",
+  "pricing.pro.payment": "د حساب‌پي له لارې مخکې پیسې ورکړئ. په خپله نه تمدیدېږي.",
+  "pricing.pro.cta": "کاتا وېب وازمویئ",
+  "pricing.trial.title": "د وېب وړیا ازمایښتي دوره پرانیستې ده.",
+  "pricing.trial.body":
+    "اوس د وېب ټولې اسانتیاوې د ګډون له اخیستلو پرته شته. د ازمایښتي دورې د پای نېټه نه ده ټاکل شوې.",
+  "pricing.reassurance.title": "په موبایل کې کار مو بس دی؟ پرو ته اړتیا نه لرئ.",
+  "pricing.reassurance.body":
+    "د پېرودونکو زیاتول، د راکړو ورکړو شریکول یا د ټیم غړو رابلل د موبایل اپ لپاره فیس نه رامنځته کوي. د کاروبار له پراخېدو سره یې هم وړیا وکاروئ.",
+  "pricing.faq.title": "څو روښانه ځوابونه.",
+  "pricing.faq.q1": "ایا د موبایل وړیا اپ یوازې یوه ازمایښتي دوره ده؟",
+  "pricing.faq.a1":
+    "نه. د موبایل اپ د تل لپاره وړیا دی او ګډون یا د پیسو کارت ته اړتیا نه لري. ډاونلوډ یې کړئ او له نوم لیکنې پرته شخصي حساب کتاب پیل کړئ.",
+  "pricing.faq.q2": "پرو به څه وخت ګټور وي؟",
+  "pricing.faq.a2":
+    "کله چې غواړئ په کمپیوټر کې هم حسابونه سمبال کړئ، لکه په دفتر یا لوی کاروبار کې. د شرکت اندازه بیه نه ټاکي. که موبایل مو بس وي، وړیا موبایل اپ وکاروئ.",
+  "pricing.faq.q3": "ایا په خپله به رانه پیسې واخیستل شي؟",
+  "pricing.faq.a3":
+    "نه. د پرو پیسې د یوې یا دولسو میاشتو لپاره مخکې ورکول کېږي او تاسو یې د تمدید پرېکړه کوئ. د وړیا اپ کارول یا د وېب ازمایښتي دورې پیلول د پیسو اخیستلو لامل نه کېږي.",
   "feature.offline.eyebrow": "د بازار لپاره جوړه شوې",
   "feature.offline.title": "یوه شخصي کاټه چې بې انټرنېټه هم کار کوي.",
   "feature.offline.body":
@@ -755,7 +910,7 @@ const ps: Record<keyof typeof en, string> = {
   "comparison.feature.backup": "آنلاین شاتړ یا د حساب همغږي",
   "cta.title.line1": "د کاغذ په ټوټو پسې",
   "cta.title.line2": "ګرځېدل پرېږدئ.",
-  "cta.sub": "تل وړیا. نه کارت غواړي، نه فیس او نه تنظیم.",
+  "cta.sub": "د موبایل اپ د تل لپاره وړیا دی. نه کارت غواړي، نه فیس او نه تنظیم.",
   "cta.button": "کاټه ښکته کړئ",
   "footer.tagline": "ستاسو او د هغو خلکو ترمنځ یوه شخصي کاټه چې باور پرې لرئ. په کابل کې جوړه شوې.",
   "footer.product": "کاټه",

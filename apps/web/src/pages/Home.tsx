@@ -5,6 +5,7 @@ import { Hero } from "../components/Hero";
 import { PhoneMockupBill } from "../components/BillMockups";
 import { PhoneMockupMembers } from "../components/MemberMockups";
 import { ProductComparison } from "../components/ProductComparison";
+import { Pricing } from "../components/Pricing";
 import {
   PhoneMockupOffline,
   PhoneMockupNotifications,
@@ -64,6 +65,8 @@ export function Home() {
       <SiteHeader />
 
       <Hero />
+
+      <Pricing />
 
       <div id="how" className="border-t border-neutral-200 scroll-mt-16">
         <FeatureSection
