@@ -128,8 +128,7 @@ export const COMPARISON_ROWS = [
     cells: {
       kaata: cell("yes", "kaataSite"),
       zoodhesab: assessedCell("no"),
-      // Staff access is advertised, but separate accounts/roles are unconfirmed.
-      khatabook: cell("unknown", "khataSite"),
+      khatabook: assessedCell("yes"),
       digikhata: cell("yes", "digiSite"),
       baxak: assessedCell("no"),
     },
