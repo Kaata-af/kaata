@@ -1,31 +1,6 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import { useI18n } from "../lib/i18n";
-import {
-  COMPARISON_BRANDS,
-  COMPARISON_REVIEWED_AT,
-  COMPARISON_ROWS,
-  COMPARISON_SOURCES,
-  type ComparisonCell,
-  type ComparisonSourceId,
-  type ComparisonStatus,
-} from "./comparison-data";
-
-const referencedSources = new Set(
-  COMPARISON_ROWS.flatMap((row) =>
-    COMPARISON_BRANDS.flatMap((brand) => row.cells[brand.id].sources),
-  ),
-);
-const sourceEntries = Object.entries(COMPARISON_SOURCES).filter(([id]) =>
-  referencedSources.has(id as ComparisonSourceId),
-) as [ComparisonSourceId, (typeof COMPARISON_SOURCES)[ComparisonSourceId]][];
-const sourceNumbers = Object.fromEntries(
-  sourceEntries.map(([id], index) => [id, index + 1]),
-) as Record<ComparisonSourceId, number>;
-const comparisonStatuses = (["yes", "no", "unknown"] as const).filter((status) =>
-  COMPARISON_ROWS.some((row) =>
-    COMPARISON_BRANDS.some((brand) => row.cells[brand.id].status === status),
-  ),
-);
+import { COMPARISON_BRANDS, COMPARISON_ROWS, type ComparisonStatus } from "./comparison-data";
 
 function StatusIcon({ status }: { status: ComparisonStatus }) {
   return (
@@ -52,48 +27,12 @@ function StatusIcon({ status }: { status: ComparisonStatus }) {
   );
 }
 
-function FeatureCell({ cell, brandName }: { cell: ComparisonCell; brandName: string }) {
+function FeatureCell({ status }: { status: ComparisonStatus }) {
   const { t } = useI18n();
   return (
-    <div className="flex flex-col items-center gap-1.5">
-      <div className="flex items-center gap-1.5" dir="ltr">
-        <StatusIcon status={cell.status} />
-        <span className="sr-only">{t(`comparison.status.${cell.status}`)}</span>
-        <span className="flex items-center gap-0.5 self-start text-[10px] leading-none text-neutral-500">
-          {cell.sources.map((sourceId) => {
-            const source = COMPARISON_SOURCES[sourceId];
-            return (
-              <a
-                key={sourceId}
-                href={source.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex min-h-5 min-w-4 items-center justify-center rounded hover:bg-neutral-100 hover:text-neutral-900"
-                aria-label={t("comparison.sourceLink", {
-                  brand: brandName,
-                  source: t(`comparison.sourceKind.${source.kind}`),
-                })}
-              >
-                <sup>{sourceNumbers[sourceId]}</sup>
-              </a>
-            );
-          })}
-          {cell.assessment === "kaata" ? (
-            <a
-              href="#comparison-assessment"
-              className="inline-flex min-h-5 min-w-4 items-center justify-center rounded hover:bg-neutral-100 hover:text-neutral-900"
-              aria-label={t("comparison.reviewLink")}
-            >
-              <sup>*</sup>
-            </a>
-          ) : null}
-        </span>
-      </div>
-      {cell.note ? (
-        <span className="rounded-full border border-neutral-200 bg-white px-2 py-0.5 text-[10px] leading-snug text-neutral-600">
-          {t(`comparison.note.${cell.note}`)}
-        </span>
-      ) : null}
+    <div className="flex justify-center">
+      <StatusIcon status={status} />
+      <span className="sr-only">{t(`comparison.status.${status}`)}</span>
     </div>
   );
 }
@@ -140,17 +79,6 @@ export function ProductComparison() {
     };
   }, [lang]);
 
-  const reviewedDate = new Intl.DateTimeFormat(
-    lang === "en" ? "en-GB" : lang === "fa" ? "fa-AF" : "ps-AF",
-    {
-      calendar: "gregory",
-      day: "numeric",
-      month: "long",
-      year: "numeric",
-      timeZone: "UTC",
-    },
-  ).format(new Date(`${COMPARISON_REVIEWED_AT}T12:00:00Z`));
-
   return (
     <section id="compare" className="scroll-mt-16 border-t border-neutral-200 px-6 py-20 md:py-28">
       <div className="mx-auto max-w-6xl">
@@ -175,26 +103,8 @@ export function ProductComparison() {
         </div>
 
         <div
-          id="comparison-legend"
-          className="mt-8 flex flex-wrap items-center gap-x-6 gap-y-3 text-xs text-neutral-600"
-        >
-          {comparisonStatuses.map((status) => (
-            <span key={status} className="inline-flex items-center gap-2">
-              <StatusIcon status={status} />
-              {t(`comparison.status.${status}`)}
-            </span>
-          ))}
-        </div>
-        <p
-          id="comparison-scroll-hint"
-          className="mt-5 text-xs leading-relaxed text-neutral-500 lg:hidden"
-        >
-          {t("comparison.scrollHint")}
-        </p>
-
-        <div
           ref={layoutRef}
-          className="relative mt-4 flex items-start overflow-hidden rounded-2xl border border-neutral-200 bg-white focus-within:outline focus-within:outline-2 focus-within:outline-offset-4 focus-within:outline-neutral-900"
+          className="relative mt-8 flex items-start overflow-hidden rounded-2xl border border-neutral-200 bg-white focus-within:outline focus-within:outline-2 focus-within:outline-offset-4 focus-within:outline-neutral-900"
         >
           {/* Keep the visible labels outside the scroller. Safari can drop
               sticky table cells while compositing an RTL overflow region. */}
@@ -235,7 +145,6 @@ export function ProductComparison() {
           <div
             role="region"
             aria-labelledby="comparison-title"
-            aria-describedby="comparison-legend comparison-scope"
             tabIndex={0}
             className="relative min-w-0 flex-1 overflow-x-auto focus-visible:outline-none"
           >
@@ -288,7 +197,7 @@ export function ProductComparison() {
                         className={`border-b border-neutral-100 p-0 align-middle ${brand.id === "kaata" ? "bg-[#F6F9F7]" : "bg-white"}`}
                       >
                         <div data-comparison-measure={index + 1} className="px-2 py-5">
-                          <FeatureCell cell={row.cells[brand.id]} brandName={brand.name} />
+                          <FeatureCell status={row.cells[brand.id].status} />
                         </div>
                       </td>
                     ))}
@@ -298,61 +207,6 @@ export function ProductComparison() {
             </table>
           </div>
         </div>
-
-        <div
-          id="comparison-scope"
-          className="mt-5 max-w-3xl space-y-2 text-xs leading-relaxed text-neutral-500"
-        >
-          {comparisonStatuses.includes("unknown") ? <p>{t("comparison.unknownNote")}</p> : null}
-          <p>{t("comparison.sharedNote")}</p>
-          <p>{t("comparison.scopeNote")}</p>
-          <p>{t("comparison.badgeNote")}</p>
-          <p id="comparison-assessment" className="scroll-mt-20">
-            {t("comparison.reviewNote")}
-          </p>
-          <p>
-            {t("comparison.reviewed")} <time dateTime={COMPARISON_REVIEWED_AT}>{reviewedDate}</time>
-          </p>
-        </div>
-
-        <details className="mt-7 border-t border-neutral-200 pt-5">
-          <summary className="w-fit cursor-pointer text-sm font-semibold text-neutral-700 marker:text-neutral-400">
-            {t("comparison.sources")}
-          </summary>
-          <div className="mt-6 grid gap-7 sm:grid-cols-2 lg:grid-cols-3">
-            {COMPARISON_BRANDS.filter((brand) =>
-              sourceEntries.some(([, source]) => source.brand === brand.id),
-            ).map((brand) => (
-              <div key={brand.id} className="min-w-0">
-                <h3 className="text-sm font-semibold text-neutral-900">
-                  <bdi dir="ltr">{brand.name}</bdi>
-                </h3>
-                <ul className="mt-3 space-y-2 text-xs leading-relaxed text-neutral-600">
-                  {sourceEntries
-                    .filter(([, source]) => source.brand === brand.id)
-                    .map(([id, source]) => (
-                      <li key={id} className="flex items-baseline gap-2">
-                        <span
-                          dir="ltr"
-                          className="min-w-4 shrink-0 font-mono text-[10px] text-neutral-400"
-                        >
-                          {sourceNumbers[id]}
-                        </span>
-                        <a
-                          href={source.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="min-w-0 underline decoration-neutral-200 underline-offset-4 hover:text-neutral-900 hover:decoration-neutral-600"
-                        >
-                          {t(`comparison.sourceKind.${source.kind}`)}
-                        </a>
-                      </li>
-                    ))}
-                </ul>
-              </div>
-            ))}
-          </div>
-        </details>
       </div>
     </section>
   );
