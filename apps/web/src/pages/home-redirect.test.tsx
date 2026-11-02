@@ -94,6 +94,7 @@ function fixture(raw: string | null) {
     "react-router-dom": { Link: block },
     "../components/FeatureSection": { FeatureSection: block },
     "../components/BillMockups": { PhoneMockupBill: block },
+    "../components/BusinessMockup": { PhoneMockupBusinesses: block },
     "../components/MemberMockups": { PhoneMockupMembers: block },
     "../components/ProductComparison": { ProductComparison: block },
     "../components/Pricing": { Pricing: block },

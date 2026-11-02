@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { FeatureSection } from "../components/FeatureSection";
 import { Hero } from "../components/Hero";
 import { PhoneMockupBill } from "../components/BillMockups";
+import { PhoneMockupBusinesses } from "../components/BusinessMockup";
 import { PhoneMockupMembers } from "../components/MemberMockups";
 import { ProductComparison } from "../components/ProductComparison";
 import { Pricing } from "../components/Pricing";
@@ -68,30 +69,30 @@ export function Home() {
 
       <Pricing />
 
-      <div id="how" className="border-t border-neutral-200 scroll-mt-16">
-        <FeatureSection
-          eyebrow={t("feature.offline.eyebrow")}
-          title={t("feature.offline.title")}
-          body={t("feature.offline.body")}
-          mockup={<PhoneMockupOffline />}
-          tone="sage"
-        />
+      <div id="product" className="scroll-mt-16">
+        <div id="backup" className="border-t border-neutral-200 scroll-mt-16">
+          <FeatureSection
+            eyebrow={t("feature.backup.eyebrow")}
+            title={t("feature.backup.title")}
+            body={t("feature.backup.body")}
+            mockup={<PhoneMockupRestore />}
+            tone="sage"
+          />
+        </div>
       </div>
 
-      {/* id="product" — target of the header "Product" / footer "What's
-          inside" nav links. */}
-      <div id="product" className="border-t border-neutral-200 scroll-mt-16">
+      <div id="businesses" className="border-t border-neutral-200 scroll-mt-16">
         <FeatureSection
           reverse
-          eyebrow={t("feature.shared.eyebrow")}
-          title={t("feature.shared.title")}
-          body={t("feature.shared.body")}
+          eyebrow={t("feature.businesses.eyebrow")}
+          title={t("feature.businesses.title")}
+          body={t("feature.businesses.body")}
           highlights={[
-            t("feature.shared.point1"),
-            t("feature.shared.point2"),
-            t("feature.shared.point3"),
+            t("feature.businesses.point1"),
+            t("feature.businesses.point2"),
+            t("feature.businesses.point3"),
           ]}
-          mockup={<PhoneMockupShared />}
+          mockup={<PhoneMockupBusinesses />}
         />
       </div>
 
@@ -107,6 +108,31 @@ export function Home() {
             t("feature.members.point3"),
           ]}
           mockup={<PhoneMockupMembers />}
+        />
+      </div>
+
+      <div id="how" className="border-t border-neutral-200 scroll-mt-16">
+        <FeatureSection
+          eyebrow={t("feature.offline.eyebrow")}
+          title={t("feature.offline.title")}
+          body={t("feature.offline.body")}
+          mockup={<PhoneMockupOffline />}
+          tone="sage"
+        />
+      </div>
+
+      <div id="shared" className="border-t border-neutral-200 scroll-mt-16">
+        <FeatureSection
+          reverse
+          eyebrow={t("feature.shared.eyebrow")}
+          title={t("feature.shared.title")}
+          body={t("feature.shared.body")}
+          highlights={[
+            t("feature.shared.point1"),
+            t("feature.shared.point2"),
+            t("feature.shared.point3"),
+          ]}
+          mockup={<PhoneMockupShared />}
         />
       </div>
 
@@ -147,18 +173,6 @@ export function Home() {
           body={t("feature.ping.body")}
           mockup={<PhoneMockupWhatsApp />}
           tone="rose"
-        />
-      </div>
-
-      {/* Backup/restore — the #1 ask from shopkeeper interviews: the fear of
-          losing the whole book with the phone. */}
-      <div id="backup" className="border-t border-neutral-200 scroll-mt-16">
-        <FeatureSection
-          reverse
-          eyebrow={t("feature.backup.eyebrow")}
-          title={t("feature.backup.title")}
-          body={t("feature.backup.body")}
-          mockup={<PhoneMockupRestore />}
         />
       </div>
 
