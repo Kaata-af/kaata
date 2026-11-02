@@ -35,6 +35,7 @@ export function Hero() {
             { href: "/#members", label: t("feature.members.eyebrow") },
             { href: "/#notifications", label: t("feature.notifications.eyebrow") },
             { href: "/#bills", label: t("feature.bills.eyebrow") },
+            { href: "/#compare", label: t("comparison.shortcut") },
           ].map((feature) => (
             <Link
               key={feature.href}

@@ -4,6 +4,7 @@ import { FeatureSection } from "../components/FeatureSection";
 import { Hero } from "../components/Hero";
 import { PhoneMockupBill } from "../components/BillMockups";
 import { PhoneMockupMembers } from "../components/MemberMockups";
+import { ProductComparison } from "../components/ProductComparison";
 import {
   PhoneMockupOffline,
   PhoneMockupNotifications,
@@ -159,6 +160,8 @@ export function Home() {
       </div>
 
       <ProductExtras />
+
+      <ProductComparison />
 
       <FinalCTA />
 
