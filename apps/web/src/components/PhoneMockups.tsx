@@ -365,7 +365,6 @@ function Dock() {
 }
 
 function HomeScreen(props: { rows: Row[]; toast?: { title: string; sub: string } }) {
-  const { t, isRTL } = useI18n();
   return (
     <div className="flex min-h-0 flex-1 flex-col" style={APP_FONT}>
       <AppHeader />
@@ -374,16 +373,6 @@ function HomeScreen(props: { rows: Row[]; toast?: { title: string; sub: string }
         <div className="h-px w-1/2 bg-neutral-500" />
       </div>
       <PeopleCard rows={props.rows} />
-      <div
-        className={`mx-3 mt-3 flex items-center gap-1.5 text-[9px] ${isRTL ? "flex-row-reverse" : ""}`}
-        style={{ color: APP.subtle }}
-      >
-        <span aria-hidden="true">✓✓</span>
-        <span dir={textDir(isRTL)}>{t("mock.settled")}</span>
-        <span className="flex-1" />
-        <span>2</span>
-        <ChevronDownIcon className="h-2.5 w-2.5" />
-      </div>
       <div className="mt-auto pt-3">
         {props.toast ? <AppToast title={props.toast.title} sub={props.toast.sub} /> : null}
         <Dock />
