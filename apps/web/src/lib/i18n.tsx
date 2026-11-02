@@ -42,7 +42,7 @@ const en = {
     "Track what you gave and received. Share accounts with people you trust, follow updates in Kaata, and send reminders over WhatsApp.",
   "hero.cta": "Download Kaata",
   "hero.how": "See how it works ↓",
-  "hero.pricing": "Mobile app: free · See pricing",
+  "hero.pricing": "Free forever",
 
   // Pricing
   "pricing.eyebrow": "Simple pricing",
@@ -414,7 +414,7 @@ const fa: Record<keyof typeof en, string> = {
     "آنچه دادید و گرفتید را ثبت کنید. با کسانی که به آنها اعتماد دارید حساب مشترک داشته باشید، تغییرات را در کاتا دنبال کنید و در واتساپ یادآوری بفرستید.",
   "hero.cta": "دانلود کاتا",
   "hero.how": "ببینید چطور کار می‌کند ↓",
-  "hero.pricing": "اپ تلفون: رایگان · دیدن قیمت‌ها",
+  "hero.pricing": "برای همیشه رایگان",
 
   // Pricing
   "pricing.eyebrow": "قیمت‌گذاری ساده",
@@ -780,7 +780,7 @@ const ps: Record<keyof typeof en, string> = {
     "هغه څه ثبت کړئ چې مو ورکړي او ترلاسه کړي دي. له باوري خلکو سره ګډ حسابونه ولرئ، په کاټه کې بدلونونه تعقیب کړئ او د WhatsApp له لارې یادونې ولېږئ.",
   "hero.cta": "کاټه ښکته کړئ",
   "hero.how": "وګورئ چې څنګه کار کوي ↓",
-  "hero.pricing": "د موبایل اپ: وړیا · بیې وګورئ",
+  "hero.pricing": "د تل لپاره وړیا",
 
   // Pricing
   "pricing.eyebrow": "ساده بیې",
