@@ -1,7 +1,7 @@
 // Regenerate checked-in social PNGs with Playwright + Chromium, entirely offline.
 // Install Playwright locally, or set PLAYWRIGHT_MODULE_PATH to its entry file.
 // CHROME_PATH optionally selects an existing Chrome/Edge executable.
-// kaata-fa-v1.png is selected for both homepage and bill-link previews.
+// kaata-fa-v2.png is selected for both homepage and bill-link previews.
 // The separate bill illustration remains an alternate design.
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
@@ -52,24 +52,24 @@ const output = path.join(webRoot, "public", "og");
 await mkdir(output, { recursive: true });
 const variants = [
   {
-    name: "kaata-fa-v1.png",
+    name: "kaata-fa-v2.png",
     variant: "home",
     headlineOne: "حساب و کتاب،",
     headlineTwo: "ساده و روشن",
     subtitle: "قرض، طلب و پرداخت‌ها در یک‌جا",
     footerOne: "بدون انترنت",
     footerTwo: "بدون ثبت‌نام",
-    alt: "کاتا؛ حساب و کتاب ساده و روشن، برای همیشه رایگان",
+    alt: "کاتا؛ حساب و کتاب ساده و روشن، رایگان، بدون دورۀ آزمایشی",
   },
   {
-    name: "kaata-bill-fa-v1.png",
+    name: "kaata-bill-fa-v2.png",
     variant: "bill",
     headlineOne: "صورت‌حساب شما",
     headlineTwo: "آماده است",
     subtitle: "جزئیات حساب را در لینک ببینید.",
     footerOne: "ساخته‌شده با کاتا",
     footerTwo: "بدون نیاز به نصب اپ",
-    alt: "صورت‌حساب شما در کاتا آماده است؛ برای همیشه رایگان",
+    alt: "صورت‌حساب شما در کاتا آماده است؛ رایگان، بدون دورۀ آزمایشی",
   },
 ];
 try {
@@ -109,20 +109,20 @@ try {
       fontReady: document.fonts.check('700 76px "Vazirmatn"', "حساب و کتاب"),
       width: document.documentElement.scrollWidth,
       height: document.documentElement.scrollHeight,
-      text: [...document.querySelectorAll("h1 span, .subtitle, .forever, .benefits, .domain")].map(
-        (el) => {
-          const r = el.getBoundingClientRect();
-          return {
-            text: el.textContent,
-            x: r.x,
-            y: r.y,
-            right: r.right,
-            bottom: r.bottom,
-            scrollWidth: el.scrollWidth,
-            clientWidth: el.clientWidth,
-          };
-        },
-      ),
+      text: [
+        ...document.querySelectorAll("h1 span, .subtitle, .free-promise, .benefits, .domain"),
+      ].map((el) => {
+        const r = el.getBoundingClientRect();
+        return {
+          text: el.textContent,
+          x: r.x,
+          y: r.y,
+          right: r.right,
+          bottom: r.bottom,
+          scrollWidth: el.scrollWidth,
+          clientWidth: el.clientWidth,
+        };
+      }),
     }));
     assert.equal(layout.fontReady, true);
     assert.equal(layout.width, 1200);

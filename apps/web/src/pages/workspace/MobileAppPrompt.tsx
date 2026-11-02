@@ -13,7 +13,7 @@ let dismissedInMemory = false;
 const copy = {
   en: {
     title: "Kaata is better on your phone",
-    body: "Get the mobile app. It’s free forever, works offline, and includes reminders.",
+    body: "Get the mobile app. It’s free with no trial, works offline, and includes reminders.",
     account: "Use the same account to see your kaatas.",
     ios: "Download on the App Store",
     android: "Get it on Google Play",
@@ -23,7 +23,7 @@ const copy = {
   },
   fa: {
     title: "کاتا در اپ تلفون بهتر است",
-    body: "اپ تلفون را بگیرید؛ همیشه رایگان است، بدون انترنت کار می‌کند و یادآوری دارد.",
+    body: "اپ تلفون را بگیرید؛ رایگان است و دورۀ آزمایشی ندارد، بدون انترنت کار می‌کند و یادآوری دارد.",
     account: "برای دیدن کاتاهای خود، با همان حساب وارد شوید.",
     ios: "دانلود از App Store",
     android: "دانلود از Google Play",
@@ -33,7 +33,7 @@ const copy = {
   },
   ps: {
     title: "کاتا په موبایل اپ کې غوره ده",
-    body: "د موبایل اپ واخلئ؛ تل وړیا دی، بې انټرنېټه کار کوي او یادونې لري.",
+    body: "د موبایل اپ واخلئ؛ وړیا دی او ازمایښتي موده نه لري، بې انټرنېټه کار کوي او یادونې لري.",
     account: "د خپلو کاتاګانو د لیدلو لپاره په هماغه حساب ننوځئ.",
     ios: "له App Store څخه یې ښکته کړئ",
     android: "له Google Play څخه یې ښکته کړئ",

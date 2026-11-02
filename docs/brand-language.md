@@ -59,8 +59,10 @@ All screenshot text is Persian, with English digits for amounts and counts.
 The campaign leaves app, website and existing social/flyer colors unchanged.
 On October 26, Matee also selected this white/blue campaign with its
 yellow/blue/red footer for the website and bill-link Open Graph images.
-Those previews use the slogan «برای همیشه رایگان»; product UI and existing
-flyer/social templates keep their separate palettes.
+The current previews say «رایگان، بدون دورۀ آزمایشی»: describe free mobile use
+today without promising lifetime pricing. This replaces the earlier lifetime
+wording following the November 2, 2026 pricing clarification. Product UI and
+existing flyer/social templates keep their separate palettes.
 On October 16, Google Play published the new images and accepted Android 2.2.0
 for production review. The App Store images are associated with the 2.2.0
 release. See [store-listing.md](store-listing.md) for the

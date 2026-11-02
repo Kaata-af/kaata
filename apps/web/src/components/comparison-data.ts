@@ -99,7 +99,7 @@ export type ComparisonStatus = "yes" | "no" | "unknown";
 export type ComparisonCell = {
   status: ComparisonStatus;
   sources: readonly ComparisonSourceId[];
-  note?: "android" | "iphone" | "googleDrive";
+  note?: "android" | "iphone" | "googleDrive" | "paid" | "freemium" | "iphoneFreemium";
   assessment?: "kaata";
 };
 
@@ -116,10 +116,11 @@ const cell = (
 // Confirmed competitor checks supplied by Kaata's product owner. These use
 // their own visible assessment marker, rather than implying that an official
 // page explicitly documents the absence of a feature.
-const assessedCell = (status: ComparisonStatus): ComparisonCell => ({
+const assessedCell = (status: ComparisonStatus, note?: ComparisonCell["note"]): ComparisonCell => ({
   status,
   sources: [],
   assessment: "kaata",
+  ...(note ? { note } : {}),
 });
 
 export const COMPARISON_ROWS = [
@@ -154,16 +155,15 @@ export const COMPARISON_ROWS = [
     },
   },
   {
-    id: "freeForever",
+    id: "freeNoTrial",
     cells: {
       kaata: cell("yes", "kaataSite"),
-      // Current free availability does not establish a forever-free commitment.
-      zoodhesab: cell("unknown", "zoodSite"),
-      khatabook: cell("unknown", "khataSite"),
+      zoodhesab: assessedCell("no", "paid"),
+      khatabook: assessedCell("no", "freemium"),
       // The iPhone app lists recurring subscription purchases.
-      digikhata: cell("no", "digiIos", "iphone"),
+      digikhata: cell("no", "digiIos", "iphoneFreemium"),
       // Published pricing caps the free plan and offers paid Premium features.
-      baxak: cell("no", "baxakCopy"),
+      baxak: cell("no", "baxakCopy", "freemium"),
     },
   },
   {

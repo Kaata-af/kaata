@@ -42,17 +42,17 @@ const en = {
     "Track what you gave and received. Share accounts with people you trust, follow updates in Kaata, and send reminders over WhatsApp.",
   "hero.cta": "Download Kaata",
   "hero.how": "See how it works ↓",
-  "hero.pricing": "Mobile app: free forever · See pricing",
+  "hero.pricing": "Mobile app: free · See pricing",
 
   // Pricing
   "pricing.eyebrow": "Simple pricing",
-  "pricing.title": "Use Kaata on your phone. Free forever.",
+  "pricing.title": "Use Kaata on your phone. Completely free.",
   "pricing.body":
     "Keep using the mobile app without paying. Pro is an optional subscription for working from your computer.",
-  "pricing.free.badge": "Free forever",
+  "pricing.free.badge": "Free. No trial.",
   "pricing.free.name": "Kaata Mobile",
   "pricing.free.currency": "AFN",
-  "pricing.free.period": "forever",
+  "pricing.free.period": "No trial",
   "pricing.free.body":
     "Your everyday accounts, on Android and iPhone. All the mobile features shown on this page are free.",
   "pricing.free.item1": "Automatic backups and sync",
@@ -86,7 +86,7 @@ const en = {
   "pricing.faq.title": "A few clear answers.",
   "pricing.faq.q1": "Is the free mobile app just a trial?",
   "pricing.faq.a1":
-    "No. The mobile app is free forever, with no subscription or payment card needed. Download it and start a personal ledger without signing up.",
+    "No. The mobile app is completely free, with no time-limited trial, subscription or payment card required. Download it and start a personal ledger without signing up.",
   "pricing.faq.q2": "When would Pro be useful?",
   "pricing.faq.a2":
     "When you also want to handle accounts at a computer, for example at an office or a bigger business. Company size does not decide the price. If your phone is enough, stay with the free mobile app.",
@@ -176,14 +176,16 @@ const en = {
     "A dash means the feature was not confirmed in the sources checked. It does not mean the app lacks it.",
   "comparison.scopeNote":
     "Features can vary by plan, platform and region. Check the provider for current details.",
-  "comparison.badgeNote":
-    "Badges identify the platform or backup service confirmed by the linked source.",
+  "comparison.badgeNote": "Badges clarify pricing or the platform confirmed by the linked source.",
   "comparison.reviewed": "Checked:",
   "comparison.sources": "Sources and scope",
   "comparison.sourceLink": "{brand}: {source}",
   "comparison.note.android": "Android",
   "comparison.note.iphone": "iPhone",
   "comparison.note.googleDrive": "Google Drive",
+  "comparison.note.paid": "Paid",
+  "comparison.note.freemium": "Free + paid features",
+  "comparison.note.iphoneFreemium": "Free + paid features (iPhone)",
   "comparison.sourceKind.website": "Official website",
   "comparison.sourceKind.googlePlay": "Google Play listing",
   "comparison.sourceKind.appStore": "App Store listing",
@@ -198,13 +200,13 @@ const en = {
   "comparison.sharedNote":
     "Shared tallies mean a two-sided account with entry permissions and optional approval.",
   "comparison.feature.withoutAccount": "Start without registration",
-  "comparison.feature.freeForever": "All mobile features free forever",
+  "comparison.feature.freeNoTrial": "Completely free, with no trial",
   "comparison.feature.csv": "Export ledger data as CSV",
 
   // Final CTA
   "cta.title.line1": "Stop chasing slips",
   "cta.title.line2": "of paper.",
-  "cta.sub": "The mobile app is free forever. No card, no fees, no setup.",
+  "cta.sub": "The mobile app is free. No trial, no card, no setup.",
   "cta.button": "Download Kaata",
 
   // Footer
@@ -414,17 +416,17 @@ const fa: Record<keyof typeof en, string> = {
     "آنچه دادید و گرفتید را ثبت کنید. با کسانی که به آنها اعتماد دارید حساب مشترک داشته باشید، تغییرات را در کاتا دنبال کنید و در واتساپ یادآوری بفرستید.",
   "hero.cta": "دانلود کاتا",
   "hero.how": "ببینید چطور کار می‌کند ↓",
-  "hero.pricing": "اپ تلفون: برای همیشه رایگان · دیدن قیمت‌ها",
+  "hero.pricing": "اپ تلفون: رایگان · دیدن قیمت‌ها",
 
   // Pricing
   "pricing.eyebrow": "قیمت‌گذاری ساده",
-  "pricing.title": "کاتا را در تلفون‌تان استفاده کنید. برای همیشه رایگان.",
+  "pricing.title": "کاتا را در تلفون‌تان استفاده کنید. کاملاً رایگان.",
   "pricing.body":
     "بدون پرداخت از اپ تلفون استفاده کنید. پرو یک اشتراک اختیاری برای کار در کمپیوتر است.",
-  "pricing.free.badge": "برای همیشه رایگان",
+  "pricing.free.badge": "رایگان؛ بدون دورۀ آزمایشی",
   "pricing.free.name": "کاتا در تلفون",
   "pricing.free.currency": "افغانی",
-  "pricing.free.period": "برای همیشه",
+  "pricing.free.period": "بدون دورۀ آزمایشی",
   "pricing.free.body":
     "حساب‌های روزمرۀ شما، در اندروید و آیفون. همۀ امکانات اپ تلفون که در این صفحه می‌بینید، رایگان است.",
   "pricing.free.item1": "نسخۀ پشتیبان خودکار و همگام‌سازی",
@@ -457,7 +459,7 @@ const fa: Record<keyof typeof en, string> = {
   "pricing.faq.title": "چند جواب روشن.",
   "pricing.faq.q1": "آیا اپ رایگان تلفون فقط یک دورۀ آزمایشی است؟",
   "pricing.faq.a1":
-    "نخیر. اپ تلفون برای همیشه رایگان است و به اشتراک یا کارت پرداخت نیاز ندارد. آن را دانلود کنید و بدون ثبت‌نام، دفتر حساب شخصی‌تان را شروع کنید.",
+    "نخیر. اپ تلفون کاملاً رایگان است؛ دورۀ آزمایشی محدود ندارد و به اشتراک یا کارت پرداخت نیاز ندارد. آن را دانلود کنید و بدون ثبت‌نام، دفتر حساب شخصی‌تان را شروع کنید.",
   "pricing.faq.q2": "پرو چه وقت به کار می‌آید؟",
   "pricing.faq.a2":
     "وقتی می‌خواهید در کمپیوتر هم حساب‌ها را مدیریت کنید؛ مثلاً در دفتر یا یک شرکت بزرگ‌تر. اندازۀ شرکت قیمت را تعیین نمی‌کند. اگر تلفون برای‌تان کافی است، از اپ رایگان استفاده کنید.",
@@ -548,13 +550,16 @@ const fa: Record<keyof typeof en, string> = {
   "comparison.scopeNote":
     "امکانات ممکن است با پلان، سیستم‌عامل و منطقه فرق کند. جزئیات تازه را از ارائه‌کننده ببینید.",
   "comparison.badgeNote":
-    "برچسب‌ها سیستم‌عامل یا خدمات پشتیبانی آنلاینی را نشان می‌دهند که منبع پیوندشده تأیید می‌کند.",
+    "برچسب‌ها قیمت‌گذاری یا سیستم‌عاملی را روشن می‌سازند که منبع پیوندشده تأیید می‌کند.",
   "comparison.reviewed": "تاریخ بررسی:",
   "comparison.sources": "منابع و محدودهٔ مقایسه",
   "comparison.sourceLink": "{brand}: {source}",
   "comparison.note.android": "Android",
   "comparison.note.iphone": "iPhone",
   "comparison.note.googleDrive": "Google Drive",
+  "comparison.note.paid": "پولی",
+  "comparison.note.freemium": "امکانات رایگان و پولی",
+  "comparison.note.iphoneFreemium": "امکانات رایگان و پولی (آیفون)",
   "comparison.sourceKind.website": "وب‌سایت رسمی",
   "comparison.sourceKind.googlePlay": "صفحهٔ گوگل پلی",
   "comparison.sourceKind.appStore": "صفحهٔ اپ استور",
@@ -569,13 +574,13 @@ const fa: Record<keyof typeof en, string> = {
   "comparison.sharedNote":
     "ثبت‌های مشترک یعنی هر دو طرف یک حساب را دنبال می‌کنند، با صلاحیت ثبت و تأیید اختیاری.",
   "comparison.feature.withoutAccount": "شروع بدون ثبت‌نام",
-  "comparison.feature.freeForever": "همۀ امکانات اپ تلفون برای همیشه رایگان",
+  "comparison.feature.freeNoTrial": "کاملاً رایگان، بدون دورۀ آزمایشی",
   "comparison.feature.csv": "خروجی CSV از معلومات دفتر حساب",
 
   // Final CTA
   "cta.title.line1": "دیگر دنبال",
   "cta.title.line2": "کاغذپاره‌ها نگردید.",
-  "cta.sub": "اپ تلفون برای همیشه رایگان است. بدون کارت، بدون فیس، بدون تنظیمات.",
+  "cta.sub": "اپ تلفون رایگان است. بدون دورۀ آزمایشی، بدون کارت، بدون تنظیمات.",
   "cta.button": "دانلود کاتا",
 
   // Footer
@@ -778,17 +783,17 @@ const ps: Record<keyof typeof en, string> = {
     "هغه څه ثبت کړئ چې مو ورکړي او ترلاسه کړي دي. له باوري خلکو سره ګډ حسابونه ولرئ، په کاټه کې بدلونونه تعقیب کړئ او د WhatsApp له لارې یادونې ولېږئ.",
   "hero.cta": "کاټه ښکته کړئ",
   "hero.how": "وګورئ چې څنګه کار کوي ↓",
-  "hero.pricing": "د موبایل اپ: د تل لپاره وړیا · بیې وګورئ",
+  "hero.pricing": "د موبایل اپ: وړیا · بیې وګورئ",
 
   // Pricing
   "pricing.eyebrow": "ساده بیې",
-  "pricing.title": "کاتا په خپل موبایل کې وکاروئ. د تل لپاره وړیا.",
+  "pricing.title": "کاتا په خپل موبایل کې وکاروئ. بشپړ وړیا.",
   "pricing.body":
     "د موبایل اپ له پیسو ورکولو پرته وکاروئ. پرو په کمپیوټر کې د کار لپاره یو اختیاري ګډون دی.",
-  "pricing.free.badge": "د تل لپاره وړیا",
+  "pricing.free.badge": "وړیا؛ ازمایښتي دوره نه لري",
   "pricing.free.name": "کاتا په موبایل کې",
   "pricing.free.currency": "افغانۍ",
-  "pricing.free.period": "د تل لپاره",
+  "pricing.free.period": "ازمایښتي دوره نه لري",
   "pricing.free.body":
     "ستاسو ورځني حسابونه، په انډرایډ او آیفون کې. په دې پاڼه کې د موبایل اپ ښودل شوې ټولې اسانتیاوې وړیا دي.",
   "pricing.free.item1": "اتومات شاتړ او همغږي",
@@ -822,7 +827,7 @@ const ps: Record<keyof typeof en, string> = {
   "pricing.faq.title": "څو روښانه ځوابونه.",
   "pricing.faq.q1": "ایا د موبایل وړیا اپ یوازې یوه ازمایښتي دوره ده؟",
   "pricing.faq.a1":
-    "نه. د موبایل اپ د تل لپاره وړیا دی او ګډون یا د پیسو کارت ته اړتیا نه لري. ډاونلوډ یې کړئ او له نوم لیکنې پرته شخصي حساب کتاب پیل کړئ.",
+    "نه. د موبایل اپ بشپړ وړیا دی؛ ټاکلې ازمایښتي موده نه لري او ګډون یا د پیسو کارت ته اړتیا نشته. ډاونلوډ یې کړئ او له نوم لیکنې پرته شخصي حساب کتاب پیل کړئ.",
   "pricing.faq.q2": "پرو به څه وخت ګټور وي؟",
   "pricing.faq.a2":
     "کله چې غواړئ په کمپیوټر کې هم حسابونه سمبال کړئ، لکه په دفتر یا لوی کاروبار کې. د شرکت اندازه بیه نه ټاکي. که موبایل مو بس وي، وړیا موبایل اپ وکاروئ.",
@@ -908,13 +913,16 @@ const ps: Record<keyof typeof en, string> = {
     "کرښه یعنې دا امکان په کتل شویو سرچینو کې تایید نه شو؛ دا مانا نه لري چې اپ یې نه لري.",
   "comparison.scopeNote":
     "امکانات د پلان، سیستم او سیمې له مخې توپیر لرلای شي. د تازه جزیاتو لپاره له وړاندې کوونکي سره یې وګورئ.",
-  "comparison.badgeNote": "نښې هغه سیستم یا د شاتړ خدمت ښيي چې تړلې سرچینې تایید کړی دی.",
+  "comparison.badgeNote": "نښې بیې یا هغه سیستم روښانوي چې تړلې سرچینې تایید کړی دی.",
   "comparison.reviewed": "د کتنې نېټه:",
   "comparison.sources": "سرچینې او د پرتله کولو لمن",
   "comparison.sourceLink": "{brand}: {source}",
   "comparison.note.android": "Android",
   "comparison.note.iphone": "iPhone",
   "comparison.note.googleDrive": "Google Drive",
+  "comparison.note.paid": "پیسې غواړي",
+  "comparison.note.freemium": "وړیا او په پیسو اسانتیاوې",
+  "comparison.note.iphoneFreemium": "وړیا او په پیسو اسانتیاوې (آیفون)",
   "comparison.sourceKind.website": "رسمي وېبپاڼه",
   "comparison.sourceKind.googlePlay": "د Google Play پاڼه",
   "comparison.sourceKind.appStore": "د App Store پاڼه",
@@ -929,11 +937,11 @@ const ps: Record<keyof typeof en, string> = {
   "comparison.sharedNote":
     "ګډې راکړې ورکړې د دواړو لورو ګډ حساب دی، چې د ثبت واکونه او اختیاري تایید لري.",
   "comparison.feature.withoutAccount": "له نوم‌لیکنې پرته پیل",
-  "comparison.feature.freeForever": "د موبایل ټولې اسانتیاوې د تل لپاره وړیا",
+  "comparison.feature.freeNoTrial": "بشپړ وړیا، بې ازمایښتي دورې",
   "comparison.feature.csv": "د حساب معلومات په CSV کې صادرول",
   "cta.title.line1": "د کاغذ په ټوټو پسې",
   "cta.title.line2": "ګرځېدل پرېږدئ.",
-  "cta.sub": "د موبایل اپ د تل لپاره وړیا دی. نه کارت غواړي، نه فیس او نه تنظیم.",
+  "cta.sub": "د موبایل اپ وړیا دی. نه ازمایښتي دوره لري، نه کارت غواړي او نه تنظیم.",
   "cta.button": "کاټه ښکته کړئ",
   "footer.tagline": "ستاسو او د هغو خلکو ترمنځ یوه شخصي کاټه چې باور پرې لرئ. په کابل کې جوړه شوې.",
   "footer.product": "کاټه",

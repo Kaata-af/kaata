@@ -21,6 +21,11 @@ const sourceEntries = Object.entries(COMPARISON_SOURCES).filter(([id]) =>
 const sourceNumbers = Object.fromEntries(
   sourceEntries.map(([id], index) => [id, index + 1]),
 ) as Record<ComparisonSourceId, number>;
+const comparisonStatuses = (["yes", "no", "unknown"] as const).filter((status) =>
+  COMPARISON_ROWS.some((row) =>
+    COMPARISON_BRANDS.some((brand) => row.cells[brand.id].status === status),
+  ),
+);
 
 function StatusIcon({ status }: { status: ComparisonStatus }) {
   return (
@@ -173,7 +178,7 @@ export function ProductComparison() {
           id="comparison-legend"
           className="mt-8 flex flex-wrap items-center gap-x-6 gap-y-3 text-xs text-neutral-600"
         >
-          {(["yes", "no", "unknown"] as const).map((status) => (
+          {comparisonStatuses.map((status) => (
             <span key={status} className="inline-flex items-center gap-2">
               <StatusIcon status={status} />
               {t(`comparison.status.${status}`)}
@@ -298,7 +303,7 @@ export function ProductComparison() {
           id="comparison-scope"
           className="mt-5 max-w-3xl space-y-2 text-xs leading-relaxed text-neutral-500"
         >
-          <p>{t("comparison.unknownNote")}</p>
+          {comparisonStatuses.includes("unknown") ? <p>{t("comparison.unknownNote")}</p> : null}
           <p>{t("comparison.sharedNote")}</p>
           <p>{t("comparison.scopeNote")}</p>
           <p>{t("comparison.badgeNote")}</p>
@@ -315,7 +320,9 @@ export function ProductComparison() {
             {t("comparison.sources")}
           </summary>
           <div className="mt-6 grid gap-7 sm:grid-cols-2 lg:grid-cols-3">
-            {COMPARISON_BRANDS.map((brand) => (
+            {COMPARISON_BRANDS.filter((brand) =>
+              sourceEntries.some(([, source]) => source.brand === brand.id),
+            ).map((brand) => (
               <div key={brand.id} className="min-w-0">
                 <h3 className="text-sm font-semibold text-neutral-900">
                   <bdi dir="ltr">{brand.name}</bdi>
