@@ -1,5 +1,6 @@
-// Snapshot of primary product documentation reviewed on this date. A missing
-// claim stays unknown; only an explicit restriction earns a "no" cell.
+// Snapshot of provider documentation and the product owner's competitor
+// assessment. Keep owner-supplied checks distinct from provider citations;
+// missing documentation alone never establishes that a feature is absent.
 export const COMPARISON_REVIEWED_AT = "2026-11-02";
 
 export const COMPARISON_BRANDS = [
@@ -99,6 +100,7 @@ export type ComparisonCell = {
   status: ComparisonStatus;
   sources: readonly ComparisonSourceId[];
   note?: "android" | "iphone" | "googleDrive";
+  assessment?: "kaata";
 };
 
 const cell = (
@@ -111,111 +113,68 @@ const cell = (
   ...(note ? { note } : {}),
 });
 
+// Confirmed competitor checks supplied by Kaata's product owner. These use
+// their own visible assessment marker, rather than implying that an official
+// page explicitly documents the absence of a feature.
+const assessedCell = (status: ComparisonStatus): ComparisonCell => ({
+  status,
+  sources: [],
+  assessment: "kaata",
+});
+
 export const COMPARISON_ROWS = [
   {
-    id: "offline",
+    id: "staff",
     cells: {
       kaata: cell("yes", "kaataSite"),
-      // ZoodHesab FAQ explicitly permits offline viewing, but not adding/editing.
-      zoodhesab: cell("no", "zoodSite"),
-      khatabook: cell("yes", "khataOffline"),
-      // Offline PDF generation does not establish offline entry creation.
-      digikhata: cell("unknown", "digiFeatures"),
-      baxak: cell("yes", "baxakCopy"),
+      zoodhesab: assessedCell("no"),
+      // Staff access is advertised, but separate accounts/roles are unconfirmed.
+      khatabook: cell("unknown", "khataSite"),
+      digikhata: cell("yes", "digiSite"),
+      baxak: assessedCell("no"),
+    },
+  },
+  {
+    id: "shared",
+    cells: {
+      kaata: cell("yes", "kaataSite"),
+      zoodhesab: assessedCell("no"),
+      khatabook: assessedCell("no"),
+      digikhata: assessedCell("no"),
+      baxak: assessedCell("no"),
     },
   },
   {
     id: "withoutAccount",
     cells: {
       kaata: cell("yes", "kaataSite"),
-      zoodhesab: cell("unknown", "zoodPrivacy"),
-      khatabook: cell("unknown", "khataSetup"),
-      // The terms explicitly require a profile/sign-up for the service.
+      zoodhesab: assessedCell("no"),
+      khatabook: assessedCell("no"),
       digikhata: cell("no", "digiTerms"),
-      baxak: cell("unknown", "baxakCopy"),
+      baxak: assessedCell("no"),
     },
   },
   {
-    id: "mobileApps",
-    cells: {
-      kaata: cell("yes", ["kaataAndroid", "kaataIos"]),
-      zoodhesab: cell("yes", ["zoodAndroid", "zoodIos"]),
-      khatabook: cell("yes", ["khataAndroid", "khataIos"]),
-      digikhata: cell("yes", ["digiAndroid", "digiIos"]),
-      baxak: cell("yes", ["baxakAndroid", "baxakIos"]),
-    },
-  },
-  {
-    id: "pashto",
+    id: "freeForever",
     cells: {
       kaata: cell("yes", "kaataSite"),
-      zoodhesab: cell("yes", "zoodAndroid", "android"),
-      // iOS lists no Pashto, but Android support has not been established.
-      khatabook: cell("unknown", ["khataAndroid", "khataIos"]),
-      digikhata: cell("yes", "digiIos", "iphone"),
-      baxak: cell("yes", "baxakCopy"),
-    },
-  },
-  {
-    id: "currencies",
-    cells: {
-      kaata: cell("yes", "kaataSite"),
+      // Current free availability does not establish a forever-free commitment.
       zoodhesab: cell("unknown", "zoodSite"),
       khatabook: cell("unknown", "khataSite"),
-      digikhata: cell("unknown", "digiFeatures"),
-      // Customer multi-currency transactions are in the September 2026 notes.
-      baxak: cell("yes", "baxakIos", "iphone"),
+      // The iPhone app lists recurring subscription purchases.
+      digikhata: cell("no", "digiIos", "iphone"),
+      // Published pricing caps the free plan and offers paid Premium features.
+      baxak: cell("no", "baxakCopy"),
     },
   },
   {
-    id: "staff",
+    id: "csv",
     cells: {
       kaata: cell("yes", "kaataSite"),
-      zoodhesab: cell("unknown", "zoodSite"),
-      // Multiple devices do not establish separate staff accounts or access.
-      khatabook: cell("unknown", "khataSite"),
-      digikhata: cell("yes", "digiSite"),
-      baxak: cell("unknown", "baxakCopy"),
-    },
-  },
-  {
-    id: "approvals",
-    cells: {
-      kaata: cell("yes", "kaataSite"),
-      zoodhesab: cell("unknown", "zoodSite"),
-      khatabook: cell("unknown", "khataSite"),
-      digikhata: cell("unknown", "digiFeatures"),
-      baxak: cell("unknown", "baxakCopy"),
-    },
-  },
-  {
-    id: "whatsapp",
-    cells: {
-      kaata: cell("yes", "kaataSite"),
-      zoodhesab: cell("unknown", "zoodAndroid"),
-      khatabook: cell("yes", "khataAndroid"),
-      digikhata: cell("yes", "digiSite"),
-      baxak: cell("yes", "baxakCopy"),
-    },
-  },
-  {
-    id: "pdf",
-    cells: {
-      kaata: cell("yes", "kaataSite"),
-      zoodhesab: cell("yes", "zoodAndroid", "android"),
-      khatabook: cell("yes", ["khataReports", "khataIos"]),
-      digikhata: cell("yes", "digiFeatures"),
-      baxak: cell("yes", ["baxakCopy", "baxakAndroid"]),
-    },
-  },
-  {
-    id: "backup",
-    cells: {
-      kaata: cell("yes", "kaataSite"),
-      zoodhesab: cell("yes", "zoodSite"),
-      khatabook: cell("yes", ["khataSite", "khataIos"]),
-      digikhata: cell("yes", ["digiSite", "digiFeatures"]),
-      baxak: cell("yes", "baxakCopy", "googleDrive"),
+      zoodhesab: assessedCell("no"),
+      khatabook: assessedCell("no"),
+      digikhata: assessedCell("no"),
+      baxak: assessedCell("no"),
     },
   },
 ] as const satisfies readonly { id: string; cells: Record<ComparisonBrandId, ComparisonCell> }[];

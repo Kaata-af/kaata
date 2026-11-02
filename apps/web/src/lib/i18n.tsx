@@ -159,14 +159,17 @@ const en = {
   "comparison.eyebrow": "Compare ledger apps",
   "comparison.title": "A closer look at your options.",
   "comparison.body":
-    "Compare Kaata with four other ledger apps, using the features documented in their official product information.",
+    "Compare the features that matter for working together, starting freely and keeping your data portable.",
   "comparison.caption": "Feature comparison of Kaata, ZoodHesab, Khatabook, DigiKhata and Baxak",
   "comparison.featureLabel": "Feature",
-  "comparison.status.yes": "Documented",
-  "comparison.status.no": "Explicitly unavailable",
+  "comparison.status.yes": "Included",
+  "comparison.status.no": "Not included",
   "comparison.status.unknown": "Not confirmed",
-  "comparison.offlineNote":
-    "ZoodHesab supports viewing saved accounts offline; adding or editing entries requires internet.",
+  "comparison.csvNote":
+    "CSV keeps your entries in a structured table you can open in Excel or prepare for a move to another system.",
+  "comparison.reviewNote":
+    "Cells marked * reflect Kaata’s product assessment. Numbered references link to the providers’ published information.",
+  "comparison.reviewLink": "Kaata product assessment",
   "comparison.scrollHint":
     "Swipe or scroll sideways to compare all apps. The feature names stay in view.",
   "comparison.unknownNote":
@@ -190,16 +193,13 @@ const en = {
   "comparison.sourceKind.features": "Official features",
   "comparison.sourceKind.terms": "Terms of service",
   "comparison.sourceKind.publishedCopy": "Official feature details",
-  "comparison.feature.offline": "Add personal tallies offline",
-  "comparison.feature.withoutAccount": "Start a personal ledger without sign-up",
-  "comparison.feature.mobileApps": "Android and iPhone apps",
-  "comparison.feature.pashto": "Pashto interface",
-  "comparison.feature.currencies": "Customer tallies in multiple currencies",
-  "comparison.feature.staff": "Staff access to a business ledger",
-  "comparison.feature.approvals": "Optional approval for shared tallies",
-  "comparison.feature.whatsapp": "Share via WhatsApp",
-  "comparison.feature.pdf": "PDF reports or statements",
-  "comparison.feature.backup": "Online backup or account sync",
+  "comparison.feature.staff": "Team members with access roles",
+  "comparison.feature.shared": "Two-sided shared tallies",
+  "comparison.sharedNote":
+    "Shared tallies mean a two-sided account with entry permissions and optional approval.",
+  "comparison.feature.withoutAccount": "Start without registration",
+  "comparison.feature.freeForever": "All mobile features free forever",
+  "comparison.feature.csv": "Export ledger data as CSV",
 
   // Final CTA
   "cta.title.line1": "Stop chasing slips",
@@ -530,15 +530,17 @@ const fa: Record<keyof typeof en, string> = {
 
   "comparison.eyebrow": "مقایسهٔ اپ‌های حساب‌وکتاب",
   "comparison.title": "گزینه‌های خود را روشن‌تر ببینید.",
-  "comparison.body":
-    "کاتا را با چهار اپ دیگر حساب‌وکتاب مقایسه کنید؛ بر اساس امکاناتی که در معلومات رسمی آن‌ها آمده است.",
+  "comparison.body": "امکانات مهم برای کار مشترک، شروع رایگان و انتقال معلومات‌تان را مقایسه کنید.",
   "comparison.caption": "مقایسهٔ امکانات Kaata، ZoodHesab، Khatabook، DigiKhata و Baxak",
   "comparison.featureLabel": "امکانات",
-  "comparison.status.yes": "در منبع آمده",
-  "comparison.status.no": "صریحاً در دسترس نیست",
+  "comparison.status.yes": "شامل است",
+  "comparison.status.no": "شامل نیست",
   "comparison.status.unknown": "تأیید نشده",
-  "comparison.offlineNote":
-    "در ZoodHesab می‌توانید حساب‌های ذخیره‌شده را بدون انترنت ببینید؛ افزودن یا ویرایش ثبت‌ها به انترنت نیاز دارد.",
+  "comparison.csvNote":
+    "CSV ثبت‌های شما را در یک جدول منظم نگه می‌دارد که می‌توانید در اکسل باز کنید یا برای انتقال به سیستم دیگری آماده سازید.",
+  "comparison.reviewNote":
+    "خانه‌هایی که با * نشانی شده‌اند، ارزیابی کاتا را نشان می‌دهند. منابع شماره‌دار به معلومات نشرشدۀ ارائه‌کنندگان پیوند دارند.",
+  "comparison.reviewLink": "ارزیابی محصولات از سوی کاتا",
   "comparison.scrollHint":
     "برای مقایسهٔ همهٔ اپ‌ها، جدول را به پهلو بکشید. نام امکانات در دید می‌ماند.",
   "comparison.unknownNote":
@@ -562,16 +564,13 @@ const fa: Record<keyof typeof en, string> = {
   "comparison.sourceKind.features": "امکانات رسمی",
   "comparison.sourceKind.terms": "شرایط استفاده",
   "comparison.sourceKind.publishedCopy": "جزئیات رسمی امکانات",
-  "comparison.feature.offline": "افزودن ثبت‌های شخصی بدون انترنت",
-  "comparison.feature.withoutAccount": "شروع حساب‌وکتاب شخصی بدون ثبت‌نام",
-  "comparison.feature.mobileApps": "اپ برای اندروید و آیفون",
-  "comparison.feature.pashto": "رابط کاربری پشتو",
-  "comparison.feature.currencies": "ثبت معاملات مشتریان با چند واحد پول",
-  "comparison.feature.staff": "دسترسی کارکنان به حساب‌وکتاب کاروبار",
-  "comparison.feature.approvals": "تأیید اختیاری برای ثبت‌های مشترک",
-  "comparison.feature.whatsapp": "شریک‌سازی از طریق واتساپ",
-  "comparison.feature.pdf": "راپور یا صورت‌حساب PDF",
-  "comparison.feature.backup": "نسخهٔ پشتیبان آنلاین یا همگام‌سازی حساب",
+  "comparison.feature.staff": "اعضای تیم با صلاحیت‌های دسترسی",
+  "comparison.feature.shared": "ثبت‌های مشترک میان دو طرف",
+  "comparison.sharedNote":
+    "ثبت‌های مشترک یعنی هر دو طرف یک حساب را دنبال می‌کنند، با صلاحیت ثبت و تأیید اختیاری.",
+  "comparison.feature.withoutAccount": "شروع بدون ثبت‌نام",
+  "comparison.feature.freeForever": "همۀ امکانات اپ تلفون برای همیشه رایگان",
+  "comparison.feature.csv": "خروجی CSV از معلومات دفتر حساب",
 
   // Final CTA
   "cta.title.line1": "دیگر دنبال",
@@ -892,15 +891,17 @@ const ps: Record<keyof typeof en, string> = {
 
   "comparison.eyebrow": "د حساب کتاب اپونه پرتله کړئ",
   "comparison.title": "خپل غوراوي ښه وپېژنئ.",
-  "comparison.body":
-    "کاټه د حساب کتاب له څلورو نورو اپونو سره د هغو امکاناتو له مخې پرتله کړئ چې په رسمي معلوماتو کې یې راغلي دي.",
+  "comparison.body": "د ګډ کار، وړیا پیل او د خپلو معلوماتو د لېږد لپاره مهمې اسانتیاوې پرتله کړئ.",
   "comparison.caption": "د Kaata، ZoodHesab، Khatabook، DigiKhata او Baxak د امکاناتو پرتله",
   "comparison.featureLabel": "امکان",
-  "comparison.status.yes": "په سرچینه کې شته",
-  "comparison.status.no": "په څرګنده نه شته",
+  "comparison.status.yes": "شامل دی",
+  "comparison.status.no": "شامل نه دی",
   "comparison.status.unknown": "تایید نه شو",
-  "comparison.offlineNote":
-    "په ZoodHesab کې خوندي شوي حسابونه له انټرنېټ پرته لیدلی شئ؛ د راکړو ورکړو زیاتول یا سمول انټرنېټ ته اړتیا لري.",
+  "comparison.csvNote":
+    "CSV ستاسو ثبتونه په منظم جدول کې ساتي؛ په اېکسل کې یې پرانیستلی شئ یا بل سیستم ته د لېږد لپاره یې چمتو کولی شئ.",
+  "comparison.reviewNote":
+    "په * نښه شوې خانې د کاتا له خوا د محصولاتو ارزونه ښيي. شمېرې د وړاندې کوونکو خپرو شویو معلوماتو ته تړوني دي.",
+  "comparison.reviewLink": "د کاتا له خوا د محصولاتو ارزونه",
   "comparison.scrollHint":
     "د ټولو اپونو د پرتله کولو لپاره جدول یوې خوا ته کش کړئ. د امکاناتو نومونه په لید کې پاتې کېږي.",
   "comparison.unknownNote":
@@ -923,16 +924,13 @@ const ps: Record<keyof typeof en, string> = {
   "comparison.sourceKind.features": "رسمي امکانات",
   "comparison.sourceKind.terms": "د کارولو شرطونه",
   "comparison.sourceKind.publishedCopy": "د امکاناتو رسمي جزیات",
-  "comparison.feature.offline": "شخصي راکړې ورکړې له انټرنېټ پرته زیاتې کړئ",
-  "comparison.feature.withoutAccount": "شخصي حساب کتاب له نوم‌لیکنې پرته پیل کړئ",
-  "comparison.feature.mobileApps": "د Android او iPhone اپونه",
-  "comparison.feature.pashto": "پښتو کارن‌مخ",
-  "comparison.feature.currencies": "د پېرودونکو راکړې ورکړې په بېلابېلو پیسو",
-  "comparison.feature.staff": "د کاروبار حساب کتاب ته د کارکوونکو لاسرسی",
-  "comparison.feature.approvals": "د ګډو راکړو ورکړو لپاره اختیاري تایید",
-  "comparison.feature.whatsapp": "د WhatsApp له لارې شریکول",
-  "comparison.feature.pdf": "د PDF راپورونه یا حساب پاڼې",
-  "comparison.feature.backup": "آنلاین شاتړ یا د حساب همغږي",
+  "comparison.feature.staff": "د ټیم غړي او د لاسرسي واکونه",
+  "comparison.feature.shared": "د دواړو لورو ګډې راکړې ورکړې",
+  "comparison.sharedNote":
+    "ګډې راکړې ورکړې د دواړو لورو ګډ حساب دی، چې د ثبت واکونه او اختیاري تایید لري.",
+  "comparison.feature.withoutAccount": "له نوم‌لیکنې پرته پیل",
+  "comparison.feature.freeForever": "د موبایل ټولې اسانتیاوې د تل لپاره وړیا",
+  "comparison.feature.csv": "د حساب معلومات په CSV کې صادرول",
   "cta.title.line1": "د کاغذ په ټوټو پسې",
   "cta.title.line2": "ګرځېدل پرېږدئ.",
   "cta.sub": "د موبایل اپ د تل لپاره وړیا دی. نه کارت غواړي، نه فیس او نه تنظیم.",

@@ -10,10 +10,14 @@ import {
   type ComparisonStatus,
 } from "./comparison-data";
 
-const sourceEntries = Object.entries(COMPARISON_SOURCES) as [
-  ComparisonSourceId,
-  (typeof COMPARISON_SOURCES)[ComparisonSourceId],
-][];
+const referencedSources = new Set(
+  COMPARISON_ROWS.flatMap((row) =>
+    COMPARISON_BRANDS.flatMap((brand) => row.cells[brand.id].sources),
+  ),
+);
+const sourceEntries = Object.entries(COMPARISON_SOURCES).filter(([id]) =>
+  referencedSources.has(id as ComparisonSourceId),
+) as [ComparisonSourceId, (typeof COMPARISON_SOURCES)[ComparisonSourceId]][];
 const sourceNumbers = Object.fromEntries(
   sourceEntries.map(([id], index) => [id, index + 1]),
 ) as Record<ComparisonSourceId, number>;
@@ -69,6 +73,15 @@ function FeatureCell({ cell, brandName }: { cell: ComparisonCell; brandName: str
               </a>
             );
           })}
+          {cell.assessment === "kaata" ? (
+            <a
+              href="#comparison-assessment"
+              className="inline-flex min-h-5 min-w-4 items-center justify-center rounded hover:bg-neutral-100 hover:text-neutral-900"
+              aria-label={t("comparison.reviewLink")}
+            >
+              <sup>*</sup>
+            </a>
+          ) : null}
         </span>
       </div>
       {cell.note ? (
@@ -151,6 +164,9 @@ export function ProductComparison() {
           <p className="mt-6 max-w-2xl text-lg leading-relaxed text-neutral-600">
             {t("comparison.body")}
           </p>
+          <p className="mt-4 max-w-2xl text-sm leading-relaxed text-neutral-600">
+            {t("comparison.csvNote")}
+          </p>
         </div>
 
         <div
@@ -164,24 +180,6 @@ export function ProductComparison() {
             </span>
           ))}
         </div>
-        <p
-          id="comparison-offline-note"
-          className="mt-3 max-w-2xl text-xs leading-relaxed text-neutral-500"
-        >
-          {t("comparison.offlineNote")}{" "}
-          <a
-            href={COMPARISON_SOURCES.zoodSite.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex min-h-5 min-w-4 items-center justify-center rounded text-[10px] hover:bg-neutral-100 hover:text-neutral-900"
-            aria-label={t("comparison.sourceLink", {
-              brand: "ZoodHesab",
-              source: t("comparison.sourceKind.website"),
-            })}
-          >
-            <sup>{sourceNumbers.zoodSite}</sup>
-          </a>
-        </p>
         <p
           id="comparison-scroll-hint"
           className="mt-5 text-xs leading-relaxed text-neutral-500 lg:hidden"
@@ -232,7 +230,7 @@ export function ProductComparison() {
           <div
             role="region"
             aria-labelledby="comparison-title"
-            aria-describedby="comparison-legend comparison-offline-note comparison-scope"
+            aria-describedby="comparison-legend comparison-scope"
             tabIndex={0}
             className="relative min-w-0 flex-1 overflow-x-auto focus-visible:outline-none"
           >
@@ -301,8 +299,12 @@ export function ProductComparison() {
           className="mt-5 max-w-3xl space-y-2 text-xs leading-relaxed text-neutral-500"
         >
           <p>{t("comparison.unknownNote")}</p>
+          <p>{t("comparison.sharedNote")}</p>
           <p>{t("comparison.scopeNote")}</p>
           <p>{t("comparison.badgeNote")}</p>
+          <p id="comparison-assessment" className="scroll-mt-20">
+            {t("comparison.reviewNote")}
+          </p>
           <p>
             {t("comparison.reviewed")} <time dateTime={COMPARISON_REVIEWED_AT}>{reviewedDate}</time>
           </p>
