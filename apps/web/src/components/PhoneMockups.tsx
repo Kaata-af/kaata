@@ -492,9 +492,14 @@ function HomeScreen(props: { rows: Row[]; toast?: { title: string; sub: string }
         <div className="h-px w-1/2 bg-neutral-500" />
       </div>
       <PeopleCard rows={props.rows} />
-      <div className="mt-auto pt-3">
-        {props.toast ? <AppToast title={props.toast.title} sub={props.toast.sub} /> : null}
+      <div className="mt-auto shrink-0 pt-3">
         <Dock />
+        {props.toast ? (
+          <>
+            <AppToast title={props.toast.title} sub={props.toast.sub} />
+            <div className="mx-auto mb-2.5 h-1 w-20 rounded-full bg-neutral-900" />
+          </>
+        ) : null}
       </div>
     </div>
   );
