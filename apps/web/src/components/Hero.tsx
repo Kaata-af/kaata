@@ -32,6 +32,7 @@ export function Hero() {
         <div className="mt-5 flex flex-wrap justify-center gap-x-5 gap-y-2 text-[13px] text-neutral-600">
           {[
             { href: "/#product", label: t("feature.shared.eyebrow") },
+            { href: "/#members", label: t("feature.members.eyebrow") },
             { href: "/#notifications", label: t("feature.notifications.eyebrow") },
             { href: "/#bills", label: t("feature.bills.eyebrow") },
           ].map((feature) => (

@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { FeatureSection } from "../components/FeatureSection";
 import { Hero } from "../components/Hero";
 import { PhoneMockupBill } from "../components/BillMockups";
+import { PhoneMockupMembers } from "../components/MemberMockups";
 import {
   PhoneMockupOffline,
   PhoneMockupNotifications,
@@ -87,6 +88,21 @@ export function Home() {
             t("feature.shared.point3"),
           ]}
           mockup={<PhoneMockupShared />}
+        />
+      </div>
+
+      <div id="members" className="border-t border-neutral-200 scroll-mt-16">
+        <FeatureSection
+          wide
+          eyebrow={t("feature.members.eyebrow")}
+          title={t("feature.members.title")}
+          body={t("feature.members.body")}
+          highlights={[
+            t("feature.members.point1"),
+            t("feature.members.point2"),
+            t("feature.members.point3"),
+          ]}
+          mockup={<PhoneMockupMembers />}
         />
       </div>
 

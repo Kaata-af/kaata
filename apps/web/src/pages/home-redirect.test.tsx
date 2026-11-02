@@ -94,6 +94,7 @@ function fixture(raw: string | null) {
     "react-router-dom": { Link: block },
     "../components/FeatureSection": { FeatureSection: block },
     "../components/BillMockups": { PhoneMockupBill: block },
+    "../components/MemberMockups": { PhoneMockupMembers: block },
     "../components/Hero": {
       Hero: () => React.createElement("h1", null, "Marketing landing hero"),
     },
