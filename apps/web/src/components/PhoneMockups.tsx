@@ -26,6 +26,8 @@ const APP = {
   payBg: "#F8EAEC",
   receivedBg: "#E4EEE6",
   receivedText: "#3E6149",
+  receivedCoin: "#CDDFD1",
+  payCoin: "#F1DADE",
 } as const;
 
 const BALANCE_SURFACE: CSSProperties = {
@@ -119,13 +121,22 @@ function CheckCircleIcon(props: IconProps) {
   );
 }
 
-function CloudOfflineIcon(props: IconProps) {
+function CalendarIcon(props: IconProps) {
   return (
     <svg viewBox="0 0 512 512" aria-hidden="true" {...props}>
-      <path
-        {...STROKE}
-        d="M93.72 183.25C49.49 198.05 16 233.1 16 288c0 66 54 112 120 112h184.37M467.82 377.74C485.24 363.3 496 341.61 496 312c0-59.82-53-85.76-96-88-8.89-89.54-71-144-144-144-26.16 0-48.79 6.93-67.6 18.14M448 448L64 64"
-      />
+      <rect {...STROKE} x="48" y="80" width="416" height="384" rx="48" />
+      <path {...STROKE} d="M128 48v64M384 48v64M48 192h416" />
+      <path {...STROKE} d="M128 272h0M256 272h0M384 272h0M128 368h0M256 368h0" />
+    </svg>
+  );
+}
+
+function MoreIcon(props: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" fill="currentColor" {...props}>
+      <circle cx="5" cy="12" r="2" />
+      <circle cx="12" cy="12" r="2" />
+      <circle cx="19" cy="12" r="2" />
     </svg>
   );
 }
@@ -169,22 +180,6 @@ function AppHeader({ badge }: { badge?: ReactNode }) {
         {initial}
       </span>
     </div>
-  );
-}
-
-function OfflineBadge() {
-  const { t, isRTL } = useI18n();
-  // Styled like the app's read-only header badge: a quiet gray pill.
-  return (
-    <span
-      className={`inline-flex shrink-0 items-center gap-[3px] rounded-full px-[6px] py-[2px] ${isRTL ? "mr-1.5 flex-row-reverse" : "ml-1.5"}`}
-      style={{ background: APP.muted, color: APP.subtle }}
-    >
-      <CloudOfflineIcon className="h-[9px] w-[9px]" />
-      <span dir={textDir(isRTL)} className="text-[8.5px] font-medium leading-none">
-        {t("mock.offline")}
-      </span>
-    </span>
   );
 }
 
@@ -303,11 +298,11 @@ function PeopleCard({ rows }: { rows: Row[] }) {
 }
 
 // The app's success toast: white card, hairline border, lifted, check icon.
-function AppToast({ title, sub }: { title: string; sub: string }) {
+function AppToast({ title, sub }: { title: string; sub?: string }) {
   const { isRTL } = useI18n();
   return (
     <div
-      className={`mx-3 mb-2 flex items-start gap-2 rounded-[10px] border bg-white px-2.5 py-2 shadow-[0_10px_20px_-10px_rgba(0,0,0,0.3)] ${
+      className={`mx-3 mb-2 flex items-center gap-2 rounded-[10px] border bg-white px-2.5 py-2 shadow-[0_10px_20px_-10px_rgba(0,0,0,0.3)] ${
         isRTL ? "flex-row-reverse text-right" : ""
       }`}
       style={{ borderColor: APP.border }}
@@ -321,13 +316,15 @@ function AppToast({ title, sub }: { title: string; sub: string }) {
         >
           {title}
         </p>
-        <p
-          dir={textDir(isRTL)}
-          className="mt-0.5 text-[9.5px] leading-tight"
-          style={{ color: APP.subtle }}
-        >
-          {sub}
-        </p>
+        {sub ? (
+          <p
+            dir={textDir(isRTL)}
+            className="mt-0.5 text-[9.5px] leading-tight"
+            style={{ color: APP.subtle }}
+          >
+            {sub}
+          </p>
+        ) : null}
       </div>
     </div>
   );
@@ -359,6 +356,58 @@ function Dock() {
         style={{ background: APP.action, color: APP.surface }}
       >
         <AddIcon className="h-[19px] w-[19px]" />
+      </div>
+    </div>
+  );
+}
+
+// The person dock keeps the entry actions above search and the date filter.
+// Both rows remain physically LTR, as in the mobile app.
+function EntryDock() {
+  const { t, isRTL } = useI18n();
+  return (
+    <div className="space-y-2 border-t px-3 pt-2.5" style={{ borderColor: "#EFEFEF" }}>
+      <div className="flex gap-2">
+        {([false, true] as const).map((gave) => (
+          <div
+            key={String(gave)}
+            className="flex min-h-9 min-w-0 flex-1 items-center justify-center gap-1 rounded-[9px] px-1 text-[10px] font-semibold"
+            style={{
+              background: gave ? APP.payBg : APP.receivedBg,
+              color: gave ? APP.pay : APP.receivedText,
+            }}
+          >
+            <span
+              className="flex h-[19px] w-[19px] shrink-0 items-center justify-center rounded-full"
+              style={{ background: gave ? APP.payCoin : APP.receivedCoin }}
+            >
+              <DirectionArrow up={gave} className="h-3 w-3" />
+            </span>
+            <span dir={textDir(isRTL)}>{t(gave ? "mock.gave" : "mock.received")}</span>
+          </div>
+        ))}
+      </div>
+      <div className="flex items-center gap-2">
+        <div
+          className="flex h-9 min-w-0 flex-1 items-center gap-2 rounded-[8px] border px-2"
+          style={{ borderColor: APP.border }}
+        >
+          <SearchIcon className="h-[15px] w-[15px] shrink-0" style={{ color: APP.subtle }} />
+          <span
+            dir={textDir(isRTL)}
+            className={`min-w-0 flex-1 text-[10px] ${isRTL ? "text-right" : ""}`}
+            style={{ color: APP.faint }}
+          >
+            {t("person.search.placeholder")}
+          </span>
+        </div>
+        <div
+          title={t("person.date.title")}
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[8px] border"
+          style={{ borderColor: APP.border, color: APP.subtle }}
+        >
+          <CalendarIcon className="h-[17px] w-[17px]" />
+        </div>
       </div>
     </div>
   );
@@ -525,13 +574,9 @@ export function PhoneMockupOffline() {
     <PhoneFrame>
       <div className="flex min-h-0 flex-1 flex-col" style={APP_FONT}>
         <div className={`flex items-center gap-2 px-3 py-3 ${isRTL ? "flex-row-reverse" : ""}`}>
-          <span
-            className="text-[22px] leading-none"
-            style={{ color: APP.emphasis }}
-            aria-hidden="true"
-          >
-            {isRTL ? "›" : "‹"}
-          </span>
+          <div className="w-16 shrink-0" style={{ color: APP.emphasis }}>
+            <ChevronDownIcon className={`h-4 w-4 ${isRTL ? "ml-auto -rotate-90" : "rotate-90"}`} />
+          </div>
           <p
             dir={textDir(isRTL)}
             className="min-w-0 flex-1 text-center text-[14px] font-semibold"
@@ -539,19 +584,13 @@ export function PhoneMockupOffline() {
           >
             {t("mock.name.ahmad")}
           </p>
-          <OfflineBadge />
-        </div>
-        <div
-          className="mx-3 mb-2 rounded-[8px] border px-2.5 py-2"
-          style={{ background: APP.muted, borderColor: APP.border }}
-          dir={textDir(isRTL)}
-        >
-          <p className="text-[8px] font-medium" style={{ color: APP.subtle }}>
-            {t("mock.customerNote")}
-          </p>
-          <p className="mt-1 text-[10px] leading-relaxed" style={{ color: APP.text }}>
-            {t("mock.customerNote.body")}
-          </p>
+          <div
+            className={`flex w-16 shrink-0 items-center justify-end gap-3 ${isRTL ? "flex-row-reverse" : ""}`}
+            style={{ color: APP.emphasis }}
+          >
+            <WhatsAppGlyph className="h-4 w-4" />
+            <MoreIcon className="h-[18px] w-[18px]" />
+          </div>
         </div>
         <div className="mx-3 overflow-hidden rounded-[11px] border" style={BALANCE_SURFACE}>
           <div
@@ -565,7 +604,7 @@ export function PhoneMockupOffline() {
                 1,250
               </span>
               <span className="text-[9px]" style={{ color: APP.subtle }}>
-                AFN
+                {CURRENCY}
               </span>
             </div>
             <span
@@ -582,8 +621,8 @@ export function PhoneMockupOffline() {
           >
             {(
               [
-                { gave: false, amount: "500" },
-                { gave: true, amount: "1,750" },
+                { gave: false, amount: "500", count: 1 },
+                { gave: true, amount: "1,750", count: 2 },
               ] as const
             ).map((item) => (
               <div
@@ -591,9 +630,14 @@ export function PhoneMockupOffline() {
                 className={`px-2.5 py-2 ${item.gave ? "border-l" : ""}`}
                 style={{ borderColor: APP.balanceBorder }}
               >
-                <p dir={textDir(isRTL)} style={{ color: APP.subtle }}>
-                  {t(item.gave ? "mock.gave" : "mock.received")}
-                </p>
+                <div className="flex items-center gap-1" style={{ color: APP.subtle }}>
+                  <DirectionArrow up={item.gave} className="h-2.5 w-2.5 shrink-0" />
+                  <span dir={textDir(isRTL)}>
+                    {t(item.gave ? "person.flows.gave" : "person.flows.received", {
+                      count: item.count,
+                    })}
+                  </span>
+                </div>
                 <p
                   className="mt-1 font-mono text-[12px] font-medium"
                   style={{ color: APP.emphasis }}
@@ -649,22 +693,10 @@ export function PhoneMockupOffline() {
             </div>
           ))}
         </div>
-        <div className="mt-auto pt-2">
-          <AppToast title={t("mock.entrySaved.title")} sub={t("mock.entrySaved.sub")} />
-          <div className="flex gap-2 px-3 pb-2.5">
-            {([false, true] as const).map((gave) => (
-              <div
-                key={String(gave)}
-                className={`flex min-h-9 flex-1 items-center justify-center gap-1 rounded-[9px] px-1 text-[10px] font-semibold ${isRTL ? "flex-row-reverse" : ""}`}
-                style={{
-                  background: gave ? APP.payBg : APP.receivedBg,
-                  color: gave ? APP.pay : APP.receivedText,
-                }}
-              >
-                <DirectionArrow up={gave} className="h-3.5 w-3.5 shrink-0" />
-                <span dir={textDir(isRTL)}>{t(gave ? "mock.gave" : "mock.received")}</span>
-              </div>
-            ))}
+        <div className="mt-auto shrink-0 pt-3">
+          <EntryDock />
+          <div className="pt-3 pb-2">
+            <AppToast title={t("mock.entrySaved.title")} />
           </div>
           <div className="mx-auto mb-2.5 h-1 w-20 rounded-full bg-neutral-900" />
         </div>
