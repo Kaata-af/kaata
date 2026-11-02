@@ -226,10 +226,16 @@ const en = {
 
   // Download page — official store badges.
   "download.title": "Install Kaata",
-  "download.sub": "Get Kaata on Google Play for Android, or on the App Store for iPhone.",
+  "download.sub": "Keep your daily accounts in your pocket.",
+  "download.android.title": "For Android",
+  "download.android.body": "Get the official app on Google Play.",
+  "download.ios.title": "For iPhone",
+  "download.ios.body": "Get the official app on the App Store.",
+  "download.assurance": "No card. No trial. Start a personal ledger without signing up.",
   "download.appStoreButton": "Download on the App Store",
   "download.playStoreButton": "Get it on Google Play",
   "download.demo.title": "How to use Kaata",
+  "download.demo.body": "Watch a quick guide, then start your first Kaata.",
   "download.demo.youtube": "Watch on YouTube",
 
   // Not found
@@ -599,10 +605,17 @@ const fa: Record<keyof typeof en, string> = {
 
   // Download page — store badges and video guide.
   "download.title": "نصب کاتا",
-  "download.sub": "کاتا را برای اندروید از Google Play و برای آیفون از App Store بگیرید.",
+  "download.sub": "حساب‌های روزمرۀ خود را در تلفون‌تان نگه دارید.",
+  "download.android.title": "برای اندروید",
+  "download.android.body": "اپ رسمی را از Google Play بگیرید.",
+  "download.ios.title": "برای آیفون",
+  "download.ios.body": "اپ رسمی را از App Store بگیرید.",
+  "download.assurance":
+    "بدون کارت، بدون دورۀ آزمایشی. دفتر حساب شخصی خود را بدون ثبت‌نام شروع کنید.",
   "download.appStoreButton": "دانلود از App Store",
   "download.playStoreButton": "دریافت از Google Play",
   "download.demo.title": "طرز استفاده از کاتا",
+  "download.demo.body": "راهنمای کوتاه را ببینید، بعد اولین کاتای خود را شروع کنید.",
   "download.demo.youtube": "تماشا در یوتیوب",
 
   // Not found
@@ -955,11 +968,17 @@ const ps: Record<keyof typeof en, string> = {
   "footer.followYoutube": "کاټه په YouTube کې تعقیب کړئ",
   "footer.copyright": "© 2026 کاټه · په کابل کې جوړه شوې.",
   "download.title": "کاټه نصب کړئ",
-  "download.sub":
-    "د Android لپاره کاټه له Google Play او د iPhone لپاره یې له App Store څخه ترلاسه کړئ.",
+  "download.sub": "خپل ورځني حسابونه په موبایل کې له ځان سره ولرئ.",
+  "download.android.title": "د اندروید لپاره",
+  "download.android.body": "رسمي اپ له Google Play څخه ترلاسه کړئ.",
+  "download.ios.title": "د آیفون لپاره",
+  "download.ios.body": "رسمي اپ له App Store څخه ترلاسه کړئ.",
+  "download.assurance":
+    "نه کارت غواړي، نه ازمایښتي دوره لري. له نوم لیکنې پرته شخصي حساب کتاب پیل کړئ.",
   "download.appStoreButton": "له App Store څخه یې ښکته کړئ",
   "download.playStoreButton": "له Google Play څخه یې ترلاسه کړئ",
   "download.demo.title": "د کاټې د کارولو لار",
+  "download.demo.body": "لنډه لارښود ویډیو وګورئ، بیا خپله لومړۍ کاټه پیل کړئ.",
   "download.demo.youtube": "په YouTube کې یې وګورئ",
   "notFound.kicker": "404",
   "notFound.title": "دا پاڼه نشته.",

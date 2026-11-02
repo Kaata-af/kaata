@@ -6,20 +6,20 @@ export function DownloadDemo() {
   const { t } = useI18n();
 
   return (
-    <section
-      aria-labelledby="download-demo-title"
-      className="mt-8 border-t border-neutral-200 pt-8"
-    >
+    <section aria-labelledby="download-demo-title" className="mx-auto max-w-4xl">
       <h2 id="download-demo-title" className="text-xl font-semibold text-neutral-900 md:text-2xl">
         {t("download.demo.title")}
       </h2>
+      <p className="mt-3 max-w-xl text-sm leading-relaxed text-neutral-600">
+        {t("download.demo.body")}
+      </p>
 
       <a
         href="https://www.youtube.com/watch?v=_QmnfAnOM4s"
         target="_blank"
         rel="noopener noreferrer"
         aria-label={`${t("download.demo.title")} — ${t("download.demo.youtube")}`}
-        className="group mt-4 block overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm hover:border-neutral-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-neutral-900"
+        className="group mt-6 block overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm hover:border-neutral-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-neutral-900"
       >
         <div className="relative">
           <img
