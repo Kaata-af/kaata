@@ -97,10 +97,10 @@ const viewHTML = `<!doctype html>
 <meta property="og:image:type" content="image/png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="کاتا؛ حساب‌وکتاب شخصی، بدون انترنت، برای همیشه رایگان">
+<meta property="og:image:alt" content="کاتا؛ حساب‌وکتاب شخصی، بدون انترنت، رایگان، بدون دورۀ آزمایشی">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:image" content="{{.OGImageURL}}">
-<meta name="twitter:image:alt" content="کاتا؛ حساب‌وکتاب شخصی، بدون انترنت، برای همیشه رایگان">
+<meta name="twitter:image:alt" content="کاتا؛ حساب‌وکتاب شخصی، بدون انترنت، رایگان، بدون دورۀ آزمایشی">
 {{else}}<meta name="twitter:card" content="summary">{{end}}
 <meta name="twitter:title" content="{{.OGTitle}}">
 <meta name="twitter:description" content="{{.OGDesc}}">

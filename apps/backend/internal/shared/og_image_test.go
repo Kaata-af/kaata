@@ -15,7 +15,7 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
-const billArtworkAlt = "کاتا؛ حساب‌وکتاب شخصی، بدون انترنت، برای همیشه رایگان"
+const billArtworkAlt = "کاتا؛ حساب‌وکتاب شخصی، بدون انترنت، رایگان، بدون دورۀ آزمایشی"
 
 var previewMetaPattern = regexp.MustCompile(`<meta (?:property|name)="([^"]+)" content="([^"]*)">`)
 
@@ -110,7 +110,7 @@ func TestBillOGImageHTTP(t *testing.T) {
 			if meta["robots"] != "noindex, nofollow" {
 				t.Errorf("bill indexing meta = %q", meta["robots"])
 			}
-			requireBillArtwork(t, meta, "https://kaata.af/og/kaata-fa-v1.png", true)
+			requireBillArtwork(t, meta, "https://kaata.af/og/kaata-fa-v2.png", true)
 			if meta["og:title"] != tc.title || meta["twitter:title"] != tc.title {
 				t.Fatalf("customer/shop title changed: %#v", meta)
 			}
@@ -143,9 +143,9 @@ func TestBillOGImageOriginsAndEscaping(t *testing.T) {
 		origin, image string
 		secure        bool
 	}{
-		{" https://kaata.af/// ", "https://kaata.af/og/kaata-fa-v1.png", true},
-		{"http://localhost:8080/", "http://localhost:8080/og/kaata-fa-v1.png", false},
-		{"https://preview.example&site", "https://preview.example&site/og/kaata-fa-v1.png", true},
+		{" https://kaata.af/// ", "https://kaata.af/og/kaata-fa-v2.png", true},
+		{"http://localhost:8080/", "http://localhost:8080/og/kaata-fa-v2.png", false},
+		{"https://preview.example&site", "https://preview.example&site/og/kaata-fa-v2.png", true},
 		{"", "", false}, {"/relative", "", false}, {"//kaata.af", "", false},
 		{"javascript:alert(1)", "", false}, {"https://kaata.af?x=1&y=2", "", false},
 		{"https://kaata.af?", "", false}, {"https://kaata.af#", "", false},
@@ -203,7 +203,7 @@ func TestBillOGImageUnavailable(t *testing.T) {
 			if w.Code != tc.status {
 				t.Fatalf("view: %d, want %d", w.Code, tc.status)
 			}
-			for _, forbidden := range []string{"og:image", "twitter:image", "summary_large_image", "kaata-fa-v1.png", "Private customer", "private store error"} {
+			for _, forbidden := range []string{"og:image", "twitter:image", "summary_large_image", "kaata-fa-v2.png", "Private customer", "private store error"} {
 				if strings.Contains(w.Body.String(), forbidden) {
 					t.Errorf("unavailable response leaked preview field %q", forbidden)
 				}
