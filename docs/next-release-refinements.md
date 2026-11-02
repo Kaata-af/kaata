@@ -12,6 +12,17 @@
   unlinking, final reviews and relinking on the release candidate. Local commits
   do not authorize builds, submissions or deployment. See the QA record below.
 
+## Landing page follow-up
+
+- [ ] **When registered-user search ships:** add "Find other Kaata users in the
+  app" to the landing-page comparison in
+  `apps/web/src/components/comparison-data.ts`, with English, Dari and Pashto
+  labels in `apps/web/src/lib/i18n.tsx`. This means a separate search for other
+  registered users, not the existing ledger/phone-contact search. The feature
+  is upcoming and must stay out of the comparison until released, as confirmed
+  by the product owner on November 2, 2026. Recheck competitor support when
+  adding the row, then verify the fixed feature-label column in RTL layouts.
+
 ## Shared-account safety status
 
 October 22 shared-account safety work is saved for review, without a deployment or
