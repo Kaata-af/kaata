@@ -74,6 +74,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/nyaruka/phonenumbers"
 
+	"github.com/matee/kaata-backend/internal/auth"
 	"github.com/matee/kaata-backend/internal/httpx"
 	ksync "github.com/matee/kaata-backend/internal/sync"
 )
@@ -515,9 +516,11 @@ func outreachText(s string, max int) string {
 
 type outreachAccount struct {
 	id, name, email, phone string
+	locale                 string
 	createdAt              time.Time
 	lastActivityAt         *time.Time
 	hasAccountName         bool
+	webProfile             *auth.WebProfile
 }
 
 type outreachInstall struct {
@@ -964,7 +967,7 @@ func (s *Service) outreachAccounts(ctx context.Context, tx pgx.Tx) (map[string]*
 	order := []string{}
 	rows, err := tx.Query(ctx, `
 		SELECT a.id::text, COALESCE(NULLIF(a.display_name, ''), a.name, ''), a.email, COALESCE(a.phone_e164, ''),
-		       a.created_at, NULLIF(a.display_name, '') IS NOT NULL
+		       a.created_at, NULLIF(a.display_name, '') IS NOT NULL, COALESCE(a.locale,'')
 		FROM accounts a
 		WHERE a.id::text <> ALL($1::text[])
 		ORDER BY a.created_at, a.id
@@ -975,7 +978,7 @@ func (s *Service) outreachAccounts(ctx context.Context, tx pgx.Tx) (map[string]*
 	defer rows.Close()
 	for rows.Next() {
 		var a outreachAccount
-		if err := rows.Scan(&a.id, &a.name, &a.email, &a.phone, &a.createdAt, &a.hasAccountName); err != nil {
+		if err := rows.Scan(&a.id, &a.name, &a.email, &a.phone, &a.createdAt, &a.hasAccountName, &a.locale); err != nil {
 			return nil, nil, err
 		}
 		byID[a.id] = &a
@@ -1124,6 +1127,13 @@ func buildOutreachShopkeeper(g *outreachShopGroup, vaults map[string]*outreachVa
 		if g.account.hasAccountName {
 			b.name = g.account.name
 		}
+		if p := g.account.webProfile; p != nil {
+			if !p.NeedsSetup {
+				b.name = p.Name
+			}
+			b.shop = p.ShopName
+			sk.HasOnboarded = p.HasOnboarded
+		}
 	}
 	platforms := map[string]bool{}
 	var firstSeen, lastActivity *time.Time
@@ -1143,9 +1153,11 @@ func buildOutreachShopkeeper(g *outreachShopGroup, vaults map[string]*outreachVa
 		if i == 0 {
 			sk.Platform = in.platform
 			sk.AppVersion = in.appVersion
-			sk.Locale = in.locale
 			sk.Source = in.source
 			sk.Attribution = in.attribution
+		}
+		if sk.Locale == "" {
+			sk.Locale = in.locale
 		}
 		if b.name == "" {
 			b.name = in.selfName
@@ -1161,7 +1173,9 @@ func buildOutreachShopkeeper(g *outreachShopGroup, vaults map[string]*outreachVa
 		if sk.Attribution == "" {
 			sk.Attribution = in.attribution
 		}
-		sk.HasOnboarded = sk.HasOnboarded || in.hasOnboarded
+		// Browser completion follows the shared account profile resolver, like
+		// Users. Native onboarding keeps its own historical completion latch.
+		sk.HasOnboarded = sk.HasOnboarded || in.hasOnboarded && in.platform != "web"
 		sk.CheckInCount += in.checkInCount
 		sk.UsageEntries += in.usageEntries
 		sk.UsageCustomers += in.usageCustomers
@@ -1187,6 +1201,9 @@ func buildOutreachShopkeeper(g *outreachShopGroup, vaults map[string]*outreachVa
 	}
 	if b.name == "" && g.account != nil {
 		b.name = g.account.name
+	}
+	if sk.Locale == "" && g.account != nil {
+		sk.Locale = g.account.locale
 	}
 	b.locale = sk.Locale
 	sk.InstalledAt = outreachTime(b.installedAt)
@@ -1440,6 +1457,29 @@ func (s *Service) GetOutreach(ctx context.Context) (OutreachResult, error) {
 		keptVaults = append(keptVaults, vid)
 	}
 	vaultOrder = keptVaults
+	// Web profiles can already be complete on a phone or in account settings
+	// before this browser sends another heartbeat. Resolve that same evidence
+	// as Users, using only the sources this outreach report retained.
+	webAccounts := make([]string, 0)
+	seenWebAccount := make(map[string]bool)
+	for _, in := range installs {
+		if in.platform == "web" && in.accountID != "" && !seenWebAccount[in.accountID] {
+			seenWebAccount[in.accountID] = true
+			webAccounts = append(webAccounts, in.accountID)
+		}
+	}
+	profiles, err := auth.ReadOwnWebProfilesFromSources(ctx, tx, webAccounts, keptInstallIDs, vaultOrder)
+	if err != nil {
+		return out, err
+	}
+	for id, profile := range profiles {
+		if a := accounts[id]; a != nil {
+			a.webProfile = &profile
+			if a.phone == "" {
+				a.phone = profile.Phone
+			}
+		}
+	}
 	linked, err := outreachLinkedRelationships(ctx, tx)
 	if err != nil {
 		return out, err

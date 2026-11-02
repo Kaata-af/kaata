@@ -8,6 +8,7 @@ import {
   type WebAppleCallback,
 } from "../../lib/web-apple";
 import { getWebSession, WEB_SESSION_EVENT } from "../../lib/web-auth";
+import { WebProfileGate } from "./WebProfile";
 import {
   WEB_AUTH_ROUTE_EVENT,
   WEB_ROUTES,
@@ -135,7 +136,7 @@ export default function WorkspaceRoutes() {
       }
     >
       {session ? (
-        <>
+        <WebProfileGate session={session}>
           {/* Billing is a route modal so visiting it does not discard ledger drafts. */}
           <Ledger key={session.install_id} session={session} />
           {subscription && (
@@ -144,7 +145,7 @@ export default function WorkspaceRoutes() {
               <Subscription key={session.install_id} session={session} />
             </Suspense>
           )}
-        </>
+        </WebProfileGate>
       ) : (
         <Auth
           key={location.key}

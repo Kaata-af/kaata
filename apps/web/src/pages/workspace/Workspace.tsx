@@ -15,7 +15,6 @@ import { Button } from "../../components/ui/button";
 import { useI18n, type Lang } from "../../lib/i18n";
 import { createWebLive, type WebLiveState } from "../../lib/web-live";
 import { createWebRefresh } from "../../lib/web-refresh";
-import { createWebActivity } from "../../lib/web-activity";
 import { signOut, WebApiError, type WebSession } from "../../lib/web-auth";
 import {
   createWebEntry,
@@ -69,12 +68,6 @@ type Modal =
 
 export default function LedgerWorkspace({ session }: { session: WebSession }) {
   const { lang, setLang } = useI18n();
-  const activityLocale = useRef(lang);
-  activityLocale.current = lang;
-  useEffect(() => {
-    const activity = createWebActivity({ session, locale: () => activityLocale.current });
-    return () => activity.stop();
-  }, [session]);
   const c = workspaceCopy[lang];
   const toast = useToast();
   const [vaults, setVaults] = useState<WebVault[]>([]);
@@ -503,12 +496,7 @@ export default function LedgerWorkspace({ session }: { session: WebSession }) {
           </div>
         </header>
         <MobileAppPrompt />
-        <WebProfilePanel
-          session={session}
-          open={profileOpen}
-          onClose={() => setProfileOpen(false)}
-          online={online}
-        />
+        <WebProfilePanel open={profileOpen} onClose={() => setProfileOpen(false)} online={online} />
         <WebProBanner session={session} />
         {!online && <Notice>{c.offline}</Notice>}
         {error && <Notice error>{loadMessage}</Notice>}

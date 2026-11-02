@@ -185,6 +185,92 @@ func TestOutreachKnownAccountPhoneKeepsBrowserDetailsAndChosenName(t *testing.T)
 	}
 }
 
+func TestOutreachResolvesWebOnboardingWithoutAnotherHeartbeat(t *testing.T) {
+	pool := testutil.ConnectTestDB(t)
+	ctx := t.Context()
+	owner := seedOutreachAccount(t, pool, "Provider owner", "+93700000021")
+	clerk := seedOutreachAccount(t, pool, "Provider clerk", "+93700000022")
+	incomplete := seedOutreachAccount(t, pool, "Provider only", "+93700000023")
+	for _, fixture := range []struct{ id, name string }{{owner, "Confirmed owner"}, {clerk, "Confirmed clerk"}} {
+		if _, err := pool.Exec(ctx, `UPDATE accounts SET display_name=$2,locale='ps' WHERE id=$1::uuid`, fixture.id, fixture.name); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ownerWeb := seedWebReportBrowser(t, pool, owner)
+	seedWebReportBrowser(t, pool, clerk)
+	seedWebReportBrowser(t, pool, incomplete)
+	book := seedOutreachVault(t, pool, owner, "Owner's book", "AFN")
+	seedOutreachMember(t, pool, book, clerk, "editor")
+	seedOutreachVault(t, pool, incomplete, "Incomplete book", "AFN")
+	if _, err := pool.Exec(ctx, `UPDATE installs SET platform='unknown',app_version='web' WHERE install_id=$1::uuid`, ownerWeb); err != nil {
+		t.Fatal(err)
+	}
+	svc := NewService(pool, nil, nil)
+	got, err := svc.GetOutreach(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ownerContact := findOutreach(t, got, "+93700000021")
+	if sk := ownerContact.Shopkeeper; ownerContact.Name != "Confirmed owner" || ownerContact.ShopName != "Owner's book" ||
+		sk == nil || !sk.HasOnboarded || sk.Locale != "ps" || sk.WebSessionCount != 1 || sk.InstallCount != 0 {
+		t.Fatalf("complete web account lost identity/onboarding/locale: %+v / %+v", ownerContact, sk)
+	}
+	clerkContact := findOutreach(t, got, "+93700000022")
+	if sk := clerkContact.Shopkeeper; clerkContact.Name != "Confirmed clerk" || clerkContact.ShopName != "" || sk == nil || !sk.HasOnboarded {
+		t.Fatalf("clerk lost completion or borrowed owner's shop: %+v / %+v", clerkContact, sk)
+	}
+	if sk := findOutreach(t, got, "+93700000023").Shopkeeper; sk == nil || sk.HasOnboarded {
+		t.Fatalf("provider-only profile falsely completed: %+v", sk)
+	}
+	var unchanged bool
+	if err := pool.QueryRow(ctx, `SELECT bool_and(NOT has_onboarded AND self_name IS NULL AND self_phone IS NULL)
+		FROM installs WHERE account_id=ANY($1::uuid[])`, []string{owner, clerk, incomplete}).Scan(&unchanged); err != nil || !unchanged {
+		t.Fatalf("report modified browser history: unchanged=%v err=%v", unchanged, err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO outreach_exclusions(kind,id,reason) VALUES('vault',$1,'test book')`, book); err != nil {
+		t.Fatal(err)
+	}
+	excluded, err := svc.GetOutreach(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sk := findOutreach(t, excluded, "+93700000021").Shopkeeper; sk == nil || sk.HasOnboarded || len(sk.Kaatas) != 0 {
+		t.Fatalf("excluded book still completed web onboarding: %+v", sk)
+	}
+}
+
+func TestOutreachWebRecoveryDoesNotReuseExcludedNativeProfile(t *testing.T) {
+	pool := testutil.ConnectTestDB(t)
+	ctx := t.Context()
+	account := seedOutreachAccount(t, pool, "Provider name", "")
+	seedWebReportBrowser(t, pool, account)
+	phone := seedOutreachInstall(t, pool, &account, "2026-07-01T10:00:00Z", "+93700000031", "Own native name", "Own native shop")
+	if _, err := pool.Exec(ctx, `UPDATE installs SET platform='ios',has_onboarded=TRUE WHERE install_id=$1::uuid`, phone); err != nil {
+		t.Fatal(err)
+	}
+	seedOutreachVault(t, pool, account, "Own book", "AFN")
+	svc := NewService(pool, nil, nil)
+	got, err := svc.GetOutreach(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c := findOutreach(t, got, "+93700000031"); c.Name != "Own native name" || c.Shopkeeper == nil || !c.Shopkeeper.HasOnboarded || c.Shopkeeper.WebSessionCount != 1 {
+		t.Fatalf("own mobile profile did not complete browser account: %+v / %+v", c, c.Shopkeeper)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO outreach_exclusions(kind,id,reason) VALUES('install',$1,'test phone')`, phone); err != nil {
+		t.Fatal(err)
+	}
+	excluded, err := svc.GetOutreach(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range excluded.Contacts {
+		if c.Phone == "+93700000031" {
+			t.Fatalf("excluded phone identity leaked through browser fallback: %+v", c)
+		}
+	}
+}
+
 func seedWebReportBrowser(t *testing.T, pool *pgxpool.Pool, account string) string {
 	t.Helper()
 	id := seedActivityInstall(t, pool, &account, "2026-08-01T10:00:00Z")

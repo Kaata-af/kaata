@@ -287,3 +287,71 @@ func TestWebProfileRecoversOnlyUnambiguousLegacyNativeBinding(t *testing.T) {
 		t.Fatalf("explicit install binding did not win=%+v", profile)
 	}
 }
+
+func TestWebProfileKeepsOnlyProvenLegacyBrowserCompletion(t *testing.T) {
+	pool := testutil.ConnectTestDB(t)
+	_, claims := seedWebProfileSession(t, pool)
+	if _, err := pool.Exec(t.Context(), `UPDATE installs SET platform='unknown',app_version='web',has_onboarded=TRUE,
+		self_name='Untrusted cached name',self_phone='+93700000001' WHERE install_id=$1::uuid`, claims.InstallID); err != nil {
+		t.Fatal(err)
+	}
+	read := func() WebProfile {
+		t.Helper()
+		tx, err := pool.Begin(t.Context())
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = tx.Rollback(t.Context()) }()
+		profiles, err := ReadOwnWebProfiles(t.Context(), tx, []string{claims.AccountID})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return profiles[claims.AccountID]
+	}
+	if p := read(); !p.HasOnboarded || !p.NeedsSetup || p.Phone != "" || p.Name != "Google Person" {
+		t.Fatalf("legacy browser completion lost or cached identity trusted: %+v", p)
+	}
+	if _, err := pool.Exec(t.Context(), `UPDATE installs SET app_version='2.3.4' WHERE install_id=$1::uuid`, claims.InstallID); err != nil {
+		t.Fatal(err)
+	}
+	if p := read(); p.HasOnboarded || !p.NeedsSetup {
+		t.Fatalf("unknown native platform became browser evidence: %+v", p)
+	}
+}
+
+func TestWebProfileSourceLimitsExcludeIdentityAndBookFallbacks(t *testing.T) {
+	pool := testutil.ConnectTestDB(t)
+	_, claims := seedWebProfileSession(t, pool)
+	book := seedVaultOwnedBy(t, pool, claims.AccountID)
+	phone := uuid.NewString()
+	seedSession(t, pool, phone, ProviderGoogle, claims.ProviderSub, claims.AccountID)
+	if _, err := pool.Exec(t.Context(), `UPDATE installs SET platform='ios',has_onboarded=TRUE,
+		self_name='Own native name',self_phone='+93700000001',shop_name='Own shop' WHERE install_id=$1::uuid`, phone); err != nil {
+		t.Fatal(err)
+	}
+	tx, err := pool.Begin(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(t.Context()) }()
+	read := func(installs, books []string) WebProfile {
+		t.Helper()
+		profiles, err := ReadOwnWebProfilesFromSources(t.Context(), tx, []string{claims.AccountID}, installs, books)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return profiles[claims.AccountID]
+	}
+	if p := read([]string{phone}, []string{book}); p.NeedsSetup || !p.HasOnboarded || p.Name != "Own native name" {
+		t.Fatalf("allowed native profile was not recovered: %+v", p)
+	}
+	if p := read([]string{claims.InstallID}, []string{book}); !p.NeedsSetup || p.HasOnboarded || p.Phone != "" || p.Name != "Google Person" {
+		t.Fatalf("excluded native identity leaked: %+v", p)
+	}
+	if p := read([]string{}, []string{book}); !p.NeedsSetup || p.HasOnboarded || p.Phone != "" {
+		t.Fatalf("empty device allowlist reused identity: %+v", p)
+	}
+	if p := read([]string{phone}, []string{}); p.NeedsSetup || p.HasOnboarded {
+		t.Fatalf("excluded book completed setup: %+v", p)
+	}
+}

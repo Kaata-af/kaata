@@ -84,6 +84,18 @@ func NormalizeWebProfilePhone(raw string) (string, bool) {
 // report. It batches account IDs and never repairs mobile installation history.
 // The caller supplies proven account IDs inside its own transaction.
 func ReadOwnWebProfiles(ctx context.Context, tx pgx.Tx, accountIDs []string) (map[string]WebProfile, error) {
+	return readOwnWebProfiles(ctx, tx, accountIDs, nil, nil)
+}
+
+// ReadOwnWebProfilesFromSources uses the same own-account evidence while
+// limiting device and book fallbacks to sources retained by a report. An empty
+// slice permits no sources; nil permits all sources, as ReadOwnWebProfiles does.
+// This keeps excluded test devices and books out of operator outreach.
+func ReadOwnWebProfilesFromSources(ctx context.Context, tx pgx.Tx, accountIDs, installIDs, vaultIDs []string) (map[string]WebProfile, error) {
+	return readOwnWebProfiles(ctx, tx, accountIDs, installIDs, vaultIDs)
+}
+
+func readOwnWebProfiles(ctx context.Context, tx pgx.Tx, accountIDs, installIDs, vaultIDs []string) (map[string]WebProfile, error) {
 	out := make(map[string]WebProfile, len(accountIDs))
 	if len(accountIDs) == 0 {
 		return out, nil
@@ -119,15 +131,17 @@ func ReadOwnWebProfiles(ctx context.Context, tx pgx.Tx, accountIDs []string) (ma
 	// Only the account's own current native binding is identity evidence. A
 	// browser session's old telemetry or another account's shared ledger is not.
 	rows, err = tx.Query(ctx, `SELECT COALESCE(i.account_id,c.account_id)::text,
-		COALESCE(i.self_name,''), COALESCE(i.self_phone,''), COALESCE(i.shop_name,''), i.platform
+		COALESCE(i.self_name,''), COALESCE(i.self_phone,''), COALESCE(i.shop_name,''),
+		CASE WHEN COALESCE(i.platform,'') IN ('','unknown') AND i.app_version='web' THEN 'web' ELSE i.platform END
 		FROM installs i LEFT JOIN LATERAL (
 		  SELECT MIN(account_id::text)::uuid AS account_id FROM auth_credentials
 		  WHERE install_id=i.install_id AND revoked_at IS NULL AND account_id IS NOT NULL
 		  HAVING COUNT(DISTINCT account_id)=1
 		) c ON i.account_id IS NULL
 		WHERE COALESCE(i.account_id,c.account_id)=ANY($1::uuid[]) AND i.account_deleted_at IS NULL
-		AND i.platform IN ('ios','android','web') AND i.has_onboarded
-		ORDER BY i.last_seen_at DESC NULLS LAST, i.install_id`, accountIDs)
+		AND (i.platform IN ('ios','android','web') OR (COALESCE(i.platform,'') IN ('','unknown') AND i.app_version='web'))
+		AND i.has_onboarded AND ($2::uuid[] IS NULL OR i.install_id=ANY($2::uuid[]))
+		ORDER BY i.last_seen_at DESC NULLS LAST, i.install_id`, accountIDs, installIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -170,7 +184,8 @@ func ReadOwnWebProfiles(ctx context.Context, tx pgx.Tx, accountIDs []string) (ma
 		(vm.role='owner' AND v.owner_account_id=vm.account_id)
 		FROM vault_members vm JOIN vaults v ON v.vault_id=vm.vault_id
 		WHERE vm.account_id=ANY($1::uuid[]) AND vm.accepted_at IS NOT NULL AND vm.revoked_at IS NULL AND v.purged_at IS NULL
-		ORDER BY v.created_at, v.vault_id`, accountIDs)
+		AND ($2::uuid[] IS NULL OR v.vault_id=ANY($2::uuid[]))
+		ORDER BY v.created_at, v.vault_id`, accountIDs, vaultIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -210,7 +225,8 @@ func ReadOwnWebProfiles(ctx context.Context, tx pgx.Tx, accountIDs []string) (ma
 			FROM vaults v JOIN vault_members vm ON vm.vault_id=v.vault_id AND vm.account_id=v.owner_account_id
 			JOIN LATERAL (SELECT snapshot FROM vault_snapshots WHERE vault_id=v.vault_id ORDER BY up_to_server_seq DESC LIMIT 1) s ON TRUE
 			WHERE v.owner_account_id=ANY($1::uuid[]) AND vm.role='owner' AND vm.accepted_at IS NOT NULL AND vm.revoked_at IS NULL AND v.purged_at IS NULL
-			ORDER BY v.created_at, v.vault_id`, missing)
+			AND ($2::uuid[] IS NULL OR v.vault_id=ANY($2::uuid[]))
+			ORDER BY v.created_at, v.vault_id`, missing, vaultIDs)
 		if err != nil {
 			return nil, err
 		}

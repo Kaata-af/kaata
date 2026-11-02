@@ -1,28 +1,165 @@
-import { useEffect, useId, useRef, useState, type FormEvent } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type FormEvent,
+  type ReactNode,
+} from "react";
+import { BrandLogo } from "../../components/BrandLogo";
 import { Button } from "../../components/ui/button";
 import { Card } from "../../components/ui/card";
 import { Input } from "../../components/ui/input";
+import { SelectField } from "../../components/ui/select-field";
 import { useToast } from "../../components/Toast";
-import { useI18n } from "../../lib/i18n";
-import {
-  getWebSession,
-  isSameWebSession,
-  updateWebSessionProfile,
-  WebApiError,
-  type WebSession,
-} from "../../lib/web-auth";
-import { getWebProfile, saveWebProfile, type WebProfile } from "../../lib/web-profile";
+import { useI18n, type Lang } from "../../lib/i18n";
+import { isSameWebSession, signOut, WebApiError, type WebSession } from "../../lib/web-auth";
+import { createWebActivity } from "../../lib/web-activity";
+import type { WebProfile } from "../../lib/web-profile";
+import { createWebProfileFlow, type WebProfileFlow } from "../../lib/web-profile-flow";
 import { openWebRouteDialog } from "../../lib/web-route-dialog";
 import { webProfileCopy } from "./web-profile-copy";
 import "./WebProfile.css";
 
-export function WebProfilePanel({
+const ProfileContext = createContext<WebProfileFlow | null>(null);
+
+function useProfileFlow() {
+  const flow = useContext(ProfileContext);
+  if (!flow) throw new Error("WebProfilePanel requires WebProfileGate");
+  const state = useSyncExternalStore(flow.subscribe, flow.getState, flow.getState);
+  return { flow, ...state };
+}
+
+export function WebProfileGate({
   session,
+  children,
+}: {
+  session: WebSession;
+  children: ReactNode;
+}) {
+  const { lang } = useI18n();
+  const activityLocale = useRef(lang);
+  activityLocale.current = lang;
+  useEffect(() => {
+    const activity = createWebActivity({ session, locale: () => activityLocale.current });
+    return () => activity.stop();
+  }, [session]);
+  // Profile edits and rolling JWT renewal preserve admission. An actual
+  // credential/account change creates a fresh request owner, even if a browser
+  // install ID happens to be reused.
+  const owner = useRef<{ session: WebSession; flow: WebProfileFlow } | null>(null);
+  if (!owner.current || !isSameWebSession(owner.current.session, session)) {
+    owner.current = { session, flow: createWebProfileFlow(session) };
+  }
+  const flow = owner.current.flow;
+  useEffect(() => {
+    flow.start();
+    const recover = () => flow.recover();
+    window.addEventListener("online", recover);
+    return () => {
+      window.removeEventListener("online", recover);
+      flow.stop();
+    };
+  }, [flow]);
+  return (
+    <ProfileContext.Provider value={flow}>
+      <ProfileAdmission>{children}</ProfileAdmission>
+    </ProfileContext.Provider>
+  );
+}
+
+function ProfileAdmission({ children }: { children: ReactNode }) {
+  const { admitted, profile, loading, failed, flow } = useProfileFlow();
+  const { lang, setLang } = useI18n();
+  const c = webProfileCopy[lang];
+  const toast = useToast();
+  const [online, setOnline] = useState(() => navigator.onLine);
+  const [signingOut, setSigningOut] = useState(false);
+  const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    const changed = () => setOnline(navigator.onLine);
+    window.addEventListener("online", changed);
+    window.addEventListener("offline", changed);
+    return () => {
+      window.removeEventListener("online", changed);
+      window.removeEventListener("offline", changed);
+    };
+  }, []);
+  if (admitted) return children;
+  async function save(values: { name: string; phone: string }) {
+    setSaving(true);
+    try {
+      const next = await flow.save(values);
+      if (next) toast.push(next.has_onboarded ? c.saved : c.kaataNext, "success");
+    } finally {
+      setSaving(false);
+    }
+  }
+  return (
+    <div className="web-profile-setup" dir={lang === "en" ? "ltr" : "rtl"}>
+      <header className="web-profile-setup-header">
+        <div className="web-profile-setup-brand">
+          <BrandLogo className="h-9 w-9" />
+          <span>{lang === "en" ? "kaata." : "کاتا."}</span>
+        </div>
+        <div className="web-profile-setup-tools">
+          <SelectField
+            aria-label={c.language}
+            dir={lang === "en" ? "ltr" : "rtl"}
+            value={lang}
+            onValueChange={(value) => setLang(value as Lang)}
+            options={[
+              { value: "en", label: "English" },
+              { value: "fa", label: "دری" },
+              { value: "ps", label: "پښتو" },
+            ]}
+          />
+          <Button
+            type="button"
+            variant="ghost"
+            disabled={saving || signingOut}
+            onClick={async () => {
+              setSigningOut(true);
+              try {
+                await signOut();
+              } catch {
+                toast.push(c.signOutError, "error");
+              } finally {
+                setSigningOut(false);
+              }
+            }}
+          >
+            {c.signOut}
+          </Button>
+        </div>
+      </header>
+      <main className="web-profile-setup-main">
+        <div className="web-profile-setup-intro">
+          <p className="web-profile-setup-eyebrow">{c.web}</p>
+          <h1>{c.welcome}</h1>
+          <p>{c.setupBody}</p>
+        </div>
+        <Card className="web-profile-card web-profile-setup-card">
+          {profile ? (
+            <ProfileForm profile={profile} online={online} onSave={save} setup />
+          ) : (
+            <ProfileLoad loading={loading} failed={failed} online={online} onRetry={flow.load} />
+          )}
+        </Card>
+        <p className="web-profile-setup-note">{c.existingDetails}</p>
+      </main>
+    </div>
+  );
+}
+
+export function WebProfilePanel({
   open,
   onClose,
   online,
 }: {
-  session: WebSession;
   open: boolean;
   onClose: () => void;
   online: boolean;
@@ -30,62 +167,32 @@ export function WebProfilePanel({
   const { lang } = useI18n();
   const c = webProfileCopy[lang];
   const toast = useToast();
-  const [profile, setProfile] = useState<WebProfile | null>(null);
-  const [failed, setFailed] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [reload, setReload] = useState(0);
-  const readVersion = useRef(0);
-  const readController = useRef<AbortController | null>(null);
-  const saveController = useRef<AbortController | null>(null);
-  useEffect(() => () => saveController.current?.abort(), []);
+  const { flow, profile, loading, failed } = useProfileFlow();
+  const [prepared, setPrepared] = useState(false);
   useEffect(() => {
-    const controller = new AbortController();
-    readController.current = controller;
-    const version = ++readVersion.current;
-    setLoading(true);
-    setFailed(false);
-    void getWebProfile(controller.signal)
-      .then((next) => {
-        if (
-          controller.signal.aborted ||
-          version !== readVersion.current ||
-          !isSameWebSession(getWebSession(), session)
-        )
-          return;
-        setProfile(next);
-        updateWebSessionProfile(session, next);
-      })
-      .catch(() => {
-        if (!controller.signal.aborted && version === readVersion.current) setFailed(true);
-      })
-      .finally(() => {
-        if (!controller.signal.aborted && version === readVersion.current) setLoading(false);
-      });
-    return () => controller.abort();
-  }, [session.account_id, session.install_id, open, reload]);
+    if (!open) {
+      setPrepared(false);
+      return;
+    }
+    let active = true;
+    void flow.load().then(() => {
+      if (active) setPrepared(true);
+    });
+    return () => {
+      active = false;
+    };
+  }, [flow, open]);
 
   async function save(values: { name: string; phone: string }) {
-    if (!isSameWebSession(getWebSession(), session)) return;
-    // An earlier read must never replace this save's returned profile. The
-    // editor also waits for a fresh read before it mounts editable fields.
-    ++readVersion.current;
-    readController.current?.abort();
-    setLoading(false);
-    setFailed(false);
-    const controller = new AbortController();
-    saveController.current?.abort();
-    saveController.current = controller;
-    const next = await saveWebProfile(values, controller.signal);
-    if (controller.signal.aborted || !updateWebSessionProfile(session, next)) return;
-    setProfile(next);
+    const next = await flow.save(values);
+    if (!next) return;
     toast.push(next.has_onboarded ? c.saved : c.kaataNext, "success");
     onClose();
   }
 
-  if (!open && profile && !profile.needs_setup) return null;
-  if (!open && !profile && !failed) return null;
+  if (!open) return null;
   const content =
-    profile && !(open && (loading || failed)) ? (
+    prepared && profile && !loading && !failed ? (
       <ProfileForm
         key={open ? "edit" : "setup"}
         profile={profile}
@@ -94,26 +201,47 @@ export function WebProfilePanel({
         onClose={open ? onClose : undefined}
       />
     ) : (
-      <div className="web-profile-load" role={failed ? "alert" : "status"}>
-        <p>{failed ? c.loadError : c.loading}</p>
-        {failed && (
-          <Button
-            type="button"
-            variant="outline"
-            disabled={!online}
-            onClick={() => setReload((value) => value + 1)}
-          >
-            {c.retry}
-          </Button>
-        )}
-      </div>
+      <ProfileLoad
+        loading={!prepared || loading}
+        failed={failed}
+        online={online}
+        onRetry={flow.load}
+      />
     );
-  return open ? (
-    <ProfileDialog onClose={onClose} loading={!profile || loading || failed}>
+  return (
+    <ProfileDialog onClose={onClose} loading={!prepared || !profile || loading || failed}>
       {content}
     </ProfileDialog>
-  ) : (
-    <Card className="web-profile-card">{content}</Card>
+  );
+}
+
+function ProfileLoad({
+  loading,
+  failed,
+  online,
+  onRetry,
+}: {
+  loading: boolean;
+  failed: boolean;
+  online: boolean;
+  onRetry: () => Promise<void>;
+}) {
+  const { lang } = useI18n();
+  const c = webProfileCopy[lang];
+  return (
+    <div className="web-profile-load" role={failed || !online ? "alert" : "status"}>
+      <p>{!online ? c.offline : failed ? c.loadError : c.loading}</p>
+      {failed && (
+        <Button
+          type="button"
+          variant="outline"
+          disabled={!online || loading}
+          onClick={() => void onRetry()}
+        >
+          {c.retry}
+        </Button>
+      )}
+    </div>
   );
 }
 
@@ -156,11 +284,13 @@ function ProfileForm({
   online,
   onSave,
   onClose,
+  setup = false,
 }: {
   profile: WebProfile;
   online: boolean;
   onSave: (values: { name: string; phone: string }) => Promise<void>;
   onClose?: () => void;
+  setup?: boolean;
 }) {
   const { lang } = useI18n();
   const c = webProfileCopy[lang];
@@ -168,11 +298,12 @@ function ProfileForm({
   const [name, setName] = useState(profile.name);
   const [phone, setPhone] = useState(profile.phone);
   const [busy, setBusy] = useState(false);
+  const saving = useRef(false);
   const [error, setError] = useState("");
   const [invalid, setInvalid] = useState<"name" | "phone" | null>(null);
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (busy || !online) return;
+    if (saving.current || !online) return;
     setError("");
     setInvalid(null);
     if (Array.from(name.trim()).length < 2 || Array.from(name.trim()).length > 60) {
@@ -186,6 +317,7 @@ function ProfileForm({
       return;
     }
     setBusy(true);
+    saving.current = true;
     try {
       await onSave({ name, phone });
     } catch (cause) {
@@ -199,6 +331,7 @@ function ProfileForm({
             : c.saveError,
       );
     } finally {
+      saving.current = false;
       setBusy(false);
     }
   }
@@ -282,7 +415,7 @@ function ProfileForm({
       )}
       <div className="web-profile-actions">
         <Button type="submit" variant="brand" disabled={busy || !online}>
-          {busy ? c.saving : c.save}
+          {busy ? c.saving : setup ? c.continue : c.save}
         </Button>
         {onClose && (
           <Button type="button" variant="ghost" disabled={busy} onClick={onClose}>
