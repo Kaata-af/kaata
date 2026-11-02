@@ -43,7 +43,7 @@ const APP_FONT: CSSProperties = { fontFamily: '"Vazirmatn", system-ui, sans-seri
 // the LTR frame. Applied to text leaves only; layout mirrors via row-reverse.
 const textDir = (isRTL: boolean) => (isRTL ? "rtl" : undefined);
 
-function PhoneFrame({ children }: { children: ReactNode }) {
+export function PhoneFrame({ children, label }: { children: ReactNode; label?: string }) {
   const { t } = useI18n();
   return (
     // dir="ltr": the mockups depict the mobile app, which is deliberately
@@ -53,7 +53,7 @@ function PhoneFrame({ children }: { children: ReactNode }) {
     <div
       dir="ltr"
       role="img"
-      aria-label={t("mock.preview.label")}
+      aria-label={label ?? t("mock.preview.label")}
       className="relative w-[284px] max-w-full aspect-[284/580] bg-white rounded-[2.25rem] border-[7px] border-[#111111] shadow-[0_20px_50px_-15px_rgba(0,0,0,0.18)] overflow-hidden flex flex-col"
     >
       {/* Pill notch — purely decorative */}
@@ -137,6 +137,43 @@ function MoreIcon(props: IconProps) {
       <circle cx="5" cy="12" r="2" />
       <circle cx="12" cy="12" r="2" />
       <circle cx="19" cy="12" r="2" />
+    </svg>
+  );
+}
+
+function SharedAccountIcon(props: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" {...props}>
+      <path
+        fill="#2563EB"
+        d="m23 12-2.44-2.79.34-3.69-3.61-.82L15.4 1.5 12 2.96 8.6 1.5 6.71 4.69 3.1 5.5l.35 3.7L1 12l2.44 2.8-.34 3.7 3.61.82L8.6 22.5l3.4-1.47 3.4 1.46 1.89-3.19 3.61-.82-.35-3.69L23 12Z"
+      />
+      <path fill="white" d="m10 16-4-4 1.41-1.41L10 13.17l6.59-6.59L18 8l-8 8Z" />
+    </svg>
+  );
+}
+
+function NoticeIcon({ kind, ...props }: IconProps & { kind: "added" | "accepted" | "voided" }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      {...props}
+    >
+      <path
+        d={
+          kind === "added"
+            ? "M4 3l2 1 2-1 2 1 2-1 2 1 2-1 2 1 2-1v18l-2-1-2 1-2-1-2 1-2-1-2 1-2-1-2 1V3ZM8 8h8M8 12h6"
+            : kind === "accepted"
+              ? "m5 12 4 4L19 6"
+              : "m6 6 12 12M6 18 18 6"
+        }
+      />
     </svg>
   );
 }
@@ -656,7 +693,365 @@ export function PhoneMockupRestore() {
   );
 }
 
-export function PhoneMockupOffline() {
+function PreviewHeader({ title, shared = false }: { title: string; shared?: boolean }) {
+  const { t, isRTL } = useI18n();
+  const side = shared ? "w-16" : "w-8";
+  return (
+    <div
+      className={`flex shrink-0 items-center gap-2 px-3 py-3 ${isRTL ? "flex-row-reverse" : ""}`}
+    >
+      <div className={`${side} shrink-0`} style={{ color: APP.emphasis }}>
+        <ChevronDownIcon className={`h-4 w-4 ${isRTL ? "ml-auto -rotate-90" : "rotate-90"}`} />
+      </div>
+      <div
+        className={`flex min-w-0 flex-1 items-center justify-center gap-1 ${isRTL ? "flex-row-reverse" : ""}`}
+      >
+        <span
+          dir={textDir(isRTL)}
+          className="truncate text-[14px] font-semibold"
+          style={{ color: APP.emphasis }}
+        >
+          {title}
+        </span>
+        {shared ? (
+          <span title={t("tab.join.title")} className="shrink-0">
+            <SharedAccountIcon className="h-3.5 w-3.5" />
+          </span>
+        ) : null}
+      </div>
+      <div
+        className={`${side} flex shrink-0 items-center justify-end gap-3 ${isRTL ? "flex-row-reverse" : ""}`}
+        style={{ color: APP.emphasis }}
+      >
+        {shared ? (
+          <>
+            <WhatsAppGlyph className="h-4 w-4" />
+            <MoreIcon className="h-[18px] w-[18px]" />
+          </>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+// An approval-mode shared account. Pending repayments stay outside the native
+// financial headline and flow totals until reviewed (tabs/history.ts).
+export function PhoneMockupShared() {
+  const { t, isRTL } = useI18n();
+  const isolate = (value: string) => `\u2066${value}\u2069`;
+  const rows = [
+    {
+      amount: "500",
+      gave: false,
+      pending: true,
+      open: false,
+      note: t("mock.payment"),
+      when: t("format.justNow"),
+    },
+    {
+      amount: "1,250",
+      gave: true,
+      pending: false,
+      open: true,
+      note: t("mock.goods"),
+      when: t("mock.shared.acceptedAt"),
+    },
+  ];
+  return (
+    <PhoneFrame label={t("mock.shared.preview.label")}>
+      <div className="flex min-h-0 flex-1 flex-col" style={APP_FONT}>
+        <PreviewHeader title={t("mock.name.ahmad")} shared />
+        <div
+          className="mx-3 shrink-0 overflow-hidden rounded-[11px] border"
+          style={BALANCE_SURFACE}
+        >
+          <div className="px-2.5 pb-2 pt-3">
+            <div
+              className={`flex items-center justify-between gap-2 ${isRTL ? "flex-row-reverse" : ""}`}
+            >
+              <div dir="ltr" className="flex items-baseline gap-1.5">
+                <span
+                  className="font-mono text-[25px] font-semibold leading-none"
+                  style={{ color: APP.collect }}
+                >
+                  1,250
+                </span>
+                <span className="text-[9px]" style={{ color: APP.subtle }}>
+                  {CURRENCY}
+                </span>
+              </div>
+              <span
+                className="rounded-md px-1.5 py-1 text-[8px] font-medium"
+                dir={textDir(isRTL)}
+                style={{ background: APP.collectBg, color: APP.collect }}
+              >
+                {t("mock.owesYou")}
+              </span>
+            </div>
+            <p
+              className="mt-2 text-[8.5px] leading-relaxed"
+              dir={textDir(isRTL)}
+              style={{ color: APP.subtle }}
+            >
+              {t("tab.balance.confirmed", { amount: isolate("+1,250"), currency: isolate("AFN") })}
+            </p>
+            <p
+              className="mt-0.5 text-[8.5px] leading-relaxed"
+              dir={textDir(isRTL)}
+              style={{ color: APP.subtle }}
+            >
+              {t("tab.balance.pending", {
+                count: 1,
+                amount: isolate("−500"),
+                currency: isolate("AFN"),
+              })}
+            </p>
+          </div>
+          <div className="grid grid-cols-2 border-t" style={{ borderColor: APP.balanceBorder }}>
+            {[
+              { gave: false, count: 0, amount: "0" },
+              { gave: true, count: 1, amount: "1,250" },
+            ].map((flow) => (
+              <div
+                key={String(flow.gave)}
+                className={`px-2.5 py-2 ${flow.gave ? "border-l" : ""}`}
+                style={{ borderColor: APP.balanceBorder }}
+              >
+                <div className="flex items-center gap-1 text-[8px]" style={{ color: APP.subtle }}>
+                  <DirectionArrow up={flow.gave} className="h-2.5 w-2.5 shrink-0" />
+                  <span dir={textDir(isRTL)}>
+                    {t(flow.gave ? "person.flows.gave" : "person.flows.received", {
+                      count: flow.count,
+                    })}
+                  </span>
+                </div>
+                <p
+                  className="mt-1 font-mono text-[12px] font-medium"
+                  dir="ltr"
+                  style={{ color: APP.emphasis }}
+                >
+                  {flow.amount}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div
+          className="mx-3 mt-2.5 shrink-0 overflow-hidden rounded-[10px] border"
+          style={{ borderColor: APP.border }}
+        >
+          {rows.map((row, index) => (
+            <div
+              key={row.amount}
+              className={index ? "border-t" : ""}
+              style={{ borderColor: APP.border, background: row.open ? APP.muted : APP.surface }}
+            >
+              {row.open ? (
+                <div className="flex justify-center pt-2">
+                  <span
+                    className={`flex items-center gap-1 rounded-full border bg-white px-2 py-0.5 text-[8px] ${isRTL ? "flex-row-reverse" : ""}`}
+                    style={{ borderColor: APP.border, color: APP.text }}
+                  >
+                    <span className="h-1 w-1 rounded-full bg-[#4B8660]" />
+                    {t("tab.status.accepted")}
+                  </span>
+                </div>
+              ) : null}
+              <div className={`flex gap-2 px-2.5 py-2 ${isRTL ? "flex-row-reverse" : ""}`}>
+                <div
+                  className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md"
+                  style={{
+                    background: row.gave ? APP.payBg : APP.collectBg,
+                    color: row.gave ? APP.pay : APP.collect,
+                  }}
+                >
+                  <DirectionArrow up={row.gave} className="h-3.5 w-3.5" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div
+                    className={`flex items-baseline justify-between gap-1 ${isRTL ? "flex-row-reverse" : ""}`}
+                  >
+                    <span
+                      dir="ltr"
+                      className="shrink-0 font-mono text-[11px] font-semibold"
+                      style={{ color: APP.emphasis }}
+                    >
+                      {row.amount}{" "}
+                      <span className="font-sans text-[8px]" style={{ color: APP.faint }}>
+                        AFN
+                      </span>
+                    </span>
+                    <div
+                      className={`flex min-w-0 flex-1 items-center justify-end gap-1 ${isRTL ? "flex-row-reverse" : ""}`}
+                    >
+                      {row.pending ? (
+                        <span
+                          className="h-1 w-1 shrink-0 rounded-full bg-[#D29A00]"
+                          title={t("tab.status.pending")}
+                        />
+                      ) : null}
+                      <span
+                        dir={textDir(isRTL)}
+                        className="min-w-0 truncate text-[8px]"
+                        style={{ color: APP.subtle }}
+                      >
+                        {row.when}
+                      </span>
+                    </div>
+                  </div>
+                  <p dir={textDir(isRTL)} className="mt-1 text-[9px]" style={{ color: APP.subtle }}>
+                    {row.note}
+                  </p>
+                  {row.open ? (
+                    <div
+                      className="mt-1 space-y-0.5 text-[8px] leading-relaxed"
+                      dir={textDir(isRTL)}
+                      style={{ color: APP.subtle }}
+                    >
+                      <p>
+                        {t("tab.addedBy", {
+                          name: t("entry.by.self", { name: t("mock.self.name") }),
+                        })}
+                      </p>
+                      <p>
+                        {t("tab.reviewedBy", { name: t("mock.name.ahmad") })} ·{" "}
+                        {t("mock.shared.acceptedAt")}
+                      </p>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+              {row.pending ? (
+                <div
+                  className={`flex justify-end gap-1.5 px-2.5 pb-2 ${isRTL ? "flex-row-reverse" : ""}`}
+                >
+                  {[false, true].map((accept) => (
+                    <div
+                      key={String(accept)}
+                      className={`flex min-h-6 items-center gap-1 rounded-full border px-2 text-[9px] font-medium ${isRTL ? "flex-row-reverse" : ""}`}
+                      style={{
+                        borderColor: accept ? APP.action : APP.border,
+                        background: accept ? APP.action : APP.surface,
+                        color: accept ? APP.surface : APP.text,
+                      }}
+                    >
+                      <NoticeIcon kind={accept ? "accepted" : "voided"} className="h-2.5 w-2.5" />
+                      <span dir={textDir(isRTL)}>{t(accept ? "tab.accept" : "tab.reject")}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          ))}
+        </div>
+        <div className="mt-auto shrink-0 pt-3">
+          <EntryDock />
+          <div className="mx-auto mb-2.5 mt-3 h-1 w-20 rounded-full bg-neutral-900" />
+        </div>
+      </div>
+    </PhoneFrame>
+  );
+}
+
+// Full inbox, with the same flat rows and quiet unread treatment as
+// components/NotificationInbox.tsx. Messages mirror the server templates.
+export function PhoneMockupNotifications() {
+  const { t, isRTL } = useI18n();
+  const isolate = (value: string) => `\u2068${value}\u2069`;
+  const notices = [
+    {
+      kind: "added" as const,
+      unread: true,
+      body: t("mock.notification.added", {
+        name: isolate(t("mock.name.ahmad")),
+        amount: `\u2066−500 AFN\u2069`,
+      }),
+      when: t("format.minutesAgo", { n: 2 }),
+    },
+    {
+      kind: "accepted" as const,
+      unread: true,
+      body: t("mock.notification.accepted", {
+        name: isolate(t("mock.name.ahmad")),
+        amount: `\u2066+1250 AFN\u2069`,
+      }),
+      when: t("format.minutesAgo", { n: 18 }),
+    },
+    {
+      kind: "voided" as const,
+      unread: false,
+      body: t("mock.notification.voided", {
+        name: isolate(t("mock.name.mahmood")),
+        amount: `\u2066−200 AFN\u2069`,
+      }),
+      when: t("format.yesterday"),
+    },
+  ];
+  return (
+    <PhoneFrame label={t("mock.notifications.preview.label")}>
+      <div className="flex min-h-0 flex-1 flex-col" style={APP_FONT}>
+        <PreviewHeader title={t("inbox.title")} />
+        <div
+          className={`flex min-h-10 shrink-0 items-center justify-end px-3 ${isRTL ? "flex-row-reverse" : ""}`}
+        >
+          <span
+            dir={textDir(isRTL)}
+            className="text-[9px] font-medium"
+            style={{ color: APP.emphasis }}
+          >
+            {t("inbox.markAll")}
+          </span>
+        </div>
+        <div>
+          {notices.map((notice) => (
+            <div
+              key={notice.kind}
+              className={`flex items-start gap-2 border-t px-3 py-3 ${isRTL ? "flex-row-reverse" : ""}`}
+              style={{
+                background: notice.unread ? APP.muted : APP.surface,
+                borderColor: "#EFEFEF",
+              }}
+            >
+              <NoticeIcon
+                kind={notice.kind}
+                className="mt-0.5 h-4 w-4 shrink-0"
+                style={{ color: APP.subtle }}
+              />
+              <div className="min-w-0 flex-1">
+                <p
+                  dir={textDir(isRTL)}
+                  className="text-[11px] leading-relaxed"
+                  style={{ color: APP.text }}
+                >
+                  {notice.body}
+                </p>
+                <p
+                  dir={textDir(isRTL)}
+                  className="mt-1 text-[9px] font-medium"
+                  style={{ color: APP.subtle }}
+                >
+                  {notice.when}
+                </p>
+              </div>
+              {notice.unread ? (
+                <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-[#2563EB]" />
+              ) : null}
+            </div>
+          ))}
+        </div>
+        <div className="mx-auto mb-2.5 mt-auto h-1 w-20 shrink-0 rounded-full bg-neutral-900" />
+      </div>
+    </PhoneFrame>
+  );
+}
+
+export function PhoneMockupOffline({
+  label,
+  showToast = true,
+}: {
+  label?: string;
+  showToast?: boolean;
+} = {}) {
   const { t, isRTL } = useI18n();
   const tallies = [
     { amount: "500", gave: false, when: t("mock.today"), note: t("mock.payment") },
@@ -664,7 +1059,7 @@ export function PhoneMockupOffline() {
     { amount: "1,000", gave: true, when: t("format.daysAgo", { n: 3 }), note: t("mock.goods") },
   ];
   return (
-    <PhoneFrame>
+    <PhoneFrame label={label}>
       <div className="flex min-h-0 flex-1 flex-col" style={APP_FONT}>
         <div className={`flex items-center gap-2 px-3 py-3 ${isRTL ? "flex-row-reverse" : ""}`}>
           <div className="w-16 shrink-0" style={{ color: APP.emphasis }}>
@@ -788,9 +1183,11 @@ export function PhoneMockupOffline() {
         </div>
         <div className="mt-auto shrink-0 pt-3">
           <EntryDock />
-          <div className="pt-3 pb-2">
-            <AppToast title={t("mock.entrySaved.title")} />
-          </div>
+          {showToast ? (
+            <div className="pt-3 pb-2">
+              <AppToast title={t("mock.entrySaved.title")} />
+            </div>
+          ) : null}
           <div className="mx-auto mb-2.5 h-1 w-20 rounded-full bg-neutral-900" />
         </div>
       </div>

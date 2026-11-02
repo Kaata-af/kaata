@@ -93,12 +93,15 @@ function fixture(raw: string | null) {
     },
     "react-router-dom": { Link: block },
     "../components/FeatureSection": { FeatureSection: block },
+    "../components/BillMockups": { PhoneMockupBill: block },
     "../components/Hero": {
       Hero: () => React.createElement("h1", null, "Marketing landing hero"),
     },
     "../components/PhoneMockups": {
       PhoneMockupOffline: block,
+      PhoneMockupNotifications: block,
       PhoneMockupRestore: block,
+      PhoneMockupShared: block,
       PhoneMockupWhatsApp: block,
     },
     "../components/SiteChrome": { SiteFooter: block, SiteHeader: block },
