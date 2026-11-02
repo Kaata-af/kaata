@@ -159,7 +159,7 @@ export const COMPARISON_ROWS = [
     cells: {
       kaata: cell("yes", "kaataSite"),
       zoodhesab: assessedCell("no", "paid"),
-      khatabook: assessedCell("no", "freemium"),
+      khatabook: assessedCell("yes", "freemium"),
       // The iPhone app lists recurring subscription purchases.
       digikhata: cell("no", "digiIos", "iphoneFreemium"),
       // Published pricing caps the free plan and offers paid Premium features.
