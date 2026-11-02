@@ -42,7 +42,6 @@ const en = {
     "Track what you gave and received. Share accounts with people you trust, follow updates in Kaata, and send reminders over WhatsApp.",
   "hero.cta": "Download Kaata",
   "hero.how": "See how it works ↓",
-  "hero.points": "Free mobile app · Private tallies work offline · Start without sign-up",
   "hero.pricing": "Mobile app: free forever · See pricing",
 
   // Pricing
@@ -52,7 +51,7 @@ const en = {
     "Keep using the mobile app without paying. Pro is an optional subscription for working from your computer.",
   "pricing.free.badge": "Free forever",
   "pricing.free.name": "Kaata Mobile",
-  "pricing.free.price": "0 AFN",
+  "pricing.free.currency": "AFN",
   "pricing.free.period": "forever",
   "pricing.free.body":
     "Your everyday accounts, on Android and iPhone. All the mobile features shown on this page are free.",
@@ -150,7 +149,6 @@ const en = {
   "extras.lock.title": "App lock when you need it.",
   "extras.lock.body": "Use an optional app lock to keep your ledger private on your phone.",
 
-  "comparison.shortcut": "Compare apps",
   "comparison.eyebrow": "Compare ledger apps",
   "comparison.title": "A closer look at your options.",
   "comparison.body":
@@ -404,7 +402,6 @@ const fa: Record<keyof typeof en, string> = {
     "آنچه دادید و گرفتید را ثبت کنید. با کسانی که به آنها اعتماد دارید حساب مشترک داشته باشید، تغییرات را در کاتا دنبال کنید و در واتساپ یادآوری بفرستید.",
   "hero.cta": "دانلود کاتا",
   "hero.how": "ببینید چطور کار می‌کند ↓",
-  "hero.points": "اپ تلفون رایگان · ثبت‌های شخصی بدون انترنت · شروع بدون ثبت‌نام",
   "hero.pricing": "اپ تلفون: برای همیشه رایگان · دیدن قیمت‌ها",
 
   // Pricing
@@ -414,7 +411,7 @@ const fa: Record<keyof typeof en, string> = {
     "بدون پرداخت از اپ تلفون استفاده کنید. پرو یک اشتراک اختیاری برای کار در کمپیوتر است.",
   "pricing.free.badge": "برای همیشه رایگان",
   "pricing.free.name": "کاتا در تلفون",
-  "pricing.free.price": "۰ افغانی",
+  "pricing.free.currency": "افغانی",
   "pricing.free.period": "برای همیشه",
   "pricing.free.body":
     "حساب‌های روزمرۀ شما، در اندروید و آیفون. همۀ امکانات اپ تلفون که در این صفحه می‌بینید، رایگان است.",
@@ -512,7 +509,6 @@ const fa: Record<keyof typeof en, string> = {
   "extras.lock.title": "قفل اپ، هر وقت لازم بود.",
   "extras.lock.body": "قفل اختیاری اپ را روشن کنید تا حساب‌وکتاب شما روی تلفون محفوظ بماند.",
 
-  "comparison.shortcut": "مقایسهٔ اپ‌ها",
   "comparison.eyebrow": "مقایسهٔ اپ‌های حساب‌وکتاب",
   "comparison.title": "گزینه‌های خود را روشن‌تر ببینید.",
   "comparison.body":
@@ -759,7 +755,6 @@ const ps: Record<keyof typeof en, string> = {
     "هغه څه ثبت کړئ چې مو ورکړي او ترلاسه کړي دي. له باوري خلکو سره ګډ حسابونه ولرئ، په کاټه کې بدلونونه تعقیب کړئ او د WhatsApp له لارې یادونې ولېږئ.",
   "hero.cta": "کاټه ښکته کړئ",
   "hero.how": "وګورئ چې څنګه کار کوي ↓",
-  "hero.points": "وړیا موبایل اپ · شخصي راکړې ورکړې بې انټرنېټه · له نوم لیکنې پرته پیل",
   "hero.pricing": "د موبایل اپ: د تل لپاره وړیا · بیې وګورئ",
 
   // Pricing
@@ -769,7 +764,7 @@ const ps: Record<keyof typeof en, string> = {
     "د موبایل اپ له پیسو ورکولو پرته وکاروئ. پرو په کمپیوټر کې د کار لپاره یو اختیاري ګډون دی.",
   "pricing.free.badge": "د تل لپاره وړیا",
   "pricing.free.name": "کاتا په موبایل کې",
-  "pricing.free.price": "۰ افغانۍ",
+  "pricing.free.currency": "افغانۍ",
   "pricing.free.period": "د تل لپاره",
   "pricing.free.body":
     "ستاسو ورځني حسابونه، په انډرایډ او آیفون کې. په دې پاڼه کې د موبایل اپ ښودل شوې ټولې اسانتیاوې وړیا دي.",
@@ -864,7 +859,6 @@ const ps: Record<keyof typeof en, string> = {
   "extras.lock.title": "د اړتیا پر وخت اپ قلف کړئ.",
   "extras.lock.body": "د اپ اختیاري قلف وکاروئ او خپل حساب کتاب په ټیلیفون کې شخصي وساتئ.",
 
-  "comparison.shortcut": "اپونه پرتله کړئ",
   "comparison.eyebrow": "د حساب کتاب اپونه پرتله کړئ",
   "comparison.title": "خپل غوراوي ښه وپېژنئ.",
   "comparison.body":

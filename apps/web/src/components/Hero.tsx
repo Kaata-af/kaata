@@ -33,25 +33,6 @@ export function Hero() {
             <Link to="/#how">{t("hero.how")}</Link>
           </Button>
         </div>
-
-        <p className="mt-7 text-xs text-neutral-500 font-medium">{t("hero.points")}</p>
-        <div className="mt-5 flex flex-wrap justify-center gap-x-5 gap-y-2 text-[13px] text-neutral-600">
-          {[
-            { href: "/#product", label: t("feature.shared.eyebrow") },
-            { href: "/#members", label: t("feature.members.eyebrow") },
-            { href: "/#notifications", label: t("feature.notifications.eyebrow") },
-            { href: "/#bills", label: t("feature.bills.eyebrow") },
-            { href: "/#compare", label: t("comparison.shortcut") },
-          ].map((feature) => (
-            <Link
-              key={feature.href}
-              to={feature.href}
-              className="underline decoration-neutral-300 underline-offset-4 hover:text-neutral-900 hover:decoration-neutral-900"
-            >
-              {feature.label}
-            </Link>
-          ))}
-        </div>
       </div>
 
       <Card className="mt-12 md:mt-16 mx-auto max-w-5xl flex justify-center rounded-[2rem] border-surface-balance-border bg-surface-balance bg-[radial-gradient(ellipse_at_top_left,#E4EEE6,transparent_60%),radial-gradient(ellipse_at_bottom_right,#F8EAEC,transparent_60%)] py-10 md:py-14 shadow-none">

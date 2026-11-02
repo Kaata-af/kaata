@@ -42,7 +42,12 @@ export function Pricing() {
               {t("pricing.free.name")}
             </h3>
             <p className="mt-3 flex flex-wrap items-baseline gap-x-3 gap-y-1 text-brand-primary">
-              <span className="text-4xl font-bold tracking-tight">{t("pricing.free.price")}</span>
+              <span className="inline-flex items-baseline gap-2.5">
+                <bdi dir="ltr" className="font-mono text-4xl font-bold tracking-tight tabular-nums">
+                  0
+                </bdi>
+                <span className="text-2xl font-semibold">{t("pricing.free.currency")}</span>
+              </span>
               <span className="text-sm">{t("pricing.free.period")}</span>
             </p>
             <p className="mt-5 text-sm leading-relaxed text-neutral-600">
