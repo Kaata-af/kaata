@@ -158,8 +158,6 @@ const en = {
 
   "comparison.eyebrow": "Compare ledger apps",
   "comparison.title": "A closer look at your options.",
-  "comparison.body":
-    "Compare the features that matter for working together, starting freely and keeping your data portable.",
   "comparison.caption": "Feature comparison of Kaata, ZoodHesab, Khatabook, DigiKhata and Baxak",
   "comparison.featureLabel": "Feature",
   "comparison.status.yes": "Included",
@@ -532,7 +530,6 @@ const fa: Record<keyof typeof en, string> = {
 
   "comparison.eyebrow": "مقایسهٔ اپ‌های حساب‌وکتاب",
   "comparison.title": "گزینه‌های خود را روشن‌تر ببینید.",
-  "comparison.body": "امکانات مهم برای کار مشترک، شروع رایگان و انتقال معلومات‌تان را مقایسه کنید.",
   "comparison.caption": "مقایسهٔ امکانات Kaata، ZoodHesab، Khatabook، DigiKhata و Baxak",
   "comparison.featureLabel": "امکانات",
   "comparison.status.yes": "شامل است",
@@ -896,7 +893,6 @@ const ps: Record<keyof typeof en, string> = {
 
   "comparison.eyebrow": "د حساب کتاب اپونه پرتله کړئ",
   "comparison.title": "خپل غوراوي ښه وپېژنئ.",
-  "comparison.body": "د ګډ کار، وړیا پیل او د خپلو معلوماتو د لېږد لپاره مهمې اسانتیاوې پرتله کړئ.",
   "comparison.caption": "د Kaata، ZoodHesab، Khatabook، DigiKhata او Baxak د امکاناتو پرتله",
   "comparison.featureLabel": "امکان",
   "comparison.status.yes": "شامل دی",

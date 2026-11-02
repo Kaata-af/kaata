@@ -21,7 +21,7 @@
   registered users, not the existing ledger/phone-contact search. The feature
   is upcoming and must stay out of the comparison until released, as confirmed
   by the product owner on November 2, 2026. Recheck competitor support when
-  adding the row, then verify the fixed feature-label column in RTL layouts.
+  adding the row, then verify that all columns fit on phones in LTR and RTL layouts.
 
 ## Shared-account safety status
 
