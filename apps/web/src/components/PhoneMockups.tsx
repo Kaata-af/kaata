@@ -149,6 +149,76 @@ function WhatsAppGlyph({ className }: { className?: string }) {
   );
 }
 
+const CHAT_ICON_PATHS = {
+  back: "M19 12H5m6-6-6 6 6 6",
+  avatar: "M16 8a4 4 0 1 1-8 0 4 4 0 0 1 8 0ZM5 21v-2a7 7 0 0 1 14 0v2",
+  video: "M15 8l6-3v14l-6-3M5 5h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2Z",
+  call: "M5 3h3l2 5-2 2a15 15 0 0 0 6 6l2-2 5 2v3a2 2 0 0 1-2 2A18 18 0 0 1 3 5a2 2 0 0 1 2-2Z",
+  smile: "M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0ZM8 9h.01M16 9h.01M7 14a5.5 5.5 0 0 0 10 0",
+  attachment:
+    "m9 13 6-6a3 3 0 0 1 4 4L10 20a5 5 0 0 1-7-7L13 3a4 4 0 0 1 6 6l-9 9a2 2 0 0 1-3-3l8-8",
+  camera:
+    "M8 5l2-2h4l2 2h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h3ZM16 13a4 4 0 1 1-8 0 4 4 0 0 1 8 0Z",
+  microphone: "M9 5a3 3 0 0 1 6 0v7a3 3 0 0 1-6 0V5ZM5 11v1a7 7 0 0 0 14 0v-1M12 19v3m-4 0h8",
+} as const;
+
+function ChatIcon({ name, ...props }: IconProps & { name: keyof typeof CHAT_ICON_PATHS }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      {...props}
+    >
+      <path d={CHAT_ICON_PATHS[name]} />
+    </svg>
+  );
+}
+
+// One overlapping double-tick shape keeps receipts independent of font spacing.
+function ReadReceipt() {
+  return (
+    <svg
+      viewBox="0 0 24 18"
+      fill="none"
+      stroke="#53BDEB"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      className="h-[11px] w-[15px] shrink-0"
+    >
+      <path d="m1.5 9 4.5 4.5L17 2.5m-7 8 3 3L23 2.5" />
+    </svg>
+  );
+}
+
+function ChatWallpaper() {
+  return (
+    <svg
+      className="pointer-events-none absolute inset-0 h-full w-full text-[#b3aaa0]"
+      aria-hidden="true"
+    >
+      <defs>
+        <pattern id="whatsapp-chat-doodles" width="144" height="160" patternUnits="userSpaceOnUse">
+          <g fill="none" stroke="currentColor" strokeWidth="0.9" opacity="0.24">
+            <path d="m19 12 2 5 6 1-5 4 1 6-5-3-5 2 1-6-4-4 6-1 3-4ZM101 99l3 7 8 1-6 5 2 8-7-4-7 4 1-8-6-5 8-1 4-7Z" />
+            <path d="M64 24c-7-9-18 2 0 13 18-11 7-22 0-13ZM119 45c-5-7-14 2 0 10 14-8 5-17 0-10Z" />
+            <path d="M12 74h19a5 5 0 0 1 5 5v9a5 5 0 0 1-5 5h-8l-7 5v-5h-4a5 5 0 0 1-5-5v-9a5 5 0 0 1 5-5ZM17 83h10" />
+            <path d="M67 67a9 9 0 1 1-18 0 9 9 0 0 1 18 0ZM54 65h.1M62 65h.1M54 70q4 4 8 0M119 15l8 4-8 4-8-4 8-4ZM119 23v7" />
+            <path d="M63 118c-12 1-15 10-11 17 10-1 17-6 11-17ZM52 135l8-12M16 128l10 4-10 4-10-4 10-4ZM22 144l4 4m-4 0 4-4M77 47l4 4m-4 0 4-4M132 139l4 4m-4 0 4-4" />
+          </g>
+        </pattern>
+      </defs>
+      <rect width="100%" height="100%" fill="url(#whatsapp-chat-doodles)" />
+    </svg>
+  );
+}
+
 // ---- Home screen pieces ----------------------------------------------------
 
 function AppHeader({ badge }: { badge?: ReactNode }) {
@@ -473,6 +543,7 @@ export function PhoneMockupWhatsApp() {
   const isRTL = lang !== "en";
   const name = t("mock.name.ahmad");
   const accountWith = t("mock.self.shop");
+  const [footerBefore, footerAfter] = t("share.footer").split("www.kaata.af");
 
   // Built line-for-line from the EXACT app share.* strings (see
   // apps/mobile/lib/share.ts, balance > 0 path). Amount is formatAmount(1250)
@@ -488,60 +559,77 @@ export function PhoneMockupWhatsApp() {
 
   return (
     <PhoneFrame>
-      <div className="px-4 pt-3 pb-3 flex-1 flex flex-col bg-[#efeae2]">
-        {/* WhatsApp header */}
-        <div className="flex items-center gap-2 pb-3 border-b border-neutral-300/60">
-          <div className="w-7 h-7 rounded-full bg-neutral-300 flex items-center justify-center text-[11px] font-semibold text-neutral-700">
-            {name.charAt(0)}
+      <div className="flex min-h-0 flex-1 flex-col text-[#111b21]" style={APP_FONT}>
+        <div className="flex h-[52px] shrink-0 items-center gap-1.5 border-b border-black/5 bg-white px-2">
+          <ChatIcon name="back" className="h-4 w-4 shrink-0" />
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[#dfe5e7] text-white">
+            <ChatIcon name="avatar" className="mt-1.5 h-[29px] w-[29px]" />
           </div>
-          <div className="min-w-0">
-            <p className="text-[13px] font-semibold text-neutral-900 leading-tight truncate">
-              {name}
-            </p>
-            <p className="text-[10px] text-neutral-500 truncate" dir="ltr">
-              +93 70 123 4567
-            </p>
-          </div>
-        </div>
-
-        {/* Outgoing message (the Kaata reminder). dir follows the language so
-            the Dari message reads right-to-left the way WhatsApp renders it for
-            the recipient; the bubble stays on the right via physical ml-auto. */}
-        <div className="mt-4 flex-1 space-y-2.5">
-          <div
-            dir={isRTL ? "rtl" : "ltr"}
-            className="ml-auto max-w-[88%] bg-[#d9fdd3] rounded-2xl rounded-br-sm px-3 py-2.5 text-[12px] text-neutral-900 leading-relaxed shadow-[0_1px_0_rgba(0,0,0,0.04)]"
-          >
-            <span className="whitespace-pre-line">{messageBody}</span>
-            <br />
-            <br />
-            <span className="text-neutral-500">{t("share.footer")}</span>
-            <div className="mt-1 text-right text-[9px] text-neutral-500" dir="ltr">
-              10:23 AM <span className="text-sky-600">✓✓</span>
-            </div>
-          </div>
-
-          <div
-            dir={isRTL ? "rtl" : "ltr"}
-            className="mr-auto max-w-[70%] bg-white rounded-2xl rounded-bl-sm px-3 py-2 text-[12px] text-neutral-900 shadow-[0_1px_0_rgba(0,0,0,0.04)]"
-          >
-            {t("mock.whatsapp.reply")}
-            <div className="mt-0.5 text-right text-[9px] text-neutral-500" dir="ltr">
-              10:31 AM
-            </div>
+          <p dir={textDir(isRTL)} className="min-w-0 flex-1 truncate text-[13px] font-semibold">
+            {name}
+          </p>
+          <div className="flex shrink-0 items-center gap-3">
+            <ChatIcon name="video" className="h-[17px] w-[17px]" />
+            <ChatIcon name="call" className="h-4 w-4" />
+            <MoreIcon className="h-4 w-4 rotate-90" />
           </div>
         </div>
 
-        {/* Reply field */}
-        <div className="mt-3 flex items-center gap-2">
-          <div className="flex-1 bg-white rounded-full px-3 py-2">
-            <span className="text-[11px] text-neutral-400">
-              {t("mock.whatsapp.messagePlaceholder")}
-            </span>
+        <div className="relative flex min-h-0 flex-1 flex-col bg-[#efeae2]">
+          <ChatWallpaper />
+          <div className="relative min-h-0 flex-1 px-[9px] pt-3">
+            <div className="mx-auto w-fit rounded-md bg-white/90 px-2 py-1 text-[8px] uppercase leading-none text-[#54656f] shadow-sm">
+              {t("mock.today")}
+            </div>
+
+            {/* Message direction follows its language; sent bubbles and metadata
+                keep their physical positions in every locale. */}
+            <div
+              dir={textDir(isRTL)}
+              className="relative ml-auto mt-3 max-w-[92%] rounded-[7px] rounded-tr-none bg-[#d9fdd3] px-2 pb-1.5 pt-2 text-[12px] leading-[1.45] shadow-[0_1px_1px_rgba(11,20,26,0.12)] after:absolute after:-right-[6px] after:top-0 after:h-2 after:w-2 after:bg-[#d9fdd3] after:[clip-path:polygon(0_0,100%_0,0_100%)]"
+            >
+              <span className="whitespace-pre-line">{messageBody}</span>
+              <p className="mt-3">
+                {footerBefore}
+                <bdi dir="ltr" className="text-[#027eb5] underline">
+                  www.kaata.af
+                </bdi>
+                {footerAfter}
+              </p>
+              <div
+                className="mt-1 flex items-center justify-end gap-[3px] text-[8px] leading-none text-[#667781]"
+                dir="ltr"
+              >
+                <span>10:23</span>
+                <ReadReceipt />
+              </div>
+            </div>
+
+            <div
+              dir={textDir(isRTL)}
+              className="relative mr-auto mt-2 max-w-[82%] rounded-[7px] rounded-tl-none bg-white px-2 pb-1.5 pt-2 text-[12px] leading-[1.45] shadow-[0_1px_1px_rgba(11,20,26,0.12)] before:absolute before:-left-[6px] before:top-0 before:h-2 before:w-2 before:bg-white before:[clip-path:polygon(0_0,100%_0,100%_100%)]"
+            >
+              {t("mock.whatsapp.reply")}
+              <div className="mt-1 text-right text-[8px] leading-none text-[#667781]" dir="ltr">
+                10:31
+              </div>
+            </div>
           </div>
-          <div className="w-9 h-9 rounded-full bg-[#00a884] flex items-center justify-center text-white">
-            <WhatsAppGlyph className="w-4 h-4" />
+
+          <div className="relative mt-3 flex shrink-0 items-center gap-1.5 px-1.5 pb-2">
+            <div className="flex h-9 min-w-0 flex-1 items-center gap-2 rounded-full bg-white px-2.5 text-[#667781] shadow-sm">
+              <ChatIcon name="smile" className="h-[17px] w-[17px] shrink-0" />
+              <span dir={textDir(isRTL)} className="min-w-0 flex-1 text-[11px]">
+                {t("mock.whatsapp.messagePlaceholder")}
+              </span>
+              <ChatIcon name="attachment" className="h-4 w-4 shrink-0" />
+              <ChatIcon name="camera" className="h-[17px] w-[17px] shrink-0" />
+            </div>
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#008069] text-white">
+              <ChatIcon name="microphone" className="h-[18px] w-[18px]" />
+            </div>
           </div>
+          <div className="relative mx-auto mb-2.5 h-1 w-20 shrink-0 rounded-full bg-[#111b21]" />
         </div>
       </div>
     </PhoneFrame>
