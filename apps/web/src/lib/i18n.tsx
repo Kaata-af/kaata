@@ -49,7 +49,7 @@ const en = {
   "pricing.title": "Use Kaata on your phone. Completely free.",
   "pricing.body":
     "Keep using the mobile app without paying. Pro is an optional subscription for working from your computer.",
-  "pricing.free.badge": "Free. No trial.",
+  "pricing.free.badge": "Free forever",
   "pricing.free.name": "Kaata Mobile",
   "pricing.free.currency": "AFN",
   "pricing.free.period": "No trial",
@@ -421,7 +421,7 @@ const fa: Record<keyof typeof en, string> = {
   "pricing.title": "کاتا را در تلفون‌تان استفاده کنید. کاملاً رایگان.",
   "pricing.body":
     "بدون پرداخت از اپ تلفون استفاده کنید. پرو یک اشتراک اختیاری برای کار در کمپیوتر است.",
-  "pricing.free.badge": "رایگان؛ بدون دورۀ آزمایشی",
+  "pricing.free.badge": "برای همیشه رایگان",
   "pricing.free.name": "کاتا در تلفون",
   "pricing.free.currency": "افغانی",
   "pricing.free.period": "بدون دورۀ آزمایشی",
@@ -787,7 +787,7 @@ const ps: Record<keyof typeof en, string> = {
   "pricing.title": "کاتا په خپل موبایل کې وکاروئ. بشپړ وړیا.",
   "pricing.body":
     "د موبایل اپ له پیسو ورکولو پرته وکاروئ. پرو په کمپیوټر کې د کار لپاره یو اختیاري ګډون دی.",
-  "pricing.free.badge": "وړیا؛ ازمایښتي دوره نه لري",
+  "pricing.free.badge": "د تل لپاره وړیا",
   "pricing.free.name": "کاتا په موبایل کې",
   "pricing.free.currency": "افغانۍ",
   "pricing.free.period": "ازمایښتي دوره نه لري",
