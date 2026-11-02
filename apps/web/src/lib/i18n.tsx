@@ -533,7 +533,7 @@ const fa: Record<keyof typeof en, string> = {
   "comparison.body":
     "کاتا را با چهار اپ دیگر حساب‌وکتاب مقایسه کنید؛ بر اساس امکاناتی که در معلومات رسمی آن‌ها آمده است.",
   "comparison.caption": "مقایسهٔ امکانات Kaata، ZoodHesab، Khatabook، DigiKhata و Baxak",
-  "comparison.featureLabel": "امکان",
+  "comparison.featureLabel": "امکانات",
   "comparison.status.yes": "در منبع آمده",
   "comparison.status.no": "صریحاً در دسترس نیست",
   "comparison.status.unknown": "تأیید نشده",
