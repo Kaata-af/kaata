@@ -1,7 +1,7 @@
 // Regenerate checked-in social PNGs with Playwright + Chromium, entirely offline.
 // Install Playwright locally, or set PLAYWRIGHT_MODULE_PATH to its entry file.
 // CHROME_PATH optionally selects an existing Chrome/Edge executable.
-// kaata-fa-v2.png is selected for both homepage and bill-link previews.
+// kaata-fa-v3.png is selected for both homepage and bill-link previews.
 // The separate bill illustration remains an alternate design.
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
@@ -52,24 +52,24 @@ const output = path.join(webRoot, "public", "og");
 await mkdir(output, { recursive: true });
 const variants = [
   {
-    name: "kaata-fa-v2.png",
+    name: "kaata-fa-v3.png",
     variant: "home",
     headlineOne: "حساب و کتاب،",
     headlineTwo: "ساده و روشن",
     subtitle: "قرض، طلب و پرداخت‌ها در یک‌جا",
     footerOne: "بدون انترنت",
     footerTwo: "بدون ثبت‌نام",
-    alt: "کاتا؛ حساب و کتاب ساده و روشن، رایگان، بدون دورۀ آزمایشی",
+    alt: "کاتا؛ حساب و کتاب ساده و روشن، به همیشه رایگان",
   },
   {
-    name: "kaata-bill-fa-v2.png",
+    name: "kaata-bill-fa-v3.png",
     variant: "bill",
     headlineOne: "صورت‌حساب شما",
     headlineTwo: "آماده است",
     subtitle: "جزئیات حساب را در لینک ببینید.",
     footerOne: "ساخته‌شده با کاتا",
     footerTwo: "بدون نیاز به نصب اپ",
-    alt: "صورت‌حساب شما در کاتا آماده است؛ رایگان، بدون دورۀ آزمایشی",
+    alt: "صورت‌حساب شما در کاتا آماده است؛ به همیشه رایگان",
   },
 ];
 try {

@@ -6,7 +6,7 @@ import { test } from "node:test";
 const require = createRequire(import.meta.url);
 const ts = require("typescript");
 const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
-const image = "https://kaata.af/og/kaata-fa-v2.png";
+const image = "https://kaata.af/og/kaata-fa-v3.png";
 const tags = [...html.matchAll(/<meta\b[\s\S]*?>/g)].map(([tag]) =>
   Object.fromEntries(
     [...tag.matchAll(/([\w:.-]+)="([^"]*)"/g)].map(([, key, value]) => [key, value]),
@@ -23,10 +23,10 @@ test("static social metadata uses the Persian large-image preview without changi
   const meta = metadata();
   for (const key of ["og:title", "og:description", "twitter:title", "twitter:description"]) {
     assert.ok(
-      meta.get(key).includes("رایگان، بدون دورۀ آزمایشی"),
-      key + " carries current free/no-trial copy",
+      meta.get(key).includes("به همیشه رایگان"),
+      key + " uses the Dari free forever wording",
     );
-    assert.ok(!meta.get(key).includes("برای همیشه"), key + " makes no lifetime promise");
+    assert.ok(!meta.get(key).includes("برای همیشه"), key + " uses the requested Dari wording");
     assert.ok(/[\u0600-\u06ff]/.test(meta.get(key)));
   }
   assert.equal(meta.get("og:image"), image);
@@ -35,7 +35,7 @@ test("static social metadata uses the Persian large-image preview without changi
   assert.equal(meta.get("og:image:width"), "1200");
   assert.equal(meta.get("og:image:height"), "630");
   assert.equal(meta.get("og:image:type"), "image/png");
-  assert.ok(meta.get("og:image:alt").includes("رایگان، بدون دورۀ آزمایشی"));
+  assert.ok(meta.get("og:image:alt").includes("به همیشه رایگان"));
   assert.equal(meta.get("twitter:image:alt"), meta.get("og:image:alt"));
   assert.equal(meta.get("twitter:card"), "summary_large_image");
   assert.equal(meta.get("og:locale"), "fa_AF");
@@ -200,7 +200,7 @@ test("public social-image route keeps PNG MIME/cache headers and avoids SPA fall
 });
 
 test("versioned social PNGs exist with the advertised dimensions", () => {
-  for (const file of ["kaata-fa-v2.png", "kaata-bill-fa-v2.png"]) {
+  for (const file of ["kaata-fa-v3.png", "kaata-bill-fa-v3.png"]) {
     const png = readFileSync(new URL("../public/og/" + file, import.meta.url));
     assert.equal(png.subarray(0, 8).toString("hex"), "89504e470d0a1a0a");
     assert.equal(png.subarray(12, 16).toString(), "IHDR");
