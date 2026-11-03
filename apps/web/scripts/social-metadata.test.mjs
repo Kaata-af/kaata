@@ -6,7 +6,7 @@ import { test } from "node:test";
 const require = createRequire(import.meta.url);
 const ts = require("typescript");
 const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
-const image = "https://kaata.af/og/kaata-fa-v3.png";
+const image = "https://kaata.af/og/kaata-fa-v3.png?v=3";
 const tags = [...html.matchAll(/<meta\b[\s\S]*?>/g)].map(([tag]) =>
   Object.fromEntries(
     [...tag.matchAll(/([\w:.-]+)="([^"]*)"/g)].map(([, key, value]) => [key, value]),

@@ -110,7 +110,7 @@ func TestBillOGImageHTTP(t *testing.T) {
 			if meta["robots"] != "noindex, nofollow" {
 				t.Errorf("bill indexing meta = %q", meta["robots"])
 			}
-			requireBillArtwork(t, meta, "https://kaata.af/og/kaata-fa-v3.png", true)
+			requireBillArtwork(t, meta, "https://kaata.af/og/kaata-fa-v3.png?v=3", true)
 			if meta["og:title"] != tc.title || meta["twitter:title"] != tc.title {
 				t.Fatalf("customer/shop title changed: %#v", meta)
 			}
@@ -143,9 +143,9 @@ func TestBillOGImageOriginsAndEscaping(t *testing.T) {
 		origin, image string
 		secure        bool
 	}{
-		{" https://kaata.af/// ", "https://kaata.af/og/kaata-fa-v3.png", true},
-		{"http://localhost:8080/", "http://localhost:8080/og/kaata-fa-v3.png", false},
-		{"https://preview.example&site", "https://preview.example&site/og/kaata-fa-v3.png", true},
+		{" https://kaata.af/// ", "https://kaata.af/og/kaata-fa-v3.png?v=3", true},
+		{"http://localhost:8080/", "http://localhost:8080/og/kaata-fa-v3.png?v=3", false},
+		{"https://preview.example&site", "https://preview.example&site/og/kaata-fa-v3.png?v=3", true},
 		{"", "", false}, {"/relative", "", false}, {"//kaata.af", "", false},
 		{"javascript:alert(1)", "", false}, {"https://kaata.af?x=1&y=2", "", false},
 		{"https://kaata.af?", "", false}, {"https://kaata.af#", "", false},

@@ -398,7 +398,7 @@ func (v viewData) OGImageURL() string {
 		u.User != nil || u.Path != "" || u.RawQuery != "" || u.ForceQuery || strings.Contains(origin, "#") {
 		return ""
 	}
-	return origin + "/og/kaata-fa-v3.png"
+	return origin + "/og/kaata-fa-v3.png?v=3"
 }
 
 func (v viewData) OGImageSecureURL() string {
