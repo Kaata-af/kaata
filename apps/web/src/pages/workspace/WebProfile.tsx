@@ -89,6 +89,16 @@ function ProfileAdmission({ children }: { children: ReactNode }) {
     };
   }, []);
   if (admitted) return children;
+  if (!profile && loading && online) {
+    return (
+      <div
+        className="flex min-h-dvh items-center justify-center bg-neutral-50 text-sm text-neutral-500"
+        role="status"
+      >
+        {c.loading}
+      </div>
+    );
+  }
   async function save(values: { name: string; phone: string }) {
     setSaving(true);
     try {
@@ -137,11 +147,13 @@ function ProfileAdmission({ children }: { children: ReactNode }) {
         </div>
       </header>
       <main className="web-profile-setup-main">
-        <div className="web-profile-setup-intro">
-          <p className="web-profile-setup-eyebrow">{c.web}</p>
-          <h1>{c.welcome}</h1>
-          <p>{c.setupBody}</p>
-        </div>
+        {profile && (
+          <div className="web-profile-setup-intro">
+            <p className="web-profile-setup-eyebrow">{c.web}</p>
+            <h1>{c.welcome}</h1>
+            <p>{c.setupBody}</p>
+          </div>
+        )}
         <Card className="web-profile-card web-profile-setup-card">
           {profile ? (
             <ProfileForm profile={profile} online={online} onSave={save} setup />
@@ -149,7 +161,7 @@ function ProfileAdmission({ children }: { children: ReactNode }) {
             <ProfileLoad loading={loading} failed={failed} online={online} onRetry={flow.load} />
           )}
         </Card>
-        <p className="web-profile-setup-note">{c.existingDetails}</p>
+        {profile && <p className="web-profile-setup-note">{c.existingDetails}</p>}
       </main>
     </div>
   );
