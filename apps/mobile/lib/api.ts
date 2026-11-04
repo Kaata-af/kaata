@@ -3,6 +3,7 @@ import { getSessionJWT, InstallRetiredError } from "./auth";
 import { getAppMeta } from "./db";
 import { getDeviceEstimate } from "./device-estimate";
 import { clearInstallRetired, markInstallRetired } from "./install-id";
+import { getInstallReferrerSource } from "./install-referrer";
 import type { CheckInResponse } from "./types";
 
 const TIMEOUT_MS = 5000;
@@ -62,7 +63,14 @@ export async function checkIn(payload: {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   const jwt = await getSessionJWT().catch(() => null);
   if (jwt) headers.Authorization = `Bearer ${jwt}`;
-  const deviceEstimate = await getDeviceEstimate();
+  const [deviceEstimate, installReferrerSource] = await Promise.all([
+    getDeviceEstimate(),
+    // BackgroundCheckIn supplies the install timestamp and can wait for the
+    // bounded Play lookup. Recovery's awaited key-pinning check-in omits it.
+    payload.platform === "android" && payload.installed_at_unix_ms
+      ? getInstallReferrerSource(payload.install_id)
+      : undefined,
+  ]);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   try {
@@ -75,6 +83,7 @@ export async function checkIn(payload: {
         // JavaScript caller might have supplied; only this phone supplies them.
         device_id_hash: deviceEstimate?.device_id_hash,
         device_id_kind: deviceEstimate?.device_id_kind,
+        install_referrer_source: installReferrerSource,
       }),
       signal: controller.signal,
     });

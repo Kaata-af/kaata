@@ -71,6 +71,7 @@ const LABELS = {
     home: "Go to kaata.af",
     tag: "Powered by",
     wordmark: "kaata.",
+    getApp: "Download Kaata",
     more: "more",
     less: "less",
     // The settled count lives HERE and only here (operator decision
@@ -105,6 +106,7 @@ const LABELS = {
     // "Powered by kaata." in both languages.
     tag: "Powered by",
     wordmark: "kaata.",
+    getApp: "دانلود کاتا",
     more: "بیشتر",
     less: "کمتر",
     settledShow: "دیدن سابقهٔ تصفیه‌شده ({n})",
@@ -131,6 +133,7 @@ const LABELS = {
     home: "kaata.af ته لاړ شئ",
     tag: "Powered by",
     wordmark: "kaata.",
+    getApp: "کاټه ښکته کړئ",
     more: "نور",
     less: "لږ",
     settledShow: "تصفیه شوې مخینه وګورئ ({n})",
@@ -679,18 +682,23 @@ function SingleLedger({
         />
       ))}
 
-      {/* Quiet footer — a single brand line, nothing more. dir="ltr": the
-          line is all-English in BOTH locales, and inside the fa page's RTL
-          paragraph the bidi algorithm snaps the wordmark's trailing "." to
-          the left edge (".Powered by kaata" artifact). Forcing the line LTR
-          keeps "kaata." intact; centered text, so alignment is unaffected. */}
+      {/* Keep the English brand line LTR so its trailing period stays intact. */}
       {footer ? (
-        <p dir="ltr" className="mt-[26px] text-center text-[12px]" style={{ color: C.mut }}>
-          {L.tag}{" "}
-          <Link to="/" className="font-bold" style={{ color: brand.primary }}>
-            {L.wordmark}
+        <div className="mt-[26px] text-center text-[12px]" style={{ color: C.mut }}>
+          <p dir="ltr">
+            {L.tag} <b style={{ color: brand.primary }}>{L.wordmark}</b>
+          </p>
+          <Link
+            to="/download?s=bill_share"
+            reloadDocument
+            rel="noreferrer"
+            referrerPolicy="no-referrer"
+            className="mt-1 inline-block font-bold underline underline-offset-2"
+            style={{ color: brand.primary }}
+          >
+            {L.getApp}
           </Link>
-        </p>
+        </div>
       ) : null}
     </section>
   );

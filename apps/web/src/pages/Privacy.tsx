@@ -8,7 +8,7 @@ import { SiteFooter, SiteHeader } from "../components/SiteChrome";
 // require a reachable, truthful privacy policy URL once any personal data is
 // collected — this page is that URL (kaata.af/privacy) and must stay accurate to
 // what the app actually does. When you change a data flow, change this page.
-const UPDATED = "20 October 2026";
+const UPDATED = "4 November 2026";
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
@@ -76,6 +76,12 @@ export function Privacy() {
             <li>
               <strong>App version, platform, and usage counters</strong> (e.g. how many entries you
               have made) — never the entries themselves.
+            </li>
+            <li>
+              On a recent Google Play installation, a <strong>campaign category</strong> may be
+              reported if Play provides one. We use it to count installs from ads, organic posts,
+              and shared bills. The app sends only the category and keeps the full referrer, click
+              identifiers, and private bill links out of the report.
             </li>
             <li>
               Your <strong>own profile</strong> — the name, phone number, and shop name you enter

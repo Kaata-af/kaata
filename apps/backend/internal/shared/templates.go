@@ -168,7 +168,8 @@ a{color:inherit;text-decoration:none;}
 .empty,.err{color:var(--mut);font-size:14px;padding:28px 4px;text-align:center;}
 .foot{margin-top:26px;text-align:center;}
 .foottag{font-size:12px;color:var(--mut);}
-.foottag a{color:var(--brand);font-weight:700;}
+.foottag b,.foot a{color:var(--brand);font-weight:700;}
+.foot a{display:inline-block;margin-top:4px;font-size:12px;text-decoration:underline;text-underline-offset:2px;}
 .sk{background:var(--hair);border-radius:5px;animation:pulse 1.5s ease-in-out infinite;}
 .clearwrap{display:flex;flex-direction:column;align-items:center;text-align:center;padding-top:4px;}
 .clearic{width:48px;height:48px;border-radius:50%;background:var(--creditbg);color:var(--credit);display:flex;align-items:center;justify-content:center;}
@@ -254,7 +255,8 @@ a{color:inherit;text-decoration:none;}
   <div class="foot">
     <!-- dir="ltr": the brand line is all-English in both locales; inside the
          RTL page the trailing "." of "kaata." would snap to the left edge. -->
-    <div class="foottag" dir="ltr"><span id="foottag"></span> <a href="{{.Origin}}"><b>kaata.</b></a></div>
+    <div class="foottag" dir="ltr"><span id="foottag"></span> <b>kaata.</b></div>
+    <a href="{{.Origin}}/download?s=bill_share" rel="noreferrer" referrerpolicy="no-referrer">{{if eq .Language "ps"}}کاټه ښکته کړئ{{else if .RTL}}دانلود کاتا{{else}}Download Kaata{{end}}</a>
   </div>
 </div>
 <script>

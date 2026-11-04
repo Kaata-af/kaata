@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import { campaignDownloadPath } from "../lib/analytics";
 import { useI18n } from "../lib/i18n";
 import { PhoneMockupHome } from "./PhoneMockups";
 import { Button } from "./ui/button";
@@ -27,7 +28,7 @@ export function Hero() {
 
         <div className="mt-8 flex flex-col sm:flex-row gap-3 justify-center items-stretch sm:items-center">
           <Button asChild variant="brand" size="lg" className="min-h-11">
-            <Link to="/download">{t("hero.cta")}</Link>
+            <Link to={campaignDownloadPath()}>{t("hero.cta")}</Link>
           </Button>
           <Button asChild variant="ghost" size="lg" className="min-h-11">
             <Link to="/#how">{t("hero.how")}</Link>

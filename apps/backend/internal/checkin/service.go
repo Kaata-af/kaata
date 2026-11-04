@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"log"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/matee/kaata-backend/internal/auth"
 	"github.com/matee/kaata-backend/internal/mesh"
+	"github.com/matee/kaata-backend/internal/visit"
 )
 
 // maxInstalledAtFutureSkew clamps a device-supplied installed_at that's
@@ -88,6 +90,9 @@ type Request struct {
 	// overwrites. Lets us know "installed N days ago" for an install that
 	// was offline at install time and only came online much later.
 	InstalledAtUnixMS *int64 `json:"installed_at_unix_ms,omitempty"`
+	// InstallReferrerSource is the channel tag read from Google Play on a
+	// recently installed Android app. The full referrer never leaves the phone.
+	InstallReferrerSource string `json:"install_referrer_source,omitempty"`
 
 	// True once the user has created a shop profile (users.is_local_self).
 	// Sent every check-in so we can flip it the first time they finish
@@ -368,6 +373,24 @@ func (s *Service) Handle(ctx context.Context, req Request, clientIP string) (Res
 		log.Printf("[checkin] active-day record failed for install %s: %v", req.InstallID, err)
 	}
 
+	// Google Play may be briefly unavailable on the first launch. Accept a
+	// reported source during the install's first day and preserve it on later
+	// check-ins. An earlier same-network estimate may be replaced by this signal.
+	if req.Platform == "android" && installedAt != nil && slices.Contains(visit.AcquisitionSources(), req.InstallReferrerSource) {
+		if err := withSavepoint(ctx, tx, func(writeTx pgx.Tx) error {
+			_, err := writeTx.Exec(ctx, `UPDATE installs
+				SET source=$2, attribution_method='play_referrer'
+				WHERE install_id=$1 AND platform='android'
+				  AND attribution_method IS DISTINCT FROM 'play_referrer'
+				  AND first_seen_at >= NOW() - INTERVAL '24 hours'
+				  AND installed_at >= NOW() - INTERVAL '24 hours'
+				  AND $3::timestamptz >= NOW() - INTERVAL '24 hours'`, req.InstallID, req.InstallReferrerSource, installedAt)
+			return err
+		}); err != nil {
+			log.Printf("Play attribution failed for install %s: %v", req.InstallID, err)
+		}
+	}
+
 	// Deferred-deep-link attribution. On a fresh install (source still NULL),
 	// look for the most recent unclaimed web_visits row from the same client
 	// IP within the last hour and stamp its source onto this install. The
@@ -387,6 +410,7 @@ func (s *Service) Handle(ctx context.Context, req Request, clientIP string) (Res
 				  AND visited_at > NOW() - INTERVAL '60 minutes'
 				  AND claimed_by_install_id IS NULL
 				  AND source IS NOT NULL
+				  AND source <> ALL($3::text[])
 				  AND (SELECT source FROM already) IS NULL
 				ORDER BY visited_at DESC
 				LIMIT 1
@@ -394,13 +418,14 @@ func (s *Service) Handle(ctx context.Context, req Request, clientIP string) (Res
 				UPDATE web_visits
 				SET claimed_by_install_id = $1
 				WHERE id IN (SELECT id FROM matched)
+				  AND claimed_by_install_id IS NULL
 				RETURNING source
 			)
 			UPDATE installs
 			SET source = c.source, attribution_method = 'ip_match'
 			FROM claim c
 			WHERE install_id = $1
-		`, req.InstallID, clientIP)
+		`, req.InstallID, clientIP, visit.AcquisitionSources())
 			return err
 		}); err != nil {
 			log.Printf("attribution match failed for install %s: %v", req.InstallID, err)

@@ -149,7 +149,8 @@ type Stats struct {
 	Points         int             `json:"points"`
 	LatestInstalls []RecentInstall `json:"latest_installs"`
 	// Attribution.
-	BySource []SourceRow `json:"by_source"`
+	BySource    []SourceRow `json:"by_source"`
+	Acquisition Acquisition `json:"acquisition"`
 	// Server "as of" timestamp (RFC3339) so the dashboard can show freshness.
 	GeneratedAt string `json:"generated_at"`
 	// Earlier date-only history used UTC and cannot be exactly re-bucketed.
@@ -473,7 +474,9 @@ func (s *Service) GetStats(ctx context.Context, bucket string, points int) (Stat
 		       COUNT(DISTINCT (ip, user_agent, date_trunc('hour', visited_at))) FILTER (WHERE keep AND kind = 'visit') AS visits,
 		       COUNT(DISTINCT (ip, user_agent, date_trunc('hour', visited_at))) FILTER (WHERE keep AND kind = 'download'),
 		       COUNT(DISTINCT (ip, user_agent, date_trunc('hour', visited_at))) FILTER (WHERE keep AND kind = 'store_click'),
-		       COUNT(DISTINCT claimed_by_install_id) FILTER (WHERE keep AND claimed_by_install_id IN (SELECT install_id FROM report_native_installs)),
+		       COUNT(DISTINCT claimed_by_install_id) FILTER (WHERE keep AND claimed_by_install_id IN (
+		         SELECT install_id FROM report_native_installs WHERE attribution_method IS DISTINCT FROM 'play_referrer'
+		       )),
 		       COUNT(*) FILTER (WHERE kind = 'visit') AS raw_visits,
 		       COUNT(*) FILTER (WHERE NOT keep) AS excluded_rows
 		FROM w
@@ -507,6 +510,10 @@ func (s *Service) GetStats(ctx context.Context, bucket string, points int) (Stat
 	}
 	if st.Languages == nil {
 		st.Languages = []LocaleCount{}
+	}
+	st.Acquisition, err = s.getAcquisition(ctx)
+	if err != nil {
+		return st, err
 	}
 	if st.LatestInstalls == nil {
 		st.LatestInstalls = []RecentInstall{}

@@ -5,6 +5,8 @@ import { languageForLocale } from "../../lib/language";
 // the Campaigns section next to the QR generator.
 
 import { CategoryBar, type Color } from "@tremor/react";
+import { useState } from "react";
+import { Button } from "../../components/ui/button";
 import { useStats, type Stats } from "./api";
 import { C, Card, ErrorCard, PageHeader, SkeletonCard, fmtInt, fmtPct } from "./ui";
 
@@ -25,11 +27,100 @@ export function Acquisition() {
         <ErrorCard message="Couldn't load acquisition data." onRetry={() => void stats.refetch()} />
       ) : (
         <div className="flex min-w-0 flex-col gap-4">
+          <SourceCard acquisition={stats.data.acquisition} />
           <FunnelCard stats={stats.data} />
           <LanguageCard stats={stats.data} />
         </div>
       )}
     </div>
+  );
+}
+
+const CHANNELS = [
+  { source: "facebook_ads", label: "Facebook ads", link: true },
+  { source: "organic_posts", label: "Organic posts", link: true },
+  { source: "bill_share", label: "Shared bills", link: false },
+] as const;
+
+function SourceCard({ acquisition }: { acquisition: Stats["acquisition"] }) {
+  const [copyStatus, setCopyStatus] = useState("");
+  async function copyLink(url: string, label: string) {
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopyStatus(`${label} link copied.`);
+    } catch {
+      setCopyStatus("Select the link to copy it manually.");
+    }
+  }
+
+  return (
+    <Card title="Where installs come from" sub="All-time traffic and app check-ins by channel">
+      <div className="grid gap-3 lg:grid-cols-3">
+        {CHANNELS.map(({ source, label, link }) => {
+          const row = acquisition?.sources.find((item) => item.source === source);
+          const url = `https://kaata.af/download?s=${source}`;
+          return (
+            <section key={source} className="min-w-0 rounded-lg border border-brand-border p-3">
+              <h3 className="text-sm font-semibold text-brand-ink">{label}</h3>
+              <dl className="my-3 space-y-2 text-sm text-brand-sub">
+                {[
+                  ["Google Play clicks", row?.play_clicks],
+                  ["App Store clicks", row?.app_store_clicks],
+                  ["Google Play installs", row?.android_installs],
+                  ["Linked accounts", row?.linked_accounts],
+                ].map(([name, count]) => (
+                  <div key={name} className="flex justify-between gap-3">
+                    <dt>{name}</dt>
+                    <dd className="font-medium tabular-nums text-brand-ink">
+                      {typeof count === "number" ? fmtInt(count) : "—"}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+              {link ? (
+                <div className="flex flex-wrap items-center gap-2">
+                  <input
+                    aria-label={`${label} tracking link`}
+                    className="min-w-0 flex-1 rounded-md border border-brand-border px-2 py-1.5 text-xs"
+                    dir="ltr"
+                    readOnly
+                    value={url}
+                    onFocus={(event) => event.currentTarget.select()}
+                  />
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void copyLink(url, label)}
+                  >
+                    Copy link
+                  </Button>
+                </div>
+              ) : (
+                <p className="text-xs text-brand-muted">
+                  Download links on shared bills use this tag automatically.
+                </p>
+              )}
+            </section>
+          );
+        })}
+      </div>
+      <p role="status" className="text-xs text-brand-muted">
+        {copyStatus}
+      </p>
+      {acquisition && (
+        <p className="mt-3 text-sm text-brand-sub">
+          <strong>{fmtInt(acquisition.unattributed)}</strong> installs with unknown source ·{" "}
+          <strong>{fmtInt(acquisition.legacy_ip_estimates)}</strong> legacy same-network estimates
+        </p>
+      )}
+      <p className="mt-2 text-xs leading-relaxed text-brand-muted">
+        Google Play install counts start with Android versions that report a campaign after the app is opened.
+        Linked accounts count once, using their first recorded app install after test data is
+        excluded. Clicks are counted separately for each store. App Store counts reflect link
+        clicks.
+      </p>
+    </Card>
   );
 }
 

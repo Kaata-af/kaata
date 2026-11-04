@@ -15,6 +15,7 @@ import {
   PhoneMockupWhatsApp,
 } from "../components/PhoneMockups";
 import { SiteFooter, SiteHeader } from "../components/SiteChrome";
+import { campaignDownloadPath } from "../lib/analytics";
 import { useI18n } from "../lib/i18n";
 import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
@@ -261,7 +262,7 @@ function FinalCTA() {
           {t("cta.sub")}
         </p>
         <Button asChild variant="brand" size="lg" className="mt-8 min-h-11">
-          <Link to="/download">{t("cta.button")}</Link>
+          <Link to={campaignDownloadPath()}>{t("cta.button")}</Link>
         </Button>
       </Card>
     </section>

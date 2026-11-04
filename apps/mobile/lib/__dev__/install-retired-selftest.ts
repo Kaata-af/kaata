@@ -290,6 +290,7 @@ const api = load<Api>("../api", {
   "./auth": auth,
   "./db": { getAppMeta: async (key: string) => metaGet(key) },
   "./device-estimate": { getDeviceEstimate: async () => null },
+  "./install-referrer": { getInstallReferrerSource: async () => undefined },
   "./install-id": installId,
 });
 

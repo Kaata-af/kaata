@@ -10,7 +10,7 @@ const code = ts.transpileModule(
   { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } },
 ).outputText;
 
-function fixture(pathname, search) {
+function fixture(pathname, search, referrer = "", providerToken = "") {
   const exports = {};
   const beacons = [];
   const storage = () => {
@@ -35,53 +35,135 @@ function fixture(pathname, search) {
   new Function("require", "exports", "window", "navigator", "document", "Blob", "fetch", code)(
     (name) => {
       assert.equal(name, "../env");
-      return { BACKEND_URL: "https://api.example.test" };
+      return {
+        BACKEND_URL: "https://api.example.test",
+        PLAY_STORE_URL: "https://play.google.com/store/apps/details?id=af.kaata.app",
+        APP_STORE_URL: "https://apps.apple.com/us/app/kaata/id6789651127",
+        APP_STORE_CAMPAIGN_PROVIDER_TOKEN: providerToken,
+      };
     },
     exports,
     window,
     navigator,
-    { referrer: "" },
+    { referrer },
     Blob,
     () => {
       throw new Error("Unexpected fetch after successful beacon");
     },
   );
-  return { exports, beacons };
+  return { exports, beacons, window };
 }
 
-test("visit and store-click beacons redact all capability routes including historical bills", async () => {
-  for (const route of ["i", "v", "v2", "v3", "t"]) {
+test("capability routes never send marketing beacons or set an acquisition source", () => {
+  for (const route of ["i", "v", "v2", "v3", "V3", "t", "v1/shared", "v1/tabs"]) {
     const app = fixture("/" + route + "/private-capability", "?secret=private-ticket&s=campaign");
     app.exports.fireVisitOnce();
-    app.exports.fireVisitOnce();
     app.exports.fireStoreClick("play");
-    const payloads = await Promise.all(app.beacons);
-    assert.equal(
-      payloads.length,
-      2,
-      "visit remains once per session; store click remains independent",
-    );
-    assert.ok(payloads.every((payload) => payload.path === "/" + route + "/:token"));
-    assert.ok(payloads.every((payload) => payload.source === "campaign"));
-    assert.ok(
-      !JSON.stringify(payloads).includes("private-"),
-      "neither token nor query reaches analytics",
-    );
+    assert.equal(app.beacons.length, 0);
+    assert.equal(app.exports.getSource(), "");
+    assert.equal(app.window.localStorage.getItem("kaata_source"), null);
   }
 });
 
-test("ordinary routes retain their query and similar names do not match token prefixes", async () => {
+test("public routes retain the campaign slug and strip other query and referrer details", async () => {
   for (const pathname of ["/download", "/v2-news/article"]) {
-    const app = fixture(pathname, "?s=campaign");
+    const app = fixture(
+      pathname,
+      "?s=campaign&secret=example-secret",
+      "https://kaata.af/v3/private-capability?secret=value",
+    );
     app.exports.fireVisitOnce();
-    assert.equal((await app.beacons[0]).path, pathname + "?s=campaign");
+    const [visit] = await Promise.all(app.beacons);
+    assert.equal(visit.path, pathname + "?s=campaign");
+    assert.equal(visit.referrer, "https://kaata.af");
+    assert.equal(visit.source, "campaign");
   }
 });
 
-test("private workspace paths and query parameters never reach marketing analytics", async () => {
+test("private workspace paths and query parameters never reach marketing analytics", () => {
   const app = fixture("/app/private-customer", "?email=private@example.test");
   app.exports.fireVisitOnce();
-  assert.equal((await app.beacons[0]).path, "/app");
+  app.exports.fireStoreClick("play");
+  assert.equal(app.beacons.length, 0);
+});
+
+test("explicit acquisition links replace earlier attribution and reach Google Play", async () => {
+  const app = fixture("/", "?s=shop-flyer");
+  app.exports.fireVisitOnce();
+  app.window.location.search = "?utm_source=facebook&utm_medium=paid_social&fbclid=ignored";
+  app.exports.fireVisitOnce();
+  app.exports.fireVisitOnce();
+  assert.equal(app.exports.campaignDownloadPath(), "/download?s=facebook_ads");
+  assert.equal(
+    new URL(app.exports.campaignStoreHref("play")).searchParams.get("referrer"),
+    "kaata_source=facebook_ads",
+  );
+  app.window.location.pathname = "/download";
+  app.window.location.search = "?s=bill_share";
+  app.exports.fireVisitOnce();
+  app.exports.fireStoreClick("play");
+  app.window.location.search = "";
+  app.exports.fireVisitOnce();
+  assert.deepEqual(
+    (await Promise.all(app.beacons)).map((p) => [p.kind ?? "visit", p.source]),
+    [
+      ["visit", "shop-flyer"],
+      ["visit", "facebook_ads"],
+      ["visit", "bill_share"],
+      ["store_click", "bill_share"],
+    ],
+  );
+  assert.equal(
+    new URL(app.exports.campaignStoreHref("play")).searchParams.get("referrer"),
+    "kaata_source=bill_share",
+  );
+});
+
+test("organic campaign tags work, and Facebook click IDs alone do not infer ads", async () => {
+  const organic = fixture("/download", "?utm_source=instagram&utm_medium=organic_social");
+  organic.exports.fireVisitOnce();
+  assert.equal((await organic.beacons[0]).source, "organic_posts");
+  const click = fixture("/download", "?fbclid=click-id");
+  click.exports.fireVisitOnce();
+  assert.equal((await click.beacons[0]).source, "");
+  assert.equal(
+    new URL(click.exports.campaignStoreHref("play")).searchParams.has("referrer"),
+    false,
+  );
+});
+
+test("App Store tagging requires a numeric public provider token and a known campaign", () => {
+  const configured = fixture("/download", "?s=bill_share", "", "123456");
+  const params = new URL(configured.exports.campaignStoreHref("appstore")).searchParams;
+  assert.equal(params.get("pt"), "123456");
+  assert.equal(params.get("ct"), "bill_share");
+  assert.equal(params.get("mt"), "8");
+  for (const [source, token] of [
+    ["bill_share", ""],
+    ["bill_share", "invalid"],
+    ["local-flyer", "123456"],
+  ]) {
+    assert.equal(
+      fixture("/download", `?s=${source}`, "", token).exports.campaignStoreHref("appstore"),
+      "https://apps.apple.com/us/app/kaata/id6789651127",
+    );
+  }
+});
+
+test("untagged visits ignore expired named acquisition but preserve legacy flyer pins", () => {
+  const app = fixture("/download", "");
+  const old = Date.now() - 31 * 24 * 60 * 60 * 1000;
+  app.window.localStorage.setItem(
+    "kaata_source",
+    JSON.stringify({ source: "facebook_ads", ts: old }),
+  );
+  assert.equal(app.exports.getSource(), "");
+  assert.equal(new URL(app.exports.campaignStoreHref("play")).searchParams.has("referrer"), false);
+  app.window.localStorage.setItem(
+    "kaata_source",
+    JSON.stringify({ source: "shop-flyer", ts: old }),
+  );
+  assert.equal(app.exports.getSource(), "shop-flyer");
 });
 
 test("workspace documents have private headers and Google permissions do not expand public pages", () => {

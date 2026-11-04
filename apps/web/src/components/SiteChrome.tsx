@@ -1,15 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import {
-  APP_STORE_URL,
-  FACEBOOK_URL,
-  INSTAGRAM_URL,
-  PLAY_STORE_URL,
-  TIKTOK_URL,
-  WHATSAPP_CONTACT_URL,
-  YOUTUBE_URL,
-} from "../env";
-import { fireStoreClick } from "../lib/analytics";
+import { FACEBOOK_URL, INSTAGRAM_URL, TIKTOK_URL, WHATSAPP_CONTACT_URL, YOUTUBE_URL } from "../env";
+import { campaignDownloadPath, campaignStoreHref, fireStoreClick } from "../lib/analytics";
 import { useI18n, type Lang } from "../lib/i18n";
 import { currentPhonePlatform } from "../lib/web-phone";
 import { BrandLogo } from "./BrandLogo";
@@ -70,7 +62,7 @@ export function SiteHeader() {
             {t("nav.pricing")}
           </Link>
           <Link
-            to="/download"
+            to={campaignDownloadPath()}
             className="text-neutral-600 hover:text-neutral-900 font-medium transition-colors"
           >
             {t("nav.download")}
@@ -97,7 +89,7 @@ export function SiteHeader() {
           <Button asChild variant="brand" size="sm" className="px-2 text-xs sm:px-3 sm:text-[13px]">
             {store ? (
               <a
-                href={store === "appstore" ? APP_STORE_URL : PLAY_STORE_URL}
+                href={campaignStoreHref(store)}
                 target="_blank"
                 rel="noopener noreferrer"
                 referrerPolicy="no-referrer"
@@ -106,7 +98,7 @@ export function SiteHeader() {
                 {t("nav.downloadApp")}
               </a>
             ) : (
-              <Link reloadDocument={!phone} to={phone ? "/download" : "/app"}>
+              <Link reloadDocument={!phone} to={phone ? campaignDownloadPath() : "/app"}>
                 {t(phone ? "nav.downloadApp" : "nav.web")}
               </Link>
             )}
@@ -182,7 +174,10 @@ export function SiteFooter() {
               </Link>
             </li>
             <li>
-              <Link to="/download" className="hover:text-neutral-900 transition-colors">
+              <Link
+                to={campaignDownloadPath()}
+                className="hover:text-neutral-900 transition-colors"
+              >
                 {t("footer.download")}
               </Link>
             </li>

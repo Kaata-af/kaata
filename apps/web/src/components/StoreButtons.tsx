@@ -10,8 +10,7 @@
 // both locales — brand badges are conventionally untranslated here,
 // matching the "brand names stay Latin" rule.
 
-import { APP_STORE_URL, PLAY_STORE_URL } from "../env";
-import { fireStoreClick } from "../lib/analytics";
+import { campaignStoreHref, fireStoreClick } from "../lib/analytics";
 import { useI18n } from "../lib/i18n";
 import appStoreBadge from "../assets/app-store-badge.svg";
 import googlePlayBadge from "../assets/google-play-badge.svg";
@@ -26,9 +25,10 @@ export function AppStoreBadge() {
   const { t } = useI18n();
   return (
     <a
-      href={APP_STORE_URL}
+      href={campaignStoreHref("appstore")}
       target="_blank"
       rel="noopener noreferrer"
+      referrerPolicy="no-referrer"
       className="inline-block transition-opacity hover:opacity-80"
       // Best-effort click beacon — no preventDefault, the _blank
       // navigation must proceed instantly; sendBeacon survives it.
@@ -44,9 +44,10 @@ export function PlayStoreBadge() {
   const { t } = useI18n();
   return (
     <a
-      href={PLAY_STORE_URL}
+      href={campaignStoreHref("play")}
       target="_blank"
       rel="noopener noreferrer"
+      referrerPolicy="no-referrer"
       className="inline-block transition-opacity hover:opacity-80"
       // Best-effort click beacon — no preventDefault, the _blank
       // navigation must proceed instantly; sendBeacon survives it.

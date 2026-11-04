@@ -1,4 +1,9 @@
-import { BACKEND_URL } from "../env";
+import {
+  APP_STORE_CAMPAIGN_PROVIDER_TOKEN,
+  APP_STORE_URL,
+  BACKEND_URL,
+  PLAY_STORE_URL,
+} from "../env";
 
 const SOURCE_KEY = "kaata_source";
 const VISIT_FIRED_KEY = "kaata_visit_fired";
@@ -17,6 +22,36 @@ const VISIT_FIRED_KEY = "kaata_visit_fired";
 const SOURCE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 type SourcePin = { source: string; ts: number };
+
+const SOURCE_SLUG = /^[a-z0-9._~-]{1,64}$/i;
+const ACQUISITION_SOURCES = new Set(["facebook_ads", "organic_posts", "bill_share"]);
+type Store = "play" | "appstore";
+
+function canTrack(pathname: string): boolean {
+  return !/^\/(?:app|admin|i|v|v2|v3|t|v1\/(?:shared|tabs))(?:\/|$)/i.test(pathname);
+}
+
+function explicitSource(search: string): string {
+  const params = new URLSearchParams(search);
+  const source = params.get("s")?.trim() ?? "";
+  if (SOURCE_SLUG.test(source))
+    return ACQUISITION_SOURCES.has(source.toLowerCase()) ? source.toLowerCase() : source;
+
+  const utmSource = params.get("utm_source")?.trim().toLowerCase() ?? "";
+  if (ACQUISITION_SOURCES.has(utmSource)) return utmSource;
+  const medium = params.get("utm_medium")?.trim().toLowerCase() ?? "";
+  if (
+    ["facebook", "fb", "meta"].includes(utmSource) &&
+    /^(?:cpc|cpm|ppc|paid|paid[_-]?social|ads)$/.test(medium)
+  )
+    return "facebook_ads";
+  if (
+    ["facebook", "fb", "instagram", "tiktok", "youtube", "social"].includes(utmSource) &&
+    /^(?:social|organic|organic[_-]social)$/.test(medium)
+  )
+    return "organic_posts";
+  return "";
+}
 
 function writePin(pin: SourcePin): void {
   try {
@@ -43,9 +78,7 @@ function readPin(): SourcePin | null {
   // for 30 more days. Verify a fresh QR in a private window, not on a phone
   // that has scanned one before.
   if (raw[0] !== "{") {
-    const migrated: SourcePin = { source: raw, ts: Date.now() };
-    writePin(migrated);
-    return migrated;
+    return SOURCE_SLUG.test(raw) ? { source: raw, ts: Date.now() } : null;
   }
   try {
     const parsed: unknown = JSON.parse(raw);
@@ -53,7 +86,7 @@ function readPin(): SourcePin | null {
       typeof parsed === "object" &&
       parsed !== null &&
       typeof (parsed as SourcePin).source === "string" &&
-      (parsed as SourcePin).source.length > 0 &&
+      SOURCE_SLUG.test((parsed as SourcePin).source) &&
       typeof (parsed as SourcePin).ts === "number" &&
       Number.isFinite((parsed as SourcePin).ts)
     ) {
@@ -65,44 +98,63 @@ function readPin(): SourcePin | null {
   return null;
 }
 
-// Source = the QR/marketing-channel slug that brought the user here, passed as
-// ?s=foo on the URL. Sticky across pages so a visitor who lands on /?s=shop_42
-// and later navigates to /download still attributes their download click to
-// shop_42. Not a UTM override system: within the TTL the FIRST source wins, so
-// a later generic link can't steal a shop QR's credit.
-export function getSource(): string {
-  const fromUrl = new URLSearchParams(window.location.search).get("s");
+// Named acquisition links are deliberate new touches. Ordinary campaign QR
+// slugs still use the existing 30-day first-touch window.
+function resolveSource(search: string): SourcePin | null {
+  const fromUrl = explicitSource(search);
   const pin = readPin();
-  if (fromUrl && fromUrl.length > 0 && fromUrl.length <= 64) {
-    // The window is ABSOLUTE from the first touch, not sliding — repeat visits
-    // must not keep renewing a pin and recreate the forever-stickiness.
-    // A future-dated ts (device clock skew) yields a negative age and simply
-    // keeps the pin, which is the safe direction.
-    if (pin && Date.now() - pin.ts < SOURCE_TTL_MS) return pin.source;
-    writePin({ source: fromUrl, ts: Date.now() });
-    return fromUrl;
+  const current = pin && Date.now() - pin.ts < SOURCE_TTL_MS;
+  if (!fromUrl) {
+    // Expired acquisition tags must not credit a later untagged download.
+    // Keep the established carry-forward behavior for generic flyer slugs.
+    return pin && (current || !ACQUISITION_SOURCES.has(pin.source)) ? pin : null;
   }
-  // No ?s= on this URL — carry the existing pin even if it has aged out, so an
-  // expired pin still labels the session it belongs to until a new campaign
-  // link actually replaces it. Expiry decides who WINS a conflict; it is not a
-  // reason to drop attribution on the floor.
-  return pin?.source ?? "";
+  if (current && (pin.source === fromUrl || !ACQUISITION_SOURCES.has(fromUrl))) return pin;
+  return { source: fromUrl, ts: Date.now() };
 }
 
-// Redact token-bearing routes before they reach analytics. The invite (/i/:token),
-// shared-ledger (/v/:token, /v2/:token or /v3/:token) and mutual-tab (/t/:token) paths carry a secret token
-// that the backend deliberately stores only as a SHA-256 hash — beaconing the raw
-// path would rest the plaintext token in web_visits next to the visitor's IP,
-// defeating that design and letting anyone with DB/backup access redeem the
-// invite or WRITE to the tab. Send the route pattern instead, and drop the query
-// string on those routes. (/t/ is Go-rendered in production, so this fires only
-// when Caddy's handle_errors falls back to the SPA shell — still a leak then.)
-function safeVisitPath(): string {
-  const p = window.location.pathname;
-  if (/^\/app(?:\/|$)/.test(p)) return "/app";
-  const m = p.match(/^\/(i|v|v2|v3|t)\/.+/);
-  if (m) return `/${m[1]}/:token`;
-  return p + window.location.search;
+export function getSource(): string {
+  if (typeof window === "undefined" || !canTrack(window.location.pathname)) return "";
+  return resolveSource(window.location.search)?.source ?? "";
+}
+
+export function campaignDownloadPath(): string {
+  const source = getSource();
+  return source ? `/download?${new URLSearchParams({ s: source })}` : "/download";
+}
+
+export function campaignStoreHref(store: Store): string {
+  const source = getSource();
+  if (store === "appstore") {
+    if (!ACQUISITION_SOURCES.has(source) || !/^\d{1,20}$/.test(APP_STORE_CAMPAIGN_PROVIDER_TOKEN))
+      return APP_STORE_URL;
+    const url = new URL(APP_STORE_URL);
+    url.searchParams.set("pt", APP_STORE_CAMPAIGN_PROVIDER_TOKEN);
+    url.searchParams.set("ct", source);
+    url.searchParams.set("mt", "8");
+    return url.href;
+  }
+  if (!ACQUISITION_SOURCES.has(source)) return PLAY_STORE_URL;
+  const url = new URL(PLAY_STORE_URL);
+  url.searchParams.set("referrer", new URLSearchParams({ kaata_source: source }).toString());
+  return url.href;
+}
+
+function acquisitionContext() {
+  const { pathname, search } = window.location;
+  if (!canTrack(pathname)) return null;
+  const explicit = explicitSource(search);
+  const pin = resolveSource(search);
+  if (pin) writePin(pin);
+  const path = explicit ? `${pathname}?${new URLSearchParams({ s: explicit })}` : pathname;
+  let referrer = "";
+  try {
+    const url = new URL(document.referrer);
+    if (url.protocol === "http:" || url.protocol === "https:") referrer = url.origin;
+  } catch {
+    // Direct navigation or a browser that hides the referrer.
+  }
+  return { explicit, source: pin?.source ?? "", path, referrer };
 }
 
 // Fire-and-forget visit beacon. Once per browser session (sessionStorage flag)
@@ -110,9 +162,14 @@ function safeVisitPath(): string {
 // IP + Accept-Language from the request itself; body just carries source +
 // path + referrer.
 export function fireVisitOnce(): void {
+  const context = acquisitionContext();
+  if (!context) return;
+  const visitKey = ACQUISITION_SOURCES.has(context.explicit)
+    ? `${VISIT_FIRED_KEY}:${context.explicit}`
+    : VISIT_FIRED_KEY;
   let alreadyFired = false;
   try {
-    alreadyFired = window.sessionStorage.getItem(VISIT_FIRED_KEY) === "1";
+    alreadyFired = window.sessionStorage.getItem(visitKey) === "1";
   } catch {
     // sessionStorage unavailable — fall back to letting it fire (better
     // double-count than silently lose every visit in private mode).
@@ -120,13 +177,14 @@ export function fireVisitOnce(): void {
   if (alreadyFired) return;
   try {
     window.sessionStorage.setItem(VISIT_FIRED_KEY, "1");
+    window.sessionStorage.setItem(visitKey, "1");
   } catch {
     // ignore
   }
   postBeacon({
-    source: getSource(),
-    path: safeVisitPath(),
-    referrer: document.referrer,
+    source: context.source,
+    path: context.path,
+    referrer: context.referrer,
   });
 }
 
@@ -135,13 +193,15 @@ export function fireVisitOnce(): void {
 // instantly and the beacon rides along (sendBeacon exists precisely for
 // this). NOT once-per-session: each click is a distinct funnel event; the
 // backend dedupes per (ip, user_agent, hour) on the stats side.
-export function fireStoreClick(store: "play" | "appstore"): void {
+export function fireStoreClick(store: Store): void {
+  const context = acquisitionContext();
+  if (!context) return;
   postBeacon({
     kind: "store_click",
     detail: store,
-    source: getSource(),
-    path: safeVisitPath(),
-    referrer: document.referrer,
+    source: context.source,
+    path: context.path,
+    referrer: context.referrer,
   });
 }
 

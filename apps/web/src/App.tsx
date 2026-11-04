@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef } from "react";
 import { Route, Routes, useLocation } from "react-router-dom";
 import { ToastProvider } from "./components/Toast";
-import { fireVisitOnce, getSource } from "./lib/analytics";
+import { fireVisitOnce } from "./lib/analytics";
 import { dismissWebAppleCallback } from "./lib/web-apple";
 import { cancelPendingWebSignIn, getWebSession } from "./lib/web-auth";
 import { WEB_AUTH_ROUTE_EVENT, isWebAuthPath, preservesWorkspaceScroll } from "./lib/web-routes";
@@ -31,19 +31,16 @@ const IS_ADMIN_HOST =
   typeof window !== "undefined" && window.location.hostname.split(".")[0] === "admin";
 
 export function App() {
+  const { pathname, search } = useLocation();
   useEffect(() => {
     // Don't fire the public visit beacon on the admin host — that's operator
     // traffic and would pollute the very analytics the dashboard reports.
-    if (IS_ADMIN_HOST || /^\/app(?:\/|$)/.test(window.location.pathname)) return;
+    if (IS_ADMIN_HOST) return;
     // Returning app users pass through the public root only to reopen their
     // workspace; do not count that handoff as a marketing visit.
-    if (window.location.pathname === "/" && getWebSession()) return;
-    // Stash the source from ?s= into localStorage before firing the beacon
-    // so the recorded visit carries it even if a later page in this session
-    // doesn't include the query param.
-    getSource();
+    if (pathname === "/" && getWebSession()) return;
     fireVisitOnce();
-  }, []);
+  }, [pathname, search]);
 
   return (
     <ToastProvider>

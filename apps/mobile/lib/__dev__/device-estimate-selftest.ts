@@ -223,7 +223,7 @@ async function main() {
   });
 
   await check(
-    "check-in adds only hashed metadata and keeps caller installation/session values",
+    "check-in adds hashed device metadata and canonical campaign source for the same install",
     async () => {
       const oldFetch = globalThis.fetch;
       const requests: {
@@ -237,6 +237,10 @@ async function main() {
         "./auth": { getSessionJWT: async () => "session.fixture", InstallRetiredError: Error },
         "./db": { getAppMeta: async () => null },
         "./device-estimate": { getDeviceEstimate: async () => metadata },
+        "./install-referrer": {
+          getInstallReferrerSource: async (id: string) =>
+            id === "installation-before-reset" ? "bill_share" : undefined,
+        },
         "./install-id": { clearInstallRetired: async () => {}, markInstallRetired: async () => {} },
       });
       globalThis.fetch = (async (_url: unknown, init?: RequestInit) => {
@@ -255,13 +259,16 @@ async function main() {
           app_version: "2.2.0",
           platform: "android",
           device_locale: "en-US",
+          installed_at_unix_ms: 1_790_000_000_000,
           usage_entries_created: 3,
           device_id_hash: "caller-cannot-override",
           device_id_kind: "caller-cannot-override",
+          install_referrer_source: "caller-cannot-override",
         };
         await api.checkIn(payload);
         assert.equal(requests[0].body.install_id, payload.install_id);
         assert.equal(requests[0].body.usage_entries_created, 3);
+        assert.equal(requests[0].body.install_referrer_source, "bill_share");
         assert.equal(requests[0].headers.Authorization, "Bearer session.fixture");
         assert.ok(requests[0].signal instanceof AbortSignal);
         assert.deepEqual(
@@ -282,6 +289,9 @@ async function main() {
         assert.equal(requests[1].body.install_id, "installation-after-reset");
         assert.ok(!("device_id_hash" in requests[1].body));
         assert.ok(!("device_id_kind" in requests[1].body));
+        assert.ok(!("install_referrer_source" in requests[1].body));
+        await api.checkIn({ ...payload, installed_at_unix_ms: undefined });
+        assert.ok(!("install_referrer_source" in requests[2].body));
       } finally {
         globalThis.fetch = oldFetch;
       }

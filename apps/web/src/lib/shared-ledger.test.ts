@@ -169,6 +169,8 @@ test("actual SPA renders all three currencies independently, including zero and 
     1,
     "common bill metadata is not repeated for every currency",
   );
+  assert.equal((html.match(/href="\/download\?s=bill_share"/g) ?? []).length, 1);
+  assert.match(html, /referrerPolicy="no-referrer"/i);
   assert.ok(
     (html.match(/AFN/g) ?? []).length >= 3 && (html.match(/USD/g) ?? []).length >= 3,
     "every visible entry retains its currency label",

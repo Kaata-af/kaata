@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import { campaignDownloadPath } from "../lib/analytics";
 import { useI18n } from "../lib/i18n";
 import { WEB_PRO_OFFERS } from "../lib/web-pro";
 import { Button } from "./ui/button";
@@ -74,7 +75,7 @@ export function Pricing() {
               {t("pricing.free.note")}
             </p>
             <Button asChild variant="brand" size="lg" className="mt-auto w-full min-h-11">
-              <Link to="/download">{t("pricing.free.cta")}</Link>
+              <Link to={campaignDownloadPath()}>{t("pricing.free.cta")}</Link>
             </Button>
           </div>
 

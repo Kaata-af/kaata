@@ -1,0 +1,15 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'af.kaata.installreferrer'
+version = '0.0.1'
+
+android {
+  namespace 'expo.modules.kaatainstallreferrer'
+}
+
+dependencies {
+  implementation 'com.android.installreferrer:installreferrer:2.2'
+}

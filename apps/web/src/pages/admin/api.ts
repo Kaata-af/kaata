@@ -111,6 +111,17 @@ export type Stats = {
   bucket: string;
   points: number;
   by_source: SourceRow[];
+  acquisition?: {
+    sources: {
+      source: string;
+      play_clicks: number;
+      app_store_clicks: number;
+      android_installs: number;
+      linked_accounts: number;
+    }[];
+    unattributed: number;
+    legacy_ip_estimates: number;
+  };
   // Older activity was stored as UTC dates without times and cannot be
   // accurately reassigned to Kabul days. Optional during backend rollout.
   activity_timezone_since?: string;

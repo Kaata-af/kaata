@@ -7,6 +7,59 @@ import (
 	"github.com/matee/kaata-backend/internal/testutil"
 )
 
+func TestAcquisitionSeparatesStoreClicksReferrersAndLegacyEstimates(t *testing.T) {
+	pool := testutil.ConnectTestDB(t)
+	ctx := t.Context()
+	a := seedActivityAccount(t, pool)
+	b := seedActivityAccount(t, pool)
+	seed := func(account *string, date, platform, source, method string) string {
+		t.Helper()
+		id := seedActivityInstall(t, pool, account, date)
+		if _, err := pool.Exec(ctx, `UPDATE installs SET platform=$2,source=NULLIF($3,''),
+			attribution_method=NULLIF($4,'') WHERE install_id=$1`, id, platform, source, method); err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	seed(&a, "2026-09-01T10:00:00Z", "android", "facebook_ads", "play_referrer")
+	seed(&a, "2026-09-02T10:00:00Z", "android", "organic_posts", "play_referrer")
+	seed(&b, "2026-09-01T10:00:00Z", "ios", "", "")
+	seed(&b, "2026-09-02T10:00:00Z", "android", "bill_share", "play_referrer")
+	seed(nil, "2026-09-02T10:00:00Z", "android", "facebook_ads", "ip_match")
+	seed(nil, "2026-09-02T10:00:00Z", "ios", "facebook_ads", "play_referrer")
+	seed(&a, "2026-08-01T10:00:00Z", "web", "", "")
+	excluded := seed(nil, "2026-09-02T10:00:00Z", "android", "facebook_ads", "play_referrer")
+	if _, err := pool.Exec(ctx, `INSERT INTO outreach_exclusions(kind,id,reason) VALUES('install',$1,'test')`, excluded); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO web_visits(kind,source,ip,user_agent,visited_at,detail) VALUES
+		('store_click','facebook_ads','192.0.2.1','Mozilla',NOW(),'play'),
+		('store_click','facebook_ads','192.0.2.1','Mozilla',NOW(),'play'),
+		('store_click','facebook_ads','192.0.2.1','Mozilla',NOW(),'appstore'),
+		('store_click','facebook_ads','192.0.2.2','FacebookExternalHit',NOW(),'appstore'),
+		('store_click','facebook_ads','192.0.2.3','Mozilla',NOW(),'play'),
+		('visit','organic_posts','192.0.2.2','Mozilla',NOW(),NULL)`); err != nil {
+		t.Fatal(err)
+	}
+	got, err := NewService(pool, nil, []string{"192.0.2.3"}).GetStats(ctx, "day", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]AcquisitionSource{
+		"facebook_ads":  {Source: "facebook_ads", AndroidInstalls: 1, LinkedAccounts: 1, PlayClicks: 1, AppStoreClicks: 1},
+		"organic_posts": {Source: "organic_posts", AndroidInstalls: 1},
+		"bill_share":    {Source: "bill_share", AndroidInstalls: 1},
+	}
+	if len(got.Acquisition.Sources) != len(want) || got.Acquisition.Unattributed != 2 || got.Acquisition.LegacyIPEstimates != 1 {
+		t.Fatalf("acquisition = %+v", got.Acquisition)
+	}
+	for _, source := range got.Acquisition.Sources {
+		if source != want[source.Source] {
+			t.Fatalf("source = %+v, want %+v", source, want[source.Source])
+		}
+	}
+}
+
 // GetStats — store_click counting must mirror the download counting exactly:
 // deduped per (ip, user_agent, hour), bot UAs and operator IPs excluded, and
 // surfaced both as the headline store_clicks and per-source in by_source.

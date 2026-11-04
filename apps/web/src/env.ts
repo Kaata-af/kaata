@@ -28,6 +28,12 @@ export const YOUTUBE_URL = "https://www.youtube.com/@KaataAF";
 export const APP_STORE_URL = "https://apps.apple.com/us/app/kaata/id6789651127";
 export const PLAY_STORE_URL = "https://play.google.com/store/apps/details?id=af.kaata.app";
 
+// Public pt parameter from an App Store Connect campaign link, not a credential.
+export const APP_STORE_CAMPAIGN_PROVIDER_TOKEN = envOr(
+  import.meta.env.VITE_APP_STORE_CAMPAIGN_PROVIDER_TOKEN,
+  "",
+);
+
 // NOTE: there is deliberately NO ADMIN_API_KEY export. VITE_* values are baked
 // verbatim into the public JS bundle served to every kaata.af visitor, so
 // exposing the admin secret here (even as an optional convenience) risked

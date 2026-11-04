@@ -31,7 +31,7 @@ export function Campaigns() {
     <div className="min-w-0 max-w-full">
       <PageHeader
         title="Campaigns"
-        description="Create a trackable flyer link and see which campaigns bring installs."
+        description="Create a trackable flyer link and review campaign traffic and install estimates."
       />
       <div className="flex min-w-0 flex-col gap-4">
         <QrGeneratorCard />
@@ -223,7 +223,7 @@ function PerformanceCard(props: { stats: Stats }) {
   return (
     <Card
       title="Campaign performance"
-      sub="All-time web traffic and attributed installs, ordered by installs"
+      sub="All-time web traffic and same-network install estimates"
       action={
         <input
           aria-label="Search campaign sources"
@@ -268,10 +268,10 @@ function PerformanceCard(props: { stats: Stats }) {
                 </TableHeaderCell>
               ) : null}
               <TableHeaderCell className="px-0 py-2 text-right text-xs text-neutral-400">
-                Attributed installs
+                Estimated installs
               </TableHeaderCell>
               <TableHeaderCell className="px-0 py-2 text-right text-xs text-neutral-400">
-                Visit → install
+                Estimated visit → install
               </TableHeaderCell>
             </TableRow>
           </TableHead>

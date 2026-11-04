@@ -109,6 +109,7 @@ function fixture(raw: string | null) {
       PhoneMockupWhatsApp: block,
     },
     "../components/SiteChrome": { SiteFooter: block, SiteHeader: block },
+    "../lib/analytics": { campaignDownloadPath: () => "/download" },
     "../lib/i18n": { useI18n: () => ({ lang: "en", t: (key: string) => key }) },
     "../components/ui/button": { Button: block },
     "../components/ui/card": { Card: block },
