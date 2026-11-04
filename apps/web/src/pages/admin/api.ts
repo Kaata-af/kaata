@@ -116,6 +116,7 @@ export type Stats = {
       source: string;
       play_clicks: number;
       app_store_clicks: number;
+      apple_first_downloads?: number | null;
       android_installs: number;
       linked_accounts: number;
     }[];

@@ -482,6 +482,7 @@ func main() {
 	r.Group(func(pr chi.Router) {
 		pr.Use(httpx.AdminKeyMiddleware(cfg.AdminAPIKey))
 		pr.Get("/v1/admin/stats", adminH.Stats)
+		pr.Put("/v1/admin/acquisition/apple-downloads", adminH.ImportAppleAcquisition)
 		pr.Get("/v1/admin/day-comparison", adminH.DayComparison)
 		pr.Get("/v1/admin/growth", adminH.Growth)
 		pr.Get("/v1/admin/users", adminH.Users)

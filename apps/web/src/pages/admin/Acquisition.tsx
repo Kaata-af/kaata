@@ -67,6 +67,7 @@ function SourceCard({ acquisition }: { acquisition: Stats["acquisition"] }) {
                   ["Google Play clicks", row?.play_clicks],
                   ["App Store clicks", row?.app_store_clicks],
                   ["Google Play installs", row?.android_installs],
+                  ["App Store first-time downloads", row?.apple_first_downloads],
                   ["Linked accounts", row?.linked_accounts],
                 ].map(([name, count]) => (
                   <div key={name} className="flex justify-between gap-3">
@@ -115,10 +116,11 @@ function SourceCard({ acquisition }: { acquisition: Stats["acquisition"] }) {
         </p>
       )}
       <p className="mt-2 text-xs leading-relaxed text-brand-muted">
-        Google Play install counts start with Android versions that report a campaign after the app is opened.
-        Linked accounts count once, using their first recorded app install after test data is
-        excluded. Clicks are counted separately for each store. App Store counts reflect link
-        clicks.
+        Google Play install counts start with Android versions that report a campaign after the app
+        is opened. Linked accounts count once, using their first recorded app install after test
+        data is excluded. App Store first-time downloads come from imported Apple campaign reports.
+        Totals may omit dates Apple suppresses for privacy. A dash means Apple has no imported count
+        for that channel.
       </p>
     </Card>
   );

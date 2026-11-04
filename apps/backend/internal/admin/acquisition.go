@@ -7,11 +7,12 @@ import (
 )
 
 type AcquisitionSource struct {
-	Source          string `json:"source"`
-	PlayClicks      int64  `json:"play_clicks"`
-	AppStoreClicks  int64  `json:"app_store_clicks"`
-	AndroidInstalls int64  `json:"android_installs"`
-	LinkedAccounts  int64  `json:"linked_accounts"`
+	Source              string `json:"source"`
+	PlayClicks          int64  `json:"play_clicks"`
+	AppStoreClicks      int64  `json:"app_store_clicks"`
+	AppleFirstDownloads *int64 `json:"apple_first_downloads"`
+	AndroidInstalls     int64  `json:"android_installs"`
+	LinkedAccounts      int64  `json:"linked_accounts"`
 }
 
 type Acquisition struct {
@@ -49,17 +50,21 @@ func (s *Service) getAcquisition(ctx context.Context) (Acquisition, error) {
 		    AND (ip IS NULL OR ip <> ALL($3::text[]))
 		    AND (user_agent IS NULL OR lower(user_agent) !~ $4)
 		  GROUP BY source
+		), apple_by_source AS (
+		  SELECT source, SUM(first_downloads) AS downloads
+		  FROM apple_acquisition_daily GROUP BY source
 		), coverage AS (
 		  SELECT COUNT(*) FILTER (WHERE NOT via_play AND attribution_method IS DISTINCT FROM 'ip_match') AS unattributed,
 		         COUNT(*) FILTER (WHERE attribution_method='ip_match') AS legacy_ip
 		  FROM classified
 		)
 		SELECT k.source, COALESCE(w.play_clicks,0), COALESCE(w.app_store_clicks,0),
-		       COALESCE(i.installs,0), COALESCE(i.accounts,0),
+		       a.downloads, COALESCE(i.installs,0), COALESCE(i.accounts,0),
 		       c.unattributed, c.legacy_ip
 		FROM source_keys k CROSS JOIN coverage c
 		LEFT JOIN installs_by_source i USING (source)
 		LEFT JOIN store_clicks_by_source w USING (source)
+		LEFT JOIN apple_by_source a USING (source)
 	`, s.operatorAccountIDs, visit.AcquisitionSources(), s.operatorIPs, botUARegex)
 	var result Acquisition
 	if err != nil {
@@ -68,7 +73,7 @@ func (s *Service) getAcquisition(ctx context.Context) (Acquisition, error) {
 	defer rows.Close()
 	for rows.Next() {
 		var source AcquisitionSource
-		if err := rows.Scan(&source.Source, &source.PlayClicks, &source.AppStoreClicks, &source.AndroidInstalls, &source.LinkedAccounts,
+		if err := rows.Scan(&source.Source, &source.PlayClicks, &source.AppStoreClicks, &source.AppleFirstDownloads, &source.AndroidInstalls, &source.LinkedAccounts,
 			&result.Unattributed, &result.LegacyIPEstimates); err != nil {
 			return result, err
 		}
