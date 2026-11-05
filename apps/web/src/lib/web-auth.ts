@@ -1,4 +1,5 @@
 import { BACKEND_URL } from "../env";
+import { clearSharedInvitation } from "./web-shared-invite";
 import {
   readWebBrowserValue,
   removeLegacyWebTabValue,
@@ -559,5 +560,9 @@ export async function signOut(): Promise<void> {
     // the session available to retry; never claim server revocation offline.
     if (!(error instanceof WebApiError && error.status === 401)) throw error;
   }
-  if (isSameWebSession(getWebSession(), session)) clearWebSession();
+  const current = getWebSession();
+  if (!current || isSameWebSession(current, session)) {
+    clearSharedInvitation();
+    if (current) clearWebSession();
+  }
 }

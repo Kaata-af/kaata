@@ -36,9 +36,9 @@ const en = {
   unknown: "Something went wrong. Please try again.",
   sessionEnded: "Your session ended. Sign in again to continue.",
   sharedNotice:
-    "Shared accounts are available in the phone app. Their balances are not included in these totals.",
+    "Some shared balances could not be loaded. Refresh your kaata to see complete totals.",
   shared: "Shared account",
-  sharedDetail: "Open this person in the Kaata phone app to see their shared balance and history.",
+  sharedDetail: "Shared balances and tally history.",
   viewer: "You have view-only access to this kaata.",
   archived: "This kaata is archived. You can view its history here.",
   crypto:
@@ -55,8 +55,7 @@ const en = {
   phoneHint:
     "Missing a kaata? Open the phone app while connected to the internet and let it sync using this same account.",
   onlineHint: "Changes sync across your phone and web as they reach Kaata.",
-  scope:
-    "People, notes, tallies and credit limits. Reminders and shared history are in the phone app.",
+  scope: "People, shared accounts, notes, tallies and credit limits. Changes sync with your phone.",
   gave: "I gave",
   received: "I received",
   history: "Entry history",
@@ -155,9 +154,9 @@ const fa: Copy = {
   deleted: "ثبت حذف شد",
   unknown: "مشکلی پیش آمد. دوباره تلاش کنید.",
   sessionEnded: "نشست شما پایان یافت. دوباره وارد شوید.",
-  sharedNotice: "حساب‌های مشترک در اپ تلفون در دسترس است. بیلانس آن‌ها در این مجموع حساب نشده است.",
+  sharedNotice: "بعضی بیلانس‌های مشترک باز نشد. برای دیدن مجموع کامل، کاتای خود را تازه کنید.",
   shared: "حساب مشترک",
-  sharedDetail: "برای دیدن بیلانس و تاریخچهٔ حساب مشترک، این شخص را در اپ کاتا در تلفون باز کنید.",
+  sharedDetail: "بیلانس‌ها و تاریخچۀ حساب مشترک.",
   viewer: "شما تنها اجازهٔ دیدن این کاتا را دارید.",
   archived: "این کاتا آرشیف شده است. تاریخچهٔ آن را اینجا دیده می‌توانید.",
   crypto:
@@ -172,7 +171,8 @@ const fa: Copy = {
   noBooksText: "یک کاتا بسازید یا با همان حساب تلفون خود وارد شوید.",
   phoneHint: "کاتای شما نیست؟ اپ تلفون را با همین حساب و با اتصال به انترنت باز کنید تا همگام شود.",
   onlineHint: "تغییرات آنلاین ثبت و با تلفون همگام می‌شود.",
-  scope: "اشخاص، یادداشت‌ها، ثبت‌ها و حدود نسیه. یادآوری‌ها و تاریخچۀ مشترک در اپ تلفون است.",
+  scope:
+    "اشخاص، حساب‌های مشترک، یادداشت‌ها، ثبت‌ها و حدود نسیه. تغییرات با تلفون شما همگام می‌شود.",
   gave: "دادم",
   received: "گرفتم",
   history: "تاریخچهٔ ثبت‌ها",
@@ -269,9 +269,9 @@ const ps: Copy = {
   deleted: "ثبت ړنګ شو",
   unknown: "ستونزه پېښه شوه. بیا هڅه وکړئ.",
   sessionEnded: "ستاسو ناسته پای ته ورسېده. بیا ننوزئ.",
-  sharedNotice: "ګډ حسابونه د تلفون په اپ کې شته. د هغوی بیلانس په دې ټولیزه شمېره کې نه دی شامل.",
+  sharedNotice: "ځینې ګډ بیلانسونه پرانیستل نه شول. د بشپړې ټولګې لپاره خپله کاتا تازه کړئ.",
   shared: "ګډ حساب",
-  sharedDetail: "د ګډ بیلانس او تاریخچې لپاره دا کس د کاتا د تلفون په اپ کې پرانیزئ.",
+  sharedDetail: "ګډ بیلانسونه او د حساب تاریخچه.",
   viewer: "تاسو یوازې د دې کاتا د لیدلو اجازه لرئ.",
   archived: "دا کاتا آرشیف شوې ده. تاریخچه یې دلته لیدلی شئ.",
   crypto:
@@ -286,7 +286,7 @@ const ps: Copy = {
   noBooksText: "یوه کاتا جوړه کړئ یا د خپل تلفون په حساب ننوزئ.",
   phoneHint: "کاتا مو نشته؟ د تلفون اپ په همدې حساب او له انټرنېټ سره پرانیزئ چې همغږی شي.",
   onlineHint: "بدلونونه آنلاین ثبت او له تلفون سره همغږي کېږي.",
-  scope: "کسان، یادښتونه، ثبتونه او د پور حدونه. یادونې او ګډه تاریخچه د تلفون په اپ کې دي.",
+  scope: "کسان، ګډ حسابونه، یادښتونه، ثبتونه او د پور حدونه. بدلونونه له تلفون سره همغږي کېږي.",
   gave: "ور مې کړل",
   received: "را مې کړل",
   history: "د ثبتونو تاریخچه",

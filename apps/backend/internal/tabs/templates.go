@@ -1,14 +1,14 @@
 package tabs
 
-// Invitation landing only. No ledger reads, API credentials or financial OG
-// previews in the browser. html/template escapes the token in script context.
+// Invitation landing only. html/template escapes the invitation token in script
+// context. Opening the web app still requires sign-in and an explicit join.
 // Neutral product styling stays separate from the flyers/social palette.
 const viewHTML = `<!doctype html>
 <html lang="{{.Language}}" dir="{{if .RTL}}rtl{{else}}ltr{{end}}">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex,nofollow"><meta name="referrer" content="no-referrer">
 <meta property="og:title" content="{{if eq .Language "ps"}}د کاټه د ګډ حساب بلنه{{else if .RTL}}دعوت به حساب مشترک کاتا{{else}}Kaata shared-account invitation{{end}}">
-<meta property="og:description" content="{{if eq .Language "ps"}}دا بلنه په کاټه اپ کې پرانیزئ.{{else if .RTL}}این دعوت را در برنامهٔ کاتا باز کنید.{{else}}Open this invitation in the Kaata app.{{end}}">
+<meta property="og:description" content="{{if eq .Language "ps"}}دا بلنه په کاټه کې پرانیزئ.{{else if .RTL}}این دعوت را در کاتا باز کنید.{{else}}Open this invitation in Kaata.{{end}}">
 <title>Kaata</title>
 <style>
 *{box-sizing:border-box}body{margin:0;min-height:100svh;display:grid;place-items:center;padding:24px;background:#FFFFFF;color:#171717;font:16px/1.7 system-ui,sans-serif}
@@ -20,10 +20,11 @@ a{display:block;color:#171717;text-decoration:none;padding:12px;margin-top:8px;b
 </style></head><body><main>
 <div class="brand" dir="ltr">kaata.</div>
 <h1>{{if eq .Language "ps"}}په کاټه کې ګډ حساب{{else if .RTL}}حساب مشترک در کاتا{{else}}Share an account in Kaata{{end}}</h1>
-<p>{{if eq .Language "ps"}}د ګډون لپاره دا بلنه په اپ کې پرانیزئ او خپل حساب ته ننوځئ. ستاسو کاټه په اپ کې پاتې کېږي.{{else if .RTL}}برای پیوستن، این دعوت را در برنامه باز کنید و وارد حساب خود شوید. معلومات حساب در وب نشان داده نمی‌شود.{{else}}Open this invitation in the app and sign in to join. Your ledger stays in the app.{{end}}</p>
+<p>{{if eq .Language "ps"}}د ګډون لپاره اپ یا د کاټه وېب پرانیزئ او خپل حساب ته ننوځئ.{{else if .RTL}}برای پیوستن، اپ یا کاتای وب را باز کنید و وارد حساب خود شوید.{{else}}Open the app or Kaata Web and sign in to join.{{end}}</p>
 {{if eq .RecordingMode "notify_one_way"}}<p>{{if eq .Language "ps"}}یوازې د دې اړیکې جوړوونکی ثبتونه زیاتولی شي. تاسو حساب کتلی شئ او خبرتیاوې ترلاسه کوئ. د هر ثبت جلا تایید ته اړتیا نشته؛ ګډون د هر ثبت د منلو معنا نه لري.{{else if .RTL}}فقط سازندهٔ این ارتباط می‌تواند ثبت اضافه کند. شما حساب را می‌بینید و اطلاعیه دریافت می‌کنید. تأیید جداگانهٔ هر ثبت لازم نیست؛ پیوستن به معنی تأیید هر ثبت نیست.{{else}}Only the person who created this link can add tallies. You can view the account and receive notifications. No individual approval is needed; joining does not mean you accepted each tally.{{end}}</p>{{else if eq .RecordingMode "notify"}}<p>{{if eq .Language "ps"}}په دې حساب کې ثبتونه د هر ثبت له جلا تایید پرته لیکل کېږي او تاسو ته خبر درکول کېږي. ګډون د هر ثبت د منلو معنا نه لري.{{else if .RTL}}در این حساب، ثبت‌ها بدون تأیید جداگانه درج می‌شوند و به شما خبر داده می‌شود. پیوستن به این حساب به معنی تأیید هر ثبت نیست.{{else}}Tallies in this account are recorded without individual approval, and you receive notifications. Joining does not mean you accepted each tally.{{end}}</p>{{end}}
 <a class="primary" id="open" href="#">{{if eq .Language "ps"}}په کاټه کې پرانیزئ{{else if .RTL}}باز کردن در کاتا{{else}}Open in Kaata{{end}}</a>
-<p>{{if eq .Language "ps"}}کاټه نه لرئ؟ نصب یې کړئ، بیا دې لینک ته راشئ.{{else if .RTL}}برنامه را ندارید؟ پس از نصب، این لینک را دوباره باز کنید.{{else}}New to Kaata? Install it, then return to this link.{{end}}</p>
+<a id="open-web" href="{{.Origin}}/app" rel="noreferrer" referrerpolicy="no-referrer">{{if eq .Language "ps"}}په کاټه وېب کې پرانیزئ{{else if .RTL}}باز کردن در کاتای وب{{else}}Open in Kaata Web{{end}}</a>
+<p>{{if eq .Language "ps"}}د موبایل اپ غواړئ؟ له لاندې یې ښکته کړئ.{{else if .RTL}}اپ موبایل را ترجیح می‌دهید؟ از لینک‌های زیر دانلود کنید.{{else}}Prefer the mobile app? Download it below.{{end}}</p>
 <div class="stores"><a href="{{.AppStoreURL}}" rel="noreferrer">App Store</a><a href="{{.PlayURL}}" rel="noreferrer">Google Play</a></div>
 </main><script>
 (function(){
@@ -33,6 +34,7 @@ a{display:block;color:#171717;text-decoration:none;padding:12px;margin-top:8px;b
     app = 'intent://t/' + encodeURIComponent(token) + '#Intent;scheme=kaata;package=af.kaata.app;S.browser_fallback_url=' + encodeURIComponent({{.PlayURL}}) + ';end';
   }
   document.getElementById('open').href = app;
+  document.getElementById('open-web').href = {{.Origin}} + '/app#shared_invite=' + encodeURIComponent(token);
 })();
 </script></body></html>`
 

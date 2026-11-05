@@ -412,7 +412,14 @@ func (s *Service) GetGroup(ctx context.Context, id, account, role string) (Group
 	if err != nil {
 		return GroupResponse{}, err
 	}
-	return groupResponse(ctx, tx, g, p.Role)
+	out, err := groupResponse(ctx, tx, g, p.Role)
+	if err != nil {
+		return GroupResponse{}, err
+	}
+	for i := range out.Tabs {
+		out.Tabs[i].Tab.Access = callerTabAccess(p, out.Tabs[i].Tab)
+	}
+	return out, nil
 }
 func (s *Service) PreviewGroup(ctx context.Context, token, account string) (GroupResponse, error) {
 	if account == "" {

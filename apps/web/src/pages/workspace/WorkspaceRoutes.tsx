@@ -9,6 +9,7 @@ import {
 } from "../../lib/web-apple";
 import { getWebSession, WEB_SESSION_EVENT } from "../../lib/web-auth";
 import { WebProfileGate } from "./WebProfile";
+import { captureSharedInvitation } from "../../lib/web-shared-invite";
 import {
   WEB_AUTH_ROUTE_EVENT,
   WEB_ROUTES,
@@ -58,6 +59,7 @@ export default function WorkspaceRoutes() {
   const { lang } = useI18n();
   const copy = titles[lang];
   const [initial] = useState(() => {
+    captureSharedInvitation();
     const session = getWebSession();
     // The backend's existing /app fragment return stays compatible. Scrub it
     // synchronously before a route redirect, script load, or network request.

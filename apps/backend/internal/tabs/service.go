@@ -234,8 +234,9 @@ type PartyMeta struct {
 // and how many of the other party's tallies await the caller's review.
 // A zero recorded balance alone does not mean the account was settled.
 type Tab struct {
-	GroupID       *string `json:"group_id,omitempty"`
-	RecordingMode string  `json:"recording_mode"`
+	Access        *TabAccess `json:"access,omitempty"`
+	GroupID       *string    `json:"group_id,omitempty"`
+	RecordingMode string     `json:"recording_mode"`
 	// UnjoinedInvitation is authoritative evidence that B never participated.
 	// Only a creator-side client may use it to retain its original private book.
 	UnjoinedInvitation bool                 `json:"unjoined_invitation"`
@@ -257,6 +258,26 @@ type Tab struct {
 	RecordedBalance map[string]string `json:"recorded_balance"`
 	PendingBalance  map[string]string `json:"pending_balance"`
 	PendingForYou   int               `json:"pending_for_you"`
+}
+
+type TabAccess struct {
+	Append bool `json:"append"`
+	Review bool `json:"review"`
+	Void   bool `json:"void"`
+	Settle bool `json:"settle"`
+	Manage bool `json:"manage"`
+}
+
+func callerTabAccess(p Party, tab Tab) *TabAccess {
+	open := tab.ClosedAtMS == nil
+	writes := open && tallyWriterAllowed(tab.RecordingMode, p.Role)
+	joined := !notificationOnlyMode(tab.RecordingMode) || p.Role != "b" || p.JoinedAt != nil
+	editor := p.allows(rankEditor)
+	// Closing stops new collaboration while finite pending proposals can
+	// still be reviewed or withdrawn. Entry-specific finality checks remain
+	// authoritative for recorded rows, settlements and carried history.
+	return &TabAccess{Append: writes && joined && p.allows(rankClerk), Review: editor && tab.RecordingMode == "review",
+		Void: tallyWriterAllowed(tab.RecordingMode, p.Role) && editor, Settle: writes && editor, Manage: open && editor}
 }
 
 // TabResponse carries entries and chapter markers with rev > after_rev.
@@ -1498,6 +1519,7 @@ func (s *Service) Get(ctx context.Context, p Party, afterRev int64) (TabResponse
 	if err != nil {
 		return TabResponse{}, err
 	}
+	tab.Access = callerTabAccess(p, tab)
 	entries, err := loadEntries(ctx, tx, p.TabID, afterRev)
 	if err != nil {
 		return TabResponse{}, err

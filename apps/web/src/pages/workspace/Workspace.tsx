@@ -43,6 +43,9 @@ import { WebProBanner } from "./WebPro";
 import { MobileAppPrompt } from "./MobileAppPrompt";
 import { WebProfilePanel } from "./WebProfile";
 import { webProfileCopy } from "./web-profile-copy";
+import { SharedAccountStart, SharedTallies } from "./SharedTallies";
+import { SharedInvitation, sharedInvitationTitle } from "./SharedInvitation";
+import { clearSharedInvitation, pendingSharedInvitation } from "../../lib/web-shared-invite";
 import {
   amountInput,
   asciiDigits,
@@ -89,6 +92,8 @@ export default function LedgerWorkspace({ session }: { session: WebSession }) {
   const [pending, setPending] = useState(hasPendingWebWrite);
   const [retrying, setRetrying] = useState(false);
   const [confirmSignout, setConfirmSignout] = useState(false);
+  const [sharedRefreshVersion, setSharedRefreshVersion] = useState(0);
+  const [invitationOpen, setInvitationOpen] = useState(() => !!pendingSharedInvitation());
   const activeVault = useRef(vaultID);
   activeVault.current = vaultID;
   const requestVersion = useRef(0);
@@ -170,6 +175,7 @@ export default function LedgerWorkspace({ session }: { session: WebSession }) {
       const next = await getWebLedger(id);
       if (version !== requestVersion.current || id !== activeVault.current) return;
       setLedger(next);
+      setSharedRefreshVersion((value) => value + 1);
       setError(false);
       setErrorCode("");
       setPersonID((current) =>
@@ -269,7 +275,7 @@ export default function LedgerWorkspace({ session }: { session: WebSession }) {
     };
   }, [session, online, membershipKey, loadVaults, refresh]);
 
-  const balances = useMemo(() => balanceMap(ledger?.entries ?? []), [ledger]);
+  const balances = useMemo(() => balanceMap(ledger?.entries ?? [], ledger?.people ?? []), [ledger]);
   const defaultCurrency = ledger?.default_entry_currency || "AFN";
   const summary = useMemo(
     () => totals(ledger?.people ?? [], balances, defaultCurrency),
@@ -288,7 +294,8 @@ export default function LedgerWorkspace({ session }: { session: WebSession }) {
     supported &&
     !error &&
     !pending;
-  const canWritePerson = canWrite && !!person && !person.read_only;
+  const canWritePerson =
+    canWrite && !!person && (!person.read_only || !!person.shared?.private_writable);
   const canAmendPerson = canWritePerson && ledger?.role !== "clerk";
   const canConfigure = canWrite && !!ledger && ["owner", "manager"].includes(ledger.role);
   const canEditNote =
@@ -436,6 +443,23 @@ export default function LedgerWorkspace({ session }: { session: WebSession }) {
           disabled={!!modal || currencySettings}
         >
           {webProfileCopy[lang].title}
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          className="workspace-profile-button"
+          onClick={() => setInvitationOpen(true)}
+          disabled={
+            !ledger ||
+            !online ||
+            pending ||
+            !!modal ||
+            currencySettings ||
+            !["owner", "manager"].includes(ledger.role) ||
+            !!ledger.archived_at_ms
+          }
+        >
+          {sharedInvitationTitle(lang)}
         </Button>
         <label className="sr-only" htmlFor="workspace-language">
           {c.language}
@@ -660,7 +684,7 @@ export default function LedgerWorkspace({ session }: { session: WebSession }) {
                             </small>
                           </span>
                           <span className="workspace-person-balances">
-                            {shared ? (
+                            {shared && !row.shared ? (
                               <Icon name="link" />
                             ) : (
                               rowBalances.map(({ currency, balance }) => (
@@ -743,12 +767,62 @@ export default function LedgerWorkspace({ session }: { session: WebSession }) {
                         if (activeVault.current === ledger.vault_id) await refresh(ledger.vault_id);
                       }}
                     />
+                    <SharedAccountStart
+                      key={`share:${ledger.vault_id}:${person.relationship_id}`}
+                      ledger={ledger}
+                      person={person}
+                      online={canWrite && ["owner", "manager"].includes(ledger.role)}
+                      onChanged={async () => {
+                        if (activeVault.current === ledger.vault_id) await refresh(ledger.vault_id);
+                      }}
+                    />
                     {person.read_only_reason === "shared_tab" ? (
-                      <Empty icon="link" title={c.shared} body={c.sharedDetail}>
-                        <Link className="workspace-button" to="/download">
-                          {c.getApp}
-                        </Link>
-                      </Empty>
+                      <>
+                        <SharedTallies
+                          key={`${session.install_id}:${ledger.vault_id}:${person.relationship_id}`}
+                          ledger={ledger}
+                          person={person}
+                          online={online && !error && !pending}
+                          refreshKey={sharedRefreshVersion}
+                          onPrivateEdit={
+                            canAmendPerson
+                              ? (entry) =>
+                                  setModal({ kind: "entry", person, entry, direction: entry.type })
+                              : undefined
+                          }
+                          onPrivateDelete={
+                            canAmendPerson
+                              ? (entry) => setModal({ kind: "delete", entry })
+                              : undefined
+                          }
+                          onChanged={async () => {
+                            if (activeVault.current === ledger.vault_id)
+                              await refresh(ledger.vault_id);
+                          }}
+                        />
+                        {person.shared?.private_writable && (
+                          <div className="workspace-entry-actions">
+                            <button
+                              className="workspace-button received"
+                              disabled={!canWritePerson}
+                              onClick={() =>
+                                setModal({ kind: "entry", person, direction: "payment" })
+                              }
+                            >
+                              <Icon name="down" />
+                              {c.received}
+                            </button>
+                            <button
+                              className="workspace-button gave"
+                              disabled={!canWritePerson}
+                              onClick={() => setModal({ kind: "entry", person, direction: "debt" })}
+                            >
+                              <Icon name="up" />
+                              {c.gave}
+                            </button>
+                          </div>
+                        )}
+                      </>
                     ) : (
                       <>
                         <div className="workspace-person-totals">
@@ -807,6 +881,23 @@ export default function LedgerWorkspace({ session }: { session: WebSession }) {
           </>
         )}
       </main>
+      {invitationOpen && ledger && (
+        <SharedInvitation
+          key={`${session.install_id}:${ledger.vault_id}`}
+          ledger={ledger}
+          online={online && !pending && !error && !ledger.archived_at_ms}
+          onClose={() => {
+            clearSharedInvitation();
+            setInvitationOpen(false);
+          }}
+          onJoined={async (relationshipID) => {
+            if (activeVault.current === ledger.vault_id) {
+              await refresh(ledger.vault_id);
+              setPersonID(relationshipID);
+            }
+          }}
+        />
+      )}
       {confirmSignout && (
         <SignOutDialog
           c={c}

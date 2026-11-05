@@ -219,11 +219,35 @@ export function webCreditExposureKnown(
   person: WebPerson | undefined,
   balances: ReadonlyArray<{ currency: string; balance: bigint }> | undefined,
 ): boolean {
-  return (
-    ledger.credit_balances_complete === true &&
-    !!balances &&
-    !!person &&
-    person.read_only_reason !== "shared_tab" &&
-    person.archived_at == null
-  );
+  if (
+    ledger.credit_balances_complete !== true ||
+    !balances?.length ||
+    !person ||
+    person.archived_at != null
+  )
+    return false;
+  if (person.read_only_reason !== "shared_tab") return true;
+  const shared = person.shared;
+  if (
+    !Array.isArray(shared?.tabs) ||
+    !Array.isArray(shared.balances) ||
+    !shared.tabs.length ||
+    !shared.balances.length ||
+    shared.balances.length !== balances.length ||
+    new Set(shared.balances.map((row) => row.currency)).size !== shared.balances.length
+  )
+    return false;
+  // The server's recorded projection already includes current private rows.
+  // Pending proposals are shown separately from the saved exposure.
+  return shared.balances.every((row) => {
+    if (typeof row.recorded !== "string") return false;
+    const amount = /^(-?)(\d+)(?:\.(\d{1,2}))?$/.exec(row.recorded);
+    if (!amount) return false;
+    const minor =
+      (BigInt(amount[2]) * 100n + BigInt((amount[3] ?? "").padEnd(2, "0"))) *
+      (amount[1] ? -1n : 1n);
+    return balances.some(
+      (balance) => balance.currency === row.currency && balance.balance === minor,
+    );
+  });
 }

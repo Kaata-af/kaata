@@ -83,6 +83,7 @@ type WebLedger struct {
 	DevicePubkey           *string           `json:"device_pubkey"`
 	People                 []WebLedgerPerson `json:"people"`
 	Entries                []WebLedgerEntry  `json:"entries"`
+	SharedPrivateEntries   []WebLedgerEntry  `json:"shared_private_entries"`
 	IncompletePeople       int               `json:"incomplete_people"`
 	CreditBalancesComplete bool              `json:"credit_balances_complete"`
 }
@@ -103,6 +104,7 @@ type WebLedgerPerson struct {
 	ReadOnly             bool             `json:"read_only"`
 	ReadOnlyReason       *string          `json:"read_only_reason"`
 	SettledThrough       map[string]int64 `json:"settled_through"`
+	Shared               *WebSharedPerson `json:"shared"`
 }
 
 type WebLedgerEntry struct {
@@ -231,6 +233,10 @@ func (s *Service) WebLedger(ctx context.Context, accountID, installID, vaultID s
 		return nil, err
 	}
 	if err := populateWebLedger(view, &projection, events, linked); err != nil {
+		return nil, err
+	}
+	view.SharedPrivateEntries = []WebLedgerEntry{}
+	if err := populateWebSharedLedger(ctx, tx, view, &projection); err != nil {
 		return nil, err
 	}
 	if err := tx.Commit(ctx); err != nil {

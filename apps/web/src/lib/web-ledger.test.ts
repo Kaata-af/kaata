@@ -182,8 +182,13 @@ test("browser keeps its signing identity across reopen and safely retries a lost
             read_only: false,
             read_only_reason: null,
           });
-        if (event.event_type === "entry_created")
-          ledger.entries.push({
+        if (event.event_type === "entry_created") {
+          const person = ledger.people.find((row) => row.relationship_id === event.relationship_id);
+          const entryRows =
+            person?.read_only_reason === "shared_tab"
+              ? (ledger.shared_private_entries ??= [])
+              : ledger.entries;
+          entryRows.push({
             id: event.target_id,
             relationship_id: event.relationship_id,
             type: event.payload.type,
@@ -198,14 +203,25 @@ test("browser keeps its signing identity across reopen and safely retries a lost
             read_only: false,
             settled_at: null,
           });
+        }
         if (event.event_type === "entry_amended") {
-          const row = ledger.entries.find((entry) => entry.id === event.target_id)!;
+          const row = [...ledger.entries, ...(ledger.shared_private_entries ?? [])].find(
+            (entry) => entry.id === event.target_id,
+          )!;
           const changes = event.payload.changes;
           if (changes.amount_afn !== undefined) row.amount_afn = String(changes.amount_afn);
           if (changes.currency !== undefined) row.currency = changes.currency;
           if (changes.type !== undefined) row.type = changes.type;
           if (changes.note !== undefined) row.note = changes.note;
           if (changes.occurred_at_ms !== undefined) row.created_at = changes.occurred_at_ms;
+          row.current_event_id = event.event_id;
+          row.updated_at = event.hlc.physical_ms;
+        }
+        if (event.event_type === "entry_deleted") {
+          const row = [...ledger.entries, ...(ledger.shared_private_entries ?? [])].find(
+            (entry) => entry.id === event.target_id,
+          )!;
+          row.is_deleted = true;
           row.current_event_id = event.event_id;
           row.updated_at = event.hlc.physical_ms;
         }
@@ -569,7 +585,109 @@ test("browser keeps its signing identity across reopen and safely retries a lost
         note: null,
         occurred_at_ms: Date.now(),
       }),
-      /mobile app/,
+      { code: "person_read_only" },
+    );
+
+    // A closed shared period can release this contact for ordinary private
+    // entries. The fresh server flag controls writes, and earlier absorbed
+    // history remains frozen even while later private entries are editable.
+    const sharedPeriod = {
+      id: crypto.randomUUID(),
+      group_id: null,
+      role: "a" as const,
+      currency: "AFN",
+      history_order: "1",
+      linked_at_ms: Date.now() - 1000,
+      closed_at_ms: null as number | null,
+      recording_mode: "review" as const,
+      rev: 1,
+      unjoined_invitation: false,
+    };
+    linked.shared = {
+      tabs: [sharedPeriod],
+      balances: [{ currency: "AFN", recorded: "0", confirmed: "0", pending: "0", private: "0" }],
+      pending_for_you: 0,
+      private_writable: false,
+    };
+    const privateInput = {
+      type: "payment" as const,
+      amount: "2",
+      currency: "AFN",
+      note: "After shared closure",
+      occurred_at_ms: Date.now() - 100,
+    };
+    const beforeActiveSharedWrite = events.size;
+    await assert.rejects(client.createWebEntry(ledger, linked, privateInput), {
+      code: "person_read_only",
+    });
+    assert.equal(
+      events.size,
+      beforeActiveSharedWrite,
+      "an active shared account emits no private tally",
+    );
+
+    const frozen = {
+      ...ledger.entries[0],
+      id: crypto.randomUUID(),
+      read_only: true,
+      settled_at: null,
+    };
+    ledger.shared_private_entries = [frozen];
+    sharedPeriod.closed_at_ms = Date.now();
+    linked.shared.private_writable = true;
+    await client.createWebEntry(ledger, linked, privateInput);
+    assert.equal(ledger.shared_private_entries.length, 2);
+    const privateEntry = ledger.shared_private_entries.at(-1)!;
+    assert.equal(privateEntry.note, privateInput.note);
+    assert.equal(privateEntry.amount_afn, "2");
+    assert.equal(
+      ledger.entries.some((row) => row.id === privateEntry.id),
+      false,
+      "linked contact entries are returned only in shared_private_entries",
+    );
+    const recordedAt = privateEntry.recorded_at_ms;
+    await client.updateWebEntry(ledger, structuredClone(privateEntry), {
+      ...privateInput,
+      amount: "3.25",
+      note: "Updated private tally",
+    });
+    assert.equal(
+      privateEntry.amount_afn,
+      "3.25",
+      "entry lookup includes writable shared private history",
+    );
+    assert.equal(privateEntry.note, "Updated private tally");
+    assert.equal(privateEntry.recorded_at_ms, recordedAt);
+
+    const beforeFrozenWrites = events.size;
+    await assert.rejects(client.updateWebEntry(ledger, frozen, privateInput), {
+      code: "entry_read_only",
+    });
+    await assert.rejects(client.deleteWebEntry(ledger, frozen), {
+      code: "entry_read_only",
+    });
+    assert.equal(
+      events.size,
+      beforeFrozenWrites,
+      "the release flag never unlocks absorbed history",
+    );
+    await client.deleteWebEntry(ledger, structuredClone(privateEntry));
+    assert.equal(privateEntry.is_deleted, true);
+
+    const previouslyReleased = structuredClone(ledger);
+    linked.shared.private_writable = false;
+    const beforeRevokedRelease = events.size;
+    await assert.rejects(
+      client.createWebEntry(previouslyReleased, previouslyReleased.people[0], {
+        ...privateInput,
+        amount: "4",
+      }),
+      { code: "person_read_only" },
+    );
+    assert.equal(
+      events.size,
+      beforeRevokedRelease,
+      "a stale release flag cannot bypass the fresh ledger read",
     );
     ledger.role = "viewer";
     await assert.rejects(client.createWebPerson(ledger, { name: "Blocked" }), /permission/);

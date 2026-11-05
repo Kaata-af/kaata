@@ -66,6 +66,7 @@ function fixture(raw: string | null) {
   const auth = evaluateModule("../lib/web-auth.ts", browser, {
     "../env": { BACKEND_URL: "https://api.example.test" },
     "./web-browser-storage": store,
+    "./web-shared-invite": evaluateModule("../lib/web-shared-invite.ts", browser, {}),
   });
   const routes = evaluateModule("../lib/web-routes.ts", browser, {});
   const redirected = { current: false };

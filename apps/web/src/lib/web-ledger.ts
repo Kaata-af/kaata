@@ -60,6 +60,30 @@ export type WebPerson = {
   read_only: boolean;
   read_only_reason: "shared_tab" | "archived" | null;
   settled_through?: Record<string, number>;
+  shared?: {
+    tabs: WebSharedBinding[];
+    balances: {
+      currency: string;
+      recorded: string;
+      confirmed: string;
+      pending: string;
+      private?: string;
+    }[];
+    pending_for_you: number;
+    private_writable?: boolean;
+  } | null;
+};
+export type WebSharedBinding = {
+  id: string;
+  group_id?: string | null;
+  role: "a" | "b";
+  currency: string;
+  history_order: string | null;
+  linked_at_ms: number | null;
+  closed_at_ms: number | null;
+  recording_mode: "review" | "notify" | "notify_one_way";
+  rev: number;
+  unjoined_invitation: boolean;
 };
 export type WebEntry = {
   id: string;
@@ -94,6 +118,7 @@ export type WebLedger = {
   entries: WebEntry[];
   incomplete_people: number;
   credit_balances_complete?: boolean;
+  shared_private_entries?: WebEntry[];
 };
 export type WebEntryInput = {
   type: "debt" | "payment";
@@ -520,16 +545,22 @@ function assertCanWrite(ledger: WebLedger, amend = false): void {
 
 function writablePerson(ledger: WebLedger, relationshipID: string): WebPerson {
   const person = ledger.people.find((item) => item.relationship_id === relationshipID);
-  if (!person || person.read_only || person.archived_at != null)
+  if (
+    !person ||
+    (person.read_only && !person.shared?.private_writable) ||
+    person.archived_at != null
+  )
     throw new WebLedgerError(
-      "Open this person's account in the mobile app to make changes.",
+      "This account cannot receive a private tally right now.",
       "person_read_only",
     );
   return person;
 }
 
 function writableEntry(ledger: WebLedger, original: WebEntry): WebEntry {
-  const entry = ledger.entries.find((item) => item.id === original.id);
+  const entry = [...ledger.entries, ...(ledger.shared_private_entries ?? [])].find(
+    (item) => item.id === original.id,
+  );
   if (!entry || entry.is_deleted || entry.read_only || entry.settled_at != null)
     throw new WebLedgerError("This entry can no longer be changed.", "entry_read_only");
   writablePerson(ledger, entry.relationship_id);

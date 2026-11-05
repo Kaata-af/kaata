@@ -133,6 +133,31 @@ test("mixed directions remain separate in totals and qualify for either balance 
   ]);
 });
 
+test("authoritative shared balances enter totals and filters once without proposed amounts", () => {
+  const shared = person("Shared", {
+    read_only: true,
+    read_only_reason: "shared_tab",
+    shared: {
+      tabs: [],
+      balances: [
+        { currency: "AFN", recorded: "12.34", confirmed: "10", pending: "99" },
+        { currency: "USD", recorded: "-3", confirmed: "-3", pending: "0" },
+      ],
+      pending_for_you: 1,
+    },
+  });
+  const unknown = person("Unknown", { read_only: true, read_only_reason: "shared_tab" });
+  const people = [shared, unknown];
+  const balances = balanceMap([entry("old", "Shared", "500")], people);
+  assert.deepEqual(totals(people, balances, "AFN"), [
+    { currency: "AFN", collect: 1234n, pay: 0n },
+    { currency: "USD", collect: 0n, pay: 300n },
+  ]);
+  assert.deepEqual(peopleInView(people, balances, "", "collect"), [shared]);
+  assert.deepEqual(peopleInView(people, balances, "", "pay"), [shared]);
+  assert.deepEqual(peopleInView(people, balances, "", "settled"), []);
+});
+
 test("person currencies retain zero history but omit unused or wholly deleted denominations", () => {
   const balances = balanceMap([
     entry("1", "A", "12.34", { currency: "USD" }),

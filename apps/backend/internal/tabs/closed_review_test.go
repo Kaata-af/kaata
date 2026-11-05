@@ -46,6 +46,9 @@ func TestHTTPClosedSharedAccountKeepsPendingReviewAndCancellation(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
+	if access := closed.Tab.Access; access == nil || !access.Review || !access.Void || access.Append || access.Settle || access.Manage {
+		t.Fatalf("closed pending proposals cannot be resolved with advertised access: %+v", access)
+	}
 	if closed.Tab.ConfirmedBalance["a"] != "100" || closed.Tab.ConfirmedBalance["b"] != "-100" ||
 		closed.Tab.PendingBalance["a"] != "-100" || closed.Tab.PendingBalance["b"] != "100" ||
 		closed.Tab.Balance["a"] != "0" || closed.Tab.Balance["b"] != "0" || closed.Tab.PendingForYou != 2 {
@@ -205,5 +208,34 @@ func TestDeletedActorCannotReviewClosedHistoryButSurvivingPartyCan(t *testing.T)
 	got, err := f.svc.Get(ctx, pa, 0)
 	if err != nil || got.Tab.ClosedReason == nil || *got.Tab.ClosedReason != "account_deleted" || got.Tab.PendingBalance["a"] != "0" || len(got.Entries) != 3 {
 		t.Fatalf("deleted-account resolution changed closure or lost history: %+v err=%v", got, err)
+	}
+}
+
+func TestClosedRecordedTallyKeepsWithdrawalAccessUntilFinalized(t *testing.T) {
+	f := newTabFixture(t)
+	c, err := f.svc.Create(t.Context(), CreateInput{Currency: "AFN", Label: "A", RecordingMode: "notify", AccountID: &f.acctA})
+	if err != nil {
+		t.Fatal(err)
+	}
+	party, err := f.svc.PartyByAccount(t.Context(), c.Tab.ID, f.acctA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry := f.append(t, party, "a_to_b", "12.34", time.Now().UnixMilli()).Entry
+	if entry.Status != "recorded" {
+		t.Fatalf("entry status=%s", entry.Status)
+	}
+	if _, err := f.svc.Close(t.Context(), party); err != nil {
+		t.Fatal(err)
+	}
+	closed, err := f.svc.Get(t.Context(), party, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if access := closed.Tab.Access; access == nil || !access.Void || access.Review || access.Append || access.Settle || access.Manage {
+		t.Fatalf("closed recording access=%+v", access)
+	}
+	if _, err := f.svc.Void(t.Context(), party, entry.ID); err != nil {
+		t.Fatalf("recorded withdrawal after close: %v", err)
 	}
 }

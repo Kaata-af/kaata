@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestAppOnlyInvitation(t *testing.T) {
+func TestInvitationOffersAppAndWebWithoutFinancialDisclosure(t *testing.T) {
 	for _, rtl := range []bool{false, true} {
 		var b strings.Builder
 		err := viewTmpl.Execute(&b, viewData{Token: "x\"</script><script>alert(1)", RTL: rtl,
@@ -19,7 +19,7 @@ func TestAppOnlyInvitation(t *testing.T) {
 				t.Fatalf("landing leaks/executes %q", forbidden)
 			}
 		}
-		for _, required := range []string{"kaata://t/", "intent://t/", "App Store", "Google Play", "no-referrer"} {
+		for _, required := range []string{"kaata://t/", "intent://t/", "App Store", "Google Play", "no-referrer", `id="open-web"`, "/app#shared_invite=", "encodeURIComponent(token)"} {
 			if !strings.Contains(html, required) {
 				t.Fatalf("missing %q", required)
 			}

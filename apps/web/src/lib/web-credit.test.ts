@@ -9,6 +9,7 @@ import {
   type WebSession,
 } from "./web-auth";
 import type { WebLedger, WebPerson } from "./web-ledger";
+import { balanceMap, personBalances } from "../pages/workspace/model";
 import {
   effectiveWebCreditPolicy,
   loadWebCreditPolicies,
@@ -226,6 +227,78 @@ test("missing credit completeness and shared history cannot become a known zero 
     false,
   );
   assert.equal(webCreditExposureKnown(ledger, { ...person, archived_at: 1 }, []), false);
+});
+
+test("complete shared credit exposure uses saved and private money while keeping proposals separate", () => {
+  const shared: WebPerson = {
+    ...person,
+    read_only: true,
+    read_only_reason: "shared_tab",
+    shared: {
+      tabs: [
+        {
+          id: "40000000-0000-4000-8000-000000000001",
+          role: "a",
+          currency: "USD",
+          history_order: "1",
+          linked_at_ms: 1,
+          closed_at_ms: null,
+          recording_mode: "review",
+          rev: 4,
+          unjoined_invitation: false,
+        },
+      ],
+      balances: [
+        {
+          currency: "USD",
+          recorded: "122.50",
+          confirmed: "100.00",
+          private: "22.50",
+          pending: "500.00",
+        },
+      ],
+      pending_for_you: 1,
+    },
+  };
+  const balances = personBalances(balanceMap([], [shared]), PERSON, "USD");
+  assert.deepEqual(balances, [{ currency: "USD", balance: 12250n }]);
+  assert.equal(webCreditExposureKnown(ledger, shared, balances), true);
+  assert.equal(webCreditDetail(15000, balances[0].balance).remaining, 2750n);
+  assert.equal(
+    webCreditExposureKnown({ ...ledger, credit_balances_complete: false }, shared, balances),
+    false,
+  );
+  assert.equal(webCreditExposureKnown(ledger, shared, [{ currency: "USD", balance: 0n }]), false);
+  assert.equal(webCreditExposureKnown(ledger, shared, []), false);
+  assert.equal(webCreditExposureKnown(ledger, shared, undefined), false);
+  assert.equal(
+    webCreditExposureKnown(ledger, { ...shared, shared: { ...shared.shared!, balances: [] } }, [
+      { currency: "USD", balance: 0n },
+    ]),
+    false,
+  );
+  assert.equal(
+    webCreditExposureKnown(
+      ledger,
+      {
+        ...shared,
+        shared: {
+          ...shared.shared!,
+          balances: [
+            {
+              currency: "USD",
+              recorded: undefined as unknown as string,
+              confirmed: "0",
+              private: "0",
+              pending: "0",
+            },
+          ],
+        },
+      },
+      [{ currency: "USD", balance: 0n }],
+    ),
+    false,
+  );
 });
 
 test("credit reads are authenticated, currency-aware, abortable and scoped to one vault", async () => {

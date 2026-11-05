@@ -37,7 +37,10 @@ export function money(value: bigint): string {
   return `${whole}${magnitude % 100n ? `.${String(magnitude % 100n).padStart(2, "0")}` : ""}`;
 }
 
-export function balanceMap(entries: readonly WebEntry[]): PersonBalanceMap {
+export function balanceMap(
+  entries: readonly WebEntry[],
+  people: readonly WebPerson[] = [],
+): PersonBalanceMap {
   const balances: PersonBalanceMap = new Map();
   for (const entry of entries) {
     if (entry.is_deleted || entry.disputed_at != null) continue;
@@ -46,6 +49,14 @@ export function balanceMap(entries: readonly WebEntry[]): PersonBalanceMap {
     // Keep zero rows when the person has history in that denomination.
     currencies.set(entry.currency, (currencies.get(entry.currency) ?? 0n) + amount);
     balances.set(entry.relationship_id, currencies);
+  }
+  for (const person of people) {
+    if (person.shared) {
+      balances.set(
+        person.relationship_id,
+        new Map(person.shared.balances.map((row) => [row.currency, minorUnits(row.recorded)])),
+      );
+    }
   }
   return balances;
 }
@@ -110,7 +121,7 @@ export function peopleInView(
       )
         return false;
       if (filter === "all") return true;
-      if (person.read_only_reason === "shared_tab") return false;
+      if (person.read_only_reason === "shared_tab" && !person.shared) return false;
       const values = [...(balances.get(person.relationship_id)?.values() ?? [])];
       return filter === "collect"
         ? values.some((balance) => balance > 0n)
@@ -135,7 +146,8 @@ export function totals(
 ): CurrencyTotal[] {
   const currencies = new Map<string, CurrencyTotal>();
   for (const person of people) {
-    if (person.archived_at != null || person.read_only_reason === "shared_tab") continue;
+    if (person.archived_at != null || (person.read_only_reason === "shared_tab" && !person.shared))
+      continue;
     for (const [currency, value] of balances.get(person.relationship_id) ?? []) {
       const row = currencies.get(currency) ?? { currency, collect: 0n, pay: 0n };
       if (value > 0n) row.collect += value;
@@ -156,6 +168,9 @@ export function ledgerCurrencies(ledger: WebLedger): string[] {
         ledger.default_entry_currency,
         ...ledger.enabled_currencies,
         ...ledger.entries.map((entry) => entry.currency),
+        ...ledger.people.flatMap(
+          (person) => person.shared?.balances.map((row) => row.currency) ?? [],
+        ),
       ].filter(Boolean),
     ),
   ];
@@ -238,7 +253,7 @@ export function entryTimestamp(
   return value === localDateValue(openedAt) ? openedAt : date;
 }
 
-function csvCell(value: unknown): string {
+export function csvCell(value: unknown): string {
   let text = String(value ?? "");
   // A CSV opened in Excel must treat names/notes as text, never formulas.
   if (/^[\s]*[=+@-]/.test(text) || /^[\t\r\n]/.test(text)) text = `'${text}`;
