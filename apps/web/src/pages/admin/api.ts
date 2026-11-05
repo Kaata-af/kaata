@@ -362,6 +362,7 @@ export type SponsorProposal = {
   contact_name: string;
   phone: string;
   proposal: string;
+  budget_offer?: string | null;
   budget_amount: string;
   budget_currency: string;
   duration: string | null;

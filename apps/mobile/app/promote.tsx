@@ -13,14 +13,13 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "../components/Button";
-import { CurrencyPickerSheet } from "../components/CurrencyPickerSheet";
-import { FormField, LTR_INPUT } from "../components/FormField";
-import { NavRow, ScreenHeader } from "../components/SettingsScreen";
+import { FormField } from "../components/FormField";
+import { ScreenHeader } from "../components/SettingsScreen";
 import { colors } from "../lib/colors";
-import { getCurrencyLabel } from "../lib/currency";
-import { getInstallIdSync } from "../lib/db-tx";
+import { getLocalSelf } from "../lib/db";
+import { getActiveVaultIdSyncMaybe, getInstallIdSync } from "../lib/db-tx";
 import { textDir, useIsRTL } from "../lib/direction";
-import { getLocale, t } from "../lib/i18n";
+import { getLocale, isPlaceholderSelfName, t } from "../lib/i18n";
 import {
   newProposalDraft,
   prepareProposal,
@@ -51,7 +50,6 @@ export default function PromoteScreen() {
   const [fieldErrors, setFieldErrors] = useState<ProposalErrors>({});
   const [loadFailed, setLoadFailed] = useState(false);
   const [saved, setSaved] = useState(false);
-  const [currencyOpen, setCurrencyOpen] = useState(false);
 
   const persist = useCallback(
     (next: ProposalDraft, transition?: ProposalDraftTransition) =>
@@ -136,11 +134,24 @@ export default function PromoteScreen() {
     setSaved(false);
     setError(null);
     Keyboard.dismiss();
-    const pending = previous.pending ?? prepareProposal(previous.fields, getLocale());
-    const next = { ...previous, pending };
-    apply(next);
+    let pending = previous.pending;
+    let next = previous;
     let stored = false;
     try {
+      if (!pending) {
+        const vaultId = getActiveVaultIdSyncMaybe();
+        const self = await getLocalSelf();
+        if (getInstallIdSync() !== installId || getActiveVaultIdSyncMaybe() !== vaultId) {
+          throw new Error("The saved profile changed");
+        }
+        pending = prepareProposal(previous.fields, getLocale(), {
+          business_name: self?.shop_name ?? "",
+          contact_name: self?.name && !isPlaceholderSelfName(self.name) ? self.name : "",
+          phone: self?.phone ?? "",
+        });
+      }
+      next = { ...previous, pending };
+      apply(next);
       // A retry always reuses this saved request and its UUID, including after
       // the server received it but the response was lost.
       await persist(next);
@@ -157,7 +168,9 @@ export default function PromoteScreen() {
       }
     } catch (failure) {
       if (recoverConflict(failure, next)) return;
-      if (!stored) {
+      if (!pending) {
+        if (mounted.current) setError(t("promotion.profileFailed"));
+      } else if (!stored) {
         apply(previous);
         if (mounted.current) setError(t("promotion.saveFailed"));
       } else if (
@@ -253,36 +266,6 @@ export default function PromoteScreen() {
           >
             <Text style={[styles.intro, textDir(isRTL)]}>{t("promotion.intro")}</Text>
             <FormField
-              label={t("promotion.business")}
-              value={draft.fields.business_name}
-              onChangeText={(value) => change("business_name", value)}
-              maxLength={120}
-              editable={editable}
-              error={fieldErrors.business_name ? t(fieldErrors.business_name) : null}
-              required
-            />
-            <FormField
-              label={t("promotion.contact")}
-              value={draft.fields.contact_name}
-              onChangeText={(value) => change("contact_name", value)}
-              maxLength={100}
-              editable={editable}
-              error={fieldErrors.contact_name ? t(fieldErrors.contact_name) : null}
-              required
-            />
-            <FormField
-              label={t("promotion.phone")}
-              placeholder="+93 …"
-              value={draft.fields.phone}
-              onChangeText={(value) => change("phone", value)}
-              maxLength={32}
-              editable={editable}
-              keyboardType="phone-pad"
-              style={LTR_INPUT}
-              error={fieldErrors.phone ? t(fieldErrors.phone) : null}
-              required
-            />
-            <FormField
               label={t("promotion.proposal")}
               placeholder={t("promotion.proposalHint")}
               value={draft.fields.proposal}
@@ -296,34 +279,16 @@ export default function PromoteScreen() {
             />
             <FormField
               label={t("promotion.budget")}
-              value={draft.fields.budget_amount}
-              onChangeText={(value) => change("budget_amount", value)}
-              keyboardType="decimal-pad"
-              style={LTR_INPUT}
-              maxLength={15}
+              placeholder={t("promotion.budgetHint")}
+              value={draft.fields.budget_offer}
+              onChangeText={(value) => change("budget_offer", value)}
+              multiline
+              style={styles.offer}
+              maxLength={1000}
               editable={editable}
-              error={fieldErrors.budget_amount ? t(fieldErrors.budget_amount) : null}
+              error={fieldErrors.budget_offer ? t(fieldErrors.budget_offer) : null}
               required
             />
-            <View style={styles.currency}>
-              <NavRow
-                icon="cash-outline"
-                label={t("promotion.currency")}
-                trailing={getCurrencyLabel(draft.fields.budget_currency)}
-                style={styles.currencyRow}
-                onPress={() => {
-                  if (editable) {
-                    Keyboard.dismiss();
-                    setCurrencyOpen(true);
-                  }
-                }}
-                disabled={!editable}
-                isRTL={isRTL}
-              />
-              {fieldErrors.budget_currency ? (
-                <Text style={[styles.error, textDir(isRTL)]}>{t(fieldErrors.budget_currency)}</Text>
-              ) : null}
-            </View>
             <FormField
               label={t("promotion.duration")}
               placeholder={t("promotion.durationHint")}
@@ -351,17 +316,6 @@ export default function PromoteScreen() {
               fullWidth
             />
           </ScrollView>
-          <CurrencyPickerSheet
-            visible={currencyOpen}
-            selectedCode={draft.fields.budget_currency}
-            title={t("promotion.currency")}
-            onSelect={(code) => {
-              change("budget_currency", code);
-              setCurrencyOpen(false);
-            }}
-            onDismiss={() => setCurrencyOpen(false)}
-            disabled={!editable}
-          />
         </KeyboardAvoidingView>
       )}
     </SafeAreaView>
@@ -385,6 +339,10 @@ const styles = StyleSheet.create({
     paddingBottom: space.md,
     textAlignVertical: "top",
   },
-  currency: { marginBottom: space.xl },
-  currencyRow: { paddingHorizontal: 0 },
+  offer: {
+    minHeight: 88,
+    paddingTop: space.md,
+    paddingBottom: space.md,
+    textAlignVertical: "top",
+  },
 });

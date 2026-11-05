@@ -28,6 +28,7 @@ type proposalInput struct {
 	Proposal       string `json:"proposal"`
 	BudgetAmount   string `json:"budget_amount"`
 	BudgetCurrency string `json:"budget_currency"`
+	BudgetOffer    string `json:"budget_offer"`
 	Duration       string `json:"duration"`
 	AppLocale      string `json:"app_locale"`
 }
@@ -62,33 +63,46 @@ func (in *proposalInput) normalize() error {
 	in.Proposal = strings.TrimSpace(in.Proposal)
 	in.BudgetAmount = strings.TrimSpace(in.BudgetAmount)
 	in.BudgetCurrency = strings.TrimSpace(in.BudgetCurrency)
+	in.BudgetOffer = strings.TrimSpace(in.BudgetOffer)
 	in.Duration = strings.TrimSpace(in.Duration)
 	in.AppLocale = strings.TrimSpace(in.AppLocale)
+	freeTextOffer := in.BudgetOffer != ""
 	for _, field := range []struct {
 		name, value string
 		max         int
 	}{
 		{"business_name", in.BusinessName, 120},
 		{"contact_name", in.ContactName, 100},
-		{"proposal", in.Proposal, 3000},
 	} {
-		if field.value == "" || !validProposalText(field.value, field.max) {
+		if (!freeTextOffer && field.value == "") || !validProposalText(field.value, field.max) {
 			return fmt.Errorf("%s must contain between 1 and %d characters", field.name, field.max)
 		}
 	}
-	if !proposalPhonePattern.MatchString(in.Phone) {
+	if in.Proposal == "" || !validProposalText(in.Proposal, 3000) {
+		return errors.New("proposal must contain between 1 and 3000 characters")
+	}
+	if (!freeTextOffer || in.Phone != "") && !proposalPhonePattern.MatchString(in.Phone) {
 		return errors.New("phone must include its international country code")
 	}
-	if !proposalBudgetPattern.MatchString(in.BudgetAmount) {
-		return errors.New("budget_amount must be positive with up to 12 whole digits and 2 decimal places")
-	}
-	minor, err := credit.Minor(in.BudgetAmount)
-	if err != nil || minor <= 0 {
-		return errors.New("budget_amount must be positive with up to 12 whole digits and 2 decimal places")
-	}
-	in.BudgetAmount = fmt.Sprintf("%d.%02d", minor/100, minor%100)
-	if !credit.ValidCurrency(in.BudgetCurrency) {
-		return errors.New("budget_currency must be a three-letter uppercase currency code")
+	if freeTextOffer {
+		if !validProposalText(in.BudgetOffer, 1000) {
+			return errors.New("budget_offer must contain at most 1000 characters")
+		}
+		if in.BudgetAmount != "" || in.BudgetCurrency != "" {
+			return errors.New("provide either budget_offer or a budget amount and currency")
+		}
+	} else {
+		if !proposalBudgetPattern.MatchString(in.BudgetAmount) {
+			return errors.New("budget_amount must be positive with up to 12 whole digits and 2 decimal places")
+		}
+		minor, err := credit.Minor(in.BudgetAmount)
+		if err != nil || minor <= 0 {
+			return errors.New("budget_amount must be positive with up to 12 whole digits and 2 decimal places")
+		}
+		in.BudgetAmount = fmt.Sprintf("%d.%02d", minor/100, minor%100)
+		if !credit.ValidCurrency(in.BudgetCurrency) {
+			return errors.New("budget_currency must be a three-letter uppercase currency code")
+		}
 	}
 	if !validProposalText(in.Duration, 120) {
 		return errors.New("duration must contain at most 120 characters")
@@ -104,11 +118,12 @@ func validProposalText(text string, max int) bool {
 }
 
 const proposalColumns = `id, submission_id::text, business_name, contact_name, phone, proposal,
-	budget_amount::text, budget_currency, duration, app_locale, status, notes, created_at, updated_at`
+	COALESCE(budget_amount::text, ''), COALESCE(budget_currency, ''), budget_offer,
+	duration, app_locale, status, notes, created_at, updated_at`
 
 func (p *Proposal) scan(row pgx.Row) error {
 	return row.Scan(&p.ID, &p.SubmissionID, &p.BusinessName, &p.ContactName, &p.Phone, &p.Proposal,
-		&p.BudgetAmount, &p.BudgetCurrency, &p.Duration, &p.AppLocale, &p.Status, &p.Notes, &p.CreatedAt, &p.UpdatedAt)
+		&p.BudgetAmount, &p.BudgetCurrency, &p.BudgetOffer, &p.Duration, &p.AppLocale, &p.Status, &p.Notes, &p.CreatedAt, &p.UpdatedAt)
 }
 
 func decodeProposal(w http.ResponseWriter, r *http.Request, dst any) bool {
@@ -133,12 +148,12 @@ func (h *Handler) SubmitProposal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	args := []any{input.SubmissionID, input.BusinessName, input.ContactName, input.Phone, input.Proposal,
-		input.BudgetAmount, input.BudgetCurrency, input.Duration, input.AppLocale}
+		input.BudgetAmount, input.BudgetCurrency, input.BudgetOffer, input.Duration, input.AppLocale}
 	var receipt proposalReceipt
 	err := h.pool.QueryRow(r.Context(), `
 		INSERT INTO sponsor_proposals
-		(submission_id, business_name, contact_name, phone, proposal, budget_amount, budget_currency, duration, app_locale)
-		VALUES ($1::uuid, $2, $3, $4, $5, $6::numeric, $7, $8, $9)
+		(submission_id, business_name, contact_name, phone, proposal, budget_amount, budget_currency, budget_offer, duration, app_locale)
+		VALUES ($1::uuid, $2, $3, $4, $5, NULLIF($6, '')::numeric, NULLIF($7, ''), $8, $9, $10)
 		ON CONFLICT (submission_id) DO NOTHING
 		RETURNING id, submission_id::text, created_at
 	`, args...).Scan(&receipt.ID, &receipt.SubmissionID, &receipt.CreatedAt)
@@ -150,7 +165,8 @@ func (h *Handler) SubmitProposal(w http.ResponseWriter, r *http.Request) {
 		err = h.pool.QueryRow(r.Context(), `
 			SELECT id, submission_id::text, created_at FROM sponsor_proposals
 			WHERE submission_id=$1::uuid AND business_name=$2 AND contact_name=$3 AND phone=$4
-			AND proposal=$5 AND budget_amount=$6::numeric AND budget_currency=$7 AND duration=$8 AND app_locale=$9
+			AND proposal=$5 AND budget_amount IS NOT DISTINCT FROM NULLIF($6, '')::numeric
+			AND budget_currency IS NOT DISTINCT FROM NULLIF($7, '') AND budget_offer=$8 AND duration=$9 AND app_locale=$10
 		`, args...).Scan(&receipt.ID, &receipt.SubmissionID, &receipt.CreatedAt)
 	}
 	switch {

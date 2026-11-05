@@ -1,8 +1,7 @@
 // Executes proposal persistence, HTTP receipt validation and the real screen
 // with synthetic storage/network boundaries. No device data or service calls.
 import assert from "node:assert/strict";
-import { CURRENCIES } from "../currency-catalog";
-import type { ProposalFields, ProposalSubmission } from "../promotion-proposals";
+import type { ProposalContact, ProposalFields, ProposalSubmission } from "../promotion-proposals";
 import { compileUI, deferred, jsx, nodes, settleUI, uiHooks } from "./ui-fixture";
 
 class Clock {
@@ -34,13 +33,21 @@ class Clock {
 }
 
 const validFields: ProposalFields = {
+  proposal: "We propose a product promotion for shopkeepers.",
+  budget_offer: "1500 afghanis for two weeks, open to discussion",
+  duration: "Two weeks",
+};
+const validContact: ProposalContact = {
   business_name: "Synthetic Flour Shop",
   contact_name: "Synthetic owner",
   phone: "0700 123 456",
-  proposal: "We propose a product promotion for shopkeepers.",
+};
+const legacyFields = {
+  ...validContact,
+  proposal: validFields.proposal,
   budget_amount: "1500.50",
   budget_currency: "AFN",
-  duration: "Two weeks",
+  duration: validFields.duration,
 };
 
 function environment(locale: "en" | "fa" | "ps" = "en") {
@@ -50,6 +57,14 @@ function environment(locale: "en" | "fa" | "ps" = "en") {
   const clock = new Clock();
   let uuidCount = 0;
   let failWrite = false;
+  let profile: { name: string; shop_name: string; phone: string } | null = {
+    name: validContact.contact_name,
+    shop_name: validContact.business_name,
+    phone: validContact.phone,
+  };
+  let profileGate: Promise<void> | null = null;
+  let profileReads = 0;
+  let profileError = false;
   let fetchReply: (
     submission: ProposalSubmission,
     signal: AbortSignal,
@@ -65,6 +80,12 @@ function environment(locale: "en" | "fa" | "ps" = "en") {
     }),
   });
   const db = {
+    getLocalSelf: async () => {
+      profileReads++;
+      if (profileGate) await profileGate;
+      if (profileError) throw new Error("Synthetic profile read failure");
+      return profile ? { ...profile } : null;
+    },
     getAppMeta: async (key: string) => storage.get(key) ?? null,
     setAppMeta: async (key: string, value: string) => {
       writes.push({ key, value });
@@ -91,9 +112,7 @@ function environment(locale: "en" | "fa" | "ps" = "en") {
         randomUUID: () => `00000000-0000-4000-8000-${String(++uuidCount).padStart(12, "0")}`,
       },
       "./api": { getBackendUrl: async () => "https://example.invalid" },
-      "./currency": { CURRENCIES, DEFAULT_CURRENCY: "AFN" },
       "./db": db,
-      "./money": require("../money"),
       "./phone": phone,
     },
     {
@@ -115,6 +134,19 @@ function environment(locale: "en" | "fa" | "ps" = "en") {
     requests,
     writes,
     clock,
+    db,
+    set profile(value: typeof profile) {
+      profile = value;
+    },
+    set profileGate(value: Promise<void> | null) {
+      profileGate = value;
+    },
+    set profileError(value: boolean) {
+      profileError = value;
+    },
+    get profileReads() {
+      return profileReads;
+    },
     set failWrite(value: boolean) {
       failWrite = value;
     },
@@ -149,12 +181,14 @@ function screen(env: ReturnType<typeof environment>, installId = "synthetic-inst
       },
       "react-native-safe-area-context": { SafeAreaView: "SafeAreaView" },
       "../components/Button": { Button: "Button" },
-      "../components/CurrencyPickerSheet": { CurrencyPickerSheet: "CurrencyPickerSheet" },
       "../components/FormField": { FormField: "FormField", LTR_INPUT: {} },
-      "../components/SettingsScreen": { NavRow: "NavRow", ScreenHeader: "ScreenHeader" },
+      "../components/SettingsScreen": { ScreenHeader: "ScreenHeader" },
       "../lib/colors": { colors: {} },
-      "../lib/currency": { getCurrencyLabel: (code: string) => code },
-      "../lib/db-tx": { getInstallIdSync: () => installId },
+      "../lib/db": env.db,
+      "../lib/db-tx": {
+        getInstallIdSync: () => installId,
+        getActiveVaultIdSyncMaybe: () => "synthetic-vault",
+      },
       "../lib/direction": {
         useIsRTL: () => env.language.getLocale() !== "en",
         textDir: () => ({}),
@@ -218,48 +252,98 @@ async function savedEnvironment(locale: "en" | "fa" | "ps" = "en") {
 async function main() {
   for (const locale of ["en", "fa", "ps"] as const) {
     const env = environment(locale);
+    const offer = "۱۲۵۰ افغانی برای دو هفته\nقابل مذاکره";
     const submission = env.model.prepareProposal(
-      { ...validFields, phone: "۰۷۰۰۱۲۳۴۵۶", budget_amount: "۱۲٫۵۰" },
+      { ...validFields, budget_offer: `  ${offer}  ` },
       locale,
+      { ...validContact, phone: "۰۷۰۰۱۲۳۴۵۶" },
     );
     assert.equal(submission.phone, "+93700123456");
-    assert.equal(submission.budget_amount, "12.50");
+    assert.equal(submission.budget_offer, offer);
+    assert.equal(Object.hasOwn(submission, "budget_amount"), false);
+    assert.equal(Object.hasOwn(submission, "budget_currency"), false);
     assert.equal(submission.app_locale, locale);
     assert.equal(
-      env.model.prepareProposal({ ...validFields, budget_amount: "999999999999.99" }, locale)
-        .budget_amount,
-      "999999999999.99",
+      env.model.validateProposal({
+        ...validFields,
+        budget_offer: "Negotiable, depending on the duration",
+      }).budget_offer,
+      undefined,
     );
-    for (const amount of ["0", "-1", "1.001", "1000000000000", "1,234", "NaN"]) {
+    for (const offer of ["", "  \n  "]) {
       assert.equal(
-        env.model.validateProposal({ ...validFields, budget_amount: amount }).budget_amount,
-        "promotion.invalidBudget",
+        env.model.validateProposal({ ...validFields, budget_offer: offer }).budget_offer,
+        "promotion.required",
       );
     }
     assert.equal(
-      env.model.validateProposal({ ...validFields, phone: "invalid" }).phone,
-      "promotion.invalidPhone",
-    );
-    assert.equal(
-      env.model.validateProposal({ ...validFields, business_name: "😀".repeat(120) }).business_name,
+      env.model.validateProposal({ ...validFields, budget_offer: "😀".repeat(1000) }).budget_offer,
       undefined,
     );
     assert.equal(
-      env.model.validateProposal({ ...validFields, business_name: "😀".repeat(121) }).business_name,
+      env.model.validateProposal({ ...validFields, budget_offer: "😀".repeat(1001) }).budget_offer,
       "promotion.tooLong",
     );
+    const missingProfile = env.model.prepareProposal(validFields, locale, {
+      business_name: "",
+      contact_name: "",
+      phone: "",
+    });
+    assert.equal(missingProfile.phone, "");
+    assert.equal(missingProfile.business_name, "");
     const first = screen(env);
     await first.settle();
-    await first.change("promotion.business", `Synthetic ${locale} draft`);
+    assert.equal(nodes(first.hooks.tree).filter((node) => node.type === "FormField").length, 3);
+    assert.equal(
+      nodes(first.hooks.tree).some(
+        (node) => node.type === "CurrencyPickerSheet" || node.type === "NavRow",
+      ),
+      false,
+    );
+    await first.change("promotion.proposal", `Synthetic ${locale} draft`);
     await env.clock.advance(400, first.settle);
     assert.ok(first.text().includes(env.language.t("promotion.saved")));
     first.hooks.unmount();
     await settleUI();
     const reopened = screen(env);
     await reopened.settle();
-    assert.equal(reopened.field("promotion.business").props.value, `Synthetic ${locale} draft`);
+    assert.equal(reopened.field("promotion.proposal").props.value, `Synthetic ${locale} draft`);
     reopened.hooks.unmount();
   }
+
+  const freshProfile = await savedEnvironment();
+  const freshScreen = screen(freshProfile);
+  await freshScreen.settle();
+  freshProfile.profile = { name: "Current owner", shop_name: "Current store", phone: "۰۷۰۰۱۲۳۴۵۶" };
+  await freshScreen.tap("promotion.submit");
+  assert.equal(freshProfile.requests[0].contact_name, "Current owner");
+  assert.equal(freshProfile.requests[0].business_name, "Current store");
+  assert.equal(freshProfile.requests[0].phone, "+93700123456");
+  assert.equal(freshProfile.requests[0].budget_offer, validFields.budget_offer);
+  assert.equal(freshProfile.profileReads, 1, "The current profile is read when Send is pressed");
+  freshScreen.hooks.unmount();
+
+  const missingProfile = await savedEnvironment();
+  missingProfile.profile = null;
+  const missingScreen = screen(missingProfile);
+  await missingScreen.settle();
+  await missingScreen.tap("promotion.submit");
+  assert.equal(missingProfile.requests[0].business_name, "");
+  assert.equal(missingProfile.requests[0].contact_name, "");
+  assert.equal(missingProfile.requests[0].phone, "");
+  missingScreen.hooks.unmount();
+
+  const profileFailure = await savedEnvironment();
+  profileFailure.profileError = true;
+  const profileFailureScreen = screen(profileFailure);
+  await profileFailureScreen.settle();
+  await profileFailureScreen.tap("promotion.submit");
+  assert.equal(profileFailure.requests.length, 0);
+  assert.ok(
+    profileFailureScreen.text().includes(profileFailure.language.t("promotion.profileFailed")),
+  );
+  assert.equal(profileFailureScreen.field("promotion.proposal").props.editable, true);
+  profileFailureScreen.hooks.unmount();
 
   const retry = await savedEnvironment();
   retry.reply = async () => {
@@ -270,12 +354,17 @@ async function main() {
   await first.tap("promotion.submit");
   assert.equal(retry.requests.length, 1);
   assert.ok(first.text().includes(retry.language.t("promotion.sendFailed")));
-  assert.equal(first.field("promotion.business").props.editable, false);
-  await first.change("promotion.business", "Changed while pending");
-  assert.equal(first.field("promotion.business").props.value, validFields.business_name);
+  assert.equal(first.field("promotion.proposal").props.editable, false);
+  await first.change("promotion.proposal", "Changed while pending");
+  assert.equal(first.field("promotion.proposal").props.value, validFields.proposal);
   first.hooks.unmount();
   await settleUI();
   retry.phone.setCurrentDefaultCountryCode("AU");
+  retry.profile = {
+    name: "Different profile",
+    shop_name: "Different store",
+    phone: "+61412345678",
+  };
   const reopened = screen(retry);
   await reopened.settle();
   retry.reply = async (submission) => ({
@@ -294,6 +383,7 @@ async function main() {
     "Ambiguous retry reuses the exact saved UUID and payload after reopening",
   );
   assert.equal(new Set(retry.requests.map((request) => request.submission_id)).size, 1);
+  assert.equal(retry.profileReads, 1, "Retry reuses the first contact snapshot");
   assert.ok(reopened.text().includes(retry.language.t("promotion.received")));
   const receiptDraft = await retry.model.readProposalDraft("synthetic-install");
   assert.equal(receiptDraft?.receipt?.id, 37);
@@ -329,9 +419,9 @@ async function main() {
   const rejectedScreen = screen(rejected);
   await rejectedScreen.settle();
   await rejectedScreen.tap("promotion.submit");
-  assert.equal(rejectedScreen.field("promotion.business").props.editable, true);
-  await rejectedScreen.change("promotion.business", "Corrected business");
-  assert.equal(rejectedScreen.field("promotion.business").props.value, "Corrected business");
+  assert.equal(rejectedScreen.field("promotion.proposal").props.editable, true);
+  await rejectedScreen.change("promotion.proposal", "Corrected proposal");
+  assert.equal(rejectedScreen.field("promotion.proposal").props.value, "Corrected proposal");
   assert.equal((await rejected.model.readProposalDraft("synthetic-install"))?.pending, null);
   rejectedScreen.hooks.unmount();
 
@@ -344,7 +434,7 @@ async function main() {
   await rejectedSaveScreen.settle();
   await rejectedSaveScreen.tap("promotion.submit");
   assert.equal(
-    rejectedSaveScreen.field("promotion.business").props.editable,
+    rejectedSaveScreen.field("promotion.proposal").props.editable,
     false,
     "The form stays frozen if a definitive rejection cannot be saved locally",
   );
@@ -373,6 +463,8 @@ async function main() {
 
   const duplicate = await savedEnvironment();
   const gate = deferred<void>();
+  const profileGate = deferred<void>();
+  duplicate.profileGate = profileGate.promise;
   duplicate.reply = async (submission) => {
     await gate.promise;
     return {
@@ -390,6 +482,10 @@ async function main() {
   const send = duplicateScreen.button("promotion.submit").props.onPress;
   send();
   send();
+  await duplicateScreen.settle();
+  assert.equal(duplicate.profileReads, 1, "Concurrent Send presses claim one profile read");
+  assert.equal(duplicate.requests.length, 0);
+  profileGate.resolve();
   await duplicateScreen.settle();
   assert.equal(duplicate.requests.length, 1, "Concurrent Send presses create one request");
   gate.resolve();
@@ -414,7 +510,7 @@ async function main() {
     !storageScreen.text().includes(storageFailure.language.t("promotion.saved")),
     "Failed local saves must not display a saved confirmation",
   );
-  assert.equal(storageScreen.field("promotion.business").props.editable, true);
+  assert.equal(storageScreen.field("promotion.proposal").props.editable, true);
   storageScreen.hooks.unmount();
 
   const receiptSaveFailure = await savedEnvironment();
@@ -455,7 +551,7 @@ async function main() {
   receiptReopen.hooks.unmount();
 
   const receipts = environment();
-  const payload = receipts.model.prepareProposal(validFields, "en");
+  const payload = receipts.model.prepareProposal(validFields, "en", validContact);
   for (const receipt of [
     null,
     {},
@@ -482,7 +578,7 @@ async function main() {
   const pendingDraft = {
     ...completedElsewhere.model.newProposalDraft(),
     fields: { ...validFields },
-    pending: completedElsewhere.model.prepareProposal(validFields, "en"),
+    pending: completedElsewhere.model.prepareProposal(validFields, "en", validContact),
   };
   await completedElsewhere.model.saveProposalDraft("synthetic-install", pendingDraft);
   const staleScreen = screen(completedElsewhere);
@@ -508,7 +604,7 @@ async function main() {
   await transitions.model.saveProposalDraft("synthetic-install", original);
   const waiting = {
     ...original,
-    pending: transitions.model.prepareProposal(original.fields, "en"),
+    pending: transitions.model.prepareProposal(original.fields, "en", validContact),
   };
   await transitions.model.saveProposalDraft("synthetic-install", waiting);
   await assert.rejects(
@@ -565,35 +661,79 @@ async function main() {
   legacy.storage.set(
     "promotion_proposal_draft:synthetic-install",
     JSON.stringify({
-      fields: validFields,
+      fields: legacyFields,
       pending: null,
       receipt: null,
     }),
   );
   const legacyDraft = await legacy.model.readProposalDraft("synthetic-install");
   assert.equal(legacyDraft?.draft_id, "legacy");
+  assert.deepEqual(legacyDraft?.fields, {
+    proposal: validFields.proposal,
+    budget_offer: "1500.50 AFN",
+    duration: validFields.duration,
+  });
   await legacy.model.saveProposalDraft("synthetic-install", legacyDraft!);
   assert.equal(
     JSON.parse(legacy.storage.get("promotion_proposal_draft:synthetic-install")!).draft_id,
     "legacy",
   );
+  const legacyRequest: ProposalSubmission = {
+    ...legacyFields,
+    phone: "+93700123456",
+    submission_id: waiting.pending.submission_id,
+    app_locale: "en",
+  };
   legacy.storage.set(
     "promotion_proposal_draft:synthetic-install",
     JSON.stringify({
-      fields: waiting.fields,
-      pending: waiting.pending,
+      fields: legacyFields,
+      pending: legacyRequest,
       receipt: null,
     }),
   );
   const legacyPending = await legacy.model.readProposalDraft("synthetic-install");
-  assert.equal(legacyPending?.draft_id, waiting.pending.submission_id);
+  assert.equal(legacyPending?.draft_id, legacyRequest.submission_id);
   assert.deepEqual(
     legacyPending?.pending,
-    waiting.pending,
+    legacyRequest,
     "Older pending drafts retain the exact request",
   );
+  const legacyScreen = screen(legacy);
+  await legacyScreen.settle();
+  await legacyScreen.tap("promotion.retry");
+  assert.deepEqual(
+    legacy.requests[0],
+    legacyRequest,
+    "Legacy pending retries preserve the original numeric amount, currency and contact snapshot",
+  );
+  assert.equal(legacy.profileReads, 0);
+  assert.ok(legacyScreen.text().includes(legacy.language.t("promotion.received")));
+  legacyScreen.hooks.unmount();
+  const oldReceipt = {
+    id: 72,
+    submission_id: legacyRequest.submission_id,
+    created_at: "2026-11-05T08:00:00Z",
+  };
+  const legacyReceived = environment();
+  legacyReceived.storage.set(
+    "promotion_proposal_draft:synthetic-install",
+    JSON.stringify({ fields: legacyFields, pending: legacyRequest, receipt: oldReceipt }),
+  );
+  const restoredReceipt = await legacyReceived.model.readProposalDraft("synthetic-install");
+  assert.deepEqual(restoredReceipt?.pending, legacyRequest);
+  assert.deepEqual(
+    restoredReceipt?.receipt,
+    oldReceipt,
+    "An existing receipt remains attached to the unchanged legacy request",
+  );
+  const receivedScreen = screen(legacyReceived);
+  await receivedScreen.settle();
+  assert.ok(receivedScreen.text().includes(legacyReceived.language.t("promotion.received")));
+  assert.equal(legacyReceived.requests.length, 0);
+  receivedScreen.hooks.unmount();
   console.log(
-    "PASS promotion proposals: EN/FA/PS input, exact amount/phone, durable drafts, idempotent retries, valid receipts, edit locks/rejection correction, timeout/local failures, duplicate Send and stale-screen write protection",
+    "PASS promotion proposals: EN/FA/PS free-text offers, three-field form and saved-profile snapshots, durable drafts and legacy migration, exact old/new retries, valid receipts, edit locks/rejection correction, timeout/local failures, duplicate Send and stale-screen write protection",
   );
 }
 

@@ -1,21 +1,24 @@
 import { randomUUID } from "expo-crypto";
 import { getBackendUrl } from "./api";
-import { CURRENCIES, DEFAULT_CURRENCY } from "./currency";
 import { getAppMeta, setAppMeta } from "./db";
 import type { LocaleCode } from "./i18n";
-import { normalizeAmountInput } from "./money";
 import { getCurrentDefaultCountryCode, normalizePhone } from "./phone";
 
 export type ProposalFields = {
-  business_name: string;
-  contact_name: string;
-  phone: string;
   proposal: string;
-  budget_amount: string;
-  budget_currency: string;
+  budget_offer: string;
   duration: string;
 };
-export type ProposalSubmission = ProposalFields & { submission_id: string; app_locale: LocaleCode };
+export type ProposalContact = { business_name: string; contact_name: string; phone: string };
+export type ProposalSubmission = ProposalContact & {
+  proposal: string;
+  duration: string;
+  submission_id: string;
+  app_locale: LocaleCode;
+  budget_offer?: string;
+  budget_amount?: string;
+  budget_currency?: string;
+};
 export type ProposalReceipt = { id: number; submission_id: string; created_at: string };
 export type ProposalDraft = {
   draft_id: string;
@@ -24,22 +27,12 @@ export type ProposalDraft = {
   receipt: ProposalReceipt | null;
 };
 export type ProposalErrors = Partial<
-  Record<
-    keyof ProposalFields,
-    | "promotion.required"
-    | "promotion.tooLong"
-    | "promotion.invalidPhone"
-    | "promotion.invalidBudget"
-  >
+  Record<keyof ProposalFields, "promotion.required" | "promotion.tooLong">
 >;
 
 const emptyFields: ProposalFields = {
-  business_name: "",
-  contact_name: "",
-  phone: "",
   proposal: "",
-  budget_amount: "",
-  budget_currency: DEFAULT_CURRENCY,
+  budget_offer: "",
   duration: "",
 };
 
@@ -55,44 +48,31 @@ export function newProposalDraft(): ProposalDraft {
 export function validateProposal(fields: ProposalFields): ProposalErrors {
   const errors: ProposalErrors = {};
   for (const [field, limit] of [
-    ["business_name", 120],
-    ["contact_name", 100],
     ["proposal", 3000],
+    ["budget_offer", 1000],
     ["duration", 120],
   ] as const) {
     const value = fields[field].trim();
     if (!value && field !== "duration") errors[field] = "promotion.required";
     else if (Array.from(value).length > limit) errors[field] = "promotion.tooLong";
   }
-  const phone = normalizePhone(fields.phone, getCurrentDefaultCountryCode());
-  if (!phone || !/^\+[1-9]\d{6,14}$/.test(phone)) {
-    errors.phone = "promotion.invalidPhone";
-  }
-  if (!normalizeBudget(fields.budget_amount)) errors.budget_amount = "promotion.invalidBudget";
-  if (!CURRENCIES.some((currency) => currency.code === fields.budget_currency)) {
-    errors.budget_currency = "promotion.required";
-  }
   return errors;
 }
 
-function normalizeBudget(value: string): string | null {
-  const normalized = normalizeAmountInput(value).replace(/^\./, "0.").replace(/\.$/, "");
-  if (!/^\d{1,12}(?:\.\d{1,2})?$/.test(normalized) || /^0+(?:\.0+)?$/.test(normalized)) {
-    return null;
-  }
-  const [whole, fraction = ""] = normalized.split(".");
-  return `${whole.replace(/^0+(?=\d)/, "")}.${fraction.padEnd(2, "0")}`;
-}
-
-export function prepareProposal(fields: ProposalFields, locale: LocaleCode): ProposalSubmission {
+export function prepareProposal(
+  fields: ProposalFields,
+  locale: LocaleCode,
+  contact: ProposalContact,
+): ProposalSubmission {
   if (Object.keys(validateProposal(fields)).length) throw new Error("Invalid proposal");
+  const phone = normalizePhone(contact.phone, getCurrentDefaultCountryCode());
   return {
-    business_name: fields.business_name.trim(),
-    contact_name: fields.contact_name.trim(),
-    phone: normalizePhone(fields.phone, getCurrentDefaultCountryCode())!,
+    // Fit the saved-profile snapshot to the proposal's stored bounds.
+    business_name: Array.from(contact.business_name.trim()).slice(0, 120).join(""),
+    contact_name: Array.from(contact.contact_name.trim()).slice(0, 100).join(""),
+    phone: phone && /^\+[1-9]\d{6,14}$/.test(phone) ? phone : "",
     proposal: fields.proposal.trim(),
-    budget_amount: normalizeBudget(fields.budget_amount)!,
-    budget_currency: fields.budget_currency,
+    budget_offer: fields.budget_offer.trim(),
     duration: fields.duration.trim(),
     app_locale: locale,
     submission_id: randomUUID(),
@@ -105,6 +85,18 @@ async function readStoredProposalDraft(installId: string): Promise<ProposalDraft
   const raw = await getAppMeta(draftKey(installId));
   if (!raw) return null;
   const draft = JSON.parse(raw) as ProposalDraft;
+  const legacy = draft?.fields as
+    | (ProposalFields & { budget_amount?: string; budget_currency?: string })
+    | undefined;
+  if (legacy && legacy.budget_offer === undefined && typeof legacy.budget_amount === "string") {
+    draft.fields = {
+      proposal: legacy.proposal,
+      budget_offer: legacy.budget_amount.trim()
+        ? `${legacy.budget_amount} ${legacy.budget_currency ?? ""}`.trim()
+        : "",
+      duration: legacy.duration,
+    };
+  }
   const fields = Object.keys(emptyFields) as Array<keyof ProposalFields>;
   if (!draft?.fields || fields.some((field) => typeof draft.fields[field] !== "string")) {
     throw new Error("Invalid saved proposal");
@@ -116,7 +108,14 @@ async function readStoredProposalDraft(installId: string): Promise<ProposalDraft
   }
   if (
     draft.pending &&
-    (fields.some((field) => typeof draft.pending?.[field] !== "string") ||
+    (["business_name", "contact_name", "phone", "proposal", "duration"].some(
+      (field) => typeof draft.pending?.[field as keyof ProposalSubmission] !== "string",
+    ) ||
+      !(
+        typeof draft.pending.budget_offer === "string" ||
+        (typeof draft.pending.budget_amount === "string" &&
+          typeof draft.pending.budget_currency === "string")
+      ) ||
       !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
         draft.pending.submission_id,
       ) ||

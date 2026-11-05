@@ -29,24 +29,21 @@ function proposal(id: number, patch: Partial<SponsorProposal> = {}): SponsorProp
     ...patch,
   };
 }
-const filters = { search: "", status: "", currency: "", sort: "newest" as const };
+const filters = { search: "", status: "" };
 
-test("offer comparisons require one currency and preserve exact cents at the supported maximum", () => {
+test("free-text and legacy offers retain chronological order without mutating received records", () => {
   const proposals = [
     proposal(1, { budget_amount: "999999999999.98" }),
-    proposal(2, { budget_amount: "999999999999.99" }),
+    proposal(2, {
+      budget_offer: "500 dollars for two weeks, open to discussion",
+      budget_amount: "",
+      budget_currency: "",
+    }),
     proposal(3, { budget_amount: "1", budget_currency: "USD" }),
   ];
   assert.deepEqual(
-    selectSponsorProposals(proposals, { ...filters, sort: "highest" }).map((row) => row.id),
+    selectSponsorProposals(proposals, filters).map((row) => row.id),
     [3, 2, 1],
-    "Mixed currencies retain chronological order",
-  );
-  assert.deepEqual(
-    selectSponsorProposals(proposals, { ...filters, currency: "AFN", sort: "highest" }).map(
-      (row) => row.id,
-    ),
-    [2, 1],
   );
   assert.deepEqual(
     proposals.map((row) => row.id),
@@ -55,9 +52,13 @@ test("offer comparisons require one currency and preserve exact cents at the sup
   );
 });
 
-test("archived proposals remain available and search composes with status and currency", () => {
+test("archived proposals remain available and search includes the full price offer", () => {
   const proposals = [
-    proposal(1, { business_name: "Synthetic Flour", status: "archived" }),
+    proposal(1, {
+      business_name: "Synthetic Flour",
+      status: "archived",
+      budget_offer: "5000 afghanis for a month",
+    }),
     proposal(2, { business_name: "Synthetic Flour", budget_currency: "USD" }),
     proposal(3, { business_name: "Synthetic Oil" }),
   ];
@@ -65,23 +66,29 @@ test("archived proposals remain available and search composes with status and cu
   assert.deepEqual(
     selectSponsorProposals(proposals, {
       ...filters,
-      search: " FLOUR ",
+      search: " AFGHANIS ",
       status: "archived",
-      currency: "AFN",
     }).map((row) => row.id),
     [1],
   );
   assert.equal(selectSponsorProposals(proposals, { ...filters, search: "700000001" }).length, 3);
 });
 
-test("the proposal inbox displays each offered currency and escapes submitted content", () => {
+test("the proposal inbox preserves free-text terms and legacy offers while escaping submitted content", () => {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: Infinity } },
   });
   client.setQueryData(sponsorProposalsKey("synthetic"), {
     proposals: [
       proposal(1, { business_name: "<script>business</script>" }),
-      proposal(2, { budget_currency: "USD" }),
+      proposal(2, {
+        business_name: "",
+        contact_name: "",
+        phone: "",
+        budget_offer: "500 USD for two weeks\n<script>offer</script>",
+        budget_amount: "",
+        budget_currency: "",
+      }),
     ],
   });
   const html = renderToStaticMarkup(
@@ -92,9 +99,12 @@ test("the proposal inbox displays each offered currency and escapes submitted co
     </QueryClientProvider>,
   );
   assert.match(html, /100 AFN/);
-  assert.match(html, /100 USD/);
+  assert.match(html, /500 USD for two weeks\n&lt;script&gt;offer&lt;\/script&gt;/);
   assert.match(html, /2 received · 2 new/);
-  assert.match(html, /Choose a currency to compare the highest offers/);
+  assert.match(html, /Business name unavailable/);
+  assert.match(html, /Contact details unavailable/);
+  assert.match(html, /Review proposal #2/);
+  assert.doesNotMatch(html, /Offer currency|Highest offer first|Choose a currency/);
   assert.match(html, /&lt;script&gt;business&lt;\/script&gt;/);
   assert.doesNotMatch(html, /<script>business/);
   client.clear();

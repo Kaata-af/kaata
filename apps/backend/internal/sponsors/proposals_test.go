@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -13,6 +14,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
+	"github.com/matee/kaata-backend/internal/db"
 	"github.com/matee/kaata-backend/internal/httpx"
 	"github.com/matee/kaata-backend/internal/testutil"
 )
@@ -63,6 +65,81 @@ func TestProposalInputValidation(t *testing.T) {
 				t.Fatal("invalid proposal was accepted")
 			}
 		})
+	}
+}
+
+func TestProposalTextOfferValidation(t *testing.T) {
+	base := proposalInput{
+		SubmissionID: uuid.NewString(), Proposal: "Promote my trade", BudgetOffer: "  ۵۰۰۰ افغانی برای دو هفته\nقابل مذاکره  ", AppLocale: "fa",
+	}
+	valid := base
+	if err := valid.normalize(); err != nil || valid.BudgetOffer != "۵۰۰۰ افغانی برای دو هفته\nقابل مذاکره" {
+		t.Fatalf("free text offer normalization: %+v, %v", valid, err)
+	}
+	for _, tc := range []struct {
+		name   string
+		change func(*proposalInput)
+	}{
+		{"missing offer", func(in *proposalInput) { in.BudgetOffer = " " }},
+		{"long offer", func(in *proposalInput) { in.BudgetOffer = strings.Repeat("ژ", 1001) }},
+		{"NUL offer", func(in *proposalInput) { in.BudgetOffer = "Offer\x00" }},
+		{"mixed amount", func(in *proposalInput) { in.BudgetAmount = "50" }},
+		{"mixed currency", func(in *proposalInput) { in.BudgetCurrency = "AFN" }},
+		{"invalid supplied phone", func(in *proposalInput) { in.Phone = "0700000001" }},
+		{"long supplied business", func(in *proposalInput) { in.BusinessName = strings.Repeat("ژ", 121) }},
+		{"long supplied contact", func(in *proposalInput) { in.ContactName = strings.Repeat("ژ", 101) }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			input := base
+			tc.change(&input)
+			if err := input.normalize(); err == nil {
+				t.Fatal("invalid free text proposal was accepted")
+			}
+		})
+	}
+	valid.BudgetOffer = strings.Repeat("ژ", 1000)
+	valid.Phone = "+93700000001"
+	if err := valid.normalize(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestProposalOfferMigrationKeepsLegacyReplay(t *testing.T) {
+	pool := testutil.ConnectTestDB(t)
+	ctx := t.Context()
+	// Recreate only this standalone table as it existed before migration 080,
+	// then run the real migrator with a preexisting legacy proposal.
+	if _, err := pool.Exec(ctx, `DROP TABLE sponsor_proposals; DELETE FROM schema_migrations WHERE name='080_sponsor_proposal_offers.sql'`); err != nil {
+		t.Fatal(err)
+	}
+	previous, err := os.ReadFile("../db/migrations/079_sponsor_proposals.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, string(previous)); err != nil {
+		t.Fatal(err)
+	}
+	input := proposalInput{SubmissionID: uuid.NewString(), BusinessName: "Existing business", ContactName: "Existing contact", Phone: "+93700000001", Proposal: "Existing proposal", BudgetAmount: "1250.50", BudgetCurrency: "AFN", Duration: "Two weeks", AppLocale: "fa"}
+	var original proposalReceipt
+	if err := pool.QueryRow(ctx, `INSERT INTO sponsor_proposals (submission_id,business_name,contact_name,phone,proposal,budget_amount,budget_currency,duration,app_locale) VALUES ($1::uuid,$2,$3,$4,$5,$6::numeric,$7,$8,$9) RETURNING id, submission_id::text, created_at`, input.SubmissionID, input.BusinessName, input.ContactName, input.Phone, input.Proposal, input.BudgetAmount, input.BudgetCurrency, input.Duration, input.AppLocale).Scan(&original.ID, &original.SubmissionID, &original.CreatedAt); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Migrate(ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+	body, err := json.Marshal(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := httptest.NewRecorder()
+	NewHandler(pool).SubmitProposal(response, httptest.NewRequest(http.MethodPost, "/v1/sponsor-proposals", strings.NewReader(string(body))))
+	var replay proposalReceipt
+	if err := json.Unmarshal(response.Body.Bytes(), &replay); err != nil || response.Code != http.StatusOK || replay.ID != original.ID || replay.SubmissionID != original.SubmissionID || !replay.CreatedAt.Equal(original.CreatedAt) {
+		t.Fatalf("legacy replay changed after migration: %d %s (%v)", response.Code, response.Body, err)
+	}
+	var amount, currency, offer string
+	if err := pool.QueryRow(ctx, `SELECT budget_amount::text,budget_currency,budget_offer FROM sponsor_proposals WHERE id=$1`, original.ID).Scan(&amount, &currency, &offer); err != nil || amount != "1250.50" || currency != "AFN" || offer != "" {
+		t.Fatalf("legacy fields changed: %q %q %q (%v)", amount, currency, offer, err)
 	}
 }
 
@@ -188,6 +265,35 @@ func TestProposalLifecycle(t *testing.T) {
 	var count int
 	if err := pool.QueryRow(t.Context(), "SELECT count(*) FROM sponsor_proposals").Scan(&count); err != nil || count != 2 {
 		t.Fatalf("saved rows %d, want 2: %v", count, err)
+	}
+	free := proposalInput{SubmissionID: uuid.NewString(), Proposal: "Promote a new trade", BudgetOffer: "۵۰۰۰ افغانی برای دو هفته\nقابل مذاکره", AppLocale: "fa"}
+	freeBody := encode(free)
+	freeFirst := request(http.MethodPost, publicPath, "", freeBody)
+	check(freeFirst, http.StatusCreated)
+	freeReplay := request(http.MethodPost, publicPath, "", freeBody)
+	check(freeReplay, http.StatusOK)
+	if freeFirst.Body.String() != freeReplay.Body.String() {
+		t.Fatal("free text retry changed receipt")
+	}
+	changedFree := free
+	changedFree.BudgetOffer = "Another offer"
+	check(request(http.MethodPost, publicPath, "", encode(changedFree)), http.StatusConflict)
+	list = request(http.MethodGet, adminPath, "test-admin-key", "")
+	check(list, http.StatusOK)
+	if err := json.Unmarshal(list.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	var found bool
+	for _, saved := range result.Proposals {
+		if saved.SubmissionID == free.SubmissionID {
+			found = true
+			if saved.BudgetOffer != free.BudgetOffer || saved.BudgetAmount != "" || saved.BudgetCurrency != "" || saved.BusinessName != "" || saved.ContactName != "" || saved.Phone != "" {
+				t.Fatalf("free text snapshot changed: %+v", saved)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("free text proposal missing from admin list")
 	}
 	var limited *httptest.ResponseRecorder
 	for range 61 {

@@ -25,36 +25,32 @@ const selectClass =
   "h-10 w-full min-w-0 rounded-md border border-input bg-white px-3 text-sm text-brand-ink";
 const amountFormat = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 });
 
-function budgetUnits(amount: string) {
-  const [whole, fraction = ""] = amount.split(".");
-  return BigInt(whole) * 100n + BigInt(fraction.padEnd(2, "0"));
-}
-
 export function selectSponsorProposals(
   proposals: SponsorProposal[],
-  filters: { search: string; status: string; currency: string; sort: "newest" | "highest" },
+  filters: { search: string; status: string },
 ) {
   const search = filters.search.trim().toLocaleLowerCase();
   const visible = proposals.filter(
     (proposal) =>
       (!filters.status || proposal.status === filters.status) &&
-      (!filters.currency || proposal.budget_currency === filters.currency) &&
       (!search ||
-        [proposal.business_name, proposal.contact_name, proposal.phone, proposal.proposal].some(
-          (value) => value.toLocaleLowerCase().includes(search),
-        )),
+        [
+          proposal.business_name,
+          proposal.contact_name,
+          proposal.phone,
+          proposal.proposal,
+          offeredBudget(proposal),
+        ].some((value) => value.toLocaleLowerCase().includes(search))),
   );
-  return visible.sort((a, b) => {
-    if (filters.sort === "highest" && filters.currency) {
-      const difference = budgetUnits(b.budget_amount) - budgetUnits(a.budget_amount);
-      if (difference !== 0n) return difference > 0n ? 1 : -1;
-    }
-    return Date.parse(b.created_at) - Date.parse(a.created_at) || b.id - a.id;
-  });
+  return visible.sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at) || b.id - a.id);
 }
 
 function offeredBudget(proposal: SponsorProposal) {
-  return `${amountFormat.format(Number(proposal.budget_amount))} ${proposal.budget_currency}`;
+  if (proposal.budget_offer?.trim()) return proposal.budget_offer;
+  if (proposal.budget_amount && proposal.budget_currency) {
+    return `${amountFormat.format(Number(proposal.budget_amount))} ${proposal.budget_currency}`;
+  }
+  return "";
 }
 
 export function SponsorProposals() {
@@ -63,8 +59,6 @@ export function SponsorProposals() {
   const query = useSponsorProposals();
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("");
-  const [currency, setCurrency] = useState("");
-  const [sort, setSort] = useState<"newest" | "highest">("newest");
   const [review, setReview] = useState<SponsorProposal | null>(null);
   const [notice, setNotice] = useState("");
   const save = useMutation({
@@ -89,17 +83,14 @@ export function SponsorProposals() {
   }
 
   const proposals = query.data?.proposals ?? [];
-  const currencies = Array.from(
-    new Set(proposals.map((proposal) => proposal.budget_currency)),
-  ).sort();
-  const visible = selectSponsorProposals(proposals, { search, status, currency, sort });
+  const visible = selectSponsorProposals(proposals, { search, status });
   const newCount = proposals.filter((proposal) => proposal.status === "new").length;
 
   return (
     <div className="min-w-0 max-w-full">
       <PageHeader
         title="Promotion proposals"
-        description="Review business proposals and offered budgets, then keep each conversation’s progress here."
+        description="Review business proposals and price offers, then keep each conversation’s progress here."
       />
       <div className="flex min-w-0 flex-col gap-4">
         {notice ? (
@@ -128,14 +119,14 @@ export function SponsorProposals() {
           />
         ) : (
           <Card title="All proposals" sub={`${proposals.length} received · ${newCount} new`}>
-            <div className="mb-4 grid min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="mb-4 grid min-w-0 gap-3 sm:grid-cols-2">
               <label className="min-w-0 space-y-1.5 text-sm font-medium text-brand-ink">
                 <span>Search</span>
                 <Input
                   type="search"
                   value={search}
                   onChange={(event) => setSearch(event.target.value)}
-                  placeholder="Business, contact or proposal"
+                  placeholder="Business, contact, proposal or price offer"
                 />
               </label>
               <label className="min-w-0 space-y-1.5 text-sm font-medium text-brand-ink">
@@ -153,43 +144,7 @@ export function SponsorProposals() {
                   ))}
                 </select>
               </label>
-              <label className="min-w-0 space-y-1.5 text-sm font-medium text-brand-ink">
-                <span>Offer currency</span>
-                <select
-                  className={selectClass}
-                  value={currency}
-                  onChange={(event) => {
-                    setCurrency(event.target.value);
-                    setSort("newest");
-                  }}
-                >
-                  <option value="">All currencies</option>
-                  {currencies.map((item) => (
-                    <option key={item} value={item}>
-                      {item}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="min-w-0 space-y-1.5 text-sm font-medium text-brand-ink">
-                <span>Order</span>
-                <select
-                  className={selectClass}
-                  value={sort}
-                  onChange={(event) => setSort(event.target.value as "newest" | "highest")}
-                >
-                  <option value="newest">Newest first</option>
-                  <option value="highest" disabled={!currency}>
-                    Highest offer first
-                  </option>
-                </select>
-              </label>
             </div>
-            {!currency && proposals.length > 0 ? (
-              <p className="mb-4 text-xs text-brand-muted">
-                Choose a currency to compare the highest offers.
-              </p>
-            ) : null}
             {visible.length === 0 ? (
               <p className="text-sm text-brand-muted">
                 {proposals.length === 0
@@ -209,7 +164,7 @@ export function SponsorProposals() {
                           dir="auto"
                           className="min-w-0 text-sm font-semibold text-brand-ink [overflow-wrap:anywhere]"
                         >
-                          {proposal.business_name}
+                          {proposal.business_name || "Business name unavailable"}
                         </span>
                         <span
                           className={`rounded-full px-2 py-0.5 text-xs ${proposal.status === "new" ? "bg-amber-50 text-amber-800" : "bg-brand-ivory text-brand-sub"}`}
@@ -219,7 +174,12 @@ export function SponsorProposals() {
                         </span>
                       </div>
                       <p dir="auto" className="mt-1 break-words text-sm text-brand-sub">
-                        {proposal.contact_name} · <bdi dir="ltr">{proposal.phone}</bdi>
+                        {proposal.contact_name}
+                        {proposal.contact_name && proposal.phone ? " · " : null}
+                        {proposal.phone ? <bdi dir="ltr">{proposal.phone}</bdi> : null}
+                        {!proposal.contact_name && !proposal.phone
+                          ? "Contact details unavailable"
+                          : null}
                       </p>
                       <p
                         dir="auto"
@@ -231,8 +191,11 @@ export function SponsorProposals() {
                         Received {fmtDateTime(proposal.created_at)} Kabul · #{proposal.id}
                       </p>
                     </div>
-                    <div className="flex shrink-0 flex-col items-start gap-2 sm:items-end">
-                      <p className="text-sm font-semibold tabular-nums text-brand-ink">
+                    <div className="flex w-full min-w-0 flex-col items-start gap-2 sm:w-auto sm:max-w-sm sm:items-end">
+                      <p
+                        dir="auto"
+                        className="whitespace-pre-wrap break-words text-sm font-semibold text-brand-ink line-clamp-3"
+                      >
                         {offeredBudget(proposal)}
                       </p>
                       {proposal.duration ? (
@@ -242,7 +205,11 @@ export function SponsorProposals() {
                       ) : null}
                       <Button
                         variant="outline"
-                        aria-label={`Review proposal from ${proposal.business_name}`}
+                        aria-label={
+                          proposal.business_name
+                            ? `Review proposal from ${proposal.business_name}`
+                            : `Review proposal #${proposal.id}`
+                        }
                         disabled={Boolean(review)}
                         onClick={() => openReview(proposal)}
                       >
@@ -289,19 +256,25 @@ function ProposalReview({
 
   return (
     <Card
-      title={proposal.business_name}
+      title={proposal.business_name || "Business name unavailable"}
       sub={`Proposal #${proposal.id} · received ${fmtDateTime(proposal.created_at)} Kabul`}
     >
       <dl className="grid min-w-0 gap-4 text-sm sm:grid-cols-2">
         <div className="min-w-0">
           <dt className="text-xs text-brand-muted">Contact</dt>
           <dd dir="auto" className="mt-1 break-words text-brand-ink">
-            {proposal.contact_name} · <bdi dir="ltr">{proposal.phone}</bdi>
+            {proposal.contact_name}
+            {proposal.contact_name && proposal.phone ? " · " : null}
+            {proposal.phone ? <bdi dir="ltr">{proposal.phone}</bdi> : null}
+            {!proposal.contact_name && !proposal.phone ? "Contact details unavailable" : null}
           </dd>
         </div>
         <div>
-          <dt className="text-xs text-brand-muted">Offered budget</dt>
-          <dd className="mt-1 font-semibold tabular-nums text-brand-ink">
+          <dt className="text-xs text-brand-muted">Price offer</dt>
+          <dd
+            dir="auto"
+            className="mt-1 whitespace-pre-wrap break-words font-semibold text-brand-ink"
+          >
             {offeredBudget(proposal)}
           </dd>
         </div>
