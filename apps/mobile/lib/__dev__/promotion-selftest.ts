@@ -275,6 +275,10 @@ async function main() {
         env.model.validateProposal({ ...validFields, budget_offer: offer }).budget_offer,
         "promotion.required",
       );
+      assert.equal(
+        env.model.validateProposal({ ...validFields, duration: offer }).duration,
+        "promotion.required",
+      );
     }
     assert.equal(
       env.model.validateProposal({ ...validFields, budget_offer: "😀".repeat(1000) }).budget_offer,
@@ -293,6 +297,7 @@ async function main() {
     assert.equal(missingProfile.business_name, "");
     const first = screen(env);
     await first.settle();
+    assert.equal(first.field("promotion.duration").props.required, true);
     assert.equal(nodes(first.hooks.tree).filter((node) => node.type === "FormField").length, 3);
     assert.equal(
       nodes(first.hooks.tree).some(
@@ -310,6 +315,25 @@ async function main() {
     assert.equal(reopened.field("promotion.proposal").props.value, `Synthetic ${locale} draft`);
     reopened.hooks.unmount();
   }
+
+  const missingDuration = await savedEnvironment();
+  const durationScreen = screen(missingDuration);
+  await durationScreen.settle();
+  await durationScreen.change("promotion.duration", " \n ");
+  await durationScreen.tap("promotion.submit");
+  assert.equal(
+    missingDuration.requests.length,
+    0,
+    "A new proposal needs a duration before sending",
+  );
+  assert.equal(
+    durationScreen.field("promotion.duration").props.error,
+    missingDuration.language.t("promotion.required"),
+  );
+  await durationScreen.change("promotion.duration", "One month");
+  await durationScreen.tap("promotion.submit");
+  assert.equal(missingDuration.requests[0].duration, "One month");
+  durationScreen.hooks.unmount();
 
   const freshProfile = await savedEnvironment();
   const freshScreen = screen(freshProfile);
@@ -680,6 +704,7 @@ async function main() {
   );
   const legacyRequest: ProposalSubmission = {
     ...legacyFields,
+    duration: "",
     phone: "+93700123456",
     submission_id: waiting.pending.submission_id,
     app_locale: "en",
@@ -687,7 +712,7 @@ async function main() {
   legacy.storage.set(
     "promotion_proposal_draft:synthetic-install",
     JSON.stringify({
-      fields: legacyFields,
+      fields: { ...legacyFields, duration: "" },
       pending: legacyRequest,
       receipt: null,
     }),
@@ -718,7 +743,11 @@ async function main() {
   const legacyReceived = environment();
   legacyReceived.storage.set(
     "promotion_proposal_draft:synthetic-install",
-    JSON.stringify({ fields: legacyFields, pending: legacyRequest, receipt: oldReceipt }),
+    JSON.stringify({
+      fields: { ...legacyFields, duration: "" },
+      pending: legacyRequest,
+      receipt: oldReceipt,
+    }),
   );
   const restoredReceipt = await legacyReceived.model.readProposalDraft("synthetic-install");
   assert.deepEqual(restoredReceipt?.pending, legacyRequest);

@@ -280,7 +280,7 @@ function ProposalReview({
         </div>
         {proposal.duration ? (
           <div className="min-w-0 sm:col-span-2">
-            <dt className="text-xs text-brand-muted">Preferred timing or duration</dt>
+            <dt className="text-xs text-brand-muted">Duration</dt>
             <dd dir="auto" className="mt-1 whitespace-pre-wrap break-words text-brand-ink">
               {proposal.duration}
             </dd>

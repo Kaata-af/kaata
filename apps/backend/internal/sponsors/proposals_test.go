@@ -143,6 +143,63 @@ func TestProposalOfferMigrationKeepsLegacyReplay(t *testing.T) {
 	}
 }
 
+func TestProposalRequiresDurationButKeepsHistoricalReplay(t *testing.T) {
+	pool := testutil.ConnectTestDB(t)
+	handler := NewHandler(pool)
+	for _, freeText := range []bool{false, true} {
+		input := proposalInput{
+			SubmissionID: uuid.NewString(), BusinessName: "Existing business", ContactName: "Existing contact",
+			Phone: "+93700000001", Proposal: "Existing proposal", BudgetAmount: "1250.50",
+			BudgetCurrency: "AFN", Duration: " \t ", AppLocale: "fa",
+		}
+		if freeText {
+			input.BudgetAmount, input.BudgetCurrency, input.BudgetOffer = "", "", "A negotiated price"
+		}
+		request := func(value proposalInput, want int) *httptest.ResponseRecorder {
+			t.Helper()
+			body, err := json.Marshal(value)
+			if err != nil {
+				t.Fatal(err)
+			}
+			response := httptest.NewRecorder()
+			handler.SubmitProposal(response, httptest.NewRequest(http.MethodPost, "/v1/sponsor-proposals", strings.NewReader(string(body))))
+			if response.Code != want {
+				t.Fatalf("status %d, want %d: %s", response.Code, want, response.Body)
+			}
+			return response
+		}
+		if response := request(input, http.StatusBadRequest); !strings.Contains(response.Body.String(), "duration is required") {
+			t.Fatalf("missing duration error: %s", response.Body)
+		}
+		// Simulate an accepted proposal from before duration became required.
+		var original proposalReceipt
+		err := pool.QueryRow(t.Context(), `
+			INSERT INTO sponsor_proposals
+			(submission_id,business_name,contact_name,phone,proposal,budget_amount,budget_currency,budget_offer,duration,app_locale)
+			VALUES ($1::uuid,$2,$3,$4,$5,NULLIF($6,'')::numeric,NULLIF($7,''),$8,'',$9)
+			RETURNING id, submission_id::text, created_at
+		`, input.SubmissionID, input.BusinessName, input.ContactName, input.Phone, input.Proposal, input.BudgetAmount, input.BudgetCurrency, input.BudgetOffer, input.AppLocale).Scan(&original.ID, &original.SubmissionID, &original.CreatedAt)
+		if err != nil {
+			t.Fatal(err)
+		}
+		response := request(input, http.StatusOK)
+		var replay proposalReceipt
+		if err := json.Unmarshal(response.Body.Bytes(), &replay); err != nil || replay.ID != original.ID || replay.SubmissionID != original.SubmissionID || !replay.CreatedAt.Equal(original.CreatedAt) {
+			t.Fatalf("historical receipt changed: %s (%v)", response.Body, err)
+		}
+		changed := input
+		changed.Proposal = "Different proposal"
+		request(changed, http.StatusConflict)
+		changed = input
+		changed.Duration = "Two weeks"
+		request(changed, http.StatusConflict)
+	}
+	var count int
+	if err := pool.QueryRow(t.Context(), `SELECT count(*) FROM sponsor_proposals`).Scan(&count); err != nil || count != 2 {
+		t.Fatalf("saved rows %d, want the 2 historical rows: %v", count, err)
+	}
+}
+
 func TestProposalLifecycle(t *testing.T) {
 	pool := testutil.ConnectTestDB(t)
 	h := NewHandler(pool)
@@ -266,7 +323,7 @@ func TestProposalLifecycle(t *testing.T) {
 	if err := pool.QueryRow(t.Context(), "SELECT count(*) FROM sponsor_proposals").Scan(&count); err != nil || count != 2 {
 		t.Fatalf("saved rows %d, want 2: %v", count, err)
 	}
-	free := proposalInput{SubmissionID: uuid.NewString(), Proposal: "Promote a new trade", BudgetOffer: "۵۰۰۰ افغانی برای دو هفته\nقابل مذاکره", AppLocale: "fa"}
+	free := proposalInput{SubmissionID: uuid.NewString(), Proposal: "Promote a new trade", BudgetOffer: "۵۰۰۰ افغانی برای دو هفته\nقابل مذاکره", Duration: "Two weeks", AppLocale: "fa"}
 	freeBody := encode(free)
 	freeFirst := request(http.MethodPost, publicPath, "", freeBody)
 	check(freeFirst, http.StatusCreated)

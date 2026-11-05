@@ -53,7 +53,7 @@ export function validateProposal(fields: ProposalFields): ProposalErrors {
     ["duration", 120],
   ] as const) {
     const value = fields[field].trim();
-    if (!value && field !== "duration") errors[field] = "promotion.required";
+    if (!value) errors[field] = "promotion.required";
     else if (Array.from(value).length > limit) errors[field] = "promotion.tooLong";
   }
   return errors;

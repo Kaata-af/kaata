@@ -153,7 +153,8 @@ func (h *Handler) SubmitProposal(w http.ResponseWriter, r *http.Request) {
 	err := h.pool.QueryRow(r.Context(), `
 		INSERT INTO sponsor_proposals
 		(submission_id, business_name, contact_name, phone, proposal, budget_amount, budget_currency, budget_offer, duration, app_locale)
-		VALUES ($1::uuid, $2, $3, $4, $5, NULLIF($6, '')::numeric, NULLIF($7, ''), $8, $9, $10)
+		SELECT $1::uuid, $2, $3, $4, $5, NULLIF($6, '')::numeric, NULLIF($7, ''), $8, $9, $10
+		WHERE $9 <> ''
 		ON CONFLICT (submission_id) DO NOTHING
 		RETURNING id, submission_id::text, created_at
 	`, args...).Scan(&receipt.ID, &receipt.SubmissionID, &receipt.CreatedAt)
@@ -168,6 +169,17 @@ func (h *Handler) SubmitProposal(w http.ResponseWriter, r *http.Request) {
 			AND proposal=$5 AND budget_amount IS NOT DISTINCT FROM NULLIF($6, '')::numeric
 			AND budget_currency IS NOT DISTINCT FROM NULLIF($7, '') AND budget_offer=$8 AND duration=$9 AND app_locale=$10
 		`, args...).Scan(&receipt.ID, &receipt.SubmissionID, &receipt.CreatedAt)
+	}
+	if errors.Is(err, pgx.ErrNoRows) && input.Duration == "" {
+		// Previously accepted proposals may have no duration. An exact retry
+		// above keeps its receipt, while new proposals must provide a duration.
+		var exists bool
+		if lookupErr := h.pool.QueryRow(r.Context(), `SELECT EXISTS (SELECT 1 FROM sponsor_proposals WHERE submission_id=$1::uuid)`, input.SubmissionID).Scan(&exists); lookupErr != nil {
+			err = lookupErr
+		} else if !exists {
+			httpx.Error(w, http.StatusBadRequest, "duration is required")
+			return
+		}
 	}
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):

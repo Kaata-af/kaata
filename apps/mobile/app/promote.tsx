@@ -297,6 +297,7 @@ export default function PromoteScreen() {
               maxLength={120}
               editable={editable}
               error={fieldErrors.duration ? t(fieldErrors.duration) : null}
+              required
             />
             <Text style={[styles.hint, textDir(isRTL)]}>{t("promotion.contactNotice")}</Text>
             {draft.pending ? (

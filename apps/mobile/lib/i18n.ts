@@ -1175,8 +1175,8 @@ const en = {
     "Describe your business, product or service and the promotion you have in mind.",
   "promotion.budget": "Your price offer",
   "promotion.budgetHint": "Write the amount, currency and any terms in your own words.",
-  "promotion.duration": "Preferred dates or duration (optional)",
-  "promotion.durationHint": "For example, two weeks in December",
+  "promotion.duration": "Duration",
+  "promotion.durationHint": "For example, two weeks",
   "promotion.contactNotice":
     "We’ll include your saved profile details so we can review your proposal and contact you.",
   "promotion.submit": "Send proposal",
@@ -3499,8 +3499,8 @@ const fa: Partial<Record<Key, string>> = {
   "promotion.proposalHint": "دربارهٔ تجارت، جنس یا خدمت خود و تبلیغی که در نظر دارید بنویسید.",
   "promotion.budget": "قیمت پیشنهادی شما",
   "promotion.budgetHint": "مبلغ، ارز و شرایط خود را به زبان خودتان بنویسید.",
-  "promotion.duration": "تاریخ یا مدت دلخواه (اختیاری)",
-  "promotion.durationHint": "برای نمونه، دو هفته در ماه قوس",
+  "promotion.duration": "مدت",
+  "promotion.durationHint": "برای نمونه، دو هفته",
   "promotion.contactNotice":
     "معلومات ذخیره‌شدهٔ پروفایل شما را برای بررسی پیشنهاد و تماس با شما ضمیمه می‌کنیم.",
   "promotion.submit": "ارسال پیشنهاد",
@@ -5284,8 +5284,8 @@ const ps: Record<Key, string> = {
     "د خپل کاروبار، توکي یا خدمت او هغه اعلان په اړه ولیکئ چې په پام کې مو دی.",
   "promotion.budget": "ستاسو د بیې وړاندیز",
   "promotion.budgetHint": "مبلغ، اسعار او خپل شرطونه په خپلو ټکو ولیکئ.",
-  "promotion.duration": "غوره نېټې یا موده (اختیاري)",
-  "promotion.durationHint": "د بېلګې په توګه، د دسمبر دوه اونۍ",
+  "promotion.duration": "موده",
+  "promotion.durationHint": "د بېلګې په توګه، دوه اونۍ",
   "promotion.contactNotice":
     "ستاسو د پروفایل خوندي معلومات به له وړاندیز سره یوځای کړو، چې هغه وګورو او اړیکه درسره ونیسو.",
   "promotion.submit": "وړاندیز واستوئ",
