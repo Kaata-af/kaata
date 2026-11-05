@@ -4264,11 +4264,13 @@ test("check-in: the binding's heartbeat keys on account_id, and retries a name o
     AppMetaProvider: (props: { currentVersion: string; children: unknown }) => Node;
   }>("../app-meta-context", {
     "react/jsx-runtime": jsxRuntime,
+    "react-native": { AppState: {} },
     react: {
       createContext: () => ({ Provider: "Provider" }),
       useCallback: (fn: unknown) => fn,
       useContext: () => null,
       useEffect: () => {},
+      useRef: (current: unknown) => ({ current }),
       useState: (initial: unknown) => [initial, () => {}],
     },
     "./auth": {
@@ -4287,7 +4289,12 @@ test("check-in: the binding's heartbeat keys on account_id, and retries a name o
   const checkIn = () =>
     contextModule
       .AppMetaProvider({ currentVersion: "2.1.0", children: null })
-      .props.value.applyCheckIn({ update: null, announcement: null, force_update: false });
+      .props.value.applyCheckIn({
+        server_time: new Date().toISOString(),
+        update: null,
+        announcement: null,
+        force_update: false,
+      });
   // An email-only binding: no provider subject, still a binding to protect.
   meta.set("account_id", "acct-email");
   meta.set("account_google_sub", "");

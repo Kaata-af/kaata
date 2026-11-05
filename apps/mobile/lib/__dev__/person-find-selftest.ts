@@ -676,6 +676,7 @@ const componentMocks: Record<string, any> = {
   SettledAccountsSection: { SettledAccountsSection: "SettledAccountsSection" },
   SelectionToolbar: { SelectionToolbar: "SelectionToolbar", SelectionMark: "SelectionMark" },
   SelectionMark: { SelectionMark: "SelectionMark" },
+  SponsorBanner: { SponsorBanner: "SponsorBanner" },
   ProfileSettingsSheet: { ProfileSettingsSheet: "Settings" },
   Toast: {
     useToast: () => toast,

@@ -25,6 +25,7 @@ import (
 	"github.com/matee/kaata-backend/internal/mail"
 	"github.com/matee/kaata-backend/internal/mesh"
 	"github.com/matee/kaata-backend/internal/shared"
+	"github.com/matee/kaata-backend/internal/sponsors"
 	syncapi "github.com/matee/kaata-backend/internal/sync"
 	"github.com/matee/kaata-backend/internal/tabs"
 	"github.com/matee/kaata-backend/internal/vaults"
@@ -201,6 +202,7 @@ func main() {
 	authH.SetWebBaseURL(cfg.WebBaseURL)
 
 	adminH := admin.NewHandler(admin.NewService(pool, cfg.OperatorAccountIDs, cfg.OperatorIPs))
+	sponsorH := sponsors.NewHandler(pool)
 	adminLive := admin.NewLive(ctx, cfg.AdminAPIKey != "")
 	webProH := webpro.NewHandler(webpro.NewService(pool, webpro.Config{
 		APIKey:            cfg.HesabPayAPIKey,
@@ -482,6 +484,9 @@ func main() {
 	r.Group(func(pr chi.Router) {
 		pr.Use(httpx.AdminKeyMiddleware(cfg.AdminAPIKey))
 		pr.Get("/v1/admin/stats", adminH.Stats)
+		pr.Get("/v1/admin/sponsor-campaigns", sponsorH.List)
+		pr.Post("/v1/admin/sponsor-campaigns", sponsorH.Create)
+		pr.Put("/v1/admin/sponsor-campaigns/{id}", sponsorH.Update)
 		pr.Put("/v1/admin/acquisition/apple-downloads", adminH.ImportAppleAcquisition)
 		pr.Get("/v1/admin/day-comparison", adminH.DayComparison)
 		pr.Get("/v1/admin/growth", adminH.Growth)

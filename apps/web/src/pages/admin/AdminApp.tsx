@@ -15,6 +15,7 @@
 // numbers were generated.
 
 import {
+  MutationCache,
   QueryCache,
   QueryClient,
   QueryClientProvider,
@@ -33,6 +34,7 @@ import { AdminIcon } from "./icons";
 import { Outreach } from "./Outreach";
 import { Overview } from "./Overview";
 import { Retention } from "./Retention";
+import { Sponsorships } from "./Sponsorships";
 import { useAdminLive } from "./useAdminLive";
 import { Users } from "./Users";
 
@@ -40,6 +42,7 @@ const SECTIONS = [
   { id: "overview", label: "Overview", component: Overview },
   { id: "acquisition", label: "Acquisition", component: Acquisition },
   { id: "campaigns", label: "Campaigns", component: Campaigns },
+  { id: "sponsorships", label: "Sponsorships", component: Sponsorships },
   { id: "retention", label: "Retention", component: Retention },
   { id: "users", label: "Users", component: Users },
   { id: "outreach", label: "Outreach", component: Outreach },
@@ -55,7 +58,7 @@ export function AdminApp() {
   const [token, setToken] = useState<string>(() => localStorage.getItem(TOKEN_KEY) || "");
   const [authError, setAuthError] = useState<string | null>(null);
 
-  // The QueryCache's onError fires for ANY failing query; on a 401 we clear
+  // On a 401 from a query or write, clear
   // the key and drop back to the prompt (same UX as the old dashboard). A ref
   // keeps the handler stable while the client lives for the app's lifetime.
   const signOutRef = useRef<(msg: string | null) => void>(() => {});
@@ -68,6 +71,11 @@ export function AdminApp() {
     () =>
       new QueryClient({
         queryCache: new QueryCache({
+          onError: (err) => {
+            if (err instanceof AuthError) signOutRef.current(err.message);
+          },
+        }),
+        mutationCache: new MutationCache({
           onError: (err) => {
             if (err instanceof AuthError) signOutRef.current(err.message);
           },

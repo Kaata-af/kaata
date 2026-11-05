@@ -6,11 +6,10 @@
 // the stored key and re-show the prompt (the same "wrong key" UX the old
 // single-file dashboard had). Reads are GETs through `fetchAdmin`; the
 // Outreach section's writes (2026-09-29; outcome + exclude 2026-09-30) are
-// JSON POSTs through `postAdmin` — POST rather than PATCH/DELETE because the
-// backend's CORS allow-list is GET/POST/OPTIONS only. An outcome's 409 is a
+// JSON POSTs through `postAdmin`. An outcome's 409 is a
 // StaleError ("stale outcome") or a ConflictError (any other reason, e.g.
 // "contact stopped"): the write failures the page answers with a refetch,
-// never a retry. Every POST gives up after 20 s (2026-09-30) with an error
+// never a retry. Writes give up after 20 s (2026-09-30) with an error
 // that says so; that is never retried either.
 
 import { useQuery } from "@tanstack/react-query";
@@ -317,6 +316,36 @@ async function fetchAdmin<T>(path: string, token: string): Promise<T> {
 // one source of truth (and sign-out invalidates everything at once).
 export const AdminTokenContext = createContext("");
 export const useAdminToken = () => useContext(AdminTokenContext);
+
+export type SponsorCampaignInput = {
+  sponsor: string;
+  title: string;
+  body: string;
+  image_url: string | null;
+  cta_label: string | null;
+  cta_url: string | null;
+  starts_at: string;
+  ends_at: string;
+  is_active: boolean;
+};
+export type SponsorCampaign = SponsorCampaignInput & {
+  id: number;
+  created_at: string;
+  updated_at: string;
+};
+
+const SPONSOR_CAMPAIGNS_PATH = "/v1/admin/sponsor-campaigns";
+export const sponsorCampaignsKey = (token: string) =>
+  ["admin", "sponsor-campaigns", token] as const;
+
+export function useSponsorCampaigns() {
+  const token = useAdminToken();
+  return useQuery({
+    queryKey: sponsorCampaignsKey(token),
+    queryFn: () => fetchAdmin<{ campaigns: SponsorCampaign[] }>(SPONSOR_CAMPAIGNS_PATH, token),
+    enabled: !!token,
+  });
+}
 
 export function useStats(points = 30, bucket: "day" | "hour" = "day") {
   const token = useAdminToken();
@@ -742,11 +771,16 @@ async function responseError(res: Response): Promise<Error> {
   return new Error(`Server error (${res.status}).`);
 }
 
-async function postAdminResponse(path: string, token: string, body: unknown): Promise<Response> {
+async function writeAdminResponse(
+  path: string,
+  token: string,
+  body: unknown,
+  method: "POST" | "PUT" = "POST",
+): Promise<Response> {
   let res: Response;
   try {
     res = await fetch(`${BACKEND_URL}${path}`, {
-      method: "POST",
+      method,
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(POST_TIMEOUT_MS),
@@ -759,9 +793,25 @@ async function postAdminResponse(path: string, token: string, body: unknown): Pr
 }
 
 export async function postAdmin<T>(path: string, token: string, body: unknown): Promise<T> {
-  const res = await postAdminResponse(path, token, body);
+  const res = await writeAdminResponse(path, token, body);
   if (!res.ok) throw await responseError(res);
   return readJson<T>(res);
+}
+
+export async function saveSponsorCampaign(
+  token: string,
+  body: SponsorCampaignInput,
+  campaign?: Pick<SponsorCampaign, "id" | "updated_at">,
+): Promise<SponsorCampaign> {
+  if (!campaign) return postAdmin<SponsorCampaign>(SPONSOR_CAMPAIGNS_PATH, token, body);
+  const res = await writeAdminResponse(
+    `${SPONSOR_CAMPAIGNS_PATH}/${campaign.id}`,
+    token,
+    { ...body, expected_updated_at: campaign.updated_at },
+    "PUT",
+  );
+  if (!res.ok) throw await responseError(res);
+  return readJson<SponsorCampaign>(res);
 }
 
 // Like useGrowth: the outreach endpoints deploy with the backend, so a 404
@@ -793,7 +843,7 @@ export async function postOutcome(
   token: string,
   body: OutreachOutcomeBody,
 ): Promise<OutreachOutcomeResult> {
-  const res = await postAdminResponse("/v1/admin/outreach/outcome", token, body);
+  const res = await writeAdminResponse("/v1/admin/outreach/outcome", token, body);
   if (res.status === 409) {
     const reason = (await responseError(res)).message;
     throw reason === "stale outcome" ? new StaleError(reason) : new ConflictError(reason);

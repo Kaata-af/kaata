@@ -39,6 +39,7 @@ import {
   type FilterViewport,
 } from "../components/HomeFilterPopover";
 import { SelectionToolbar } from "../components/SelectionToolbar";
+import { SponsorBanner } from "../components/SponsorBanner";
 import { SearchKeyboardFrame, SearchKeyboardFooter } from "../components/SearchKeyboardMotion";
 import {
   currencyBalances,
@@ -2028,19 +2029,27 @@ export default function HomeScreen() {
                   }}
                   allPeople={visibleAllPeople}
                   summary={
-                    <HomeBalanceSummary
-                      people={visibleAllPeople}
-                      balances={visibleBalances}
-                      currency={selectedCurrency}
-                      searchOpen={keyboardLayoutShown}
-                      direction={balanceFilter}
-                      currencyFilter={currencyFilter}
-                      onDirectionChange={changeBalanceDirection}
-                      interactionEnabled={directionControlsEnabled}
-                      active={
-                        currentPeopleScope && currentVaultScope && !filtersExpanded && !selecting
-                      }
-                    />
+                    <>
+                      <HomeBalanceSummary
+                        people={visibleAllPeople}
+                        balances={visibleBalances}
+                        currency={selectedCurrency}
+                        searchOpen={keyboardLayoutShown}
+                        direction={balanceFilter}
+                        currencyFilter={currencyFilter}
+                        onDirectionChange={changeBalanceDirection}
+                        interactionEnabled={directionControlsEnabled}
+                        active={
+                          currentPeopleScope && currentVaultScope && !filtersExpanded && !selecting
+                        }
+                      />
+                      {directionControlsEnabled &&
+                      !loadError &&
+                      !keyboardLayoutShown &&
+                      !customerQuery.trim() ? (
+                        <SponsorBanner />
+                      ) : null}
+                    </>
                   }
                   filtered={
                     customerQuery.trim().length > 0 ||

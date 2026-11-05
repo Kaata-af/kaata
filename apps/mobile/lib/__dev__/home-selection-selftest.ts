@@ -440,6 +440,7 @@ for (const [file, exported] of [
   ["PersonRow", "PersonRow"],
   ["SelectionToolbar", "SelectionToolbar"],
   ["SettledAccountsSection", "SettledAccountsSection"],
+  ["SponsorBanner", "SponsorBanner"],
   ["ProfileSettingsSheet", "ProfileSettingsSheet"],
   ["UpdateBanner", "UpdateBanner"],
   ["VaultPickerSheet", "VaultPickerSheet"],

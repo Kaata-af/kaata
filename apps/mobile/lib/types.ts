@@ -200,6 +200,18 @@ export type AppMetaUpdate = {
   release_notes: string | null;
 };
 
+export type SponsorBanner = {
+  id: number;
+  sponsor: string;
+  title: string;
+  body: string;
+  image_url: string | null;
+  cta_label: string | null;
+  cta_url: string | null;
+  starts_at: string;
+  ends_at: string;
+};
+
 export type CheckInResponse = {
   server_time: string;
   latest_version: string;
@@ -212,6 +224,7 @@ export type CheckInResponse = {
     cta_label: string | null;
     cta_url: string | null;
   } | null;
+  sponsor_banner?: SponsorBanner | null;
   // When set (string, including ""), mobile persists to `app_meta.backend_url_override`
   // and uses it for the next check-in. Empty string clears any prior override
   // (return to env default). Omitted/null leaves the current setting alone.

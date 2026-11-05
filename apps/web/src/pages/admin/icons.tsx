@@ -4,6 +4,7 @@ export type AdminIconName =
   | "overview"
   | "acquisition"
   | "campaigns"
+  | "sponsorships"
   | "retention"
   | "users"
   | "outreach"
@@ -26,6 +27,12 @@ const paths: Record<AdminIconName, React.ReactNode> = {
   campaigns: (
     <>
       <path d="m3 10 17-6v16L3 14v-4ZM7 15l2 6h4l-2-5M20 9l2-1m-2 7 2 1" />
+    </>
+  ),
+  sponsorships: (
+    <>
+      <rect x="3" y="6" width="18" height="12" rx="2" />
+      <path d="M7 10h5m-5 4h10" />
     </>
   ),
   retention: (

@@ -17,6 +17,7 @@ import (
 
 	"github.com/matee/kaata-backend/internal/auth"
 	"github.com/matee/kaata-backend/internal/mesh"
+	"github.com/matee/kaata-backend/internal/sponsors"
 	"github.com/matee/kaata-backend/internal/visit"
 )
 
@@ -148,11 +149,12 @@ type Announcement struct {
 }
 
 type Response struct {
-	ServerTime    string        `json:"server_time"`
-	LatestVersion string        `json:"latest_version"`
-	ForceUpdate   bool          `json:"force_update"`
-	Update        *UpdateInfo   `json:"update"`
-	Announcement  *Announcement `json:"announcement"`
+	ServerTime    string           `json:"server_time"`
+	LatestVersion string           `json:"latest_version"`
+	ForceUpdate   bool             `json:"force_update"`
+	Update        *UpdateInfo      `json:"update"`
+	Announcement  *Announcement    `json:"announcement"`
+	SponsorBanner *sponsors.Banner `json:"sponsor_banner"`
 	// MigrateToBackendURL: when non-nil, mobile persists it and uses it for
 	// all subsequent check-ins. Send an empty string to clear a previously
 	// persisted override on the client. Omit (nil) to leave the client's
@@ -511,6 +513,7 @@ func (s *Service) Handle(ctx context.Context, req Request, clientIP string) (Res
 		}
 		break
 	}
+	rows.Close()
 	if err := rows.Err(); err != nil {
 		return Response{}, err
 	}
@@ -561,6 +564,14 @@ func (s *Service) Handle(ctx context.Context, req Request, clientIP string) (Res
 		}
 	}
 
+	// Sponsor lookup is optional and bounded so updates and announcements still
+	// reach the client if the campaign table is temporarily unavailable.
+	sponsorCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer cancel()
+	resp.SponsorBanner, err = sponsors.Current(sponsorCtx, s.pool)
+	if err != nil {
+		log.Printf("[checkin] sponsor lookup failed: %v", err)
+	}
 	return resp, nil
 }
 
