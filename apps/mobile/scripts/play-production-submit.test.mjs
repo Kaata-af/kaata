@@ -18,7 +18,7 @@ after(() => {
   rmdirSync(dir);
 });
 const sha256 = createHash("sha256").update(bytes).digest("hex");
-const app = { version: "2.2.2", android: { package: "af.kaata.app", versionCode: 64 } };
+const app = { version: "2.3.1", android: { package: "af.kaata.app", versionCode: 83 } };
 const expectedImages = Object.entries({
   phoneScreenshots: 6,
   sevenInchScreenshots: 6,
@@ -31,7 +31,7 @@ const expectedImages = Object.entries({
     sha256: `${type}-hash-${index}`,
   })),
 }));
-const notes = "Kaata 2.2.2: improved Android search and scrolling performance.";
+const notes = "Kaata 2.3.1: promotion proposals and filtered customer counts.";
 const token = "private-mock-token";
 const response = (body, status = 200) =>
   new Response(status === 204 ? null : JSON.stringify(body), { status });
@@ -43,13 +43,13 @@ function mock(options = {}) {
   const tracks = [
     {
       track: "production",
-      releases: [{ name: "2.2.1", versionCodes: ["60"], status: "completed" }],
+      releases: [{ name: "2.3.0", versionCodes: ["82"], status: "completed" }],
     },
     {
       track: "internal",
       releases: [
-        { name: "Kaata performance diagnostic 63", versionCodes: ["63"], status: "draft" },
-        { name: "2.2.1 (60) — internal staging", versionCodes: ["60"], status: "completed" },
+        { name: "Kaata previous internal build 81", versionCodes: ["81"], status: "draft" },
+        { name: "2.3.0 (82) — internal staging", versionCodes: ["82"], status: "completed" },
       ],
     },
     { track: "alpha", releases: [{ name: "2.0.0", versionCodes: ["43"], status: "completed" }] },
@@ -75,7 +75,7 @@ function mock(options = {}) {
             language: "en-US",
             title: "Kaata",
             fullDescription:
-              options.textDrift && tracks[0].releases[0].versionCodes[0] === "64"
+              options.textDrift && tracks[0].releases[0].versionCodes[0] === "83"
                 ? "changed"
                 : "existing text",
           },
@@ -88,18 +88,18 @@ function mock(options = {}) {
         expectedImages.find((set) => set.type === type)?.images ??
           (type === "icon" ? [{ id: "icon-unchanged", sha256: "icon-hash" }] : []),
       );
-      if (options.imageMismatch && type === "phoneScreenshots") images[0].sha256 = "different";
+      if ((options.imageMismatch || (options.imageDrift && tracks[0].releases[0].versionCodes[0] === "83")) && type === "phoneScreenshots") images[0].sha256 = "different";
       return response({ images });
     }
     if (init.method === "GET" && endpoint.endsWith("/bundles"))
-      return response({ bundles: [{ versionCode: options.usedCode ? 64 : 63 }] });
+      return response({ bundles: [{ versionCode: options.usedCode ? 83 : 82 }] });
     if (init.method === "GET" && endpoint.endsWith("/apks")) return response({});
     if (init.method === "POST" && endpoint.endsWith("/bundles")) {
       assert.equal(parsed.searchParams.get("uploadType"), "media");
       assert.deepEqual(body, bytes);
       if (options.ambiguousUpload) throw new Error("private-mock-token must never appear");
       return response({
-        versionCode: options.wrongCode ? 63 : 64,
+        versionCode: options.wrongCode ? 82 : 83,
         sha256: options.wrongHash ? "wrong" : sha256,
       });
     }
@@ -107,10 +107,10 @@ function mock(options = {}) {
       const name = endpoint.split("/").at(-1);
       assert.equal(body.track, name);
       assert.equal(body.releases[0].status, "completed");
-      assert.deepEqual(body.releases[0].versionCodes, ["64"]);
+      assert.deepEqual(body.releases[0].versionCodes, ["83"]);
       tracks[tracks.findIndex((track) => track.track === name)] = structuredClone(body);
       if (options.closedTrackDrift && name === "production")
-        tracks[2].releases[0].versionCodes = ["64"];
+        tracks[2].releases[0].versionCodes = ["83"];
       return response(body);
     }
     if (init.method === "GET" && endpoint.endsWith("/tracks/internal"))
@@ -127,14 +127,14 @@ function mock(options = {}) {
         );
       if (options.ambiguousCommit) throw new Error(token);
       committed = true;
-      return response({ id: "own-1" });
+      return response({ id: options.wrongCommitId ? "different-edit" : "own-1" });
     }
     if (init.method === "GET" && /\/tracks\/(production|internal)\/releases$/.test(endpoint))
       return response({
         releases: [
           {
-            releaseName: "2.2.2",
-            activeArtifacts: [{ versionCode: committed ? 64 : 60 }],
+            releaseName: "2.3.1",
+            activeArtifacts: [{ versionCode: committed ? 83 : 82 }],
             releaseLifecycleState: "RELEASE_LIFECYCLE_STATE_IN_REVIEW",
           },
         ],
@@ -159,7 +159,7 @@ const prepare = (transport, overrides = {}) =>
 const writes = (transport, ending) =>
   transport.calls.filter((call) => call.method === "POST" && call.endpoint.endsWith(ending));
 
-test("one upload replaces the internal diagnostic draft, validates, then promotes production; preparation never commits", async () => {
+test("one upload replaces the previous internal release, validates, then promotes production; preparation never commits", async () => {
   const transport = mock();
   const receipt = await prepare(transport);
   assert.equal(receipt.phase, "prepared");
@@ -171,14 +171,14 @@ test("one upload replaces the internal diagnostic draft, validates, then promote
       status: release.status,
     })),
     [
-      { versionCodes: ["63"], status: "draft" },
-      { versionCodes: ["60"], status: "completed" },
+      { versionCodes: ["81"], status: "draft" },
+      { versionCodes: ["82"], status: "completed" },
     ],
   );
   for (const trackName of ["internal", "production"]) {
     const releases = receipt.prepared.tracks.find((track) => track.track === trackName).releases;
     assert.equal(releases.length, 1);
-    assert.deepEqual(releases[0].versionCodes, ["64"]);
+    assert.deepEqual(releases[0].versionCodes, ["83"]);
     assert.equal(releases[0].status, "completed");
   }
   const puts = transport.calls.filter((call) => call.method === "PUT");
@@ -209,6 +209,20 @@ test("explicit commit verifies all stored state, guards review and deletes only 
   assert.ok(!transport.messages.join("\n").includes(token));
 });
 
+test("a binary-only release preserves existing images without a screenshot-update receipt", async () => {
+  const transport = mock();
+  const receipt = await prepare(transport, { expectedImages: undefined });
+  assert.equal(receipt.phase, "prepared");
+  assert.equal(receipt.checks.imagesUnchanged, true);
+  assert.ok(!transport.calls.some((call) => call.method !== "GET" && call.endpoint.includes("/listings")));
+});
+
+test("images drifting during a binary-only release prevent preparation", async () => {
+  const transport = mock({ imageDrift: true });
+  await assert.rejects(prepare(transport, { expectedImages: undefined }), /preservation/);
+  assert.equal(writes(transport, ":commit").length, 0);
+});
+
 for (const failure of ["wrongCode", "wrongHash", "ambiguousUpload", "usedCode", "imageMismatch"]) {
   test(`${failure} prevents track changes and never retries the upload`, async () => {
     const transport = mock({ [failure]: true });
@@ -221,7 +235,7 @@ for (const failure of ["wrongCode", "wrongHash", "ambiguousUpload", "usedCode", 
   });
 }
 
-for (const failure of ["textDrift", "closedTrackDrift", "validationFailure"]) {
+for (const failure of ["textDrift", "imageDrift", "closedTrackDrift", "validationFailure"]) {
   test(`${failure} prevents a prepared/committable release`, async () => {
     const transport = mock({ [failure]: true });
     await assert.rejects(prepare(transport));
@@ -233,6 +247,7 @@ for (const failure of ["textDrift", "closedTrackDrift", "validationFailure"]) {
 for (const [failure, phase] of [
   ["inReview", "commit_refused"],
   ["ambiguousCommit", "commit_unknown"],
+  ["wrongCommitId", "commit_unknown"],
 ]) {
   test(`${failure} has one guarded attempt, no fallback, no second edit`, async () => {
     const transport = mock({ [failure]: true });
@@ -249,8 +264,8 @@ for (const [failure, phase] of [
 
 test("wrong app, changed AAB, invalid notes fail before network access", async () => {
   for (const overrides of [
-    { app: { ...app, version: "2.2.1" } },
-    { app: { ...app, android: { ...app.android, versionCode: 63 } } },
+    { app: { ...app, version: "2.3.0" } },
+    { app: { ...app, android: { ...app.android, versionCode: 82 } } },
     { sha256: "0".repeat(64) },
     { notes: "Testing only" },
     { notes: "x".repeat(501) },
@@ -263,7 +278,7 @@ test("wrong app, changed AAB, invalid notes fail before network access", async (
 
 test("checked-in notes fit Play's limit and describe the production release", async () => {
   const releaseNotes = readFileSync(
-    new URL("./release-notes/2.2.2-play.txt", import.meta.url),
+    new URL("./release-notes/2.3.1-play.txt", import.meta.url),
     "utf8",
   ).trim();
   const transport = mock();

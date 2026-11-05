@@ -1,0 +1,6 @@
+Kaata 2.3.1 testing build 49
+
+- Open the black promotion banner. Check the promotion details, free-text price offer and required duration. Saved profile details accompany the proposal.
+- Check that drafts reopen correctly and that retrying an interrupted submission returns one confirmation.
+- Select To collect or To pay and check the small customer count beside Clear all filters, including combined currency and group filters. Each customer should count once.
+- Check the Dari wording and the filter layout in English, Dari and Pashto.

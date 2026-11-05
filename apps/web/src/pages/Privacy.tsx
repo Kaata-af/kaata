@@ -8,7 +8,7 @@ import { SiteFooter, SiteHeader } from "../components/SiteChrome";
 // require a reachable, truthful privacy policy URL once any personal data is
 // collected — this page is that URL (kaata.af/privacy) and must stay accurate to
 // what the app actually does. When you change a data flow, change this page.
-const UPDATED = "4 November 2026";
+const UPDATED = "5 November 2026";
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
@@ -215,6 +215,16 @@ export function Privacy() {
           </p>
         </Section>
 
+        <Section title="Promotion proposals">
+          <p>
+            Sending a proposal to promote your business is optional. When you submit one, the app
+            sends us your proposal text, price offer, requested duration and app language, together
+            with the name, shop name and phone number already saved in your app profile. We use
+            these details to review your proposal and contact you about it, and keep its review
+            status and our internal follow-up notes.
+          </p>
+        </Section>
+
         <Section title="Crash and diagnostic reports">
           <p>
             To fix bugs, the app may send diagnostic reports containing the installation ID, a short
@@ -250,6 +260,20 @@ export function Privacy() {
             deletion. Retaining it does not give us permission to use it for marketing. Contact us
             to request review of personal information in a retained shared record; we assess the
             request alongside the other participant’s recordkeeping needs and applicable law.
+          </p>
+          <p>
+            Promotion proposals, their review status and our internal follow-up notes are kept
+            separately from accounts so we can manage submissions. To request removal of your
+            proposal and its contact details, contact us on{" "}
+            <a
+              href={WHATSAPP_CONTACT_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-semibold text-neutral-900 underline underline-offset-2 hover:text-neutral-700"
+            >
+              WhatsApp
+            </a>
+            .
           </p>
           {/* The admin outreach log (outreach_contacts/outreach_touches,
               migration 044) is keyed by phone with no FK; account deletion

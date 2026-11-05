@@ -1,16 +1,15 @@
 #!/usr/bin/env node
-// Stage the verified Kaata 2.2.2/code 64 bundle on internal, then promote that
+// Stage the verified Kaata 2.3.1/code 83 bundle on internal, then promote that
 // same bundle to production in one atomic edit. Closed tracks and listing
 // metadata remain unchanged. The separate commit command always refuses an
 // existing review; it never cancels a review, falls back, or retries a write.
 //
-// First cancel/recombine an existing image-only review in Play Console, after
-// the signed AAB is ready, BEFORE preparing this edit. Console changes discard
-// active API edits. Never run alongside another Android upload/edit.
+// Never run alongside another Android upload/edit. An existing review is a
+// blocker to inspect; this helper never cancels or combines reviews.
 //
 // node scripts/play-production-submit.mjs --prepare --aab <file.aab>
-//   --sha256 <verified-sha256> --notes-file scripts/release-notes/2.2.2-play.txt
-//   --images-receipt <play-update.json> --receipt <ignored-release-receipt.json>
+//   --sha256 <verified-sha256> --notes-file scripts/release-notes/2.3.1-play.txt
+//   --receipt <ignored-release-receipt.json>
 // node scripts/play-production-submit.mjs --commit --receipt <same-receipt.json>
 
 import { createHash, createSign } from "node:crypto";
@@ -20,8 +19,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const MOBILE_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const PACKAGE = "af.kaata.app";
-const VERSION = "2.2.2";
-const CODE = 64;
+const VERSION = "2.3.1";
+const CODE = 83;
 const ORIGIN = "https://androidpublisher.googleapis.com";
 const BASE = `${ORIGIN}/androidpublisher/v3/applications/${PACKAGE}`;
 const GUARD = "changesInReviewBehavior=ERROR_IF_IN_REVIEW";
@@ -255,7 +254,7 @@ export async function prepareProduction(
     save();
     receipt.before = await capture(call, edit.id);
     save();
-    verifyExpectedImages(receipt.before, expectedImages);
+    if (expectedImages !== undefined) verifyExpectedImages(receipt.before, expectedImages);
     const [bundles, apks] = await Promise.all([
       call("GET", `/edits/${edit.id}/bundles`),
       call("GET", `/edits/${edit.id}/apks`),
@@ -331,7 +330,7 @@ export async function commitProduction(
     !receipt.internalStagingVerified
   )
     throw new Error(
-      "Receipt is not an uncommitted, prepared 2.2.2/code 64 release. Inspect before retrying.",
+      `Receipt is not an uncommitted, prepared ${VERSION}/code ${CODE} release. Inspect before retrying.`,
     );
   const { call } = client(token, fetchImpl);
   const save = () => checkpoint(structuredClone(receipt));
@@ -342,6 +341,11 @@ export async function commitProduction(
   save();
   try {
     receipt.commitAcknowledgement = await call("POST", `/edits/${receipt.editId}:commit?${GUARD}`);
+    if (receipt.commitAcknowledgement?.id !== receipt.editId) {
+      const error = new Error("Google did not acknowledge the expected edit identifier. Inspect before retrying.");
+      error.ambiguous = true;
+      throw error;
+    }
     receipt.phase = "committed";
     receipt.committedAt = new Date().toISOString();
     save();
@@ -356,7 +360,7 @@ export async function commitProduction(
   );
   // A fresh, read-only edit confirms the committed state. Only our own
   // verification edit is removed. Do not interpret old PUBLISHED lifecycle
-  // data as confirmation that code 64 is public.
+  // data as confirmation that the new code is public.
   let verificationId = null;
   try {
     const edit = await call("POST", "/edits", {});
@@ -452,23 +456,28 @@ async function main() {
     throw new Error("Receipt already exists. Inspect instead of repeating an upload.");
   if (
     options.mode === "prepare" &&
-    (!options.aab || !options["notes-file"] || !options["images-receipt"])
+    (!options.aab || !options["notes-file"])
   )
-    throw new Error("Prepare requires AAB, notes, and the approved image receipt.");
+    throw new Error("Prepare requires AAB and production release notes.");
   const checkpoint = (receipt) =>
     writeFileSync(options.receipt, JSON.stringify(receipt, null, 2) + "\n");
   const token = await accessToken(options.key);
   if (options.mode === "prepare") {
-    const images = JSON.parse(readFileSync(options["images-receipt"], "utf8"));
-    if (images.packageName !== PACKAGE || images.commitStatus !== "committed")
-      throw new Error("Expected the committed Kaata image-update receipt.");
+    let expectedImages;
+    if (options["images-receipt"]) {
+      const images = JSON.parse(readFileSync(options["images-receipt"], "utf8"));
+      if (images.packageName !== PACKAGE || images.commitStatus !== "committed")
+        throw new Error("Expected the committed Kaata image-update receipt.");
+      expectedImages = images.verification?.images;
+      if (!Array.isArray(expectedImages)) throw new Error("Image receipt has no verified image inventory.");
+    }
     await prepareProduction(
       {
         app,
         aabPath: options.aab,
         sha256: options.sha256,
         notes: readFileSync(options["notes-file"], "utf8"),
-        expectedImages: images.verification?.images,
+        expectedImages,
         token,
       },
       { checkpoint },

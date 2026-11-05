@@ -1,0 +1,7 @@
+Kaata 2.3.1
+
+- Promote your business through a simple in-app proposal form, with your own price offer and duration.
+- See customer counts beside Clear all filters when viewing To collect or To pay.
+- Clearer Dari wording and refinements to the filter layout.
+
+Thank you for using Kaata.
