@@ -2,7 +2,20 @@
 // Never opens another app, sends a message, or accesses the network.
 import assert from "node:assert/strict";
 import { SUPPORT_SMS_E164, SUPPORT_WHATSAPP_E164 } from "../../constants/env";
-import { compileUI, deferred } from "./ui-fixture";
+import type { SponsorBanner } from "../types";
+import { compileUI, deferred, flattenStyle, jsx, nodes, uiHooks } from "./ui-fixture";
+
+const language = compileUI("../i18n", {
+  "expo-localization": { getLocales: () => [{ languageCode: "en" }] },
+  "./db": { getAppMeta: async () => null },
+}) as typeof import("../i18n");
+const tokens = compileUI("../tokens", {
+  "./fonts": {
+    fonts: {},
+    sansLineHeight: (_size: number, height: number) => height,
+    monoLineHeight: (_size: number, height: number) => height,
+  },
+});
 
 function fixture(
   options: {
@@ -73,6 +86,54 @@ function fixture(
       return availabilityCalls;
     },
   };
+}
+
+function bannerFixture(
+  options: {
+    locale?: "en" | "fa" | "ps";
+    sponsor?: SponsorBanner;
+    openUrl?: (url: string, count: number) => Promise<void>;
+  } = {},
+) {
+  const locale = options.locale ?? "en";
+  language.setLocale(locale);
+  const hooks = uiHooks();
+  const transport = fixture({ openUrl: options.openUrl });
+  const sponsorLinks: string[] = [];
+  const toasts: unknown[][] = [];
+  let blur = () => {};
+  const component = compileUI("../../components/SponsorBanner", {
+    react: hooks.react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "@expo/vector-icons": { Ionicons: "Icon" },
+    "expo-router": {
+      useFocusEffect: (work: () => () => void) =>
+        hooks.react.useEffect(() => {
+          blur = work();
+          return blur;
+        }, [work]),
+    },
+    "react-native": {
+      Image: "Image",
+      Pressable: "Pressable",
+      Text: "Text",
+      StyleSheet: { create: (styles: unknown) => styles, hairlineWidth: 0.5 },
+      Linking: { openURL: async (url: string) => void sponsorLinks.push(url) },
+    },
+    "../lib/app-meta-context": { useAppMeta: () => ({ sponsorBanner: options.sponsor ?? null }) },
+    "../lib/colors": compileUI("../colors", {}),
+    "../lib/direction": {
+      useIsRTL: () => locale !== "en",
+      rowDir: (rtl: boolean) => ({ flexDirection: rtl ? "row-reverse" : "row" }),
+      textDir: (rtl: boolean) => ({ textAlign: rtl ? "right" : "left" }),
+    },
+    "../lib/i18n": language,
+    "../lib/support": transport.api,
+    "../lib/tokens": tokens,
+    "./Toast": { useToast: () => ({ push: (...args: unknown[]) => void toasts.push(args) }) },
+  });
+  const tree = hooks.render(() => component.SponsorBanner());
+  return { tree, transport, sponsorLinks, toasts, blur: () => blur() };
 }
 
 async function main() {
@@ -200,8 +261,79 @@ async function main() {
     1,
     "Leaving after an app-link failure prevents the browser fallback",
   );
+
+  for (const locale of ["en", "fa", "ps"] as const) {
+    const banner = bannerFixture({ locale });
+    assert.equal(banner.tree.props.testID, "home-sponsor-banner");
+    assert.equal(
+      banner.tree.props.disabled,
+      false,
+      "The promotion remains available without a campaign",
+    );
+    const label = nodes(banner.tree).find((node) => node.type === "Text")!;
+    assert.equal(label.props.children, language.t("sponsorBanner.promote"));
+    assert.equal(label.props.numberOfLines, 1, "The promotion uses one line");
+    assert.equal(flattenStyle(banner.tree.props.style({ pressed: false })).minHeight, 44);
+    await banner.tree.props.onPress();
+    assert.equal(banner.transport.urls.length, 1);
+    const opened = new URL(banner.transport.urls[0]);
+    assert.equal(opened.searchParams.get("phone"), SUPPORT_WHATSAPP_E164.slice(1));
+    assert.equal(opened.searchParams.get("text"), language.t("sponsorBanner.inquiry"));
+    assert.deepEqual(banner.toasts, []);
+  }
+
+  const opening = deferred<void>();
+  const duplicate = bannerFixture({ openUrl: async () => opening.promise });
+  const firstTap = duplicate.tree.props.onPress();
+  await duplicate.tree.props.onPress();
+  assert.equal(duplicate.transport.urls.length, 1, "Repeated taps cannot open duplicate chats");
+  opening.resolve();
+  await firstTap;
+  await duplicate.tree.props.onPress();
+  assert.equal(duplicate.transport.urls.length, 2, "The strip can be used again after handoff");
+
+  const failure = bannerFixture({
+    openUrl: async () => {
+      throw new Error("Synthetic unavailable WhatsApp and browser");
+    },
+  });
+  await failure.tree.props.onPress();
+  assert.deepEqual(failure.toasts, [[language.t("sponsorBanner.whatsappFailed"), "error"]]);
+
+  const lateOpen = deferred<void>();
+  const blurred = bannerFixture({ openUrl: async () => lateOpen.promise });
+  const lateTap = blurred.tree.props.onPress();
+  blurred.blur();
+  lateOpen.reject(new Error("Synthetic late app-link failure"));
+  await lateTap;
+  await blurred.tree.props.onPress();
+  assert.equal(
+    blurred.transport.urls.length,
+    1,
+    "Blur prevents fallback and subsequent stale taps",
+  );
+  assert.deepEqual(blurred.toasts, [], "A departed screen does not show a failure toast");
+
+  const sponsor: SponsorBanner = {
+    id: 1,
+    sponsor: "Synthetic supplier",
+    title: "Synthetic offer",
+    body: "Synthetic details",
+    image_url: null,
+    cta_label: "View offer",
+    cta_url: "https://example.invalid/offer",
+    starts_at: "2026-11-01T00:00:00Z",
+    ends_at: "2026-12-01T00:00:00Z",
+  };
+  const paid = bannerFixture({ sponsor });
+  await paid.tree.props.onPress();
+  assert.deepEqual(paid.sponsorLinks, [sponsor.cta_url]);
+  assert.deepEqual(paid.transport.urls, [], "An active sponsor retains its own destination");
+  const information = bannerFixture({ sponsor: { ...sponsor, cta_label: null, cta_url: null } });
+  assert.equal(information.tree.props.disabled, true);
+  assert.equal(information.tree.props.accessibilityRole, "text");
   console.log(
-    "PASS support transports: lazy/missing native SMS, exact composer recipient/body, availability, unknown/cancelled/failed outcomes, late-context guards, no SMS fallback and preserved guarded WhatsApp handoffs",
+    "PASS support transports and compact promotion strip: SMS outcomes, guarded WhatsApp handoffs, EN/FA/PS inquiry recipient/body, single-line 44dp layout, duplicate taps, failures/blur and active sponsor destinations",
   );
 }
 void main().catch((error) => {

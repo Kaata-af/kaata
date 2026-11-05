@@ -1,117 +1,123 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useState } from "react";
-import { Image, Linking, Pressable, StyleSheet, Text, View } from "react-native";
+import { useCallback, useRef, useState } from "react";
+import { useFocusEffect } from "expo-router";
+import { Image, Linking, Pressable, StyleSheet, Text } from "react-native";
 import { useAppMeta } from "../lib/app-meta-context";
 import { colors } from "../lib/colors";
 import { rowDir, textDir, useIsRTL } from "../lib/direction";
 import { t } from "../lib/i18n";
+import { openSupportWhatsApp } from "../lib/support";
 import { gutter, radius, space, TOUCH_MIN, typography } from "../lib/tokens";
 import { useToast } from "./Toast";
-
-const showPreview = __DEV__ && process.env.EXPO_PUBLIC_SPONSOR_PREVIEW === "1";
 
 export function SponsorBanner() {
   const { sponsorBanner } = useAppMeta();
   const isRTL = useIsRTL();
   const toast = useToast();
   const [failedImage, setFailedImage] = useState<string | null>(null);
-  const creative = showPreview
-    ? {
-        sponsor: t("sponsorBanner.sampleSponsor"),
-        title: t("sponsorBanner.sampleTitle"),
-        body: t("sponsorBanner.sampleBody"),
-        image_url: null,
-        cta_label: t("sponsorBanner.sampleCta"),
-        cta_url: null,
-      }
-    : sponsorBanner;
-  if (!creative) return null;
-
-  const imageUrl = creative.image_url;
-  const link = creative.cta_url;
-  const label = showPreview ? t("sponsorBanner.sampleAd") : t("sponsorBanner.sponsored");
+  const opening = useRef(false);
+  const focused = useRef(false);
+  useFocusEffect(
+    useCallback(() => {
+      focused.current = true;
+      return () => {
+        focused.current = false;
+      };
+    }, []),
+  );
+  const imageUrl = sponsorBanner?.image_url;
+  const link = sponsorBanner?.cta_url;
+  const interactive = !sponsorBanner || Boolean(link);
+  const label = sponsorBanner
+    ? `${t("sponsorBanner.sponsored")} · ${sponsorBanner.sponsor} · ${sponsorBanner.title}`
+    : t("sponsorBanner.promote");
 
   return (
-    <View style={[styles.banner, rowDir(isRTL)]} testID="home-sponsor-banner">
-      <View style={styles.artwork} accessibilityElementsHidden importantForAccessibility="no">
-        {imageUrl && imageUrl !== failedImage ? (
-          <Image
-            key={imageUrl}
-            source={{ uri: imageUrl }}
-            style={styles.image}
-            onError={() => setFailedImage(imageUrl)}
-          />
-        ) : (
-          <Ionicons name="cube-outline" size={24} color={colors.textSubtle} />
-        )}
-      </View>
-      <View style={styles.copy}>
-        <Text style={[styles.disclosure, textDir(isRTL)]} numberOfLines={1}>
-          {label} · {creative.sponsor}
-        </Text>
-        <Text style={[styles.title, textDir(isRTL)]} numberOfLines={2}>
-          {creative.title}
-        </Text>
-        <Text style={[styles.body, textDir(isRTL)]} numberOfLines={2}>
-          {creative.body}
-        </Text>
-        {creative.cta_label && (link || showPreview) ? (
-          <Pressable
-            accessibilityRole={link ? "link" : "button"}
-            accessibilityLabel={creative.cta_label}
-            onPress={() => {
-              if (showPreview) {
-                toast.push(t("sponsorBanner.previewOnly"));
-              } else if (link) {
-                Linking.openURL(link).catch(() =>
-                  toast.push(t("sponsorBanner.openFailed"), "error"),
-                );
-              }
-            }}
-            style={({ pressed }) => [
-              styles.cta,
-              rowDir(isRTL),
-              { alignSelf: isRTL ? "flex-end" : "flex-start" },
-              pressed && { opacity: 0.6 },
-            ]}
-          >
-            <Text style={[styles.ctaText, textDir(isRTL)]}>{creative.cta_label}</Text>
-            <Ionicons name="open-outline" size={14} color={colors.textEmphasis} />
-          </Pressable>
-        ) : null}
-      </View>
-    </View>
+    <Pressable
+      testID="home-sponsor-banner"
+      disabled={!interactive}
+      accessibilityRole={interactive ? "link" : "text"}
+      accessibilityLabel={label}
+      accessibilityHint={
+        sponsorBanner ? (sponsorBanner.cta_label ?? undefined) : t("sponsorBanner.whatsappHint")
+      }
+      onPress={async () => {
+        if (opening.current || !focused.current) return;
+        opening.current = true;
+        try {
+          if (sponsorBanner && link) {
+            await Linking.openURL(link);
+          } else if (!sponsorBanner) {
+            const result = await openSupportWhatsApp(
+              t("sponsorBanner.inquiry"),
+              () => focused.current,
+            );
+            if (result === "failed" && focused.current) {
+              toast.push(t("sponsorBanner.whatsappFailed"), "error");
+            }
+          }
+        } catch {
+          if (focused.current) toast.push(t("sponsorBanner.openFailed"), "error");
+        } finally {
+          opening.current = false;
+        }
+      }}
+      style={({ pressed }) => [
+        styles.banner,
+        rowDir(isRTL),
+        pressed && interactive && { opacity: 0.6 },
+      ]}
+    >
+      {imageUrl && imageUrl !== failedImage ? (
+        <Image
+          key={imageUrl}
+          source={{ uri: imageUrl }}
+          style={styles.artwork}
+          onError={() => setFailedImage(imageUrl)}
+          accessible={false}
+        />
+      ) : (
+        <Ionicons
+          name={sponsorBanner ? "megaphone-outline" : "logo-whatsapp"}
+          size={18}
+          color={colors.textSubtle}
+          accessible={false}
+        />
+      )}
+      <Text style={[styles.label, textDir(isRTL)]} numberOfLines={1}>
+        {label}
+      </Text>
+      {interactive ? (
+        <Ionicons
+          name={isRTL ? "chevron-back" : "chevron-forward"}
+          size={14}
+          color={colors.textSubtle}
+          accessible={false}
+        />
+      ) : null}
+    </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
   banner: {
-    alignItems: "flex-start",
-    gap: space.md,
+    minHeight: TOUCH_MIN,
+    alignItems: "center",
+    gap: space.sm,
     marginHorizontal: gutter.ledger,
     marginBottom: space.md,
     paddingHorizontal: space.md,
-    paddingTop: space.md,
-    paddingBottom: space.sm,
-    borderWidth: 1,
+    paddingVertical: space.sm,
+    borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.borderDefault,
     borderRadius: radius.md,
     backgroundColor: colors.bgMuted,
   },
   artwork: {
-    width: 52,
-    height: 52,
-    borderRadius: radius.sm,
+    width: 24,
+    height: 24,
+    borderRadius: radius.grabber,
     backgroundColor: colors.bgSubtle,
-    overflow: "hidden",
-    alignItems: "center",
-    justifyContent: "center",
   },
-  image: { width: "100%", height: "100%" },
-  copy: { flex: 1, minWidth: 0 },
-  disclosure: { ...typography.caption, color: colors.textSubtle },
-  title: { ...typography.label, color: colors.textEmphasis },
-  body: { ...typography.hint, color: colors.textSubtle },
-  cta: { minHeight: TOUCH_MIN, alignItems: "center", gap: space.xs, maxWidth: "100%" },
-  ctaText: { ...typography.caption, color: colors.textEmphasis, flexShrink: 1 },
+  label: { ...typography.bodySm, flex: 1, color: colors.textSubtle },
 });
