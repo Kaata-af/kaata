@@ -33,6 +33,7 @@ react.useLayoutEffect = react.useEffect;
 let vault = "vault-a",
   account = "account-a";
 let selectedCurrency = "AFN";
+let fixtureRTL = false;
 let writeCaps = { resolved: false, canCreate: true, canAmend: true };
 let archiveGuardReads = 0;
 let hapticImpacts = 0;
@@ -389,9 +390,9 @@ const mocks: Record<string, any> = {
   "../lib/sync/scheduler": { syncActiveVaultNow: asyncNoop },
   "../lib/tabs/sync": { syncAllTabs: asyncNoop },
   "../lib/direction": {
-    useIsRTL: () => false,
+    useIsRTL: () => fixtureRTL,
     bidiIsolate: (value: string) => value,
-    rowDir: () => ({ flexDirection: "row" }),
+    rowDir: (rtl: boolean) => ({ flexDirection: rtl ? "row-reverse" : "row" }),
     textDir: () => ({}),
     trackingSafe: () => ({}),
   },
@@ -543,6 +544,16 @@ const resultCounts = () =>
       node.type === "Text" &&
       ["customers.search.result", "customers.search.results"].includes(node.props.children),
   );
+const filterCount = () =>
+  homeNodes().find((node) => node.type === "Text" && node.props.testID === "customer-filter-count");
+const filterCountHeader = () =>
+  homeNodes().find(
+    (node) =>
+      node.type === "View" &&
+      [node.props.children]
+        .flat()
+        .some((child) => child?.props?.testID === "customer-filter-count"),
+  )!;
 const input = () =>
   homeNodes().find(
     (node) => node.type === "TextInput" && node.props.accessibilityLabel === "customers.search",
@@ -1598,6 +1609,7 @@ async function main() {
     render();
     assert.equal(clearFilters(), undefined, "Sorting alone is not a clearable filter");
     assert.equal(renderedPage!.props.controls, null, "Sort-only lists have no empty filter gap");
+    assert.equal(filterCount(), undefined, "Sorting alone adds no customer count");
     assert.equal(options().props.preference.sort, sort);
   }
   input().props.onChangeText("Cyrus");
@@ -1611,6 +1623,7 @@ async function main() {
   render();
   const retainedClearFilters = clearFilters()!.props.onPress;
   assert.ok(clearFilters(), "Actual group filters remain clearable with a custom sort");
+  assert.equal(filterCount(), undefined, "A group alone adds no balance-filter count");
   options().props.onChange({ ...options().props.preference, group: "all" });
   render();
   assert.equal(clearFilters(), undefined);
@@ -1660,6 +1673,22 @@ async function main() {
   assert.equal(homeScrollCalls().at(-1)!.y, 0, "Changing balance direction resets the list scroll");
   scrollHome(0); // Native scrollTo reports its new position through onScroll.
   assert.equal(resultCounts().length, 0, "A balance filter alone adds no search-result count");
+  assert.equal(filterCount()!.props.children, 2, "Collect counts each matching customer once");
+  assert.equal(flattenStyle(filterCount()!.props.style).fontSize, 12);
+  assert.equal(filterCount()!.props.accessibilityLabel, "customers.filteredCount.other");
+  assert.equal(flattenStyle(filterCountHeader().props.style).flexDirection, "row");
+  assert.equal(flattenStyle(filterCountHeader().props.style).justifyContent, "space-between");
+  let headingChildren = [filterCountHeader().props.children].flat().filter(Boolean);
+  assert.equal(headingChildren[0].props.accessibilityLabel, "search.clearAll");
+  assert.equal(headingChildren.at(-1)!.props.testID, "customer-filter-count");
+  fixtureRTL = true;
+  render();
+  assert.equal(flattenStyle(filterCountHeader().props.style).flexDirection, "row-reverse");
+  headingChildren = [filterCountHeader().props.children].flat().filter(Boolean);
+  assert.equal(headingChildren[0].props.accessibilityLabel, "search.clearAll");
+  assert.equal(headingChildren.at(-1)!.props.testID, "customer-filter-count");
+  fixtureRTL = false;
+  render();
   assert.deepEqual(
     initialSummary().props.balances,
     fullBookBalances,
@@ -1669,6 +1698,11 @@ async function main() {
   render();
   assert.deepEqual(searchIds(), ["a", "b"], "A mixed-currency customer also matches To pay");
   assert.equal(
+    filterCount()!.props.children,
+    2,
+    "Pay counts unique customers across currency rows",
+  );
+  assert.equal(
     searchRows()[0].props.person.currency_balances.length,
     2,
     "Direction filters preserve all the customer's currency balances",
@@ -1677,6 +1711,8 @@ async function main() {
   input().props.onChangeText("Ahmad");
   render();
   assert.deepEqual(searchIds(), ["a"], "Search and direction filters compose");
+  assert.equal(filterCount(), undefined, "A direction filter does not duplicate the search count");
+  assert.equal(resultCounts().length, 1);
   assert.equal(
     options().props.amountSortAvailable,
     false,
@@ -1686,6 +1722,12 @@ async function main() {
   options().props.onChange({ ...options().props.preference, group: ["g"] });
   render();
   assert.deepEqual(searchIds(), []);
+  assert.equal(
+    filterCount()!.props.children,
+    0,
+    "An empty direction/group match shows zero customers",
+  );
+  assert.equal(filterCount()!.props.accessibilityLabel, "customers.filteredCount.other");
   assert.equal(renderedPage!.props.filtered, true);
   assert.ok(
     homeNodes().some(
@@ -1702,6 +1744,11 @@ async function main() {
   assert.deepEqual(searchIds(), ["c"], "Clearing direction retains the chosen group");
   assert.equal(options().props.preference.direction, "all");
   assert.equal(
+    filterCount(),
+    undefined,
+    "Clearing direction hides the count while keeping its group",
+  );
+  assert.equal(
     listRequests.length,
     filterListReads,
     "Direction changes need no extra storage reads",
@@ -1717,6 +1764,7 @@ async function main() {
   render();
   assert.deepEqual(searchIds(), ["a", "b", "c"]);
   assert.deepEqual(options().props.preference, customerList.DEFAULT_CUSTOMER_LIST);
+  assert.equal(filterCount(), undefined, "Clear all removes the filtered-customer count");
   // The popup filters the existing all-currency snapshot; it does not change
   // the default currency, top cards, or whole-contact selection/removal scope.
   const currencyRichPeople = people.map((person) => {
@@ -1792,6 +1840,24 @@ async function main() {
     "choices include unused enabled and disabled historical currencies",
   );
   assert.equal(searchRows().find((row) => row.props.person.id === "c")!.props.creditStatus, "over");
+  options().props.onChange({ ...options().props.preference, direction: "collect" });
+  render();
+  assert.deepEqual(searchIds(), ["a", "c"]);
+  assert.equal(
+    filterCount()!.props.children,
+    2,
+    "A customer with two collectible currency rows contributes one customer to the count",
+  );
+  options().props.onChange({ ...options().props.preference, currency: "JPY" });
+  render();
+  assert.deepEqual(searchIds(), []);
+  assert.equal(
+    filterCount()!.props.children,
+    0,
+    "A collect filter with no currency matches shows zero",
+  );
+  options().props.onChange(customerList.DEFAULT_CUSTOMER_LIST);
+  render();
   options().props.onChange({
     ...options().props.preference,
     currency: "USD",
@@ -1849,6 +1915,7 @@ async function main() {
   );
   assert.equal(input().props.ref, currencyInputRef);
   assert.deepEqual(searchIds(), ["a", "c"], "USD amount order compares only actual USD rows");
+  assert.equal(filterCount(), undefined, "A currency filter alone adds no balance-filter count");
   assert.deepEqual(
     searchRows().map((row) => row.props.person.balance),
     [-100, 5],
@@ -1880,9 +1947,16 @@ async function main() {
   options().props.onChange({ ...options().props.preference, direction: "collect" });
   render();
   assert.deepEqual(searchIds(), ["c"], "AFN collect cannot make a USD payable match collect");
+  assert.equal(filterCount()!.props.children, 1);
+  assert.equal(filterCount()!.props.accessibilityLabel, "customers.filteredCount.one");
   options().props.onChange({ ...options().props.preference, direction: "pay" });
   render();
   assert.deepEqual(searchIds(), ["a"]);
+  assert.equal(
+    filterCount()!.props.children,
+    1,
+    "The count updates with combined currency/direction filters",
+  );
   assert.equal(
     resultCounts().length,
     0,
@@ -2086,6 +2160,7 @@ async function main() {
   );
   assert.equal(initialSummary().props.onCurrencyChange, undefined);
   assert.equal(resultCounts().length, 0, "An empty homepage query has no matching-customer count");
+  assert.equal(filterCount(), undefined, "The unfiltered home has no customer count");
   const homeKey = renderedPage!.key;
   const homeRef = renderedPage!.props.scrollRef;
   assert.equal(homeScroll().props.refreshControl, undefined);
@@ -2117,6 +2192,7 @@ async function main() {
   input().props.onChangeText("   ");
   render();
   assert.equal(resultCounts().length, 0, "Whitespace has no matching-customer count");
+  assert.equal(filterCount(), undefined, "Whitespace without a balance direction has no count");
   input().props.onChangeText("Cyrus");
   render();
   assert.deepEqual(searchIds(), ["c"]);
@@ -2649,7 +2725,7 @@ async function main() {
     "Late row callbacks and reads cannot update unmounted Home",
   );
   console.log(
-    "PASS home selection: one mixed list and simultaneous totals, settled accounts disclosure/search/scoped selection, full-source currency classification, direction labels, stable customer keys, native overscroll without pull-refresh, scoped scroll restoration, instant financial totals without per-tap reads, coherent background snapshots, stale vault/account reads, settings-only mesh leases, fixed bottom search and compact filters, query-only counts, scoped select-all, search/group preservation, confirmation, duplicate/stale guards, cleanup",
+    "PASS home selection: one mixed list and simultaneous totals, settled accounts disclosure/search/scoped selection, full-source currency classification, direction labels, stable customer keys, native overscroll without pull-refresh, scoped scroll restoration, instant financial totals without per-tap reads, coherent background snapshots, stale vault/account reads, settings-only mesh leases, fixed bottom search and compact filters, query counts and unique direction-filter counts opposite Clear in LTR/RTL, scoped select-all, search/group preservation, confirmation, duplicate/stale guards, cleanup",
   );
 }
 void main();

@@ -1614,17 +1614,7 @@ export default function HomeScreen() {
     customerQuery.trim() || listFiltered ? (
       <View style={styles.inlineControls}>
         {customerQuery.trim().length > 0 || listFiltered ? (
-          <View style={[styles.resultsHeading, { alignItems: isRTL ? "flex-end" : "flex-start" }]}>
-            {customerQuery.trim().length > 0 ? (
-              <Text style={[styles.resultCount, textDir(isRTL)]} accessibilityLiveRegion="polite">
-                {t(
-                  homePeople.length === 1 ? "customers.search.result" : "customers.search.results",
-                  {
-                    count: homePeople.length,
-                  },
-                )}
-              </Text>
-            ) : null}
+          <View style={[styles.resultsHeading, rowDir(isRTL)]}>
             {customerQuery.trim() || listFiltered ? (
               <Pressable
                 accessibilityRole="button"
@@ -1644,6 +1634,30 @@ export default function HomeScreen() {
               >
                 <Text style={[styles.clearLabel, textDir(isRTL)]}>{t("search.clearAll")}</Text>
               </Pressable>
+            ) : null}
+            {customerQuery.trim().length > 0 ? (
+              <Text style={[styles.resultCount, textDir(isRTL)]} accessibilityLiveRegion="polite">
+                {t(
+                  homePeople.length === 1 ? "customers.search.result" : "customers.search.results",
+                  {
+                    count: homePeople.length,
+                  },
+                )}
+              </Text>
+            ) : balanceFilter === "collect" || balanceFilter === "pay" ? (
+              <Text
+                testID="customer-filter-count"
+                style={[styles.filterCount, textDir(isRTL)]}
+                accessibilityLabel={t(
+                  homePeople.length === 1
+                    ? "customers.filteredCount.one"
+                    : "customers.filteredCount.other",
+                  { count: homePeople.length },
+                )}
+                accessibilityLiveRegion="polite"
+              >
+                {homePeople.length}
+              </Text>
             ) : null}
           </View>
         ) : null}
@@ -3049,8 +3063,19 @@ const styles = StyleSheet.create({
   },
   filterButtonActive: { backgroundColor: colors.actionPrimary, borderColor: colors.actionPrimary },
   filterCloseToggle: { width: "100%", height: "100%" },
-  resultsHeading: { marginTop: 4 },
-  resultCount: { fontSize: 13, fontFamily: fonts.sansRegular, color: colors.textSubtle },
+  resultsHeading: {
+    marginTop: 4,
+    alignItems: "center",
+    justifyContent: "space-between",
+    columnGap: 12,
+  },
+  filterCount: { fontSize: 12, fontFamily: fonts.sansRegular, color: colors.textSubtle },
+  resultCount: {
+    flexShrink: 1,
+    fontSize: 13,
+    fontFamily: fonts.sansRegular,
+    color: colors.textSubtle,
+  },
   clearLabel: {
     fontSize: 13,
     fontFamily: fonts.sansSemi,
