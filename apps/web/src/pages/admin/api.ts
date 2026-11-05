@@ -347,6 +347,44 @@ export function useSponsorCampaigns() {
   });
 }
 
+export type SponsorProposalStatus =
+  | "new"
+  | "reviewing"
+  | "contacted"
+  | "accepted"
+  | "declined"
+  | "archived";
+
+export type SponsorProposal = {
+  id: number;
+  submission_id: string;
+  business_name: string;
+  contact_name: string;
+  phone: string;
+  proposal: string;
+  budget_amount: string;
+  budget_currency: string;
+  duration: string | null;
+  app_locale: "en" | "fa" | "ps";
+  status: SponsorProposalStatus;
+  notes: string;
+  created_at: string;
+  updated_at: string;
+};
+
+const SPONSOR_PROPOSALS_PATH = "/v1/admin/sponsor-proposals";
+export const sponsorProposalsKey = (token: string) =>
+  ["admin", "sponsor-proposals", token] as const;
+
+export function useSponsorProposals() {
+  const token = useAdminToken();
+  return useQuery({
+    queryKey: sponsorProposalsKey(token),
+    queryFn: () => fetchAdmin<{ proposals: SponsorProposal[] }>(SPONSOR_PROPOSALS_PATH, token),
+    enabled: !!token,
+  });
+}
+
 export function useStats(points = 30, bucket: "day" | "hour" = "day") {
   const token = useAdminToken();
   return useQuery({
@@ -812,6 +850,21 @@ export async function saveSponsorCampaign(
   );
   if (!res.ok) throw await responseError(res);
   return readJson<SponsorCampaign>(res);
+}
+
+export async function saveSponsorProposal(
+  token: string,
+  proposal: Pick<SponsorProposal, "id" | "updated_at">,
+  body: { status: SponsorProposalStatus; notes: string },
+): Promise<SponsorProposal> {
+  const res = await writeAdminResponse(
+    `${SPONSOR_PROPOSALS_PATH}/${proposal.id}`,
+    token,
+    { ...body, expected_updated_at: proposal.updated_at },
+    "PUT",
+  );
+  if (!res.ok) throw await responseError(res);
+  return readJson<SponsorProposal>(res);
 }
 
 // Like useGrowth: the outreach endpoints deploy with the backend, so a 404

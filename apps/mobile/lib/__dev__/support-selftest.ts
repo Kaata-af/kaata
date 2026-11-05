@@ -92,16 +92,17 @@ function bannerFixture(
   options: {
     locale?: "en" | "fa" | "ps";
     sponsor?: SponsorBanner;
-    openUrl?: (url: string, count: number) => Promise<void>;
+    push?: (route: string, count: number) => void;
   } = {},
 ) {
   const locale = options.locale ?? "en";
   language.setLocale(locale);
   const hooks = uiHooks();
-  const transport = fixture({ openUrl: options.openUrl });
   const sponsorLinks: string[] = [];
+  const routes: string[] = [];
   const toasts: unknown[][] = [];
   let blur = () => {};
+  let focus = () => () => {};
   const component = compileUI("../../components/SponsorBanner", {
     react: hooks.react,
     "react/jsx-runtime": { jsx, jsxs: jsx },
@@ -109,9 +110,16 @@ function bannerFixture(
     "expo-router": {
       useFocusEffect: (work: () => () => void) =>
         hooks.react.useEffect(() => {
+          focus = work;
           blur = work();
           return blur;
         }, [work]),
+      useRouter: () => ({
+        push: (route: string) => {
+          routes.push(route);
+          options.push?.(route, routes.length);
+        },
+      }),
     },
     "react-native": {
       Image: "Image",
@@ -128,12 +136,20 @@ function bannerFixture(
       textDir: (rtl: boolean) => ({ textAlign: rtl ? "right" : "left" }),
     },
     "../lib/i18n": language,
-    "../lib/support": transport.api,
     "../lib/tokens": tokens,
     "./Toast": { useToast: () => ({ push: (...args: unknown[]) => void toasts.push(args) }) },
   });
   const tree = hooks.render(() => component.SponsorBanner());
-  return { tree, transport, sponsorLinks, toasts, blur: () => blur() };
+  return {
+    tree,
+    routes,
+    sponsorLinks,
+    toasts,
+    blur: () => blur(),
+    focus: () => {
+      blur = focus();
+    },
+  };
 }
 
 async function main() {
@@ -273,46 +289,40 @@ async function main() {
     const label = nodes(banner.tree).find((node) => node.type === "Text")!;
     assert.equal(label.props.children, language.t("sponsorBanner.promote"));
     assert.equal(label.props.numberOfLines, 1, "The promotion uses one line");
-    assert.equal(flattenStyle(banner.tree.props.style({ pressed: false })).minHeight, 44);
+    const style = flattenStyle(banner.tree.props.style({ pressed: false }));
+    assert.equal(style.minHeight, 44);
+    assert.equal(style.backgroundColor, "#000000", "The promotion is black");
+    assert.equal(banner.tree.props.accessibilityRole, "button");
     await banner.tree.props.onPress();
-    assert.equal(banner.transport.urls.length, 1);
-    const opened = new URL(banner.transport.urls[0]);
-    assert.equal(opened.searchParams.get("phone"), SUPPORT_WHATSAPP_E164.slice(1));
-    assert.equal(opened.searchParams.get("text"), language.t("sponsorBanner.inquiry"));
+    assert.deepEqual(banner.routes, ["/promote"]);
+    assert.deepEqual(banner.sponsorLinks, []);
     assert.deepEqual(banner.toasts, []);
   }
 
-  const opening = deferred<void>();
-  const duplicate = bannerFixture({ openUrl: async () => opening.promise });
-  const firstTap = duplicate.tree.props.onPress();
+  const duplicate = bannerFixture();
   await duplicate.tree.props.onPress();
-  assert.equal(duplicate.transport.urls.length, 1, "Repeated taps cannot open duplicate chats");
-  opening.resolve();
-  await firstTap;
   await duplicate.tree.props.onPress();
-  assert.equal(duplicate.transport.urls.length, 2, "The strip can be used again after handoff");
+  assert.equal(duplicate.routes.length, 1, "Repeated taps cannot open duplicate proposal forms");
+  duplicate.blur();
+  duplicate.focus();
+  await duplicate.tree.props.onPress();
+  assert.equal(duplicate.routes.length, 2, "Returning to Home restores the promotion action");
 
+  let rejectNavigation = true;
   const failure = bannerFixture({
-    openUrl: async () => {
-      throw new Error("Synthetic unavailable WhatsApp and browser");
+    push: () => {
+      if (rejectNavigation) throw new Error("Synthetic navigation failure");
     },
   });
   await failure.tree.props.onPress();
-  assert.deepEqual(failure.toasts, [[language.t("sponsorBanner.whatsappFailed"), "error"]]);
-
-  const lateOpen = deferred<void>();
-  const blurred = bannerFixture({ openUrl: async () => lateOpen.promise });
-  const lateTap = blurred.tree.props.onPress();
+  assert.deepEqual(failure.toasts, [[language.t("sponsorBanner.openFailed"), "error"]]);
+  rejectNavigation = false;
+  await failure.tree.props.onPress();
+  assert.equal(failure.routes.length, 2, "A failed navigation can be retried");
+  const blurred = bannerFixture();
   blurred.blur();
-  lateOpen.reject(new Error("Synthetic late app-link failure"));
-  await lateTap;
   await blurred.tree.props.onPress();
-  assert.equal(
-    blurred.transport.urls.length,
-    1,
-    "Blur prevents fallback and subsequent stale taps",
-  );
-  assert.deepEqual(blurred.toasts, [], "A departed screen does not show a failure toast");
+  assert.deepEqual(blurred.routes, [], "A departed Home screen cannot navigate");
 
   const sponsor: SponsorBanner = {
     id: 1,
@@ -328,12 +338,12 @@ async function main() {
   const paid = bannerFixture({ sponsor });
   await paid.tree.props.onPress();
   assert.deepEqual(paid.sponsorLinks, [sponsor.cta_url]);
-  assert.deepEqual(paid.transport.urls, [], "An active sponsor retains its own destination");
+  assert.deepEqual(paid.routes, [], "An active sponsor retains its own destination");
   const information = bannerFixture({ sponsor: { ...sponsor, cta_label: null, cta_url: null } });
   assert.equal(information.tree.props.disabled, true);
   assert.equal(information.tree.props.accessibilityRole, "text");
   console.log(
-    "PASS support transports and compact promotion strip: SMS outcomes, guarded WhatsApp handoffs, EN/FA/PS inquiry recipient/body, single-line 44dp layout, duplicate taps, failures/blur and active sponsor destinations",
+    "PASS support transports and compact promotion strip: SMS outcomes, guarded WhatsApp support, EN/FA/PS black 44dp form invitation, duplicate navigation, retry/focus guards and active sponsor destinations",
   );
 }
 void main().catch((error) => {

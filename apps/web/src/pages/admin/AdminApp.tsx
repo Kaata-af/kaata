@@ -35,6 +35,7 @@ import { Outreach } from "./Outreach";
 import { Overview } from "./Overview";
 import { Retention } from "./Retention";
 import { Sponsorships } from "./Sponsorships";
+import { SponsorProposals } from "./SponsorProposals";
 import { useAdminLive } from "./useAdminLive";
 import { Users } from "./Users";
 
@@ -43,6 +44,7 @@ const SECTIONS = [
   { id: "acquisition", label: "Acquisition", component: Acquisition },
   { id: "campaigns", label: "Campaigns", component: Campaigns },
   { id: "sponsorships", label: "Sponsorships", component: Sponsorships },
+  { id: "sponsor-proposals", label: "Promotion proposals", component: SponsorProposals },
   { id: "retention", label: "Retention", component: Retention },
   { id: "users", label: "Users", component: Users },
   { id: "outreach", label: "Outreach", component: Outreach },

@@ -81,6 +81,10 @@ const (
 	// attribution poisoning at line rate.
 	visitLimit  = 120
 	visitWindow = time.Hour
+	// Promotion proposals are occasional anonymous submissions. Allow retries
+	// and shared carrier addresses while bounding durable public writes.
+	sponsorProposalLimit  = 60
+	sponsorProposalWindow = time.Hour
 )
 
 // Housekeeping cron cadences (see startHousekeepingCron).
@@ -358,6 +362,8 @@ func main() {
 	})
 	r.With(httpx.RateLimitPerIP(visitLimit, visitWindow)).
 		Post("/v1/visit", visitH.Visit)
+	r.With(httpx.RateLimitPerIP(sponsorProposalLimit, sponsorProposalWindow)).
+		Post("/v1/sponsor-proposals", sponsorH.SubmitProposal)
 	r.Get("/v1/download", visitH.Download)
 	// chi doesn't auto-route HEAD to GET handlers; download managers (MIUI
 	// browser, ADM, wget --spider) probe with HEAD before the real GET and a
@@ -487,6 +493,8 @@ func main() {
 		pr.Get("/v1/admin/sponsor-campaigns", sponsorH.List)
 		pr.Post("/v1/admin/sponsor-campaigns", sponsorH.Create)
 		pr.Put("/v1/admin/sponsor-campaigns/{id}", sponsorH.Update)
+		pr.Get("/v1/admin/sponsor-proposals", sponsorH.ListProposals)
+		pr.Put("/v1/admin/sponsor-proposals/{id}", sponsorH.UpdateProposal)
 		pr.Put("/v1/admin/acquisition/apple-downloads", adminH.ImportAppleAcquisition)
 		pr.Get("/v1/admin/day-comparison", adminH.DayComparison)
 		pr.Get("/v1/admin/growth", adminH.Growth)

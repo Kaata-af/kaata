@@ -238,7 +238,7 @@ func adminMutation(method, path string) bool {
 		return false
 	}
 	switch path {
-	case "/v1/check-in", "/v1/visit", "/v1/shared", "/v1/sync/push", "/v1/account", "/v1/vaults", "/v1/tabs",
+	case "/v1/check-in", "/v1/visit", "/v1/shared", "/v1/sync/push", "/v1/account", "/v1/vaults", "/v1/tabs", "/v1/sponsor-proposals",
 		// Outreach ticks, outcomes, exclusions and template saves are the
 		// admin-side mutations; other open dashboards must see a "sent" flip or
 		// a newly pending contact without waiting on the 60 s poll. A 409 from
@@ -248,6 +248,7 @@ func adminMutation(method, path string) bool {
 		return true
 	}
 	return strings.HasPrefix(path, "/v1/auth/") ||
+		strings.HasPrefix(path, "/v1/admin/sponsor-proposals/") ||
 		strings.HasPrefix(path, "/v1/account/") || strings.HasPrefix(path, "/v1/vaults/") ||
 		strings.HasPrefix(path, "/v1/tabs/")
 }

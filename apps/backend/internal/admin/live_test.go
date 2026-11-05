@@ -277,6 +277,9 @@ func TestAdminLiveNotifyRouting(t *testing.T) {
 	}{
 		{"POST", "/v1/check-in", 200, true},
 		{"POST", "/v1/visit", 204, true},
+		{"POST", "/v1/sponsor-proposals", 201, true},
+		{"PUT", "/v1/admin/sponsor-proposals/1", 200, true},
+		{"PUT", "/v1/admin/sponsor-proposals/1", 409, false},
 		{"POST", "/v1/auth/google", 200, true},
 		{"POST", "/v1/auth/apple", 200, true},
 		{"POST", "/v1/auth/signout", 204, true},

@@ -1,12 +1,11 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useCallback, useRef, useState } from "react";
-import { useFocusEffect } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import { Image, Linking, Pressable, StyleSheet, Text } from "react-native";
 import { useAppMeta } from "../lib/app-meta-context";
 import { colors } from "../lib/colors";
 import { rowDir, textDir, useIsRTL } from "../lib/direction";
 import { t } from "../lib/i18n";
-import { openSupportWhatsApp } from "../lib/support";
 import { gutter, radius, space, TOUCH_MIN, typography } from "../lib/tokens";
 import { useToast } from "./Toast";
 
@@ -14,12 +13,14 @@ export function SponsorBanner() {
   const { sponsorBanner } = useAppMeta();
   const isRTL = useIsRTL();
   const toast = useToast();
+  const router = useRouter();
   const [failedImage, setFailedImage] = useState<string | null>(null);
   const opening = useRef(false);
   const focused = useRef(false);
   useFocusEffect(
     useCallback(() => {
       focused.current = true;
+      opening.current = false;
       return () => {
         focused.current = false;
       };
@@ -36,10 +37,10 @@ export function SponsorBanner() {
     <Pressable
       testID="home-sponsor-banner"
       disabled={!interactive}
-      accessibilityRole={interactive ? "link" : "text"}
+      accessibilityRole={sponsorBanner ? (interactive ? "link" : "text") : "button"}
       accessibilityLabel={label}
       accessibilityHint={
-        sponsorBanner ? (sponsorBanner.cta_label ?? undefined) : t("sponsorBanner.whatsappHint")
+        sponsorBanner ? (sponsorBanner.cta_label ?? undefined) : t("sponsorBanner.formHint")
       }
       onPress={async () => {
         if (opening.current || !focused.current) return;
@@ -48,18 +49,14 @@ export function SponsorBanner() {
           if (sponsorBanner && link) {
             await Linking.openURL(link);
           } else if (!sponsorBanner) {
-            const result = await openSupportWhatsApp(
-              t("sponsorBanner.inquiry"),
-              () => focused.current,
-            );
-            if (result === "failed" && focused.current) {
-              toast.push(t("sponsorBanner.whatsappFailed"), "error");
-            }
+            router.push("/promote");
+            return;
           }
         } catch {
+          opening.current = false;
           if (focused.current) toast.push(t("sponsorBanner.openFailed"), "error");
         } finally {
-          opening.current = false;
+          if (sponsorBanner) opening.current = false;
         }
       }}
       style={({ pressed }) => [
@@ -78,9 +75,9 @@ export function SponsorBanner() {
         />
       ) : (
         <Ionicons
-          name={sponsorBanner ? "megaphone-outline" : "logo-whatsapp"}
+          name="megaphone-outline"
           size={18}
-          color={colors.textSubtle}
+          color={colors.textInverted}
           accessible={false}
         />
       )}
@@ -91,7 +88,7 @@ export function SponsorBanner() {
         <Ionicons
           name={isRTL ? "chevron-back" : "chevron-forward"}
           size={14}
-          color={colors.textSubtle}
+          color={colors.textInverted}
           accessible={false}
         />
       ) : null}
@@ -109,9 +106,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: space.md,
     paddingVertical: space.sm,
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.borderDefault,
+    borderColor: colors.actionPrimary,
     borderRadius: radius.md,
-    backgroundColor: colors.bgMuted,
+    backgroundColor: colors.actionPrimary,
   },
   artwork: {
     width: 24,
@@ -119,5 +116,5 @@ const styles = StyleSheet.create({
     borderRadius: radius.grabber,
     backgroundColor: colors.bgSubtle,
   },
-  label: { ...typography.bodySm, flex: 1, color: colors.textSubtle },
+  label: { ...typography.bodySm, flex: 1, color: colors.textInverted },
 });

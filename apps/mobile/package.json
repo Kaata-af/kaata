@@ -100,6 +100,7 @@
     "selftest:db-backup": "tsx lib/__dev__/db-backup-selftest.ts",
     "selftest:diagnostics": "tsx lib/__dev__/diagnostics-report-selftest.ts && tsx lib/__dev__/diagnostics-ui-selftest.ts",
     "selftest:support": "tsx lib/__dev__/support-selftest.ts",
+    "selftest:promotion": "tsx lib/__dev__/promotion-selftest.ts",
     "selftest:sync-live": "tsx lib/__dev__/sync-live-selftest.ts",
     "selftest:person-detail": "tsx lib/__dev__/person-detail-selftest.ts",
     "selftest:settled-section": "tsx lib/__dev__/settled-section-ui-selftest.ts",
