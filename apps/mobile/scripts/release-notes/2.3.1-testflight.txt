@@ -1,6 +1,7 @@
-Kaata 2.3.1 testing build 49
+Kaata 2.3.1 testing build 50
 
-- Open the black promotion banner. Check the promotion details, free-text price offer and required duration. Saved profile details accompany the proposal.
-- Check that drafts reopen correctly and that retrying an interrupted submission returns one confirmation.
-- Select To collect or To pay and check the small customer count beside Clear all filters, including combined currency and group filters. Each customer should count once.
-- Check the Dari wording and the filter layout in English, Dari and Pashto.
+- Search by name, surname, username or full phone number from the existing Home search and Add person screen. Saved contacts should appear first, followed by matching people on Kaata.
+- Send an invitation inside Kaata, then check the recipient's inbox and accept or decline it. Accepting should use the existing shared-account setup without a copied link.
+- Discovery is on by default for accounts. Turn off Let people find me in Account settings and check that the account disappears from searches and stays hidden after signing in again.
+- Ninja-mode profiles should not appear in people search. Search results should never show a phone number, email address or ledger details.
+- Check loading, empty results, offline errors and the discovery controls in English, Dari and Pashto.
