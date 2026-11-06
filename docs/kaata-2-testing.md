@@ -6,6 +6,28 @@ durable offline queue, and push delivery infrastructure. Existing private ledger
 events are not rewritten.
 Automated checks and store submissions do not replace native two-phone testing.
 
+## People discovery — Xiaomi device update (6 November 2026)
+
+Installed **2.3.1 / Android 84** in place on the connected Xiaomi from source
+`74258c92b0df8b276009a9449dda83518b2a0d1d`. Fresh production Hermes and Android
+release packaging passed. The AAB and Google-generated APK passed identity,
+feature-content, native-library, signing and 16 KB alignment checks. The installed
+APK SHA-256 is `e453ffdccdccf00589159bd39657240c39f6a8e03e80c03436592e76cd9e61d1`.
+
+Google saved build 84 as an **unassigned artifact only** to generate the matching
+Play-signed APK. Independent readback confirmed tracks, release lifecycles,
+listings, images, tester configuration and app details unchanged. Production and
+internal testing remain on 83; build 84 was not distributed through a track.
+
+`adb install -r --no-incremental` succeeded. The original app UID and first-install
+time were retained, cold startup succeeded, and the existing ledger and signed-in
+search were visible. A local contact appeared above **People on Kaata**; directory
+searches displayed the empty-result state without an error. The temporary query
+was cleared and Kaata was left open on Home. No contacts, requests or financial
+records were created. These are installation and basic search checks; matching an
+opted-in remote account and accepting/declining a request still need two-account
+device testing. Private receipts remain ignored under `build/people-discovery-84/`.
+
 ## Pending next release — multiline entry notes (20 October 2026)
 
 Both new-entry and edit-entry Note fields wrap long text and accept Return as
