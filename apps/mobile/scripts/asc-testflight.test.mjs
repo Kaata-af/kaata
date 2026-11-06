@@ -11,7 +11,7 @@ const GROUP_ID = "fcb33597-43b6-42ba-8582-b85d26fc3895";
 const cfg = {
   appId: APP_ID,
   bundleId: "af.kaata.app",
-  version: "2.3.1",
+  version: "2.3.2",
   buildNumber: "50",
   exemptEncryption: true,
 };
@@ -24,7 +24,7 @@ const opts = {
 const notes = {
   buildId: BUILD_ID,
   text: readFileSync(
-    new URL("./release-notes/2.3.1-testflight.txt", import.meta.url),
+    new URL("./release-notes/2.3.2-testflight.txt", import.meta.url),
     "utf8",
   ).trim(),
 };
@@ -46,7 +46,7 @@ function fixture(overrides = {}, options = opts, notesGrant = null) {
     },
     relationships: {
       app: { data: { type: "apps", id: overrides.buildAppId ?? APP_ID } },
-      preReleaseVersion: { data: { type: "preReleaseVersions", id: "train-2-3-1" } },
+      preReleaseVersion: { data: { type: "preReleaseVersions", id: "train-2-3-2" } },
     },
   };
   const group = {
@@ -62,8 +62,8 @@ function fixture(overrides = {}, options = opts, notesGrant = null) {
   };
   const train = {
     type: "preReleaseVersions",
-    id: "train-2-3-1",
-    attributes: { version: overrides.train ?? "2.3.1" },
+    id: "train-2-3-2",
+    attributes: { version: overrides.train ?? "2.3.2" },
   };
   const fetchImpl = async (url, init) => {
     const route = url.pathname.replace(/^\/v1/, "");
@@ -216,7 +216,7 @@ test("status reports released production and completed review and current TestFl
   assert.equal(result.production.reviews[0].state, "COMPLETE");
   assert.equal(result.target.internalBuildState, "READY_FOR_BETA_TESTING");
   assert.equal(result.target.groups[0].assigned, false);
-  assert.equal(result.recentBuilds[0].version, "2.3.1");
+  assert.equal(result.recentBuilds[0].version, "2.3.2");
 });
 
 test("enable associates only the verified new build to an existing internal group", async () => {
@@ -343,7 +343,7 @@ test("client rejects every production/review write, unrelated beta targets, dest
     [
       "PATCH",
       "/appStoreVersions/pending-version",
-      { data: { attributes: { versionString: "2.3.1" } } },
+      { data: { attributes: { versionString: "2.3.2" } } },
     ],
     ["PATCH", "/reviewSubmissions/pending-review", { data: { attributes: { canceled: true } } }],
     ["POST", "/reviewSubmissionItems", { data: {} }],
@@ -495,7 +495,7 @@ test("notes capability cannot be granted to another local version or build", () 
     { ...cfg, buildNumber: "39" },
     { ...cfg, buildNumber: "41" },
   ])
-    assert.throws(() => makeClient(local, { notes }), /exact 2\.3\.1 \/ 50/);
+    assert.throws(() => makeClient(local, { notes }), /exact 2\.3\.2 \/ 50/);
 });
 
 test("notes capability requires preflight and blocks unrelated IDs, changed payloads and App Store metadata", async () => {
