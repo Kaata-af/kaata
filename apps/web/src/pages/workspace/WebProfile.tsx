@@ -22,6 +22,7 @@ import type { WebProfile } from "../../lib/web-profile";
 import { createWebProfileFlow, type WebProfileFlow } from "../../lib/web-profile-flow";
 import { openWebRouteDialog } from "../../lib/web-route-dialog";
 import { webProfileCopy } from "./web-profile-copy";
+import { WebDiscoverySetting } from "./WebDiscoverySetting";
 import "./WebProfile.css";
 
 const ProfileContext = createContext<WebProfileFlow | null>(null);
@@ -310,12 +311,14 @@ function ProfileForm({
   const [name, setName] = useState(profile.name);
   const [phone, setPhone] = useState(profile.phone);
   const [busy, setBusy] = useState(false);
+  const [discoveryBusy, setDiscoveryBusy] = useState(false);
+  const { flow } = useProfileFlow();
   const saving = useRef(false);
   const [error, setError] = useState("");
   const [invalid, setInvalid] = useState<"name" | "phone" | null>(null);
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (saving.current || !online) return;
+    if (saving.current || discoveryBusy || !online) return;
     setError("");
     setInvalid(null);
     if (Array.from(name.trim()).length < 2 || Array.from(name.trim()).length > 60) {
@@ -361,7 +364,7 @@ function ProfileForm({
             type="button"
             variant="ghost"
             size="icon"
-            disabled={busy}
+            disabled={busy || discoveryBusy}
             aria-label={c.close}
             onClick={onClose}
           >
@@ -415,6 +418,12 @@ function ProfileForm({
           </p>
         </div>
       </div>
+      <WebDiscoverySetting
+        session={flow.session}
+        online={online}
+        disabled={busy}
+        onBusyChange={setDiscoveryBusy}
+      />
       {error && (
         <p className="web-profile-error" id={`${id}-error`} role="alert">
           {error}
@@ -426,11 +435,11 @@ function ProfileForm({
         </p>
       )}
       <div className="web-profile-actions">
-        <Button type="submit" variant="brand" disabled={busy || !online}>
+        <Button type="submit" variant="brand" disabled={busy || discoveryBusy || !online}>
           {busy ? c.saving : setup ? c.continue : c.save}
         </Button>
         {onClose && (
-          <Button type="button" variant="ghost" disabled={busy} onClick={onClose}>
+          <Button type="button" variant="ghost" disabled={busy || discoveryBusy} onClick={onClose}>
             {c.cancel}
           </Button>
         )}

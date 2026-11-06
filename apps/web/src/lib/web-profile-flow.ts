@@ -92,6 +92,7 @@ export function createWebProfileFlow(
     }
   }
   return {
+    session,
     getState: () => state,
     subscribe: (listener: () => void) => {
       listeners.add(listener);

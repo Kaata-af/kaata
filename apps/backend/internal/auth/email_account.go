@@ -1056,7 +1056,8 @@ var (
 		"team", "security", "moderator", "system", "root"}
 )
 
-// SetUsername sets or (with "") removes the private sign-in handle. Only an
+// SetUsername sets or (with "") removes the sign-in handle, which is also
+// searchable while account discovery is enabled. Only an
 // account with a password may have one: a username alone cannot sign in.
 func (s *Service) SetUsername(ctx context.Context, accountID, raw string) (string, error) {
 	u := strings.ToLower(strings.TrimSpace(foldDigits(raw)))

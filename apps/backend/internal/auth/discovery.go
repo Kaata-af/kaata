@@ -13,7 +13,8 @@ import (
 	"github.com/matee/kaata-backend/internal/httpx"
 )
 
-// DiscoverablePerson contains only the identity the owner explicitly published.
+// DiscoverablePerson contains only the identity of a discoverable account.
+// Discovery defaults on for accounts; owners can turn it off in settings.
 // Phone numbers and emails never appear in discovery responses.
 type DiscoverablePerson struct {
 	AccountID              string `json:"account_id"`

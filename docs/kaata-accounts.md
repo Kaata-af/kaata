@@ -38,14 +38,22 @@ is deferred and the residual risks we accepted.
 
 ## People discovery extension (2026-11-06)
 
-Migration `081_people_discovery.sql` adds `discovery_enabled`, default false for
-every account. Account's existing privacy section owns the explicit choice to
-publish the current display name and optional username. This opt-in extends the
-original private-username rule below; it does not change authentication or make a
-name, username, or self-entered phone number proof of identity.
+Migration `081_people_discovery.sql` adds `discovery_enabled`. The owner's
+6 November rollout decision in migration `082_people_discovery_default_on.sql`
+enables discovery once for existing active accounts and sets the new-account
+default to true. Account's existing privacy section and the web profile panel
+let a user turn it off; subsequent sign-ins, check-ins and deployments do not
+reset that choice. This extends the original private-username rule below; it
+does not change authentication or make a name, username, or self-entered phone
+number proof of identity.
+
+Ninja mode creates no account and is not indexed. Anonymous installation
+profiles remain outside people discovery. Later sign-in uses the account's
+discovery setting; signing out one phone does not change an existing account's
+visibility on other phones.
 
 The existing Home search and Add Contact form show saved contacts first, then
-matching opted-in Kaata accounts. Name words and username prefixes require at
+matching discoverable Kaata accounts. Name words and username prefixes require at
 least two characters; phone discovery matches a complete normalized number only.
 Search results never contain phone numbers or email addresses. Search is
 authenticated, bounded to 20 results, rate limited, and marked `no-store`.
@@ -82,7 +90,7 @@ ALTER TABLE auth_credentials ADD CONSTRAINT auth_credentials_provider_check
   CHECK (provider IN ('google', 'apple', 'email'));
 
 -- Originally a private sign-in handle, stored canonical (lowercase).
--- Migration 081 permits explicit publication through people discovery only.
+-- Migration 081 adds people discovery; migration 082 defaults it on for accounts.
 -- Never a trust key, and never added to financial record/bill payloads.
 ALTER TABLE accounts ADD COLUMN username TEXT;
 CREATE UNIQUE INDEX accounts_username_key ON accounts (username) WHERE username IS NOT NULL;

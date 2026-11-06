@@ -1839,7 +1839,7 @@ export type AccountMe = {
   /** The proven password sign-in address, null without a password. */
   loginEmail: string | null;
   username: string | null;
-  /** Explicit opt-in to discovery by name, username or exact phone number. */
+  /** Account visibility in name, username or exact-phone discovery. Defaults on at the server. */
   discoveryEnabled: boolean;
   hasPassword: boolean;
   /** "google", "apple", "email". */
@@ -1983,7 +1983,7 @@ export async function currentSessionKind(): Promise<"provider" | "email" | null>
   }
 }
 
-/** Set the sign-in username; public only with discovery opt-in. "" removes it. */
+/** Set the sign-in username; searchable while account discovery is enabled. "" removes it. */
 export async function setUsername(username: string): Promise<string | null> {
   const body = await accountRequest("PUT", "/v1/account/username", { username: username.trim() });
   return stringOrNull(body.username);

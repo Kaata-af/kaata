@@ -8,7 +8,7 @@ import { SiteFooter, SiteHeader } from "../components/SiteChrome";
 // require a reachable, truthful privacy policy URL once any personal data is
 // collected — this page is that URL (kaata.af/privacy) and must stay accurate to
 // what the app actually does. When you change a data flow, change this page.
-const UPDATED = "5 November 2026";
+const UPDATED = "6 November 2026";
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
@@ -114,9 +114,9 @@ export function Privacy() {
               plaintext. To prove the address is yours, and when you reset or change your password,
               we email you a 6-digit code or a short security notice through Resend, our email
               delivery provider, which receives your address and the message to send it. You can add
-              an optional <strong>username</strong> to sign in with; it stays private unless you
-              enable people discovery in Account settings. The name you enter in the app is used as
-              your account name.
+              an optional <strong>username</strong> to sign in with. It is also searchable while
+              people discovery is enabled; you can turn this off in Account settings. The name you
+              enter in the app is used as your account name.
             </li>
             <li>
               Your <strong>ledger is backed up to our server</strong> so you can restore it on a new
@@ -138,12 +138,14 @@ export function Privacy() {
             published through public bill links.
           </p>
           <p>
-            People discovery is off by default. If you enable <strong>Let people find me</strong>
-            in Account settings, signed-in Kaata users can search for your account name and username
-            and send you an invitation inside Kaata. Someone who already knows your full phone
-            number can also use it to find you. Search results do not reveal your phone number,
-            email address or ledger. You can turn discovery off at any time; doing so does not
-            remove shared accounts you have already joined.
+            People discovery is on by default for existing and new Kaata accounts. With{" "}
+            <strong>Let people find me</strong> enabled in Account settings, signed-in Kaata users
+            can search for your account name and username and send you an invitation inside Kaata.
+            Someone who already knows your full phone number can also use it to find you. Search
+            results do not reveal your phone number, email address or ledger. You can turn discovery
+            off at any time; doing so does not remove shared accounts you have already joined. Ninja
+            mode uses no account and does not make your local profile searchable. If you later sign
+            in, your account's discovery setting applies.
           </p>
         </Section>
 

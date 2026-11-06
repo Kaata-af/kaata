@@ -106,19 +106,19 @@ func TestPeopleDiscoveryPrivacyAndMatching(t *testing.T) {
 	}
 }
 
-func TestDiscoveryIsPrivateByDefaultAndRequiresSession(t *testing.T) {
+func TestDiscoveryIsEnabledByDefaultAndRequiresSession(t *testing.T) {
 	pool := testutil.ConnectTestDB(t)
 	svc, claims := seedWebProfileSession(t, pool)
 	me, err := svc.AccountMe(t.Context(), claims.AccountID)
-	if err != nil || me.DiscoveryEnabled {
-		t.Fatalf("default exposed identity: %+v %v", me, err)
+	if err != nil || !me.DiscoveryEnabled {
+		t.Fatalf("default discovery missing: %+v %v", me, err)
 	}
-	if err := svc.SetDiscovery(t.Context(), claims.AccountID, true); err != nil {
+	if err := svc.SetDiscovery(t.Context(), claims.AccountID, false); err != nil {
 		t.Fatal(err)
 	}
 	me, err = svc.AccountMe(t.Context(), claims.AccountID)
-	if err != nil || !me.DiscoveryEnabled {
-		t.Fatalf("opt-in missing: %+v %v", me, err)
+	if err != nil || me.DiscoveryEnabled {
+		t.Fatalf("opt-out missing: %+v %v", me, err)
 	}
 	h := NewHandler(svc)
 	for _, fn := range []func(*httptest.ResponseRecorder){

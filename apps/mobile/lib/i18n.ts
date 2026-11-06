@@ -209,12 +209,12 @@ const en = {
   // sentence used to be duplicated on the Google and Apple cards.
   "onboardingMode.account.label": "With an account",
   "onboardingMode.account.body":
-    "Back up your kaatas, restore them on a new phone, and use them across your devices.",
+    "Back up your kaatas and restore them on another phone. People can find your account; you can turn this off in Account settings.",
   "onboardingMode.google.title": "Sign in with Google",
   "onboardingMode.apple.title": "Sign in with Apple",
   "onboardingMode.offline.label": "Ninja mode",
   "onboardingMode.offline.body":
-    "Stay in the shadows. No account needed. Keep your kaata on this phone, and sign in later for cloud backup.",
+    "No account needed. Keep your kaata on this phone and stay out of people search. Sign in later for cloud backup.",
   "onboardingMode.offline.title": "Continue in ninja mode",
   "onboardingMode.offline.warning":
     "No account backup in ninja mode. If you lose this phone, you could lose all your data. Sign in later to back it up.",
@@ -1508,7 +1508,7 @@ const en = {
   "accountPassword.remove.done": "Password removed",
   "accountUsername.title": "Username",
   "accountUsername.body":
-    "A username works in place of your email when you sign in with your password. It stays private unless you turn on Let people find me in Account settings.",
+    "Use your username instead of your email to sign in with a password. People can find it while Let people find me is on. You can turn this off in Account settings.",
   "accountUsername.rules":
     "3 to 30 characters: lowercase letters, numbers, _ and ., starting with a letter.",
   "accountUsername.save": "Save username",
@@ -1538,7 +1538,7 @@ const en = {
   "account.privacy.section": "Privacy & data",
   "account.discovery.label": "Let people find me",
   "account.discovery.hint":
-    "Other Kaata users can find your name and username and send an invitation. They can also find you using your full phone number. Search results never show your phone number or email.",
+    "On by default. People can find you by name, username or full phone number and send an invitation. Search results hide your phone and email. Turn this off to hide your account from search.",
   "account.discovery.failed":
     "Couldn't save your search visibility. Check your connection and try again.",
   "peopleSearch.title": "People on Kaata",
@@ -2778,12 +2778,12 @@ const fa: Partial<Record<Key, string>> = {
   "onboardingMode.subtitle": "روش نگهداری حساب‌های‌تان را انتخاب کنید.",
   "onboardingMode.account.label": "با حساب",
   "onboardingMode.account.body":
-    "از کاتاهای‌تان نسخهٔ پشتیبان بگیرید، روی تلفون نو برگردانید و در چند تلفون استفاده کنید.",
+    "از کاتاهای‌تان نسخهٔ پشتیبان بگیرید و روی تلفون دیگر برگردانید. دیگران می‌توانند حساب شما را پیدا کنند؛ می‌توانید این گزینه را در تنظیمات حساب خاموش کنید.",
   "onboardingMode.google.title": "ورود با گوگل",
   "onboardingMode.apple.title": "ورود با اپل",
   "onboardingMode.offline.label": "حالت نینجا",
   "onboardingMode.offline.body":
-    "در سایه بمانید. نیازی به حساب نیست. کاتای‌تان را روی همین تلفون نگه دارید و برای پشتیبان‌گیری ابری، بعداً وارد حساب شوید.",
+    "نیازی به حساب نیست. کاتای‌تان روی همین تلفون می‌ماند و در جستجوی افراد ظاهر نمی‌شوید. برای پشتیبان‌گیری ابری، بعداً وارد حساب شوید.",
   "onboardingMode.offline.title": "ادامه در حالت نینجا",
   "onboardingMode.offline.warning":
     "در حالت نینجا از اطلاعات‌تان در حساب نسخهٔ پشتیبان گرفته نمی‌شود. اگر این تلفون را گم کنید، ممکن است همهٔ اطلاعات‌تان را از دست بدهید. برای پشتیبان‌گیری، بعداً وارد حساب شوید.",
@@ -3940,7 +3940,7 @@ const fa: Partial<Record<Key, string>> = {
   "accountPassword.remove.done": "رمز حذف شد",
   "accountUsername.title": "نام کاربری",
   "accountUsername.body":
-    "نام کاربری هنگام ورود با رمز به جای ایمیل کار می‌کند. تا وقتی «دیگران مرا پیدا کنند» را در تنظیمات حساب روشن نکنید، خصوصی می‌ماند.",
+    "نام کاربری هنگام ورود با رمز به جای ایمیل کار می‌کند. وقتی «دیگران مرا پیدا کنند» روشن باشد، دیگران می‌توانند آن را پیدا کنند. می‌توانید این گزینه را در تنظیمات حساب خاموش کنید.",
   "accountUsername.rules":
     "3 تا 30 حرف، عدد یا نشانه؛ فقط حرف‌های کوچک انگلیسی، عدد، _ و .؛ با یک حرف شروع شود.",
   "accountUsername.save": "ذخیرهٔ نام کاربری",
@@ -3963,7 +3963,7 @@ const fa: Partial<Record<Key, string>> = {
   "account.privacy.section": "حریم خصوصی و داده‌ها",
   "account.discovery.label": "دیگران مرا پیدا کنند",
   "account.discovery.hint":
-    "کاربران کاتا می‌توانند نام و نام کاربری شما را پیدا کنند و دعوت بفرستند. با نوشتن شمارهٔ کامل تلفون نیز می‌توانند شما را پیدا کنند. شمارهٔ تلفون و ایمیل شما در نتایج جستجو نشان داده نمی‌شود.",
+    "به‌صورت پیش‌فرض روشن است. دیگران می‌توانند با نام، نام کاربری یا شمارهٔ کامل تلفون شما را پیدا کنند و دعوت بفرستند. شماره و ایمیل شما در نتایج جستجو پنهان می‌ماند. برای پنهان کردن حساب از جستجو، این گزینه را خاموش کنید.",
   "account.discovery.failed": "تنظیم جستجو ذخیره نشد. اتصال خود را بررسی کنید و دوباره کوشش کنید.",
   "peopleSearch.title": "کاربران کاتا",
   "peopleSearch.placeholder": "نام، @نام‌کاربری یا تلفون",
@@ -5014,12 +5014,12 @@ const ps: Record<Key, string> = {
   "onboardingMode.subtitle": "غوره کړئ چې خپل حسابونه څنګه خوندي کړئ او لاسرسی ورته ولرئ.",
   "onboardingMode.account.label": "له کارن حساب سره",
   "onboardingMode.account.body":
-    "د خپلو کاټو شاتړ واخلئ، په نوي ټیلیفون کې یې بېرته راوړئ او په خپلو بېلابېلو وسیلو کې یې وکاروئ.",
+    "د خپلو کاټو شاتړ واخلئ او په بل ټیلیفون کې یې بېرته راوړئ. خلک ستاسو حساب موندلی شي؛ دا د حساب په امستنو کې بندولی شئ.",
   "onboardingMode.google.title": "د Google له لارې ننوځئ",
   "onboardingMode.apple.title": "د Apple له لارې ننوځئ",
   "onboardingMode.offline.label": "د نینجا حالت",
   "onboardingMode.offline.body":
-    "په سیورو کې پاتې شئ. کارن حساب ته اړتیا نشته. خپله کاټه په همدې ټیلیفون کې وساتئ او د کلاوډ شاتړ لپاره وروسته ننوځئ.",
+    "کارن حساب ته اړتیا نشته. خپله کاټه په همدې ټیلیفون کې وساتئ او د خلکو په لټون کې نه ښکاره کېږئ. د کلاوډ شاتړ لپاره وروسته ننوځئ.",
   "onboardingMode.offline.title": "د نینجا په حالت کې دوام ورکړئ",
   "onboardingMode.offline.warning":
     "د نینجا په حالت کې د کارن حساب شاتړ نشته. که دا ټیلیفون ورک کړئ، ښايي خپل ټول معلومات له لاسه ورکړئ. د شاتړ لپاره وروسته ننوتلی شئ.",
@@ -5209,7 +5209,7 @@ const ps: Record<Key, string> = {
   "accountPassword.remove.done": "پټنوم لرې شو",
   "accountUsername.title": "کارن‌نوم",
   "accountUsername.body":
-    "کله چې په پټنوم ننوځئ، د خپل برېښنالیک پر ځای کارن‌نوم کارولی شئ. تر هغو پټ پاتې کېږي چې د حساب په امستنو کې «خلک مې ومومي» فعال نه کړئ.",
+    "کله چې په پټنوم ننوځئ، د خپل برېښنالیک پر ځای کارن‌نوم کارولی شئ. کله چې «خلک مې ومومي» فعال وي، خلک یې موندلی شي. دا د حساب په امستنو کې بندولی شئ.",
   "accountUsername.rules":
     "له ۳ تر ۳۰ تورو: د انګلیسي واړه توري، شمېرې، _ او .؛ په توري دې پیل شي.",
   "accountUsername.save": "کارن‌نوم خوندي کړئ",
@@ -5412,7 +5412,7 @@ const ps: Record<Key, string> = {
   "account.privacy.section": "محرمیت او معلومات",
   "account.discovery.label": "خلک مې ومومي",
   "account.discovery.hint":
-    "د کاټا کارنان ستاسو نوم او کارن‌نوم موندلی او بلنه درلېږلی شي. ستاسو د ټیلیفون د بشپړې شمېرې په لیکلو هم تاسو موندلی شي. د لټون په پایلو کې ستاسو د ټیلیفون شمېره او برېښنالیک نه ښودل کېږي.",
+    "په اصل کې فعال دی. خلک مو د نوم، کارن‌نوم یا بشپړې ټیلیفون شمېرې له لارې موندلی او بلنه درلېږلی شي. د لټون په پایلو کې مو شمېره او برېښنالیک پټ پاتې کېږي. له لټون څخه د حساب پټولو لپاره یې بند کړئ.",
   "account.discovery.failed": "د لټون امستنه خوندي نه شوه. خپل اتصال وګورئ او بیا هڅه وکړئ.",
   "peopleSearch.title": "د کاټا کارنان",
   "peopleSearch.placeholder": "نوم، @کارن‌نوم یا ټیلیفون",

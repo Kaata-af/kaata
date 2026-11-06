@@ -30,6 +30,15 @@ const en = {
     "Enter a valid phone number with its country code, or an Afghan number starting with 07.",
   offline: "Reconnect to update your profile.",
   kaataNext: "Next, create your first kaata to finish setting up.",
+  discoveryLabel: "Let people find me",
+  discoveryHint:
+    "On by default. Other Kaata users can find your name and username, or find you using your full phone number. Search results never show your phone number or email. Changes save immediately.",
+  discoveryLoading: "Loading your search visibility…",
+  discoveryLoadError: "We couldn’t load your search visibility.",
+  discoverySaveError:
+    "We couldn’t confirm whether your change was saved. Check the saved setting before trying again.",
+  discoveryRetry: "Check saved setting",
+  discoveryOffline: "Reconnect to view or change your search visibility.",
 };
 type ProfileCopy = typeof en;
 export const webProfileCopy: Record<Lang, ProfileCopy> = {
@@ -64,6 +73,15 @@ export const webProfileCopy: Record<Lang, ProfileCopy> = {
     invalidPhone: "شمارۀ درست با کُد کشور، یا شمارۀ افغانستان که با 07 شروع می‌شود بنویسید.",
     offline: "برای تغییر پروفایل دوباره به انترنت وصل شوید.",
     kaataNext: "اکنون اولین کاتای خود را بسازید تا راه‌اندازی تکمیل شود.",
+    discoveryLabel: "دیگران مرا پیدا کنند",
+    discoveryHint:
+      "به‌صورت پیش‌فرض روشن است. کاربران کاتا می‌توانند نام و نام کاربری شما را جستجو کنند، یا با شمارۀ کامل تلفون شما را پیدا کنند. نتایج جستجو شمارۀ تلفون و ایمیل شما را نمایش نمی‌دهد. تغییرات فوراً ذخیره می‌شود.",
+    discoveryLoading: "تنظیم پیداشدن شما باز می‌شود…",
+    discoveryLoadError: "تنظیم پیداشدن شما باز نشد.",
+    discoverySaveError:
+      "نتوانستیم تأیید کنیم که تغییر شما ذخیره شده است. پیش از کوشش دوباره، تنظیم ذخیره‌شده را بررسی کنید.",
+    discoveryRetry: "بررسی تنظیم ذخیره‌شده",
+    discoveryOffline: "برای دیدن یا تغییر تنظیم پیداشدن، دوباره به انترنت وصل شوید.",
   },
   ps: {
     title: "ستاسو پروفایل",
@@ -94,5 +112,14 @@ export const webProfileCopy: Record<Lang, ProfileCopy> = {
     invalidPhone: "سمه شمېره د هېواد له کوډ سره، یا د افغانستان هغه شمېره ولیکئ چې په 07 پیلېږي.",
     offline: "د پروفایل د بدلولو لپاره بیا انټرنېټ سره وصل شئ.",
     kaataNext: "اوس خپله لومړۍ کاتا جوړه کړئ ترڅو چمتووالی بشپړ شي.",
+    discoveryLabel: "نور خلک مې پیدا کړای شي",
+    discoveryHint:
+      "په لومړي سر کې چالان دی. د کاتا کارنان ستاسو نوم او کارن‌نوم لټولای شي، یا مو د موبایل په بشپړه شمېره موندلای شي. د لټون پایلې ستاسو د موبایل شمېره او برېښنالیک نه ښيي. بدلونونه سمدستي خوندي کېږي.",
+    discoveryLoading: "ستاسو د موندلو تنظیم پرانیستل کېږي…",
+    discoveryLoadError: "ستاسو د موندلو تنظیم پرانیستل نه شو.",
+    discoverySaveError:
+      "تأیید نه شو چې ستاسو بدلون خوندي شوی دی. له بیا هڅې مخکې خوندي شوی تنظیم وګورئ.",
+    discoveryRetry: "خوندي شوی تنظیم وګورئ",
+    discoveryOffline: "د موندلو تنظیم د لیدلو یا بدلولو لپاره بیا انټرنېټ سره وصل شئ.",
   },
 };

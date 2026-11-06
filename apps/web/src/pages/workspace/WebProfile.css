@@ -9,8 +9,7 @@
 .web-profile-setup {
   min-height: 100dvh;
   color: #20372d;
-  background:
-    radial-gradient(ellipse at 7% 20%, #d4e6da9c, transparent 50%),
+  background: radial-gradient(ellipse at 7% 20%, #d4e6da9c, transparent 50%),
     radial-gradient(ellipse at 90% 70%, #f0d8dd82, transparent 48%),
     linear-gradient(145deg, #f9fbf8, #f1f5f0 60%, #f9f3f3);
 }
@@ -149,6 +148,63 @@
 .web-profile-dialog {
   width: min(580px, calc(100% - 32px));
   padding: 24px;
+}
+.web-profile-discovery {
+  margin-top: 22px;
+  padding-top: 14px;
+  border-top: 1px solid #dbe5de;
+}
+.web-profile-discovery-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 44px;
+}
+.web-profile-discovery-row h3 {
+  color: #20362b;
+  font-size: 13px;
+  font-weight: 600;
+}
+.web-profile-discovery-switch {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 44px;
+  flex-shrink: 0;
+  border-radius: 8px;
+}
+.web-profile-discovery-switch:focus-visible {
+  outline: 2px solid #20372d;
+  outline-offset: 2px;
+}
+.web-profile-discovery-switch:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+.web-profile-discovery-track {
+  width: 44px;
+  padding: 3px;
+  border-radius: 20px;
+  background: #819087;
+  transition: background 120ms;
+}
+.web-profile-discovery-track > span {
+  display: block;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #fff;
+}
+.web-profile-discovery-switch[aria-checked="true"] .web-profile-discovery-track {
+  background: #20372d;
+}
+.web-profile-discovery-switch[aria-checked="true"] .web-profile-discovery-track > span {
+  margin-inline-start: auto;
+}
+.web-profile-discovery .web-profile-error {
+  margin-top: 8px;
 }
 .workspace-profile-button {
   justify-content: flex-start;

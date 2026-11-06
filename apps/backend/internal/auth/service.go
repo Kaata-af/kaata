@@ -88,7 +88,8 @@ type User struct {
 	// Unlike email/name/picture (Google-asserted) this is user-supplied via
 	// PUT /v1/account/phone — Google sign-in never provides a phone number.
 	Phone string `json:"phone,omitempty"`
-	// Username is the optional private sign-in handle (Kaata email accounts).
+	// Username is the optional sign-in handle, also visible in people search
+	// while the account's discovery setting is enabled.
 	Username string `json:"username,omitempty"`
 	// HasPassword: the account can also sign in with email/username + password.
 	HasPassword bool `json:"has_password"`

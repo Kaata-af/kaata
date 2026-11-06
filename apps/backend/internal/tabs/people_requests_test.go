@@ -87,6 +87,9 @@ func TestPeopleRequestUsesExplicitRecipientJoin(t *testing.T) {
 
 func TestPeopleRequestDeclineExpiryAndPublication(t *testing.T) {
 	f := newTabFixture(t)
+	if _, err := f.pool.Exec(t.Context(), `UPDATE accounts SET discovery_enabled=FALSE WHERE id=$1::uuid`, f.acctB); err != nil {
+		t.Fatal(err)
+	}
 	in := groupInput(t, f, "notify")
 	created, err := f.svc.CreateGroup(t.Context(), in)
 	if err != nil {
