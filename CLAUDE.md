@@ -444,6 +444,9 @@ readiness checks, store receipts and retained limitations.
 1. **Bump native build identifiers** in `apps/mobile/app.json`:
    `android.versionCode` and `ios.buildNumber` must increase for each upload.
    Keep `version` unchanged when iterating on the same testing release.
+   If that iOS marketing version is already `READY_FOR_SALE`, advance to the
+   next marketing version before another TestFlight upload; an unused build
+   number alone does not establish that the previous version train is open.
    `appVersionSource` is `"local"`; no profile auto-increments. Order is
    bump → verify → commit/push when authorized → build, so artifacts match
    their source commit. Use the existing project, signing keys and store credentials.
