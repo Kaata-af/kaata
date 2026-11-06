@@ -51,6 +51,9 @@ import { PHONE_SEARCH_MIN_DIGITS } from "../../lib/search";
 import { icon, radius, TOUCH_MIN } from "../../lib/tokens";
 import type { PersonWithBalance } from "../../lib/types";
 import { SharedAccountBadge } from "../../components/SharedAccountBadge";
+import { PeopleSearchSection } from "../../components/PeopleSearchSection";
+import { DiscoveredPersonDialog } from "../../components/DiscoveredPersonDialog";
+import { usePeopleSearch, type DiscoveredPerson } from "../../lib/people-search";
 import { personSharedAccountStatus } from "../../lib/tabs/link-status";
 import { useDeviceContacts } from "../../lib/use-device-contacts";
 import { useActiveVaultWriteCaps } from "../../lib/use-vault-role";
@@ -89,6 +92,7 @@ export default function PersonAddOrFindScreen() {
   const canWriteNoteRef = useRef(canWriteNote);
   canWriteNoteRef.current = canWriteNote;
   const [findQuery, setFindQuery] = useState("");
+  const [discoveredPerson, setDiscoveredPerson] = useState<DiscoveredPerson | null>(null);
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [phone, setPhone] = useState("");
@@ -197,6 +201,14 @@ export default function PersonAddOrFindScreen() {
   const querying = canCreate
     ? nameQuery.length > 0 || phoneFilter.length > 0
     : findQuery.trim().length > 0;
+  const peopleSearch = usePeopleSearch(
+    phone.trim() || nameQuery || findQuery,
+    canCreate && canWriteNote && !busy && !discoveredPerson && !noteVisible,
+    countryCode,
+  );
+  useEffect(() => {
+    setDiscoveredPerson(null);
+  }, [activeVaultId, canCreate, canWriteNote]);
 
   // Defer the values the (potentially large) phone-book filter runs on, so each
   // keystroke stays responsive while the list catches up (React concurrent).
@@ -493,6 +505,27 @@ export default function PersonAddOrFindScreen() {
     );
   }
 
+  function renderContactSection(section: (typeof visibleSections)[number]) {
+    return (
+      <View key={section.key} style={styles.section}>
+        <Text style={[styles.sectionLabel, textDir(isRTL), trackingSafe(isRTL)]}>
+          {t(section.titleKey)}
+        </Text>
+        <View style={styles.peopleCard}>
+          {section.data.map((item, index) => (
+            <View key={item.kind === "app" ? `app-${item.person.id}` : `dev-${item.contact.id}`}>
+              {index > 0 ? <View style={styles.divider} /> : null}
+              {renderItem({ item })}
+            </View>
+          ))}
+        </View>
+        {section.key === "device" && deviceTruncated ? (
+          <Text style={[styles.moreHint, textDir(isRTL)]}>{t("personAdd.moreContacts")}</Text>
+        ) : null}
+      </View>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.container}>
       {/* The "Cancel" word becomes the shared chevron; it survives as the a11y
@@ -694,36 +727,48 @@ export default function PersonAddOrFindScreen() {
                   ? addOnly
                     ? null
                     : renderEmpty()
-                  : visibleSections.map((section) => (
-                      <View key={section.key} style={styles.section}>
-                        <Text style={[styles.sectionLabel, textDir(isRTL), trackingSafe(isRTL)]}>
-                          {t(section.titleKey)}
-                        </Text>
-                        <View style={styles.peopleCard}>
-                          {section.data.map((item, index) => (
-                            <View
-                              key={
-                                item.kind === "app"
-                                  ? `app-${item.person.id}`
-                                  : `dev-${item.contact.id}`
-                              }
-                            >
-                              {index > 0 ? <View style={styles.divider} /> : null}
-                              {renderItem({ item })}
-                            </View>
-                          ))}
-                        </View>
-                        {section.key === "device" && deviceTruncated ? (
-                          <Text style={[styles.moreHint, textDir(isRTL)]}>
-                            {t("personAdd.moreContacts")}
-                          </Text>
-                        ) : null}
-                      </View>
-                    ))}
+                  : visibleSections
+                      .filter((section) => section.key !== "device")
+                      .map(renderContactSection)}
+              <PeopleSearchSection
+                search={peopleSearch}
+                localPeople={people ?? []}
+                visiblePeople={visibleSections.flatMap((section) =>
+                  section.data.flatMap((item) => (item.kind === "app" ? [item.person] : [])),
+                )}
+                disabled={busy || people === null}
+                onSelect={(person) => {
+                  if (
+                    !canCreateRef.current ||
+                    !canWriteNoteRef.current ||
+                    savingRef.current ||
+                    getActiveVaultIdSyncMaybe() !== activeVaultId
+                  )
+                    return;
+                  firstNameRef.current?.blur();
+                  lastNameRef.current?.blur();
+                  phoneRef.current?.blur();
+                  setDiscoveredPerson(person);
+                }}
+              />
+              {people !== null
+                ? visibleSections
+                    .filter((section) => section.key === "device")
+                    .map(renderContactSection)
+                : null}
             </View>
           )}
         </ScrollView>
       </KeyboardAvoidingView>
+
+      <DiscoveredPersonDialog
+        person={discoveredPerson}
+        onDismiss={() => setDiscoveredPerson(null)}
+        onAdded={(personId) => {
+          setDiscoveredPerson(null);
+          openPerson(personId);
+        }}
+      />
 
       {canCreate ? (
         <CountryPickerSheet

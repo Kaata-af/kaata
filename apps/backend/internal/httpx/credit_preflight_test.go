@@ -19,7 +19,7 @@ func TestBrowserCreditSettingsPreflightAllowsAuthenticatedPUT(t *testing.T) {
 	if called || response.Code != http.StatusNoContent {
 		t.Fatalf("preflight reached authenticated handler: %d", response.Code)
 	}
-	for _, method := range []string{"GET", "POST", "PUT", "OPTIONS"} {
+	for _, method := range []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"} {
 		if !strings.Contains(response.Header().Get("Access-Control-Allow-Methods"), method) {
 			t.Fatalf("missing %s method", method)
 		}

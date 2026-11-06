@@ -71,6 +71,10 @@ func noStore(w http.ResponseWriter) {
 // identical for every not-yours / unknown case).
 func mapServiceError(err error) (int, string, string) {
 	switch {
+	case errors.Is(err, ErrPeopleRequestLimited):
+		return http.StatusTooManyRequests, "people_request_limited", err.Error()
+	case errors.Is(err, ErrPeopleRequestInboxFull):
+		return http.StatusTooManyRequests, "people_request_inbox_full", err.Error()
 	case errors.Is(err, ErrGroupChanged):
 		return http.StatusConflict, "shared_account_changed", err.Error()
 	case errors.Is(err, ErrGroupCurrencyHistory):

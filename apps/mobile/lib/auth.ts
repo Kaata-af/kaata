@@ -1839,6 +1839,8 @@ export type AccountMe = {
   /** The proven password sign-in address, null without a password. */
   loginEmail: string | null;
   username: string | null;
+  /** Explicit opt-in to discovery by name, username or exact phone number. */
+  discoveryEnabled: boolean;
   hasPassword: boolean;
   /** "google", "apple", "email". */
   providers: string[];
@@ -1865,6 +1867,7 @@ export async function fetchAccountMe(expectedSession?: SessionSnapshot): Promise
     email: stringOrNull(body.email) ?? "",
     loginEmail: stringOrNull(body.login_email),
     username: stringOrNull(body.username),
+    discoveryEnabled: body.discovery_enabled === true,
     hasPassword: body.has_password === true,
     providers: Array.isArray(body.providers)
       ? body.providers.filter((p): p is string => typeof p === "string")
@@ -1980,10 +1983,24 @@ export async function currentSessionKind(): Promise<"provider" | "email" | null>
   }
 }
 
-/** Set the private sign-in username; "" removes it. Returns the stored (canonical) one. */
+/** Set the sign-in username; public only with discovery opt-in. "" removes it. */
 export async function setUsername(username: string): Promise<string | null> {
   const body = await accountRequest("PUT", "/v1/account/username", { username: username.trim() });
   return stringOrNull(body.username);
+}
+
+/** Visibility changes belong to the account that made the choice. */
+export async function setAccountDiscovery(
+  enabled: boolean,
+  expectedSession?: SessionSnapshot,
+): Promise<boolean> {
+  const session = expectedSession ?? (await captureCurrentSession());
+  if (!session.jwt || !session.accountId) throw new EmailAuthError("session_expired", 401);
+  await applyForCurrentSession(session, async () => {});
+  const body = await accountRequest("PUT", "/v1/account/discovery", { enabled }, session.jwt);
+  if (typeof body.discovery_enabled !== "boolean")
+    throw new SignInFailedError("server", "Discovery settings are unavailable.");
+  return applyForCurrentSession(session, async () => body.discovery_enabled === true);
 }
 
 /** PUT /v1/account/name, for accounts with no Google or Apple identity. */

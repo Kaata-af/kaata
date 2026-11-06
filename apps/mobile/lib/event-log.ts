@@ -663,6 +663,7 @@ export async function appendPersonAdded(args: {
   phoneE164: string | null;
   vaultId: string;
   note?: string | null;
+  shouldContinue?: () => boolean;
 }): Promise<{ event_id: string }> {
   const note = args.note === undefined ? null : normalizeCustomerNote(args.note);
   const eventId = Crypto.randomUUID();
@@ -693,7 +694,7 @@ export async function appendPersonAdded(args: {
     },
   };
 
-  if (note !== null) {
+  if (note !== null || args.shouldContinue) {
     const noteEvent: PersonNoteSetEvent = {
       ...event,
       event_id: Crypto.randomUUID(),
@@ -703,13 +704,14 @@ export async function appendPersonAdded(args: {
     };
     try {
       // A new contact and its instructions either both exist or neither does.
-      await applyLocalEventsAtomically([event, noteEvent], {
+      await applyLocalEventsAtomically(note !== null ? [event, noteEvent] : [event], {
         guard: () => {
           if (
             getActiveVaultIdSync() !== args.vaultId ||
             getAccountIdSync() !== accountId ||
             getInstallIdSync() !== installId ||
-            getLocalSelfUserIdSync() !== authorUserId
+            getLocalSelfUserIdSync() !== authorUserId ||
+            args.shouldContinue?.() === false
           )
             throw new Error("Contact creation changed scope");
         },

@@ -425,15 +425,7 @@ func (s *Service) PreviewGroup(ctx context.Context, token, account string) (Grou
 	if account == "" {
 		return GroupResponse{}, ErrAuthRequired
 	}
-	token, err := groupToken(token)
-	if err != nil {
-		return GroupResponse{}, err
-	}
-	var id string
-	err = s.pool.QueryRow(ctx, `SELECT id::text FROM tab_groups WHERE invite_token_hash=$1`, hashPartyToken(token)).Scan(&id)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return GroupResponse{}, ErrNotFound
-	}
+	id, err := groupInvitationID(ctx, s.pool, token, account)
 	if err != nil {
 		return GroupResponse{}, err
 	}
@@ -443,8 +435,11 @@ func (s *Service) PreviewGroup(ctx context.Context, token, account string) (Grou
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	g, err := loadGroup(ctx, tx, id, false)
-	if err != nil || g.InviteHash != hashPartyToken(token) {
+	if err != nil {
 		return GroupResponse{}, ErrNotFound
+	}
+	if err = checkGroupInvitation(ctx, tx, g, token, account); err != nil {
+		return GroupResponse{}, err
 	}
 	if g.BClaimed || g.BAccount != nil || g.BVault != nil {
 		if _, err = groupAuthorized(ctx, tx, g, account, "b", 1); err != nil {
@@ -495,10 +490,6 @@ func (s *Service) JoinGroup(ctx context.Context, id string, in GroupJoinInput) (
 	if in.AccountID == "" {
 		return GroupResponse{}, ErrAuthRequired
 	}
-	token, err := groupToken(in.Token)
-	if err != nil {
-		return GroupResponse{}, err
-	}
 	if !validGroupScope(in.VaultID, in.RelationshipID) {
 		return GroupResponse{}, ErrNotFound
 	}
@@ -531,8 +522,8 @@ func (s *Service) JoinGroup(ctx context.Context, id string, in GroupJoinInput) (
 	if err != nil {
 		return GroupResponse{}, err
 	}
-	if g.InviteHash != hashPartyToken(token) {
-		return GroupResponse{}, ErrNotFound
+	if err = checkGroupInvitation(ctx, tx, g, in.Token, in.AccountID); err != nil {
+		return GroupResponse{}, err
 	}
 	if g.Closed != nil {
 		return GroupResponse{}, ErrTabClosed

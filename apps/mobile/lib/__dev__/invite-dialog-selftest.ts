@@ -47,6 +47,9 @@ const fresh = {
 let recoveredLinks: TabLink[] = [fresh];
 type PendingSettings = { myLabel: string; recordingMode: "notify" | "review" | "notify_one_way" };
 let pendingSettings: Promise<PendingSettings | null> | null = null;
+let deliveryFailure: Error | null = null;
+let discoveredIdentities: Record<string, string> = {};
+const directDeliveries: Array<{ group: string; recipient: string }> = [];
 const equal = (a: any[], b: any[]) =>
   a.length === b.length && a.every((v, i) => Object.is(v, b[i]));
 function render() {
@@ -102,6 +105,8 @@ const mocks: Record<string, any> = {
     },
   },
   "react-native": {
+    KeyboardAvoidingView: "KeyboardAvoidingView",
+    Platform: { OS: "ios" },
     Modal: "Modal",
     Pressable: "Pressable",
     ScrollView: "ScrollView",
@@ -124,7 +129,22 @@ const mocks: Record<string, any> = {
     getCurrencyLabel: (code: string) => code,
   },
   "../lib/db-tx": { getAccountIdSync: () => accountId, getActiveVaultIdSyncMaybe: () => vaultId },
-  "../lib/direction": { useIsRTL: () => locale !== "en", rowDir: () => ({}), textDir: () => ({}) },
+  "../lib/auth": {
+    captureCurrentSession: async () => ({ accountId, jwt: "fixture-jwt", bindingVersion: 1 }),
+  },
+  "../lib/people-connections": {
+    getDiscoveredPersonIds: async () => discoveredIdentities,
+    sendPeopleRequest: async (group: string, recipient: string) => {
+      directDeliveries.push({ group, recipient });
+      if (deliveryFailure) throw deliveryFailure;
+    },
+  },
+  "../lib/direction": {
+    useIsRTL: () => locale !== "en",
+    rowDir: () => ({}),
+    textDir: () => ({}),
+    ltrIsolate: (text: string) => text,
+  },
   "../lib/i18n": {
     getLocale: () => locale,
     getShareLangPref: async () => pref,
@@ -219,6 +239,9 @@ function reset(
   });
   recoveredLinks = [fresh];
   pendingSettings = pending;
+  deliveryFailure = null;
+  discoveredIdentities = {};
+  directDeliveries.length = 0;
   props = {
     visible: true,
     person: { id: "person", name: "Ahmad", phone },
@@ -243,6 +266,74 @@ function assertOneModal() {
 }
 
 async function main() {
+  for (const [status, code, key] of [
+    [404, "person_unavailable", "peopleSearch.unavailable"],
+    [409, "contact_archived", "peopleSearch.archived"],
+    [0, "network", "peopleSearch.sendFailed"],
+  ] as const) {
+    reset(null);
+    props.recipientAccountId = "remote-person";
+    render();
+    deliveryFailure = new TabApiError(status, code, "Synthetic delivery failure");
+    await settle();
+    assert.equal(directDeliveries.length, 0, "opening discovery does not send an invitation");
+    await tap("peopleSearch.send");
+    assert.ok(
+      nodes(tree).some(
+        (node) => node.props.accessibilityRole === "alert" && node.props.children === key,
+      ),
+    );
+    assert.equal(dismissals, 0);
+    assert.equal(createCalls, 1);
+    assert.equal(
+      shares.length + copied.length,
+      0,
+      "direct failure never falls back to external delivery",
+    );
+    deliveryFailure = null;
+    await tap("peopleSearch.send");
+    assert.equal(createCalls, 1, "delivery recovery keeps the same shared account");
+    assert.equal(dismissals, 1);
+  }
+  reset(null, "auto", fresh);
+  discoveredIdentities = { "saved-recipient": "person" };
+  // Reopening an existing discovered contact must retain direct delivery,
+  // including after a failed send when the original search is gone.
+  props.visible = false;
+  render();
+  props.visible = true;
+  render();
+  await settle();
+  await tap("peopleSearch.send");
+  assert.deepEqual(directDeliveries, [{ group: "group", recipient: "saved-recipient" }]);
+  assert.equal(createCalls, 0);
+  assert.equal(shares.length + copied.length, 0);
+  reset(null, "auto", { ...fresh, invite_url: null, recording_mode: "review" });
+  props.recipientAccountId = "known-recipient";
+  props.recipientUsername = "john";
+  render();
+  await settle();
+  assert.equal(
+    nodes(tree).filter((node) => node.props.accessibilityRole === "radiogroup").length,
+    0,
+    "direct delivery retry keeps the known review policy even without an external invite URL",
+  );
+  assert.ok(nodes(tree).some((node) => node.props.children === "@john"));
+  assert.equal(
+    nodes(tree).find((node) => node.type === "ScrollView")!.props.keyboardShouldPersistTaps,
+    "handled",
+  );
+  assert.equal(
+    nodes(tree).find((node) => node.type === "KeyboardAvoidingView")!.props.behavior,
+    "padding",
+  );
+  await tap("peopleSearch.send");
+  assert.equal(createCalls, 0);
+  assert.deepEqual(directDeliveries, [{ group: "group", recipient: "known-recipient" }]);
+  console.log(
+    "PASS: direct invite errors are actionable and retries preserve the original account",
+  );
+
   assert.equal(translations.tIn("en", "tab.recordingMode.oneWay"), "Notify");
   assert.equal(translations.tIn("en", "tab.recordingMode.notify"), "Both can write");
   assert.equal(translations.tIn("en", "tab.recordingMode.review"), "Require approval");

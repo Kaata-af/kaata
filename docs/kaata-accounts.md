@@ -36,6 +36,40 @@ is deferred and the residual risks we accepted.
 6. **A verified email proves mailbox control, not personhood.** A future trust score
    keys on account_id plus stronger signals, never on emails, names or usernames.
 
+## People discovery extension (2026-11-06)
+
+Migration `081_people_discovery.sql` adds `discovery_enabled`, default false for
+every account. Account's existing privacy section owns the explicit choice to
+publish the current display name and optional username. This opt-in extends the
+original private-username rule below; it does not change authentication or make a
+name, username, or self-entered phone number proof of identity.
+
+The existing Home search and Add Contact form show saved contacts first, then
+matching opted-in Kaata accounts. Name words and username prefixes require at
+least two characters; phone discovery matches a complete normalized number only.
+Search results never contain phone numbers or email addresses. Search is
+authenticated, bounded to 20 results, rate limited, and marked `no-store`.
+`GET /v1/people/search?q=...&vault_id=...` can include an existing relationship ID
+only after authorizing membership in that vault, preserving contact associations
+across devices. Existing contacts can also be chosen explicitly in the usual
+shared-account confirmation dialog.
+
+`PUT /v1/account/discovery {enabled}` controls publication. The server advertises
+`people_discovery: true` in sync capabilities; the client checks it before creating
+a discovery contact. Deploy the migration/backend before releasing the client.
+
+Direct invitations reuse shared groups and the existing notification inbox and
+join screen. `POST /v1/people/requests {group_id,recipient_account_id}` delivers an
+invitation; `GET /v1/people/requests` lists incoming invitations and
+`DELETE /v1/people/requests/{id}` declines one. `r_<request UUID>` selectors are
+recipient-bound references, not bearer credentials. Both preview and transactional
+join check the recipient, including when an older ordinary group link is used.
+Receiving or previewing a request never grants ledger access or accepts a balance.
+Requests expire after 14 days; retries do not duplicate or extend them, new requests
+have a daily sender/recipient cooldown, and incoming pending requests are capped
+at 50. Invitations are refreshed on inbox focus, app resume, and periodically while
+the app is active; this extension does not add an OS push notification type.
+
 ## 2. Data model: migration `052_email_accounts.sql`
 
 The unshipped `052_auth_credentials_provider_review.sql` is deleted; this file takes 052. It starts by removing any provider rows a dev database may hold from the review
@@ -47,8 +81,9 @@ ALTER TABLE auth_credentials DROP CONSTRAINT IF EXISTS auth_credentials_provider
 ALTER TABLE auth_credentials ADD CONSTRAINT auth_credentials_provider_check
   CHECK (provider IN ('google', 'apple', 'email'));
 
--- Optional private sign-in handle. Stored canonical (lowercase). Never shown to
--- other users, never in tab/inbox/invite/bill payloads, never a trust key.
+-- Originally a private sign-in handle, stored canonical (lowercase).
+-- Migration 081 permits explicit publication through people discovery only.
+-- Never a trust key, and never added to financial record/bill payloads.
 ALTER TABLE accounts ADD COLUMN username TEXT;
 CREATE UNIQUE INDEX accounts_username_key ON accounts (username) WHERE username IS NOT NULL;
 ALTER TABLE accounts ADD CONSTRAINT accounts_username_format
@@ -332,7 +367,7 @@ the account's current hash, answers 200 with a fresh session and writes nothing 
 
 ### Session endpoints
 
-6. `GET /v1/account/me` → `{email, login_email, username, has_password,
+6. `GET /v1/account/me` → `{email, login_email, username, has_password, discovery_enabled,
 providers: ["google","apple","email"...], name, setup_email}`. `setup_email` is the
    address a first-password code goes to (omitted when the user must name one,
    including when another account already signs in with the account's email).

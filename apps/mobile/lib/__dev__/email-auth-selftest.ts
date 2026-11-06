@@ -1221,6 +1221,52 @@ test("pending code step: 15 minutes, then forgotten; never a secret", async () =
   }
 });
 
+test("discovery visibility: explicit choice, old-server refusal and session-bound replies", async () => {
+  freshPhone();
+  refusal(await rejection(auth.setAccountDiscovery(true)), "session_expired", 401);
+  assert.equal(calls.length, 0, "signed-out accounts never publish visibility");
+
+  boundPhone("discovery-owner");
+  accountCache = "discovery-owner";
+  signedIn("jwt.discovery-owner");
+  script = [reply(200, { discovery_enabled: true })];
+  assert.equal(await auth.setAccountDiscovery(true), true);
+  assert.deepEqual(calls.at(-1), {
+    url: `${BASE}/v1/account/discovery`,
+    method: "PUT",
+    body: { enabled: true },
+    auth: "Bearer jwt.discovery-owner",
+  });
+  script = [reply(200, { discovery_enabled: false })];
+  assert.equal(await auth.setAccountDiscovery(false), false, "opt-out is acknowledged by server");
+  script = [reply(200, {})];
+  assert.ok(
+    (await rejection(auth.setAccountDiscovery(true))) instanceof auth.SignInFailedError,
+    "an older or malformed server reply must not claim visibility was saved",
+  );
+
+  const requestedSession = await auth.captureCurrentSession();
+  script = [
+    (call) => {
+      assert.equal(call.auth, "Bearer jwt.discovery-owner");
+      accountCache = "another-account";
+      secure.set(SESSION_KEY, "jwt.another-account");
+      return reply(200, { discovery_enabled: true })();
+    },
+  ];
+  assert.ok(
+    (await rejection(auth.setAccountDiscovery(true, requestedSession))) instanceof
+      auth.SessionChangedError,
+    "late reply cannot repaint a different account's visibility",
+  );
+  const count = calls.length;
+  assert.ok(
+    (await rejection(auth.setAccountDiscovery(false, requestedSession))) instanceof
+      auth.SessionChangedError,
+  );
+  assert.equal(calls.length, count, "stale choices are rejected before sending");
+});
+
 test("account endpoints: session-bound, sent once, typed refusals", async () => {
   freshPhone();
   refusal(await rejection(auth.fetchAccountMe()), "session_expired", 401);
@@ -1240,6 +1286,7 @@ test("account endpoints: session-bound, sent once, typed refusals", async () => 
     email: "x@privaterelay.appleid.com",
     loginEmail: null,
     username: null,
+    discoveryEnabled: false,
     hasPassword: false,
     providers: ["apple"],
     name: "Ahmad",
@@ -3334,6 +3381,7 @@ let accountBinding: import("../auth").SessionSnapshot = {
 };
 let accountWriteHook: (() => void) | null = null;
 let accountReadHook: (() => Promise<Record<string, unknown>>) | null = null;
+let accountCaptureHook: (() => Promise<void>) | null = null;
 let accountFocus: (() => void) | null = null;
 let accountGuardCompletionHook: (() => void) | null = null;
 let accountSuccessBindings: import("../auth").SessionSnapshot[] = [];
@@ -3383,6 +3431,7 @@ const accountModule = load<{ default: () => unknown }>("../../app/account", {
     Pressable: "Pressable",
     ScrollView: "ScrollView",
     StyleSheet: { create: (x: unknown) => x, hairlineWidth: 1 },
+    Switch: "Switch",
     Text: "Text",
     TextInput: "TextInput",
     View: "View",
@@ -3395,7 +3444,10 @@ const accountModule = load<{ default: () => unknown }>("../../app/account", {
   "../lib/account-rules": keyRules,
   "../lib/auth": {
     SessionChangedError: auth.SessionChangedError,
-    captureCurrentSession: async () => ({ ...accountBinding }),
+    captureCurrentSession: async () => {
+      await accountCaptureHook?.();
+      return { ...accountBinding };
+    },
     applyForCurrentSession: async (
       before: import("../auth").SessionSnapshot,
       work: () => Promise<unknown>,
@@ -3420,6 +3472,10 @@ const accountModule = load<{ default: () => unknown }>("../../app/account", {
     hasPendingAccountDeletion: async () => false,
     removePassword: async () => {},
     resetRetiredInstall: async () => {},
+    setAccountDiscovery: async (enabled: boolean) => {
+      accountCalls.push(`setAccountDiscovery:${enabled}`);
+      return enabled;
+    },
     saveAccountDisplayName: async (name: string, before?: import("../auth").SessionSnapshot) => {
       savedNameBinding = before;
       if (before && JSON.stringify(before) !== JSON.stringify(accountBinding))
@@ -3432,6 +3488,7 @@ const accountModule = load<{ default: () => unknown }>("../../app/account", {
     },
   },
   "../components/Button": { Button: "Button" },
+  "../lib/db-tx": { getAccountIdSync: () => accountBinding.accountId },
   "../components/ConfirmDialog": { ConfirmDialog: "Dialog" },
   "../components/CountryPickerSheet": { CountryPickerSheet: "CountryPicker" },
   "../components/OptionSheet": { OptionSheet: "OptionSheet" },
@@ -3543,6 +3600,7 @@ async function openAccount(over: {
   accountBinding = { bindingVersion: 0, accountId: "account-a", jwt: "jwt.a" };
   accountWriteHook = null;
   accountReadHook = null;
+  accountCaptureHook = null;
   accountGuardCompletionHook = null;
   accountSuccessBindings = [];
   savedNameBinding = undefined;
@@ -3642,11 +3700,53 @@ const accountMeOf = (providers: string[]) => ({
   email: "a@gmail.com",
   loginEmail: "a@gmail.com",
   username: null,
+  discoveryEnabled: false,
   hasPassword: true,
   providers,
   name: "Ahmad Karimi",
   setupEmail: null,
 });
+
+componentTest(
+  "account: discovery changes only the account displayed when the switch was touched",
+  async () => {
+    const loadSwitch = async () => {
+      const tree = await openAccount({ me: accountMeOf(["email"]) });
+      const toggle = tree.find(
+        (node) =>
+          node.type === "Switch" && node.props.accessibilityLabel === "account.discovery.label",
+      );
+      assert.ok(toggle);
+      assert.equal(toggle.props.value, false);
+      assert.equal(accountCalls.length, 0, "loading the page cannot opt in");
+      return toggle;
+    };
+    let toggle = await loadSwitch();
+    toggle.props.onValueChange(true);
+    await settle();
+    assert.deepEqual(accountCalls, ["setAccountDiscovery:true"]);
+    assert.equal(renderAccount().find((node) => node.type === "Switch")?.props.value, true);
+
+    toggle = await loadSwitch();
+    accountBinding = { accountId: "account-b", jwt: "jwt.b", bindingVersion: 1 };
+    toggle.props.onValueChange(true);
+    await settle();
+    assert.equal(accountCalls.length, 0, "a stale rendered choice cannot publish the next account");
+
+    toggle = await loadSwitch();
+    const capture = deferred<void>();
+    accountCaptureHook = () => capture.promise;
+    toggle.props.onValueChange(true);
+    accountBinding = { accountId: "account-b", jwt: "jwt.b", bindingVersion: 1 };
+    capture.resolve();
+    await settle();
+    assert.equal(
+      accountCalls.length,
+      0,
+      "a switch while session capture is queued never targets the new account",
+    );
+  },
+);
 
 componentTest("account: global notifications have one home in Profile settings", async () => {
   for (const locale of ["en", "fa", "ps"] as const)

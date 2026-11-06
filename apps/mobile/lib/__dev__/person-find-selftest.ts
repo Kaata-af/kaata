@@ -92,6 +92,8 @@ let appState = "active";
 let roleReadFails = false,
   focusEpoch = 0;
 let homeOwnerFocused = true;
+let directoryPeople: import("../people-search").DiscoveredPerson[] = [];
+let directoryQuery = "";
 // app_meta.account_id survives sign-out; the in-memory cache does not.
 let persistedAccountId: string | null = null,
   cachedAccountId: string | null = null;
@@ -460,6 +462,21 @@ const sharedMocks: Record<string, any> = {
   },
 };
 const libMocks: Record<string, any> = {
+  "people-search": {
+    usePeopleSearch: (query: string, enabled: boolean) => {
+      directoryQuery = query;
+      return {
+        visible: enabled && !!cachedAccountId && query.trim().length >= 2,
+        people: directoryPeople,
+        existingPersonIds: {},
+        vaultId,
+        loading: false,
+        error: false,
+        hasMore: false,
+        retry: () => {},
+      };
+    },
+  },
   "customer-note": require("../customer-note"),
   "use-store-review-prompt": {
     useStoreReviewPrompt: (options: NonNullable<typeof reviewPromptOptions>) => {
@@ -646,6 +663,8 @@ const libMocks: Record<string, any> = {
   "use-device-contacts": contactsHook,
 };
 const componentMocks: Record<string, any> = {
+  PeopleSearchSection: { PeopleSearchSection: "PeopleSearchSection" },
+  DiscoveredPersonDialog: { DiscoveredPersonDialog: "DiscoveredPersonDialog" },
   CustomerRows: compile("../../components/CustomerRows", {
     ...sharedMocks,
     "../lib/colors": { colors },
@@ -785,6 +804,8 @@ function fixture(
   activeVaultsOverride = null;
   homeReadScopes.length = 0;
   contactReadRequests.length = 0;
+  directoryPeople = [];
+  directoryQuery = "";
   dirty = true;
 }
 async function flush() {
@@ -3721,6 +3742,91 @@ async function main() {
   assert.equal(writes[0][2], "1234", "native phone text reaches validation unchanged");
   assert.equal(writes[0][3], "AF", "a native AF number is not silently reinterpreted as AC");
   assert.equal(writes[0].length, 4, "Phone-book shortcuts never inherit a different draft's note");
+  deviceContacts.pop();
+
+  // Directory discovery shares each existing scroll owner, follows local
+  // matches, and only opens a confirmation; searching never changes a book.
+  const remotePerson = { account_id: "remote-account", name: "Ahmad Saafi", username: "ahmad" };
+  fixture(home, "owner");
+  cachedAccountId = persistedAccountId = "account-a";
+  directoryPeople = [remotePerson];
+  await flush();
+  homeInput().props.onChangeText("Ahmad");
+  await flush();
+  let remoteSection = find("PeopleSearchSection")!;
+  assert.equal(remoteSection.props.search.visible, true);
+  assert.equal(directoryQuery, "Ahmad");
+  assert.equal(remoteSection.props.visiblePeople.length, 1);
+  let ordered = homeRenderedNodes();
+  assert.ok(
+    ordered.findIndex((node) => node.type === "PersonRow") <
+      ordered.findIndex((node) => node.type === "PeopleSearchSection"),
+    "Home keeps its own people above directory matches",
+  );
+  homeInput().props.onChangeText("@unmatched");
+  await flush();
+  remoteSection = find("PeopleSearchSection")!;
+  assert.equal(remoteSection.props.visiblePeople.length, 0);
+  assert.equal(
+    remoteSection.props.search.visible,
+    true,
+    "directory remains available when local results are empty",
+  );
+  assert.equal(
+    homeRenderedNodes().some((node) => node.type === "EmptyState"),
+    false,
+    "an empty local book does not push directory results below a large empty-state illustration",
+  );
+  remoteSection.props.onSelect(remotePerson);
+  await flush();
+  assert.equal(find("DiscoveredPersonDialog")!.props.person, remotePerson);
+  assert.equal(writes.length, 0, "selecting a directory result waits for sharing confirmation");
+  find("DiscoveredPersonDialog")!.props.onDismiss();
+  await flush();
+  assert.equal(writes.length, 0, "cancelling a discovery preview creates no contact");
+
+  fixture(addOrFind, "owner");
+  cachedAccountId = persistedAccountId = "account-a";
+  directoryPeople = [remotePerson];
+  deviceContacts.push({
+    id: "another-ahmad",
+    name: "Ahmad Phone",
+    firstName: "Ahmad",
+    lastName: "Phone",
+    phone: "+93777111111",
+  });
+  await flush();
+  byLabel("personEdit.firstName.label")!.props.onChangeText("Ahmad");
+  await flush();
+  ordered = nodes(tree);
+  const localIndex = ordered.findIndex(
+    (node) => node.type === "Text" && node.props.children === "Ahmad Karimi",
+  );
+  const remoteIndex = ordered.findIndex((node) => node.type === "PeopleSearchSection");
+  const deviceIndex = ordered.findIndex(
+    (node) => node.type === "Text" && node.props.children === "Ahmad Phone",
+  );
+  assert.ok(
+    localIndex < remoteIndex && remoteIndex < deviceIndex,
+    "Add contact orders local, Kaata and phone-book matches",
+  );
+  remoteSection = find("PeopleSearchSection")!;
+  assert.equal(remoteSection.props.search.visible, true);
+  remoteSection.props.onSelect(remotePerson);
+  await flush();
+  assert.equal(find("DiscoveredPersonDialog")!.props.person, remotePerson);
+  assert.equal(writes.length, 0);
+  find("DiscoveredPersonDialog")!.props.onDismiss();
+  await flush();
+  applyRole("viewer");
+  await runTimers();
+  remoteSection.props.onSelect(remotePerson);
+  await flush();
+  assert.equal(
+    find("DiscoveredPersonDialog")!.props.person,
+    null,
+    "a retained discovery row cannot reopen sharing after a role downgrade",
+  );
   deviceContacts.pop();
   unmount();
   console.log(

@@ -449,7 +449,8 @@ export async function linkContactGroup(
 }
 
 export async function fetchSharedInvitation(token: string): Promise<SharedInvitation> {
-  if (token.startsWith("g_")) return { kind: "group", ...(await fetchTabGroupByToken(token)) };
+  if (token.startsWith("g_") || token.startsWith("r_"))
+    return { kind: "group", ...(await fetchTabGroupByToken(token)) };
   return { kind: "tab", ...(await fetchTabPreview(token)) };
 }
 

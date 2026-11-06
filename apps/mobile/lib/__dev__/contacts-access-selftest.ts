@@ -174,7 +174,7 @@ async function main() {
 
   const screen = readFileSync(require.resolve("../../app/person/new"), "utf8");
   const accessAt = screen.indexOf("{renderContactsAccess()}");
-  const rowsAt = screen.indexOf("visibleSections.map(");
+  const rowsAt = screen.indexOf(".map(renderContactSection)", accessAt);
   // Both anchors must exist: a missing one made indexOf return -1, and the
   // order check then failed (or passed) for the wrong reason.
   assert.ok(accessAt >= 0 && rowsAt >= 0, "access button and contact rows found in person/new");

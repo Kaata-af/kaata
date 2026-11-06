@@ -16,7 +16,7 @@ import {
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors } from "../lib/colors";
-import { rowDir, textDir, useIsRTL } from "../lib/direction";
+import { ltrIsolate, rowDir, textDir, useIsRTL } from "../lib/direction";
 import { fonts, monoLineHeight } from "../lib/fonts";
 import { formatRelative } from "../lib/format";
 import { t } from "../lib/i18n";
@@ -26,6 +26,8 @@ import { openTabNotification } from "../lib/tabs/open-notification";
 import type { InboxItem } from "../lib/tabs/api";
 import { useToast } from "./Toast";
 import { useCustomerReminders } from "../lib/use-customer-reminders";
+import { usePeopleRequests } from "../lib/use-people-requests";
+import type { PeopleRequest } from "../lib/people-connections";
 
 type Inbox = ReturnType<typeof useInbox>;
 
@@ -68,6 +70,8 @@ function InboxContent({
   openReminders,
   dueReminders,
   hasReminders,
+  requests,
+  openRequest,
 }: {
   inbox: Inbox;
   compact?: boolean;
@@ -77,10 +81,14 @@ function InboxContent({
   dueReminders?: number;
   /** Any reminder at all: the row is then the way into the full list. */
   hasReminders?: boolean;
+  requests: ReturnType<typeof usePeopleRequests>;
+  openRequest: (item: PeopleRequest) => void;
 }) {
   const rtl = useIsRTL();
   const toast = useToast();
   const [marking, setMarking] = useState(false);
+  const [declining, setDeclining] = useState<string | null>(null);
+  const decliningRef = useRef(false);
   const { page, loading, failed, signedIn } = inbox;
   const toReminders = openReminders ?? (() => router.push("/reminders"));
   return (
@@ -123,7 +131,71 @@ function InboxContent({
         </Pressable>
       ) : null}
       <ScrollView showsVerticalScrollIndicator={!compact} contentContainerStyle={styles.content}>
-        {page.items.length === 0 ? (
+        {requests.failed ? (
+          <Pressable
+            accessibilityRole="button"
+            style={styles.message}
+            onPress={() => void requests.reload()}
+          >
+            <Text style={[styles.time, textDir(rtl)]}>{t("peopleSearch.requestsFailed")}</Text>
+          </Pressable>
+        ) : null}
+        {requests.rows.length > 0 ? (
+          <Text style={[styles.title, textDir(rtl), { padding: 16 }]}>
+            {t("peopleSearch.requestsTitle")}
+          </Text>
+        ) : null}
+        {(compact ? requests.rows.slice(0, 3) : requests.rows).map((item) => (
+          <View
+            key={item.id}
+            style={[styles.notice, { alignItems: rtl ? "flex-end" : "flex-start" }]}
+          >
+            <Text style={[styles.body, textDir(rtl)]}>
+              {t("peopleSearch.requestBody", {
+                name: item.from.name || item.from.username || "Kaata",
+              })}
+            </Text>
+            {item.from.username ? (
+              <Text style={[styles.time, textDir(rtl)]}>
+                {ltrIsolate(`@${item.from.username}`)}
+              </Text>
+            ) : null}
+            <View style={[rowDir(rtl), { gap: 16 }]}>
+              <Pressable
+                accessibilityRole="button"
+                style={styles.control}
+                disabled={declining !== null}
+                onPress={() => openRequest(item)}
+              >
+                <Text style={styles.controlText}>{t("peopleSearch.review")}</Text>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                style={styles.control}
+                disabled={declining !== null}
+                onPress={() => {
+                  if (decliningRef.current) return;
+                  decliningRef.current = true;
+                  setDeclining(item.id);
+                  void requests
+                    .decline(item.id)
+                    .catch(() => toast.push(t("inbox.failed"), "error"))
+                    .finally(() => {
+                      decliningRef.current = false;
+                      setDeclining(null);
+                    });
+                }}
+              >
+                {declining === item.id ? (
+                  <ActivityIndicator color={colors.textSubtle} />
+                ) : (
+                  <Text style={styles.controlText}>{t("peopleSearch.decline")}</Text>
+                )}
+              </Pressable>
+            </View>
+          </View>
+        ))}
+        {page.items.length === 0 && requests.rows.length === 0 ? (
           <View style={styles.empty}>
             {loading ? (
               <ActivityIndicator color={colors.textSubtle} />
@@ -216,13 +288,14 @@ export function NotificationBell({
   onVisibilityChange?: (visible: boolean) => void;
 } = {}) {
   const inbox = useInbox();
+  const requests = usePeopleRequests();
   // Due reminders count on the bell too: they used to be invisible until the
   // dropdown was opened. Loaded here, not by the dropdown, so the row stays
   // put through opening and closing.
   const reminders = useCustomerReminders(undefined, undefined, true);
   const dueReminders = reminders.due.length;
   const hasReminders = reminders.rows.length > 0;
-  const badge = inbox.page.unread + dueReminders;
+  const badge = inbox.page.unread + requests.rows.length + dueReminders;
   const toast = useToast();
   const anchor = useRef<ViewInstance>(null);
   const [position, setPosition] = useState<{ y: number } | null>(null);
@@ -329,7 +402,7 @@ export function NotificationBell({
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={
-            t("inbox.bell", { count: inbox.page.unread }) +
+            t("inbox.bell", { count: inbox.page.unread + requests.rows.length }) +
             (dueReminders ? `. ${t("reminders.dueShortcut", { count: dueReminders })}` : "")
           }
           accessibilityState={{ expanded: visible && !closing }}
@@ -343,6 +416,7 @@ export function NotificationBell({
             if (timer.current) clearTimeout(timer.current);
             timer.current = null;
             void inbox.reload();
+            void requests.reload();
             anchor.current?.measureInWindow((_x, y, _w, h) => {
               if (
                 !mounted.current ||
@@ -412,6 +486,10 @@ export function NotificationBell({
           >
             <InboxContent
               inbox={inbox}
+              requests={requests}
+              openRequest={(item) =>
+                close(() => router.push({ pathname: "/t/[token]", params: { token: item.token } }))
+              }
               compact
               open={open}
               dueReminders={dueReminders}
@@ -442,6 +520,7 @@ export function NotificationBell({
 
 export function FullNotificationInbox() {
   const inbox = useInbox();
+  const requests = usePeopleRequests();
   const toast = useToast();
   const busy = useRef(false);
   const open = (item: InboxItem) => {
@@ -460,7 +539,14 @@ export function FullNotificationInbox() {
         busy.current = false;
       });
   };
-  return <InboxContent inbox={inbox} open={open} />;
+  return (
+    <InboxContent
+      inbox={inbox}
+      open={open}
+      requests={requests}
+      openRequest={(item) => router.push({ pathname: "/t/[token]", params: { token: item.token } })}
+    />
+  );
 }
 
 // The unread badge. Its digits are centred by arithmetic, not by eye: the

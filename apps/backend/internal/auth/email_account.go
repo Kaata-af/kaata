@@ -1163,12 +1163,13 @@ func sanitizeDisplayName(raw string) string {
 // AccountMe is GET /v1/account/me. SetupEmail is the address a first
 // password's code goes to; empty when the user must name one.
 type AccountMe struct {
-	Email       string   `json:"email"`
-	LoginEmail  string   `json:"login_email,omitempty"`
-	Username    string   `json:"username,omitempty"`
-	HasPassword bool     `json:"has_password"`
-	Providers   []string `json:"providers"`
-	Name        string   `json:"name,omitempty"`
+	Email            string   `json:"email"`
+	LoginEmail       string   `json:"login_email,omitempty"`
+	Username         string   `json:"username,omitempty"`
+	DiscoveryEnabled bool     `json:"discovery_enabled"`
+	HasPassword      bool     `json:"has_password"`
+	Providers        []string `json:"providers"`
+	Name             string   `json:"name,omitempty"`
 	// NameExplicit: Name is a display name chosen in Kaata (possibly on another
 	// phone), not the Google/Apple profile name. The app pre-fills only an
 	// explicit one, so a provider name never overwrites the phone's own name.
@@ -1182,10 +1183,10 @@ func (s *Service) AccountMe(ctx context.Context, accountID string) (AccountMe, e
 	err := s.pool.QueryRow(ctx, `
 		SELECT COALESCE(a.email, ''), COALESCE(a.username, ''), COALESCE(a.display_name, a.name, ''),
 		       COALESCE(a.display_name, '') <> '', p.login_email,
-		       ARRAY(SELECT DISTINCT provider FROM account_identities WHERE account_id = a.id ORDER BY provider)
+		       ARRAY(SELECT DISTINCT provider FROM account_identities WHERE account_id = a.id ORDER BY provider), a.discovery_enabled
 		FROM accounts a LEFT JOIN account_passwords p ON p.account_id = a.id
 		WHERE a.id = $1::uuid
-	`, accountID).Scan(&me.Email, &me.Username, &me.Name, &me.NameExplicit, &login, &me.Providers)
+	`, accountID).Scan(&me.Email, &me.Username, &me.Name, &me.NameExplicit, &login, &me.Providers, &me.DiscoveryEnabled)
 	if err != nil {
 		return AccountMe{}, fmt.Errorf("read account: %w", err)
 	}

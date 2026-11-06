@@ -114,8 +114,9 @@ export function Privacy() {
               plaintext. To prove the address is yours, and when you reset or change your password,
               we email you a 6-digit code or a short security notice through Resend, our email
               delivery provider, which receives your address and the message to send it. You can add
-              an optional <strong>username</strong> to sign in with; it is never shown to other
-              people. The name you enter in the app is used as your account name.
+              an optional <strong>username</strong> to sign in with; it stays private unless you
+              enable people discovery in Account settings. The name you enter in the app is used as
+              your account name.
             </li>
             <li>
               Your <strong>ledger is backed up to our server</strong> so you can restore it on a new
@@ -133,8 +134,16 @@ export function Privacy() {
           <p>
             If you share a kaata with members, other active, accepted members of that same kaata can
             see your <strong>current profile name and verified account email address</strong>
-            in its members list, so they can identify who has access. Your sign-in username stays
-            private. The members list is not published through public bill links.
+            in its members list, so they can identify who has access. The members list is not
+            published through public bill links.
+          </p>
+          <p>
+            People discovery is off by default. If you enable <strong>Let people find me</strong>
+            in Account settings, signed-in Kaata users can search for your account name and username
+            and send you an invitation inside Kaata. Someone who already knows your full phone
+            number can also use it to find you. Search results do not reveal your phone number,
+            email address or ledger. You can turn discovery off at any time; doing so does not
+            remove shared accounts you have already joined.
           </p>
         </Section>
 

@@ -38,9 +38,16 @@ function fixture() {
     },
   };
   let dueCount = 0;
+  const requests = {
+    rows: [] as any[],
+    failed: false,
+    reload: async () => {},
+    decline: async () => {},
+  };
   const component = compileUI(
     "../../components/NotificationInbox",
     {
+      "../lib/use-people-requests": { usePeopleRequests: () => requests },
       "./ProtectedModal": { ProtectedModal: "Modal" },
       "./SheetBackdrop": {
         SheetBackdrop: "SheetBackdrop",
@@ -140,6 +147,7 @@ function fixture() {
     animations,
     opens,
     reads,
+    requests,
     render,
     find,
     bell,
@@ -364,6 +372,36 @@ async function main() {
   nav.hooks.unmount();
   assert.equal(nav.timers.size, 0, "unmount cancels pending navigation");
   assert.equal(nav.hooks.lateWrites, 0);
+  const invitation = fixture();
+  invitation.requests.rows = [{ id: "request", token: "r_recipient-bound" }];
+  invitation.render();
+  const invitationBadge = nodes(invitation.bell()).find(
+    (node) => node.type === "Text" && node.props.allowFontScaling === false,
+  )!;
+  assert.equal(
+    invitationBadge.props.children,
+    2,
+    "pending invitations appear on the existing inbox badge",
+  );
+  invitation.open();
+  invitation.measure();
+  const invitationContent = nodes(invitation.hooks.tree).find(
+    (node) => typeof node.props.openRequest === "function",
+  )!;
+  invitationContent.props.openRequest(invitation.requests.rows[0]);
+  assert.deepEqual(invitation.routes, [], "review waits for the existing inbox to dismiss");
+  invitation.flushTimers();
+  assert.deepEqual(
+    invitation.routes,
+    [{ pathname: "/t/[token]", params: { token: "r_recipient-bound" } }],
+    "review uses the existing invitation screen without creating a contact or binding a ledger",
+  );
+  assert.deepEqual(
+    invitation.opens,
+    [],
+    "an unaccepted request is never opened as an authorized tally",
+  );
+  invitation.hooks.unmount();
   normal.hooks.unmount();
   reduced.hooks.unmount();
   console.log(

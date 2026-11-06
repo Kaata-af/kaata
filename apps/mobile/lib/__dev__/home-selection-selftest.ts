@@ -405,6 +405,17 @@ const mocks: Record<string, any> = {
       key === "selection.contactsRemoved" ? `${params?.count} contacts removed` : key,
   },
   "../lib/tokens": { icon: {}, typography: {} },
+  "../lib/people-search": {
+    usePeopleSearch: () => ({
+      visible: false,
+      people: [],
+      existingPersonIds: {},
+      loading: false,
+      error: false,
+      hasMore: false,
+      retry: () => {},
+    }),
+  },
   "../lib/use-vault-role": {
     useActiveVaultWriteCaps: () => writeCaps,
   },
@@ -441,6 +452,8 @@ for (const [file, exported] of [
   ["PersonRow", "PersonRow"],
   ["SelectionToolbar", "SelectionToolbar"],
   ["SettledAccountsSection", "SettledAccountsSection"],
+  ["PeopleSearchSection", "PeopleSearchSection"],
+  ["DiscoveredPersonDialog", "DiscoveredPersonDialog"],
   ["SponsorBanner", "SponsorBanner"],
   ["ProfileSettingsSheet", "ProfileSettingsSheet"],
   ["UpdateBanner", "UpdateBanner"],

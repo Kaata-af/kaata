@@ -545,6 +545,11 @@ func main() {
 		// a first password, a password change, the private username and, for
 		// email-only accounts, the account name.
 		pr.Get("/v1/account/me", authH.AccountMe)
+		pr.With(httpx.RateLimitPerAccount(20, time.Hour)).Put("/v1/account/discovery", authH.SetDiscovery)
+		pr.With(httpx.RateLimitPerAccount(60, time.Minute), httpx.RateLimitPerIP(600, time.Minute)).Get("/v1/people/search", authH.SearchPeople)
+		pr.With(httpx.RateLimitPerAccount(60, time.Minute)).Get("/v1/people/requests", tabsH.ListPeopleRequests)
+		pr.With(httpx.RateLimitPerAccount(20, time.Hour)).Post("/v1/people/requests", tabsH.SendPeopleRequest)
+		pr.With(httpx.RateLimitPerAccount(60, time.Hour)).Delete("/v1/people/requests/{request_id}", tabsH.DeclinePeopleRequest)
 		pr.With(httpx.RateLimitPerAccount(accountSecurityLimit, emailWindow)).
 			Post("/v1/account/password/setup/start", authH.PasswordSetupStart)
 		pr.With(httpx.RateLimitPerAccount(accountSecurityLimit, emailWindow)).

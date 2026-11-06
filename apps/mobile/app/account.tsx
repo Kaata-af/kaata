@@ -20,6 +20,7 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   View,
@@ -44,6 +45,7 @@ import {
   removePassword,
   resetRetiredInstall,
   saveAccountDisplayName,
+  setAccountDiscovery,
   SessionChangedError,
   updateAccountPhone,
 } from "../lib/auth";
@@ -58,6 +60,7 @@ import { useToast } from "../components/Toast";
 import { colors } from "../lib/colors";
 import { joinName, splitName } from "../lib/contacts-sync";
 import { getAppMeta, getLocalSelf, setAppMeta, updateSelfProfile } from "../lib/db";
+import { getAccountIdSync } from "../lib/db-tx";
 import { ltrIsolate, rowDir, textDir, useIsRTL } from "../lib/direction";
 import { EventSigningUnavailableError, RoleGateRejectionError } from "../lib/event-log";
 import { fonts } from "../lib/fonts";
@@ -205,7 +208,21 @@ export default function AccountScreen() {
   // ("email"). Only "provider" may remove the password.
   const [sessionKind, setSessionKind] = useState<"provider" | "email" | null>(null);
   const [me, setMe] = useState<AccountMe | null>(null);
+  const meAccountRef = useRef<string | null>(null);
   const [meFailed, setMeFailed] = useState(false);
+  const [discoverySaving, setDiscoverySaving] = useState(false);
+  const [discoveryError, setDiscoveryError] = useState<string | null>(null);
+  const discoverySavingRef = useRef(false);
+  const discoveryRevision = useRef(0);
+  const discoveryActiveRef = useRef(false);
+  useFocusEffect(
+    useCallback(() => {
+      discoveryActiveRef.current = true;
+      return () => {
+        discoveryActiveRef.current = false;
+      };
+    }, []),
+  );
   const [removeConfirmVisible, setRemoveConfirmVisible] = useState(false);
   const removingRef = useRef(false);
   // The name as it was when the screen opened (a save sends the account's name
@@ -217,12 +234,19 @@ export default function AccountScreen() {
 
   const loadMe = useCallback(async () => {
     setMeFailed(false);
+    const visibilityRevision = discoveryRevision.current;
     try {
       const session = await captureCurrentSession();
       if (!session.jwt || !session.accountId) return;
       const account = await fetchAccountMe(session);
       await applyForCurrentSession(session, async () => {
-        setMe(account);
+        meAccountRef.current = session.accountId;
+        setMe((current) =>
+          current &&
+          (discoverySavingRef.current || visibilityRevision !== discoveryRevision.current)
+            ? { ...account, discoveryEnabled: current.discoveryEnabled }
+            : account,
+        );
         // Another phone may have renamed the account. Prefill its current name
         // without replacing an in-progress edit or this phone's queued save,
         // and only a name chosen in Kaata: a Google/Apple profile name used
@@ -371,6 +395,44 @@ export default function AccountScreen() {
     } finally {
       removingRef.current = false;
       void loadMe();
+    }
+  }
+
+  async function changeDiscovery(enabled: boolean) {
+    const intendedAccount = meAccountRef.current;
+    if (
+      !me ||
+      !intendedAccount ||
+      intendedAccount !== getAccountIdSync() ||
+      discoverySavingRef.current ||
+      deletingRef.current ||
+      !discoveryActiveRef.current
+    )
+      return;
+    discoverySavingRef.current = true;
+    discoveryRevision.current++;
+    setDiscoverySaving(true);
+    setDiscoveryError(null);
+    try {
+      const session = await captureCurrentSession();
+      if (
+        !discoveryActiveRef.current ||
+        session.accountId !== intendedAccount ||
+        getAccountIdSync() !== intendedAccount
+      )
+        return;
+      const saved = await setAccountDiscovery(enabled, session);
+      await applyForCurrentSession(session, async () => {
+        discoveryRevision.current++;
+        if (!discoveryActiveRef.current) return;
+        setMe((current) => (current ? { ...current, discoveryEnabled: saved } : current));
+      });
+    } catch (err) {
+      if (!(err instanceof SessionChangedError) && discoveryActiveRef.current)
+        setDiscoveryError(t("account.discovery.failed"));
+    } finally {
+      discoverySavingRef.current = false;
+      setDiscoverySaving(false);
     }
   }
 
@@ -881,6 +943,49 @@ export default function AccountScreen() {
             </View>
           ) : null}
           <SectionHeader label={t("account.privacy.section")} isRTL={isRTL} />
+          {hasSession && me ? (
+            <View style={styles.discoverySetting}>
+              <View style={[styles.discoveryRow, rowDir(isRTL)]}>
+                <Ionicons
+                  name="search-outline"
+                  size={icon.row}
+                  color={colors.textDefault}
+                  style={isRTL ? { marginLeft: 14 } : { marginRight: 14 }}
+                  accessible={false}
+                />
+                <View style={{ flex: 1, paddingHorizontal: 2 }}>
+                  <Text style={[styles.infoValue, textDir(isRTL)]}>
+                    {t("account.discovery.label")}
+                  </Text>
+                </View>
+                <Switch
+                  value={me.discoveryEnabled}
+                  onValueChange={(enabled) => void changeDiscovery(enabled)}
+                  disabled={discoverySaving || deleting}
+                  accessibilityLabel={t("account.discovery.label")}
+                  accessibilityHint={t("account.discovery.hint")}
+                  accessibilityState={{
+                    checked: me.discoveryEnabled,
+                    disabled: discoverySaving || deleting,
+                    busy: discoverySaving,
+                  }}
+                  trackColor={{ false: colors.borderDefault, true: colors.actionPrimary }}
+                  thumbColor={colors.bgDefault}
+                />
+              </View>
+              <Text style={[styles.infoHint, styles.discoveryHint, textDir(isRTL)]}>
+                {t("account.discovery.hint")}
+              </Text>
+              {discoveryError ? (
+                <Text
+                  style={[styles.fieldError, styles.discoveryHint, textDir(isRTL)]}
+                  accessibilityLiveRegion="polite"
+                >
+                  {discoveryError}
+                </Text>
+              ) : null}
+            </View>
+          ) : null}
           <AppLockSetting />
           <NavRow
             icon="shield-checkmark-outline"
@@ -1124,6 +1229,17 @@ const styles = StyleSheet.create({
   infoLabel: { ...typography.hint, color: colors.textSubtle },
   infoValue: { ...typography.label, color: colors.textEmphasis },
   infoHint: { ...typography.hint, color: colors.textSubtle },
+  discoverySetting: {
+    paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.borderSubtle,
+  },
+  discoveryRow: {
+    alignItems: "center",
+    minHeight: ROW_MIN,
+    paddingHorizontal: gutter.settings,
+  },
+  discoveryHint: { paddingHorizontal: gutter.settings, paddingBottom: 4 },
   infoLoading: {
     ...typography.bodySm,
     color: colors.textMuted,

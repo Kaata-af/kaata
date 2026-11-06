@@ -112,6 +112,7 @@
     "selftest:notification-popup": "tsx lib/__dev__/notification-popup-selftest.ts",
     "selftest:customer-groups": "tsx lib/__dev__/customer-groups-selftest.ts",
     "selftest:customer-search": "tsx lib/__dev__/customer-search-selftest.ts",
+    "selftest:people-discovery": "tsx lib/__dev__/people-search-selftest.ts && tsx lib/__dev__/people-connections-selftest.ts",
     "selftest:search-relevance": "tsx lib/__dev__/search-relevance-selftest.ts",
     "selftest:onboarding-calendar": "tsx lib/__dev__/onboarding-calendar-selftest.ts",
     "selftest:reminder-schedule": "tsx lib/__dev__/reminder-schedule-selftest.ts",

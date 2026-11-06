@@ -33,6 +33,9 @@ import { CustomerRows, type CustomerRowsProps } from "../components/CustomerRows
 import { HomeBalanceSummary } from "../components/HomeBalanceSummary";
 import { HomeBalanceFilterSwipe } from "../components/HomeBalanceFilterSwipe";
 import { SettledAccountsSection } from "../components/SettledAccountsSection";
+import { PeopleSearchSection } from "../components/PeopleSearchSection";
+import { DiscoveredPersonDialog } from "../components/DiscoveredPersonDialog";
+import { usePeopleSearch, type DiscoveredPerson } from "../lib/people-search";
 import {
   HomeFilterPopover,
   type FilterAnchor,
@@ -210,6 +213,7 @@ export default function HomeScreen() {
     currencies: string[];
   } | null>(null);
   const [customerQuery, setCustomerQuery] = useState("");
+  const [discoveredPerson, setDiscoveredPerson] = useState<DiscoveredPerson | null>(null);
   const [filtersExpanded, setFiltersExpanded] = useState(false);
   const filtersExpandedRef = useRef(filtersExpanded);
   filtersExpandedRef.current = filtersExpanded;
@@ -857,6 +861,13 @@ export default function HomeScreen() {
   );
   const canSelect = caps.resolved && canAmend && currentVaultScope && currentPeopleScope;
   const selecting = selectionMode && canSelect;
+  const peopleSearch = usePeopleSearch(
+    customerQuery,
+    canCreate && canAmend && currentPeopleScope && !selecting && !discoveredPerson,
+  );
+  useEffect(() => {
+    setDiscoveredPerson(null);
+  }, [activeVaultId, activeAccountId, canCreate, canAmend]);
   const canSelectRef = useRef(canSelect);
   canSelectRef.current = canSelect;
   const selectedIds = useMemo(() => {
@@ -1474,7 +1485,11 @@ export default function HomeScreen() {
         <TextInput
           ref={searchInputRef}
           accessibilityLabel={t("customers.search")}
-          placeholder={t("customers.search")}
+          placeholder={t(
+            canCreate && canAmend && activeAccountId
+              ? "peopleSearch.placeholder"
+              : "customers.search",
+          )}
           placeholderTextColor={colors.textMuted}
           value={customerQuery}
           editable={!controlsDisabled}
@@ -2072,6 +2087,20 @@ export default function HomeScreen() {
                     !!currencyFilter
                   }
                   controls={inlineControls}
+                  discoveryActive={peopleSearch.visible}
+                  discovery={
+                    <PeopleSearchSection
+                      search={peopleSearch}
+                      localPeople={visibleAllPeople}
+                      visiblePeople={homePeople}
+                      onSelect={(person) => {
+                        if (!isCurrentHome() || !canCreateRef.current || !canAmend || selecting)
+                          return;
+                        dismissKeyboard();
+                        setDiscoveredPerson(person);
+                      }}
+                    />
+                  }
                   selectionControls={selectionToolbar}
                   selecting={selecting}
                   selectedIds={selectedIds}
@@ -2152,6 +2181,15 @@ export default function HomeScreen() {
       >
         {filterContent}
       </HomeFilterPopover>
+
+      <DiscoveredPersonDialog
+        person={discoveredPerson}
+        onDismiss={() => setDiscoveredPerson(null)}
+        onAdded={(personId) => {
+          setDiscoveredPerson(null);
+          if (isCurrentHome()) router.push({ pathname: "/person/[id]", params: { id: personId } });
+        }}
+      />
 
       {/* Phase 7 — unified settings sheet replaces HamburgerMenuSheet +
           ProfileMenuSheet. Opens from the profile chip top-RIGHT. All
@@ -2640,6 +2678,8 @@ function HomePage(
       onToggleSettled: () => void;
       filtered: boolean;
       controls: React.ReactNode;
+      discovery?: React.ReactNode;
+      discoveryActive?: boolean;
       selectionControls: React.ReactNode;
       summary: React.ReactNode;
       scrollScope: string;
@@ -2770,12 +2810,24 @@ function HomePage(
             ]}
           >
             {props.controls}
+            {props.discoveryActive &&
+            (props.people.length > 0 || props.settledPeople.length > 0) ? (
+              <Text style={[styles.localSearchLabel, textDir(isRTL)]}>
+                {t("peopleSearch.local")}
+              </Text>
+            ) : null}
             {props.people.length === 0 && props.settledPeople.length === 0 ? (
-              <EmptyState
-                title={t(props.filtered ? "customers.noResults" : "home.empty.title")}
-                subtitle={props.filtered ? undefined : t("home.empty.subtitle")}
-                isRTL={isRTL}
-              />
+              props.discoveryActive ? (
+                <Text style={[styles.localSearchLabel, textDir(isRTL)]}>
+                  {t("customers.noResults")}
+                </Text>
+              ) : (
+                <EmptyState
+                  title={t(props.filtered ? "customers.noResults" : "home.empty.title")}
+                  subtitle={props.filtered ? undefined : t("home.empty.subtitle")}
+                  isRTL={isRTL}
+                />
+              )
             ) : null}
             {Platform.OS === "android" || props.people.length > 0 ? (
               <CustomerRows
@@ -2799,6 +2851,7 @@ function HomePage(
                 separated={props.people.length > 0}
               />
             </SettledAccountsSection>
+            {props.discovery}
           </HomeBalanceFilterSwipe>
         </ScrollView>
       </GestureDetector>
@@ -2815,6 +2868,12 @@ const styles = StyleSheet.create({
   },
   navDivider: { height: StyleSheet.hairlineWidth, backgroundColor: colors.borderDefault },
   customerContent: { flexGrow: 1, minHeight: 0 },
+  localSearchLabel: {
+    ...typography.bodySm,
+    color: colors.textSubtle,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+  },
   authOverlay: {
     ...StyleSheet.absoluteFill,
     backgroundColor: "rgba(0,0,0,0.55)",
