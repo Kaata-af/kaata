@@ -300,6 +300,9 @@ export function WebProPage({ session }: { session: WebSession }) {
   const offers = status?.plans.length ? status.plans : WEB_PRO_OFFERS;
   const plan = offers.find((offer) => offer.id === selected) ?? offers[0];
   const active = status?.status === "active";
+  const paidExpiry = status?.paid_expires_at;
+  const hasPaidTime =
+    paidExpiry === undefined ? active : !!paidExpiry && Date.parse(paidExpiry) > Date.now();
   const trackedOrderID = localOrderID ?? returnOrder ?? status?.pending_order_id;
   const currentOrder = order?.order_id === trackedOrderID ? order : null;
   const orderNotFound = !!trackedOrderID && missingOrderID === trackedOrderID;
@@ -616,7 +619,7 @@ export function WebProPage({ session }: { session: WebSession }) {
               disabled={!status?.checkout_ready || loading || busy || failed || !canStartCheckout}
               onClick={() => void prepareCheckout()}
             >
-              {busy ? c.preparing : active ? c.extend : c.pay}
+              {busy ? c.preparing : hasPaidTime ? c.extend : c.pay}
             </button>
           )}
           <button

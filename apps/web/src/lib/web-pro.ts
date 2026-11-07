@@ -16,6 +16,7 @@ export type WebProStatus = {
   status: "trial" | "active";
   access: "trial_open";
   subscription_expires_at: string | null;
+  paid_expires_at?: string | null;
   checkout_ready: boolean;
   checkout_hosts: string[];
   pending_order_id: string | null;
@@ -84,6 +85,13 @@ export function parseWebProStatus(input: unknown): WebProStatus {
   )
     invalid();
   if (value.status === "active" && value.subscription_expires_at === null) invalid();
+  if (
+    value.paid_expires_at != null &&
+    (typeof value.paid_expires_at !== "string" ||
+      !/^\d{4}-\d\d-\d\dT/.test(value.paid_expires_at) ||
+      !Number.isFinite(Date.parse(value.paid_expires_at)))
+  )
+    invalid();
   if (
     value.pending_order_id !== null &&
     value.pending_order_id !== undefined &&

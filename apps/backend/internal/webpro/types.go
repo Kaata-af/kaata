@@ -50,6 +50,7 @@ type Status struct {
 	Status                string     `json:"status"`
 	Access                string     `json:"access"`
 	SubscriptionExpiresAt *time.Time `json:"subscription_expires_at"`
+	PaidExpiresAt         *time.Time `json:"paid_expires_at"`
 	CheckoutReady         bool       `json:"checkout_ready"`
 	Plans                 []Plan     `json:"plans"`
 	CheckoutHosts         []string   `json:"checkout_hosts"`

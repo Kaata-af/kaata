@@ -5,6 +5,7 @@ import { Input } from "../../components/ui/input";
 import { SelectField } from "../../components/ui/select-field";
 import type { WebProPlan } from "../../lib/web-pro";
 import { useAdminToken } from "./api";
+import { AdminProGrants } from "./AdminProGrants";
 import {
   AdminProPaymentError,
   adminProKey,
@@ -168,7 +169,7 @@ export function AdminProPayments({
               {data.subscription_expires_at && (
                 <>
                   {" "}
-                  · {data.status === "active" ? "Expires" : "Last expiry"}{" "}
+                  · {data.status === "active" ? "Access through" : "Last expiry"}{" "}
                   {fmtDateTime(data.subscription_expires_at)} Kabul time
                 </>
               )}
@@ -195,6 +196,14 @@ export function AdminProPayments({
         <ErrorCard
           message={`Could not load Pro details. ${query.error.message}`}
           onRetry={() => void query.refetch()}
+        />
+      )}
+      {data?.grants_available && (
+        <AdminProGrants
+          accountID={accountID}
+          accountName={accountName}
+          status={data}
+          unavailable={query.isError}
         />
       )}
       {data?.pending_checkout && (

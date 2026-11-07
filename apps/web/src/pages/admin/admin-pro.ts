@@ -1,6 +1,11 @@
-import { BACKEND_URL } from "../../env";
 import type { WebProPlan } from "../../lib/web-pro";
 import { AuthError } from "./api";
+import { parseAdminProGrant, type AdminProGrant } from "./admin-pro-grants";
+import {
+  ADMIN_PRO_UUID as UUID,
+  adminProRequest as request,
+  adminProTimestamp as timestamp,
+} from "./admin-pro-request";
 
 export const MANUAL_PAYMENT_METHODS = ["cash", "bank_transfer", "other"] as const;
 export type ManualPaymentMethod = (typeof MANUAL_PAYMENT_METHODS)[number];
@@ -18,6 +23,10 @@ export type AdminProStatus = {
   account_id: string;
   status: "active" | "trial";
   subscription_expires_at: string | null;
+  paid_expires_at: string | null;
+  manual_grant: AdminProGrant | null;
+  grant_history: AdminProGrant[];
+  grants_available: boolean;
   plans: WebProPlan[];
   pending_checkout: boolean;
   payments: AdminProPayment[];
@@ -43,9 +52,7 @@ export class AdminProPaymentError extends Error {
   }
 }
 
-const UUID = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
 const RECEIPT = /^[A-Za-z0-9._/-]{3,64}$/;
-const TIMEOUT_MS = 20_000;
 const UNCONFIRMED = "Kaata could not confirm the payment. Retry with the same receipt reference.";
 
 export function manualProReference(input: string): string | null {
@@ -57,26 +64,13 @@ export function adminProKey(token: string, accountID: string) {
   return ["admin", "web-pro", token, accountID] as const;
 }
 
-function path(accountID: string) {
-  if (!UUID.test(accountID)) throw new Error("Invalid account ID.");
-  return `/v1/admin/users/${accountID}/pro`;
-}
-
-function planID(value: unknown): value is WebProPlan["id"] {
+export function isAdminProPlanID(value: unknown): value is WebProPlan["id"] {
   return value === "web_pro_monthly" || value === "web_pro_yearly";
 }
 
 function validAmount(value: unknown): value is number {
   return (
     typeof value === "number" && Number.isSafeInteger(value) && value > 0 && value <= 999_999_999
-  );
-}
-
-function timestamp(value: unknown): value is string {
-  return (
-    typeof value === "string" &&
-    /^\d{4}-\d\d-\d\dT/.test(value) &&
-    Number.isFinite(Date.parse(value))
   );
 }
 
@@ -93,7 +87,7 @@ function manualMethod(value: unknown): value is ManualPaymentMethod {
 function parsePlan(input: unknown): WebProPlan {
   const value = record(input);
   if (
-    !planID(value.id) ||
+    !isAdminProPlanID(value.id) ||
     !validAmount(value.amount_minor) ||
     value.currency !== "AFN" ||
     value.duration_months !== (value.id === "web_pro_monthly" ? 1 : 12)
@@ -107,12 +101,12 @@ function parsePlan(input: unknown): WebProPlan {
   };
 }
 
-function parsePayment(input: unknown): AdminProPayment {
+export function parseAdminProPayment(input: unknown): AdminProPayment {
   const value = record(input);
   if (
     typeof value.payment_id !== "string" ||
     !UUID.test(value.payment_id) ||
-    !planID(value.plan_id) ||
+    !isAdminProPlanID(value.plan_id) ||
     !validAmount(value.amount_minor) ||
     value.currency !== "AFN" ||
     !timestamp(value.recorded_at) ||
@@ -140,23 +134,6 @@ function parsePayment(input: unknown): AdminProPayment {
   };
 }
 
-async function request(token: string, accountID: string, init: RequestInit = {}) {
-  const timeout = AbortSignal.timeout(TIMEOUT_MS);
-  const signal = init.signal ? AbortSignal.any([init.signal, timeout]) : timeout;
-  const headers = new Headers({ Authorization: `Bearer ${token}`, Accept: "application/json" });
-  if (init.body) headers.set("Content-Type", "application/json");
-  const response = await fetch(`${BACKEND_URL.replace(/\/$/, "")}${path(accountID)}`, {
-    ...init,
-    headers,
-    signal,
-    credentials: "omit",
-    redirect: "error",
-    cache: "no-store",
-  });
-  if (response.status === 401) throw new AuthError();
-  return response;
-}
-
 export async function getAdminProStatus(
   token: string,
   accountID: string,
@@ -170,12 +147,17 @@ export async function getAdminProStatus(
         : `Server error (${response.status}).`,
     );
   const value = record(await response.json());
+  const grantsAvailable = Object.hasOwn(value, "grant_history");
   if (
     typeof value.account_id !== "string" ||
     value.account_id.toLowerCase() !== accountID.toLowerCase() ||
     (value.status !== "trial" && value.status !== "active") ||
     (value.subscription_expires_at !== null && !timestamp(value.subscription_expires_at)) ||
     (value.status === "active" && !value.subscription_expires_at) ||
+    (grantsAvailable &&
+      ((value.paid_expires_at !== null && !timestamp(value.paid_expires_at)) ||
+        !Object.hasOwn(value, "manual_grant") ||
+        !Array.isArray(value.grant_history))) ||
     typeof value.pending_checkout !== "boolean" ||
     !Array.isArray(value.plans) ||
     value.plans.length > 2 ||
@@ -185,13 +167,24 @@ export async function getAdminProStatus(
   const plans = value.plans.map(parsePlan);
   if (new Set(plans.map((plan) => plan.id)).size !== plans.length)
     throw new Error("Duplicate Pro plans.");
+  const grant =
+    grantsAvailable && value.manual_grant !== null ? parseAdminProGrant(value.manual_grant) : null;
+  if (grant?.revoked_at) throw new Error("Invalid active Pro grant.");
   return {
     account_id: value.account_id,
     status: value.status,
     subscription_expires_at: value.subscription_expires_at,
+    paid_expires_at: grantsAvailable
+      ? (value.paid_expires_at as string | null)
+      : value.subscription_expires_at,
+    manual_grant: grant,
+    grant_history: Array.isArray(value.grant_history)
+      ? value.grant_history.map(parseAdminProGrant)
+      : [],
+    grants_available: grantsAvailable,
     plans,
     pending_checkout: value.pending_checkout,
-    payments: value.payments.map(parsePayment),
+    payments: value.payments.map(parseAdminProPayment),
   };
 }
 
@@ -201,7 +194,12 @@ export async function recordAdminProPayment(
   input: ManualProPayment,
 ): Promise<AdminProReceipt> {
   const reference = manualProReference(input.reference);
-  if (!reference || !planID(input.plan_id) || !manualMethod(input.method) || !UUID.test(accountID))
+  if (
+    !reference ||
+    !isAdminProPlanID(input.plan_id) ||
+    !manualMethod(input.method) ||
+    !UUID.test(accountID)
+  )
     throw new AdminProPaymentError(
       "rejected",
       "Check the account, plan, payment method, and receipt reference.",
@@ -234,7 +232,7 @@ export async function recordAdminProPayment(
   }
   try {
     const value = record(await response.json());
-    const payment = parsePayment(value.payment);
+    const payment = parseAdminProPayment(value.payment);
     if (
       !timestamp(value.subscription_expires_at) ||
       typeof value.duplicate !== "boolean" ||

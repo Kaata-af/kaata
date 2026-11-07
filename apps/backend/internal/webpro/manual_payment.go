@@ -15,6 +15,9 @@ type AdminSubscription struct {
 	AccountID             string         `json:"account_id"`
 	Status                string         `json:"status"`
 	SubscriptionExpiresAt *time.Time     `json:"subscription_expires_at"`
+	PaidExpiresAt         *time.Time     `json:"paid_expires_at"`
+	ManualGrant           *ManualGrant   `json:"manual_grant"`
+	GrantHistory          []ManualGrant  `json:"grant_history"`
 	Plans                 []Plan         `json:"plans"`
 	PendingCheckout       bool           `json:"pending_checkout"`
 	Payments              []AdminPayment `json:"payments"`
@@ -80,18 +83,24 @@ func (s *Service) AdminSubscription(ctx context.Context, accountID string) (Admi
 		  EXISTS(SELECT 1 FROM web_pro_orders o WHERE o.account_id=a.id AND o.status IN ('creating','pending'))
 		FROM accounts a LEFT JOIN web_pro_subscriptions s ON s.account_id=a.id
 		WHERE a.id=$1::uuid AND a.disabled_at IS NULL AND a.pending_delete_at IS NULL
-	`, id.String()).Scan(&out.AccountID, &out.SubscriptionExpiresAt, &out.PendingCheckout)
+	`, id.String()).Scan(&out.AccountID, &out.PaidExpiresAt, &out.PendingCheckout)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return AdminSubscription{}, ErrNotFound
 	}
 	if err != nil {
 		return AdminSubscription{}, err
 	}
-	if out.SubscriptionExpiresAt != nil {
-		until := out.SubscriptionExpiresAt.UTC()
-		out.SubscriptionExpiresAt = &until
+	now := s.now()
+	out.PaidExpiresAt = utcTime(out.PaidExpiresAt)
+	out.GrantHistory, out.ManualGrant, err = adminGrantHistory(ctx, tx, out.AccountID, now)
+	if err != nil {
+		return AdminSubscription{}, err
 	}
-	status := statusAt(out.SubscriptionExpiresAt, false, s.now())
+	out.SubscriptionExpiresAt = out.PaidExpiresAt
+	if out.ManualGrant != nil {
+		out.SubscriptionExpiresAt = effectiveProExpiry(out.PaidExpiresAt, &out.ManualGrant.ExpiresAt)
+	}
+	status := statusAt(out.SubscriptionExpiresAt, false, now)
 	out.Status, out.Plans = status.Status, status.Plans
 
 	rows, err := tx.Query(ctx, `

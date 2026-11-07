@@ -38,6 +38,10 @@ const status: AdminProStatus = {
   account_id: ACCOUNT,
   status: "active",
   subscription_expires_at: EXPIRY,
+  paid_expires_at: EXPIRY,
+  manual_grant: null,
+  grant_history: [],
+  grants_available: true,
   plans: [{ id: "web_pro_monthly", amount_minor: 22550, currency: "AFN", duration_months: 1 }],
   pending_checkout: true,
   payments: [payment],
@@ -72,13 +76,28 @@ test("account Pro details use the operator key and show confirmed expiry and pay
     </QueryClientProvider>,
   );
   assert.match(html, /Active/);
-  assert.match(html, /Expires Dec 1, 2026, 14:00 Kabul time/);
+  assert.match(html, /Access through Dec 1, 2026, 14:00 Kabul time/);
   assert.match(html, /A HesabPay payment is still unconfirmed/);
   assert.match(html, /225\.5 AFN/);
   assert.match(html, /CASH-1042/);
   assert.match(html, /Record offline payment/);
   assert.doesNotMatch(html, /Review offline payment|>Record payment</);
   client.clear();
+});
+
+test("old servers keep offline payments available while the grant API rolls out", async () => {
+  globalThis.fetch = async () =>
+    Response.json({
+      account_id: ACCOUNT,
+      status: "active",
+      subscription_expires_at: EXPIRY,
+      plans: status.plans,
+      pending_checkout: false,
+      payments: [],
+    });
+  const loaded = await getAdminProStatus(KEY, ACCOUNT);
+  assert.equal(loaded.grants_available, false);
+  assert.equal(loaded.paid_expires_at, EXPIRY);
 });
 
 test("an account cannot load another account's Pro state or use incomplete active data", async () => {

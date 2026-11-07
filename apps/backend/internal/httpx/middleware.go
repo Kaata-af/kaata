@@ -27,8 +27,11 @@ func Logger(next http.Handler) http.Handler {
 				break
 			}
 		}
-		if strings.HasPrefix(path, "/v1/admin/users/") && strings.HasSuffix(path, "/pro") {
-			path = "/v1/admin/users/[redacted]/pro"
+		if rest, found := strings.CutPrefix(path, "/v1/admin/users/"); found {
+			_, resource, _ := strings.Cut(rest, "/")
+			if resource == "pro" || strings.HasPrefix(resource, "pro/") {
+				path = "/v1/admin/users/[redacted]/pro"
+			}
 		}
 		log.Printf("%s %s -> %d (%s)", r.Method, path, status, time.Since(start))
 	})

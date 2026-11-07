@@ -31,11 +31,15 @@ func TestManualProPaymentLogOmitsAccountAndReceipt(t *testing.T) {
 	log.SetOutput(&captured)
 	defer log.SetOutput(previous)
 	const account = "11111111-1111-4111-8111-111111111111"
+	const grant = "22222222-2222-4222-8222-222222222222"
 	const reference = "SYNTHETIC-CASH-1042"
-	req := httptest.NewRequest(http.MethodPost, "/v1/admin/users/"+account+"/pro", strings.NewReader(`{"reference":"`+reference+`"}`))
-	Logger(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(200) })).ServeHTTP(httptest.NewRecorder(), req)
-	if strings.Contains(captured.String(), account) || strings.Contains(captured.String(), reference) ||
-		!strings.Contains(captured.String(), "/v1/admin/users/[redacted]/pro") {
-		t.Fatal("manual payment log included private details or missed the route")
+	for _, path := range []string{"/pro", "/pro/grants/" + grant + "/revoke"} {
+		captured.Reset()
+		req := httptest.NewRequest(http.MethodPost, "/v1/admin/users/"+account+path, strings.NewReader(`{"reference":"`+reference+`"}`))
+		Logger(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(200) })).ServeHTTP(httptest.NewRecorder(), req)
+		if strings.Contains(captured.String(), account) || strings.Contains(captured.String(), reference) || strings.Contains(captured.String(), grant) ||
+			!strings.Contains(captured.String(), "/v1/admin/users/[redacted]/pro") {
+			t.Fatal("billing log included private details or missed the route")
+		}
 	}
 }

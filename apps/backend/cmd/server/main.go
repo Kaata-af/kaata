@@ -501,6 +501,8 @@ func main() {
 		pr.Get("/v1/admin/users", adminH.Users)
 		pr.Get("/v1/admin/users/{account_id}/pro", webProH.AdminStatus)
 		pr.With(httpx.RateLimitPerIP(30, time.Minute)).Post("/v1/admin/users/{account_id}/pro", webProH.AdminRecordPayment)
+		pr.With(httpx.RateLimitPerIP(30, time.Minute)).Post("/v1/admin/users/{account_id}/pro/grants", webProH.AdminGrant)
+		pr.With(httpx.RateLimitPerIP(30, time.Minute)).Post("/v1/admin/users/{account_id}/pro/grants/{grant_id}/revoke", webProH.AdminRevokeGrant)
 		// Operator outreach: the numbers list plus hand-ticked sent/replied/
 		// status/note state, per-contact outcomes (opened / sent / not on
 		// WhatsApp / invalid / skip / retry, version-checked), source

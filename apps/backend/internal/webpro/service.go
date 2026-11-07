@@ -31,16 +31,18 @@ func (s *Service) ownsWebhookOrder(ctx context.Context, id string) (bool, error)
 }
 
 func (s *Service) Status(ctx context.Context, accountID string) (Status, error) {
-	var until *time.Time
-	err := s.pool.QueryRow(ctx, `SELECT valid_until FROM web_pro_subscriptions WHERE account_id=$1::uuid`, accountID).Scan(&until)
-	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+	now := s.now()
+	var paid, complimentary *time.Time
+	err := s.pool.QueryRow(ctx, `SELECT
+		(SELECT valid_until FROM web_pro_subscriptions WHERE account_id=$1::uuid),
+		(SELECT expires_at FROM web_pro_manual_grants
+		 WHERE account_id=$1::uuid AND revoked_at IS NULL AND expires_at>$2
+		 ORDER BY expires_at DESC LIMIT 1)`, accountID, now).Scan(&paid, &complimentary)
+	if err != nil {
 		return Status{}, err
 	}
-	if until != nil {
-		normalized := until.UTC()
-		until = &normalized
-	}
-	status := statusAt(until, checkoutReady(s.cfg), s.now())
+	status := statusAt(utcTime(effectiveProExpiry(paid, complimentary)), checkoutReady(s.cfg), now)
+	status.PaidExpiresAt = utcTime(paid)
 	status.CheckoutHosts = append([]string{}, s.cfg.CheckoutHosts...)
 	pending, err := s.pendingOrder(ctx, s.pool, accountID)
 	if err == nil {
