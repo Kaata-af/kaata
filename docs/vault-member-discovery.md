@@ -58,3 +58,7 @@ English/Dari/Pashto, language restart, and TypeScript checks passed.
 Automated checks use isolated fixtures and databases. No real person received
 an invitation during development. A full two-account device acceptance test
 remains tester QA.
+
+The feature is available in Android internal build 86 and iOS TestFlight build
+51. See [testing distribution](2.3.2-member-discovery-testing.md) for delivery
+evidence and verification limits.
