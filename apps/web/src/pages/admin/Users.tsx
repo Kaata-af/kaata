@@ -7,6 +7,7 @@ import { postExclusion, useAdminToken, useUsers, type OutreachExclusionBody } fr
 import { fmtDateTimeParts, reportingDay } from "./dates";
 import { ErrorCard, PageHeader, SkeletonCard, fmtDateTime, fmtInt, lastSeenInfo } from "./ui";
 import { AccountDetail, InstallDetail } from "./UsersDetails";
+import { AdminProPayments } from "./AdminProPayments";
 import { DeviceEstimateCard } from "./DeviceEstimateCard";
 import { platformFacets, platformLabel, platformsLabel } from "./platforms";
 import {
@@ -1265,7 +1266,15 @@ function UserDetails({
         />
       </div>
       {row.account ? (
-        <AccountDetail u={row.account} />
+        <>
+          <AccountDetail u={row.account} />
+          <AdminProPayments
+            key={row.account.account_id}
+            accountID={row.account.account_id}
+            accountName={displayName(row)}
+            accountContact={row.email || row.phone}
+          />
+        </>
       ) : row.install ? (
         <InstallDetail d={row.install} />
       ) : null}

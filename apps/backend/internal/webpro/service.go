@@ -103,6 +103,24 @@ type rowQuerier interface {
 	QueryRow(context.Context, string, ...any) pgx.Row
 }
 
+// Lock the account's billing row before creating a checkout or changing expiry
+// so all payment sources serialize their effects on the same subscription.
+func lockSubscription(ctx context.Context, tx pgx.Tx, accountID string) (*time.Time, error) {
+	if _, err := tx.Exec(ctx, `INSERT INTO web_pro_subscriptions(account_id) VALUES($1::uuid) ON CONFLICT DO NOTHING`, accountID); err != nil {
+		return nil, err
+	}
+	var until *time.Time
+	err := tx.QueryRow(ctx, `SELECT valid_until FROM web_pro_subscriptions WHERE account_id=$1::uuid FOR UPDATE`, accountID).Scan(&until)
+	return until, err
+}
+
+func renewalExpiry(now time.Time, until *time.Time, months int) time.Time {
+	if until != nil && until.After(now) {
+		now = *until
+	}
+	return addMonths(now, months)
+}
+
 func (s *Service) pendingOrder(ctx context.Context, q rowQuerier, accountID string) (Order, error) {
 	return scanOrder(q.QueryRow(ctx, `SELECT `+orderColumns+` FROM web_pro_orders WHERE account_id=$1::uuid AND status IN ('creating','pending') ORDER BY (COALESCE(checkout_expires_at,created_at+INTERVAL '15 minutes')>$2) DESC,created_at DESC,id DESC LIMIT 1`, accountID, s.now()))
 }
@@ -113,11 +131,7 @@ func (s *Service) reserveCheckout(ctx context.Context, accountID, requestID, ori
 		return Order{}, false, err
 	}
 	defer tx.Rollback(ctx)
-	if _, err = tx.Exec(ctx, `INSERT INTO web_pro_subscriptions(account_id)VALUES($1::uuid) ON CONFLICT DO NOTHING`, accountID); err != nil {
-		return Order{}, false, err
-	}
-	var locked string
-	if err = tx.QueryRow(ctx, `SELECT account_id::text FROM web_pro_subscriptions WHERE account_id=$1::uuid FOR UPDATE`, accountID).Scan(&locked); err != nil {
+	if _, err = lockSubscription(ctx, tx, accountID); err != nil {
 		return Order{}, false, err
 	}
 	existing, err := scanOrder(tx.QueryRow(ctx, `SELECT `+orderColumns+` FROM web_pro_orders WHERE account_id=$1::uuid AND request_id=$2::uuid`, accountID, requestID))
@@ -233,12 +247,7 @@ func (s *Service) fulfill(ctx context.Context, payment webhookPayment) error {
 		return err
 	}
 	defer tx.Rollback(ctx)
-	_, err = tx.Exec(ctx, `INSERT INTO web_pro_subscriptions(account_id) VALUES($1::uuid) ON CONFLICT DO NOTHING`, accountID)
-	if err != nil {
-		return err
-	}
-	var until *time.Time
-	err = tx.QueryRow(ctx, `SELECT valid_until FROM web_pro_subscriptions WHERE account_id=$1::uuid FOR UPDATE`, accountID).Scan(&until)
+	until, err := lockSubscription(ctx, tx, accountID)
 	if err != nil {
 		return err
 	}
@@ -268,11 +277,7 @@ func (s *Service) fulfill(ctx context.Context, payment webhookPayment) error {
 	if transactionUsed {
 		return ErrVerification
 	}
-	start := s.now()
-	if until != nil && until.After(start) {
-		start = *until
-	}
-	next := addMonths(start, order.durationMonths)
+	next := renewalExpiry(s.now(), until, order.durationMonths)
 	_, err = tx.Exec(ctx, `UPDATE web_pro_subscriptions SET valid_until=$2,updated_at=NOW() WHERE account_id=$1::uuid`, accountID, next)
 	if err != nil {
 		return err

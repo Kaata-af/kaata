@@ -46,7 +46,7 @@ import { CurrencyPicker, CurrencySettings, EnabledCurrencies } from "./CurrencyS
 import { EntryCalculator } from "./EntryCalculator";
 import { EntryHistory } from "./EntryHistory";
 import { PersonNotePanel } from "./PersonNotePanel";
-import { WebProBanner } from "./WebPro";
+import { refreshWebProDisplays, WebProBanner } from "./WebPro";
 import { MobileAppPrompt } from "./MobileAppPrompt";
 import { WebProfilePanel } from "./WebProfile";
 import { webProfileCopy } from "./web-profile-copy";
@@ -557,6 +557,7 @@ export default function LedgerWorkspace({ session }: { session: WebSession }) {
               aria-label={c.refresh}
               disabled={refreshing || !online}
               onClick={() => {
+                refreshWebProDisplays();
                 if (vaultID) void refresh(vaultID);
                 else void loadVaults();
               }}

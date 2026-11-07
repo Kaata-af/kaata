@@ -14,8 +14,7 @@ import (
 //     and leaks no hint that admin endpoints exist.
 //   - key set: require `Authorization: Bearer <key>`, compared in constant time.
 //
-// Operator-only (single shared secret) is sufficient here — these are read-only
-// aggregate stats viewed by the operator, not per-user data.
+// The shared secret identifies the operator surface, not individual operators.
 func AdminKeyMiddleware(key string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

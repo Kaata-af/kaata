@@ -27,6 +27,9 @@ func Logger(next http.Handler) http.Handler {
 				break
 			}
 		}
+		if strings.HasPrefix(path, "/v1/admin/users/") && strings.HasSuffix(path, "/pro") {
+			path = "/v1/admin/users/[redacted]/pro"
+		}
 		log.Printf("%s %s -> %d (%s)", r.Method, path, status, time.Since(start))
 	})
 }

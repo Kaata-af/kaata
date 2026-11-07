@@ -22,6 +22,11 @@ import {
 import "./WebPro.css";
 
 const UPDATE_EVENT = "kaata:web-pro-updated";
+
+export function refreshWebProDisplays() {
+  window.dispatchEvent(new Event(UPDATE_EVENT));
+}
+
 const copies = {
   en: {
     name: "Kaata Pro",
@@ -362,7 +367,7 @@ export function WebProPage({ session }: { session: WebSession }) {
         if (next.status === "paid") {
           await refresh();
           setLocalOrderID(null);
-          window.dispatchEvent(new Event(UPDATE_EVENT));
+          refreshWebProDisplays();
         } else if (["creating", "pending"].includes(next.status) && ++attempts < 10) {
           timer = setTimeout(() => void check(), 3000);
         }
@@ -423,7 +428,7 @@ export function WebProPage({ session }: { session: WebSession }) {
   }
 
   function checkStatus() {
-    void refresh();
+    refreshWebProDisplays();
     if (trackedOrderID) setOrderRetry((value) => value + 1);
   }
   return (
