@@ -1,5 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
+import { useState } from "react";
+import { ActivityIndicator, Image, Pressable, StyleSheet, Text, View } from "react-native";
 import { colors } from "../lib/colors";
 import { ltrIsolate, rowDir, textDir, trackingSafe, useIsRTL } from "../lib/direction";
 import { t } from "../lib/i18n";
@@ -7,6 +8,30 @@ import { type DiscoveredPerson, usePeopleSearch } from "../lib/people-search";
 import { discoveredPersonId } from "../lib/people-connections";
 import { radius, TOUCH_MIN, typography } from "../lib/tokens";
 import { InitialAvatar } from "./InitialAvatar";
+
+const AVATAR_SIZE = 36;
+
+function SearchAvatar({ name, pictureUrl }: { name: string; pictureUrl?: string }) {
+  const [status, setStatus] = useState<"loading" | "loaded" | "failed">("loading");
+  const initials = (
+    <InitialAvatar label={Array.from(name)[0]?.toUpperCase() ?? ""} size={AVATAR_SIZE} />
+  );
+  if (!pictureUrl || status === "failed") return initials;
+  return (
+    <View style={styles.avatar}>
+      {status === "loading" ? initials : null}
+      <Image
+        accessible={false}
+        source={{ uri: pictureUrl }}
+        style={styles.photo}
+        resizeMode="cover"
+        fadeDuration={0}
+        onLoad={() => setStatus("loaded")}
+        onError={() => setStatus("failed")}
+      />
+    </View>
+  );
+}
 
 /** Continues the existing results list; it has no separate search field or navigation. */
 export function PeopleSearchSection(props: {
@@ -75,7 +100,11 @@ export function PeopleSearchSection(props: {
                 pressed && styles.pressed,
               ]}
             >
-              <InitialAvatar label={Array.from(person.name)[0]?.toUpperCase() ?? ""} size={36} />
+              <SearchAvatar
+                key={person.picture_url}
+                name={person.name}
+                pictureUrl={person.picture_url}
+              />
               <View style={styles.identity}>
                 <Text style={[styles.name, textDir(rtl)]} numberOfLines={1}>
                   {person.name}
@@ -129,6 +158,14 @@ const styles = StyleSheet.create({
   row: { minHeight: TOUCH_MIN, alignItems: "center", gap: 12, padding: 12 },
   divider: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.borderDefault },
   pressed: { backgroundColor: colors.bgMuted },
+  avatar: {
+    width: AVATAR_SIZE,
+    height: AVATAR_SIZE,
+    borderRadius: AVATAR_SIZE / 2,
+    backgroundColor: colors.bgMuted,
+    overflow: "hidden",
+  },
+  photo: { position: "absolute", top: 0, left: 0, width: AVATAR_SIZE, height: AVATAR_SIZE },
   identity: { flex: 1, minWidth: 0 },
   name: { ...typography.labelBold, color: colors.textEmphasis },
   hint: { ...typography.bodySm, color: colors.textSubtle, flexShrink: 1 },

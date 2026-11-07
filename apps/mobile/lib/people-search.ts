@@ -88,7 +88,9 @@ export async function searchPeopleDirectory(
         ...(typeof person.username === "string" && person.username
           ? { username: person.username }
           : {}),
-        ...(typeof person.picture_url === "string" && person.picture_url
+        ...(typeof person.picture_url === "string" &&
+        person.picture_url.startsWith("https://") &&
+        person.picture_url.length <= 2048
           ? { picture_url: person.picture_url }
           : {}),
         ...(scoped &&

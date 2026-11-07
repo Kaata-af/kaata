@@ -1,6 +1,6 @@
 // Synthetic directory and hook fixtures; no real account or network access.
 import assert from "node:assert/strict";
-import { compileUI, deferred, jsx, nodes, settleUI, uiHooks } from "./ui-fixture";
+import { compileUI, deferred, flattenStyle, jsx, nodes, settleUI, uiHooks } from "./ui-fixture";
 import type { DiscoveredPerson } from "../people-search";
 
 const accountA = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
@@ -283,11 +283,15 @@ async function main() {
   for (const request of pending) request.reply.resolve(response([person]));
   await settleUI();
   assert.equal(hooks.lateWrites, 0, "unmount leaves no delayed updates");
+  let avatarHooks = uiHooks();
+  const keyedJsx = (type: any, props: any, key?: string) => ({ ...jsx(type, props), key });
   const section = compileUI("../../components/PeopleSearchSection", {
-    "react/jsx-runtime": { jsx, jsxs: jsx },
+    react: { useState: (initial: any) => avatarHooks.react.useState(initial) },
+    "react/jsx-runtime": { jsx: keyedJsx, jsxs: keyedJsx },
     "@expo/vector-icons": { Ionicons: "Icon" },
     "react-native": {
       ActivityIndicator: "Spinner",
+      Image: "Image",
       Pressable: "Pressable",
       Text: "Text",
       View: "View",
@@ -355,6 +359,117 @@ async function main() {
     unmappedNodes.some((node) => node.type === "Pressable"),
     "matching names never collapse separate identities",
   );
+  const photoUrl = "https://photos.example.test/john.jpg";
+  const picturedPerson = { ...person, picture_url: photoUrl };
+  const selected: DiscoveredPerson[] = [];
+  const photoRow = (entry: DiscoveredPerson) => {
+    const tree = section.PeopleSearchSection({
+      search: { ...search, people: [entry] },
+      localPeople: [],
+      visiblePeople: [],
+      onSelect: (chosen) => selected.push(chosen),
+    });
+    const row = nodes(tree).find((node) => node.type === "Pressable")!;
+    const avatar = nodes(row).find((node) => typeof node.type === "function")!;
+    assert.ok(avatar, "each remote account renders the actual photo-capable avatar");
+    return { row, avatar };
+  };
+  const renderAvatar = (avatar: ReturnType<typeof photoRow>["avatar"]) => {
+    const ownHooks = uiHooks();
+    const render = () => {
+      avatarHooks = ownHooks;
+      return ownHooks.render(() => avatar.type(avatar.props));
+    };
+    render();
+    return { hooks: ownHooks, render, all: () => nodes(ownHooks.tree) };
+  };
+  const { row: picturedRow, avatar: picturedAvatar } = photoRow(picturedPerson);
+  assert.equal(
+    (picturedRow as any).key,
+    person.account_id,
+    "avatar state stays inside an account-keyed row",
+  );
+  assert.equal(picturedAvatar.props.name, person.name);
+  assert.equal(picturedAvatar.props.pictureUrl, photoUrl);
+  assert.equal(
+    (picturedAvatar as any).key,
+    photoUrl,
+    "a changed URL gets a fresh avatar load state",
+  );
+  const photo = renderAvatar(picturedAvatar);
+  const image = photo.all().find((node) => node.type === "Image")!;
+  const initial = photo.all().find((node) => node.type === "Avatar")!;
+  assert.ok(image && initial, "the initials remain under the photo while it loads");
+  assert.deepEqual(image.props.source, { uri: photoUrl });
+  assert.equal(initial.props.label, "J");
+  assert.equal(initial.props.size, 36);
+  const photoStyle = flattenStyle(image.props.style);
+  assert.equal(photoStyle.width, 36);
+  assert.equal(photoStyle.height, 36);
+  const photoFrame = photo.all().find((node) => node.type === "View")!;
+  assert.equal(flattenStyle(photoFrame.props.style).borderRadius, 18);
+  assert.equal(
+    flattenStyle(photoFrame.props.style).overflow,
+    "hidden",
+    "the photo is clipped to the same circular footprint as initials",
+  );
+  assert.equal(image.props.resizeMode ?? photoStyle.resizeMode, "cover");
+  assert.equal(
+    image.props.accessible,
+    false,
+    "the decorative photo does not duplicate the row's accessible name",
+  );
+  picturedRow.props.onPress();
+  assert.equal(selected[0], picturedPerson, "a photo tap still selects the exact account object");
+  image.props.onError();
+  photo.render();
+  assert.equal(
+    photo.all().some((node) => node.type === "Image"),
+    false,
+  );
+  assert.ok(
+    photo.all().some((node) => node.type === "Avatar" && node.props.label === "J"),
+    "a failed image leaves the initials visible",
+  );
+  picturedRow.props.onPress();
+  assert.equal(selected[1], picturedPerson);
+
+  for (const picture_url of [undefined, ""]) {
+    const { avatar } = photoRow({ ...person, picture_url });
+    const fallback = renderAvatar(avatar);
+    assert.equal(
+      fallback.all().some((node) => node.type === "Image"),
+      false,
+    );
+    assert.ok(
+      fallback.all().some((node) => node.type === "Avatar" && node.props.size === 36),
+      "missing photos keep the same initials footprint",
+    );
+    fallback.hooks.unmount();
+  }
+  const changed = photoRow({ ...picturedPerson, picture_url: `${photoUrl}?updated=1` });
+  assert.notEqual((changed.avatar as any).key, (picturedAvatar as any).key);
+  const nextPhoto = renderAvatar(changed.avatar);
+  nextPhoto
+    .all()
+    .find((node) => node.type === "Image")!
+    .props.onLoad();
+  nextPhoto.render();
+  assert.equal(
+    nextPhoto.all().some((node) => node.type === "Avatar"),
+    false,
+    "loaded photos replace the loading initials",
+  );
+  image.props.onError();
+  nextPhoto.render();
+  assert.equal(
+    nextPhoto.all().find((node) => node.type === "Image")?.props.source.uri,
+    `${photoUrl}?updated=1`,
+    "an old image failure cannot hide a replacement photo",
+  );
+  photo.hooks.unmount();
+  nextPhoto.hooks.unmount();
+
   const firstFallbackRequest = pending.length;
   account = accountB;
   vault = "vault-b";
@@ -376,8 +491,41 @@ async function main() {
     [{ ...person, account_id: accountA }],
     "a new local book can discover people without trusting unscoped relationship metadata",
   );
+  const pictureSources = [
+    photoUrl,
+    "http://photos.example.test/john.jpg",
+    "data:image/png;base64,AAAA",
+    "file:///private/photo.jpg",
+    `https://photos.example.test/${"x".repeat(100_000)}`,
+    "",
+  ];
+  const pictureRequest = pending.length;
+  const directoryPhotos = api.searchPeopleDirectory("John", new AbortController().signal, vault);
+  await settleUI();
+  pending[pictureRequest].reply.resolve(
+    response(
+      pictureSources.map((picture_url, index) => ({
+        ...person,
+        account_id: `cccccccc-cccc-4ccc-8ccc-${String(index).padStart(12, "0")}`,
+        picture_url,
+      })),
+    ),
+  );
+  const photosResult = await directoryPhotos;
+  assert.equal(
+    photosResult.people.length,
+    pictureSources.length,
+    "an unusable photo never hides its account from search",
+  );
+  assert.equal(photosResult.people[0].picture_url, photoUrl);
+  for (const invalid of photosResult.people.slice(1))
+    assert.equal(
+      Object.hasOwn(invalid, "picture_url"),
+      false,
+      "transport drops non-HTTPS, empty and oversized photo URLs",
+    );
   console.log(
-    "people search: query normalization, bounded results, debounce and session/scope races passed",
+    "people search: account photos and initials fallback, exact row selection, bounded photo URLs, query normalization, bounded results, debounce and session/scope races passed",
   );
 }
 void main().catch((error) => {
